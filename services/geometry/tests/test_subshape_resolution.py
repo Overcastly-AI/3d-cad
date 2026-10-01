@@ -502,6 +502,19 @@ _SECOND_HOLE_ON_A_SHARED_FACE = frozenset(
 )
 
 
+#: Step 3: the bracket's picks, taken at base 60, after the edit to 70. Edge
+#: flange1 (its edge moved with the base), Edge flange3 and the hem (their
+#: edges grew) and the hole (its face moved) resolve by name; Edge flange2's
+#: edge, at the anchored -X end, is exact. Per feature, since two edge
+#: flanges resolve on different tiers.
+_NAMED_BY_ID: dict[tuple[str, str], str] = {
+    ("revise-base-70-hole-on-flange", f"00000000-0000-0000-0000-0000000b7c0{i}"): (
+        "named"
+    )
+    for i in (3, 5, 6, 7)
+}
+
+
 def _chamfer_fixture() -> list[dict[str, Any]]:
     """The one schema root no golden carries a PICKED ref for: a chamfer on the
     top +Y edge of a 40 x 25 x 10 block, picked the way the overlay picks."""
@@ -564,6 +577,7 @@ def test_every_schema_root_reports_one_tier_per_picked_reference() -> None:
                 expected = None
             else:
                 tier = _NOT_EXACT.get((name, kind), "exact")
+                tier = _NAMED_BY_ID.get((name, item["id"]), tier)
                 if (name, item["id"]) in _SECOND_HOLE_ON_A_SHARED_FACE:
                     tier = "durable"
                 expected = (

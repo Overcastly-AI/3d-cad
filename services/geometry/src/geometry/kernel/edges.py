@@ -910,6 +910,7 @@ def resolve_edge_durable(
     target: EdgeSignature,
     *,
     tally: ResolutionTally | None = None,
+    face_names: Sequence[str | None] | None = None,
 ) -> ResolvedEdge:
     """Resolve a picked-edge reference against *body* — strict, then durable.
 
@@ -918,13 +919,16 @@ def resolve_edge_durable(
     layer). Requires EXACTLY ONE match at whichever tier fires (§7.2 — refuse to
     guess) and returns the edge, its CURRENT signature, and the tier. *tally*,
     when given, is told that tier too (:mod:`geometry.kernel.resolution`).
+    *face_names* (aligned with ``body.faces()``) enables the ``named`` tier,
+    which here must also land on ONE edge: a fold needs a single straight edge,
+    so the pieces of a run are ambiguous.
 
     Raises:
         SubshapeUnresolvedError: neither tier found the edge — it genuinely no
             longer exists (deleted, or moved off its own supporting line).
         SubshapeAmbiguousError: some tier found more than one candidate.
     """
-    matches, tier = _match_edge_records(body, enumerate_edges(body), target)
+    matches, tier = _match_edge_records(body, enumerate_edges(body), target, face_names)
     if not matches:
         raise SubshapeUnresolvedError(_UNRESOLVED_MESSAGE)
     if len(matches) > 1:

@@ -365,3 +365,38 @@ widest gap between the picked edges (`geometry/kernel/reseam.py`). The
 rebuild must be valid, keep its face count and keep its volume to 1e-9
 relative, or the original failure stands. Golden
 `revise-hub-d44-qa-blade-root-fillet`.
+
+**Step 3 (sheet-metal bracket, 2026-10-01).** QA's bracket (base 60 -> 70)
+failed because nothing on it had a name: the base flange and the folds had no
+hook. The hole's face, the +X flange's outer leg, moved 10 mm along its
+normal, and the tier for that move also admits the -X flange's INNER leg (same
+normal, area and in-plane centroid), so Hole1 was ambiguous. Fusion 360 and
+SolidWorks name a sheet-metal face by the feature and the side of the sheet it
+is, and so does this:
+
+- The base flange is named like an extrude: sides by sketch entity, skins
+  `start` / `end`.
+- An edge flange or hem names each face by the edge of its cross-section that
+  swept it: `bend_inner`, `inner`, `tip`, `outer`, `bend_outer` (inner and
+  outer are the inside and outside of the bend). Its caps are `cap:a` at the
+  picked edge's lexicographically smaller end, the end `offset_mm` is
+  measured from, and `cap:b`, never by OCCT's edge orientation. A bend-end
+  relief names its far wall and floor `relief:<a|b>:wall|floor`; its near
+  wall lies in the cap's plane and is named as the cap.
+- A face that `UnifySameDomain` MERGES (a flange cap flush with the base's
+  side face) is both faces. The merge is read from the upgrader's own
+  history (`kernel/clean_history.py`, build123d's boolean-and-clean repeated
+  verbatim to keep the history; never its process-global `SkipClean`), and
+  the merged face keeps the old body's name and also answers to the others
+  (its aliases). Two old names, or two new ones, give no name. An alias
+  answers for one face: one held twice is withdrawn, and a split piece keeps
+  none. Edge names use the primary name only.
+- A shell's inner walls are `offset:<outer face's name>`, paired with their
+  source by checking the offset (a plane one wall behind with the opposite
+  normal, or a coaxial cylinder one wall in or out). The shell's result is
+  tightened, cleaned and re-ordered, so OCCT's history no longer applies.
+
+The bracket's edge-flange edge, hem edge and hole face resolve by name after
+60 -> 70, byte-identical to a re-pick at 70 (golden
+`revise-base-70-hole-on-flange`). A forged name still only breaks a tie
+among faces the geometric tiers admit.

@@ -18,6 +18,7 @@ from geometry.features.naming_hooks import (
     edge_blend_names,
     edge_sources,
     face_sources,
+    offset_names,
     tilted_face_names,
 )
 from geometry.features.state import (
@@ -41,6 +42,7 @@ from geometry.kernel import (
     shell_body,
 )
 from geometry.kernel.naming import OpHistory
+from geometry.kernel.shell import offset_history
 
 
 def _evaluate_fillet(
@@ -185,12 +187,19 @@ def _evaluate_shell(
     except SubshapeAmbiguousError as exc:
         return FeatureError(code="subshape_ambiguous", message=str(exc))
 
+    sources = face_sources(active, state.face_names())
     try:
-        state.set_active_body(shell_body(active, faces, params.thickness_mm))
+        shelled = shell_body(active, faces, params.thickness_mm)
     except ShellThicknessError as exc:
         return FeatureError(code="shell_thickness_too_large", message=str(exc))
     except ShellError as exc:
         return FeatureError(code="shell_failed", message=str(exc))
+    # Each inner wall is named from the face it offsets (DESIGN-INTENT-REFS
+    # step 3): ``<shell id>:offset:<that face's name>``.
+    history = OpHistory(
+        generated=[*offset_history(active, shelled, params.thickness_mm)]
+    )
+    state.set_active_body(shelled, offset_names(item.id, history, sources))
     return None
 
 

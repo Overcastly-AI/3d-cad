@@ -82,6 +82,7 @@ from OCP.TopTools import (
     TopTools_IndexedMapOfShape,
 )
 
+from geometry.kernel.clean_history import MergedFaces
 from geometry.kernel.provenance import SurfaceKey, explore_faces, surface_key
 from geometry.kernel.tolerances import KERNEL_LINEAR_TOL_MM
 from geometry.kernel.types import BodyShape
@@ -128,6 +129,15 @@ class OpHistory:
     )
     start: Face | None = None
     end: Face | None = None
+    #: Faces the op itself labels by their ROLE in its own construction, where
+    #: the source is not a subshape of the input: a sheet-metal fold's faces by
+    #: the edge of the cross-section it swept (``bend_inner``, ``outer``,
+    #: ``tip``...), and its caps by the end of the picked edge they sit at.
+    labelled: list[tuple[str, Face]] = field(default_factory=list[tuple[str, Face]])
+    #: The faces the op's ``clean`` MERGED, in order
+    #: (:mod:`geometry.kernel.clean_history`): each merged face carries the
+    #: names of all the faces it was made from (:func:`carry_names`).
+    merged: list[MergedFaces] = field(default_factory=list[MergedFaces])
 
 
 #: A free-form face's identity across an op: its supporting ``Geom_Surface``
@@ -148,6 +158,24 @@ class _Entry:
     #: The name before split qualification (:func:`_qualify_splits`): equal to
     #: ``name`` for an unsplit face, ``None`` exactly when ``name`` is.
     base: str | None = None
+    #: The OTHER names this face answers to: the faces a ``clean`` merged into
+    #: it (:func:`_merge_entries`). Empty whenever ``name`` is ``None``.
+    aliases: frozenset[str] = frozenset()
+
+
+class FaceName(str):
+    """A face name that also answers to *aliases*: the names of the faces a
+    ``clean`` merged into this one (a flange's cap merged into the base
+    flange's flush side face is both). It IS its primary name as a ``str``
+    (equality, hashing, JSON, edge names), so only the named tier
+    (:func:`geometry.kernel.faces.named_match`) sees the aliases."""
+
+    aliases: frozenset[str]
+
+    def __new__(cls, name: str, aliases: frozenset[str]) -> "FaceName":
+        made = super().__new__(cls, name)
+        made.aliases = aliases
+        return made
 
 
 def _key_of(face: TopoDS_Shape) -> SurfaceKey | None:
@@ -164,7 +192,12 @@ def _geom_of(face: TopoDS_Shape) -> GeomKey:
     )
 
 
-def _entry(face: TopoDS_Shape, name: str | None, base: str | None = None) -> _Entry:
+def _entry(
+    face: TopoDS_Shape,
+    name: str | None,
+    base: str | None = None,
+    aliases: frozenset[str] = frozenset(),
+) -> _Entry:
     key = _key_of(face)
     return _Entry(
         face,
@@ -172,6 +205,7 @@ def _entry(face: TopoDS_Shape, name: str | None, base: str | None = None) -> _En
         key,
         _geom_of(face) if key is None else None,
         (name if base is None else base) if name is not None else None,
+        aliases if name is not None else frozenset(),
     )
 
 
@@ -223,13 +257,14 @@ class BodyNames:
     def name_of(self, face: Face) -> str | None:
         """The name of *face*, or ``None`` when it has none (or is not held)."""
         entry = self._lookup(face.wrapped)
-        return None if entry is None else entry.name
+        return None if entry is None else _held(entry)
 
     def face_names(self, body: BodyShape) -> list[str | None]:
         """Names aligned with ``body.faces()`` (the enumeration every resolver
-        and the selection overlay walk)."""
+        and the selection overlay walk); a merged face's is a
+        :class:`FaceName` carrying its aliases."""
         return [
-            None if (entry := self._lookup(face)) is None else entry.name
+            None if (entry := self._lookup(face)) is None else _held(entry)
             for face in explore_faces(body)
         ]
 
@@ -253,17 +288,32 @@ class BodyNames:
             entry = self._lookup(face)
             if entry is not None:
                 geom = None if entry.key is not None else _geom_of(twin)
-                entries.append(_Entry(twin, entry.name, entry.key, geom, entry.base))
+                entries.append(
+                    _Entry(twin, entry.name, entry.key, geom, entry.base, entry.aliases)
+                )
         return BodyNames(entries)
+
+
+def _held(entry: _Entry) -> str | None:
+    if entry.name is None or not entry.aliases:
+        return entry.name
+    return FaceName(entry.name, entry.aliases)
 
 
 def carry_names(
     body: BodyShape,
     sources: Sequence[BodyNames],
     generated: NameHook = (),
+    merged: Sequence[MergedFaces] = (),
 ) -> BodyNames:
     """Name every face of *body*, the result of an op on the bodies *sources*
     names, plus the faces the op's hook named in *generated*.
+
+    *merged* are the faces the op's ``clean`` merged
+    (:attr:`OpHistory.merged`). Each merged face is named first, from the
+    faces it was made from (:func:`_merge_entries`), and then counts as a
+    source face: the same face, or a face on its surface, takes its name and
+    its aliases.
 
     Per face, the first rule that finds anything decides:
 
@@ -293,34 +343,81 @@ def carry_names(
     name more than one face holds.
     """
     hook = BodyNames.of_pairs(generated)
-    holders = (*sources, hook)
+    olds = [*sources, *_merge_entries(merged, sources, hook)]
+    holders = (*olds, hook)
     entries: list[_Entry] = []
     certain: list[bool] = []
     for face in explore_faces(body):
         hits = [entry for src in holders if (entry := src._lookup(face)) is not None]  # pyright: ignore[reportPrivateUsage]
         if hits:
-            key, geom = hits[0].key, hits[0].geom
-            name, base = _settle(hits)
+            name, base, aliases = _settle(hits)
+            entries.append(_Entry(face, name, hits[0].key, hits[0].geom, base, aliases))
         else:
-            key = _key_of(face)
-            geom = _geom_of(face) if key is None else None
-            ours = [e for src in sources for e in src._on_surface(key, geom)]  # pyright: ignore[reportPrivateUsage]
-            theirs = hook._on_surface(key, geom)  # pyright: ignore[reportPrivateUsage]
-            name, base = _settle(ours or theirs)
-            claimants = [*ours, *theirs]
-            if len({entry.name for entry in claimants}) > 1:
-                region = _containing(face, claimants)
-                if region is not None:
-                    name, base = region.name, region.base
-            if base is not None and not _near_any(
-                face, [e.face for e in claimants if e.base == base]
-            ):
-                # Only the surface is shared: the face lies clear of every face
-                # that carried the name, so it is new material, not that face.
-                name = base = None
-        entries.append(_Entry(face, name, key, geom, base))
+            entries.append(_by_surface(face, olds, hook)[0])
         certain.append(bool(hits))
     return BodyNames(_qualify_splits(body, entries, certain))
+
+
+def _by_surface(
+    face: TopoDS_Shape, sources: Sequence[BodyNames], hook: BodyNames
+) -> tuple[_Entry, bool]:
+    """Rules 2 and 3 of :func:`carry_names` for *face*, which no source or
+    hook face IS: its entry, and whether the name came from *sources* (the
+    body before the op) rather than the op's own hook."""
+    key = _key_of(face)
+    geom = _geom_of(face) if key is None else None
+    ours = [e for src in sources for e in src._on_surface(key, geom)]  # pyright: ignore[reportPrivateUsage]
+    theirs = hook._on_surface(key, geom)  # pyright: ignore[reportPrivateUsage]
+    name, base, aliases = _settle(ours or theirs)
+    from_source = bool(ours)
+    claimants = [*ours, *theirs]
+    if len({entry.name for entry in claimants}) > 1:
+        region = _containing(face, claimants)
+        if region is not None:
+            name, base, aliases = region.name, region.base, region.aliases
+            from_source = any(region is entry for entry in ours)
+    if base is not None and not _near_any(
+        face, [e.face for e in claimants if e.base == base]
+    ):
+        # Only the surface is shared: the face lies clear of every face
+        # that carried the name, so it is new material, not that face.
+        name = base = None
+    if name is None:
+        aliases = frozenset[str]()
+    return _Entry(face, name, key, geom, base, aliases), from_source
+
+
+def _merge_entries(
+    merged: Sequence[MergedFaces], sources: Sequence[BodyNames], hook: BodyNames
+) -> list[BodyNames]:
+    """One holder per ``clean`` merge, in order, naming its merged face.
+
+    Each face the merge was made from (as it was before the clean) is named by
+    rules 2 and 3 of :func:`carry_names` against *sources*, the earlier merges
+    and *hook*. The merged face is all of them, so it answers to every one of
+    their names (its aliases), and its NAME is the one the old body gave
+    (sources win, as in :func:`carry_names`: a base flange's side face keeps
+    its name when a flange's cap merges into it), else the one the op's hook
+    gave. Two different old names, or two hook names and no old one, leave the
+    face no primary name and so no name at all: there is no single answer to
+    "which face is this", and doubt is ``None``.
+    """
+    out: list[BodyNames] = []
+    for face, members in merged:
+        olds: set[str] = set()
+        news: set[str] = set()
+        every: set[str] = set()
+        for member in members:
+            entry, from_source = _by_surface(member.wrapped, [*sources, *out], hook)
+            if entry.name is None or entry.base is None:
+                continue
+            (olds if from_source else news).add(entry.base)
+            every.update({entry.base, *entry.aliases})
+        pool = olds or news
+        name = next(iter(pool)) if len(pool) == 1 else None
+        aliases = frozenset(every - {name}) if name is not None else frozenset[str]()
+        out.append(BodyNames([_entry(face.wrapped, name, aliases=aliases)]))
+    return out
 
 
 def _near_any(face: TopoDS_Shape, others: Sequence[TopoDS_Shape]) -> bool:
@@ -388,19 +485,24 @@ def _interior_points(face: TopoDS_Shape, wanted: int = 3) -> list[object]:
     return points
 
 
-def _settle(hits: Sequence[_Entry]) -> tuple[str | None, str | None]:
-    """``(name, base)`` for a face the entries *hits* claim (see
+def _settle(
+    hits: Sequence[_Entry],
+) -> tuple[str | None, str | None, frozenset[str]]:
+    """``(name, base, aliases)`` for a face the entries *hits* claim (see
     :func:`carry_names`): one name, or one base when the claimants are all pieces
-    of one split face, else nothing."""
+    of one split face, else nothing. The aliases are every claimant's."""
     names = {entry.name for entry in hits}
+    aliases = frozenset[str]().union(*(entry.aliases for entry in hits))
     if len(names) == 1:
         (only,) = hits[:1]
-        return only.name, only.base
+        if only.name is None:
+            return None, None, frozenset()
+        return only.name, only.base, aliases
     bases = {entry.base for entry in hits}
     if None in names or len(bases) != 1:
-        return None, None
+        return None, None, frozenset()
     (base,) = bases
-    return base, base
+    return base, base, aliases
 
 
 def _qualify_splits(
@@ -439,12 +541,29 @@ def _qualify_splits(
                 if index == keeper:
                     continue
                 around = [entries[j].base for j in neighbours[index]]
-                out[index] = replace(entries[index], name=_split_name(base, around))
+                out[index] = replace(
+                    entries[index],
+                    name=_split_name(base, around),
+                    aliases=frozenset(),
+                )
     counts = Counter(entry.name for entry in out if entry.name is not None)
-    return [
+    out = [
         entry
         if entry.name is None or counts[entry.name] == 1
-        else replace(entry, name=None, base=None)
+        else replace(entry, name=None, base=None, aliases=frozenset())
+        for entry in out
+    ]
+    # An alias answers for ONE face: one that another face also holds (as an
+    # alias or as its name) is withdrawn from every holder.
+    held_by = Counter(
+        alias
+        for entry in out
+        for alias in {*entry.aliases, *([entry.name] if entry.name else [])}
+    )
+    return [
+        replace(entry, aliases=frozenset(a for a in entry.aliases if held_by[a] == 1))
+        if any(held_by[a] > 1 for a in entry.aliases)
+        else entry
         for entry in out
     ]
 

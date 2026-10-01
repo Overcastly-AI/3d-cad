@@ -1,0 +1,29 @@
+{
+  "description": "THE DESIGN-INTENT-REFS STEP 3 REVISION GOLDEN (hard-parts QA 2026-10-01, docs/VISION.md). QA's sheet-metal bracket authored at base 60: a 60x40 rectangle anchored at its -X/-Y corner (sketch lines e1..e4), a 2 mm base flange (R2 default bend, K 0.44), Edge flange1 on the +X top edge and Edge flange2 on the -X top edge (90 deg, 20 mm legs), Edge flange3 on the -Y top edge (45 deg, 15 mm leg, 50 wide at offset 5, so two automatic 2 mm bend-end reliefs), a closed 6 mm hem on the +Y top edge, and a through-all D5 hole on Edge flange1's outer leg face at (y 5, z 9). Every pick was captured from the selection overlay at base 60 and carries a history-based topo_name. Then the base is retyped 60 -> 70 and NOTHING is re-picked. Before step 3 the base flange and the folds had no naming hook, so the hole's face (x 34 -> 44) was found only by the translated tier, which also admits Edge flange2's inner leg face (same normal, area and in-plane centroid): Hole1 subshape_ambiguous, and Edge flange1's edge resolved on the adjacency tier ('edge moved'). With names, Edge flange1 is the edge between Base flange1:end and Base flange1:side:e2, the hole's face is Edge flange1:outer, and the part rebuilds whole and byte-identical to a re-pick at 70 (tests/test_design_intent_bracket.py).",
+  "derivation": [
+    "Expected values are the harness's, cross-checked against two independent truths below (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "Closed form, t = 2, r = 2, base 70 x 40: plate 70*40*2 = 5600; each side flange 40 * (pi/4 * ((r+t)^2 - r^2) + 20*t) = 40 * (3*pi + 40) = 1976.99111843; the hem (r = 0.05 t = 0.1, 180 deg) 70 * (pi/2 * (2.1^2 - 0.1^2) + 6*t) = 70 * (2.2*pi + 12) = 1323.80519; the 45 deg flange 50 * (pi/8 * 12 + 15*t) = 50 * (1.5*pi + 30) = 1735.61945; minus two 2x2x2 reliefs (16) and two D5 bores through 2 mm legs (2 * pi * 6.25 * 2 = 78.53982). volume = 12518.867138193868 mm^3. At base 60 the same form gives 11529.752099814892 with the hole and 11608.29191615464 without: QA's hand calculation (11 529.75 / 11 608.29), and 12 597.41 at 70 without the hole is QA's after-edit figure.",
+    "Harness 12518.86713819387 (-2e-12 against the closed form). crosscheck.py (pure build123d: exact ring sectors and leg prisms, no Loft code, no names) gives 12518.867138193864, area 13342.645888745303 (harness 13342.6458887453) and the same 36 faces / 94 edges.",
+    "bounding_box: x -34 (Edge flange2's outer leg, -30 - r - t) .. 44 (Edge flange1's, 40 + r + t: the witness that the flange followed the base to 70); y -33.4350288425444 = -20 - (r + 15 + t) sin 45 .. 22.1 = 20 + 0.1 + t (the hem's bend); z 0 .. 24 (4 + the 20 mm legs).",
+    "centroid is the harness's (the closed form above integrates only the volume); the cross-check build agrees to 1e-9.",
+    "topology: 36 faces, 94 edges, 1 shell, identical to the cross-check.",
+    "mesh counts are the harness's at linear 0.1 mm (asserted exactly; deterministic within a kernel version). GLB byte size is deliberately not pinned."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Planar and cylindrical faces only, built from closed-form points: the harness sits 2e-12 off the closed form and 6e-12 off the independent build. 1e-6 is the curved-body golden scale used across goldens/ and leaves six orders of headroom; a hole on the wrong flange face or a stale 60 mm base misses by tens to hundreds of mm^3.",
+  "properties": {
+    "volume": 12518.86713819387,
+    "surface_area": 13342.6458887453,
+    "centroid": {
+      "x": 4.31318887322767,
+      "y": -1.7432206862395985,
+      "z": 5.268784295187913
+    },
+    "bounding_box": {
+      "min": { "x": -34.0, "y": -33.435028842544405, "z": 0.0 },
+      "max": { "x": 44.0, "y": 22.1, "z": 24.0 }
+    }
+  },
+  "topology": { "faces": 36, "edges": 94, "shells": 1 },
+  "mesh": { "vertices": 2176, "triangles": 2112 }
+}

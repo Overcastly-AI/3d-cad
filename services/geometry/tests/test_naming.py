@@ -12,6 +12,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+import pytest
 from build123d import Edge, Face, GeomType, Plane, Solid, Wire
 from geometry.features.evaluate import reset_rebuild_cache
 from geometry.features.state import EvaluationState
@@ -21,6 +22,7 @@ from geometry.kernel.faces import (
 )
 from geometry.kernel.naming import (
     BodyNames,
+    FaceName,
     carry_names,
     edge_name,
     edge_names,
@@ -75,7 +77,8 @@ def test_names_are_identical_across_two_cold_rebuilds() -> None:
     reset_rebuild_cache()
     second = B.evaluate(tree, 2)
     assert first_names == second.face_names()
-    assert sum(n is not None for n in first_names) == 10  # see the next test
+    # The 10 outer faces (see the next test) and the shell's 9 inner walls.
+    assert sum(n is not None for n in first_names) == 19
     reset_rebuild_cache()
     faces_a, edges_a = _overlay_names(tree)
     reset_rebuild_cache()
@@ -120,24 +123,39 @@ def test_every_face_keeps_its_name_through_the_width_edit() -> None:
     before = _named_faces(B.evaluate(tree, 6))
     after = _named_faces(B.evaluate(B.revised(tree, B.REVISED_W), 7))
     assert before == after
-    # The 4 extrude sides (two of them drafted), the 2 caps and the 4 rounds.
-    assert len(before) == 10
+    # The 4 extrude sides (two of them drafted), the 2 caps and the 4 rounds,
+    # and the shell's 9 offsets of them (the open top has none).
+    assert len(before) == 19
     sides = sorted(
         name for name, _n in before if name.startswith(f"{EXTRUDE_ID}:side:")
     )
     assert sides == [face_name(EXTRUDE_ID, f"side:e{i}") for i in range(1, 5)]
-    fillets = [name for name, _n in before if ":fillet:" in name]
+    fillets = [name for name, _n in before if name.startswith(f"{B.FILLET_ID}:")]
     assert len(fillets) == 4
 
 
-def test_the_shell_opening_and_inner_walls_are_honestly_unnamed() -> None:
-    """Shell has no naming hook in step 1: its new offset faces get no name
-    rather than a guessed one, and the rim of the opened top keeps the top's."""
-    evaluation = B.evaluate(B.authored_tree(B.AUTHORED_W), 8)
-    names = evaluation.face_names()
+def test_each_shell_wall_is_named_from_the_face_it_offsets() -> None:
+    """Step 3: each inner wall of the shell is ``offset:<outer face's name>``
+    (the floor from the extrude's start cap, the drafted walls from their
+    sides, the R3 rounds from the R5 rounds), the rim of the opened top keeps
+    the top's name, and not one name changes through the width edit."""
+    tree = B.authored_tree(B.AUTHORED_W)
+    names = B.evaluate(tree, 8).face_names()
     assert len(names) == 19
-    assert sum(n is not None for n in names) == 10
+    assert None not in names
     assert face_name(EXTRUDE_ID, "end") in names
+    offsets = sorted(n for n in names if n is not None and ":offset:" in n)
+    assert len(offsets) == 9
+    outer = sorted(
+        n for n in names if n is not None and not n.startswith(f"{B.SHELL_ID}:")
+    )
+    assert offsets == sorted(
+        face_name(B.SHELL_ID, f"offset:{n}")
+        for n in outer
+        if n != face_name(EXTRUDE_ID, "end")
+    )
+    after = B.evaluate(B.revised(tree, B.REVISED_W), 9).face_names()
+    assert sorted(n or "" for n in after) == sorted(n or "" for n in names)
 
 
 # --- refusals ---------------------------------------------------------------------
@@ -648,3 +666,170 @@ def test_two_separate_runs_are_still_no_name() -> None:
     names = [f"face{index}" for index in range(len(prism.faces()))]
     assert edge_names(prism, names, runs=True) == edge_names(prism, names)
     assert sum(n is not None for n in edge_names(prism, names, runs=True)) == 4
+
+
+# --- step 3: sheet metal, merged faces, shells ------------------------------------
+
+_BRACKET_PATH = Path(__file__).resolve().parent / "_bracket_builder.py"
+
+
+def _load_bracket() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("_bracket_builder", _BRACKET_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+BR = _load_bracket()
+_FOLDED = 6  # the bracket up to its hem: every feature with a naming hook
+
+
+def _bracket_names(width: float, upto: int = _FOLDED) -> list[str | None]:
+    tree = BR.revised(BR.authored_tree(BR.AUTHORED_W), width)[:upto]
+    return BR.evaluate(tree, int(width)).face_names()
+
+
+def test_every_bracket_face_is_named_and_no_name_is_held_twice() -> None:
+    """Base flange sides and skins, each fold's faces by role, the reliefs'
+    walls, the split side faces by their neighbours: all 34 named, once."""
+    names = _bracket_names(BR.AUTHORED_W)
+    assert len(names) == 34
+    assert None not in names
+    assert len(set(names)) == 34
+    flange1 = sorted(
+        n for n in names if n is not None and n.startswith(f"{BR.FLANGE1_ID}:")
+    )
+    assert flange1 == [
+        face_name(BR.FLANGE1_ID, role)
+        for role in ("bend_inner", "bend_outer", "inner", "outer", "tip")
+    ]
+    reliefs = sorted(n for n in names if n is not None and ":relief:" in n)
+    assert reliefs == [
+        face_name(BR.FLANGE3_ID, f"relief:{side}:{part}")
+        for side in "ab"
+        for part in ("floor", "wall")
+    ]
+
+
+def test_bracket_names_are_stable_across_the_base_edit() -> None:
+    """60 -> 70 moves Edge flange1 and stretches the base, the hem and the
+    split side faces; not one name changes."""
+    assert sorted(n or "" for n in _bracket_names(BR.AUTHORED_W)) == sorted(
+        n or "" for n in _bracket_names(BR.REVISED_W)
+    )
+
+
+def test_bracket_names_are_identical_cold_and_resumed() -> None:
+    tree = BR.authored_tree(BR.AUTHORED_W)
+    reset_rebuild_cache()
+    cold = BR.evaluate(tree, 51).face_names()
+    reset_rebuild_cache()
+    again = BR.evaluate(tree, 52).face_names()
+    reset_rebuild_cache()
+    prefix = BR.evaluate(tree[:4], 53)
+    del prefix  # releases the checkpoint for the next rebuild to resume
+    resumed = BR.evaluate(tree, 54).face_names()
+    assert cold == again == resumed
+    assert sum(n is not None for n in cold) == 34  # the hole's two bores: none
+
+
+def test_a_fold_cap_is_named_by_the_canonical_end_of_its_edge() -> None:
+    """``cap:a`` sits at the picked edge's lexicographically smaller end (the
+    signature's ``end_a``, where ``offset_mm`` is measured from), whatever way
+    OCCT runs the edge: Edge flange3's span is x -25..25, so cap:a is at -25."""
+    evaluation = BR.evaluate(BR.authored_tree(BR.AUTHORED_W)[:5], 55)
+    caps = {
+        name: face.center().X
+        for face, name in zip(
+            evaluation.body.faces(), evaluation.face_names(), strict=True
+        )
+        if name
+        in (face_name(BR.FLANGE3_ID, "cap:a"), face_name(BR.FLANGE3_ID, "cap:b"))
+    }
+    assert caps == {
+        face_name(BR.FLANGE3_ID, "cap:a"): pytest.approx(-25.0),
+        face_name(BR.FLANGE3_ID, "cap:b"): pytest.approx(25.0),
+    }
+
+
+def test_a_merged_face_answers_to_every_name_merged_into_it() -> None:
+    """Edge flange1's end caps lie flush with the base's -Y and +Y sides, and
+    the fold's clean merges each pair into one face (its history says so).
+    That face keeps the base side's name and also answers to the cap's: a
+    stored ``cap:a`` finds it on the named tier, the face a direct pick of the
+    cap would land on."""
+    evaluation = BR.evaluate(BR.authored_tree(BR.AUTHORED_W)[:3], 56)
+    names = evaluation.face_names()
+    side = face_name(BR.BASE_ID, "side:e1")
+    cap = face_name(BR.FLANGE1_ID, "cap:a")
+    (merged,) = [n for n in names if n == side]
+    assert isinstance(merged, FaceName)
+    assert merged.aliases == frozenset({cap})
+    assert cap not in names  # no face holds it as its own name
+    records = planar_faces(evaluation.body, names)
+    target = next(r for r in records if r.name == side).signature
+    lost = target.model_copy(
+        update={
+            "centroid": target.centroid.model_copy(update={"x": 99.0}),
+            "topo_name": cap,
+        }
+    )
+    matches, tier = match_face_records_tiered(records, lost)
+    assert tier == "named"
+    assert [m.name for m in matches] == [side]
+
+
+def test_an_alias_two_faces_hold_is_withdrawn_from_both() -> None:
+    """An alias answers for ONE face. Two merges that each took in the op's
+    face ``s`` (the top with it, and the bottom with it) would give ``s`` two
+    holders, so neither answers to it; with one such merge the top does."""
+    box = Solid.make_box(40, 20, 10)
+    faces = box.faces()
+    names = BodyNames.of_pairs(zip(faces, _box_names(box), strict=True))
+    top = max(range(6), key=lambda i: faces[i].center().Z)
+    bottom = min(range(6), key=lambda i: faces[i].center().Z)
+    extra = Face.make_rect(10, 10, Plane.XY.offset(50))
+    hook = [(extra, "s")]
+
+    def aliases(merged: list[Any]) -> list[frozenset[str]]:
+        out = carry_names(box, [names], hook, merged).face_names(box)
+        return [getattr(n, "aliases", frozenset[str]()) for n in out]
+
+    once = aliases([(faces[top], [faces[top], extra])])
+    assert once[top] == frozenset({"s"})
+    twice = aliases(
+        [(faces[top], [faces[top], extra]), (faces[bottom], [faces[bottom], extra])]
+    )
+    assert twice[top] == twice[bottom] == frozenset()
+
+
+def test_boolean_and_clean_with_history_are_byte_identical_to_build123d() -> None:
+    """The history-keeping fuse, cut and clean (geometry.kernel.clean_history)
+    are build123d's own, repeated only to keep the history: on the same
+    operands, the B-rep they return serialises to the same bytes. (OCCT's
+    output order follows its operands' identities, so each comparison runs
+    both on the very same operand objects.)"""
+    from io import BytesIO
+
+    from build123d import export_brep  # pyright: ignore[reportUnknownVariableType]
+    from geometry.kernel.clean_history import boolean_recording
+    from geometry.kernel.healing import clean_shape
+
+    def brep(shape: Any) -> bytes:
+        buffer = BytesIO()
+        export_brep(shape, buffer)
+        return buffer.getvalue()
+
+    plate = Solid.make_box(60, 40, 2)
+    lip = Solid.make_box(4, 40, 2, Plane(origin=(60, 0, 0)))
+    notch = Solid.make_box(4, 2, 2, Plane(origin=(28, 0, 0)))
+    merges: list[Any] = []
+    fused = boolean_recording(plate, lip, "fuse", merges)
+    assert brep(fused) == brep(plate.fuse(lip))  # pyright: ignore[reportUnknownMemberType]
+    assert len(merges) == 4  # top, bottom, -Y and +Y: each now one face
+    assert brep(boolean_recording(fused, notch, "cut", merges)) == brep(fused - notch)
+    twin_a = boolean_recording(plate, lip, "fuse", [])
+    twin_b = plate.fuse(lip)  # pyright: ignore[reportUnknownMemberType]
+    assert isinstance(twin_b, Solid)
+    assert brep(clean_shape(twin_a, [])) == brep(clean_shape(twin_b))

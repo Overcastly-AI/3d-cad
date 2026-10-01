@@ -29,6 +29,7 @@ from loft_wire.features import (
 from geometry.features.datum_sketch import (
     _resolve_profile_face,
 )
+from geometry.features.naming_hooks import labelled_names, prism_names
 from geometry.features.state import (
     EvaluationState,
     _add_body,
@@ -39,6 +40,7 @@ from geometry.kernel import (
     extrude_face,
     resolve_edge_durable,
 )
+from geometry.kernel.naming import OpHistory
 from geometry.kernel.tolerances import KERNEL_LINEAR_TOL_MM
 from geometry.sheet_metal import (
     BendProvenance,
@@ -85,10 +87,14 @@ def _evaluate_sheet_metal_base_flange(
     resolved = _resolve_profile_face(params.profile, state)
     if isinstance(resolved, FeatureError):
         return resolved
-    face, plane, _ = resolved
+    face, plane, solved = resolved
 
-    tool = extrude_face(face, plane, params.thickness_mm, reverse)
-    error = _add_body(item, state, tool, merge=params.merge)
+    # Named like an extrude's prism (DESIGN-INTENT-REFS step 3): each side from
+    # the sketch entity it swept, the two skins ``start`` / ``end``.
+    history = OpHistory()
+    tool = extrude_face(face, plane, params.thickness_mm, reverse, history=history)
+    generated = prism_names(item.id, history, plane, solved.entities, region=False)
+    error = _add_body(item, state, tool, merge=params.merge, generated=generated)
     if error is not None:
         return error
     state.sheet_metal_defaults[item.id] = SheetMetalDefaults(
@@ -168,7 +174,10 @@ def _fold_flange_off_edge(
 
     try:
         edge = resolve_edge_durable(
-            active, edge_ref.selector.signature, tally=state.subshape_tally
+            active,
+            edge_ref.selector.signature,
+            tally=state.subshape_tally,
+            face_names=state.face_names(),
         ).edge
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
@@ -191,6 +200,7 @@ def _fold_flange_off_edge(
         radius = override_radius_mm or defaults.bend_radius_mm
     k_factor = override_k_factor if override_k_factor is not None else defaults.k_factor
 
+    history = OpHistory()
     try:
         result = build_edge_flange(
             active,
@@ -201,13 +211,16 @@ def _fold_flange_off_edge(
             thickness_mm=defaults.thickness_mm,
             width_mm=width_mm,
             offset_mm=offset_mm,
+            history=history,
         )
     except EdgeFlangeEdgeError as exc:
         return FeatureError(code="edge_flange_bad_edge", message=str(exc))
     except EdgeFlangeError as exc:
         return FeatureError(code="edge_flange_failed", message=str(exc))
 
-    state.set_active_body(result.body)
+    # Each face of the fold is named by its role (DESIGN-INTENT-REFS step 3):
+    # ``<feature id>:outer`` is this flange's outer flat whatever the base size.
+    state.set_active_body(result.body, labelled_names(item.id, history), history.merged)
 
     # Maintain the CLEAN (un-notched) sheet body — every bend applied, NO relief
     # notches (§4.4.4). Both the flat-pattern unfold AND each corner relief resolve

@@ -146,8 +146,10 @@ from geometry.kernel.healing import HealingError, clean_shape, conform_solid
 from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
 from geometry.kernel.offset_edges import tighten_offset_edges
 from geometry.kernel.properties import volume_properties
+from geometry.kernel.provenance import surface_key
 from geometry.kernel.shell_heal import split_pinched_faces
 from geometry.kernel.shell_walls import FaultKind, ShellDefinition, WallFault
+from geometry.kernel.tolerances import KERNEL_LINEAR_TOL_MM
 from geometry.kernel.types import BodyShape
 
 #: A valid inward shell strictly REMOVES material (the cavity), so the shelled
@@ -675,3 +677,65 @@ def _canonical_face_order(solid: Solid) -> Solid:
         shells.Next()
     rebuilt.Orientation(solid.wrapped.Orientation())
     return Solid(rebuilt)
+
+
+def offset_history(
+    body: BodyShape, shelled: BodyShape, thickness_mm: float
+) -> list[tuple[Face, Face]]:
+    """Each face the shell CREATED, paired with the face of *body* it is the
+    inward offset of (DESIGN-INTENT-REFS step 3: OCCT's ``Modified`` of the
+    offset, read back from the geometry because the result has been tightened,
+    cleaned, healed and re-ordered since). A face of *shelled* that *body*
+    already had (the same face, or one on the same surface) is not created.
+
+    The offset is checked, not assumed, and only for the surfaces whose offset
+    is the same kind: a plane one wall behind the source's with the opposite
+    outward normal, or a coaxial cylinder whose radius differs by the wall. A
+    face several sources could offset to is paired with each of them, which
+    the naming then refuses (two names, no name); any other face is paired
+    with nothing and stays unnamed.
+    """
+    sources = body.faces()
+    kept = {surface_key(face) for face in sources} - {None}
+    out: list[tuple[Face, Face]] = []
+    for face in shelled.faces():
+        if any(face.wrapped.IsSame(s.wrapped) for s in sources):
+            continue
+        if surface_key(face) in kept:
+            continue
+        out.extend(
+            (source, face)
+            for source in sources
+            if _offsets_to(source, face, thickness_mm)
+        )
+    return out
+
+
+def _offsets_to(source: Face, face: Face, thickness_mm: float) -> bool:
+    """Whether *face* lies on the inward offset of *source*'s surface by
+    *thickness_mm* (kernel linear tolerance; normals to ``_PARALLEL_TOL``)."""
+    a, b = BRepAdaptor_Surface(source.wrapped), BRepAdaptor_Surface(face.wrapped)
+    kind = a.GetType()
+    if kind != b.GetType():
+        return False
+    if kind == GeomAbs_SurfaceType.GeomAbs_Plane:
+        outward, inward = source.normal_at(), face.normal_at()
+        if outward.dot(inward) > -1.0 + _PARALLEL_TOL:
+            return False
+        gap = Vector(b.Plane().Location()) - Vector(a.Plane().Location())
+        return abs(gap.dot(outward) + thickness_mm) <= KERNEL_LINEAR_TOL_MM
+    if kind == GeomAbs_SurfaceType.GeomAbs_Cylinder:
+        ca, cb = a.Cylinder(), b.Cylinder()
+        axis = Vector(ca.Axis().Direction())
+        if abs(axis.dot(Vector(cb.Axis().Direction()))) < 1.0 - _PARALLEL_TOL:
+            return False
+        apart = Vector(cb.Location()) - Vector(ca.Location())
+        off_axis = (apart - axis * apart.dot(axis)).length
+        step = abs(abs(ca.Radius() - cb.Radius()) - thickness_mm)
+        return off_axis <= KERNEL_LINEAR_TOL_MM and step <= KERNEL_LINEAR_TOL_MM
+    return False
+
+
+#: Two unit normals or axes closer than this to (anti-)parallel are taken as
+#: such: the resolve-side normal tolerance class (authored walls are exact).
+_PARALLEL_TOL = 1e-9

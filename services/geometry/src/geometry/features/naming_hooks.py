@@ -158,6 +158,12 @@ def swept_names(
     return hook
 
 
+def labelled_names(feature_id: uuid.UUID, history: OpHistory) -> NameHook:
+    """Names for the faces an op labelled by their role in its own construction
+    (a sheet-metal fold: ``<feature id>:<role>``, :attr:`OpHistory.labelled`)."""
+    return [(face, face_name(feature_id, role)) for role, face in history.labelled]
+
+
 def edge_sources(
     body: BodyShape, face_names: Sequence[str | None], edges: Sequence[Edge]
 ) -> ShapeNames:
@@ -177,6 +183,14 @@ def edge_blend_names(
     """Names for the faces a fillet or chamfer GENERATED from named edges:
     ``<kind>:<edge name>``, unnamed when the edge has no name."""
     return generated_names(feature_id, kind, history, sources)
+
+
+def offset_names(
+    feature_id: uuid.UUID, history: OpHistory, sources: ShapeNames
+) -> NameHook:
+    """Names for a shell's inner walls: ``offset:<the offset face's name>``,
+    unnamed when that face has none (or when several faces offset to one)."""
+    return generated_names(feature_id, "offset", history, sources)
 
 
 def tilted_face_names(history: OpHistory, sources: ShapeNames) -> NameHook:

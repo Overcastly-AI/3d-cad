@@ -118,6 +118,7 @@ from OCP.TopExp import TopExp, TopExp_Explorer
 from OCP.TopoDS import TopoDS, TopoDS_Compound, TopoDS_Shape
 from OCP.TopTools import TopTools_IndexedMapOfShape
 
+from geometry.kernel.clean_history import MergedFaces, clean_recording
 from geometry.kernel.types import BodyShape
 
 #: Largest volume change a heal may introduce before we refuse its result, in
@@ -161,8 +162,14 @@ def _volume(shape: object) -> float:
     return props.Mass()
 
 
-def clean_shape[ShapeT: BodyShape](shape: ShapeT) -> ShapeT:
+def clean_shape[ShapeT: BodyShape](
+    shape: ShapeT, merges: list[MergedFaces] | None = None
+) -> ShapeT:
     """``Shape.clean()``, but never at the cost of material (CM-6).
+
+    *merges*, when given, receives the faces the clean merged
+    (:mod:`geometry.kernel.clean_history`, the same clean with its history
+    kept), for face naming. Only an accepted clean reports any.
 
     Generic over the shape kinds a kernel op simplifies — a
     :class:`~build123d.Solid`, a multi-lump :class:`~build123d.Compound`, or the
@@ -217,9 +224,12 @@ def clean_shape[ShapeT: BodyShape](shape: ShapeT) -> ShapeT:
         return shape.clean()
     before = _volume(wrapped)
     spare = copy.deepcopy(shape)
-    cleaned = shape.clean()
+    found: list[MergedFaces] = []
+    cleaned = shape.clean() if merges is None else clean_recording(shape, spare, found)
     moved = abs(_volume(cleaned.wrapped) - before)
     if moved <= max(CLEAN_VOLUME_FLOOR_MM3, CLEAN_VOLUME_REL_TOL * abs(before)):
+        if merges is not None:
+            merges.extend(found)
         return cleaned
     return spare
 

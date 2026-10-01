@@ -1,0 +1,490 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000b7c00",
+  "tree_version": 2,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-0000000b7c01",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          },
+          "entities": [
+            {
+              "id": "e1",
+              "kind": "line",
+              "start": {
+                "x": -30.0,
+                "y": -20.0
+              },
+              "end": {
+                "x": 40.0,
+                "y": -20.0
+              }
+            },
+            {
+              "id": "e2",
+              "kind": "line",
+              "start": {
+                "x": 40.0,
+                "y": -20.0
+              },
+              "end": {
+                "x": 40.0,
+                "y": 20.0
+              }
+            },
+            {
+              "id": "e3",
+              "kind": "line",
+              "start": {
+                "x": 40.0,
+                "y": 20.0
+              },
+              "end": {
+                "x": -30.0,
+                "y": 20.0
+              }
+            },
+            {
+              "id": "e4",
+              "kind": "line",
+              "start": {
+                "x": -30.0,
+                "y": 20.0
+              },
+              "end": {
+                "x": -30.0,
+                "y": -20.0
+              }
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000b7c02",
+      "feature": {
+        "type": "sheet_metal_base_flange",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000b7c01"
+          },
+          "thickness_mm": 2.0,
+          "bend_radius_mm": 2.0,
+          "k_factor": 0.44
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000b7c03",
+      "feature": {
+        "type": "sheet_metal_edge_flange",
+        "version": 1,
+        "params": {
+          "edge": {
+            "kind": "subshape",
+            "feature_id": "00000000-0000-0000-0000-0000000b7c02",
+            "subshape_type": "edge",
+            "selector": {
+              "selector_version": 1,
+              "signature": {
+                "subshape_type": "edge",
+                "curve": "line",
+                "end_a": {
+                  "x": 30.0,
+                  "y": -20.0,
+                  "z": 2.0
+                },
+                "end_b": {
+                  "x": 30.0,
+                  "y": 20.0,
+                  "z": 2.0
+                },
+                "midpoint": {
+                  "x": 30.0,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "length_mm": 40.0,
+                "adjacent_faces": [
+                  {
+                    "subshape_type": "face",
+                    "surface": "plane",
+                    "normal": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "z": 1.0
+                    },
+                    "centroid": {
+                      "x": -3.608224830031759e-16,
+                      "y": 7.105427357601002e-16,
+                      "z": 2.0
+                    },
+                    "area_mm2": 2400.0,
+                    "outer_area_mm2": 2400.0,
+                    "outer_centroid": {
+                      "x": -3.608224830031759e-16,
+                      "y": 7.105427357601002e-16,
+                      "z": 2.0
+                    },
+                    "outer_perimeter_mm": 200.0,
+                    "topo_name": "00000000-0000-0000-0000-0000000b7c02:end"
+                  },
+                  {
+                    "subshape_type": "face",
+                    "surface": "plane",
+                    "normal": {
+                      "x": 1.0,
+                      "y": -0.0,
+                      "z": -0.0
+                    },
+                    "centroid": {
+                      "x": 30.0,
+                      "y": -2.775557561562892e-17,
+                      "z": 1.0
+                    },
+                    "area_mm2": 79.99999999999999,
+                    "outer_area_mm2": 79.99999999999999,
+                    "outer_centroid": {
+                      "x": 30.0,
+                      "y": -2.775557561562892e-17,
+                      "z": 1.0
+                    },
+                    "outer_perimeter_mm": 84.0,
+                    "topo_name": "00000000-0000-0000-0000-0000000b7c02:side:e2"
+                  }
+                ],
+                "topo_name": "[\"00000000-0000-0000-0000-0000000b7c02:end\",\"00000000-0000-0000-0000-0000000b7c02:side:e2\"]"
+              }
+            }
+          },
+          "flange_length_mm": 20.0,
+          "bend_angle_deg": 90.0
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000b7c04",
+      "feature": {
+        "type": "sheet_metal_edge_flange",
+        "version": 1,
+        "params": {
+          "edge": {
+            "kind": "subshape",
+            "feature_id": "00000000-0000-0000-0000-0000000b7c02",
+            "subshape_type": "edge",
+            "selector": {
+              "selector_version": 1,
+              "signature": {
+                "subshape_type": "edge",
+                "curve": "line",
+                "end_a": {
+                  "x": -30.0,
+                  "y": -20.0,
+                  "z": 2.0
+                },
+                "end_b": {
+                  "x": -30.0,
+                  "y": 20.0,
+                  "z": 2.0
+                },
+                "midpoint": {
+                  "x": -30.0,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "length_mm": 40.0,
+                "adjacent_faces": [
+                  {
+                    "subshape_type": "face",
+                    "surface": "plane",
+                    "normal": {
+                      "x": -1.0,
+                      "y": -0.0,
+                      "z": -0.0
+                    },
+                    "centroid": {
+                      "x": -30.0,
+                      "y": 2.775557561562892e-17,
+                      "z": 1.0
+                    },
+                    "area_mm2": 79.99999999999999,
+                    "outer_area_mm2": 79.99999999999999,
+                    "outer_centroid": {
+                      "x": -30.0,
+                      "y": 2.775557561562892e-17,
+                      "z": 1.0
+                    },
+                    "outer_perimeter_mm": 84.0,
+                    "topo_name": "00000000-0000-0000-0000-0000000b7c02:side:e4"
+                  },
+                  {
+                    "subshape_type": "face",
+                    "surface": "plane",
+                    "normal": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "z": 1.0
+                    },
+                    "centroid": {
+                      "x": -3.608224830031759e-16,
+                      "y": 7.105427357601002e-16,
+                      "z": 2.0
+                    },
+                    "area_mm2": 2400.0,
+                    "outer_area_mm2": 2400.0,
+                    "outer_centroid": {
+                      "x": -3.608224830031759e-16,
+                      "y": 7.105427357601002e-16,
+                      "z": 2.0
+                    },
+                    "outer_perimeter_mm": 200.0,
+                    "topo_name": "00000000-0000-0000-0000-0000000b7c02:end"
+                  }
+                ],
+                "topo_name": "[\"00000000-0000-0000-0000-0000000b7c02:end\",\"00000000-0000-0000-0000-0000000b7c02:side:e4\"]"
+              }
+            }
+          },
+          "flange_length_mm": 20.0,
+          "bend_angle_deg": 90.0
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000b7c05",
+      "feature": {
+        "type": "sheet_metal_edge_flange",
+        "version": 1,
+        "params": {
+          "edge": {
+            "kind": "subshape",
+            "feature_id": "00000000-0000-0000-0000-0000000b7c02",
+            "subshape_type": "edge",
+            "selector": {
+              "selector_version": 1,
+              "signature": {
+                "subshape_type": "edge",
+                "curve": "line",
+                "end_a": {
+                  "x": -30.0,
+                  "y": -20.0,
+                  "z": 2.0
+                },
+                "end_b": {
+                  "x": 30.0,
+                  "y": -20.0,
+                  "z": 2.0
+                },
+                "midpoint": {
+                  "x": 0.0,
+                  "y": -20.0,
+                  "z": 2.0
+                },
+                "length_mm": 60.0,
+                "adjacent_faces": [
+                  {
+                    "subshape_type": "face",
+                    "surface": "plane",
+                    "normal": {
+                      "x": 0.0,
+                      "y": -1.0,
+                      "z": -0.0
+                    },
+                    "centroid": {
+                      "x": -6.233698062190706e-15,
+                      "y": -20.0,
+                      "z": 5.83992453158566
+                    },
+                    "area_mm2": 218.8495559215387,
+                    "outer_area_mm2": 218.8495559215387,
+                    "outer_centroid": {
+                      "x": -6.233698062190706e-15,
+                      "y": -20.0,
+                      "z": 5.83992453158566
+                    },
+                    "outer_perimeter_mm": 222.84955592153878,
+                    "topo_name": "00000000-0000-0000-0000-0000000b7c02:side:e1"
+                  },
+                  {
+                    "subshape_type": "face",
+                    "surface": "plane",
+                    "normal": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "z": 1.0
+                    },
+                    "centroid": {
+                      "x": -3.608224830031759e-16,
+                      "y": 7.105427357601002e-16,
+                      "z": 2.0
+                    },
+                    "area_mm2": 2400.0,
+                    "outer_area_mm2": 2400.0,
+                    "outer_centroid": {
+                      "x": -3.608224830031759e-16,
+                      "y": 7.105427357601002e-16,
+                      "z": 2.0
+                    },
+                    "outer_perimeter_mm": 200.0,
+                    "topo_name": "00000000-0000-0000-0000-0000000b7c02:end"
+                  }
+                ],
+                "topo_name": "[\"00000000-0000-0000-0000-0000000b7c02:end\",\"00000000-0000-0000-0000-0000000b7c02:side:e1\"]"
+              }
+            }
+          },
+          "flange_length_mm": 15.0,
+          "bend_angle_deg": 45.0,
+          "width_mm": 50.0,
+          "offset_mm": 5.0
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000b7c06",
+      "feature": {
+        "type": "sheet_metal_hem",
+        "version": 1,
+        "params": {
+          "edge": {
+            "kind": "subshape",
+            "feature_id": "00000000-0000-0000-0000-0000000b7c02",
+            "subshape_type": "edge",
+            "selector": {
+              "selector_version": 1,
+              "signature": {
+                "subshape_type": "edge",
+                "curve": "line",
+                "end_a": {
+                  "x": -30.0,
+                  "y": 20.0,
+                  "z": 2.0
+                },
+                "end_b": {
+                  "x": 30.0,
+                  "y": 20.0,
+                  "z": 2.0
+                },
+                "midpoint": {
+                  "x": 0.0,
+                  "y": 20.0,
+                  "z": 2.0
+                },
+                "length_mm": 60.0,
+                "adjacent_faces": [
+                  {
+                    "subshape_type": "face",
+                    "surface": "plane",
+                    "normal": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "z": 1.0
+                    },
+                    "centroid": {
+                      "x": -3.802235375304884e-16,
+                      "y": 0.06354515050166931,
+                      "z": 2.0
+                    },
+                    "area_mm2": 2392.0,
+                    "outer_area_mm2": 2392.0,
+                    "outer_centroid": {
+                      "x": -3.802235375304884e-16,
+                      "y": 0.06354515050166931,
+                      "z": 2.0
+                    },
+                    "outer_perimeter_mm": 208.0,
+                    "topo_name": "00000000-0000-0000-0000-0000000b7c02:end"
+                  },
+                  {
+                    "subshape_type": "face",
+                    "surface": "plane",
+                    "normal": {
+                      "x": -0.0,
+                      "y": 1.0,
+                      "z": -0.0
+                    },
+                    "centroid": {
+                      "x": 5.973960642932759e-15,
+                      "y": 20.0,
+                      "z": 5.839924531585659
+                    },
+                    "area_mm2": 218.84955592153875,
+                    "outer_area_mm2": 218.84955592153875,
+                    "outer_centroid": {
+                      "x": 5.973960642932759e-15,
+                      "y": 20.0,
+                      "z": 5.839924531585659
+                    },
+                    "outer_perimeter_mm": 222.84955592153878,
+                    "topo_name": "00000000-0000-0000-0000-0000000b7c02:side:e3"
+                  }
+                ],
+                "topo_name": "[\"00000000-0000-0000-0000-0000000b7c02:end\",\"00000000-0000-0000-0000-0000000b7c02:side:e3\"]"
+              }
+            }
+          },
+          "hem_type": "closed",
+          "length_mm": 6.0
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000b7c07",
+      "feature": {
+        "type": "hole",
+        "version": 1,
+        "params": {
+          "face": {
+            "kind": "subshape",
+            "feature_id": "00000000-0000-0000-0000-0000000b7c03",
+            "subshape_type": "face",
+            "selector": {
+              "selector_version": 1,
+              "signature": {
+                "subshape_type": "face",
+                "surface": "plane",
+                "normal": {
+                  "x": 1.0,
+                  "y": -0.0,
+                  "z": -0.0
+                },
+                "centroid": {
+                  "x": 34.0,
+                  "y": 8.881784197001254e-17,
+                  "z": 14.0
+                },
+                "area_mm2": 799.9999999999999,
+                "outer_area_mm2": 799.9999999999999,
+                "outer_centroid": {
+                  "x": 34.0,
+                  "y": 8.881784197001254e-17,
+                  "z": 14.0
+                },
+                "outer_perimeter_mm": 120.0,
+                "topo_name": "00000000-0000-0000-0000-0000000b7c03:outer"
+              }
+            }
+          },
+          "position": {
+            "x": 34.0,
+            "y": 5.0,
+            "z": 9.0
+          },
+          "diameter_mm": 5.0,
+          "depth": {
+            "kind": "through_all"
+          }
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

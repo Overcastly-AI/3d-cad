@@ -12,7 +12,7 @@ active-body cut :func:`_cut_active`.
 import dataclasses
 import functools
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
@@ -27,6 +27,7 @@ from geometry.kernel import (
     CutRemovedNothingError,
     combine_body,
 )
+from geometry.kernel.clean_history import MergedFaces
 from geometry.kernel.fork import fork_shapes
 from geometry.kernel.healing import new_geometry_is_valid
 from geometry.kernel.naming import BodyNames, NameHook, carry_names, tool_face_names
@@ -387,19 +388,25 @@ class EvaluationState:
             )
         return shape
 
-    def set_active_body(self, shape: BodyShape, generated: NameHook = ()) -> None:
+    def set_active_body(
+        self,
+        shape: BodyShape,
+        generated: NameHook = (),
+        merged: Sequence[MergedFaces] = (),
+    ) -> None:
         """Replace the ACTIVE body's current shape (a modifying feature result).
 
         Keeps the body's identity slot (its base feature id) so downstream refs
         keep resolving; asserts an active body exists (callers gate on it). The
         shape may be a single solid or a lump-count-preserving multi-lump
         Compound (§MB-4). Gated by :meth:`_admit` (CM-6). *generated* is the
-        op's naming hook: the faces it created or modified, with their names.
+        op's naming hook: the faces it created or modified, with their names;
+        *merged* the faces its ``clean`` merged (:attr:`OpHistory.merged`).
         """
         body_id = self.active_body_id
         assert body_id is not None, "no active body to modify"
         self.bodies[body_id] = self._admit(shape, self.bodies[body_id])
-        self._rename(body_id, shape, [body_id], generated)
+        self._rename(body_id, shape, [body_id], generated, merged)
 
     def _rename(
         self,
@@ -407,12 +414,14 @@ class EvaluationState:
         shape: BodyShape,
         sources: list[uuid.UUID],
         generated: NameHook,
+        merged: Sequence[MergedFaces] = (),
     ) -> None:
         """Carry the names of the *sources* bodies onto *shape* (the new body)."""
         self.topo_names[body_id] = carry_names(
             shape,
             [self.topo_names[s] for s in sources if s in self.topo_names],
             generated,
+            merged,
         )
 
     def start_body(
