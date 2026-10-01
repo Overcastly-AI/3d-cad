@@ -15,7 +15,7 @@ committed golden files, in-process AND across a fresh interpreter restart
 the SVG text and reads back out of the DXF through a real reader.
 
 Encoding note (AUDIT-PRODUCT F-3): the DXF's bytes are the code page its header
-declares (`compose.DXF_ENCODING` = cp1252), not UTF-8. Every read-back here goes
+declares (`dxf.DXF_ENCODING` = cp1252), not UTF-8. Every read-back here goes
 through the conftest `dxf_texts` / `read_dxf` fixtures, which derive the encoding
 from the file itself; this module used to assert `b"\xc2\xb0" in dxf`, which pinned
 the mojibake defect in place under an encoding-gate name.
@@ -41,10 +41,16 @@ from geometry.drawings import (
     serialize_pdf,
     serialize_svg,
 )
-from geometry.drawings.compose import (
-    _BEND_TABLE_CAPTIONS,  # pyright: ignore[reportPrivateUsage]
+from geometry.drawings.dxf import (
     _LYR_BEND_TABLE,  # pyright: ignore[reportPrivateUsage]
+)
+from geometry.drawings.layout import (
+    _BEND_TABLE_CAPTIONS,  # pyright: ignore[reportPrivateUsage]
+)
+from geometry.drawings.sheet_style import (
     _bend_row_cells,  # pyright: ignore[reportPrivateUsage]
+)
+from geometry.drawings.svg import (
     _esc,  # pyright: ignore[reportPrivateUsage]
 )
 from loft_wire.drawings import (

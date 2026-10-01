@@ -21,7 +21,6 @@
     "packages/loft-wire/src/loft_wire/features.py": 4606,
     "packages/loft-wire/src/loft_wire/sketch.py": 1556,
     "scripts/e2e-shard-plan.py": 1585,
-    "services/geometry/src/geometry/drawings/compose.py": 4301,
     "services/geometry/src/geometry/features/evaluate.py": 4382,
     "services/geometry/src/geometry/sheet_metal/unfold.py": 2489,
     "services/geometry/src/geometry/sketch/planegcs_solver.py": 2210,

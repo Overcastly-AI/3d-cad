@@ -25,7 +25,7 @@ The fix is the encoding, NOT the version: R2018 (AC1032) is UTF-8 native and was
 audit's other suggestion, but measured across 14 ``PYTHONHASHSEED`` values it emits
 TWO distinct byte streams for one document (R2000 emits one), so it would trade a
 text defect for a determinism defect — and it would shut out every CAM seat older
-than 2018. See ``compose._DXF_VERSION`` / ``compose.DXF_ENCODING``.
+than 2018. See ``dxf._DXF_VERSION`` / ``dxf.DXF_ENCODING``.
 """
 
 from collections.abc import Callable
@@ -33,7 +33,7 @@ from collections.abc import Callable
 import pytest
 from ezdxf.document import Drawing
 from geometry.drawings import DXF_ENCODING, serialize_dxf
-from geometry.drawings.compose import (
+from geometry.drawings.sheet_style import (
     _bend_row_cells,  # pyright: ignore[reportPrivateUsage]
 )
 from loft_wire.drawings import ComposedSheet
