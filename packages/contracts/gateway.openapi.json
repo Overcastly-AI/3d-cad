@@ -2817,7 +2817,7 @@
         "type": "object"
       },
       "DistanceConstraint": {
-        "description": "Dimension: the length of a line (mm). Driving by default; see\n:class:`DimensionConstraint` for the expression/name/driving fields.",
+        "description": "Dimension: the length of a line (mm). Driving by default; see\n:class:`DimensionConstraint` for the expression/name/driving fields.\n\n**Virtual sharps** (SKETCH-FILLET-KEEP-DIMS). Either end may be measured to\na *virtual sharp* instead of the line's own endpoint: the point where the\ninfinite supports of ``entity`` and another line meet. A sketch fillet or\nchamfer trims a leg back from its corner, and SolidWorks and Fusion 360 keep\nthe leg's dimension to the corner that is gone, so the rectangle's typed W\nand H still drive its size and an R edit cannot grow the outline. Both\nfields are additive (absent = the endpoint, the former meaning), so every\nstored sketch parses and solves exactly as before.",
         "properties": {
           "driving": {
             "anyOf": [
@@ -2830,6 +2830,20 @@
             ],
             "description": "Driving/driven flag. None (absent, the default) or True = DRIVING: the value is fed to the solver. False = DRIVEN: excluded from the constraint system; the value is measured back from the solved geometry for display (read-only, never fed as a constraint, so a driven dimension cannot over-constrain). Nullable+None-default (rather than a bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted before it reads as None = driving, and the generated TS client leaves it optional. Read it through `is_driving`, never the raw tri-state.",
             "title": "Driving"
+          },
+          "end_sharp": {
+            "anyOf": [
+              {
+                "description": "Sketch-local entity id, e.g. 'e1'",
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Measure the END side to the virtual sharp of `entity` and this line instead of to `entity`'s end point. None = the end point.",
+            "title": "End Sharp"
           },
           "entity": {
             "description": "Sketch-local entity id, e.g. 'e1'",
@@ -2868,6 +2882,20 @@
             ],
             "description": "Optional stable name so another dimension's `expression` can reference this one. Unique within a sketch (enforced on SketchDefinition). None = unnamed: still solves, just not referenceable.",
             "title": "Name"
+          },
+          "start_sharp": {
+            "anyOf": [
+              {
+                "description": "Sketch-local entity id, e.g. 'e1'",
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Measure the START side to the virtual sharp of `entity` and this line (where their infinite supports meet) instead of to `entity`'s start point. None = the start point.",
+            "title": "Start Sharp"
           },
           "value_mm": {
             "description": "Resolved dimension value (mm). The literal value when `expression` is None; otherwise the last solved/resolved value (the expression supersedes it on the next solve, but a positive placeholder is still required so a pre-solve read has a value).",

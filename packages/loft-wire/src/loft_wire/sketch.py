@@ -413,10 +413,37 @@ class LinearDimensionConstraint(DimensionConstraint):
 
 class DistanceConstraint(LinearDimensionConstraint):
     """Dimension: the length of a line (mm). Driving by default; see
-    :class:`DimensionConstraint` for the expression/name/driving fields."""
+    :class:`DimensionConstraint` for the expression/name/driving fields.
+
+    **Virtual sharps** (SKETCH-FILLET-KEEP-DIMS). Either end may be measured to
+    a *virtual sharp* instead of the line's own endpoint: the point where the
+    infinite supports of ``entity`` and another line meet. A sketch fillet or
+    chamfer trims a leg back from its corner, and SolidWorks and Fusion 360 keep
+    the leg's dimension to the corner that is gone, so the rectangle's typed W
+    and H still drive its size and an R edit cannot grow the outline. Both
+    fields are additive (absent = the endpoint, the former meaning), so every
+    stored sketch parses and solves exactly as before.
+    """
 
     kind: Literal["distance"]
     entity: EntityId
+    start_sharp: EntityId | None = Field(
+        default=None,
+        description="Measure the START side to the virtual sharp of `entity` "
+        "and this line (where their infinite supports meet) instead of to "
+        "`entity`'s start point. None = the start point.",
+    )
+    end_sharp: EntityId | None = Field(
+        default=None,
+        description="Measure the END side to the virtual sharp of `entity` and "
+        "this line instead of to `entity`'s end point. None = the end point.",
+    )
+
+    @model_validator(mode="after")
+    def _sharp_is_another_line(self) -> "DistanceConstraint":
+        if self.entity in (self.start_sharp, self.end_sharp):
+            raise ValueError("A virtual sharp is where TWO different lines meet")
+        return self
 
 
 class RadiusConstraint(LinearDimensionConstraint):

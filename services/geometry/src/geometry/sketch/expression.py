@@ -52,6 +52,7 @@ from loft_wire.sketch import (
 
 from geometry.sketch.angles import AngleFrame, measured_angle_deg
 from geometry.sketch.solver import SketchDefinitionError
+from geometry.sketch.virtual_sharp import measured_length
 
 #: Resolves a referenced dimension name to its evaluated value, in that
 #: dimension's own unit (mm for a length, degrees for an angle).
@@ -458,12 +459,23 @@ def measure_dimension(
     """
     match constraint:
         case DistanceConstraint():
+            length = measured_length(constraint, entities_by_id)
+            if length is not None:
+                return length
             entity = entities_by_id.get(constraint.entity)
-            if not isinstance(entity, SketchLine):
+            sharps = (constraint.start_sharp, constraint.end_sharp)
+            if not isinstance(entity, SketchLine) or any(
+                s is not None and not isinstance(entities_by_id.get(s), SketchLine)
+                for s in sharps
+            ):
                 raise SketchDefinitionError(
-                    f"Driven 'distance' dimension requires a line entity; "
-                    f"{constraint.entity!r} is not a known line"
+                    f"Driven 'distance' dimension requires a line entity (and "
+                    f"a line for any virtual sharp); {constraint.entity!r} "
+                    "does not resolve"
                 )
+            # A virtual sharp of two PARALLEL lines does not exist: the solve
+            # reads conflicting (residual.py), and the readout falls back to
+            # the line's own length rather than inventing a far-away point.
             return math.hypot(
                 entity.end.x - entity.start.x, entity.end.y - entity.start.y
             )

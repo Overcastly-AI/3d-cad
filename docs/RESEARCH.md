@@ -39,7 +39,14 @@ forbidden.
 Rules the solver keeps:
 
 - **Deterministic.** Same sketch and constraints give a bitwise-identical
-  result, asserted over a sequence of solves.
+  result, asserted over a sequence of solves. One measured limit
+  (SKETCH-FILLET-KEEP-DIMS): a planegcs subsystem orders its free parameters
+  by address (`std::set<double*>`), and the binding stores parameters in a
+  `std::deque` of 64-double chunks whose order depends on the heap. Up to 64
+  free parameters, allocated first, the order is the allocation order; past
+  that the last bits of a solve can differ between runs in one process
+  (BACKLOG SKETCH-SOLVE-HEAP-ORDER). So the solver allocates every free
+  parameter (entities, then virtual-sharp points) before any fixed one.
 - **An under-constrained solve holds the author's geometry.** After the solve
   converges, it pins every free coordinate and radius back to the author's
   value and re-solves (the "settle"), so a dimension edit moves only what it
@@ -59,11 +66,29 @@ Rules the solver keeps:
   `tangent_line_arc` family (centre-to-line distance = r, contact point free).
   A `tangent` that names an end of each curve (`a_point`/`b_point`) is the
   join plus the tangency at it: a coincidence and `angle_via_point` held at
-  0 or pi, the branch read once from the submitted geometry. The whole-curve
+  0 or pi. The branch is read from the end NAMES, never the coordinates: an
+  `end` meeting a `start` is 0, two `start`s or two `end`s are pi, which is
+  the smooth join in each case (a line runs start to end, an arc CCW). Read
+  from the submitted geometry it held two cusps the review built (a leg
+  dragged through straight, an arc dragged outside its corner); read from the
+  names a cusp is not a solution, and a corner that can only be one reads
+  `conflicting` and names the tangent. The whole-curve
   equation is redundant with a coincident at the same join, which is why a
   sketch fillet's joins are endpoint tangents: with plain coincidents an R
   edit pulled the arc off tangent with no warning. An endpoint tangent
   includes its coincidence, so a coincident on the same pair is redundant.
+- **A length can be measured to a virtual sharp, as in SolidWorks and Fusion
+  360** (`geometry.sketch.virtual_sharp`, SKETCH-FILLET-KEEP-DIMS). A
+  `distance` may name another line for either end (`start_sharp`,
+  `end_sharp`); that end is then where the two lines' infinite supports meet.
+  A sketch fillet or chamfer re-attaches the trimmed legs' W and H this way
+  instead of dropping them, so an R edit cannot grow the outline (before:
+  80 x 50 at R5 -> R15 came out 100 x 70). Encoded as FreeCAD encodes its
+  own: an auxiliary point held on both lines by two `point_on_line`, then a
+  point-to-point distance; two parameters and two independent equations, so
+  DOF is what the untrimmed length gave. Parallel lines have no sharp and
+  read `conflicting`. The fields are additive: a stored distance solves
+  byte-identically (2098 sketches, goldens plus the PBT-1 sweep, checked).
 
 ## 3. Monorepo of services, contract-first
 

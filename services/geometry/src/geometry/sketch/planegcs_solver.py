@@ -9,9 +9,17 @@ the pydantic DTOs of :mod:`geometry.sketch.schemas`.
 
 Determinism: entities and constraints are translated in input list order,
 the solve uses planegcs's default DogLeg algorithm from the input positions
-as the starting guess, and PlaneGCS itself is deterministic (no random
-restarts). Same definition in → bitwise-identical solution out (asserted by
-the unit suite; RESEARCH §9 "solver determinism" gate).
+as the starting guess, and PlaneGCS itself has no random restarts. Same
+definition in → bitwise-identical solution out (asserted by the unit suite;
+RESEARCH §9 "solver determinism" gate) — with one measured caveat
+(SKETCH-FILLET-KEEP-DIMS): a planegcs subsystem orders its FREE parameters by
+memory address (``std::set<double*>``) and the binding stores them in a
+``std::deque`` of 64-double chunks whose relative order depends on the heap.
+While the free parameters fit one chunk the order is the allocation order; past
+64 the last bits of a solve can differ between two runs in one process. So the
+free parameters are allocated first and contiguously (entities, then
+:func:`~geometry.sketch.virtual_sharp.allocate_sharps`), and the >64 case is
+a BACKLOG note.
 
 **An under-constrained solve HOLDS the input geometry** (SOLVE-1, RESEARCH §2).
 DogLeg starting from the current positions is not the same thing as leaving the
@@ -135,9 +143,8 @@ from geometry.sketch.angles import (
 )
 from geometry.sketch.expression import (
     evaluate_driving_dimensions,
-    measure_angle,
-    measure_dimension,
 )
+from geometry.sketch.readouts import angle_readouts, dimension_readouts
 from geometry.sketch.residual import (
     geometric_residuals,
     symmetric_lines_pairs,
@@ -149,7 +156,6 @@ from geometry.sketch.schemas import (
     CollinearConstraint,
     ConcentricConstraint,
     DiameterConstraint,
-    DimensionConstraint,
     DistanceConstraint,
     EntityPointRef,
     EqualConstraint,
@@ -169,8 +175,6 @@ from geometry.sketch.schemas import (
     SketchPoint,
     SketchSolveStatus,
     SketchSpline,
-    SolvedAngle,
-    SolvedDimension,
     SolvedSketch,
     SymmetricConstraint,
     SymmetricLinesConstraint,
@@ -179,6 +183,7 @@ from geometry.sketch.schemas import (
 )
 from geometry.sketch.solver import SketchDefinitionError
 from geometry.sketch.tangency import add_tangent
+from geometry.sketch.virtual_sharp import add_distance, allocate_sharps
 
 # --- tuned, documented tolerances (never ad-hoc; RESEARCH §9) -------------------
 
@@ -352,8 +357,8 @@ class PlanegcsSketchSolver:
             entities = [entity.model_copy(deep=True) for entity in sketch.entities]
             conflicting = sorted(set(conflicting) | set(violated))
 
-        dimensions = _dimension_readouts(sketch.constraints, entities, driving_values)
-        angles = _angle_readouts(
+        dimensions = dimension_readouts(sketch.constraints, entities, driving_values)
+        angles = angle_readouts(
             sketch.constraints, entities, driving_values, system.angle_frames
         )
         return SolvedSketch(
@@ -419,102 +424,6 @@ def _violated_constraints(
         )
         if residual > SATISFIED_TOL_MM
     ]
-
-
-def _dimension_readouts(
-    constraints: list[SketchConstraint],
-    entities: list[SketchEntity],
-    driving_values: dict[int, float],
-) -> list[SolvedDimension]:
-    """Per-dimension computed values for the solved payload.
-
-    A driving dimension reports the value fed to the solver (evaluated
-    expression / literal); a driven dimension reports the value MEASURED back
-    from the solved geometry (the read-only readout that tracks the geometry it
-    dimensions). One entry per dimension constraint, in input order.
-
-    **Invariant (SOLVE-1): no readout disagrees with the ``entities`` beside it
-    in the same payload by more than :data:`SATISFIED_TOL_MM`.** A driving
-    dimension's requested value is therefore VERIFIED against the geometry
-    before it is reported, and where it does not describe that geometry — a
-    conflicting or diverged solve returns the input entities untouched, so the
-    requested number is exactly the one they do not have — the MEASURED value is
-    reported instead. Reporting the request unchecked is how the service came to
-    claim a 12 mm dimension on an 8 mm line (docs/AUDIT-ENGINEERING.md Pass 8
-    N1); nothing in the payload contradicted it.
-    """
-    entities_by_id = {entity.id: entity for entity in entities}
-    readouts: list[SolvedDimension] = []
-    for index, constraint in enumerate(constraints):
-        if not isinstance(constraint, DimensionConstraint):
-            continue
-        if isinstance(constraint, AngleConstraint):
-            continue  # degrees — reported on `angles`, never under an `_mm` name
-        measured = measure_dimension(constraint, entities_by_id)
-        requested = driving_values.get(index)
-        value = (
-            requested
-            if requested is not None and abs(measured - requested) <= SATISFIED_TOL_MM
-            else measured
-        )
-        readouts.append(
-            SolvedDimension(
-                constraint_index=index,
-                name=constraint.name,
-                driving=constraint.is_driving,
-                value_mm=value,
-                expression=constraint.expression,
-            )
-        )
-    return readouts
-
-
-def _angle_readouts(
-    constraints: list[SketchConstraint],
-    entities: list[SketchEntity],
-    driving_values: dict[int, float],
-    frames: dict[int, AngleFrame],
-) -> list[SolvedAngle]:
-    """Per-angle computed values (degrees) for the solved payload.
-
-    The angular half of :func:`_dimension_readouts`, and it carries that
-    function's invariant unchanged: **no readout disagrees with the geometry
-    beside it in the same payload**. A driving angle's requested value is
-    VERIFIED against the solved lines before it is reported, and where it does
-    not describe them the MEASURED angle is reported instead — the same rule
-    that stopped the service claiming a 12 mm dimension on an 8 mm line
-    (docs/AUDIT-ENGINEERING.md Pass 8 N1), applied before an angle dimension
-    could ever make the equivalent claim.
-
-    The comparison is made in DEGREES against a degree-scaled tolerance:
-    :data:`SATISFIED_TOL_MM` is read on the constraint's own scale (radians for
-    the angular kinds), so the readout check converts once here rather than
-    letting a millimetre-named constant leak into a degree comparison.
-    """
-    entities_by_id = {entity.id: entity for entity in entities}
-    readouts: list[SolvedAngle] = []
-    for index, constraint in enumerate(constraints):
-        if not isinstance(constraint, AngleConstraint):
-            continue
-        frame = frames.get(index)
-        measured = measure_angle(constraint, entities_by_id, frame)
-        requested = driving_values.get(index)
-        tolerance_deg = math.degrees(SATISFIED_TOL_MM)
-        value = (
-            requested
-            if requested is not None and abs(measured - requested) <= tolerance_deg
-            else measured
-        )
-        readouts.append(
-            SolvedAngle(
-                constraint_index=index,
-                name=constraint.name,
-                driving=constraint.is_driving,
-                value_deg=value,
-                expression=constraint.expression,
-            )
-        )
-    return readouts
 
 
 def _map_status(
@@ -1024,6 +933,9 @@ class _GcsBuild:
         # produced (:mod:`geometry.sketch.angles`).
         for entity in sketch.entities if start is None else start:  # input order
             self._add_entity(entity)
+        self._sharps = allocate_sharps(  # ahead of every fixed parameter
+            self.gcs, sketch.constraints, driving_values, self._lines, self._points
+        )
         for index, constraint in enumerate(sketch.constraints):
             self._add_constraint(index, constraint)
         #: Every FREE parameter of the built system, in allocation order — the
@@ -1192,13 +1104,13 @@ class _GcsBuild:
             case DistanceConstraint():
                 if index not in self.driving_values:
                     return  # DRIVEN — not fed to the solver (measured post-solve)
-                line_id = constraint.entity
-                self._resolve_line(line_id, "distance")  # kind check
-                tag = gcs.set_p2p_distance(
-                    self._points[(line_id, "start")],
-                    self._points[(line_id, "end")],
-                    self.driving_values[index],
-                )
+                self._resolve_line(constraint.entity, "distance")  # kind check
+                value, sharps = self.driving_values[index], self._sharps.get(index, {})
+                for tag_n in add_distance(  # sharps: virtual_sharp.py
+                    gcs, constraint, self._lines, self._points, value, sharps
+                ):
+                    self.tag_to_index[tag_n] = index
+                return
             case RadiusConstraint():
                 if index not in self.driving_values:
                     return  # DRIVEN — not fed to the solver (measured post-solve)
