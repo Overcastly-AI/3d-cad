@@ -43,7 +43,9 @@
 #               triggered workflow keys its concurrency group per COMMIT —
 #               CI-2) and
 #               scripts/check-mutation-markers.py (no mutation/ablation/debug
-#               marker labels committed source — docs/RETRO.md §4b)
+#               marker labels committed source — docs/RETRO.md §4b) and
+#               scripts/check-file-size.py (no source file grows past 1,500
+#               lines; the oversized ones may not grow — FILE-SIZE-RATCHET)
 #   (doc-tick was removed 2026-09-25 with the same-commit ROADMAP/BACKLOG
 #   tick convention it enforced; see CLAUDE.md.)
 #   licences  — scripts/check-licences.py over the shared objects in the synced
@@ -445,6 +447,15 @@ jobs:
         run: |
           python3 scripts/check-air-gap.py --self-test
           python3 scripts/check-air-gap.py
+      # FILE-SIZE-RATCHET. No hand-written .py/.ts/.tsx file may pass 1,500
+      # lines, and the ones already over it (scripts/file-size-allowlist.json)
+      # may not grow; an entry above its file's real size fails too, so the
+      # list only shrinks. PartPage.tsx reached 6,502 lines a few at a time
+      # because nothing pushed back. Stdlib + git, ~0.3s (+ ~1.6s self-test).
+      - name: Source file size ratchet (+ prove the gate can fail)
+        run: |
+          python3 scripts/check-file-size.py --self-test
+          python3 scripts/check-file-size.py
       # scripts/web-smoke.sh asserts the compose stack ENDS AT THE APP — the
       # entry document, the hashed bundle it names, the SPA fallback, a
       # transparent /api proxy, and no CDN-loading FastAPI explorer. Those

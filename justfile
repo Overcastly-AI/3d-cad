@@ -229,6 +229,15 @@ lint:
     # ~0.3s. The drill's build retry, graded against canned daemon output:
     # the one BuildKit EOF retries once; nothing else ever does.
     bash scripts/compose-build-retry.sh --self-test
+    # ~0.3s + ~1.6s, FILE-SIZE-RATCHET. Every commit adds a few lines to the
+    # file the change lives in, because that is always the cheapest edit, and
+    # nothing pushed back: PartPage.tsx reached 6,502 lines that way. No .py,
+    # .ts or .tsx file may pass 1,500 lines, and the files already over it
+    # (scripts/file-size-allowlist.json) may not grow by one. An entry above
+    # its file's real size also fails, so a split must lower or drop it in the
+    # same commit (`--tighten`) and the list only shrinks.
+    python3 scripts/check-file-size.py --self-test
+    python3 scripts/check-file-size.py
 
 # Unit tests: pytest across the uv workspace + vitest via pnpm (recursive)
 test:
