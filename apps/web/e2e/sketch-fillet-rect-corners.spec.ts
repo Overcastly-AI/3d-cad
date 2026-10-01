@@ -97,6 +97,8 @@ test("a second sketch fillet keeps the first corner's trims", async ({
   // Top-right, then bottom-right: the right leg is shared by both corners.
   await filletCorner(page, at, { x: 0, y: HALF_H }, { x: HALF_W, y: 0 });
   await filletCorner(page, at, { x: 0, y: -HALF_H }, { x: HALF_W, y: 0 });
+  // The re-homed corners solve cleanly: nothing reads redundant or in conflict.
+  await expect(page.getByTestId("dro-solve")).not.toHaveText(/OVER|CONFLICT/i);
 
   await page.keyboard.press("Escape");
   await page.getByTestId("sketch-save").click();

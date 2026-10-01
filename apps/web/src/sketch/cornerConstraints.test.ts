@@ -95,8 +95,9 @@ describe("reconcileCornerConstraints", () => {
     // The untouched corners, the axes and W (bottom is not trimmed) survive.
     expect(constraints).toContainEqual(WIDTH);
     expect(constraints).toContainEqual({ kind: "vertical", entity: "e2" });
-    // The arc joins both trimmed ends, is tangent to both legs, carries r.
-    expect(constraints.slice(-5)).toEqual([
+    // The arc joins both trimmed ends and carries r. No tangent: the solver
+    // reads it as redundant with the joins (see the module note).
+    expect(constraints.slice(-3)).toEqual([
       {
         kind: "coincident",
         a: { entity: "e2", point: "end" },
@@ -107,8 +108,6 @@ describe("reconcileCornerConstraints", () => {
         a: { entity: "e3", point: "start" },
         b: { entity: "e2.1", point: "end" },
       },
-      { kind: "tangent", a: "e2.1", b: "e2" },
-      { kind: "tangent", a: "e2.1", b: "e3" },
       { kind: "radius", entity: "e2.1", value_mm: 5 },
     ]);
   });
@@ -166,7 +165,7 @@ describe("reconcileCornerConstraints", () => {
     expect(constraints.filter((c) => c.kind === "radius")).toHaveLength(2);
   });
 
-  it("a chamfer joins its bridge line and adds no tangency or radius", () => {
+  it("a chamfer joins its bridge line and adds no radius", () => {
     const chamfered: SketchEntity[] = [
       RECT[0] as SketchEntity,
       line("e2", { x: 40, y: 0 }, { x: 40, y: 20 }),

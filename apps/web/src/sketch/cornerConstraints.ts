@@ -16,12 +16,23 @@
  * un-trimmed geometry, and the profile came out open.
  *
  * Fusion 360 and SolidWorks re-home the corner instead: each trimmed end is
- * coincident with the bridge's matching end, a fillet arc is tangent to both
- * legs and carries its radius, and nothing still refers to the sharp corner
- * that is gone. That is what {@link reconcileCornerConstraints} authors. A
- * length dimension on a trimmed leg is dropped (it measured the corner that no
- * longer exists, the same rule trim follows for the length it changes), and
- * so is `equal` / `midpoint` on a leg whose length changed.
+ * coincident with the bridge's matching end, a fillet arc carries its radius,
+ * and nothing still refers to the sharp corner that is gone. That is what
+ * {@link reconcileCornerConstraints} authors. A length dimension on a trimmed
+ * leg is dropped (it measured the corner that no longer exists, the same rule
+ * trim follows for the length it changes), and so is `equal` / `midpoint` on a
+ * leg whose length changed.
+ *
+ * NO `tangent` IS AUTHORED, deliberately. The solver's line-arc tangent is
+ * planegcs's whole-curve `tangent_line_arc` (centre-to-line distance = r). With
+ * the arc's end already coincident with the leg's end, that equation is
+ * first-order dependent on the coincidence at the solution, so planegcs flags
+ * both tangents REDUNDANT and the sketch reads OVER-CONSTRAINED (measured: a
+ * filleted rectangle went from DOF 5, clean, to "overconstrained, redundant
+ * [10, 11]"). Fusion's fillet tangency is an endpoint tangency, which the wire
+ * cannot say yet. Without it the arc is still held by its radius and both
+ * joins, and a re-solve keeps it where it is (driving W 80 -> 100 translates
+ * the arc and it stays tangent).
  */
 import {
   reconcileConstraints,
@@ -148,19 +159,11 @@ export function reconcileCornerConstraints(
       b: { entity: bridge.id, point: onBridge.point },
     });
   }
+  // The fillet's radius, as Fusion dimensions it. No tangent: see the module
+  // note for why the solver would report it redundant.
   const fillet: SketchConstraint[] =
     corner.op === "fillet" && bridge.kind === "arc"
-      ? [
-          // Only a leg the edit actually trimmed meets the arc tangentially.
-          ...trimmed
-            .filter((leg) => leg.moved.length > 0)
-            .map((leg): SketchConstraint => ({
-              kind: "tangent",
-              a: bridge.id,
-              b: leg.id,
-            })),
-          { kind: "radius", entity: bridge.id, value_mm: corner.value },
-        ]
+      ? [{ kind: "radius", entity: bridge.id, value_mm: corner.value }]
       : [];
   return {
     constraints: [...kept, ...joins, ...fillet],
