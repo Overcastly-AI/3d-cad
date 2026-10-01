@@ -18,11 +18,17 @@ Determinism (RESEARCH §9): the OCCT fillet is a pure function of
 # pyright: reportAttributeAccessIssue=false
 
 from build123d import Edge, Face, Solid
+from OCP.BRepBuilderAPI import BRepBuilderAPI_Copy
 from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet
 from OCP.Standard import Standard_Failure
 from OCP.StdFail import StdFail_NotDone
 from OCP.TopoDS import TopoDS
 
+from geometry.kernel.fillet_guard import (
+    TOLERANCE_FLOOR_MM,
+    fillet_result_ok,
+    max_tolerance,
+)
 from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.naming import OpHistory
@@ -53,7 +59,13 @@ def fillet_body(
 
     *history*, when given, receives each edge paired with the fillet face(s) it
     generated (``BRepFilletAPI_MakeFillet::Generated``), for face naming
-    (:mod:`geometry.kernel.naming`).
+    (:mod:`geometry.kernel.naming`), and in ``worked_on`` the copy of *body*
+    the result was built on (its untouched faces are that copy's).
+
+    *body* is never modified: OCCT fillets in place, so each attempt runs on a
+    copy, and a result is only accepted when it passes
+    :func:`~geometry.kernel.fillet_guard.fillet_result_ok` (valid, no looser
+    than the input, faces far from the edges intact).
 
     Raises:
         FilletError: the OCCT fillet failed, or changed the body's lump count
@@ -62,32 +74,45 @@ def fillet_body(
     if radius_mm <= 0:
         raise ValueError(f"radius_mm must be > 0, got {radius_mm}")
     lump_count = len(body.solids())
+    limit = max(max_tolerance(body), TOLERANCE_FLOOR_MM)
+    # OCCT fillets IN PLACE: a failed attempt can leave the input's vertices at
+    # any tolerance (74 mm measured), so every attempt works on its own copy and
+    # *body*, the caller's and the rebuild cache's, is never touched.
+    work, work_edges = _working_copy(body, edges)
     try:
-        solids = _fillet(body, edges, radius_mm, history)
+        solids = _fillet(work, work_edges, radius_mm, history)
+        if not fillet_result_ok(body, edges, radius_mm, solids, limit):
+            raise _Rejected
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
+        if history is not None:
+            history.generated.clear()
         # A closed face's seam ending on or beside a filleted edge defeats the
         # OCCT blend (a parameterisation artefact, not geometry): retry ONCE on
-        # the same solid with those seams moved clear (geometry.kernel.reseam).
+        # a fresh copy of the untouched input with those seams moved clear
+        # (geometry.kernel.reseam), under the same checks.
         moved = reseam_near(body, edges) if isinstance(body, Solid) else None
         try:
             if moved is None:
                 raise exc
-            solids = _fillet(moved[0], moved[1], radius_mm, history)
-            if history is not None:
-                # Report the history against the CALLER's edges (the names
-                # were taken on those), not the re-seamed copies.
-                back = {
-                    id(copy): edge for copy, edge in zip(moved[1], edges, strict=True)
-                }
-                history.generated = [
-                    (back.get(id(source), source), face)
-                    for source, face in history.generated
-                ]
+            work, work_edges = moved
+            solids = _fillet(work, work_edges, radius_mm, history)
+            if not fillet_result_ok(body, edges, radius_mm, solids, limit):
+                raise _Rejected from exc
         except Exception:  # OCCT failure modes are not a stable taxonomy
+            if history is not None:
+                history.generated.clear()
             raise FilletError(
                 f"Fillet failed in the kernel ({type(exc).__name__}); the radius "
                 f"({radius_mm} mm) may be too large for an adjacent face."
             ) from exc
+    if history is not None:
+        # Report against the CALLER's edges (the names were taken on those),
+        # and say which copy the result was built on (names re-anchor on it).
+        back = {id(copy): edge for copy, edge in zip(work_edges, edges, strict=True)}
+        history.generated = [
+            (back.get(id(source), source), face) for source, face in history.generated
+        ]
+        history.worked_on = work
 
     if len(solids) != lump_count:
         raise FilletError(
@@ -102,6 +127,18 @@ def fillet_body(
     if lump_count == 1:
         return clean_shape(solids[0])
     return assemble_lumps([clean_shape(solid) for solid in solids])
+
+
+class _Rejected(RuntimeError):
+    """The fillet built, but its result failed :func:`fillet_result_ok`."""
+
+
+def _working_copy(body: BodyShape, edges: list[Edge]) -> tuple[BodyShape, list[Edge]]:
+    """A topology copy of *body* (geometry shared, so the result is the same
+    numbers) and *edges* on it, for OCCT to fillet in place."""
+    copier = BRepBuilderAPI_Copy(body.wrapped, False, False)
+    copy = type(body)(copier.Shape())
+    return copy, [Edge(copier.ModifiedShape(edge.wrapped)) for edge in edges]
 
 
 def _fillet(

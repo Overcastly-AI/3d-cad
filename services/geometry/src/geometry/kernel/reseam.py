@@ -51,6 +51,7 @@ from OCP.TopTools import (
     TopTools_IndexedDataMapOfShapeListOfShape,
 )
 
+from geometry.kernel.fillet_guard import TOLERANCE_FLOOR_MM, max_tolerance
 from geometry.kernel.tolerances import KERNEL_LINEAR_TOL_MM
 
 #: The re-seamed solid must keep its volume to this relative bound (it is the
@@ -95,6 +96,8 @@ def reseam_near(body: Solid, edges: Sequence[Edge]) -> tuple[Solid, list[Edge]] 
     if abs(after - before) > _VOLUME_REL_TOL * abs(before):
         return None
     if result.ShapeType() != TopAbs_SOLID:
+        return None
+    if max_tolerance(Solid(result)) > max(max_tolerance(body), TOLERANCE_FLOOR_MM):
         return None
     solid = Solid(TopoDS.Solid_s(result))
     moved = [Edge(reshape.Value(edge)) for edge in picked]

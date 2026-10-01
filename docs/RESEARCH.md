@@ -400,3 +400,15 @@ The bracket's edge-flange edge, hem edge and hole face resolve by name after
 60 -> 70, byte-identical to a re-pick at 70 (golden
 `revise-base-70-hole-on-flange`). A forged name still only breaks a tie
 among faces the geometric tiers admit.
+
+**Fillet guard (review of 8dedc83).** OCCT fillets in place, and a failed
+attempt can leave the input's vertices at tens of mm of tolerance (74 mm
+measured on a cone hub), which every later boolean then reads as geometry.
+So every fillet attempt now runs on a topology copy and the caller's body is
+never touched; the re-seam retry works from the untouched input. A result is
+accepted only if it is valid, has no free edge (`BRepCheck` passes an open
+shell), is no looser than the input or 1e-3 mm, and agrees with the input at
+probes 1e-3 mm inside and outside every face sample farther than 3r from the
+rounded edges (`geometry/kernel/fillet_guard.py`). That last check is what
+rejects OCCT's valid-but-wrong plain result on a two-blade hub (24 746 mm^3
+for 32 212: the top cap dropped); the retry then gives the right body.

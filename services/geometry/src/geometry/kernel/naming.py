@@ -138,6 +138,9 @@ class OpHistory:
     #: (:mod:`geometry.kernel.clean_history`): each merged face carries the
     #: names of all the faces it was made from (:func:`carry_names`).
     merged: list[MergedFaces] = field(default_factory=list[MergedFaces])
+    #: The copy of the input the op worked on, when it did not work on the
+    #: input itself (a fillet): the result's untouched faces are this copy's.
+    worked_on: BodyShape | None = None
 
 
 #: A free-form face's identity across an op: its supporting ``Geom_Surface``
@@ -443,7 +446,7 @@ def _containing(face: TopoDS_Shape, claimants: Sequence[_Entry]) -> _Entry | Non
     points on both sides: *face* is a merge of several claimants) decides
     nothing, and neither do containers with different names. Doubt is ``None``.
     """
-    points = _interior_points(TopoDS.Face_s(face))
+    points = interior_points(TopoDS.Face_s(face))
     if not points:
         return None
     inside: list[_Entry] = []
@@ -464,7 +467,7 @@ def _containing(face: TopoDS_Shape, claimants: Sequence[_Entry]) -> _Entry | Non
 _CLASSIFY_TOL = KERNEL_LINEAR_TOL_MM
 
 
-def _interior_points(face: TopoDS_Shape, wanted: int = 3) -> list[object]:
+def interior_points(face: TopoDS_Shape, wanted: int = 3) -> list[object]:
     """Up to *wanted* points strictly inside *face*, from a parameter grid
     (deterministic: the grid order). Empty when no grid point lands inside."""
     umin, umax, vmin, vmax = BRepTools.UVBounds_s(face)

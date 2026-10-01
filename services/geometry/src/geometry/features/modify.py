@@ -89,7 +89,9 @@ def _evaluate_fillet(
     except FilletError as exc:
         return FeatureError(code="fillet_failed", message=str(exc))
     state.set_active_body(
-        filleted, edge_blend_names(item.id, "fillet", history, sources)
+        filleted,
+        edge_blend_names(item.id, "fillet", history, sources),
+        worked_on=history.worked_on,
     )
     return None
 
