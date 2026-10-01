@@ -75,7 +75,7 @@ import {
 } from "./drawDimensions";
 import { mirrorAxisFor, toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import { originIdentity } from "./origin";
-import { withNamedPointAt } from "./pointEntry";
+import { typedJoin, withNamedPointAt } from "./pointEntry";
 import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
 import {
   applyPick,
@@ -1244,13 +1244,13 @@ const createSketchState = (
     set({ pointEntry: null });
     const target = pointEntry.target;
     if (target === null) {
-      // Through the ONE placement path a click takes (`aim` then `placeAt`),
-      // with every snap held off: the aim resolves to exactly `at`, carries no
-      // snap intent to cash in as a coincident, and infers no axis. The held-
-      // off state is the aim's own bookkeeping, not the user's modifier, so it
-      // is handed back the moment the point is placed.
-      const point = get().aim(at, 0, { suppressed: true, axisLock: false });
-      get().placeAt(point);
+      // A click's path (`aim`, `placeAt`) with snaps held off (handed back below),
+      // but a point typed onto a drawn one JOINS it as a snap does (`typedJoin`).
+      const { entities, plane } = get();
+      get().aim(at, 0, { suppressed: true, axisLock: false });
+      const join = typedJoin(entities, at, originIdentity(plane).label);
+      if (join !== null) set({ snapCandidate: join });
+      get().placeAt(join?.at ?? at);
       // A shape whose last point was typed is already the size the user
       // said: its cells arm for a click, not for the next keystrokes.
       const drawn = get().drawDimension;

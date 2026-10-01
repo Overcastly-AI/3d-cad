@@ -13,6 +13,7 @@ import type { components } from "@loft/ts-client/gateway";
 import { isDatumId } from "./datum";
 import { namedPoints, type PointName, type SketchPick } from "./pick";
 import type { Point2D } from "./plane";
+import { snapCandidates, type SnapCandidate } from "./snap";
 import type { SketchEntity, SketchTool } from "./tools";
 
 type EntityPointRef = components["schemas"]["EntityPointRef"];
@@ -82,6 +83,40 @@ export function pointEntryOpening(state: {
   const at = namedPoints(entity).find((p) => p.point === pick.point)?.at;
   if (at === undefined) return null;
   return { anchor: at, target: { entity: pick.entity, point: pick.point } };
+}
+
+/**
+ * A typed coordinate this close to a drawn point IS that point. Not a user
+ * tolerance: it only absorbs a solved coordinate's last-digit noise (a corner
+ * solved to 29.9999999997 that the user types as 30).
+ */
+export const TYPED_JOIN_MM = 1e-6;
+
+/**
+ * TYPED-POLYLINE-UNJOINED: the drawn point a typed coordinate lands on, as the
+ * snap a click there would have taken, or null. The typed path places with
+ * every snap held off (a typed value is never moved), so without this a line
+ * whose end is typed onto another line's end shares the coordinate but not the
+ * point, and the first dimension tears the profile open. Handing the placement
+ * this candidate makes it bank the same anchor a snapped click banks, so the
+ * one inference (`inferredCoincidents`) authors the coincident: Fusion and
+ * SolidWorks join a typed point to the point it lands on.
+ *
+ * Only addressable points join (endpoints, centres, fit points and, given its
+ * label, the plane's origin, which a click there grounds to as well); a
+ * midpoint, an axis or an intersection has no address and joins nothing.
+ */
+export function typedJoin(
+  entities: readonly SketchEntity[],
+  at: Point2D,
+  originLabel: string | null,
+): SnapCandidate | null {
+  const origin =
+    originLabel === null ? null : { label: originLabel, gridStepMm: 0 };
+  const hit = snapCandidates(entities, at, null, TYPED_JOIN_MM, origin).find(
+    (candidate) => candidate.ref !== undefined,
+  );
+  return hit ?? null;
 }
 
 /**

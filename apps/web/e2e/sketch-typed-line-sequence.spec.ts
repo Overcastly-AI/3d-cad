@@ -246,3 +246,44 @@ test("lines and an arc typed with no waits land exactly as typed", async ({
   expect(arcs[0]?.end?.x).toBeCloseTo(30, 9);
   expect(arcs[0]?.end?.y).toBeCloseTo(15, 9);
 });
+
+test("a closed profile typed point by point is joined at every corner (TYPED-POLYLINE-UNJOINED)", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const { token, partId } = await openSketch(page, "Typed closed profile");
+  await page.keyboard.press("l");
+  await page.mouse.move(1000, 250);
+  // The line tool does not chain: each start is typed onto the last end, and
+  // the fourth line closes onto the first line's start.
+  const corners = [
+    ["10", "0"],
+    ["10", "20"],
+    ["-10", "20"],
+    ["-10", "0"],
+  ] as const;
+  for (const [i, [x, y]] of corners.entries()) {
+    const [nx, ny] = corners[(i + 1) % corners.length] ?? corners[0];
+    await typePoint(page, x, y);
+    await typePoint(page, nx, ny);
+  }
+  await expect(page.getByTestId("point-entry")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await page.getByTestId("sketch-save").click();
+  await expect(page.getByTestId("sketch-strip")).toHaveCount(0);
+  const response = await page.request.get(`/api/v1/parts/${partId}/features`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = (await response.json()) as {
+    features: Array<{
+      feature: { params: { constraints?: Array<{ kind: string }> } };
+    }>;
+  };
+  const constraints = body.features[0]?.feature.params.constraints ?? [];
+  // One coincident per corner, as four snapped clicks would have authored.
+  expect(
+    constraints.filter((c) => c.kind === "coincident"),
+    JSON.stringify(constraints),
+  ).toHaveLength(4);
+});
