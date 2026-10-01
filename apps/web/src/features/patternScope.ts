@@ -50,7 +50,7 @@ export type ScopeVerb = "pattern" | "mirror";
  * The feature kinds whose contribution is a RIGID TOOL plus one boolean, and
  * which a `features` scope can therefore repeat or reflect. Mirrors the kernel's
  * `_MIRROR_REFLECTABLE_TYPES` (`services/geometry/src/geometry/features/
- * evaluate.py`), which `docs/design/pattern-scope.md` §3 adopts unchanged for the
+ * pattern_mirror.py`), which `docs/design/pattern-scope.md` §3 adopts unchanged for the
  * pattern — `patternScope.test.ts` parses that frozenset and fails if the two
  * lists ever disagree, the same guard `face.test.ts` puts on the body-affecting
  * set.

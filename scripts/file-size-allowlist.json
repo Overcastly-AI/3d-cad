@@ -3,12 +3,11 @@
   "files": {
     "apps/web/e2e/pick-affordance.spec.ts": 1947,
     "apps/web/e2e/qa-reach-batch.spec.ts": 1937,
-    "apps/web/src/api/parts.ts": 1593,
     "apps/web/src/components/DocumentRegister.tsx": 1593,
     "apps/web/src/components/DrawingSheet.tsx": 2397,
     "apps/web/src/components/SketchStrip.tsx": 1515,
     "apps/web/src/routes/DrawingPage.tsx": 3382,
-    "apps/web/src/routes/PartPage.tsx": 6502,
+    "apps/web/src/routes/PartPage.tsx": 6411,
     "apps/web/src/sketch/constraints.test.ts": 1653,
     "apps/web/src/sketch/constraints.ts": 2098,
     "apps/web/src/sketch/store.test.ts": 2731,
