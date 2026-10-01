@@ -470,25 +470,37 @@ def _containing(face: TopoDS_Shape, claimants: Sequence[_Entry]) -> _Entry | Non
 _CLASSIFY_TOL = KERNEL_LINEAR_TOL_MM
 
 
-def interior_points(face: TopoDS_Shape, wanted: int = 3) -> list[object]:
+def interior_points(
+    face: TopoDS_Shape, wanted: int = 3, *, spread: bool = False
+) -> list[object]:
     """Up to *wanted* points strictly inside *face*, from a parameter grid
-    (deterministic: the grid order). Empty when no grid point lands inside."""
+    (deterministic: the grid order). Empty when no grid point lands inside.
+
+    By default the first grid cells inside; with *spread*, cells evenly spaced
+    over ALL the cells inside, so the points cover the face."""
     umin, umax, vmin, vmax = BRepTools.UVBounds_s(face)
     inside = BRepTopAdaptor_FClass2d(face, _CLASSIFY_TOL)
     surface = BRepAdaptor_Surface(face)
-    points: list[object] = []
     for steps in (4, 16):
+        cells: list[tuple[float, float]] = []
         for i in range(steps):
             for j in range(steps):
                 u = umin + (umax - umin) * (i + 0.5) / steps
                 v = vmin + (vmax - vmin) * (j + 0.5) / steps
                 if inside.Perform(gp_Pnt2d(u, v)) == TopAbs_IN:
-                    points.append(surface.Value(u, v))
-                    if len(points) == wanted:
-                        return points
-        if points:
-            return points
-    return points
+                    cells.append((u, v))
+                    if not spread and len(cells) == wanted:
+                        break
+            if not spread and len(cells) == wanted:
+                break
+        if cells:
+            if spread and len(cells) > wanted > 1:
+                # Evenly over the list, first and last cell included, so the
+                # samples reach both ends of the face's parameter range.
+                stride = (len(cells) - 1) / (wanted - 1)
+                cells = [cells[round(k * stride)] for k in range(wanted)]
+            return [surface.Value(u, v) for u, v in cells[:wanted]]
+    return []
 
 
 def _settle(

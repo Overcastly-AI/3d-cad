@@ -438,9 +438,14 @@ attempt can leave the input's vertices at tens of mm of tolerance (74 mm
 measured on a cone hub), which every later boolean then reads as geometry.
 So every fillet attempt now runs on a topology copy and the caller's body is
 never touched; the re-seam retry works from the untouched input. A result is
-accepted only if it is valid, has no free edge (`BRepCheck` passes an open
-shell), is no looser than the input or 1e-3 mm, and agrees with the input at
-probes 1e-3 mm inside and outside every face sample farther than 3r from the
-rounded edges (`geometry/kernel/fillet_guard.py`). That last check is what
-rejects OCCT's valid-but-wrong plain result on a two-blade hub (24 746 mm^3
-for 32 212: the top cap dropped); the retry then gives the right body.
+accepted only if it has no free edge (`BRepCheck` passes an open shell), is
+no looser than max(input, r/100, 1e-2 mm) (correct blends on lofted faces
+reach 5e-3; the damage was 74 mm), and keeps every input face beyond 3r of
+the rounded edges: the same OCCT face, or, for a face the fillet re-bounded,
+samples spread over it lying inside a result face on the same surface with
+the same orientation (`geometry/kernel/fillet_guard.py`). Everything is
+linear in the body, with no ray casting (a first version classified points
+against the solid and took 127 s on a 906-face plate); the guard costs ~6 %
+of the fillet there. The check rejects OCCT's valid-but-wrong plain result
+on a two-blade hub (24 746 mm^3 for 32 212: the top cap dropped), and the
+retry then gives the right body. A refusal names what it found.

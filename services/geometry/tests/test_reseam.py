@@ -7,23 +7,37 @@ give exactly the body a seam elsewhere would have given, and nothing else.
 
 import contextlib
 import math
+import time
 from typing import Any
 
+import pytest
 from build123d import (
     Axis,
     Box,
+    Circle,
+    Compound,
     Cylinder,
     Edge,
     GeomType,
     Plane,
     Polyline,
     Pos,
+    Rectangle,
     Solid,
     loft,
     make_face,
 )
-from geometry.kernel.fillet import FilletError, fillet_body
-from geometry.kernel.fillet_guard import TOLERANCE_FLOOR_MM, max_tolerance
+from geometry.kernel.fillet import (  # pyright: ignore[reportPrivateUsage]
+    FilletError,
+    _fillet,  # pyright: ignore[reportPrivateUsage]
+    _working_copy,  # pyright: ignore[reportPrivateUsage]
+    fillet_body,
+)
+from geometry.kernel.fillet_guard import (
+    TOLERANCE_FLOOR_MM,
+    fillet_problem,
+    max_tolerance,
+)
 from geometry.kernel.reseam import reseam_near
 
 HUB_R = 22.0
@@ -218,3 +232,104 @@ def test_a_valid_but_wrong_plain_fillet_is_not_accepted() -> None:
     clear_roots = _blade_zero_roots(clear)
     oracle = clear.fillet(1.0, clear_roots)
     assert abs(rescued.volume - oracle.volume) < _BLEND_FIT_MM3
+
+
+# --- re-review of 95a38e3: cost, false refusals, sample spread ------------------
+
+
+def _lofted_cut_rim() -> tuple[Solid, list[Edge]]:
+    """A 60x60x20 box minus a loft from a 30x20 rectangle at the top to a Ø16
+    circle below: OCCT fits its rim blends at 3-5e-3 mm, correctly."""
+    box = Box(60, 60, 20)
+    cut = loft(
+        [
+            Pos(0, 0, 10) * Rectangle(30, 20).face(),
+            Plane.XY.offset(-5) * Circle(8).face(),
+        ]
+    )
+    (solid,) = (box - cut).solids()  # pyright: ignore[reportOperatorIssue]
+    rim = [
+        e
+        for e in solid.edges().group_by(Axis.Z)[-1]
+        if abs((e @ 0.5).X) < 29 and abs((e @ 0.5).Y) < 29
+    ]
+    return solid, rim
+
+
+@pytest.mark.parametrize("radius", [1.0, 1.5])
+def test_a_correct_fillet_with_a_loose_blend_is_not_refused(radius: float) -> None:
+    """The 1e-3 mm ceiling refused these (3e-3 and 5e-3 mm, volumes right)."""
+    solid, rim = _lofted_cut_rim()
+    assert len(rim) == 5
+    filleted = fillet_body(solid, rim, radius)
+    assert filleted.is_valid
+    assert filleted.volume < solid.volume  # a rim round removes material
+
+
+def _lid(slots: int) -> tuple[Solid, list[Edge]]:
+    holes = [
+        Pos(-110 + 8 * i, -70 + 10 * j, 0) * Box(4, 6, 10)
+        for i in range(28)
+        for j in range(15)
+    ][:slots]
+    (solid,) = (Box(240, 160, 6) - Compound(children=holes)).clean().solids()  # pyright: ignore[reportOperatorIssue]
+    top = [
+        e
+        for e in solid.edges().group_by(Axis.Z)[-1]
+        if abs(abs((e @ 0.5).X) - 120) < 1e-6 or abs(abs((e @ 0.5).Y) - 80) < 1e-6
+    ]
+    return solid, top
+
+
+def test_the_guard_costs_a_fraction_of_the_fillet() -> None:
+    """PERF TRIPWIRE. The first guard ray-cast the whole solid per sample:
+    127 s at 906 faces against a 0.9 s fillet. It must stay linear and cheap:
+    here (a 246-face slotted lid, R2 on its four outer edges) well under half
+    of the OCCT fillet it checks (measured ~6 % at 906 faces)."""
+    solid, top = _lid(60)
+    assert len(solid.faces()) == 246
+    work, work_edges = _working_copy(solid, top)
+    start = time.perf_counter()
+    solids = _fillet(work, work_edges, 2.0, None)
+    blend = time.perf_counter() - start
+    start = time.perf_counter()
+    assert fillet_problem(work, work_edges, 2.0, solids, max_tolerance(solid)) is None
+    guard = time.perf_counter() - start
+    assert guard < 0.5 * blend + 0.05, (guard, blend)
+
+
+@pytest.mark.parametrize("op", ["cut", "fuse"])
+def test_a_wrong_body_far_from_the_fillet_is_caught_anywhere(op: str) -> None:
+    """Material removed or added at the far corner of a face the fillet
+    touched (the samples used to cluster in one strip and missed it)."""
+    plate = Box(100, 100, 10)
+    (solid,) = plate.solids()
+    corner = [
+        e
+        for e in solid.edges()
+        if e.geom_type == GeomType.LINE
+        and abs((e @ 0.5).X + 50) < 1e-6
+        and abs((e @ 0.5).Y + 50) < 1e-6
+    ]
+    work, work_edges = _working_copy(solid, corner)
+    (good,) = _fillet(work, work_edges, 1.0, None)
+    assert fillet_problem(work, work_edges, 1.0, [good], 1e-7) is None
+    good_any: Any = good
+    if op == "cut":
+        wrong = good_any.cut(Pos(40, 40, 5) * Box(20, 20, 4))
+    else:
+        wrong = good_any.fuse(Pos(40, 40, 7) * Box(20, 20, 4))
+    (bad,) = wrong.clean().solids()
+    assert fillet_problem(work, work_edges, 1.0, [bad], 1e-7) is not None
+
+
+def test_a_refusal_says_what_was_found() -> None:
+    """The message names the defect, not a guessed radius."""
+    hub = Pos(0, 0, 10) * Cylinder(HUB_R, 20)
+    (fresh,) = _two_blades(hub).solids()
+    roots = _blade_zero_roots(fresh)
+    work, work_edges = _working_copy(fresh, roots)
+    solids = _fillet(work, work_edges, 1.0, None)
+    problem = fillet_problem(work, work_edges, 1.0, solids, max_tolerance(fresh))
+    assert problem is not None
+    assert "radius" not in problem

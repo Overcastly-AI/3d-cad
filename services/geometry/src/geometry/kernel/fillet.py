@@ -25,8 +25,7 @@ from OCP.StdFail import StdFail_NotDone
 from OCP.TopoDS import TopoDS
 
 from geometry.kernel.fillet_guard import (
-    TOLERANCE_FLOOR_MM,
-    fillet_result_ok,
+    fillet_problem,
     max_tolerance,
 )
 from geometry.kernel.healing import clean_shape
@@ -64,8 +63,8 @@ def fillet_body(
 
     *body* is never modified: OCCT fillets in place, so each attempt runs on a
     copy, and a result is only accepted when it passes
-    :func:`~geometry.kernel.fillet_guard.fillet_result_ok` (valid, no looser
-    than the input, faces far from the edges intact).
+    :func:`~geometry.kernel.fillet_guard.fillet_problem` (closed, no looser
+    than it may be, faces beyond the fillet's reach intact).
 
     Raises:
         FilletError: the OCCT fillet failed, or changed the body's lump count
@@ -74,15 +73,16 @@ def fillet_body(
     if radius_mm <= 0:
         raise ValueError(f"radius_mm must be > 0, got {radius_mm}")
     lump_count = len(body.solids())
-    limit = max(max_tolerance(body), TOLERANCE_FLOOR_MM)
+    input_tolerance = max_tolerance(body)
     # OCCT fillets IN PLACE: a failed attempt can leave the input's vertices at
     # any tolerance (74 mm measured), so every attempt works on its own copy and
     # *body*, the caller's and the rebuild cache's, is never touched.
     work, work_edges = _working_copy(body, edges)
     try:
         solids = _fillet(work, work_edges, radius_mm, history)
-        if not fillet_result_ok(body, edges, radius_mm, solids, limit):
-            raise _Rejected
+        problem = fillet_problem(work, work_edges, radius_mm, solids, input_tolerance)
+        if problem is not None:
+            raise _Rejected(problem)
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         if history is not None:
             history.generated.clear()
@@ -96,11 +96,19 @@ def fillet_body(
                 raise exc
             work, work_edges = moved
             solids = _fillet(work, work_edges, radius_mm, history)
-            if not fillet_result_ok(body, edges, radius_mm, solids, limit):
-                raise _Rejected from exc
+            problem = fillet_problem(
+                work, work_edges, radius_mm, solids, input_tolerance
+            )
+            if problem is not None:
+                raise _Rejected(problem) from exc
         except Exception:  # OCCT failure modes are not a stable taxonomy
             if history is not None:
                 history.generated.clear()
+            if isinstance(exc, _Rejected):
+                raise FilletError(
+                    f"The fillet built a body Loft refuses: {exc}. The body is "
+                    "left as it was."
+                ) from exc
             raise FilletError(
                 f"Fillet failed in the kernel ({type(exc).__name__}); the radius "
                 f"({radius_mm} mm) may be too large for an adjacent face."
@@ -130,7 +138,7 @@ def fillet_body(
 
 
 class _Rejected(RuntimeError):
-    """The fillet built, but its result failed :func:`fillet_result_ok`."""
+    """The fillet built, but :func:`fillet_problem` found something wrong."""
 
 
 def _working_copy(body: BodyShape, edges: list[Edge]) -> tuple[BodyShape, list[Edge]]:
