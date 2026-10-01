@@ -2864,6 +2864,11 @@ export interface components {
              * @constant
              */
             subshape_type: "edge";
+            /**
+             * Topo Name
+             * @description History-based name of the picked subshape (DESIGN-INTENT-REFS): which feature made it and from what, never where it is, so it survives a dimension edit that moves it. The resolver tries it after the exact signature and before the geometric tiers, and only when exactly one current subshape holds it. Absent on selectors authored before 2026-10-01 and on subshapes the kernel could not name; resolution is then unchanged.
+             */
+            topo_name?: string | null;
         };
         /**
          * EdgeSubshapeRef
@@ -5223,6 +5228,11 @@ export interface components {
              * @constant
              */
             surface: "plane";
+            /**
+             * Topo Name
+             * @description History-based name of the picked subshape (DESIGN-INTENT-REFS): which feature made it and from what, never where it is, so it survives a dimension edit that moves it. The resolver tries it after the exact signature and before the geometric tiers, and only when exactly one current subshape holds it. Absent on selectors authored before 2026-10-01 and on subshapes the kernel could not name; resolution is then unchanged.
+             */
+            topo_name?: string | null;
         };
         /**
          * Point2D

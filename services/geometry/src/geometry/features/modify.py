@@ -14,6 +14,12 @@ from loft_wire.features import (
     ShellFeature,
 )
 
+from geometry.features.naming_hooks import (
+    edge_blend_names,
+    edge_sources,
+    face_sources,
+    tilted_face_names,
+)
 from geometry.features.state import (
     EvaluationState,
 )
@@ -34,6 +40,7 @@ from geometry.kernel import (
     select_edges,
     shell_body,
 )
+from geometry.kernel.naming import OpHistory
 
 
 def _evaluate_fillet(
@@ -62,8 +69,11 @@ def _evaluate_fillet(
             ),
         )
 
+    names = state.face_names()
     try:
-        edges = select_edges(active, params.edges, tally=state.subshape_tally)
+        edges = select_edges(
+            active, params.edges, tally=state.subshape_tally, face_names=names
+        )
     except NoEdgesSelectedError as exc:
         return FeatureError(code="no_fillet_edges", message=str(exc))
     except SubshapeUnresolvedError as exc:
@@ -71,10 +81,14 @@ def _evaluate_fillet(
     except SubshapeAmbiguousError as exc:
         return FeatureError(code="subshape_ambiguous", message=str(exc))
 
+    history, sources = OpHistory(), edge_sources(active, names, edges)
     try:
-        state.set_active_body(fillet_body(active, edges, params.radius_mm))
+        filleted = fillet_body(active, edges, params.radius_mm, history=history)
     except FilletError as exc:
         return FeatureError(code="fillet_failed", message=str(exc))
+    state.set_active_body(
+        filleted, edge_blend_names(item.id, "fillet", history, sources)
+    )
     return None
 
 
@@ -104,8 +118,11 @@ def _evaluate_chamfer(
             ),
         )
 
+    names = state.face_names()
     try:
-        edges = select_edges(active, params.edges, tally=state.subshape_tally)
+        edges = select_edges(
+            active, params.edges, tally=state.subshape_tally, face_names=names
+        )
     except NoEdgesSelectedError as exc:
         return FeatureError(code="no_chamfer_edges", message=str(exc))
     except SubshapeUnresolvedError as exc:
@@ -113,10 +130,14 @@ def _evaluate_chamfer(
     except SubshapeAmbiguousError as exc:
         return FeatureError(code="subshape_ambiguous", message=str(exc))
 
+    history, sources = OpHistory(), edge_sources(active, names, edges)
     try:
-        state.set_active_body(chamfer_body(active, edges, params.distance_mm))
+        chamfered = chamfer_body(active, edges, params.distance_mm, history=history)
     except ChamferError as exc:
         return FeatureError(code="chamfer_failed", message=str(exc))
+    state.set_active_body(
+        chamfered, edge_blend_names(item.id, "chamfer", history, sources)
+    )
     return None
 
 
@@ -157,6 +178,7 @@ def _evaluate_shell(
             active,
             [ref.selector.signature for ref in params.faces.refs],
             tally=state.subshape_tally,
+            face_names=state.face_names(),
         )
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
@@ -210,6 +232,7 @@ def _evaluate_draft(
             active,
             [ref.selector.signature for ref in params.faces.refs],
             tally=state.subshape_tally,
+            face_names=state.face_names(),
         )
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
@@ -230,8 +253,11 @@ def _evaluate_draft(
         params.neutral_plane.offset_mm,
         params.neutral_plane.flip,
     )
+    history = OpHistory()
+    sources = face_sources(active, state.face_names())
     try:
-        state.set_active_body(draft_body(active, faces, neutral, params.angle_deg))
+        drafted = draft_body(active, faces, neutral, params.angle_deg, history=history)
     except DraftError as exc:
         return FeatureError(code="draft_failed", message=str(exc))
+    state.set_active_body(drafted, tilted_face_names(history, sources))
     return None

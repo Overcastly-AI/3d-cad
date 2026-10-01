@@ -49,7 +49,7 @@ def roundtrip_tolerance_for(name: str) -> float:
     2026-09-25 F1). It applies to the volume and area only: the centroid and
     bounds keep ROUNDTRIP_TOL (F5). Every such golden is listed in
     test_goldens.ROUNDTRIP_TOLERANCE_OVERRIDES, so an override cannot appear
-    unreviewed; today there are none.
+    unreviewed.
     """
     expected = GOLDENS_DIR / name / "expected.json"
     if not expected.is_file():

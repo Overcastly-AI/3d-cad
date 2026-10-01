@@ -60,6 +60,7 @@ from geometry.kernel import (
 from geometry.kernel.fork import weigh_shapes
 from geometry.kernel.healing import body_is_valid
 from geometry.kernel.lumps import lump_count
+from geometry.kernel.naming import BodyNames
 from geometry.kernel.provenance import FaceProvenance, FaceProvenanceRecorder
 from geometry.kernel.resolution import ResolutionTally
 from geometry.kernel.types import BodyShape
@@ -198,6 +199,20 @@ class TreeEvaluation:
     #: served one pick serves the next with nothing to compute. ``None`` for a
     #: hand-built evaluation (tests), which reads as an empty history.
     provenance_recorder: FaceProvenanceRecorder | None = None
+    #: The history-based face names of every body (DESIGN-INTENT-REFS), the same
+    #: objects the evaluator state holds. Read through :meth:`face_names`.
+    topo_names: list[BodyNames] = field(default_factory=list[BodyNames])
+
+    def face_names(self) -> list[str | None]:
+        """The name of each face of :attr:`body`, in ``body.faces()`` order
+        (``None`` where a face has none). ``[]`` without a body."""
+        if self.body is None:
+            return []
+        out: list[str | None] = []
+        for face in self.body.faces():
+            names = (n.name_of(face) for n in self.topo_names)
+            out.append(next((name for name in names if name is not None), None))
+        return out
 
     @property
     def face_provenance(self) -> FaceProvenance:
@@ -1139,6 +1154,7 @@ def _evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
         unfold_body=state.sheet_metal_unfold_body,
         datum_planes=dict(state.datum_planes),
         provenance_recorder=state.provenance,
+        topo_names=list(state.topo_names.values()),
     )
 
     # Offer this prefix as a resume point — but only once *evaluation* is dead,

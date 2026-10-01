@@ -29,6 +29,7 @@ from geometry.kernel import (
 )
 from geometry.kernel.fork import fork_shapes
 from geometry.kernel.healing import new_geometry_is_valid
+from geometry.kernel.naming import BodyNames, NameHook, carry_names
 from geometry.kernel.provenance import FaceProvenanceRecorder
 from geometry.kernel.resolution import ResolutionTally
 from geometry.kernel.types import BodyShape
@@ -243,6 +244,25 @@ class EvaluationState:
     #: later feature holding the old one. Handlers pass it as ``tally=`` to every
     #: resolver of a picked reference.
     subshape_tally: ResolutionTally = field(default_factory=ResolutionTally)
+    #: The history-based face names of each body (DESIGN-INTENT-REFS,
+    #: :mod:`geometry.kernel.naming`), keyed like :attr:`bodies`. Kept in step by
+    #: the three body funnels below, which carry every body change through
+    #: :func:`~geometry.kernel.naming.carry_names`, so no handler can leave a
+    #: body with stale names; a face the map does not hold has no name.
+    topo_names: dict[uuid.UUID, BodyNames] = field(
+        default_factory=dict[uuid.UUID, BodyNames]
+    )
+
+    def face_names(self) -> list[str | None]:
+        """The ACTIVE body's face names, aligned with ``active_body.faces()``
+        (empty with no active body)."""
+        active = self.active_body
+        if active is None or self.active_body_id is None:
+            return []
+        names = self.topo_names.get(self.active_body_id)
+        return (
+            [None] * len(active.faces()) if names is None else names.face_names(active)
+        )
 
     def record_cut_tools(self, feature_id: uuid.UUID, tools: list[Solid]) -> None:
         """Record the removal tool(s) an ok CUT feature just subtracted.
@@ -346,20 +366,37 @@ class EvaluationState:
             )
         return shape
 
-    def set_active_body(self, shape: BodyShape) -> None:
+    def set_active_body(self, shape: BodyShape, generated: NameHook = ()) -> None:
         """Replace the ACTIVE body's current shape (a modifying feature result).
 
         Keeps the body's identity slot (its base feature id) so downstream refs
         keep resolving; asserts an active body exists (callers gate on it). The
         shape may be a single solid or a lump-count-preserving multi-lump
-        Compound (§MB-4). Gated by :meth:`_admit` (CM-6).
+        Compound (§MB-4). Gated by :meth:`_admit` (CM-6). *generated* is the
+        op's naming hook: the faces it created or modified, with their names.
         """
-        assert self.active_body_id is not None, "no active body to modify"
-        self.bodies[self.active_body_id] = self._admit(
-            shape, self.bodies[self.active_body_id]
+        body_id = self.active_body_id
+        assert body_id is not None, "no active body to modify"
+        self.bodies[body_id] = self._admit(shape, self.bodies[body_id])
+        self._rename(body_id, shape, [body_id], generated)
+
+    def _rename(
+        self,
+        body_id: uuid.UUID,
+        shape: BodyShape,
+        sources: list[uuid.UUID],
+        generated: NameHook,
+    ) -> None:
+        """Carry the names of the *sources* bodies onto *shape* (the new body)."""
+        self.topo_names[body_id] = carry_names(
+            shape,
+            [self.topo_names[s] for s in sources if s in self.topo_names],
+            generated,
         )
 
-    def start_body(self, base_id: uuid.UUID, shape: BodyShape) -> None:
+    def start_body(
+        self, base_id: uuid.UUID, shape: BodyShape, generated: NameHook = ()
+    ) -> None:
         """Insert a NEW body keyed by its base feature id and make it active.
 
         The second-body path (``merge=False`` / ``import`` / the first body): a
@@ -370,6 +407,7 @@ class EvaluationState:
         """
         self.bodies[base_id] = self._admit(shape)
         self.active_body_id = base_id
+        self._rename(base_id, shape, [], generated)
 
     def combine_bodies(
         self, target_id: uuid.UUID, tool_id: uuid.UUID, shape: BodyShape
@@ -390,6 +428,8 @@ class EvaluationState:
         )
         del self.bodies[tool_id]
         self.active_body_id = target_id
+        self._rename(target_id, shape, [target_id, tool_id], ())
+        self.topo_names.pop(tool_id, None)
 
     def shape_slots(self) -> list[tuple[BodyShape, Callable[[BodyShape], None]]]:
         """EVERY kernel shape this state holds, each with a setter for its slot.
@@ -480,6 +520,13 @@ class EvaluationState:
         twin.provenance = self.provenance.fork(
             [(body, twin.bodies[body_id]) for body_id, body in self.bodies.items()]
         )
+        # Names are keyed by face identity, so they too are re-anchored on the
+        # copies; a name the copy cannot map is dropped, never guessed.
+        twin.topo_names = {
+            body_id: names.fork(self.bodies[body_id], twin.bodies[body_id])
+            for body_id, names in self.topo_names.items()
+            if body_id in self.bodies
+        }
         return twin, forked.nbytes
 
     def adopt(self, other: "EvaluationState") -> None:
@@ -505,6 +552,7 @@ def _add_body(
     tool: Solid,
     *,
     merge: bool,
+    generated: NameHook = (),
 ) -> FeatureError | None:
     """Apply an ADDITIVE body op under the multi-body merge rule (§MB-0 Dec. 2).
 
@@ -527,16 +575,20 @@ def _add_body(
             fused = combine_body(active, tool, "add")
         except BooleanError as exc:
             return FeatureError(code="boolean_failed", message=str(exc))
-        state.set_active_body(fused)
+        state.set_active_body(fused, generated)
         state.record_feature_tools(item.id, "fuse", [tool])
         return None
-    state.start_body(item.id, tool)
+    state.start_body(item.id, tool, generated)
     state.record_feature_tools(item.id, "fuse", [tool])
     return None
 
 
 def _cut_active(
-    state: EvaluationState, tool: Solid, *, feature_id: uuid.UUID
+    state: EvaluationState,
+    tool: Solid,
+    *,
+    feature_id: uuid.UUID,
+    generated: NameHook = (),
 ) -> FeatureError | None:
     """Subtract *tool* from the ACTIVE body (a modifying op — §MB-0).
 
@@ -568,7 +620,7 @@ def _cut_active(
     active = state.active_body
     assert active is not None, "cut without an active body is handled by the caller"
     try:
-        state.set_active_body(combine_body(active, tool, "cut"))
+        state.set_active_body(combine_body(active, tool, "cut"), generated)
     except CutRemovedNothingError as exc:
         return FeatureError(code="cut_removed_nothing", message=str(exc))
     except BooleanError as exc:

@@ -323,6 +323,12 @@ def _surface_key(face: Face) -> SurfaceKey | None:
     return None
 
 
+#: Public name of :func:`_surface_key` for :mod:`geometry.kernel.naming`, which
+#: carries a face name across an op that re-bounds the face by the SAME exact
+#: surface identity provenance uses (one surface rule, not two).
+surface_key = _surface_key
+
+
 #: Six floats: ``(xmin, ymin, zmin, xmax, ymax, zmax)``.
 _Extent = tuple[float, float, float, float, float, float]
 
@@ -471,6 +477,11 @@ def _explore_faces(shape: BodyShape) -> list[TopoDS_Shape]:
         faces[hash(current)] = current
         explorer.Next()
     return list(faces.values())
+
+
+#: Public name of :func:`_explore_faces` (raw faces in ``build123d`` order), shared
+#: with :mod:`geometry.kernel.naming`.
+explore_faces = _explore_faces
 
 
 @dataclass(frozen=True)

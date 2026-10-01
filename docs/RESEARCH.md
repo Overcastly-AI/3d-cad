@@ -272,3 +272,32 @@ are random 256-bit values in an `HttpOnly; Secure; SameSite=Strict` cookie
 scoped to `/api/v1/auth`. They rotate on use, and reusing an old one revokes
 the whole session. Sessions time out after 24 h idle (sliding) and 7 days
 absolute. Without TLS on a host other than localhost, the limit is a hard 1 h.
+
+## 14. Picked references: history names before geometry
+
+**Decision.** A picked face or edge stores a history-based name (`topo_name`)
+beside its geometric signature. A face is named by the feature that made it
+and from what: an extrude side from its sketch entity id, its caps
+`start`/`end`, a fillet or chamfer face from the name of the edge it replaced.
+A draft passes a face's name to the face it tilts. Every other face keeps its
+name while the op keeps it: the same OCCT shape, else the same exact
+supporting surface (`SurfaceKey`). An edge is the sorted pair of its two face
+names (`geometry/kernel/naming.py`).
+
+**Why.** Fusion 360, SolidWorks and Onshape carry a pick through a dimension
+edit because they name by history. Our geometric tiers cannot: a drafted wall
+that moves along X also moves within its own plane, so the moulded enclosure
+lost Fillet1 and everything after it on a width edit (hard-parts QA
+2026-10-01).
+
+**Order and refusal.** Exact signature first, unchanged. Then the name, only
+when exactly one current subshape holds it and the geometric tiers find
+nothing or include it. If they find other subshapes, they win, exactly as
+without a name. Any doubt is no name: two sources on one surface, a split
+face, a pair of faces meeting twice, an op without a hook. A ref without a
+name resolves as before, so goldens are unchanged. Names carry through the
+rebuild-cache fork face for face.
+
+**Scope.** Step 1 hooks extrude, draft, fillet and chamfer. Revolve, loft,
+pattern, mirror, shell offsets, sheet metal and `clean_shape` history are
+steps 2-3 (BACKLOG DESIGN-INTENT-REFS). Old selectors are not backfilled.

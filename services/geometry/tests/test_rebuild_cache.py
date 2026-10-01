@@ -902,13 +902,12 @@ def test_thinning_only_touches_its_own_chain() -> None:
     assert len(kept) < 40
 
 
-#: Every EvaluationState field, by how ``EvaluationState.fork`` must treat it.
-#: A new field fails ``test_every_state_field_is_classified_for_the_fork`` until
-#: somebody decides which set it belongs in — and if it holds a kernel shape,
-#: adds it to ``EvaluationState.shape_slots`` (which both the fork and the
-#: detach walk), or a ladder rung would share it with the evaluation that carries
-#: on past the rung. The name census forces the decision; the BEHAVIOUR is gated
-#: by ``test_every_shape_the_state_holds_is_forked_and_detached``.
+#: Every EvaluationState field, by how ``EvaluationState.fork`` treats it. A new
+#: field fails ``test_every_state_field_is_classified_for_the_fork`` until it is
+#: classified, and one holding a kernel shape must join ``shape_slots`` (the fork
+#: and detach walk it) or a ladder rung would share it with the evaluation that
+#: carries on. ``test_every_shape_the_state_holds_is_forked_and_detached`` gates
+#: the behaviour; ``topo_names`` is re-anchored like ``provenance``.
 _FORKED_FIELDS = frozenset(
     {
         "bodies",
@@ -916,6 +915,7 @@ _FORKED_FIELDS = frozenset(
         "last_cut_tools",
         "feature_tools",
         "provenance",
+        "topo_names",
         "solved_sketches",
         "sketch_planes",
         "datum_planes",

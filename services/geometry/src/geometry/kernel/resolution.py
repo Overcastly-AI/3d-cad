@@ -70,15 +70,5 @@ class ResolutionTally:
             exact=self._counts["exact"],
             durable=self._counts["durable"],
             adjacent=self._counts["adjacent"],
+            named=self._counts["named"],
         )
-
-
-def face_tier(resilient: bool) -> SubshapeResolutionTier:
-    """The wire tier of a planar-face match from
-    :func:`geometry.kernel.faces.match_face_records`.
-
-    Its three resilient tiers (coplanar, translated, enclosing) all mean "the
-    face moved or changed and was re-found on an invariant" - the drawings
-    vocabulary's ``durable``. ``adjacent`` is edge-only.
-    """
-    return "durable" if resilient else "exact"

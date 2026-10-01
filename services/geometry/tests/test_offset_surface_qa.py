@@ -69,9 +69,12 @@ TRUTH_REL = 1e-10
 
 #: The goldens allowed a looser STEP round trip, and the bound each is allowed.
 #: Pinned here AS WELL AS in test_goldens, so adding one needs a geometry-QA
-#: edit too (docs/GEOMETRY-QA.md 2026-09-25). EMPTY since F1's fix: the golden's
-#: 1e-6 override was retired when its round trip met ROUNDTRIP_TOL (1.3e-8).
-REVIEWED_OVERRIDE: dict[str, float] = {}
+#: edit too. F1's fix retired the spline golden's 1e-6 override (its round trip
+#: met ROUNDTRIP_TOL at 1.3e-8). The one entry is the drafted, filleted open
+#: shell (expected.json rationale; BACKLOG SHELL-ROUND-ASYM).
+REVIEWED_OVERRIDE: dict[str, float] = {
+    "revise-width-drafted-fillet-shell-130x80x35": 1e-5,
+}
 
 #: The second case: the golden's shape class, other numbers. Its spline's
 #: tightest inward radius of curvature is 2.354 mm against the 2 mm wall, so the

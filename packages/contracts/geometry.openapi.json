@@ -2665,6 +2665,20 @@
             "default": "edge",
             "title": "Subshape Type",
             "type": "string"
+          },
+          "topo_name": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "History-based name of the picked subshape (DESIGN-INTENT-REFS): which feature made it and from what, never where it is, so it survives a dimension edit that moves it. The resolver tries it after the exact signature and before the geometric tiers, and only when exactly one current subshape holds it. Absent on selectors authored before 2026-10-01 and on subshapes the kernel could not name; resolution is then unchanged.",
+            "title": "Topo Name"
           }
         },
         "required": [
@@ -5914,6 +5928,20 @@
             "default": "plane",
             "title": "Surface",
             "type": "string"
+          },
+          "topo_name": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "History-based name of the picked subshape (DESIGN-INTENT-REFS): which feature made it and from what, never where it is, so it survives a dimension edit that moves it. The resolver tries it after the exact signature and before the geometric tiers, and only when exactly one current subshape holds it. Absent on selectors authored before 2026-10-01 and on subshapes the kernel could not name; resolution is then unchanged.",
+            "title": "Topo Name"
           }
         },
         "required": [
@@ -8305,10 +8333,18 @@
             "title": "Exact",
             "type": "integer"
           },
+          "named": {
+            "default": 0,
+            "description": "References re-found by their stored history-based name (DESIGN-INTENT-REFS) after the exact signature missed.",
+            "minimum": 0.0,
+            "title": "Named",
+            "type": "integer"
+          },
           "worst_tier": {
-            "description": "The least certain tier any reference of this feature resolved at: 'exact' < 'durable' < 'adjacent'.",
+            "description": "The least certain tier any reference of this feature resolved at: 'exact' < 'named' < 'durable' < 'adjacent'.",
             "enum": [
               "exact",
+              "named",
               "durable",
               "adjacent"
             ],

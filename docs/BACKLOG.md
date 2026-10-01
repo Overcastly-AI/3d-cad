@@ -91,6 +91,11 @@ commits carry the ID (`git log --grep=<ID>`).
       through. Two edits did hold: the duct's flange on its swept end, and the
       shaft's PCD. _Accept:_ those three edits rebuild with every pick on the
       corresponding edge or face; a golden covers the enclosure width edit.
+      _Step 1 done 2026-10-01_ (history names, RESEARCH §14): the enclosure
+      width edit rebuilds (golden
+      `revise-width-drafted-fillet-shell-130x80x35`). Left: impeller (step 2,
+      loft/pattern/revolve hooks) and bracket (step 3, sheet metal, shell,
+      `clean_shape` history), each re-checked on a fresh QA part.
 - [x] **TYPED-POLYLINE-UNJOINED**: lines whose ends are typed onto an
       existing endpoint are not joined (no coincident constraint, unlike a
       pointer snap). The first dimension on the shaft's typed 18-line profile
@@ -315,3 +320,4 @@ One line each. The founder triages weekly; most are closed without work.
 - `test_provenance.py:476` passes with its `_REBUILD_CACHE` patch a no-op (it asserts laddered == ladderless).
 - During a fillet edit: tip-body face highlights paint over the preview body, the timeline is unheld until the preview lands, mass properties show the tip, a failed preview is silent, and extrude/flange/hem edits have no preview.
 - The sketch corner reconcile compares against the store when the result arrives, not when the fillet was asked for; a drag in between reads as a trim.
+- SHELL-ROUND-ASYM: an open 2 mm shell of a drafted, R5-rounded box leaves one of its four inner R3 rounds 5.2e-8 mm^2 off its mirror twins (edges fitted at 1e-6 mm), so the STEP round trip moves the volume 1.1e-6 mm^3; `offset_edges` tightens only spline walls. Golden `revise-width-drafted-fillet-shell-130x80x35` carries a reviewed 1e-5 round-trip override until it is fixed.

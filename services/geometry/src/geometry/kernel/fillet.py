@@ -13,10 +13,19 @@ Determinism (RESEARCH §9): the OCCT fillet is a pure function of
 ``(body, edges, radius)``.
 """
 
-from build123d import Edge
+# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false
+# pyright: reportAttributeAccessIssue=false
+
+from build123d import Edge, Face, Solid
+from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet
+from OCP.Standard import Standard_Failure
+from OCP.StdFail import StdFail_NotDone
+from OCP.TopoDS import TopoDS
 
 from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
+from geometry.kernel.naming import OpHistory
 from geometry.kernel.types import BodyShape
 
 
@@ -25,7 +34,13 @@ class FilletError(RuntimeError):
     too large for the local geometry, self-intersecting the body)."""
 
 
-def fillet_body(body: BodyShape, edges: list[Edge], radius_mm: float) -> BodyShape:
+def fillet_body(
+    body: BodyShape,
+    edges: list[Edge],
+    radius_mm: float,
+    *,
+    history: OpHistory | None = None,
+) -> BodyShape:
     """Round *edges* of *body* with a constant *radius_mm*; LUMP-COUNT-PRESERVING.
 
     *body* is a single :class:`~build123d.Solid` (the common case — byte-identical
@@ -34,6 +49,10 @@ def fillet_body(body: BodyShape, edges: list[Edge], radius_mm: float) -> BodySha
     leaves the rest untouched, so a fillet on one lump of a k-lump body keeps all
     k lumps. A result whose lump count differs from the input is a merge/sever
     (unsupported) → :class:`FilletError`.
+
+    *history*, when given, receives each edge paired with the fillet face(s) it
+    generated (``BRepFilletAPI_MakeFillet::Generated``), for face naming
+    (:mod:`geometry.kernel.naming`).
 
     Raises:
         FilletError: the OCCT fillet failed, or changed the body's lump count
@@ -45,7 +64,11 @@ def fillet_body(body: BodyShape, edges: list[Edge], radius_mm: float) -> BodySha
     try:
         # fillet() carries Shape[Unknown] type params upstream (same gap
         # tessellate.py documents for export_gltf) — scoped ignore only.
-        result = body.fillet(radius_mm, edges)  # pyright: ignore[reportUnknownMemberType]
+        result = (
+            body.fillet(radius_mm, edges)
+            if history is None
+            else _fillet_with_history(body, edges, radius_mm, history)
+        )
         solids = list(result.solids())
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise FilletError(
@@ -66,3 +89,25 @@ def fillet_body(body: BodyShape, edges: list[Edge], radius_mm: float) -> BodySha
     if lump_count == 1:
         return clean_shape(solids[0])
     return assemble_lumps([clean_shape(solid) for solid in solids])
+
+
+def _fillet_with_history(
+    body: BodyShape, edges: list[Edge], radius_mm: float, history: OpHistory
+) -> BodyShape:
+    """``Mixin3D.fillet`` (build123d 0.11), call for call, keeping the builder
+    so its ``Generated`` history can be read. Raises what it raises."""
+    builder = BRepFilletAPI_MakeFillet(body.wrapped)
+    for edge in edges:
+        builder.Add(radius_mm, edge.wrapped)
+    try:
+        result = Solid._make_3d_result(builder.Shape())  # pyright: ignore[reportPrivateUsage]
+        if not result.is_valid:
+            raise Standard_Failure
+    except (StdFail_NotDone, Standard_Failure) as err:
+        raise ValueError(
+            f"Failed creating a fillet with radius of {radius_mm}"
+        ) from err
+    for edge in edges:
+        for produced in builder.Generated(edge.wrapped):
+            history.generated.append((edge, Face(TopoDS.Face_s(produced))))
+    return result

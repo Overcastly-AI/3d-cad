@@ -31,6 +31,7 @@ from geometry.features.datum_sketch import (
     _resolve_profile_faces,
     _resolve_solved_profile,
 )
+from geometry.features.naming_hooks import prism_names
 from geometry.features.state import (
     EvaluationState,
     _add_body,
@@ -65,6 +66,7 @@ from geometry.kernel import (
     twisted_extrude_face,
     twisted_sweep_face,
 )
+from geometry.kernel.naming import OpHistory
 
 
 def _evaluate_extrude(
@@ -93,16 +95,22 @@ def _evaluate_extrude(
     resolved = _resolve_profile_face(params.profile, state)
     if isinstance(resolved, FeatureError):
         return resolved
-    face, plane, _ = resolved
+    face, plane, solved = resolved
 
-    tool = _extrude_tool(face, plane, params, reverse)
+    history = OpHistory()
+    tool = _extrude_tool(face, plane, params, reverse, history)
     if isinstance(tool, FeatureError):
         return tool
-    return _add_body(item, state, tool, merge=params.merge)
+    generated = prism_names(item.id, history, plane, solved.entities, region=False)
+    return _add_body(item, state, tool, merge=params.merge, generated=generated)
 
 
 def _extrude_tool(
-    face: Face, plane: Plane, params: ExtrudeParamsV1, reverse: bool
+    face: Face,
+    plane: Plane,
+    params: ExtrudeParamsV1,
+    reverse: bool,
+    history: OpHistory | None = None,
 ) -> Solid | FeatureError:
     """The solid one profile region sweeps to: a prism, or a twisted prism.
 
@@ -111,10 +119,11 @@ def _extrude_tool(
     field absent, or ``0``) takes :func:`extrude_face` exactly as before, so an
     untwisted extrude is byte-identical to one built before the twist existed.
     A nonzero twist takes :func:`twisted_extrude_face`
-    (docs/design/twisted-extrude.md); its refusal is ``twist_failed``.
+    (docs/design/twisted-extrude.md); its refusal is ``twist_failed``. Only the
+    straight prism fills *history* (the twisted one has no naming hook yet).
     """
     if not params.is_twisted:
-        return extrude_face(face, plane, params.distance_mm, reverse)
+        return extrude_face(face, plane, params.distance_mm, reverse, history=history)
     assert params.twist_angle_deg is not None  # is_twisted implies a value
     try:
         return twisted_extrude_face(
@@ -158,6 +167,7 @@ def _evaluate_extrude_cut(
     if isinstance(resolved, FeatureError):
         return resolved
     faces, plane = resolved
+    solved = state.solved_sketches[params.profile.feature_id]
 
     body = state.active_body
     if body is None:
@@ -170,11 +180,18 @@ def _evaluate_extrude_cut(
         )
 
     tools: list[Solid] = []
+    generated: list[tuple[Face, str | None]] = []
     for face in faces:
-        tool = _extrude_tool(face, plane, params, reverse)
+        history = OpHistory()
+        tool = _extrude_tool(face, plane, params, reverse, history)
         if isinstance(tool, FeatureError):
             return tool
         tools.append(tool)
+        generated.extend(
+            prism_names(
+                feature_id, history, plane, solved.entities, region=len(faces) > 1
+            )
+        )
     try:
         for tool in tools:
             body = combine_body(body, tool, "cut")
@@ -182,7 +199,7 @@ def _evaluate_extrude_cut(
         return FeatureError(code="cut_removed_nothing", message=str(exc))
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
-    state.set_active_body(body)
+    state.set_active_body(body, generated)
     state.record_cut_tools(feature_id, tools)
     state.record_feature_tools(feature_id, "cut", list(tools))
     return None

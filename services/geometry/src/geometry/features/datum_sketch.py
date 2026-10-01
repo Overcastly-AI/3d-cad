@@ -128,7 +128,11 @@ def _resolve_face_datum_plane(
         )
     try:
         return resolve_face_plane(
-            active, face.selector.signature, offset_mm, tally=state.subshape_tally
+            active,
+            face.selector.signature,
+            offset_mm,
+            tally=state.subshape_tally,
+            face_names=state.face_names(),
         )
     except SubshapeUnresolvedError as exc:
         return FeatureError(

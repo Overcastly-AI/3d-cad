@@ -14,9 +14,13 @@ import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
  *
  * The fixture is the smallest real case. A 20 mm cube with a fillet on its
  * vertical edge at (20, 0) is widened to 30 mm, so that edge moves onto a
- * parallel line and is re-found only by adjacency (measured through the API:
- * `worst_tier: "adjacent"`, `adjacent: 1`). The fillet is BUILT through the UI,
- * so the fresh create is covered too: it resolves exactly and must say nothing.
+ * parallel line. A pick made today carries a history-based name
+ * (DESIGN-INTENT-REFS), so the kernel re-finds it by that name
+ * (`worst_tier: "named"`) and nothing is said. A pick stored before names
+ * existed has only geometry, and is re-found by adjacency
+ * (`worst_tier: "adjacent"`, `adjacent: 1`): that is the case the notice is
+ * for, reproduced by removing the stored name. The fillet is BUILT through the
+ * UI, so the fresh create is covered too: it resolves exactly and says nothing.
  *
  * `SHOT_TAG=before` names the screenshots for a capture against the old tree.
  * They are taken before the assertions, so a red run still leaves its picture.
@@ -108,6 +112,32 @@ async function widenTheSketch(page: Page, fx: Fixture): Promise<void> {
   expect(response.ok(), await response.text()).toBe(true);
 }
 
+/** Store the fillet's picks as they were before names: geometry only. */
+async function forgetTheNames(page: Page, fx: Fixture): Promise<void> {
+  const tree = await page.request.get(`/api/v1/parts/${fx.partId}/features`, {
+    headers: { Authorization: `Bearer ${fx.token}` },
+  });
+  const body = (await tree.json()) as {
+    tree_version: number;
+    features: { id: string; feature: unknown }[];
+  };
+  const fillet = body.features[FILLET];
+  expect(fillet).toBeDefined();
+  const text = JSON.stringify(fillet?.feature);
+  expect(text).toContain('"topo_name"');
+  const unnamed: unknown = JSON.parse(text, (key, value: unknown) =>
+    key === "topo_name" ? undefined : value,
+  );
+  const response = await page.request.patch(
+    `/api/v1/parts/${fx.partId}/features/${fillet?.id ?? ""}`,
+    {
+      data: { feature: unnamed, expected_tree_version: body.tree_version },
+      headers: { Authorization: `Bearer ${fx.token}` },
+    },
+  );
+  expect(response.ok(), await response.text()).toBe(true);
+}
+
 /** What the kernel reports for the fillet, read off the wire. */
 async function filletTier(page: Page, fx: Fixture): Promise<string | null> {
   const response = await page.request.post(
@@ -140,8 +170,18 @@ for (const size of [
       0,
     );
 
-    // The upstream edit moves the edge; the kernel re-finds it by adjacency.
+    // The upstream edit moves the edge; the kernel re-finds it by its name,
+    // and that is not news.
     await widenTheSketch(page, fx);
+    expect(await filletTier(page, fx)).toBe("named");
+    await page.reload();
+    await waitSolved(page);
+    await expect(page.getByTestId(`feature-resolution-${FILLET}`)).toHaveCount(
+      0,
+    );
+
+    // A pick stored before names is re-found only by adjacency.
+    await forgetTheNames(page, fx);
     expect(await filletTier(page, fx)).toBe("adjacent");
     await page.reload();
     await waitSolved(page);
@@ -204,6 +244,7 @@ test("the notice can be dismissed, and stays dismissed for that edit", async ({
   await waitSolved(page);
   await filletTheCorner(page);
   await widenTheSketch(page, fx);
+  await forgetTheNames(page, fx);
   await page.reload();
   await waitSolved(page);
 

@@ -479,6 +479,12 @@ _NOT_EXACT: dict[tuple[str, str], str] = {
     # but the pocket and r3 rounds have already cut that face: same plane,
     # different boundary -> the coplanar tier.
     ("shell-pinch-boundary-plate-40x40x10-pocket-t1.9", "shell"): "durable",
+    # DESIGN-INTENT-REFS: every pick of the enclosure was taken at width 120 and
+    # carries a topo_name; after the edit to 130 none matches exactly, and each
+    # is re-found by its name (the drafted walls by no geometric tier at all).
+    ("revise-width-drafted-fillet-shell-130x80x35", "draft"): "named",
+    ("revise-width-drafted-fillet-shell-130x80x35", "fillet"): "named",
+    ("revise-width-drafted-fillet-shell-130x80x35", "shell"): "named",
 }
 
 #: holed-bracket drills two holes per face with ONE stored face signature each;
@@ -563,6 +569,12 @@ def test_every_schema_root_reports_one_tier_per_picked_reference() -> None:
                 )
                 contributed[kind] = contributed.get(kind, 0) + refs
             status = "error" if item["id"] in refused else "ok"
+            resolution = result.subshape_resolution
+            named = 0 if resolution is None else resolution.named
+            if expected is not None and named != (
+                refs if expected[0] == "named" else 0
+            ):
+                wrong.append(f"{name} {kind} {item['id'][-4:]}: named {named}")
             if result.status != status or _summary(result) != expected:
                 wrong.append(
                     f"{name} {kind} {item['id'][-4:]}: {result.status} "

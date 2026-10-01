@@ -48,9 +48,14 @@ from loft_wire.sketch import (
     SketchPoint,
     SketchSpline,
 )
+from OCP.BRepPrimAPI import (  # pyright: ignore[reportMissingTypeStubs]
+    BRepPrimAPI_MakePrism,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
+)
+from OCP.TopoDS import TopoDS  # pyright: ignore[reportMissingTypeStubs]
 
 from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
+from geometry.kernel.naming import OpHistory
 from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.types import BodyShape
 
@@ -492,18 +497,35 @@ def extrude_face(
     plane: Plane,
     distance_mm: float,
     reverse: bool,
+    *,
+    history: OpHistory | None = None,
 ) -> Solid:
     """Linear-extrude *face* along the sketch *plane* normal (mm).
 
     ``reverse`` extrudes along the negative normal (``direction: "reverse"``).
     *plane* is the resolved sketch plane, so an offset datum's normal (and, with
     ``flip``, its reversed sense) drives the extrusion direction.
+
+    *history*, when given, receives the prism's OCCT history for face naming
+    (:mod:`geometry.kernel.naming`): each profile edge paired with the side face
+    it swept, and the two caps. The prism is the one ``Solid.extrude`` builds
+    (``BRepPrimAPI_MakePrism`` on the face, the same call), kept here only so
+    its history can be read.
     """
     if distance_mm <= 0:
         raise ValueError(f"distance_mm must be > 0, got {distance_mm}")
     normal = plane.z_dir
     direction = normal * (-distance_mm if reverse else distance_mm)
-    return Solid.extrude(face, direction)
+    if history is None:
+        return Solid.extrude(face, direction)
+    builder = BRepPrimAPI_MakePrism(face.wrapped, direction.wrapped)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    solid = Solid(TopoDS.Solid_s(builder.Shape()))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+    for edge in face.edges():
+        for produced in builder.Generated(edge.wrapped):  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+            history.generated.append((edge, Face(TopoDS.Face_s(produced))))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+    history.start = Face(TopoDS.Face_s(builder.FirstShape()))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+    history.end = Face(TopoDS.Face_s(builder.LastShape()))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+    return solid
 
 
 def combine_body(
