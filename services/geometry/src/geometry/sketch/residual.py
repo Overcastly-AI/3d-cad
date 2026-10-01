@@ -672,7 +672,7 @@ def constraint_residual(
             return _unit_dot(a, b)
         case TangentConstraint() if constraint.a_point is not None:
             solved = _named_points((constraint.a, constraint.b), entities_by_id)
-            residual = endpoint_residual(constraint, solved, input_points)
+            residual = endpoint_residual(constraint, solved)
             return UNRESOLVABLE if residual is None else residual
         case TangentConstraint():
             return _tangent_residual(constraint, entities_by_id)
