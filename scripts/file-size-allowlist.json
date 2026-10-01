@@ -6,7 +6,6 @@
     "apps/web/src/components/DocumentRegister.tsx": 1593,
     "apps/web/src/components/DrawingSheet.tsx": 2397,
     "apps/web/src/components/SketchStrip.tsx": 1515,
-    "apps/web/src/routes/DrawingPage.tsx": 3382,
     "apps/web/src/routes/PartPage.tsx": 6411,
     "apps/web/src/sketch/constraints.test.ts": 1653,
     "apps/web/src/sketch/constraints.ts": 2098,
