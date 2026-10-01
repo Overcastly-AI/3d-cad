@@ -14,11 +14,13 @@ from collections.abc import Sequence
 from build123d import Edge, Face, Plane
 from loft_wire.sketch import SketchEntity
 
+from geometry.features.state import EvaluationState, RecordedToolGroup
 from geometry.kernel.extrude import entity_edges
 from geometry.kernel.naming import (
     NameHook,
     OpHistory,
     ShapeNames,
+    copied_names,
     edge_names,
     face_name,
     generated_names,
@@ -112,6 +114,50 @@ def prism_names(
     return hook
 
 
+def swept_names(
+    feature_id: uuid.UUID,
+    history: OpHistory,
+    plane: Plane,
+    entities: Sequence[SketchEntity],
+    *,
+    spans: int = 1,
+) -> NameHook:
+    """Names for a loft's or a revolve's faces: each side face from the sketch
+    entity of its profile edge (``side:<entity id>``), and the caps
+    (``start`` / ``end``).
+
+    *spans* is the number of side faces each profile edge generates (a ruled
+    loft through N sections has N - 1 per edge, in span order); with more than
+    one, each side is ``side:<entity id>:<span>``. An edge that generated any
+    other number of faces names none of them, and an edge no entity claims (see
+    :func:`_entity_ids`) leaves its faces unnamed, exactly as for an extrude.
+    For a loft, *plane* and *entities* are the FIRST profile section's.
+    """
+    edges: list[Edge] = []
+    produced: dict[int, list[Face]] = {}
+    for source, face in history.generated:
+        if not isinstance(source, Edge):
+            return []
+        same = (i for i, e in enumerate(edges) if e.is_same(source))  # pyright: ignore[reportUnknownMemberType]
+        slot = next(same, None)
+        if slot is None:
+            slot = len(edges)
+            edges.append(source)
+        produced.setdefault(slot, []).append(face)
+    ids = _entity_ids(edges, plane, entities)
+    hook: list[tuple[Face, str | None]] = []
+    for slot, eid in enumerate(ids):
+        faces = produced[slot]
+        for span, face in enumerate(faces):
+            label = f"side:{eid}" if spans == 1 else f"side:{eid}:{span}"
+            named = eid is not None and len(faces) == spans
+            hook.append((face, face_name(feature_id, label) if named else None))
+    for cap, label in ((history.start, "start"), (history.end, "end")):
+        if cap is not None:
+            hook.append((cap, face_name(feature_id, label)))
+    return hook
+
+
 def edge_sources(
     body: BodyShape, face_names: Sequence[str | None], edges: Sequence[Edge]
 ) -> ShapeNames:
@@ -136,3 +182,48 @@ def edge_blend_names(
 def tilted_face_names(history: OpHistory, sources: ShapeNames) -> NameHook:
     """Names for the faces a draft MODIFIED: each keeps its own name."""
     return modified_names(history, sources)
+
+
+def placed_names(
+    feature_id: uuid.UUID, group: RecordedToolGroup, placed: Sequence[BodyShape]
+) -> list[NameHook]:
+    """Names for a ``features``-scope pattern's placed tool copies, one hook per
+    copy: ``i<k>:<source face name>``, *k* the instance (1 .. count - 1).
+
+    *placed* is placement-outer, source-inner (the order
+    :func:`~geometry.kernel.pattern.linear_pattern_placements` and its circular
+    sibling return), so copy *i* is instance ``i // len(tools) + 1`` of tool
+    ``i % len(tools)``.
+    """
+    tools = group.tools
+    if not tools:
+        return [[] for _ in placed]
+    return [
+        copied_names(
+            feature_id,
+            f"i{index // len(tools) + 1}",
+            tools[index % len(tools)],
+            group.names_of(index % len(tools)),
+            copy,
+        )
+        for index, copy in enumerate(placed)
+    ]
+
+
+def body_copy_names(
+    feature_id: uuid.UUID,
+    labels: Sequence[str],
+    state: EvaluationState,
+    active: BodyShape,
+    copies: Sequence[BodyShape],
+) -> NameHook:
+    """Names for whole-body copies (a ``body``-scope pattern's instances, a
+    ``body``-scope mirror's image): ``<label>:<the active body's face name>``.
+    Nothing when the copies and *labels* do not pair up."""
+    if len(labels) != len(copies):
+        return []
+    names = state.face_names()
+    out: list[tuple[Face, str | None]] = []
+    for label, copy in zip(labels, copies, strict=True):
+        out.extend(copied_names(feature_id, label, active, names, copy))
+    return out

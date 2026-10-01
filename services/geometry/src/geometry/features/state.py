@@ -29,7 +29,7 @@ from geometry.kernel import (
 )
 from geometry.kernel.fork import fork_shapes
 from geometry.kernel.healing import new_geometry_is_valid
-from geometry.kernel.naming import BodyNames, NameHook, carry_names
+from geometry.kernel.naming import BodyNames, NameHook, carry_names, tool_face_names
 from geometry.kernel.provenance import FaceProvenanceRecorder
 from geometry.kernel.resolution import ResolutionTally
 from geometry.kernel.types import BodyShape
@@ -75,6 +75,16 @@ class RecordedToolGroup:
 
     op: ToolOp
     tools: list[BodyShape]
+    #: Each tool's face names (aligned with ``tool.faces()``, or ``None`` for a
+    #: tool with none), so a pattern or mirror repeating the tools can name the
+    #: copies (DESIGN-INTENT-REFS). Empty means no names were recorded.
+    names: list[list[str | None] | None] = field(
+        default_factory=list[list[str | None] | None]
+    )
+
+    def names_of(self, index: int) -> list[str | None] | None:
+        """The face names of tool *index*, or ``None``."""
+        return self.names[index] if index < len(self.names) else None
 
 
 @dataclass(frozen=True)
@@ -291,7 +301,11 @@ class EvaluationState:
         self.last_cut_body_id = self.active_body_id
 
     def record_feature_tools(
-        self, feature_id: uuid.UUID, op: ToolOp, tools: list[BodyShape]
+        self,
+        feature_id: uuid.UUID,
+        op: ToolOp,
+        tools: list[BodyShape],
+        generated: NameHook = (),
     ) -> None:
         """Record ONE feature's reflectable contribution (mirror-semantics §2b).
 
@@ -299,8 +313,15 @@ class EvaluationState:
         (:attr:`tool_scope_ids`), so an ordinary rebuild retains nothing extra.
         Called by every mirrorable verb AFTER its body op succeeded, so the record
         always describes material actually applied to :attr:`active_body_id`.
+        *generated* is the feature's naming hook; each tool's face names are
+        taken from it, so a repeat of the tool can name its copies.
         """
-        self.record_feature_tool_groups(feature_id, [RecordedToolGroup(op, tools)])
+        if feature_id not in self.tool_scope_ids:
+            return
+        names = [tool_face_names(tool, generated) for tool in tools]
+        self.record_feature_tool_groups(
+            feature_id, [RecordedToolGroup(op, tools, list(names))]
+        )
 
     def record_feature_tool_groups(
         self, feature_id: uuid.UUID, groups: list[RecordedToolGroup]
@@ -500,7 +521,7 @@ class EvaluationState:
                 feature_id: RecordedFeatureTools(
                     body_id=recorded.body_id,
                     groups=[
-                        RecordedToolGroup(group.op, list(group.tools))
+                        RecordedToolGroup(group.op, list(group.tools), group.names)
                         for group in recorded.groups
                     ],
                 )
@@ -576,10 +597,10 @@ def _add_body(
         except BooleanError as exc:
             return FeatureError(code="boolean_failed", message=str(exc))
         state.set_active_body(fused, generated)
-        state.record_feature_tools(item.id, "fuse", [tool])
+        state.record_feature_tools(item.id, "fuse", [tool], generated)
         return None
     state.start_body(item.id, tool, generated)
-    state.record_feature_tools(item.id, "fuse", [tool])
+    state.record_feature_tools(item.id, "fuse", [tool], generated)
     return None
 
 
@@ -626,5 +647,5 @@ def _cut_active(
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
     state.record_cut_tools(feature_id, [tool])
-    state.record_feature_tools(feature_id, "cut", [tool])
+    state.record_feature_tools(feature_id, "cut", [tool], generated)
     return None

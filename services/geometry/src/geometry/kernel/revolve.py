@@ -61,12 +61,16 @@ Determinism (RESEARCH §9): the profile is built in entity list order, the axis
 is a pure function of two solved points, and the OCCT revolve + boolean are
 pure algorithms on identical inputs — no unordered iteration participates.
 """
+# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false
+# pyright: reportAttributeAccessIssue=false
 
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 from build123d import Axis, Face, Plane, Solid, Vector
+from build123d.geometry import DEG2RAD
 from loft_wire.features import OriginAxis, RevolveAxis, SketchLineAxis
 from loft_wire.sketch import (
     Point2D,
@@ -75,6 +79,9 @@ from loft_wire.sketch import (
     SketchEntity,
     SketchLine,
 )
+from OCP.BRepPrimAPI import BRepPrimAPI_MakeRevol
+from OCP.TopAbs import TopAbs_FACE
+from OCP.TopoDS import TopoDS
 
 from geometry.kernel.extrude import (
     ProfileNotClosedError,
@@ -85,6 +92,7 @@ from geometry.kernel.extrude import (
     plane_vector_to_local,
 )
 from geometry.kernel.healing import clean_shape
+from geometry.kernel.naming import OpHistory
 
 #: Clearance tolerance (mm) for the axis-vs-profile side test, aligned with the
 #: kernel linear tolerance (1e-7 m; model units are mm). A profile point within
@@ -436,6 +444,7 @@ def revolve_face(
     plane: Plane,
     angle_deg: float,
     reverse: bool,
+    history: OpHistory | None = None,
 ) -> Solid:
     """Revolve *face* about the resolved sketch-plane *axis* by *angle_deg*.
 
@@ -447,6 +456,12 @@ def revolve_face(
 
     ``reverse`` sweeps the opposite way about the axis (visible only for a
     partial angle; a full 360° is handed either way).
+
+    *history*, when given, receives the OCCT history for face naming
+    (:mod:`geometry.kernel.naming`): each profile edge paired with the face it
+    swept, and for a partial angle the two end caps. The solid is the one
+    ``Solid.revolve`` builds (``BRepPrimAPI_MakeRevol`` on the face, the same
+    call), kept here only so its history can be read.
 
     Raises:
         RevolveError: the OCCT revolve failed or left other than exactly one
@@ -462,7 +477,7 @@ def revolve_face(
     revolution_axis = Axis(origin, direction)
 
     try:
-        result = Solid.revolve(face, angle_deg, revolution_axis)
+        result = _revolve(face, angle_deg, revolution_axis, history)
         solids = result.solids()
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise RevolveError(
@@ -478,3 +493,23 @@ def revolve_face(
     # clean() removes redundant seam faces/edges the operation can leave
     # behind, keeping topology counts meaningful (and golden-assertable).
     return clean_shape(solids[0])
+
+
+def _revolve(
+    face: Face, angle_deg: float, axis: Axis, history: OpHistory | None
+) -> Solid:
+    """``Solid.revolve(face, angle_deg, axis)``, reading the history on the way."""
+    if history is None:
+        return Solid.revolve(face, angle_deg, axis)
+    builder = BRepPrimAPI_MakeRevol(
+        face.wrapped, axis.wrapped, angle_deg * DEG2RAD, True
+    )
+    solid = Solid(TopoDS.Solid_s(builder.Shape()))
+    for edge in face.edges():
+        for produced in builder.Generated(edge.wrapped):
+            if produced.ShapeType() == TopAbs_FACE:
+                history.generated.append((edge, Face(TopoDS.Face_s(produced))))
+    if angle_deg < 360.0:
+        history.start = Face(TopoDS.Face_s(builder.FirstShape()))
+        history.end = Face(TopoDS.Face_s(builder.LastShape()))
+    return solid

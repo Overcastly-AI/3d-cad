@@ -33,7 +33,10 @@ and ``None`` means "use the old geometric tiers, exactly as before":
   unnamed face on one surface) gets no name;
 * a name two faces end up holding (a face split by a cut, coplanar pattern
   copies) is withdrawn from all of them, unless exactly one holder kept the
-  original OCCT shape, which is then certainly the named face;
+  original OCCT shape, which is then certainly the named face; the pieces
+  of a split face are instead named by their neighbours (step 2,
+  :func:`_qualify_splits`), and a piece whose neighbourhood does not pin it
+  stays unnamed;
 * an edge whose two faces are not both named, or whose pair names more than one
   edge, gets no name;
 * an op with no naming hook names the faces it creates ``None``.
@@ -53,11 +56,20 @@ import json
 import uuid
 from collections import Counter
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from build123d import Edge, Face
-from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
+from OCP.Bnd import Bnd_Box
+from OCP.BRep import BRep_Tool
+from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.BRepBndLib import BRepBndLib
+from OCP.BRepClass import BRepClass_FaceClassifier
+from OCP.BRepTools import BRepTools
+from OCP.BRepTopAdaptor import BRepTopAdaptor_FClass2d
+from OCP.gp import gp_Pnt2d
+from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_IN, TopAbs_OUT
 from OCP.TopExp import TopExp
+from OCP.TopLoc import TopLoc_Location
 from OCP.TopoDS import TopoDS, TopoDS_Shape
 from OCP.TopTools import (
     TopTools_IndexedDataMapOfShapeListOfShape,
@@ -65,6 +77,7 @@ from OCP.TopTools import (
 )
 
 from geometry.kernel.provenance import SurfaceKey, explore_faces, surface_key
+from geometry.kernel.tolerances import KERNEL_LINEAR_TOL_MM
 from geometry.kernel.types import BodyShape
 
 #: A name longer than this is replaced by a digest of its label. Nested names
@@ -111,49 +124,95 @@ class OpHistory:
     end: Face | None = None
 
 
+#: A free-form face's identity across an op: its supporting ``Geom_Surface``
+#: OBJECT (compared by handle, never by value) and the 3x4 matrix of its
+#: location. A boolean or ``clean`` that re-bounds a B-spline face keeps the very
+#: same surface object, and pattern copies (which share one ``TShape`` at
+#: different locations) differ in the matrix, so this tells copies apart.
+GeomKey = tuple[object, tuple[float, ...]]
+
+
 @dataclass(frozen=True)
 class _Entry:
     face: TopoDS_Shape
     name: str | None
     key: SurfaceKey | None
+    #: Set only for a face without a :class:`SurfaceKey` (free-form).
+    geom: GeomKey | None = None
+    #: The name before split qualification (:func:`_qualify_splits`): equal to
+    #: ``name`` for an unsplit face, ``None`` exactly when ``name`` is.
+    base: str | None = None
 
 
 def _key_of(face: TopoDS_Shape) -> SurfaceKey | None:
     return surface_key(Face(TopoDS.Face_s(face)))
 
 
+def _geom_of(face: TopoDS_Shape) -> GeomKey:
+    location = TopLoc_Location()
+    surface = BRep_Tool.Surface_s(TopoDS.Face_s(face), location)
+    matrix = location.Transformation()
+    return (
+        surface,
+        tuple(matrix.Value(row, col) for row in (1, 2, 3) for col in (1, 2, 3, 4)),
+    )
+
+
+def _entry(face: TopoDS_Shape, name: str | None, base: str | None = None) -> _Entry:
+    key = _key_of(face)
+    return _Entry(
+        face,
+        name,
+        key,
+        _geom_of(face) if key is None else None,
+        (name if base is None else base) if name is not None else None,
+    )
+
+
 class BodyNames:
     """The names of one body's faces, keyed by OCCT face identity.
 
-    Keyed by identity (``hash`` + ``IsSame``), never by enumeration index: an
-    OCCT op may rewrite a shared subshape in place, and an index-aligned list
-    would then silently name the wrong face. A face this map does not hold simply
-    has no name.
+    Keyed by identity (``hash`` + ``IsSame``, which compares the location too,
+    so two pattern copies sharing one ``TShape`` are two faces), never by
+    enumeration index: an OCCT op may rewrite a shared subshape in place, and an
+    index-aligned list would then silently name the wrong face. A face this map
+    does not hold simply has no name.
     """
 
-    __slots__ = ("_by_hash", "_by_key", "_entries")
+    __slots__ = ("_by_geom", "_by_hash", "_by_key", "_entries")
 
     def __init__(self, entries: Iterable[_Entry] = ()) -> None:
         self._entries: tuple[_Entry, ...] = tuple(entries)
         self._by_hash: dict[int, list[_Entry]] = {}
-        self._by_key: dict[SurfaceKey, list[str | None]] = {}
+        self._by_key: dict[SurfaceKey, list[_Entry]] = {}
+        self._by_geom: dict[GeomKey, list[_Entry]] = {}
         for entry in self._entries:
             self._by_hash.setdefault(hash(entry.face), []).append(entry)
             if entry.key is not None:
-                self._by_key.setdefault(entry.key, []).append(entry.name)
+                self._by_key.setdefault(entry.key, []).append(entry)
+            elif entry.geom is not None:
+                self._by_geom.setdefault(entry.geom, []).append(entry)
 
     @classmethod
     def of_pairs(cls, pairs: Iterable[tuple[Face, str | None]]) -> "BodyNames":
         """Entries for explicit ``(face, name)`` pairs (an op's naming hook)."""
-        return cls(
-            _Entry(face.wrapped, name, _key_of(face.wrapped)) for face, name in pairs
-        )
+        return cls(_entry(face.wrapped, name) for face, name in pairs)
 
     def _lookup(self, face: TopoDS_Shape) -> _Entry | None:
         for entry in self._by_hash.get(hash(face), ()):
             if face.IsSame(entry.face):
                 return entry
         return None
+
+    def _on_surface(self, key: SurfaceKey | None, geom: GeomKey | None) -> list[_Entry]:
+        """The entries on the same supporting surface: the same
+        :class:`SurfaceKey`, or for a free-form face the same surface object at
+        the same location."""
+        if key is not None:
+            return self._by_key.get(key, [])
+        if geom is not None:
+            return self._by_geom.get(geom, [])
+        return []
 
     def name_of(self, face: Face) -> str | None:
         """The name of *face*, or ``None`` when it has none (or is not held)."""
@@ -176,7 +235,8 @@ class BodyNames:
         :meth:`~geometry.kernel.provenance.FaceProvenanceRecorder.fork` relies
         on). A copy that walks to a different face count is not trusted: the
         fork then holds no names, which degrades to the geometric tiers rather
-        than misnaming anything.
+        than misnaming anything. A free-form face's surface identity is read
+        again on the copy (the copy has its own surface objects).
         """
         seen = explore_faces(original)
         copied = explore_faces(copy)
@@ -186,7 +246,8 @@ class BodyNames:
         for face, twin in zip(seen, copied, strict=True):
             entry = self._lookup(face)
             if entry is not None:
-                entries.append(_Entry(twin, entry.name, entry.key))
+                geom = None if entry.key is not None else _geom_of(twin)
+                entries.append(_Entry(twin, entry.name, entry.key, geom, entry.base))
         return BodyNames(entries)
 
 
@@ -201,16 +262,29 @@ def carry_names(
     Per face, the first rule that finds anything decides:
 
     1. IDENTITY - the face IS a face a source or the hook holds (``IsSame``);
-    2. SURFACE - the face lies on the exact supporting surface of source faces
-       (the op re-bounded it: a boolean trimmed it, a fillet cut its corner);
+    2. SURFACE - the face lies on the supporting surface of source faces (the op
+       re-bounded it: a boolean trimmed it, a fillet cut its corner). "The same
+       surface" is the exact :class:`SurfaceKey` for an analytic face, and the
+       same ``Geom_Surface`` object at the same location for a free-form one (a
+       loft's B-spline side, which has no analytic key);
     3. SURFACE OF A HOOK FACE - likewise against the hook's raw faces (the op's
        own result, before :func:`~geometry.kernel.healing.clean_shape`).
 
-    A rule that finds more than one distinct value (two names, or a name and an
-    unnamed face) names the face ``None``. Sources win over the hook in rule 2,
-    so a base face a boss was fused onto keeps the base's name rather than the
-    boss's coplanar cap's. Finally a name held by more than one face is
-    withdrawn (see the module docstring).
+    When faces with DIFFERENT names share the surface (coplanar faces: a boss
+    flush with its base's side, a mirrored boss whose sides lie in its
+    original's planes), the face takes the name of the one claimant whose region
+    contains it (:func:`_containing`: every sample point of the face inside that
+    claimant and outside every other). Otherwise rules 2 and 3 stand: a rule that
+    finds more than one distinct value (two names, or a name and an unnamed
+    face) names the face ``None``, with one exception: names that are all pieces
+    of ONE split face (:func:`_qualify_splits`) give the face that face's name,
+    to be qualified again below. Sources win over the hook in rule 2, so a base
+    face a boss was fused onto keeps the base's name rather than the boss's
+    coplanar cap's. A face named by rule 2 or 3 that lies clear of every face
+    that carried the name (disjoint bounding boxes) shares only the surface and
+    is new material, so it gets no name: an op without a hook names nothing,
+    even on an old face's plane. Finally :func:`_qualify_splits` settles every
+    name more than one face holds.
     """
     hook = BodyNames.of_pairs(generated)
     holders = (*sources, hook)
@@ -219,42 +293,186 @@ def carry_names(
     for face in explore_faces(body):
         hits = [entry for src in holders if (entry := src._lookup(face)) is not None]  # pyright: ignore[reportPrivateUsage]
         if hits:
-            names = {entry.name for entry in hits}
-            key = hits[0].key
+            key, geom = hits[0].key, hits[0].geom
+            name, base = _settle(hits)
         else:
             key = _key_of(face)
-            names = set[str | None]()
-            if key is not None:
-                for src in sources:
-                    names.update(src._by_key.get(key, ()))  # pyright: ignore[reportPrivateUsage]
-                if not names:
-                    names.update(hook._by_key.get(key, ()))  # pyright: ignore[reportPrivateUsage]
-        name = next(iter(names)) if len(names) == 1 else None
-        entries.append(_Entry(face, name, key))
+            geom = _geom_of(face) if key is None else None
+            ours = [e for src in sources for e in src._on_surface(key, geom)]  # pyright: ignore[reportPrivateUsage]
+            theirs = hook._on_surface(key, geom)  # pyright: ignore[reportPrivateUsage]
+            name, base = _settle(ours or theirs)
+            claimants = [*ours, *theirs]
+            if len({entry.name for entry in claimants}) > 1:
+                region = _containing(face, claimants)
+                if region is not None:
+                    name, base = region.name, region.base
+            if base is not None and not _near_any(
+                face, [e.face for e in claimants if e.base == base]
+            ):
+                # Only the surface is shared: the face lies clear of every face
+                # that carried the name, so it is new material, not that face.
+                name = base = None
+        entries.append(_Entry(face, name, key, geom, base))
         certain.append(bool(hits))
-    return BodyNames(_withdraw_duplicates(entries, certain))
+    return BodyNames(_qualify_splits(body, entries, certain))
 
 
-def _withdraw_duplicates(entries: list[_Entry], certain: list[bool]) -> list[_Entry]:
-    """Withdraw every name more than one face holds, unless exactly one holder
-    is the original OCCT face (``certain``): then the others are not it."""
-    counts = Counter(entry.name for entry in entries if entry.name is not None)
-    certain_holders: dict[str, list[int]] = {}
+def _near_any(face: TopoDS_Shape, others: Sequence[TopoDS_Shape]) -> bool:
+    """Whether *face*'s bounding box meets any of *others*' (kernel tolerance
+    gap). Boxes are conservative, so ``False`` proves the faces are apart."""
+    box = _box(face)
+    return any(not box.IsOut(_box(other)) for other in others)
+
+
+def _box(face: TopoDS_Shape) -> Bnd_Box:
+    box = Bnd_Box()
+    BRepBndLib.Add_s(face, box, False)
+    box.Enlarge(_CLASSIFY_TOL)
+    return box
+
+
+def _containing(face: TopoDS_Shape, claimants: Sequence[_Entry]) -> _Entry | None:
+    """The claimant whose face CONTAINS *face* (all on one surface), or ``None``.
+
+    A few points strictly inside *face* are classified against each claimant's
+    face: a claimant contains it when every point is IN, and is ruled out when
+    every point is OUT. Any other outcome (a point ON a claimant's boundary, or
+    points on both sides: *face* is a merge of several claimants) decides
+    nothing, and neither do containers with different names. Doubt is ``None``.
+    """
+    points = _interior_points(TopoDS.Face_s(face))
+    if not points:
+        return None
+    inside: list[_Entry] = []
+    for entry in claimants:
+        claimant = TopoDS.Face_s(entry.face)
+        states = {
+            BRepClass_FaceClassifier(claimant, point, _CLASSIFY_TOL).State()
+            for point in points
+        }
+        if states == {TopAbs_IN}:
+            inside.append(entry)
+        elif states != {TopAbs_OUT}:
+            return None
+    return inside[0] if len({entry.name for entry in inside}) == 1 else None
+
+
+#: Point-classification tolerance (mm), the kernel's linear tolerance.
+_CLASSIFY_TOL = KERNEL_LINEAR_TOL_MM
+
+
+def _interior_points(face: TopoDS_Shape, wanted: int = 3) -> list[object]:
+    """Up to *wanted* points strictly inside *face*, from a parameter grid
+    (deterministic: the grid order). Empty when no grid point lands inside."""
+    umin, umax, vmin, vmax = BRepTools.UVBounds_s(face)
+    inside = BRepTopAdaptor_FClass2d(face, _CLASSIFY_TOL)
+    surface = BRepAdaptor_Surface(face)
+    points: list[object] = []
+    for steps in (4, 16):
+        for i in range(steps):
+            for j in range(steps):
+                u = umin + (umax - umin) * (i + 0.5) / steps
+                v = vmin + (vmax - vmin) * (j + 0.5) / steps
+                if inside.Perform(gp_Pnt2d(u, v)) == TopAbs_IN:
+                    points.append(surface.Value(u, v))
+                    if len(points) == wanted:
+                        return points
+        if points:
+            return points
+    return points
+
+
+def _settle(hits: Sequence[_Entry]) -> tuple[str | None, str | None]:
+    """``(name, base)`` for a face the entries *hits* claim (see
+    :func:`carry_names`): one name, or one base when the claimants are all pieces
+    of one split face, else nothing."""
+    names = {entry.name for entry in hits}
+    if len(names) == 1:
+        (only,) = hits[:1]
+        return only.name, only.base
+    bases = {entry.base for entry in hits}
+    if None in names or len(bases) != 1:
+        return None, None
+    (base,) = bases
+    return base, base
+
+
+def _qualify_splits(
+    body: BodyShape, entries: list[_Entry], certain: list[bool]
+) -> list[_Entry]:
+    """Settle every base name more than one face holds, then withdraw any name
+    still held twice.
+
+    A base held by several faces is a face an op SPLIT (a hub cylinder the
+    blades of a pattern cut into strips, a top face a slot cut in two). The base
+    alone cannot say which piece is which, so step 1 withdrew it; Onshape and
+    Fusion instead name each piece by what bounds it, and so does this: each
+    piece is ``"<base>/<digest of its neighbours' base names>"``. The piece of
+    the hub between blade 2 and blade 3 is "the hub side bounded by the caps,
+    blade 2's trailing side and blade 3's leading side", whatever the hub
+    diameter. A piece is left UNNAMED when any neighbour has no name (the
+    neighbourhood would not pin it), and two pieces with the same neighbourhood
+    are both withdrawn, so a qualified name is held by exactly one face or none.
+
+    Exception kept from step 1: when exactly one holder IS the original OCCT face
+    and still carries the plain base name, it keeps it, since the others are
+    certainly not it; they are qualified as above.
+    """
+    by_base: dict[str, list[int]] = {}
     for index, entry in enumerate(entries):
-        if entry.name is not None and counts[entry.name] > 1 and certain[index]:
-            certain_holders.setdefault(entry.name, []).append(index)
-    out: list[_Entry] = []
-    for index, entry in enumerate(entries):
-        name = entry.name
-        # Two certain holders would mean the history contradicts itself: none.
-        if (
-            name is not None
-            and counts[name] > 1
-            and certain_holders.get(name) != [index]
-        ):
-            entry = _Entry(entry.face, None, entry.key)
-        out.append(entry)
-    return out
+        if entry.base is not None:
+            by_base.setdefault(entry.base, []).append(index)
+    shared = {base: held for base, held in by_base.items() if len(held) > 1}
+    out = list(entries)
+    if shared:
+        neighbours = _face_neighbours(body, len(entries))
+        for base, held in shared.items():
+            keepers = [i for i in held if certain[i] and entries[i].name == base]
+            keeper = keepers[0] if len(keepers) == 1 else None
+            for index in held:
+                if index == keeper:
+                    continue
+                around = [entries[j].base for j in neighbours[index]]
+                out[index] = replace(entries[index], name=_split_name(base, around))
+    counts = Counter(entry.name for entry in out if entry.name is not None)
+    return [
+        entry
+        if entry.name is None or counts[entry.name] == 1
+        else replace(entry, name=None, base=None)
+        for entry in out
+    ]
+
+
+def _split_name(base: str, around: Sequence[str | None]) -> str | None:
+    """The name of one piece of the split face *base*, from the base names of
+    the faces *around* it; ``None`` if any of them is unnamed."""
+    if any(name is None for name in around):
+        return None
+    others = sorted({name for name in around if name is not None and name != base})
+    if not others:
+        return None
+    digest = hashlib.sha256(json.dumps(others).encode("utf-8")).hexdigest()[:32]
+    return f"{base}/{digest}"
+
+
+def _face_neighbours(body: BodyShape, count: int) -> list[list[int]]:
+    """For each face of *body* (explorer order), the indices of the OTHER faces
+    it shares an edge with (a seam edge, shared with itself, adds nothing)."""
+    faces = explore_faces(body)
+    if len(faces) != count:
+        return [[] for _ in range(count)]
+    index = TopTools_IndexedMapOfShape()
+    for face in faces:
+        index.Add(face)
+    ancestors = TopTools_IndexedDataMapOfShapeListOfShape()
+    TopExp.MapShapesAndAncestors_s(body.wrapped, TopAbs_EDGE, TopAbs_FACE, ancestors)
+    around: list[set[int]] = [set() for _ in range(count)]
+    for i in range(1, ancestors.Extent() + 1):
+        incident = {index.FindIndex(face) - 1 for face in ancestors.FindFromIndex(i)}
+        incident.discard(-1)
+        for face_index in incident:
+            around[face_index].update(incident - {face_index})
+    return [sorted(s) for s in around]
 
 
 def edge_names(
@@ -367,3 +585,42 @@ def modified_names(
     return [
         (produced, sources.name_of(source)) for source, produced in history.generated
     ]
+
+
+def tool_face_names(tool: BodyShape, generated: NameHook) -> list[str | None]:
+    """The names of a feature's TOOL solid (aligned with ``tool.faces()``), from
+    the feature's naming hook, so a ``features``-scope pattern or mirror that
+    repeats the tool can name each copy's faces after the original's."""
+    return carry_names(tool, [], generated).face_names(tool)
+
+
+def copied_names(
+    feature_id: uuid.UUID,
+    label: str,
+    source: BodyShape,
+    names: Sequence[str | None] | None,
+    copy: BodyShape,
+) -> list[tuple[Face, str | None]]:
+    """Hook names for *copy*, a rigid copy of *source* (a pattern instance, a
+    mirror image) whose faces, in explorer order, are named *names*.
+
+    Each face of the copy is ``"<feature id>:<label>:<source face name>"``: the
+    instance (``i3``) or the reflection (``m``) plus the face it copies, so
+    every copy of a face has a name of its own although pattern copies share
+    one ``TShape``. A rigid copy keeps the explorer order face for face; a copy
+    that does not (a different face count, or a different surface family at
+    some position) gets no names rather than shifted ones.
+    """
+    if names is None:
+        return []
+    originals, copies = explore_faces(source), explore_faces(copy)
+    if not len(originals) == len(copies) == len(names):
+        return []
+    out: list[tuple[Face, str | None]] = []
+    for original, twin, name in zip(originals, copies, names, strict=True):
+        twin_face = Face(TopoDS.Face_s(twin))
+        if Face(TopoDS.Face_s(original)).geom_type != twin_face.geom_type:
+            return []
+        label_name = None if name is None else face_name(feature_id, f"{label}:{name}")
+        out.append((twin_face, label_name))
+    return out

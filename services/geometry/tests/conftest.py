@@ -47,6 +47,11 @@ KNOWN_ROUNDTRIP_DEFECTS: dict[str, str] = {
         "SHELL-ROUND-ASYM: the shell leaves one inner R3 round 5.2e-8 mm^2 off "
         "its twins; STEP re-derives it, moving the volume 1.1e-6 mm^3"
     ),
+    "revise-hub-d44-blade-root-fillet": (
+        "FILLET-BLEND-ROUNDTRIP: the 14 R1 blends of a B-spline blade on the hub "
+        "cylinder are fitted at 3.2e-5 mm; STEP re-reads each 4.2e-6 mm^2 off, "
+        "moving the volume 2.0e-5 mm^3 (a pure build123d build does the same)"
+    ),
 }
 
 

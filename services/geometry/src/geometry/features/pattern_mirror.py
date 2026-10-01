@@ -11,7 +11,7 @@ docs/design/pattern-scope.md).
 import uuid
 from collections.abc import Sequence
 
-from build123d import Plane, Solid
+from build123d import Face, Plane, Solid
 from loft_wire.features import (
     CircularPatternParamsV1,
     EvaluatedFeatureInput,
@@ -28,6 +28,7 @@ from loft_wire.features import (
 from geometry.features.datum_sketch import (
     resolve_sketch_plane,
 )
+from geometry.features.naming_hooks import body_copy_names, placed_names
 from geometry.features.state import (
     EvaluationState,
     RecordedToolGroup,
@@ -59,7 +60,13 @@ from geometry.kernel import (
     reflect_tools,
     removal_reaches_body,
 )
+from geometry.kernel.naming import NameHook, copied_names
 from geometry.kernel.types import BodyShape
+
+
+def _names(hook: NameHook) -> list[str | None] | None:
+    """A copy's face names in its own face order (its hook's order), or ``None``."""
+    return [name for _face, name in hook] if hook else None
 
 
 def _recorded_cut_tools(state: EvaluationState) -> list[Solid] | None:
@@ -121,7 +128,10 @@ def _mirror_cut_tools(state: EvaluationState) -> list[Solid] | None:
 
 
 def _apply_pattern(
-    body: BodyShape, geometry: PatternGeometry, tools: list[Solid] | None
+    body: BodyShape,
+    geometry: PatternGeometry,
+    tools: list[Solid] | None,
+    copies: list[BodyShape] | None = None,
 ) -> BodyShape:
     """Dispatch one pattern to its kernel op (linear/circular x union/cut).
 
@@ -136,7 +146,9 @@ def _apply_pattern(
             return linear_pattern_cut(
                 body, tools, direction, geometry.spacing_mm, geometry.count
             )
-        return linear_pattern(body, direction, geometry.spacing_mm, geometry.count)
+        return linear_pattern(
+            body, direction, geometry.spacing_mm, geometry.count, copies=copies
+        )
 
     assert isinstance(geometry, CircularPatternParamsV1)  # closed union
     axis_point = (geometry.axis_point.x, geometry.axis_point.y, geometry.axis_point.z)
@@ -150,7 +162,12 @@ def _apply_pattern(
             body, tools, axis_point, axis_direction, geometry.angle_deg, geometry.count
         )
     return circular_pattern(
-        body, axis_point, axis_direction, geometry.angle_deg, geometry.count
+        body,
+        axis_point,
+        axis_direction,
+        geometry.angle_deg,
+        geometry.count,
+        copies=copies,
     )
 
 
@@ -218,6 +235,7 @@ def _evaluate_pattern_features(
     state: EvaluationState,
     active: BodyShape,
     geometry: PatternGeometry,
+    pattern_id: uuid.UUID,
 ) -> FeatureError | list[RecordedToolGroup]:
     """Repeat the RECORDED TOOLS of an explicit feature selection (v2, §3).
 
@@ -275,6 +293,7 @@ def _evaluate_pattern_features(
     count = _pattern_count(geometry)
     check_pattern_count(count)
     applied: list[RecordedToolGroup] = []
+    generated: list[tuple[Face, str | None]] = []
     body = active
     for feature_id in _selection_in_tree_order(scope.features, state):
         record = state.feature_tools.get(feature_id)
@@ -335,7 +354,11 @@ def _evaluate_pattern_features(
                 )
             # The PLACED solids, not the sources: a nested pattern/mirror repeats
             # what THIS one placed, never the inner feature's own tool.
-            applied.append(RecordedToolGroup(group.op, placed))
+            names = placed_names(pattern_id, group, placed)
+            generated.extend(pair for hook in names for pair in hook)
+            applied.append(
+                RecordedToolGroup(group.op, placed, [_names(h) for h in names])
+            )
 
     if count > 1 and not applied:
         return FeatureError(
@@ -348,7 +371,7 @@ def _evaluate_pattern_features(
         )
 
     if applied:
-        state.set_active_body(body)
+        state.set_active_body(body, generated)
     return applied
 
 
@@ -410,7 +433,7 @@ def _evaluate_pattern(
     try:
         if isinstance(scope, PatternFeaturesScope):
             applied = _evaluate_pattern_features(
-                scope, state, active, feature.params.pattern
+                scope, state, active, feature.params.pattern, item.id
             )
             if isinstance(applied, FeatureError):
                 return applied
@@ -418,7 +441,8 @@ def _evaluate_pattern(
             # or mirror can repeat/reflect it. Opt-in (no-op unless selected).
             state.record_feature_tool_groups(item.id, applied)
             return None
-        patterned = _apply_pattern(active, feature.params.pattern, tools)
+        copies: list[BodyShape] = []
+        patterned = _apply_pattern(active, feature.params.pattern, tools, copies)
     except PatternCountError as exc:
         return FeatureError(code="pattern_bad_count", message=str(exc))
     except PatternSpacingError as exc:
@@ -437,12 +461,15 @@ def _evaluate_pattern(
     # PRE-pattern body (the source the placements were made from), exactly as a cut
     # records its tools from the pre-cut body (FINDINGS #1/#3). Opt-in, so an
     # unreferenced pattern pays neither the placement rebuild nor the retention.
+    generated = body_copy_names(
+        item.id, [f"i{k}" for k in range(1, len(copies) + 1)], state, active, copies
+    )
     if item.id in state.tool_scope_ids:
         contribution = _pattern_contribution(active, feature.params.pattern, tools)
-        state.set_active_body(patterned)
+        state.set_active_body(patterned, generated)
         state.record_feature_tool_groups(item.id, [contribution])
         return None
-    state.set_active_body(patterned)
+    state.set_active_body(patterned, generated)
     return None
 
 
@@ -491,6 +518,7 @@ def _evaluate_mirror_features(
     state: EvaluationState,
     active: BodyShape,
     plane: Plane,
+    mirror_id: uuid.UUID,
 ) -> FeatureError | list[RecordedToolGroup]:
     """Reflect the RECORDED TOOLS of an explicit feature selection (v2, §4).
 
@@ -544,6 +572,7 @@ def _evaluate_mirror_features(
             )
 
     applied: list[RecordedToolGroup] = []
+    generated: list[tuple[Face, str | None]] = []
     body = active
     for feature_id in _selection_in_tree_order(scope.features, state):
         record = state.feature_tools.get(feature_id)
@@ -597,7 +626,16 @@ def _evaluate_mirror_features(
             # The REFLECTED solids, not the sources: a nested mirror reflects what
             # this one placed (§4.6). Retained only when some outer mirror named this
             # feature — the caller checks the opt-in set before using them.
-            applied.append(RecordedToolGroup(group.op, reflected))
+            names = [
+                copied_names(mirror_id, "m", tool, group.names_of(i), image)
+                for i, (tool, image) in enumerate(
+                    zip(group.tools, reflected, strict=True)
+                )
+            ]
+            generated.extend(pair for hook in names for pair in hook)
+            applied.append(
+                RecordedToolGroup(group.op, reflected, [_names(h) for h in names])
+            )
 
     if not applied:
         return FeatureError(
@@ -609,7 +647,7 @@ def _evaluate_mirror_features(
             ),
         )
 
-    state.set_active_body(body)
+    state.set_active_body(body, generated)
     return applied
 
 
@@ -681,7 +719,7 @@ def _evaluate_mirror(
 
     scope = feature.params.scope
     if isinstance(scope, MirrorFeaturesScope):
-        applied = _evaluate_mirror_features(scope, state, active, plane)
+        applied = _evaluate_mirror_features(scope, state, active, plane, item.id)
         if isinstance(applied, FeatureError):
             return applied
         # Record what this mirror applied so an OUTER `features`-scope mirror can
@@ -694,7 +732,10 @@ def _evaluate_mirror(
         if tools is not None:
             state.set_active_body(mirror_cut(active, tools, plane))
         else:
-            state.set_active_body(mirror_union(active, plane))
+            images: list[BodyShape] = []
+            mirrored = mirror_union(active, plane, images=images)
+            generated = body_copy_names(item.id, ["m"], state, active, images)
+            state.set_active_body(mirrored, generated)
     except MirrorError as exc:
         return FeatureError(code="mirror_failed", message=str(exc))
     return None

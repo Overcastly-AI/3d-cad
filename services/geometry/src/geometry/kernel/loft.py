@@ -48,11 +48,17 @@ Determinism (RESEARCH §9): section wires/vertices are built in the request's
 section list order, and ThruSections + the boolean are pure OCCT algorithms on
 identical inputs — no unordered iteration participates.
 """
+# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false
+# pyright: reportAttributeAccessIssue=false, reportUnknownParameterType=false
 
 from collections.abc import Sequence
 
-from build123d import Plane, Solid, Vertex, Wire
+from build123d import Face, Plane, Solid, Vertex, Wire
 from loft_wire.sketch import SketchEntity, SketchPoint
+from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+from OCP.TopAbs import TopAbs_FACE
+from OCP.TopoDS import TopoDS, TopoDS_Shape
 
 from geometry.kernel.extrude import (
     ProfileNotClosedError,
@@ -60,6 +66,7 @@ from geometry.kernel.extrude import (
     plane_point_to_world,
 )
 from geometry.kernel.healing import clean_shape
+from geometry.kernel.naming import OpHistory
 
 #: One built loft section: a closed profile wire, or an apex vertex.
 LoftSection = Wire | Vertex
@@ -111,12 +118,21 @@ def build_loft_section(plane: Plane, entities: Sequence[SketchEntity]) -> LoftSe
     )
 
 
-def loft_sections(sections: Sequence[LoftSection]) -> Solid:
+def loft_sections(
+    sections: Sequence[LoftSection], history: OpHistory | None = None
+) -> Solid:
     """Ruled-loft the ordered *sections* into a single solid.
 
     A straight (ruled) skin through the sections in list order (v1 — no guide
     rails / tangency / periodic loft). ``clean()`` collapses redundant seams so
     topology counts stay meaningful (and golden-assertable).
+
+    *history*, when given, receives the skin's OCCT history for face naming
+    (:mod:`geometry.kernel.naming`): each edge of the FIRST wire section paired
+    with every side face of its column, span by span (``ThruSections``
+    ``Generated`` lists them in span order), and the two caps. The skin is the
+    one ``Solid.make_loft`` builds (``BRepOffsetAPI_ThruSections(True, True)``
+    on the same sections, in order), kept here only so its history can be read.
 
     Raises:
         LoftError: an apex vertex sits between two wire sections (OCCT allows a
@@ -131,7 +147,7 @@ def loft_sections(sections: Sequence[LoftSection]) -> Solid:
                 "a point cannot sit between two profile sections."
             )
     try:
-        result = Solid.make_loft(list(sections), ruled=True)
+        result = _thru_sections(sections, history)
         solids = result.solids()
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise LoftError(
@@ -146,3 +162,38 @@ def loft_sections(sections: Sequence[LoftSection]) -> Solid:
             "v1 (design §7.6)."
         )
     return clean_shape(solids[0])
+
+
+def _thru_sections(sections: Sequence[LoftSection], history: OpHistory | None) -> Solid:
+    """``Solid.make_loft(sections, ruled=True)``, reading the history on the way.
+
+    The same guards (build123d raises ``ValueError`` for an all-vertex loft; the
+    caller maps any exception to :class:`LoftError`) and the same OCCT calls in
+    the same order, so a loft built here is the loft built before naming.
+    """
+    if history is None:
+        return Solid.make_loft(list(sections), ruled=True)
+    if all(isinstance(section, Vertex) for section in sections):
+        raise ValueError("A loft needs at least one profile section.")
+    builder = BRepOffsetAPI_ThruSections(True, True)
+    for section in sections:
+        if isinstance(section, Vertex):
+            builder.AddVertex(section.wrapped)
+        else:
+            builder.AddWire(section.wrapped)
+    builder.Build()
+    solid = Solid(TopoDS.Solid_s(builder.Shape()))
+    first = next(section for section in sections if isinstance(section, Wire))
+    for edge in first.edges():
+        for produced in builder.Generated(edge.wrapped):
+            history.generated.append((edge, Face(TopoDS.Face_s(produced))))
+    history.start = _cap(builder.FirstShape())
+    history.end = _cap(builder.LastShape())
+    return solid
+
+
+def _cap(shape: TopoDS_Shape) -> Face | None:
+    """A ``ThruSections`` end cap, or ``None`` at an apex (a null shape)."""
+    if shape.IsNull() or shape.ShapeType() != TopAbs_FACE:
+        return None
+    return Face(TopoDS.Face_s(shape))

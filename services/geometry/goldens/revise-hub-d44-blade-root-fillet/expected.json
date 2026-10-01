@@ -1,0 +1,46 @@
+{
+  "description": "THE DESIGN-INTENT-REFS STEP 2 REVISION GOLDEN (hard-parts QA 2026-10-01, docs/VISION.md, the impeller). Authored at hub diameter 40: Extrude1 of a centred circle c1 (20 mm), a ruled Loft1 from a 3 x 35 radial rectangle on Plane1 (z=0, turned 10 deg, lines r1..r4) to the same rectangle on Plane2 (z=20, turned 30 deg), Pattern1 repeating Loft1 7x about Z (features scope), Extrude2 cutting the 12 mm bore and Extrude3 the 4 mm keyway, then Fillet1 R1 on the 14 blade-root edges, each picked from the selection overlay at hub 40 and carrying a topo_name. Then the hub is retyped 40 -> 44 and NOTHING is re-picked. Before step 2 the root edges (hub cylinder meeting a B-spline blade side, curve kind 'other') had no tier that could follow them and no name: the loft and the pattern had no naming hook and the blades split the hub side into 7 faces, which withdrew its name; Fillet1 was subshape_unresolved. With step 2 each root edge is the pair (hub side piece, blade side): 'Extrude1:side:c1/<its neighbours>' and 'Loft1:side:r1' or 'Pattern1:i<k>:Loft1:side:r3', all 14 resolve on the 'named' tier and the part rebuilds whole. The gate is that the body is the \u00d844 impeller an engineer gets by re-picking (asserted byte-identical in tests/test_design_intent_impeller.py) and that its volume agrees with an independent build123d build and a cross-section integral.",
+  "derivation": [
+    "Expected values are the harness's, cross-checked against two independent truths below (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "Independent build. goldens/.../crosscheck.py builds the \u00d844 impeller straight in build123d (Cylinder, Solid.make_loft ruled, rotate, one fuse of all 7 blades, cut bore and keyway, fillet R1 on the edges it selects BY GEOMETRY: not a line or circle and every sample on radius 22) with no Loft code, no tree and no names: volume 39430.363632671, area 16635.716497163805, 48 faces / 138 edges. The harness reports 39430.36362921837 and 16635.716497149253 (its own integrator settings; the evaluator's Solid.volume on the same body is 39430.36363262506, 4.6e-8 from the cross-check). Difference 3.4e-6 mm^3 (8.8e-11 relative), area 1.5e-8 mm^2; topology identical.",
+    "Cross-section integral (no OCCT), before the fillet. At height z the section is the hub disk r=22 minus the bore r=6 minus the keyway slot (x 3..8.5, |y|<=2) outside the bore: pi*484 - pi*36 - 10.452162760666852 = 1396.9813460475602 mm^2, so the hub is 27939.6269 mm^3. A ruled loft between straight section edges is a bilinear patch, so each blade's section at t = z/20 is the quadrilateral of the linearly interpolated corners; its area outside the hub disk (exact polygon-minus-circle clipping, 40- and 80-point Gauss-Legendre in z agree to the last digit) integrates to 1634.0340635859789 mm^3 per blade. Pre-fillet volume = 27939.6269 + 7 * 1634.0341 = 39377.865366053 mm^3; the evaluator's pre-fillet body is 39377.86539673872 (+3.1e-5, 7.8e-10 relative: the boolean's approximated hub-blade intersection curves, 14 x ~21 mm at the 1e-7 fit tolerance).",
+    "The fillet adds 39430.36363262506 - 39377.86539673872 = 52.498 mm^3. A rolling-ball R1 blend along the 14 root curves (each 21.45 mm long, the blade side meeting the hub at an air angle of 93.59 deg mid-height) adds r^2 (cot(phi/2) - (pi - phi)/2) per unit length between flat walls, 55.48 mm^3 in total, and 49.75 mm^3 with the hub's convex curvature (the ball touches the hub asin(1/23) further round). The measured 52.50 lies between the two; a missing root round (-3.75) or a round on a convex blade-tip edge (which removes material) would not.",
+    "centroid: the hub, bore and the 7-fold ring of blades and rounds have their centroid on the Z axis, and the keyway slot is symmetric in y, so y = 0 (harness -4.6e-9) and x is the keyway alone: -V_key * x_key / V with V_key = 20 * 10.452162760666852 = 209.043 mm^3 and x_key = 7.1915 (the slot outside the bore), giving -0.0381262 (harness -0.0381262843). z = 10 exactly: z -> 20 - z combined with the reflection across the vertical plane at 20 deg swaps each blade's root and tip sections and so maps every blade, and the ring, onto itself, and the bore and keyway are prisms (harness residual 2.8e-9).",
+    "bounding_box: the hub height 0..20, widened by the fillet faces' 1e-7 edge tolerance in z; in x and y the outer tip corners of the 7 instances (radius sqrt(50^2 + 1.5^2) = 50.0225, at 10 and 30 deg plus k * 360/7, +-1.718 deg): min x -49.972285, max x 49.500860, min y -50.012615, max y 49.665105, each the harness's value less its 1e-7 tolerance.",
+    "topology: 48 faces = hub side 7 pieces + 2 caps + bore + 3 keyway walls + 7 blades x 3 outer sides (r1, r2, r3; r4 is buried in the hub) + 14 root rounds; 138 edges; 1 shell. Identical to the cross-check.",
+    "mesh counts are the harness's at linear 0.1 mm (asserted exactly; deterministic within a kernel version). GLB byte size is deliberately not pinned.",
+    "STEP round trip: the volume moves -2.05e-5 mm^3 and the area -6.2e-5 mm^2, above ROUNDTRIP_TOL. Cause: OCCT fits the 14 R1 blends (B-spline blade side on the hub cylinder) at an edge/face tolerance of 3.2e-5 mm, and the STEP reader re-reads each blend 4.2e-6 mm^2 off; the body before the fillet round-trips within 8.6e-9 mm^3, and the pure build123d cross-check moves the same 2.4e-5, so it is the blend, not Loft. The bound is NOT loosened: only the volume/area round-trip check is a strict xfail (conftest KNOWN_ROUNDTRIP_DEFECTS, BACKLOG FILLET-BLEND-ROUNDTRIP); centroid (2.1e-9), bounds (1.6e-8) and topology stay at ROUNDTRIP_TOL."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Free-form (B-spline blade sides) plus rolling-ball blends, measured then set. The pinned values are the harness's own, so the bound covers only run-to-run and host-to-host variation of the same OCCT construction and GProp integration; 1e-6 is the curved-blend scale of the other revise golden and is far below the 3.4e-6 by which this construction differs from the independent build, which the derivation records rather than absorbs. Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 39430.36362921837,
+    "surface_area": 16635.716497149253,
+    "centroid": {
+      "x": -0.03812628430500616,
+      "y": -4.644626666103955e-9,
+      "z": 10.000000002806212
+    },
+    "bounding_box": {
+      "min": {
+        "x": -49.97228509943865,
+        "y": -50.01261498943716,
+        "z": -1.0000293241819715e-7
+      },
+      "max": {
+        "x": 49.500860017110796,
+        "y": 49.665104810520695,
+        "z": 20.000000100002914
+      }
+    }
+  },
+  "topology": {
+    "faces": 48,
+    "edges": 138,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 30459,
+    "triangles": 57794
+  }
+}

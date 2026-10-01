@@ -93,9 +93,12 @@ commits carry the ID (`git log --grep=<ID>`).
       corresponding edge or face; a golden covers the enclosure width edit.
       _Step 1 done 2026-10-01_ (history names, RESEARCH §14): the enclosure
       width edit rebuilds (golden
-      `revise-width-drafted-fillet-shell-130x80x35`). Left: impeller (step 2,
-      loft/pattern/revolve hooks) and bracket (step 3, sheet metal, shell,
-      `clean_shape` history), each re-checked on a fresh QA part.
+      `revise-width-drafted-fillet-shell-130x80x35`). _Step 2 done
+      2026-10-01_: loft, revolve, pattern and mirror hooks, split-face pieces
+      named by their neighbours; the impeller hub 40 -> 44 rebuilds its 14
+      root fillets (golden `revise-hub-d44-blade-root-fillet`). Left: bracket
+      (step 3, sheet metal, shell, `clean_shape` history), and a QA rerun of
+      the enclosure and impeller on fresh parts.
 - [x] **TYPED-POLYLINE-UNJOINED**: lines whose ends are typed onto an
       existing endpoint are not joined (no coincident constraint, unlike a
       pointer snap). The first dimension on the shaft's typed 18-line profile
@@ -321,3 +324,5 @@ One line each. The founder triages weekly; most are closed without work.
 - During a fillet edit: tip-body face highlights paint over the preview body, the timeline is unheld until the preview lands, mass properties show the tip, a failed preview is silent, and extrude/flange/hem edits have no preview.
 - The sketch corner reconcile compares against the store when the result arrives, not when the fillet was asked for; a drag in between reads as a trim.
 - SHELL-ROUND-ASYM: an open 2 mm shell of a drafted, R5-rounded box leaves one of its four inner R3 rounds 5.2e-8 mm^2 off its mirror twins (edges fitted at 1e-6 mm), so the STEP round trip moves the volume 1.1e-6 mm^3; `offset_edges` tightens only spline walls. Golden `revise-width-drafted-fillet-shell-130x80x35` has its volume/area STEP round-trip check as a strict xfail (conftest `KNOWN_ROUNDTRIP_DEFECTS`) until it is fixed.
+- DESIGN-INTENT-REFS step 2 leaves no naming hook on sweep, twisted extrude/sweep, hole, a body-scope cut pattern or `mirror_cut` (their new faces are unnamed and picks there use the geometric tiers, as before).
+- FILLET-BLEND-ROUNDTRIP: OCCT fits the R1 rolling-ball blends between a B-spline blade side and the hub cylinder at 3.2e-5 mm; a STEP round trip re-reads each blend 4.2e-6 mm^2 off, moving the impeller's volume 2.0e-5 mm^3 (the pure build123d cross-check moves 2.4e-5; centroid, bounds and topology hold at 1e-7). Golden `revise-hub-d44-blade-root-fillet` has its volume/area STEP round-trip check as a strict xfail (conftest `KNOWN_ROUNDTRIP_DEFECTS`) until it is fixed.

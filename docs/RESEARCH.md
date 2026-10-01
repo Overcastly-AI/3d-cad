@@ -317,3 +317,34 @@ rebuild-cache fork face for face.
 **Scope.** Step 1 hooks extrude, draft, fillet and chamfer. Revolve, loft,
 pattern, mirror, shell offsets, sheet metal and `clean_shape` history are
 steps 2-3 (BACKLOG DESIGN-INTENT-REFS). Old selectors are not backfilled.
+
+**Step 2 (impeller, 2026-10-01).** Revolve and loft sides are named like an
+extrude's, from the profile edge's sketch entity (a loft's from its first
+wire section, `side:<id>:<span>` past two sections; OCCT `Generated`). A
+pattern copy is `<pattern>:i<k>:<source face name>` and a mirror image
+`<mirror>:m:<source face name>`, in both scopes; copies share one `TShape`
+at different locations, so identity is `IsSame` (location included), and a
+copy whose face order or surface families differ from its source gets no
+names. A free-form face (a loft's B-spline side) has no `SurfaceKey`, so it
+keeps its name through a boolean by its `Geom_Surface` object plus its
+location matrix, which a re-bounding boolean and `clean` preserve. Two
+refinements to step 1's refusals, both following Onshape's practice of
+naming a split face's pieces by what bounds them:
+
+- A face SPLIT into pieces (seven blades cut the hub side into seven strips)
+  no longer loses its name outright. Each piece is
+  `<name>/<digest of its neighbours' names>`, and stays unnamed if any
+  neighbour is unnamed; two pieces with one neighbourhood are both withdrawn.
+  A qualified name is held by one face or none, so the named tier's rule is
+  unchanged.
+- When faces with different names share a surface (a mirrored boss whose
+  sides lie in its original's planes), a re-bounded face takes the name of the
+  one claimant whose region contains it: interior sample points all IN that
+  claimant and all OUT of every other. A point ON a boundary, or a face
+  straddling claimants (a merge), decides nothing and the step-1 rule stands.
+
+The impeller's 14 root edges (hub cylinder meeting a B-spline blade side,
+curve kind "other") are pairs of a hub piece and a blade side and resolve by
+name after hub 40 -> 44 (golden `revise-hub-d44-blade-root-fillet`). A forged
+`topo_name` can still only select an edge that one name pins, exactly what a
+direct pick of that edge selects.

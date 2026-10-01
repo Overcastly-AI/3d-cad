@@ -172,6 +172,25 @@ def test_a_split_face_is_refused_never_guessed() -> None:
     assert sum(n is not None for n in split_names) == 5
 
 
+def test_new_material_on_an_old_faces_plane_is_not_that_face() -> None:
+    """An op without a hook fuses a tower whose top is coplanar with the base's
+    top but clear of it. The tower top shares only the plane: it gets no name
+    (not the base top's, and not a split piece of it)."""
+    base = Solid.make_box(40, 20, 10)
+    names = BodyNames.of_pairs(zip(base.faces(), _box_names(base), strict=True))
+    step = Solid.make_box(10, 20, 5, Plane(origin=(40, 0, 0)))
+    tower = Solid.make_box(10, 20, 10, Plane(origin=(50, 0, 0)))
+    body = base.fuse(step, tower)  # pyright: ignore[reportUnknownMemberType]
+    assert isinstance(body, Solid)
+    carried = carry_names(body, [names]).face_names(body)
+    tops = {
+        round(face.center().X, 6): name
+        for face, name in zip(body.faces(), carried, strict=True)
+        if face.geom_type == GeomType.PLANE and abs(face.center().Z - 10.0) < 1e-9
+    }
+    assert tops == {20.0: "f5", 55.0: None}
+
+
 def test_a_face_pair_meeting_along_two_edges_names_neither_edge() -> None:
     """A D-shaped prism: the curved and the flat side meet along BOTH ends of
     the chord, so the pair names two edges and must name neither."""
@@ -267,22 +286,328 @@ def test_signatures_without_names_resolve_exactly_as_before() -> None:
 
 def test_a_duplicate_name_survives_only_on_its_one_certain_holder() -> None:
     """The withdrawal rule, independent of explorer order: a name two faces
-    hold stays only on the face that IS the original (OCCT identity), whichever
-    comes first; two certain holders, or none, and nobody keeps it."""
+    hold stays only on the face that IS the original (OCCT identity). The other
+    holder is then named by its neighbours (a split piece), and so are two
+    holders with no single certain one; two pieces with the same neighbours are
+    indistinguishable, so both are withdrawn."""
     from geometry.kernel.naming import (
         _Entry,  # pyright: ignore[reportPrivateUsage]
-        _withdraw_duplicates,  # pyright: ignore[reportPrivateUsage]
+        _qualify_splits,  # pyright: ignore[reportPrivateUsage]
     )
 
-    faces: list[Any] = [face.wrapped for face in Solid.make_box(1, 1, 1).faces()]
-    entries = [
-        _Entry(faces[0], "n", None),
-        _Entry(faces[1], "n", None),
-        _Entry(faces[2], "m", None),
-        _Entry(faces[3], "m", None),
-        _Entry(faces[4], "k", None),
-        _Entry(faces[5], "k", None),
+    box = Solid.make_box(1, 1, 1)
+    faces: list[Any] = [face.wrapped for face in box.faces()]
+    # Faces 0 and 1 are the two X faces: the same four neighbours.
+    names = ["n", "n", "a", "b", "c", "d"]
+    entries = [_Entry(f, n, None, None, n) for f, n in zip(faces, names, strict=True)]
+
+    def kept(certain: list[bool]) -> list[str | None]:
+        out = _qualify_splits(box, entries, [*certain, False, False, False, False])
+        return [e.name for e in out]
+
+    one = kept([False, True])
+    assert one[1] == "n"
+    assert one[0] is not None and one[0].startswith("n/")
+    assert one[2:] == ["a", "b", "c", "d"]
+    assert kept([False, False])[:2] == [None, None]
+    assert kept([True, True])[:2] == [None, None]
+
+
+def test_the_pieces_of_a_split_face_are_named_by_their_neighbours() -> None:
+    """A slot cut across the top splits it in two. When the slot's own faces are
+    named, each piece is "the top, bounded by these named faces": two distinct
+    names, never the whole top's, and the same pieces keep the same names when
+    the slot moves."""
+
+    def split(slot_x: float) -> tuple[Any, list[str | None]]:
+        box = Solid.make_box(40, 20, 10)
+        names = BodyNames.of_pairs(zip(box.faces(), _box_names(box), strict=True))
+        slot = Solid.make_box(4, 30, 4, Plane(origin=(slot_x, -5, 8)))
+        slot_names = [f"slot{i}" for i in range(len(slot.faces()))]
+        body = box.cut(slot)  # pyright: ignore[reportUnknownMemberType]
+        assert isinstance(body, Solid)
+        carried = carry_names(
+            body, [names], list(zip(slot.faces(), slot_names, strict=True))
+        )
+        return body, carried.face_names(body)
+
+    def top_pieces(slot_x: float) -> list[tuple[float, str | None]]:
+        body, names = split(slot_x)
+        return sorted(
+            (round(face.center().X, 6), name)
+            for face, name in zip(body.faces(), names, strict=True)
+            if face.geom_type == GeomType.PLANE
+            and abs(face.center().Z - 10.0) < 1e-9
+            and abs(face.normal_at(face.center()).Z - 1.0) < 1e-9
+        )
+
+    pieces = top_pieces(18)
+    assert len(pieces) == 2
+    (_xa, left), (_xb, right) = pieces
+    assert left is not None and right is not None and left != right
+    top = "f5"
+    assert left.startswith(f"{top}/") and right.startswith(f"{top}/")
+    moved = top_pieces(10)
+    assert [name for _x, name in moved] == [left, right]
+
+
+# --- step 2: loft, pattern, mirror, revolve (the impeller) -------------------------
+
+_IMPELLER_PATH = Path(__file__).resolve().parent / "_impeller_builder.py"
+
+
+def _load_impeller() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("_impeller_builder", _IMPELLER_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+IMP = _load_impeller()
+
+
+def _impeller_names(hub_d: float, upto: int | None = None) -> list[str | None]:
+    features = IMP.body_features(hub_d)
+    return IMP.evaluate(features[:upto] if upto else features, 20).face_names()
+
+
+def test_every_impeller_face_is_named_and_no_name_is_held_twice() -> None:
+    names = _impeller_names(IMP.AUTHORED_D)
+    assert len(names) == 34  # 7 hub pieces, 2 caps, bore, 3 key walls, 21 blades
+    assert all(name is not None for name in names)
+    assert len(set(names)) == len(names)
+
+
+def test_pattern_copies_are_named_by_instance_and_source_face() -> None:
+    """Copies share the original's TShape at another location, so face identity
+    must include the location: each blade side of instance k is
+    ``Pattern1:i<k>:<Loft1's name for it>``, held once."""
+    names = [n for n in _impeller_names(IMP.AUTHORED_D, 8) if n is not None]
+    loft, pattern = IMP.LOFT_ID, IMP.PATTERN_ID
+    for side in (face_name(loft, f"side:r{i}") for i in (1, 2, 3)):
+        assert names.count(side) == 1
+        for k in range(1, IMP.BLADES):
+            assert names.count(face_name(pattern, f"i{k}:{side}")) == 1
+    # The hub side was split into 7 strips: each is named by its neighbours.
+    hub_side = face_name(IMP.HUB_ID, "side:c1")
+    pieces = [n for n in names if n.startswith(f"{hub_side}/")]
+    assert len(pieces) == IMP.BLADES
+    assert len(set(pieces)) == IMP.BLADES
+    assert hub_side not in names
+
+
+def test_impeller_names_are_stable_across_the_hub_edit() -> None:
+    """40 -> 44 moves every hub face and every root edge; not one name changes,
+    and so neither does any root edge's."""
+    before = sorted(n or "" for n in _impeller_names(IMP.AUTHORED_D))
+    after = sorted(n or "" for n in _impeller_names(IMP.REVISED_D))
+    assert before == after
+    roots = [
+        sorted(sig.topo_name for sig in IMP.root_edges(IMP.body_features(d), d))
+        for d in (IMP.AUTHORED_D, IMP.REVISED_D)
     ]
-    certain = [False, True, False, False, True, True]
-    kept = [e.name for e in _withdraw_duplicates(entries, certain)]
-    assert kept == [None, "n", None, None, None, None]
+    assert len(roots[0]) == 14
+    assert None not in roots[0]
+    assert roots[0] == roots[1]
+
+
+_NAMES_SCRIPT = """
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("b", sys.argv[1])
+b = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(b)
+features = b.body_features(b.AUTHORED_D)
+faces = b.evaluate(features, 1).face_names()
+edges = [e.signature.topo_name for e in b._overlay(features).edges]
+print(json.dumps([faces, edges]))
+"""
+
+
+def test_impeller_names_are_identical_in_a_fresh_process() -> None:
+    """Names are pure functions of the tree: no address, hash seed or
+    allocation order may leak in. A second interpreter (another hash seed)
+    names every face and every overlay edge exactly as this one does."""
+    import json
+    import os
+    import subprocess
+    import sys
+
+    features = IMP.body_features(IMP.AUTHORED_D)
+    reset_rebuild_cache()
+    faces = IMP.evaluate(features, 21).face_names()
+    edges = [e.signature.topo_name for e in IMP._overlay(features).edges]
+    out = subprocess.run(
+        [sys.executable, "-c", _NAMES_SCRIPT, str(_IMPELLER_PATH)],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, "PYTHONHASHSEED": "12345"},
+    )
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == [faces, edges]
+    assert sum(name is not None for name in edges) >= 14
+
+
+def test_impeller_names_are_identical_cold_and_resumed() -> None:
+    tree = IMP.authored_tree(IMP.AUTHORED_D)
+    reset_rebuild_cache()
+    cold = IMP.evaluate(tree, 22).face_names()
+    reset_rebuild_cache()
+    prefix = IMP.evaluate(tree[:8], 23)
+    del prefix  # releases the checkpoint for the next rebuild to resume
+    assert IMP.evaluate(tree, 24).face_names() == cold
+    assert sum(n is not None for n in cold) == 48
+
+
+def _rect(sketch_id: uuid.UUID, x0: float, y0: float, x1: float, y1: float) -> Any:
+    corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    return {
+        "id": str(sketch_id),
+        "feature": {
+            "type": "sketch",
+            "version": 1,
+            "params": {
+                "plane": {"kind": "datum_plane", "plane": "XY"},
+                "entities": [_line(f"e{i + 1}", corners, i) for i in range(4)],
+                "constraints": [],
+            },
+        },
+    }
+
+
+def _line(eid: str, corners: list[tuple[float, float]], i: int) -> dict[str, Any]:
+    (x0, y0), (x1, y1) = corners[i], corners[(i + 1) % len(corners)]
+    return {
+        "id": eid,
+        "kind": "line",
+        "start": {"x": x0, "y": y0},
+        "end": {"x": x1, "y": y1},
+    }
+
+
+def _extrude(feature_id: uuid.UUID, sketch_id: uuid.UUID, distance: float) -> Any:
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "extrude",
+            "version": 1,
+            "params": {
+                "profile": {"kind": "feature", "feature_id": str(sketch_id)},
+                "distance_mm": distance,
+                "operation": "add",
+                "direction": "normal",
+            },
+        },
+    }
+
+
+_M = [uuid.UUID(int=0xE300 + i) for i in range(6)]
+
+
+def _mirrored(scope: list[uuid.UUID] | None, plate_x0: float) -> Any:
+    params: dict[str, Any] = {"plane": {"kind": "datum_plane", "plane": "YZ"}}
+    if scope is not None:
+        params["scope"] = {
+            "kind": "features",
+            "features": [{"kind": "feature", "feature_id": str(f)} for f in scope],
+        }
+    features = [
+        _rect(_M[1], plate_x0, -20, 20, 20),
+        _extrude(_M[2], _M[1], 10.0),
+        _rect(_M[3], 5, -5, 15, 5),
+        _extrude(_M[4], _M[3], 15.0),
+        {
+            "id": str(_M[5]),
+            "feature": {"type": "mirror", "version": 1, "params": params},
+        },
+    ]
+    evaluation = B.evaluate(features, 25)
+    assert all(r.status == "ok" for r in evaluation.result.features)
+    return evaluation
+
+
+def test_a_mirror_image_is_named_apart_from_its_coplanar_original() -> None:
+    """The mirrored boss's sides lie in the planes of the original's (y = +-5)
+    and the fuse re-bounds them, so the surface alone cannot tell them apart
+    (step 1 left the image unnamed). Each face takes the name of the one
+    claimant whose region holds it: the original keeps ``side:e1``, the image
+    is ``Mirror1:m:...side:e1``. The same in both mirror scopes, and when the
+    body scope completes a half plate."""
+    for scope, x0 in (([_M[4]], -20.0), (None, -20.0), (None, 0.0)):
+        evaluation = _mirrored(scope, x0)
+        names = evaluation.face_names()
+        assert all(n is not None for n in names), (scope, x0, names)
+        assert len(set(names)) == len(names)
+        by_place = {
+            tuple(round(v, 6) for v in face.center()): name
+            for face, name in zip(evaluation.body.faces(), names, strict=True)
+        }
+        side, top = face_name(_M[4], "side:e1"), face_name(_M[4], "end")
+        assert by_place[(10.0, -5.0, 12.5)] == side
+        assert by_place[(-10.0, -5.0, 12.5)] == face_name(_M[5], f"m:{side}")
+        assert by_place[(-10.0, 0.0, 15.0)] == face_name(_M[5], f"m:{top}")
+
+
+def _square(half: float) -> list[Any]:
+    from loft_wire.sketch import SketchLine
+
+    corners = [(-half, -half), (half, -half), (half, half), (-half, half)]
+    return [SketchLine.model_validate(_line(f"s{i + 1}", corners, i)) for i in range(4)]
+
+
+def test_loft_sides_are_named_per_section_edge_and_span() -> None:
+    """A three-section ruled loft: each column of side faces is named from the
+    first section's entity, span by span, plus the two caps, each once."""
+    from geometry.features.naming_hooks import swept_names
+    from geometry.kernel.extrude import build_profile_face
+    from geometry.kernel.loft import loft_sections
+    from geometry.kernel.naming import OpHistory
+
+    planes = [Plane.XY.offset(z) for z in (0.0, 10.0, 25.0)]
+    profiles = [_square(h) for h in (10.0, 6.0, 8.0)]
+    wires = [
+        build_profile_face(p, e).outer_wire()
+        for p, e in zip(planes, profiles, strict=True)
+    ]
+    history = OpHistory()
+    solid = loft_sections(wires, history)
+    feature = uuid.UUID(int=0xE401)
+    hook = swept_names(feature, history, planes[0], profiles[0], spans=2)
+    carried = carry_names(solid, [], hook).face_names(solid)
+    sides = {face_name(feature, f"side:s{i}:{s}") for i in range(1, 5) for s in (0, 1)}
+    caps = {face_name(feature, "start"), face_name(feature, "end")}
+    assert len(carried) == 10
+    assert set(carried) == sides | caps
+
+
+def test_revolve_sides_are_named_from_their_sketch_entities() -> None:
+    """A 90 deg revolve of a rectangle: four swept faces from lines e1..e4 and
+    the two end caps, each once."""
+    from geometry.features.naming_hooks import swept_names
+    from geometry.kernel.extrude import build_profile_face
+    from geometry.kernel.naming import OpHistory
+    from geometry.kernel.revolve import ResolvedRevolveAxis, revolve_face
+    from loft_wire.sketch import SketchLine
+
+    corners = [(5.0, 0.0), (10.0, 0.0), (10.0, 4.0), (5.0, 4.0)]
+    entities = [
+        SketchLine.model_validate(_line(f"e{i + 1}", corners, i)) for i in range(4)
+    ]
+    axis_line = SketchLine.model_validate(_line("ax", [(0.0, 0.0), (0.0, 1.0)], 0))
+    plane = Plane.XZ
+    history = OpHistory()
+    solid = revolve_face(
+        build_profile_face(plane, entities),
+        ResolvedRevolveAxis(line=axis_line, entity=None),
+        plane,
+        90.0,
+        False,
+        history=history,
+    )
+    feature = uuid.UUID(int=0xE402)
+    hook = swept_names(feature, history, plane, entities)
+    carried = carry_names(solid, [], hook).face_names(solid)
+    expected = {face_name(feature, f"side:e{i}") for i in range(1, 5)}
+    expected |= {face_name(feature, "start"), face_name(feature, "end")}
+    assert len(carried) == 6
+    assert set(carried) == expected

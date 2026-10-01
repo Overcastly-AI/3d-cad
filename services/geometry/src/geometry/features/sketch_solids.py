@@ -31,7 +31,7 @@ from geometry.features.datum_sketch import (
     _resolve_profile_faces,
     _resolve_solved_profile,
 )
-from geometry.features.naming_hooks import prism_names
+from geometry.features.naming_hooks import prism_names, swept_names
 from geometry.features.state import (
     EvaluationState,
     _add_body,
@@ -66,7 +66,7 @@ from geometry.kernel import (
     twisted_extrude_face,
     twisted_sweep_face,
 )
-from geometry.kernel.naming import OpHistory
+from geometry.kernel.naming import NameHook, OpHistory
 
 
 def _evaluate_extrude(
@@ -201,7 +201,7 @@ def _evaluate_extrude_cut(
         return FeatureError(code="boolean_failed", message=str(exc))
     state.set_active_body(body, generated)
     state.record_cut_tools(feature_id, tools)
-    state.record_feature_tools(feature_id, "cut", list(tools))
+    state.record_feature_tools(feature_id, "cut", list(tools), generated)
     return None
 
 
@@ -278,6 +278,7 @@ def _evaluate_revolve(
             ),
         )
 
+    history = OpHistory()
     try:
         tool = revolve_face(
             face,
@@ -285,13 +286,15 @@ def _evaluate_revolve(
             plane,
             params.angle_deg,
             params.direction == "reverse",
+            history=history,
         )
     except RevolveError as exc:
         return FeatureError(code="revolve_failed", message=str(exc))
+    generated = swept_names(item.id, history, plane, solved.entities)
 
     if params.operation == "cut":
-        return _cut_active(state, tool, feature_id=item.id)
-    return _add_body(item, state, tool, merge=params.merge)
+        return _cut_active(state, tool, feature_id=item.id, generated=generated)
+    return _add_body(item, state, tool, merge=params.merge, generated=generated)
 
 
 def _resolve_path_wire(path: FeatureRef, state: EvaluationState) -> Wire | FeatureError:
@@ -470,11 +473,14 @@ def _evaluate_loft(
     params = feature.params
 
     sections: list[Wire | Vertex] = []
+    first_wire: uuid.UUID | None = None
     for ref in params.profiles:
         resolved = _resolve_loft_section(ref, state)
         if isinstance(resolved, FeatureError):
             return resolved
         sections.append(resolved)
+        if first_wire is None and isinstance(resolved, Wire):
+            first_wire = ref.feature_id
 
     if params.operation == "cut" and state.active_body is None:
         return FeatureError(
@@ -485,11 +491,21 @@ def _evaluate_loft(
             ),
         )
 
+    history = OpHistory()
     try:
-        tool = loft_sections(sections)
+        tool = loft_sections(sections, history)
     except LoftError as exc:
         return FeatureError(code="loft_failed", message=str(exc))
+    generated: NameHook = ()
+    if first_wire is not None:
+        generated = swept_names(
+            item.id,
+            history,
+            state.sketch_planes[first_wire],
+            state.solved_sketches[first_wire].entities,
+            spans=len(sections) - 1,
+        )
 
     if params.operation == "cut":
-        return _cut_active(state, tool, feature_id=item.id)
-    return _add_body(item, state, tool, merge=params.merge)
+        return _cut_active(state, tool, feature_id=item.id, generated=generated)
+    return _add_body(item, state, tool, merge=params.merge, generated=generated)
