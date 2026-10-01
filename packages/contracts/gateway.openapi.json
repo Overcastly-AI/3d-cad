@@ -2817,7 +2817,7 @@
         "type": "object"
       },
       "DistanceConstraint": {
-        "description": "Dimension: the length of a line (mm). Driving by default; see\n:class:`DimensionConstraint` for the expression/name/driving fields.\n\n**Virtual sharps** (SKETCH-FILLET-KEEP-DIMS). Either end may be measured to\na *virtual sharp* instead of the line's own endpoint: the point where the\ninfinite supports of ``entity`` and another line meet. A sketch fillet or\nchamfer trims a leg back from its corner, and SolidWorks and Fusion 360 keep\nthe leg's dimension to the corner that is gone, so the rectangle's typed W\nand H still drive its size and an R edit cannot grow the outline. Both\nfields are additive (absent = the endpoint, the former meaning), so every\nstored sketch parses and solves exactly as before.",
+        "description": "Dimension: the length of a line (mm). Driving by default; see\n:class:`DimensionConstraint` for the expression/name/driving fields.\n\n**Virtual sharps** (SKETCH-FILLET-KEEP-DIMS). Either end may be measured to\na *virtual sharp* instead of the line's own endpoint: the point where the\ninfinite supports of ``entity`` and another line meet. A sketch fillet or\nchamfer trims a leg back from its corner, and SolidWorks and Fusion 360 keep\nthe leg's dimension to the corner that is gone, so the rectangle's typed W\nand H still drive its size and an R edit cannot grow the outline. Both\nfields are additive (absent = the endpoint, the former meaning), so every\nstored sketch parses, dumps and solves exactly as before.",
         "properties": {
           "driving": {
             "anyOf": [

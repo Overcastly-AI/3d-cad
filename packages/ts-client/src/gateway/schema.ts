@@ -4037,7 +4037,7 @@ export interface components {
          *     the leg's dimension to the corner that is gone, so the rectangle's typed W
          *     and H still drive its size and an R edit cannot grow the outline. Both
          *     fields are additive (absent = the endpoint, the former meaning), so every
-         *     stored sketch parses and solves exactly as before.
+         *     stored sketch parses, dumps and solves exactly as before.
          */
         DistanceConstraint: {
             /**

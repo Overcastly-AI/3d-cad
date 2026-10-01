@@ -411,6 +411,13 @@ class LinearDimensionConstraint(DimensionConstraint):
         return self.value_mm
 
 
+def _absent(value: object) -> bool:
+    """``exclude_if``: an unset additive field is not serialized, so a dumped
+    constraint (the stored row, the rebuild-cache key) is byte-for-byte what it
+    was before the field existed."""
+    return value is None
+
+
 class DistanceConstraint(LinearDimensionConstraint):
     """Dimension: the length of a line (mm). Driving by default; see
     :class:`DimensionConstraint` for the expression/name/driving fields.
@@ -422,19 +429,21 @@ class DistanceConstraint(LinearDimensionConstraint):
     the leg's dimension to the corner that is gone, so the rectangle's typed W
     and H still drive its size and an R edit cannot grow the outline. Both
     fields are additive (absent = the endpoint, the former meaning), so every
-    stored sketch parses and solves exactly as before.
+    stored sketch parses, dumps and solves exactly as before.
     """
 
     kind: Literal["distance"]
     entity: EntityId
     start_sharp: EntityId | None = Field(
         default=None,
+        exclude_if=_absent,
         description="Measure the START side to the virtual sharp of `entity` "
         "and this line (where their infinite supports meet) instead of to "
         "`entity`'s start point. None = the start point.",
     )
     end_sharp: EntityId | None = Field(
         default=None,
+        exclude_if=_absent,
         description="Measure the END side to the virtual sharp of `entity` and "
         "this line instead of to `entity`'s end point. None = the end point.",
     )
