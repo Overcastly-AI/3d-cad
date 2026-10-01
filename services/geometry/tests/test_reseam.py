@@ -27,10 +27,10 @@ from build123d import (
     loft,
     make_face,
 )
+from geometry.kernel.chamfer import ChamferError, chamfer_body
 from geometry.kernel.fillet import (  # pyright: ignore[reportPrivateUsage]
     FilletError,
     _fillet,  # pyright: ignore[reportPrivateUsage]
-    _working_copy,  # pyright: ignore[reportPrivateUsage]
     fillet_body,
 )
 from geometry.kernel.fillet_guard import (
@@ -38,6 +38,7 @@ from geometry.kernel.fillet_guard import (
     fillet_problem,
     max_tolerance,
 )
+from geometry.kernel.fillet_isolation import working_copy as _working_copy
 from geometry.kernel.reseam import reseam_near
 
 HUB_R = 22.0
@@ -201,6 +202,26 @@ def test_a_fillet_never_touches_its_input() -> None:
     fresh, _roots = _cone_with_blade(0.0)
     hole = Pos(0, 0, 10) * Cylinder(3, 40)
     assert crossing.cut(hole).volume == fresh.cut(hole).volume  # pyright: ignore[reportUnknownMemberType]
+
+
+def test_a_chamfer_never_touches_its_input() -> None:
+    """OCCT chamfers in place too (the same ChFi3d builder): the failed R1
+    chamfer of the cone-hub blade root left an input vertex at 71.6 mm, and a
+    successful one loosened it. The input must leave chamfer_body as it came."""
+    crossing, roots = _cone_with_blade(0.0)
+    before = max_tolerance(crossing)
+    with pytest.raises(ChamferError):
+        chamfer_body(crossing, roots, 1.0)
+    assert max_tolerance(crossing) == before
+    fresh, _roots = _cone_with_blade(0.0)
+    hole = Pos(0, 0, 10) * Cylinder(3, 40)
+    assert crossing.cut(hole).volume == fresh.cut(hole).volume  # pyright: ignore[reportUnknownMemberType]
+    clear, clear_roots = _cone_with_blade(180.0)
+    tight = max_tolerance(clear)
+    chamfered = chamfer_body(clear, clear_roots, 1.0)
+    assert max_tolerance(clear) == tight
+    assert max_tolerance(chamfered) <= TOLERANCE_FLOOR_MM
+    assert chamfered.volume == pytest.approx(31407.29, abs=0.01)
 
 
 def _two_blades(hub: Any) -> Any:

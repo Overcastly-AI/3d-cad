@@ -455,3 +455,33 @@ against the solid and took 127 s on a 906-face plate); the guard costs ~6 %
 of the fillet there. The check rejects OCCT's valid-but-wrong plain result
 on a two-blade hub (24 746 mm^3 for 32 212: the top cap dropped), and the
 retry then gives the right body. A refusal names what it found.
+
+**Blend isolation (FILLET-TORUS-SEGFAULT).** OCCT 7.9.3's `ChFi3d` blend
+can segfault rather than raise: R1 on the eight root edges where a 4x2x30 box
+meets `make_torus(20, 6)`, with the box's x=26 face tangent to the torus's
+outer equator, kills the process in `BRepFilletAPI_MakeFillet`. Nothing
+predicts it: the input is `BRepCheck`-valid, a 5 mm box fillets, and two of
+the edges alone fail cleanly. So a blend that leaves OCCT's analytic cases
+(an edge that is not a line, circle or ellipse, or a face beside it that is
+not a plane, cylinder, cone or sphere) runs isolated; the analytic blends,
+nearly every machined-part fillet, stay in-process and unchanged. The test is
+a function of the input, so a tree always takes the same path. Chamfer shares
+the builder and the routing. Isolation is one warm server per service process
+(`geometry/kernel/_fillet_worker.py`, started on first use) that forks a fresh
+child per blend. The server is single-threaded, so the fork is safe, which
+forking the threaded service is not. The child runs under `RLIMIT_CPU` 60 s
+and a 180 s wall backstop. A crash is a typed `FilletError` and an overrun a
+`FilletTimeoutError`; the service and the server carry on. Shapes cross as
+binary BRep, body, edges, result and generated faces in one compound, so the
+result's untouched faces are the returned copy's and names re-anchor as on
+any working copy. The result is the in-process result (exact volume, topology
+and face areas). Only the BRep text differs: pcurve table order, and `-0`
+where reading rebuilds an axis's Y direction. Measured on a loaded 4-core
+sandbox: the server's first start is 5-9 s (`import build123d`, 450 MB) and
+each blend after that costs about 40-50 ms (mostly forking 450 MB), next to a
+70-500 ms blend. A server importing OCP only would fork in
+17 ms, but it would need a second copy of the blend code.
+
+A chamfer is in place too: a failed R1 chamfer of the cone-hub blade root
+left an input vertex at 71.6 mm, and a successful one loosened it. So a
+chamfer now runs on a copy under the fillet guard, like the fillet.

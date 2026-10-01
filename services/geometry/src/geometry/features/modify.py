@@ -140,7 +140,9 @@ def _evaluate_chamfer(
     except ChamferError as exc:
         return FeatureError(code="chamfer_failed", message=str(exc))
     state.set_active_body(
-        chamfered, edge_blend_names(item.id, "chamfer", history, sources)
+        chamfered,
+        edge_blend_names(item.id, "chamfer", history, sources),
+        worked_on=history.worked_on,
     )
     return None
 

@@ -18,7 +18,6 @@ Determinism (RESEARCH §9): the OCCT fillet is a pure function of
 # pyright: reportAttributeAccessIssue=false
 
 from build123d import Edge, Face, Solid
-from OCP.BRepBuilderAPI import BRepBuilderAPI_Copy
 from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet
 from OCP.Standard import Standard_Failure
 from OCP.StdFail import StdFail_NotDone
@@ -27,6 +26,14 @@ from OCP.TopoDS import TopoDS
 from geometry.kernel.fillet_guard import (
     fillet_problem,
     max_tolerance,
+)
+from geometry.kernel.fillet_isolation import (
+    BlendCrashed,
+    BlendFailed,
+    BlendTimedOut,
+    needs_isolation,
+    run_isolated,
+    working_copy,
 )
 from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
@@ -38,6 +45,11 @@ from geometry.kernel.types import BodyShape
 class FilletError(RuntimeError):
     """The OCCT fillet failed or produced an unsupported result (e.g. a radius
     too large for the local geometry, self-intersecting the body)."""
+
+
+class FilletTimeoutError(FilletError):
+    """The OCCT fillet ran past its CPU or wall-clock bound (an isolated blend,
+    :mod:`geometry.kernel.fillet_isolation`) and was killed."""
 
 
 def fillet_body(
@@ -66,9 +78,15 @@ def fillet_body(
     :func:`~geometry.kernel.fillet_guard.fillet_problem` (closed, no looser
     than it may be, faces beyond the fillet's reach intact).
 
+    A blend outside OCCT's analytic cases runs in a forked child
+    (:mod:`geometry.kernel.fillet_isolation`): OCCT can segfault there, and a
+    crash must cost this fillet, not the service.
+
     Raises:
-        FilletError: the OCCT fillet failed, or changed the body's lump count
-            (a radius too large for an adjacent face — design §7.6 / §MB-4).
+        FilletError: the OCCT fillet failed or crashed, or changed the body's
+            lump count (a radius too large for an adjacent face — design §7.6 /
+            §MB-4).
+        FilletTimeoutError: the isolated blend ran past its time bound.
     """
     if radius_mm <= 0:
         raise ValueError(f"radius_mm must be > 0, got {radius_mm}")
@@ -77,15 +95,19 @@ def fillet_body(
     # OCCT fillets IN PLACE: a failed attempt can leave the input's vertices at
     # any tolerance (74 mm measured), so every attempt works on its own copy and
     # *body*, the caller's and the rebuild cache's, is never touched.
-    work, work_edges = _working_copy(body, edges)
+    isolate = needs_isolation(body, edges)
     try:
-        solids = _fillet(work, work_edges, radius_mm, history)
+        work, work_edges, solids = _attempt(
+            *working_copy(body, edges), radius_mm, history, isolate=isolate
+        )
         problem = fillet_problem(work, work_edges, radius_mm, solids, input_tolerance)
         if problem is not None:
             raise _Rejected(problem)
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         if history is not None:
             history.generated.clear()
+        if isinstance(exc, BlendTimedOut):
+            raise _timed_out(radius_mm) from exc
         # A closed face's seam ending on or beside a filleted edge defeats the
         # OCCT blend (a parameterisation artefact, not geometry): retry ONCE on
         # a fresh copy of the untouched input with those seams moved clear
@@ -94,23 +116,33 @@ def fillet_body(
         try:
             if moved is None:
                 raise exc
-            work, work_edges = moved
-            solids = _fillet(work, work_edges, radius_mm, history)
+            work, work_edges, solids = _attempt(
+                *moved, radius_mm, history, isolate=isolate
+            )
             problem = fillet_problem(
                 work, work_edges, radius_mm, solids, input_tolerance
             )
             if problem is not None:
                 raise _Rejected(problem) from exc
-        except Exception:  # OCCT failure modes are not a stable taxonomy
+        except Exception as retry_exc:  # OCCT failure modes are not a stable taxonomy
             if history is not None:
                 history.generated.clear()
+            if isinstance(retry_exc, BlendTimedOut):
+                raise _timed_out(radius_mm) from retry_exc
+            if isinstance(exc, BlendCrashed):
+                raise FilletError(
+                    "Fillet failed: the kernel crashed on this edge and face "
+                    "configuration (it ran isolated, so nothing else was "
+                    f"affected). Try another radius ({radius_mm} mm) or edge set."
+                ) from exc
             if isinstance(exc, _Rejected):
                 raise FilletError(
                     f"The fillet built a body Loft refuses: {exc}. The body is "
                     "left as it was."
                 ) from exc
+            cause = exc.args[0] if isinstance(exc, BlendFailed) else type(exc).__name__
             raise FilletError(
-                f"Fillet failed in the kernel ({type(exc).__name__}); the radius "
+                f"Fillet failed in the kernel ({cause}); the radius "
                 f"({radius_mm} mm) may be too large for an adjacent face."
             ) from exc
     if history is not None:
@@ -141,12 +173,26 @@ class _Rejected(RuntimeError):
     """The fillet built, but :func:`fillet_problem` found something wrong."""
 
 
-def _working_copy(body: BodyShape, edges: list[Edge]) -> tuple[BodyShape, list[Edge]]:
-    """A topology copy of *body* (geometry shared, so the result is the same
-    numbers) and *edges* on it, for OCCT to fillet in place."""
-    copier = BRepBuilderAPI_Copy(body.wrapped, False, False)
-    copy = type(body)(copier.Shape())
-    return copy, [Edge(copier.ModifiedShape(edge.wrapped)) for edge in edges]
+def _timed_out(radius_mm: float) -> FilletTimeoutError:
+    return FilletTimeoutError(
+        f"Fillet stopped: the kernel ran past its time limit on this radius "
+        f"({radius_mm} mm) and edge set."
+    )
+
+
+def _attempt(
+    work: BodyShape,
+    work_edges: list[Edge],
+    radius_mm: float,
+    history: OpHistory | None,
+    *,
+    isolate: bool,
+) -> tuple[BodyShape, list[Edge], list[Solid]]:
+    """One fillet of a working copy, in-process or isolated; returns the copy
+    the result was built on, its edges and the result's solids."""
+    if not isolate:
+        return work, work_edges, _fillet(work, work_edges, radius_mm, history)
+    return run_isolated("fillet", work, work_edges, radius_mm, history)
 
 
 def _fillet(
