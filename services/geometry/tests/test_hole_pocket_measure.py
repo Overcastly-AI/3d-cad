@@ -25,6 +25,7 @@ from build123d import Axis, Box, Cylinder, Plane, Solid, fillet, offset
 from geometry.kernel.faces import planar_faces
 from geometry.kernel.hole import (
     HoleTooDeepError,
+    _pocket_slack,
     bore_hole,
     cut_counterbore,
     cut_countersink,
@@ -184,3 +185,13 @@ def test_analytic_breakthrough_of_ten_microns_is_too_deep() -> None:
     assert float(block.volume) - float(drilled.volume) == pytest.approx(
         _pocket(10.0, 10.0), abs=1e-9
     )
+
+
+def test_pocket_slack_is_capped_on_an_inflated_tolerance() -> None:
+    """A sloppy body's stored tolerance cannot widen the slack past the cap,
+    so a visible breakthrough is never read as a full pocket (review of
+    99147d1: at tolerance 1e-2 a 0.1 mm breakthrough passed)."""
+    area = 100.0
+    assert _pocket_slack(1e-2, area) == pytest.approx(1e-4 * area)
+    assert _pocket_slack(5e-6, area) == pytest.approx(5e-6 * area)
+    assert _pocket_slack(0.0, area) == pytest.approx(1e-7 * area)

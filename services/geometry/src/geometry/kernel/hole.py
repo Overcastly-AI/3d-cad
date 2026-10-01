@@ -77,6 +77,14 @@ _REMOVED_REL_TOL = 1e-9
 #: one. The floor of :func:`_pocket_slack`'s skin thickness.
 _CONFUSION_MM = 1e-7
 
+#: The ceiling of :func:`_pocket_slack`'s skin thickness (mm). A body whose
+#: stored tolerance is inflated (a sloppy import) would otherwise widen the
+#: slack until a visible breakthrough passed: at tolerance 1e-2 a 0.1 mm
+#: breakthrough of a Ø2.5 x 10 blind hole read as a full pocket. Bodies Loft
+#: builds peak near 1e-4 (spline shell; fillet 8e-5, sweep 4e-5), and the
+#: B-spline pocket noise this slack absorbs needs about 5e-6.
+_SLACK_CEILING_MM = 1e-4
+
 
 class HoleError(ValueError):
     """Base: a hole could not be drilled (a per-feature error, never a 500)."""
@@ -154,7 +162,8 @@ def _material_under(body: BodyShape, tool: Solid) -> tuple[float, float]:
 def _pocket_slack(tolerance: float, boundary_area: float) -> float:
     """The shortfall (mm^3) a fully-formed pocket may read: a skin ``t`` thick
     over its ``boundary_area`` (mm^2), with ``t`` the common solid's own OCCT
-    tolerance floored at ``Precision::Confusion()``.
+    tolerance floored at ``Precision::Confusion()`` and capped at
+    :data:`_SLACK_CEILING_MM`.
 
     OCCT treats geometry within a shape's tolerance as coincident, so the
     boolean can place a pocket wall anywhere inside that band; a shortfall
@@ -166,7 +175,7 @@ def _pocket_slack(tolerance: float, boundary_area: float) -> float:
     37x or more. On an exact Ø10 x 10 pocket it is 4.7e-5 mm^3, so a blind
     hole 1e-5 mm too deep is refused (the old 1e-6-of-pocket bound let it
     pass)."""
-    return max(tolerance, _CONFUSION_MM) * boundary_area
+    return min(max(tolerance, _CONFUSION_MM), _SLACK_CEILING_MM) * boundary_area
 
 
 def _require_full_pocket(
