@@ -8506,7 +8506,7 @@
         "type": "object"
       },
       "TangentConstraint": {
-        "description": "Two curves touch with a common tangent at the contact point.\n\nRelates a line and an arc/circle, or two arcs/circles, by whole-entity id.\nA line-and-line pair is not tangency-capable and is rejected at solve time.\nOrder is immaterial (tangency is symmetric); the solver dispatches to the\nmatching planegcs variant from the resolved entity kinds.",
+        "description": "Two curves touch with a common tangent at the contact point.\n\nRelates a line and an arc/circle, or two arcs/circles, by whole-entity id.\nA line-and-line pair is not tangency-capable and is rejected at solve time.\nOrder is immaterial (tangency is symmetric); the solver dispatches to the\nmatching planegcs variant from the resolved entity kinds.\n\n**Endpoint tangency** (``a_point`` and ``b_point`` both set): the named end\nof ``a`` and the named end of ``b`` are ONE point, and the two curves share\na tangent direction there \u2014 the join a sketch fillet leaves at each trimmed\nleg, and FreeCAD's endpoint-to-endpoint tangency (planegcs\n``angle_via_point``). It already includes the coincidence, so a separate\n``coincident`` between the same two points is redundant. Both curves must\nhave ends (a line or an arc), and not both lines. With neither set, it is\nthe whole-curve tangency above, unchanged: the contact point is free.",
         "properties": {
           "a": {
             "description": "Sketch-local entity id, e.g. 'e1'",
@@ -8514,11 +8514,43 @@
             "title": "A",
             "type": "string"
           },
+          "a_point": {
+            "anyOf": [
+              {
+                "enum": [
+                  "start",
+                  "end"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For an endpoint tangency: the end of `a` at the join. Set together with `b_point`, or not at all.",
+            "title": "A Point"
+          },
           "b": {
             "description": "Sketch-local entity id, e.g. 'e1'",
             "minLength": 1,
             "title": "B",
             "type": "string"
+          },
+          "b_point": {
+            "anyOf": [
+              {
+                "enum": [
+                  "start",
+                  "end"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For an endpoint tangency: the end of `b` at the join.",
+            "title": "B Point"
           },
           "kind": {
             "const": "tangent",

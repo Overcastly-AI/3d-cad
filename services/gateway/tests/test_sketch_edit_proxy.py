@@ -21,16 +21,18 @@ from gateway.main import GatewaySettings, build_app
 from loft_wire.parts import PRINCIPAL_HEADER
 from loft_wire.sketch import (
     Point2D,
-    SketchChamferRequest,
-    SketchCornerResult,
     SketchEditRequest,
     SketchEditResult,
-    SketchFilletRequest,
     SketchLine,
     SketchMirrorRequest,
     SketchMirrorResult,
     SketchOffsetRequest,
     SketchOffsetResult,
+)
+from loft_wire.sketch_corner import (
+    SketchChamferRequest,
+    SketchCornerResult,
+    SketchFilletRequest,
 )
 from py_kit import REQUEST_ID_HEADER
 from py_kit.db import async_dsn

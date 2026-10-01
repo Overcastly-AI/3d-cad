@@ -95,21 +95,32 @@ describe("reconcileCornerConstraints", () => {
     // The untouched corners, the axes and W (bottom is not trimmed) survive.
     expect(constraints).toContainEqual(WIDTH);
     expect(constraints).toContainEqual({ kind: "vertical", entity: "e2" });
-    // The arc joins both trimmed ends and carries r. No tangent: the solver
-    // reads it as redundant with the joins (see the module note).
+    // The arc is joined to both trimmed ends by ENDPOINT tangents (the join
+    // and the tangency in one constraint, so an R edit keeps it tangent) and
+    // carries r. No separate coincident: it would be redundant with them.
     expect(constraints.slice(-3)).toEqual([
       {
-        kind: "coincident",
-        a: { entity: "e2", point: "end" },
-        b: { entity: "e2.1", point: "start" },
+        kind: "tangent",
+        a: "e2",
+        b: "e2.1",
+        a_point: "end",
+        b_point: "start",
       },
       {
-        kind: "coincident",
-        a: { entity: "e3", point: "start" },
-        b: { entity: "e2.1", point: "end" },
+        kind: "tangent",
+        a: "e3",
+        b: "e2.1",
+        a_point: "start",
+        b_point: "end",
       },
       { kind: "radius", entity: "e2.1", value_mm: 5 },
     ]);
+    expect(
+      constraints.some(
+        (c) =>
+          c.kind === "coincident" && [c.a.entity, c.b.entity].includes("e2.1"),
+      ),
+    ).toBe(false);
   });
 
   it("a second fillet keeps the first corner's joins (the shared leg)", () => {
@@ -127,19 +138,25 @@ describe("reconcileCornerConstraints", () => {
     );
     // e2's top end did not move this time: its join to the first arc stays.
     expect(constraints).toContainEqual({
-      kind: "coincident",
-      a: { entity: "e2", point: "end" },
-      b: { entity: "e2.1", point: "start" },
+      kind: "tangent",
+      a: "e2",
+      b: "e2.1",
+      a_point: "end",
+      b_point: "start",
     });
     expect(constraints).toContainEqual({
-      kind: "coincident",
-      a: { entity: "e1", point: "end" },
-      b: { entity: "e1.1", point: "start" },
+      kind: "tangent",
+      a: "e1",
+      b: "e1.1",
+      a_point: "end",
+      b_point: "start",
     });
     expect(constraints).toContainEqual({
-      kind: "coincident",
-      a: { entity: "e2", point: "start" },
-      b: { entity: "e1.1", point: "end" },
+      kind: "tangent",
+      a: "e2",
+      b: "e1.1",
+      a_point: "start",
+      b_point: "end",
     });
     // No constraint still names either sharp corner's old pairing, and no
     // length dimension on a trimmed leg survives.

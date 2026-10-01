@@ -40,6 +40,7 @@ from geometry.sketch.schemas import (
     CoincidentConstraint,
     ConcentricConstraint,
     SketchConstraint,
+    TangentConstraint,
 )
 
 _Vec = tuple[float, float]
@@ -62,8 +63,10 @@ def coincidence_classes(
 ) -> dict[_PointKey, _PointKey]:
     """``(entity id, point name)`` → the representative of its coincidence class.
 
-    Two points joined by ``coincident`` (or two centres joined by ``concentric``,
-    which :meth:`~geometry.sketch.planegcs_solver._GcsBuild._add_concentric`
+    Two points joined by ``coincident`` (or by an endpoint ``tangent``, whose
+    join is a coincidence — :mod:`geometry.sketch.tangency` — or two centres
+    joined by ``concentric``, which
+    :meth:`~geometry.sketch.planegcs_solver._GcsBuild._add_concentric`
     translates to exactly that) are ONE location in every solution the caller's
     constraints admit.
 
@@ -104,6 +107,8 @@ def coincidence_classes(
                 )
             case ConcentricConstraint():
                 union((constraint.a, "center"), (constraint.b, "center"))
+            case TangentConstraint(a_point=str(a_end), b_point=str(b_end)):
+                union((constraint.a, a_end), (constraint.b, b_end))
             case _:
                 pass
     return {key: find(key) for key in parent}

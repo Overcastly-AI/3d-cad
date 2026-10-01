@@ -39,7 +39,6 @@ import {
   constraintEntityRefs,
   deleteSelectedEntities,
   dimensionEditorTarget,
-  reconcileEditedConstraints,
   toggleConstruction,
   type ConstraintAction,
   type DimensionCommit,
@@ -50,6 +49,7 @@ import {
   type SolvedDimension,
   type SolveInfo,
 } from "./constraints";
+import { reconcileEditedConstraints } from "./reconcileEdit";
 import { toggleCornerPick, type CornerOp } from "./corner";
 import { reconcileCornerConstraints } from "./cornerConstraints";
 import {
@@ -1417,14 +1417,14 @@ const createSketchState = (
         // Whatever part of the frame the new constraint reached for now becomes
         // real construction geometry, pinned, so the solver has something to
         // resolve the reference against and the origin cannot be dragged off
-        // zero by the constraint that names it. Nothing is added for a
-        // constraint that never touches the frame.
+        // zero by the constraint that names it. `replaces`: the join an
+        // endpoint tangent subsumes.
         const referenced = result.constraints.flatMap(constraintEntityRefs);
         const grounded = groundDatums(entities, referenced, frame);
         set({
           entities: grounded.entities,
           constraints: [
-            ...constraints,
+            ...constraints.filter((c) => !result.replaces?.includes(c)),
             ...result.constraints,
             ...grounded.constraints,
           ],

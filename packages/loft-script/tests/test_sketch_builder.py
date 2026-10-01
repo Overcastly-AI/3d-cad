@@ -20,6 +20,7 @@ from loft_wire.sketch import (
     RadiusConstraint,
     SketchCircle,
     SketchLine,
+    TangentConstraint,
 )
 
 
@@ -195,3 +196,15 @@ def test_duplicate_entity_ids_are_refused_by_the_params_model() -> None:
     )
     with pytest.raises(ValueError, match="Duplicate sketch entity id"):
         sketch.params()
+
+
+def test_tangent_at_ends_is_the_endpoint_tangency_the_fillet_authors() -> None:
+    """``at=`` names the joined ends; without it the tangent is whole-curve."""
+    sketch = _sketch()
+    sketch.tangent("e1", "e2")
+    sketch.tangent("e1", "e2", at=("end", "start"))
+    whole, joined = sketch.constraints[-2:]
+    assert whole == TangentConstraint(kind="tangent", a="e1", b="e2")
+    assert joined == TangentConstraint(
+        kind="tangent", a="e1", b="e2", a_point="end", b_point="start"
+    )

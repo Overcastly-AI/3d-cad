@@ -1077,7 +1077,7 @@ def fillet_sketch(
     Returns the whole rewritten entity list: the two lines trimmed in place to
     their tangent points (ids preserved) plus the tangent arc appended with a
     fresh deterministic id ``f"{a}.{n}"`` (see
-    :class:`loft_wire.sketch.SketchCornerResult`). v1 is line-line only.
+    :class:`loft_wire.sketch_corner.SketchCornerResult`). v1 is line-line only.
     """
     return _corner_edit(entities, a_id, b_id, radius, fillet=True)
 

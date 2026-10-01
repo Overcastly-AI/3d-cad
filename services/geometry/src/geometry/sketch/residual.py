@@ -103,6 +103,7 @@ from geometry.sketch.schemas import (
     TangentConstraint,
     VerticalConstraint,
 )
+from geometry.sketch.tangency import endpoint_residual
 
 #: Residual reported for a constraint whose references cannot be resolved in
 #: the solved entities. Unresolvable is not "satisfied": every reference was
@@ -153,6 +154,19 @@ def _point_of(
             return None
         case _:  # pragma: no cover — the entity union is closed
             assert_never(entity)
+
+
+def _named_points(
+    entity_ids: tuple[str, ...], entities_by_id: dict[str, SketchEntity]
+) -> dict[_PointKey, _Vec]:
+    """The ``start``/``end``/``center`` points those entities have, as a table."""
+    table: dict[_PointKey, _Vec] = {}
+    for entity in entity_ids:
+        for name in ("start", "end", "center"):
+            at = _point_of(EntityPointRef(entity=entity, point=name), entities_by_id)
+            if at is not None:
+                table[(entity, name)] = at
+    return table
 
 
 def _direction(entity: SketchEntity | None) -> _Vec | None:
@@ -656,6 +670,10 @@ def constraint_residual(
             if a is None or b is None:
                 return UNRESOLVABLE
             return _unit_dot(a, b)
+        case TangentConstraint() if constraint.a_point is not None:
+            solved = _named_points((constraint.a, constraint.b), entities_by_id)
+            residual = endpoint_residual(constraint, solved, input_points)
+            return UNRESOLVABLE if residual is None else residual
         case TangentConstraint():
             return _tangent_residual(constraint, entities_by_id)
         case EqualConstraint():

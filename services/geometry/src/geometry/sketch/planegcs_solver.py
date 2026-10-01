@@ -178,6 +178,7 @@ from geometry.sketch.schemas import (
     VerticalConstraint,
 )
 from geometry.sketch.solver import SketchDefinitionError
+from geometry.sketch.tangency import add_tangent
 
 # --- tuned, documented tolerances (never ad-hoc; RESEARCH §9) -------------------
 
@@ -1262,8 +1263,13 @@ class _GcsBuild:
                     self._resolve_line(constraint.a, "perpendicular"),
                     self._resolve_line(constraint.b, "perpendicular"),
                 )
-            case TangentConstraint():
-                tag = self._add_tangent(constraint)
+            case TangentConstraint():  # either form (geometry.sketch.tangency)
+                curves = (self._lines, self._circles, self._arcs)
+                for tag_n in add_tangent(
+                    gcs, constraint, curves, self._resolve_point, self._input_points()
+                ):
+                    self.tag_to_index[tag_n] = index
+                return
             case EqualConstraint():
                 tag = self._add_equal(constraint)
             case SymmetricConstraint():
@@ -1339,44 +1345,6 @@ class _GcsBuild:
             f"Constraint {constraint_kind!r} references {entity_id!r}, which is "
             "not a known line, circle, or arc entity"
         )
-
-    def _add_tangent(self, constraint: TangentConstraint) -> int:
-        """Dispatch to the planegcs tangency variant for the resolved kinds.
-
-        planegcs exposes a distinct native constraint per curve-pair shape
-        (``tangent_line_arc``/``tangent_line_circle``/``tangent_arc_arc``/
-        ``tangent_circle_circle``/``tangent_circle_arc``); tangency is
-        symmetric, so ``a``/``b`` are reordered to each variant's argument
-        order. Two lines cannot be tangent and are rejected. The (kind, kind)
-        match is fixed by input, so dispatch is deterministic.
-        """
-        gcs = self.gcs
-        a_id, b_id = constraint.a, constraint.b
-        pair = (self._classify_curve(a_id), self._classify_curve(b_id))
-        match pair:
-            case ("line", "arc"):
-                return gcs.tangent_line_arc(self._lines[a_id], self._arcs[b_id])
-            case ("arc", "line"):
-                return gcs.tangent_line_arc(self._lines[b_id], self._arcs[a_id])
-            case ("line", "circle"):
-                return gcs.tangent_line_circle(self._lines[a_id], self._circles[b_id])
-            case ("circle", "line"):
-                return gcs.tangent_line_circle(self._lines[b_id], self._circles[a_id])
-            case ("arc", "arc"):
-                return gcs.tangent_arc_arc(self._arcs[a_id], self._arcs[b_id])
-            case ("circle", "circle"):
-                return gcs.tangent_circle_circle(
-                    self._circles[a_id], self._circles[b_id]
-                )
-            case ("circle", "arc"):
-                return gcs.tangent_circle_arc(self._circles[a_id], self._arcs[b_id])
-            case ("arc", "circle"):
-                return gcs.tangent_circle_arc(self._circles[b_id], self._arcs[a_id])
-            case _:  # ("line", "line") — no common-tangent relation
-                raise SketchDefinitionError(
-                    "Constraint 'tangent' relates a line and a curve, or two "
-                    f"curves; {pair} is not a tangency-capable pair"
-                )
 
     def _add_equal(self, constraint: EqualConstraint) -> int:
         """Dispatch to the planegcs equal-size variant for the resolved kinds.

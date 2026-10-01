@@ -361,9 +361,25 @@ class Sketch:
         """Two lines meet at a right angle."""
         return self.constrain(PerpendicularConstraint(kind="perpendicular", a=a, b=b))
 
-    def tangent(self, a: str, b: str) -> int:
-        """A line/arc and an arc/circle touch without crossing."""
-        return self.constrain(TangentConstraint(kind="tangent", a=a, b=b))
+    def tangent(
+        self,
+        a: str,
+        b: str,
+        *,
+        at: tuple[Literal["start", "end"], Literal["start", "end"]] | None = None,
+    ) -> int:
+        """A line/arc and an arc/circle touch without crossing.
+
+        ``at=("end", "start")`` makes it an endpoint tangency: ``a``'s end and
+        ``b``'s start are joined (no separate coincident needed) and the curves
+        are tangent there — the join a sketch fillet leaves.
+        """
+        a_point, b_point = at if at is not None else (None, None)
+        return self.constrain(
+            TangentConstraint(
+                kind="tangent", a=a, b=b, a_point=a_point, b_point=b_point
+            )
+        )
 
     def equal(self, a: str, b: str) -> int:
         """Two entities have equal length (lines) or radius (arcs/circles)."""

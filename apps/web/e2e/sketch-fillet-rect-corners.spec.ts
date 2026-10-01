@@ -27,6 +27,13 @@ import { createPartViaApi, seedSession } from "./support";
  *
  * Fusion and SolidWorks keep every earlier trim: N fillets on N corners give
  * a closed rounded rectangle.
+ *
+ * SKETCH-ENDPOINT-TANGENT (review of c6475cf): the fillet's joins were plain
+ * coincidents, so editing R afterwards left the arc off tangent — R5 -> R10
+ * on a 40 x 25 rectangle put the centre 9.114 mm from both legs, a kink in the
+ * extrude, with no warning. The joins are endpoint tangents now; the second
+ * test edits R after the fillets and checks the extrude against the analytic
+ * rounded-rectangle volume.
  */
 
 interface Pt {
@@ -68,10 +75,8 @@ async function filletCorner(page: Page, at: PlaneMapper, a: Pt, b: Pt) {
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
-test("a second sketch fillet keeps the first corner's trims", async ({
-  page,
-}) => {
-  test.setTimeout(120_000);
+/** A typed 80 x 50 rectangle with its top-right then bottom-right corners rounded R5. */
+async function filletedRectangle(page: Page) {
   const { token } = await seedSession(page);
   const part = await createPartViaApi(page, token, "Rounded rectangle");
   await page.goto(`/parts/${part.id}`);
@@ -99,19 +104,37 @@ test("a second sketch fillet keeps the first corner's trims", async ({
   await filletCorner(page, at, { x: 0, y: -HALF_H }, { x: HALF_W, y: 0 });
   // The re-homed corners solve cleanly: nothing reads redundant or in conflict.
   await expect(page.getByTestId("dro-solve")).not.toHaveText(/OVER|CONFLICT/i);
+  return { token, part };
+}
 
+/** Leave the sketch and read back what was persisted. */
+async function saveAndRead(page: Page, token: string, partId: string) {
   await page.keyboard.press("Escape");
   await page.getByTestId("sketch-save").click();
   await expect(page.getByTestId("sketch-strip")).toHaveCount(0);
-  const response = await page.request.get(`/api/v1/parts/${part.id}/features`, {
+  const response = await page.request.get(`/api/v1/parts/${partId}/features`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const body = (await response.json()) as {
-    features: Array<{ feature: { params: { entities: PersistedEntity[] } } }>;
+    tree_version: number;
+    features: Array<{
+      id: string;
+      feature: { params: { entities: PersistedEntity[] } };
+    }>;
   };
-  const drawn = (body.features[0]?.feature.params.entities ?? []).filter(
+  const sketch = body.features[0];
+  const drawn = (sketch?.feature.params.entities ?? []).filter(
     (e) => e.construction !== true,
   );
+  return { drawn, sketchId: sketch?.id ?? "", treeVersion: body.tree_version };
+}
+
+test("a second sketch fillet keeps the first corner's trims", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const { token, part } = await filletedRectangle(page);
+  const { drawn } = await saveAndRead(page, token, part.id);
   const dump = JSON.stringify(drawn);
   expect(
     drawn.filter((e) => e.kind === "arc"),
@@ -134,4 +157,100 @@ test("a second sketch fillet keeps the first corner's trims", async ({
   }
   // And the profile closes: the part's first extrude can use it.
   await expect(page.getByTestId("eval-status")).toHaveText("Solved");
+});
+
+test("editing R after the fillets keeps them tangent; the extrude is the rounded rectangle", async ({
+  page,
+}) => {
+  test.setTimeout(150_000);
+  const { token, part } = await filletedRectangle(page);
+  // Edit the FIRST fillet's radius, R5 -> R10, on its glyph, as a user does.
+  const radii = page.locator('[data-testid^="glyph-"][data-kind="radius"]');
+  await expect(radii).toHaveCount(2);
+  await page.keyboard.press("Escape"); // leave Fillet: the glyphs take clicks
+  await radii.first().click();
+  const input = page.getByTestId("dimension-input");
+  await expect(input).toBeVisible();
+  await input.fill("10");
+  await input.press("Enter");
+  await expect(radii.filter({ hasText: /^R10$/ })).toHaveCount(1);
+  await expect(page.getByTestId("dro-solve")).not.toHaveText(/SOLVING/);
+  await page.waitForTimeout(1500);
+  // The edit solves cleanly: the endpoint tangents are not redundant.
+  await expect(page.getByTestId("dro-solve")).not.toHaveText(/OVER|CONFLICT/i);
+  const { sketchId, treeVersion } = await saveAndRead(page, token, part.id);
+
+  // Extrude 10 mm; the evaluation re-solves the sketch (the persisted
+  // coordinates are only its starting guess) and reports the kernel's volume.
+  const extrude = await page.request.post(`/api/v1/parts/${part.id}/features`, {
+    data: {
+      name: "Extrude1",
+      feature: {
+        type: "extrude",
+        version: 1,
+        params: {
+          profile: { kind: "feature", feature_id: sketchId },
+          distance_mm: 10,
+          operation: "add",
+          direction: "normal",
+        },
+      },
+      expected_tree_version: treeVersion,
+    },
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(extrude.status(), await extrude.text()).toBe(201);
+  const evaluated = await page.request.post(
+    `/api/v1/parts/${part.id}/evaluate`,
+    { data: {}, headers: { Authorization: `Bearer ${token}` } },
+  );
+  expect(evaluated.ok(), await evaluated.text()).toBe(true);
+  const body = (await evaluated.json()) as {
+    features: Array<{
+      status: string;
+      data?: { entities?: PersistedEntity[] };
+    }>;
+    properties: { volume: number } | null;
+  };
+  expect(body.features.map((f) => f.status)).toEqual(["ok", "ok"]);
+  const solved = (body.features[0]?.data?.entities ?? []).filter(
+    (e) => e.construction !== true,
+  );
+  const dump = JSON.stringify(solved);
+  const lines = solved.filter((e) => e.kind === "line");
+  const arcs = solved.filter((e) => e.kind === "arc");
+  expect(arcs, dump).toHaveLength(2);
+  // The outline: two vertical and two horizontal legs.
+  const xs = lines
+    .filter((l) => Math.abs((l.start as Pt).x - (l.end as Pt).x) < 1e-9)
+    .map((l) => (l.start as Pt).x);
+  const ys = lines
+    .filter((l) => Math.abs((l.start as Pt).y - (l.end as Pt).y) < 1e-9)
+    .map((l) => (l.start as Pt).y);
+  expect(xs, dump).toHaveLength(2);
+  expect(ys, dump).toHaveLength(2);
+  const [left, right] = [Math.min(...xs), Math.max(...xs)];
+  const [bottom, top] = [Math.min(...ys), Math.max(...ys)];
+  // Every arc is TANGENT to both legs it joins: its centre sits r inside the
+  // right leg and r inside the top or bottom leg. Before the fix the edited
+  // arc's centre sat 9.1 mm from legs it should have been 10 mm from.
+  const radiusOf = (a: PersistedEntity) =>
+    Math.hypot(
+      (a.start as Pt).x - (a.center as Pt).x,
+      (a.start as Pt).y - (a.center as Pt).y,
+    );
+  const rs = arcs.map(radiusOf).sort((a, b) => a - b);
+  expect(rs[0], dump).toBeCloseTo(R, 6);
+  expect(rs[1], dump).toBeCloseTo(10, 6);
+  for (const arc of arcs) {
+    const r = radiusOf(arc);
+    const c = arc.center as Pt;
+    expect(right - c.x, dump).toBeCloseTo(r, 6);
+    const toEdge = c.y > (top + bottom) / 2 ? top - c.y : c.y - bottom;
+    expect(toEdge, dump).toBeCloseTo(r, 6);
+  }
+  // A rounded corner of radius r removes r^2 (1 - pi/4) from the rectangle.
+  const corner = (r: number) => r * r * (1 - Math.PI / 4);
+  const area = (right - left) * (top - bottom) - corner(R) - corner(10);
+  expect(body.properties?.volume ?? NaN, dump).toBeCloseTo(area * 10, 4);
 });

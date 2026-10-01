@@ -16,23 +16,21 @@
  * un-trimmed geometry, and the profile came out open.
  *
  * Fusion 360 and SolidWorks re-home the corner instead: each trimmed end is
- * coincident with the bridge's matching end, a fillet arc carries its radius,
- * and nothing still refers to the sharp corner that is gone. That is what
+ * joined to the bridge's matching end, a fillet arc carries its radius, and
+ * nothing still refers to the sharp corner that is gone. That is what
  * {@link reconcileCornerConstraints} authors. A length dimension on a trimmed
  * leg is dropped (it measured the corner that no longer exists, the same rule
  * trim follows for the length it changes), and so is `equal` / `midpoint` on a
  * leg whose length changed.
  *
- * NO `tangent` IS AUTHORED, deliberately. The solver's line-arc tangent is
- * planegcs's whole-curve `tangent_line_arc` (centre-to-line distance = r). With
- * the arc's end already coincident with the leg's end, that equation is
- * first-order dependent on the coincidence at the solution, so planegcs flags
- * both tangents REDUNDANT and the sketch reads OVER-CONSTRAINED (measured: a
- * filleted rectangle went from DOF 5, clean, to "overconstrained, redundant
- * [10, 11]"). Fusion's fillet tangency is an endpoint tangency, which the wire
- * cannot say yet. Without it the arc is still held by its radius and both
- * joins, and a re-solve keeps it where it is (driving W 80 -> 100 translates
- * the arc and it stays tangent).
+ * A fillet's joins are ENDPOINT TANGENTS (SKETCH-ENDPOINT-TANGENT): each is
+ * the coincidence plus tangency at that point, in one constraint
+ * (`endpointTangent.ts`). Plain coincidents left the arc held only by its
+ * radius and its ends, so editing R afterwards pulled it off tangent (R5 ->
+ * R10 on a 40 x 25 rectangle put the centre 9.114 mm from both legs, a kink in
+ * the extrude, no warning). The whole-curve tangent cannot be added beside a
+ * coincident: planegcs reads it as redundant with the join. A chamfer's joins
+ * stay coincidents — a chamfer line is not tangent to its legs.
  */
 import {
   reconcileConstraints,
@@ -41,6 +39,7 @@ import {
   type SketchConstraint,
 } from "./constraints";
 import type { CornerOp } from "./corner";
+import { isCurveEnd, joinedPoints } from "./endpointTangent";
 import { namedPoints } from "./pick";
 import type { Point2D } from "./plane";
 import type { SketchEntity } from "./tools";
@@ -60,8 +59,9 @@ const length = (e: SketchEntity): number =>
 
 /** The point refs a constraint addresses (whole-entity refs excluded). */
 function pointRefs(c: SketchConstraint): EntityPointRef[] {
+  const join = joinedPoints(c);
+  if (join !== null) return join;
   switch (c.kind) {
-    case "coincident":
     case "symmetric":
       return [c.a, c.b];
     case "fixed":
@@ -144,7 +144,9 @@ export function reconcileCornerConstraints(
   };
   const kept = base.constraints.filter((c) => !stale(c));
 
-  // The corner, re-homed: each trimmed end meets the bridge's matching end.
+  // The corner, re-homed: each trimmed end meets the bridge's matching end —
+  // tangent there for a fillet's arc, plainly coincident for a chamfer line.
+  const rounded = corner.op === "fillet" && bridge.kind === "arc";
   const bridgeEnds = namedPoints(bridge).filter((p) => p.point !== "center");
   const joins: SketchConstraint[] = [];
   for (const leg of trimmed) {
@@ -153,18 +155,26 @@ export function reconcileCornerConstraints(
     const onBridge =
       at === null ? undefined : bridgeEnds.find((p) => same(p.at, at));
     if (end === undefined || onBridge === undefined) continue;
-    joins.push({
-      kind: "coincident",
-      a: end,
-      b: { entity: bridge.id, point: onBridge.point },
-    });
+    joins.push(
+      rounded && isCurveEnd(end.point) && isCurveEnd(onBridge.point)
+        ? {
+            kind: "tangent",
+            a: end.entity,
+            b: bridge.id,
+            a_point: end.point,
+            b_point: onBridge.point,
+          }
+        : {
+            kind: "coincident",
+            a: end,
+            b: { entity: bridge.id, point: onBridge.point },
+          },
+    );
   }
-  // The fillet's radius, as Fusion dimensions it. No tangent: see the module
-  // note for why the solver would report it redundant.
-  const fillet: SketchConstraint[] =
-    corner.op === "fillet" && bridge.kind === "arc"
-      ? [{ kind: "radius", entity: bridge.id, value_mm: corner.value }]
-      : [];
+  // The fillet's radius, as Fusion dimensions it.
+  const fillet: SketchConstraint[] = rounded
+    ? [{ kind: "radius", entity: bridge.id, value_mm: corner.value }]
+    : [];
   return {
     constraints: [...kept, ...joins, ...fillet],
     removed: constraints.length - kept.length,

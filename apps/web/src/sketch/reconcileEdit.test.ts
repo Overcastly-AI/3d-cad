@@ -4,11 +4,8 @@
  */
 import { describe, expect, it } from "vitest";
 
-import {
-  deleteSelectedEntities,
-  reconcileEditedConstraints,
-  type SketchConstraint,
-} from "./constraints";
+import { deleteSelectedEntities, type SketchConstraint } from "./constraints";
+import { reconcileEditedConstraints } from "./reconcileEdit";
 import type { SketchEntity } from "./tools";
 
 const line = (

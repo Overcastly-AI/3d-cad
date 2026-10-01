@@ -54,6 +54,16 @@ Rules the solver keeps:
   retried** from the author's pose; one the constraints do force is refused.
 - Spline fit points can take point constraints; spline tangency is deferred
   until there is a native spline primitive.
+- **Tangency has two forms, as in FreeCAD** (`geometry.sketch.tangency`,
+  SKETCH-ENDPOINT-TANGENT). A whole-curve `tangent` uses planegcs's native
+  `tangent_line_arc` family (centre-to-line distance = r, contact point free).
+  A `tangent` that names an end of each curve (`a_point`/`b_point`) is the
+  join plus the tangency at it: a coincidence and `angle_via_point` held at
+  0 or pi, the branch read once from the submitted geometry. The whole-curve
+  equation is redundant with a coincident at the same join, which is why a
+  sketch fillet's joins are endpoint tangents: with plain coincidents an R
+  edit pulled the arc off tangent with no warning. An endpoint tangent
+  includes its coincidence, so a coincident on the same pair is redundant.
 
 ## 3. Monorepo of services, contract-first
 
