@@ -25,7 +25,7 @@ from build123d import Axis, Box, Cylinder, Plane, Solid, fillet, offset
 from geometry.kernel.faces import planar_faces
 from geometry.kernel.hole import (
     HoleTooDeepError,
-    _pocket_slack,
+    _pocket_slack,  # pyright: ignore[reportPrivateUsage]
     bore_hole,
     cut_counterbore,
     cut_countersink,
