@@ -71,10 +71,6 @@ test.use({ viewport: { width: 1280, height: 800 } });
 test("a second sketch fillet keeps the first corner's trims", async ({
   page,
 }) => {
-  test.fail(
-    true,
-    "SKETCH-FILLET-UNTRIM: the second fillet restores the first corner",
-  );
   test.setTimeout(120_000);
   const { token } = await seedSession(page);
   const part = await createPartViaApi(page, token, "Rounded rectangle");

@@ -39,7 +39,6 @@ import {
   constraintEntityRefs,
   deleteSelectedEntities,
   dimensionEditorTarget,
-  reconcileConstraints,
   reconcileEditedConstraints,
   toggleConstruction,
   type ConstraintAction,
@@ -52,6 +51,7 @@ import {
   type SolveInfo,
 } from "./constraints";
 import { toggleCornerPick, type CornerOp } from "./corner";
+import { reconcileCornerConstraints } from "./cornerConstraints";
 import {
   datumFrame,
   datumSafeSolve,
@@ -1771,14 +1771,14 @@ const createSketchState = (
   },
 
   applyCornerResult: (result) => {
-    const { cornerRequest, corner, constraints, revision } = get();
+    const { cornerRequest, corner, constraints, revision, entities } = get();
     if (cornerRequest === null) return;
-    // Corner REWRITES (like trim/extend): the two source lines are trimmed in
-    // place with ids preserved, so their constraints survive — but reconcile on
-    // the uniform, safe path anyway, so a dangling ref can never reach the solve.
-    const { constraints: kept, removed } = reconcileConstraints(
+    // Corner REWRITES (like trim): the old sharp corner is re-homed onto the bridge.
+    const { constraints: kept, removed } = reconcileCornerConstraints(
       constraints,
+      entities,
       result,
+      cornerRequest,
     );
     const verb = cornerRequest.op === "fillet" ? "Filleted" : "Chamfered";
     const note =

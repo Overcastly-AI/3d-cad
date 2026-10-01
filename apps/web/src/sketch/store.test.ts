@@ -1748,14 +1748,14 @@ describe("fillet/chamfer — two-line pick, rewrites in place", () => {
     store().applyCornerResult(rewritten);
 
     expect(store().entities).toEqual(rewritten);
-    // e1 and e3 kept their ids, so the constraint between them survives.
-    expect(authored()).toEqual([{ kind: "equal", a: "e1", b: "e3" }]);
+    // e1 was trimmed, so its equal-length with e3 goes (cornerConstraints.ts).
+    expect(authored()).not.toContainEqual({ kind: "equal", a: "e1", b: "e3" });
     expect(store().revision).toBe(revision + 1);
     expect(store().editBusy).toBe(false);
     expect(store().cornerRequest).toBeNull();
     // Re-armed for another corner, still on the tool.
     expect(store().corner).toEqual({ op: "fillet", picks: [] });
-    expect(store().editNote).toMatch(/filleted/i);
+    expect(store().editNote).toBe("Filleted. 2 constraints removed.");
   });
 
   it("failCorner surfaces the message and keeps the picks for a retry", () => {
