@@ -4,7 +4,8 @@ Owned by the `product-manager`; the orchestrator ticks items and appends
 Notes. Each item is one line plus a one-line acceptance. Items are ranked by
 what stops an engineer modelling a reference part (`docs/VISION.md`). The
 backlog this replaced (190 open items) is in git:
-`git show 5b6fd28:docs/BACKLOG.md`.
+`git show 5b6fd28:docs/BACKLOG.md`. Ticked items are dropped at triage; their
+commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
@@ -23,20 +24,6 @@ backlog this replaced (190 open items) is in git:
       _Accept:_ every mark the user can see is the topmost element at its
       own centre, or overlapping marks resolve to the nearer edge; an e2e
       test on a shelled box checks all 8 rim marks with `elementFromPoint`.
-- [x] **TYPED-COORD-HIJACK** (91b47c1, reviewed, ci green): with the Line tool,
-      `10 Tab 0 Enter`, `10 Tab 20 Enter`, then `-10 Tab 20 Enter` for the
-      next line stores the first line as (10,0)-(10,1020): the finished line's
-      armed length cell takes the digits, and the next line is never drawn.
-      Hit twice on the gear keyway (`gear-typed-line-hijack.png`).
-      _Accept:_ `e2e/sketch-typed-line-sequence.spec.ts` passes with its
-      `test.fail()` marker removed.
-- [x] **TYPED-POINT-RACE** (91b47c1, reviewed, ci green): spline fit points typed at
-      about 300 ms per point (x, Tab, y, Enter) are merged or dropped. Eight
-      typed involute points stored a 2-point straight spline plus a separate
-      8-point one; four test points stored 2 (`gear-spline-typing-race.png`).
-      _Accept:_ every typed point lands, in order, at any typing speed; an
-      e2e test types 8 spline points with no waits and reads the stored
-      spline.
 - [ ] **SHELL-INTERSECTION-SLOW** (hang, pre-existing): a sealed plate bored r2.991 with a cross bore r1.424 at t 2.39 spends 133 s in OCCT's Intersection hollow (`shell.py`), past the gateway's 90 s timeout, on every version. _Accept:_ Shell answers (a solid or a typed refusal) within the timeout on that body; the Intersection route is skipped when Arc alone decides.
 - [ ] **SHELL-HEAL-NONDETERMINISM** (P1): a stored sealed Shell can fail to
       rebuild at random. Rod with a cross-bore r6 at t=2 is refused on 31 of
@@ -54,43 +41,12 @@ backlog this replaced (190 open items) is in git:
       recreating the fillet (3 cycles on the enclosure). Fusion rolls back and
       lets you re-pick. _Accept:_ Edit on a fillet rolls back to its input
       body and a click adds or removes an edge; an e2e test re-picks one edge.
-- [x] **TWIST-TO-SWEEP** (9239d44 + 1723b6b, green; on main at b60bc91): move twist from Extrude to Sweep ("twist along
-      path", as in Fusion 360 and SolidWorks), reusing
-      `services/geometry/src/geometry/kernel/twist.py` (see
-      `docs/design/twisted-extrude.md`).
-      _Accept:_ Sweep has a Twist angle (exact on a straight path, and either
-      exact or a typed refusal on a curved path); the Extrude editor has no
-      Twist field or arc; stored extrudes with `twist_angle_deg` and
-      loft-script callers still open and rebuild identically (migrated or
-      read-compatible); goldens cover both paths; `helical-gear.py --twisted`
-      uses Sweep.
-- [x] **SHELL-SEALED-DETERMINISM** (8dcc120 + b0916cd, green; sealed spline
-      walls still drift about 2e-5 mm^3 between rebuilds): a sealed Shell (no open face, the editor's
-      default) rebuilds nondeterministically because of cavity face order.
-      _Accept:_ identical topology and mass properties across repeated
-      rebuilds and a worker restart; there is a golden for it.
-- [x] **SKETCH-DRO-UNITS** (87ff68d, green): the sketch DRO labels X/Y "MM" in inch
-      documents. _Accept:_ the DRO shows the document's unit; an e2e test
-      covers an inch document.
-- [x] **CI-PY-SPLIT** (d41d04d, green; shards 7m46s / 8m20s / 8m46s, `ci`
-      about 10 min end to end): pytest took about 24 min against a 30 min job timeout; the backup
-      drill fails on a BuildKit transport EOF. _Accept:_ each Python job
-      finishes well under its timeout; the drill retries once on that EOF
-      and only on it.
-- [x] **CI-TWO-LANE** (9767a90: `ci` 7m50s; full lane 32 min, green): today the 9-job e2e (about 40
-      min) runs on every commit. _Accept:_ a required per-commit lane under
-      10 min (lint, typecheck, unit tests, contract drift, a smoke e2e), with
-      the full e2e and deploy-path running nightly and before a merge to
-      `main`; wall-clock is measured on real runs.
 - [ ] **SHELL-SHARP-DEFAULT**: new Shells leave a sharp cavity at concave
       edges (OCCT Intersection join), as SolidWorks, Onshape and Fusion do
       by default; stored shells keep Arc (rounded) so no saved part changes
       shape. _Accept:_ a stored `shell_type` (sharp | rounded, legacy rows
       read as rounded); sharp is correct on a bored plate and an L-bracket,
       checked by a method that does not rely on Arc; goldens for both.
-- [x] **REFERENCE-RUN** (18bb6e2: 5/5 parts built, every volume matches an independent build; blockers filed above): after TWIST-TO-SWEEP, `qa-tester` models all five
-      reference parts on the tip. _Accept:_ the "Last run" column in VISION
-      is updated, and each part's blockers are filed here, ranked.
 
 ## Next
 
@@ -104,8 +60,6 @@ backlog this replaced (190 open items) is in git:
 - [ ] **DRAWSHEET-AUTOPLACE-1** (eb113cb + c6ae762): a lone or adjacent-pair auto-placed view lands 12 mm off centre per axis, and pinned views skew auto-layout. _Accept:_ centring uses only auto-placed views; a border gate over each view's ink (geometry + caption) passes.
 - [ ] **LAYOUTISSUE-OFFSHEET-1** (11edf49): a view whose ink leaves the border exports with empty `layout_issues` and no banner. _Accept:_ an `off_sheet` error issue in loft-wire (`just gen`), stamped on the sheet.
 - [ ] **SHEET-RESCALE-1** (03bb837): a laid-out multi-view sheet cannot be re-scaled; the per-view check refuses the first write. _Accept:_ `SheetUpdate.scale` rewrites every view in one transaction and the drawing page offers it.
-- [x] **SNAP-4** (bb55aac, reviewed, ci green): Fix on a point already joined to the origin adds a second pin and the sketch reads OVER-CONSTRAINED. _Accept:_ Fix is refused with "Already grounded on the Origin", following joins transitively.
-- [x] **CI-VERDICT-HANG-1** (2d08224, reviewed; ci green with the new verdict step): e2e teardown can wait unbounded, and the log's last line can read GREEN on a red job (the job itself still goes red). _Accept:_ bounded teardown before the verdict; the verdict step checks `job.status`.
 - [ ] **SKETCH-EXPR-TRIG**: dimension expressions accept `sin`/`cos`/`tan`
       (degrees). _Accept:_ `20*tan(15)` solves and round-trips through save
       and reload.
@@ -158,9 +112,41 @@ backlog this replaced (190 open items) is in git:
       on a golden fixture.
 - [ ] **MCP-SERVER**: an MCP server over `loft-script`. _Accept:_ an agent
       creates a sketch, extrudes it, reads mass properties and exports STEP.
-- [x] **DEP-AUDIT** (45b664e + 673e98c, reviewed: pnpm audit and pip-audit at zero; pyjwt 500-before-auth fixed) (security): `pnpm audit` reports 18 advisories (13 high),
-      and no vulnerability gate exists. _Accept:_ Dependabot is configured
-      and CI surfaces the audit results.
+
+### Assemblies (ranked by what stops A1, then A2, then A3 in `docs/VISION.md`)
+
+- [ ] **ASM-MOVE-DRAG** (stops A1): instances cannot be moved. Each is placed
+      80 mm along +X, with no drag and no handle. Fusion and SolidWorks drag a
+      component, and the mates hold it to its free DOF. _Accept:_ in A1,
+      dragging leaf B turns it about the knuckle axis only (the axis moves
+      < 1e-6). An unmated instance moves 30 in Y and turns 90° about Z, by a
+      Move/Rotate handle and by typed values, and stays there after a
+      reload. e2e covers both.
+- [ ] **ASM-LIMITS** (stops A1): a distance or angle mate has no min/max
+      (SolidWorks limit mates, Fusion joint limits). _Accept:_ the hinge
+      stops at 0° and 180° when dragged, a typed 200° is refused with the
+      limit named, and the limits survive a reload.
+- [ ] **ASM-CYL-FACE-MATE** (A2): concentric takes only circular edges.
+      SolidWorks and Fusion take a cylindrical face. _Accept:_ the A2 lead
+      screw is made concentric by clicking its face and the tapped hole's
+      face, and the mate survives a diameter edit.
+- [ ] **ASM-FASTENER-CLASH** (A2): a screw in a tapped hole reports as a
+      clash among the real ones. SolidWorks lists fasteners in a separate
+      folder. _Accept:_ at o = 0, 40 and 80, A2 lists exactly 5 threaded
+      engagements apart from the real clashes, and there are none of those.
+- [ ] **ASM-SUBASM-BOM** (A3): the Add panel inserts parts only, although
+      the API takes sub-assemblies, and the BOM is flat. _Accept:_ the A3
+      carriage is inserted from the panel. The parts-only BOM reads 16
+      lines and 73 instances, and the top level reads 11 lines and 45.
+- [ ] **ASM-PATTERN** (A3): there is no component pattern. SolidWorks has
+      pattern-driven patterns, Onshape has Replicate, and Fusion patterns
+      components. _Accept:_ A3's 28 rail screws are one pattern that follows
+      the rail's holes, and changing the rail's hole count changes the
+      screw count.
+- [ ] **ASM-IN-CONTEXT** (A3): a part cannot reference another instance's
+      geometry (SolidWorks Edit Part, Fusion Edit in Place). _Accept:_ the
+      A3 carriage plate's holes are sketched from the blocks' holes, and
+      moving the rails from ±40 to ±45 moves those holes.
 
 ## Founder decisions
 
