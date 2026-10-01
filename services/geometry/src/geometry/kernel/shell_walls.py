@@ -34,18 +34,19 @@ solid classifier, test it:
   on the offset of a face. The same samples tell whether any cavity exists,
   which separates "too thick for this body" from "the kernel failed on it".
 
-Resolution is the sampling. Each kept face gets a grid of up to :data:`GRID`
-x :data:`GRID` points over its parameter box, about ``t`` apart (at least 2 x 2),
-kept when inside the face; each result face a :data:`WALL_GRID` grid. A pocket
-whose face-offset boundary falls between grid points on every face it touches
-is not seen by the grid, and small pockets hide in corners, so each convex edge
-between two kept faces is also sampled along the cavity's corner line
-(:attr:`ShellDefinition._corners`). Removing the smallest pocket from a right
+Resolution is the sampling. Points are about ``t`` apart, in each face's own
+parameter space: on every kept face (at least 2 x 2), every result face (the
+wall test), and along every convex edge between two kept faces, on the cavity's
+corner line (:attr:`ShellDefinition._corners`), where small pockets hide. The
+counts are capped (:data:`MAX_FACE_POINTS` a face, :data:`EDGE_GRID` an edge),
+which spreads the points only on large faces and long edges. A pocket whose
+face-offset boundary falls between the points on every face it touches, and
+off every corner line, is not seen. Removing the smallest pocket from a right
 shell (a boolean one) of the sweep's bodies and 300 seeded random bored plates
-(2026-09-30): a 3 x 3 grid missed 14 of 109, the largest 26.9 mm^3; this
-sampling misses 8, the largest 1.47 mm^3 (tests/test_shell_walls.py). Geometry
-QA measured the same on its own set: 3 x 3 missed 56 of 209 (up to 46.4 mm^3),
-6 x 6 8 of 63 (up to 9.4 mm^3).
+(2026-09-30): a 3 x 3 grid per face missed 14 of 109, the largest 26.9 mm^3;
+this sampling misses 6, the largest 1.47 mm^3 (tests/test_shell_walls.py).
+A fixed 2 x 2 wall grid put 4 points on a revolved part's one side face and
+shipped a band of 1.85 mm walls at t 2 (QA of 930a9af).
 
 Cost: every query is capped (is the point on a face, is it ``t`` from one) and
 looks only at the edges and faces in the spatial-index cells round the point
@@ -96,6 +97,7 @@ from OCP.BRepTools import BRepTools
 from OCP.BRepTopAdaptor import BRepTopAdaptor_FClass2d
 from OCP.ChFiDS import ChFiDS_TypeOfConcavity
 from OCP.Extrema import Extrema_ExtPC, Extrema_ExtPS
+from OCP.GeomAbs import GeomAbs_SurfaceType
 from OCP.gp import gp_Pnt, gp_Pnt2d, gp_Vec
 from OCP.TopAbs import TopAbs_ShapeEnum, TopAbs_State
 from OCP.TopExp import TopExp
@@ -107,20 +109,35 @@ from OCP.TopTools import (
 
 Points = NDArray[np.float64]
 
-#: Samples per parameter direction of each kept face (the cavity test) and of
-#: each result face (the wall test); a face that keeps fewer than two is
-#: resampled at twice the density. FINE_GRID is for the questions only a
-#: refusal asks (is there a cavity at all, and how thin a wall would leave one).
-GRID = 6
-WALL_GRID = 2
+#: Samples are about ``t`` apart, in each parameter direction of each kept face
+#: (the cavity test) and of each result face (the wall test), and along each
+#: edge between two kept faces (the corner test): at least 2 per face direction
+#: and 1 per edge. A face gets at most MAX_FACE_POINTS (spread wider in both
+#: directions alike when it would get more: a 300 x 100 mm lid face at t 1.5,
+#: points 3.5 mm apart) and an edge at most EDGE_GRID. A fixed count per face
+#: missed thin bands on revolved splines, whose whole side wall is one face (a
+#: 2 x 2 wall grid shipped 1.85 mm walls at t 2; a 32-a-side cap let 3.75 mm
+#: gaps round a 120 mm circumference ship a band 6 um thin: QA of 930a9af), and
+#: put points 50 mm apart on 300 mm plates. A face that keeps fewer than two
+#: points is resampled on a FALLBACK_GRID. FINE_GRID is for the questions only
+#: a refusal asks (is there a cavity at all, and how thin a wall would leave
+#: one).
+MAX_FACE_POINTS = 2500
+#: The samples' spacing, as a share of ``t``.
+SPACING_SHARE = 1.0
+EDGE_GRID = 64
+FALLBACK_GRID = 8
 FINE_GRID = 12
 
-#: Most samples along each edge between two kept faces (the corner test), about
-#: one per thickness of its length; and how much deeper than ``t``, as a share
-#: of ``t``, its test point sits (a corner's offsets are curved on a curved
-#: face, so its point is only first-order right, and the margin absorbs that).
-EDGE_GRID = 6
+#: How much deeper than ``t``, as a share of ``t``, a corner sample's test point
+#: sits (a corner's offsets are curved on a curved face, so its point is only
+#: first-order right, and the margin absorbs that).
 _EDGE_DEPTH_SHARE = 0.05
+
+#: How much thicker than ``t`` (as a share of ``t``) a wall may read where its
+#: nearest kept point is on an edge: the sharp corner Arc keeps (see
+#: :meth:`ShellDefinition.fault`).
+_CORNER_SLACK_SHARE = 0.05
 
 #: The angle (rad) under which OCCT's edge analysis calls two faces tangent.
 _TANGENT_ANGLE = 0.01
@@ -156,7 +173,7 @@ _BOX_MARGIN_MM = 1e-6
 #: under twice the thickness, so a query capped at the thickness reads the 27
 #: cells round its own. A query reaching farther than _INDEX_SCAN_CELLS cells
 #: scans every shape.
-_INDEX_CELLS = 60
+_INDEX_CELLS = 30
 _INDEX_SCAN_CELLS = 4
 
 #: Parameter tolerance of the surface and curve extrema, and of the in-face
@@ -289,20 +306,37 @@ class _EdgeProbe:
         return best
 
 
+#: Surfaces whose ``BRepBndLib.Add`` box is exact or conservative (closed
+#: forms over the face's parameter box): the cheap box is safe on them.
+_BOXED_EXACTLY = frozenset(
+    {
+        GeomAbs_SurfaceType.GeomAbs_Plane,
+        GeomAbs_SurfaceType.GeomAbs_Cylinder,
+        GeomAbs_SurfaceType.GeomAbs_Cone,
+        GeomAbs_SurfaceType.GeomAbs_Sphere,
+        GeomAbs_SurfaceType.GeomAbs_Torus,
+    }
+)
+
+
 def _boxes(shapes: Sequence[TopoDS_Shape], tight: bool) -> Points:
     """Each shape's bounding box, a row of (xmin, ymin, zmin, xmax, ymax, zmax),
     and never smaller than the shape: a box that cuts off part of a face makes
     a point on it read as off it.
 
-    Faces take ``AddOptimal`` (*tight*). ``Add`` is not conservative on a
-    surface of extrusion: a spline prism's wall ran 0.0316 mm outside its box
-    and read as off itself, so right shells were refused (re-review of
-    38f240f). Edges take ``Add``, which bounds a curve by its poles (a B-spline
-    lies in their convex hull) or exactly, at a fifth of the cost."""
+    Faces (*tight*) take ``AddOptimal`` unless they are planes or quadrics.
+    ``Add`` is not conservative on a surface of extrusion: a spline prism's wall
+    ran 0.0316 mm outside its box and read as off itself, so right shells were
+    refused (re-review of 38f240f). ``AddOptimal`` costs about five times as
+    much, which a 910-face lid's 4000 result faces feel. Edges take ``Add``,
+    which bounds a curve by its poles (a B-spline lies in their convex hull)
+    or exactly."""
     bounds = np.empty((len(shapes), 6))
     for index, shape in enumerate(shapes):
         box = Bnd_Box()
-        if tight:
+        if tight and (
+            BRepAdaptor_Surface(TopoDS.Face_s(shape)).GetType() not in _BOXED_EXACTLY
+        ):
             BRepBndLib.AddOptimal_s(shape, box, False, True)
         else:
             BRepBndLib.Add_s(shape, box, False)
@@ -616,16 +650,30 @@ def _grid(
     """Grid points inside *face* (rows, at most *limit*), and each one's unit
     outward normal. The grid is *size* x *size* over the face's parameter box,
     or, with *spacing*, as many as keep the points about that far apart in each
-    direction, between 2 and *size*."""
+    direction (at least 2), and at most *size* points in all."""
     umin, umax, vmin, vmax = BRepTools.UVBounds_s(face)
     across, along = size, size
     if spacing is not None:
+        # The longest the face runs in each direction: the parametric speed at
+        # nine points, times the parameter span.
+        adaptor = BRepAdaptor_Surface(face)
         middle, du, dv = gp_Pnt(), gp_Vec(), gp_Vec()
-        BRepAdaptor_Surface(face).D1(
-            (umin + umax) / 2, (vmin + vmax) / 2, middle, du, dv
-        )
-        across = min(size, max(2, math.ceil(du.Magnitude() * (umax - umin) / spacing)))
-        along = min(size, max(2, math.ceil(dv.Magnitude() * (vmax - vmin) / spacing)))
+        speed_u = speed_v = 0.0
+        for a in (0.1, 0.5, 0.9):
+            for b in (0.1, 0.5, 0.9):
+                adaptor.D1(
+                    umin + a * (umax - umin), vmin + b * (vmax - vmin), middle, du, dv
+                )
+                speed_u, speed_v = (
+                    max(speed_u, du.Magnitude()),
+                    max(speed_v, dv.Magnitude()),
+                )
+        across = max(2, math.ceil(speed_u * (umax - umin) / spacing))
+        along = max(2, math.ceil(speed_v * (vmax - vmin) / spacing))
+        if across * along > size:  # spread wider, alike in both directions
+            shrink = math.sqrt(size / (across * along))
+            across = max(2, math.floor(across * shrink))
+            along = max(2, math.floor(along * shrink))
     inside = BRepTopAdaptor_FClass2d(face, _EXTREMA_TOL)
     surface = BRepGProp_Face(face)
     points: list[tuple[float, float, float]] = []
@@ -676,7 +724,7 @@ def _sample(
     for face in faces:
         found, normal = _grid(face, size, limit, spacing)
         if len(found) < min(2, limit or 2):
-            found, normal = _grid(face, 2 * size, limit)
+            found, normal = _grid(face, FALLBACK_GRID, limit)
         first.append(count if len(found) else -1)
         count += len(found)
         points.append(found)
@@ -721,7 +769,9 @@ class ShellDefinition:
 
     @cached_property
     def _offsets(self) -> _Samples:
-        return _sample(self._kept, GRID, spacing=self.thickness_mm)
+        return _sample(
+            self._kept, MAX_FACE_POINTS, spacing=SPACING_SHARE * self.thickness_mm
+        )
 
     @cached_property
     def _fine_offsets(self) -> _Samples:
@@ -790,7 +840,7 @@ class ShellDefinition:
             first, last = curve.FirstParameter(), curve.LastParameter()
             ends = [curve.Value(v) for v in (first, (first + last) / 2, last)]
             length = ends[0].Distance(ends[1]) + ends[1].Distance(ends[2])
-            count = min(EDGE_GRID, max(1, math.ceil(length / t)))
+            count = min(EDGE_GRID, max(1, math.ceil(length / (SPACING_SHARE * t))))
             sides = []
             for face in pair:
                 key = order.FindIndex(face)
@@ -952,7 +1002,9 @@ class ShellDefinition:
                 return WallFault(FaultKind.FACE_LOST, _at(missing[gone][0]))
         # A result face is either on the input's boundary (an outer face, or the
         # rim left on an opened face) or a cavity face: one point says which.
-        heads = _sample(result_faces, WALL_GRID, limit=1)
+        heads = _sample(
+            result_faces, MAX_FACE_POINTS, limit=1, spacing=SPACING_SHARE * t
+        )
         sampled = [
             face
             for face, row in zip(result_faces, heads.first, strict=True)
@@ -965,13 +1017,24 @@ class ShellDefinition:
         cavity = [
             face for face, is_outer in zip(sampled, outer, strict=True) if not is_outer
         ]
-        points = _sample(cavity, WALL_GRID).points
+        points = _sample(cavity, MAX_FACE_POINTS, spacing=SPACING_SHARE * t).points
         reach = self._near.many(points, t + 2 * WALL_TOL_MM, True, t - WALL_TOL_MM)
         for row in np.flatnonzero(np.abs(reach - t) > WALL_TOL_MM):
             wall, foot = self._near.one(gp_Pnt(*points[row]), math.inf, True)
             # On the input's boundary after all (its head sat on an input edge,
             # which the faces-only test reads as off): an outer face.
             if wall <= ON_TOL_MM:
+                continue
+            # A sharp cavity corner where the distance definition rounds it: a
+            # point nearest a kept EDGE, a little farther than t from it. Arc
+            # keeps a convex corner sharp; on curved faces that leaves walls a
+            # few um thick there (2 um at t 1 on QA's turned part). Thicker by
+            # this little at an edge is not a wrong wall; thinner never passes.
+            if (
+                t < wall <= t * (1 + _CORNER_SLACK_SHARE)
+                and foot is not None
+                and foot.support is not _Support.FACE
+            ):
                 continue
             if not self._at_rim(foot):
                 return WallFault(FaultKind.WALL, _at(points[row]), wall)

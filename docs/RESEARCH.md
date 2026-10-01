@@ -156,7 +156,7 @@ The correctness gates, run in CI and by `geometry-qa`:
   splits keeps one pocket, and a tube with a wall under 2t comes back as crossed
   offsets. A shell of thickness t keeps the material within t of the kept faces,
   so `kernel/shell_walls.py` checks that with point distances to the input
-  on a grid of up to 6 x 6 per face, about t apart, and along each convex
+  about t apart in each face's parameters, and along each convex
   edge's cavity corner: every cavity face is t from the kept faces, every point
   t inside a kept face with no kept face nearer is on the result, and every kept
   face is still there. Near an opened face, where OCCT carries the walls to the
@@ -165,7 +165,7 @@ The correctness gates, run in CI and by `geometry-qa`:
   `shell_thickness_too_large` with the thickest wall that fits, or
   `shell_failed` with where and why. Over a 173-body sweep, 7 wrong solids
   shipped before and none does now. Of 109 right shells with their smallest
-  pocket filled, 8 pass, all with pockets of 1.47 mm^3 or less. Every query is
+  pocket filled, 6 pass, all with pockets of 1.47 mm^3 or less. Every query is
   capped and answered from a spatial index, so the cost grows with the faces:
   about a tenth of the shell on 710- and 910-face lids, tens of ms on small
   bodies.

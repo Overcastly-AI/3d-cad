@@ -376,10 +376,10 @@ def test_a_sealed_cross_bored_rod_rebuilds_the_same_every_time() -> None:
 # --- a turned part: a wrong wall 5fda139 shipped (QA of 38f240f) ---------------
 
 
-def _turned() -> Solid:
-    """A spline profile, r 7.38 at the base to 19.81 at z 20 and 10.38 at the top,
-    revolved: every side face is a surface of revolution."""
-    profile = [
+#: Spline profiles (r, z) of turned parts, revolved about z.
+TURNED = {
+    # r 7.38 at the base to 19.81 at z 20 and 10.38 at the top.
+    "turned": [
         (7.38, 0.0),
         (19.18, 5.0),
         (15.69, 10.0),
@@ -387,12 +387,31 @@ def _turned() -> Solid:
         (19.81, 20.0),
         (19.13, 25.0),
         (10.38, 30.0),
-    ]
+    ],
+    # QA rev14 (of 930a9af): at t 2 OCCT's hollow has a band of walls down to
+    # 1.85 mm at z 3.6 to 3.9. 5fda139 refused it; 38f240f's 2 x 2 wall grid
+    # (the whole side wall is one face) shipped 7077.370 mm^3.
+    "rev14": [
+        (13.16, 0.0),
+        (17.0, 5.0),
+        (11.62, 10.0),
+        (14.35, 15.0),
+        (15.69, 20.0),
+        (10.87, 25.0),
+        (6.95, 30.0),
+    ],
+}
+
+
+def _turned(name: str = "turned") -> Solid:
+    """A spline profile revolved: every side face is a surface of revolution."""
+    profile = TURNED[name]
+    height = profile[-1][1]
     with BuildPart() as part:
         with BuildSketch(Plane.XZ):
             with BuildLine():
                 Spline(*profile)
-                Polyline(profile[-1], (0, 30.0), (0, 0), profile[0])
+                Polyline(profile[-1], (0, height), (0, 0), profile[0])
             make_face()
         revolve(axis=Axis.Z)
     assert part.part is not None
@@ -426,16 +445,19 @@ def _cavity_walls(body: Solid, shelled: BodyShape, grid: int = 20) -> list[float
     return walls
 
 
-@pytest.mark.parametrize(("thickness", "must_build"), [(1.0, True), (1.5, False)])
+@pytest.mark.parametrize(
+    ("name", "thickness", "must_build"),
+    [("turned", 1.0, True), ("turned", 1.5, False), ("rev14", 2.0, False)],
+)
 def test_a_sealed_turned_part_is_its_shell_or_refused(
-    thickness: float, must_build: bool
+    name: str, thickness: float, must_build: bool
 ) -> None:
     """At t 1.5 OCCT's hollow has cavity walls from 1.397 mm up (0.03 mm at z
     28.5 on a finer grid), and 5fda139 shipped it, 8017.894 mm^3, on 10 of 10
     rebuilds: none of its samples fell on the thin wall. 38f240f refuses it (a
     1.368 mm wall at x -6.995, y 17.99, z 2.392), 10 of 10. At t 1 the hollow
     is right, every sampled cavity wall 1.00000 mm, and must still ship."""
-    body = _turned()
+    body = _turned(name)
     try:
         shelled = shell_body(body, [], thickness)
     except (ShellError, ShellThicknessError):
