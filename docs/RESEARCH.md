@@ -181,6 +181,12 @@ The correctness gates, run in CI and by `geometry-qa`:
 - **Volume integration** lives in one place (`properties.volume_properties`).
   Spline-swept faces are integrated through exact NURBS twins, and offset
   faces through our own Gauss-Legendre per knot span.
+- **A feature checks its own material, not a body delta.** Integration error
+  scales with the body and its face types: on a 60 000 mm^3 B-spline enclosure
+  the before/after volumes missed a Ø2.5 x 10 pocket by ~1.8 mm^3, and a valid
+  blind hole was refused. A Hole measures `tool ∩ body` and may fall short only
+  by a skin of that solid's OCCT tolerance (at least `Precision::Confusion`)
+  over the pocket's surface (`kernel/hole.py`).
 - **Refuse, do not heal, missing material:** zero-width slits
   (`find_zero_width_slits`) and degenerate parameters become typed feature
   errors.
