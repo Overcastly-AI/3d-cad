@@ -573,5 +573,20 @@ No rule on the input is trusted now: EVERY draft runs in a child of the blend
 server, and a crash is a typed `DraftError`. That costs ~30 ms a draft with
 the server warm (26 ms in-process vs 55-59 ms isolated on the hub, load 5),
 and the isolated result has the in-process volume, topology, vertices and
-face areas exactly. The blend rule may have the same vertex-neighbour gap
-(BACKLOG BLEND-ROUTE-VERTEX-NEIGHBOUR).
+face areas exactly.
+
+**Every blend is isolated (BLEND-ROUTE-VERTEX-NEIGHBOUR).** The blend rule had
+the same gap: a 40x30x20 box with a triangular boss whose corner sits on the
+box's corner vertex is all planes, yet an R1 fillet or 1 mm chamfer of the
+box edge ending there segfaults in `ChFi3d` (72 of 3480 probes, all at such a
+six-edge vertex). Topology causes it, not surface type, so the analytic
+shortcut is gone: every fillet, chamfer and draft runs in the blend server,
+one call per feature (two when the fillet's re-seam retry runs). Cost, warm
+server, load 4-5: a 4-edge box fillet 16-27 ms in-process vs 47-58 ms
+isolated; the 246- and 906-face lids show no difference above noise (0.26 s
+and 1.3-1.6 s either way). All 91 tree and shape goldens give the same
+metadata (mass properties, topology, mesh counts, GLB size) and, but for one,
+byte-identical GLBs: the draft frustum's GLB has four float32 zeros that
+became -0.0 (the BRep read rebuilds a plane's axes), the same number. The
+server starts at boot by default (`BLEND_SERVER_PREWARM`): lazily, the first
+fillet took 6.3 s; prewarmed (ready 4.9 s after boot), 69 ms.

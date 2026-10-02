@@ -77,11 +77,11 @@ class GeometrySettings(BaseServiceSettings):
     step_import_wall_timeout_seconds: float = 60.0
 
     #: Start the blend server (:mod:`geometry.kernel.fillet_isolation`) at boot,
-    #: in the background, instead of on the first fillet or chamfer outside
-    #: OCCT's analytic cases. That first blend otherwise waits 5-9 s for the
-    #: server to import the kernel; prewarming costs ~0.5 GiB RSS per worker
-    #: from boot. Env: ``BLEND_SERVER_PREWARM``. Default: lazy.
-    blend_server_prewarm: bool = False
+    #: in the background, instead of on the first fillet, chamfer or draft
+    #: (every one runs there). Lazily, that first blend waits 5-9 s for the
+    #: server to import the kernel; prewarmed, it costs ~0.5 GiB RSS per worker
+    #: from boot. Env: ``BLEND_SERVER_PREWARM``. Default: prewarm.
+    blend_server_prewarm: bool = True
 
 
 def build_app(settings: GeometrySettings | None = None) -> FastAPI:

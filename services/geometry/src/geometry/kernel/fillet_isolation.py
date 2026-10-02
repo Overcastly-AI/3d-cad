@@ -10,17 +10,17 @@ worker and every request it is serving. No pre-check predicts it: the input is
 the eight edges alone fail cleanly. So the guard is isolation, and the question
 is only what it costs.
 
-WHAT RUNS WHERE. :func:`needs_isolation` is a cheap, pure test of the input:
-
-* in-process (unchanged, byte-identical): every rounded edge is a line, circle
-  or ellipse and every face beside it is a plane, cylinder, cone or sphere.
-  These are the blends OCCT builds in closed form (``ChFiKPart``) or walks on
-  quadrics, i.e. nearly every machined-part fillet;
-* isolated: anything else (an intersection B-spline, a torus, a free-form
-  face). The torus crash is in this class.
-
-Because the test is a function of the input alone, the same tree always takes
-the same path (RESEARCH §9).
+WHAT RUNS WHERE: everything. Every fillet, chamfer and draft runs isolated
+(:func:`needs_isolation` is always true). An earlier rule kept "analytic"
+blends in-process (line, circle or ellipse edges between planes, cylinders,
+cones and spheres), and it missed crashes that topology causes, not surface
+type: an R1 fillet or 1 mm chamfer of a box's vertical edge ending where a
+triangular boss's corner sits on the box corner (six edges at one vertex, every
+face a plane) segfaults in ``ChFi3d`` (BLEND-ROUTE-VERTEX-NEIGHBOUR, 72 of
+3 480 probes), and a draft of an all-line box wall touched by a lofted wedge
+at one vertex did too. No cheap test of the input is trusted. The price is
+~30 ms per blend with the server warm, once per feature (8.8 vs 37.3 ms for a
+4-edge box), which is why the server is prewarmed at boot by default.
 
 HOW. One warm server per service process (``python -m
 geometry.kernel._fillet_worker``), started on first use (or at boot, setting
@@ -73,22 +73,9 @@ from typing import Any
 from build123d import Compound, Edge, Face, Solid
 from OCP.BinTools import BinTools, BinTools_FormatVersion
 from OCP.BRep import BRep_Builder
-from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCP.BRepBuilderAPI import BRepBuilderAPI_Copy
-from OCP.GeomAbs import (
-    GeomAbs_Circle,
-    GeomAbs_Cone,
-    GeomAbs_Cylinder,
-    GeomAbs_Ellipse,
-    GeomAbs_Line,
-    GeomAbs_Plane,
-    GeomAbs_Sphere,
-)
 from OCP.gp import gp_Ax3, gp_Dir, gp_Pln, gp_Pnt
-from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
-from OCP.TopExp import TopExp
 from OCP.TopoDS import TopoDS, TopoDS_Compound, TopoDS_Iterator, TopoDS_Shape
-from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
 
 from geometry.kernel.naming import OpHistory
 from geometry.kernel.types import BodyShape
@@ -101,11 +88,6 @@ BLEND_CPU_SECONDS = 60.0
 BLEND_WALL_SECONDS = 180.0
 #: How long the server may take to start (it imports the kernel once).
 _START_SECONDS = 120.0
-
-_SAFE_CURVES = frozenset({GeomAbs_Line, GeomAbs_Circle, GeomAbs_Ellipse})
-_SAFE_SURFACES = frozenset(
-    {GeomAbs_Plane, GeomAbs_Cylinder, GeomAbs_Cone, GeomAbs_Sphere}
-)
 
 
 class BlendFailed(RuntimeError):
@@ -132,21 +114,11 @@ def working_copy(
 
 
 def needs_isolation(body: BodyShape, edges: Sequence[Edge]) -> bool:
-    """Whether blending *edges* of *body* leaves OCCT's analytic cases (module
-    docstring): an edge that is not a line/circle/ellipse, or a face beside one
-    that is not a plane/cylinder/cone/sphere."""
-    ancestors = TopTools_IndexedDataMapOfShapeListOfShape()
-    TopExp.MapShapesAndAncestors_s(body.wrapped, TopAbs_EDGE, TopAbs_FACE, ancestors)
-    for edge in edges:
-        if BRepAdaptor_Curve(edge.wrapped).GetType() not in _SAFE_CURVES:
-            return True
-        if not ancestors.Contains(edge.wrapped):
-            return True  # not an edge of the body: let the kernel say so, isolated
-        for face in ancestors.FindFromKey(edge.wrapped):
-            surface = BRepAdaptor_Surface(TopoDS.Face_s(face), False)
-            if surface.GetType() not in _SAFE_SURFACES:
-                return True
-    return False
+    """Whether blending *edges* of *body* runs isolated: always (module
+    docstring, BLEND-ROUTE-VERTEX-NEIGHBOUR). Kept as the one routing seam the
+    blend ops call and the tests flip."""
+    del body, edges
+    return True
 
 
 def run_isolated(
