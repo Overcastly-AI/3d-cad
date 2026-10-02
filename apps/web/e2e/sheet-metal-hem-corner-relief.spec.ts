@@ -38,8 +38,16 @@ import {
  * clicking.
  */
 
-/** A closed rectangle profile on the XY datum (the base-flange blank). */
-function rectangleSketch(width: number, height: number): unknown {
+/**
+ * A closed rectangle profile on the XY datum (the base-flange blank).
+ * `endLineId` is the id of the +X end line (`e2` as first drawn); a different
+ * id is that line deleted and redrawn, so the face it sweeps is a new face.
+ */
+function rectangleSketch(
+  width: number,
+  height: number,
+  endLineId = "e2",
+): unknown {
   return {
     name: "Sketch1",
     feature: {
@@ -55,7 +63,7 @@ function rectangleSketch(width: number, height: number): unknown {
             end: { x: width, y: 0 },
           },
           {
-            id: "e2",
+            id: endLineId,
             kind: "line",
             start: { x: width, y: 0 },
             end: { x: width, y: height },
@@ -82,7 +90,7 @@ function rectangleSketch(width: number, height: number): unknown {
 
 /**
  * Seed a part whose only feature is a rectangular profile sketch, keeping the
- * session token — the HEM-1B case needs it to make an UNRELATED edit through
+ * session token — the HEM-1B case needs it to edit the sketch through
  * the API (the sketcher is exercised elsewhere; here it is only the cause).
  */
 async function seedSketchPartWithToken(
@@ -440,16 +448,17 @@ test("a closed hem REFUSES an open-hem radius, names the fix, and the editor rec
 test("repairing an orphaned hem never meets a silent disabled Save (HEM-1B)", async ({
   page,
 }) => {
-  // The audit's sequence, driven end to end (`docs/AUDIT-PRODUCT.md` S-26): an
-  // UNRELATED edit widens the blank, the hem's stored edge no longer resolves,
-  // and the user goes to repair it. What they met was `hem-submit` with
-  // `aria-disabled="true"` and an EMPTY `title` — no message, no red field —
-  // which is indistinguishable from a dead end. Two things are asserted here:
-  // the form re-opens as it was AUTHORED (overrides off, Save live), and every
-  // state that DOES gate Save puts a sentence on screen where the user is
-  // looking. The second is asserted as READABLE INK — a box with area, hit-
-  // testing to the Save cell — never as an attribute's presence, because an
-  // attribute is exactly what the audit found carrying nothing.
+  // The audit's sequence, driven end to end (`docs/AUDIT-PRODUCT.md` S-26): a
+  // sketch edit the modeler did not aim at the hem leaves its stored edge with
+  // nothing to resolve to, and the user goes to repair it. What they met was
+  // `hem-submit` with `aria-disabled="true"` and an EMPTY `title` — no
+  // message, no red field — which is indistinguishable from a dead end. Two
+  // things are asserted here: the form re-opens as it was AUTHORED (overrides
+  // off, Save live), and every state that DOES gate Save puts a sentence on
+  // screen where the user is looking. The second is asserted as READABLE INK —
+  // a box with area, hit-testing to the Save cell — never as an attribute's
+  // presence, because an attribute is exactly what the audit found carrying
+  // nothing.
   const { partId, token } = await seedSketchPartWithToken(
     page,
     "Hem repair (clicked)",
@@ -471,22 +480,25 @@ test("repairing an orphaned hem never meets a silent disabled Save (HEM-1B)", as
     timeout: 30_000,
   });
 
-  // THE UNRELATED EDIT: the blank grows 50x30 → 60x40 mm. The hemmed edge
-  // moves AND its end face changes size, so the hem's stored signature stops
-  // resolving and the feature fails.
+  // THE EDIT THAT ORPHANS IT: the blank grows 50x30 → 60x40 mm AND its +X
+  // end line is deleted and redrawn (sketch entity e2 → e5). The face the hem
+  // was picked on is gone, so its stored reference has nothing to resolve to.
   //
-  // It used to be 50 → 60 in ONE dimension, and that stopped orphaning
-  // anything on `bf05482` (adjacency tier 3), which re-finds a picked edge as
-  // the intersection of its two neighbour faces precisely so that a width
-  // edit no longer breaks it — the product got better and this setup quietly
-  // stopped producing its precondition; CI then timed out waiting for a
-  // "Failed" that was never coming. Measured one fresh part per edit
-  // (2026-09-23): 60x30 Solved (re-found); 60x40 Failed subshape_unresolved;
-  // slanted end Failed subshape_unresolved; notched end Failed
-  // subshape_ambiguous; stepped end Solved. 60x40 is the smallest edit that
-  // still orphans, keeps the repair below on the same 60 mm blank, and is
-  // still a plain resize the modeler did not aim at the hem. This case is
-  // about the REPAIR FORM, so the orphan is its precondition, not its subject.
+  // A plain resize no longer orphans anything, and must not. It did here
+  // until `42b4482` (DESIGN-INTENT-REFS step 3) named the base flange's sides
+  // by the sketch entity that swept them and let the hem resolve by those
+  // names: 60x40 now re-finds the edge as `end` ∩ `side:e2`, and the hem
+  // lands on the x = 60 edge with the extents the re-pick below asserts
+  // (62.1 x 40 x 4.2 mm; 5716.46 mm^3 = 4800 plate + 40 x (π/2 x (2.1² −
+  // 0.1²) + 8 x 2), the closed form).
+  // That is what Fusion 360 and Onshape do with a hem on a resized blank. The
+  // same thing happened once before (50 → 60 stopped orphaning on `bf05482`'s
+  // adjacency tier); both times CI then timed out on a "Failed" that was
+  // never coming. A redrawn line is the edit that orphans a reference in every
+  // mainstream modeller, and with the resize the geometric tiers cannot
+  // re-find it either (measured: e5 at 50x30 re-finds, e5 at 60x40 is
+  // subshape_unresolved). This case is about the REPAIR FORM, so the orphan is
+  // its precondition, not its subject, and the repair stays on a 60 mm blank.
   const listed = await page.request.get(`/api/v1/parts/${partId}/features`, {
     headers,
   });
@@ -496,7 +508,8 @@ test("repairing an orphaned hem never meets a silent disabled Save (HEM-1B)", as
     `/api/v1/parts/${partId}/features/${sketchRow.id}`,
     {
       data: {
-        feature: (rectangleSketch(60, 40) as { feature: unknown }).feature,
+        feature: (rectangleSketch(60, 40, "e5") as { feature: unknown })
+          .feature,
         expected_tree_version: tree.tree_version,
       },
       headers,
@@ -504,8 +517,10 @@ test("repairing an orphaned hem never meets a silent disabled Save (HEM-1B)", as
   );
   expect(widened.ok(), await widened.text()).toBe(true);
   await page.reload();
+  // Under the test's own budget, so a lost precondition reads as "Solved, not
+  // Failed" and not as a bare test timeout.
   await expect(page.getByTestId("eval-status")).toHaveText("Failed", {
-    timeout: 60_000,
+    timeout: 30_000,
   });
   // The code as the DOM holds it — the panel's `uppercase` is CSS.
   await expect(page.getByTestId("feature-error-2")).toContainText(
