@@ -192,8 +192,9 @@ def _evaluate_shell(
         return FeatureError(code="subshape_ambiguous", message=str(exc))
 
     sources = face_sources(active, state.face_names())
+    worked = OpHistory()
     try:
-        shelled = shell_body(active, faces, params.thickness_mm)
+        shelled = shell_body(active, faces, params.thickness_mm, history=worked)
     except ShellThicknessError as exc:
         return FeatureError(code="shell_thickness_too_large", message=str(exc))
     except ShellError as exc:
@@ -203,7 +204,11 @@ def _evaluate_shell(
     history = OpHistory(
         generated=[*offset_history(active, shelled, params.thickness_mm)]
     )
-    state.set_active_body(shelled, offset_names(item.id, history, sources))
+    state.set_active_body(
+        shelled,
+        offset_names(item.id, history, sources),
+        worked_on=worked.worked_on,
+    )
     return None
 
 
@@ -272,5 +277,7 @@ def _evaluate_draft(
         drafted = draft_body(active, faces, neutral, params.angle_deg, history=history)
     except DraftError as exc:
         return FeatureError(code="draft_failed", message=str(exc))
-    state.set_active_body(drafted, tilted_face_names(history, sources))
+    state.set_active_body(
+        drafted, tilted_face_names(history, sources), worked_on=history.worked_on
+    )
     return None

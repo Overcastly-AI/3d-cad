@@ -539,3 +539,24 @@ each blend after that costs about 40-50 ms (mostly forking 450 MB), next to a
 A chamfer is in place too: a failed R1 chamfer of the cone-hub blade root
 left an input vertex at 71.6 mm, and a successful one loosened it. So a
 chamfer now runs on a copy under the fillet guard, like the fillet.
+
+**Ops that write to their input (DRAFT-IN-PLACE audit, 2026-10-02).** Each
+kernel op that hands a body to an OCCT builder was run on the blade-hub
+bodies and a box, to success and to failure, comparing the input's text BRep
+before and after. Draft (310 runs) and a sealed shell rewrite only the
+`Checked` flag of one or two input `TShape`s on success; no failure touched
+an input, and geometry, tolerances, pcurves and locations never moved. That
+is cosmetic, and a later cut on the input matched a cut on a fresh build, but
+the input is the caller's and the rebuild cache's body, so draft and shell
+now run on a working copy like the fillet (`geometry/kernel/working_faces.py`).
+Names and the face-provenance memo re-anchor on the copy through `worked_on`;
+without the memo half, every op that works on a copy (the fillet and chamfer
+since 1af46bb too) re-fingerprinted the whole body at the next face pick.
+A draft result must also be `BRepCheck`-valid and no looser than
+max(input, 1e-2 mm): OCCT does return invalid drafts (a blade-root cap
+drafted with the pull along Y), which the 2026-07-13 sweep had not seen. The booleans behind pattern, mirror and a
+failed severing subtract ADD pcurves and locations to their input's edges
+(CM-6b) without moving geometry or tolerance; those stay as they are, since
+the rebuild ladder forks for exactly this and a copy per boolean would
+re-anchor every boolean's names. Hole, extrude add/cut, `clean`, edge flange,
+fillet and chamfer left their inputs byte-identical.

@@ -144,6 +144,7 @@ from OCP.TopoDS import TopoDS, TopoDS_Face, TopoDS_Iterator, TopoDS_Shell, TopoD
 from geometry.kernel.degenerate import find_zero_width_slits
 from geometry.kernel.healing import HealingError, clean_shape, conform_solid
 from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
+from geometry.kernel.naming import OpHistory
 from geometry.kernel.offset_edges import tighten_offset_edges
 from geometry.kernel.properties import volume_properties
 from geometry.kernel.provenance import surface_key
@@ -151,6 +152,7 @@ from geometry.kernel.shell_heal import split_pinched_faces
 from geometry.kernel.shell_walls import FaultKind, ShellDefinition, WallFault
 from geometry.kernel.tolerances import KERNEL_LINEAR_TOL_MM
 from geometry.kernel.types import BodyShape
+from geometry.kernel.working_faces import working_copy_faces
 
 #: A valid inward shell strictly REMOVES material (the cavity), so the shelled
 #: volume is below the original. The margin absorbs GProp float noise while
@@ -242,12 +244,22 @@ class ShellThicknessError(ValueError):
 
 
 def shell_body(
-    body: BodyShape, faces_to_remove: list[Face], thickness_mm: float
+    body: BodyShape,
+    faces_to_remove: list[Face],
+    thickness_mm: float,
+    *,
+    history: OpHistory | None = None,
 ) -> BodyShape:
     """Hollow *body* to a uniform inward *thickness_mm*, opening *faces_to_remove*.
 
     An empty *faces_to_remove* produces a sealed (fully-enclosed) hollow; a
     non-empty list leaves those faces open.
+
+    *body* is never modified. ``MakeThickSolid`` writes to the body it hollows
+    (every sealed hollow of the blade-hub bodies cleared the ``Checked`` flag of
+    an input ``TShape``, measured 2026-10-02), so the hollow runs on a working
+    copy (:mod:`geometry.kernel.working_faces`). *history*, when given, receives
+    that copy in ``worked_on`` (the result's untouched faces are the copy's).
 
     Multi-body (§MB-4): a single :class:`~build123d.Solid` hollows exactly as
     before (byte-identical). A multi-lump :class:`~build123d.Compound` is shelled
@@ -269,16 +281,21 @@ def shell_body(
     if thickness_mm <= 0:
         raise ValueError(f"thickness_mm must be > 0, got {thickness_mm}")
 
-    if isinstance(body, Compound):
-        solids = body.solids()
-        groups = group_faces_by_lump(solids, faces_to_remove)
-        return assemble_lumps(
+    work, opened = working_copy_faces(body, faces_to_remove)
+    if isinstance(work, Compound):
+        solids = work.solids()
+        groups = group_faces_by_lump(solids, opened)
+        shelled: BodyShape = assemble_lumps(
             [
                 _shell_one_lump(solid, groups.get(index, []), thickness_mm)
                 for index, solid in enumerate(solids)
             ]
         )
-    return _shell_one_lump(body, faces_to_remove, thickness_mm)
+    else:
+        shelled = _shell_one_lump(work, opened, thickness_mm)
+    if history is not None:
+        history.worked_on = work
+    return shelled
 
 
 def _shell_one_lump(

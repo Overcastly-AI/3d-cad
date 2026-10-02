@@ -405,16 +405,23 @@ class EvaluationState:
         op's naming hook: the faces it created or modified, with their names;
         *merged* the faces its ``clean`` merged (:attr:`OpHistory.merged`).
         *worked_on* is the copy of the active body the op ran on, when it did
-        not run on the body itself (a fillet): the body's names are re-anchored
-        on that copy first, face for face, so its untouched faces keep them.
+        not run on the body itself (a fillet, chamfer, draft or shell): the
+        body's names and the provenance memo are re-anchored on that copy, face
+        for face, so its untouched faces keep them.
         """
         body_id = self.active_body_id
         assert body_id is not None, "no active body to modify"
         before = self.bodies[body_id]
         consumed = before if worked_on is None else worked_on
         self.bodies[body_id] = self._admit(shape, consumed)
-        if worked_on is not None and body_id in self.topo_names:
-            self.topo_names[body_id] = self.topo_names[body_id].fork(before, worked_on)
+        if worked_on is not None:
+            # The result's untouched faces are the copy's: re-anchor what is
+            # keyed on face identity (names, the provenance memo) on it.
+            self.provenance.reanchor(before, worked_on)
+            if body_id in self.topo_names:
+                self.topo_names[body_id] = self.topo_names[body_id].fork(
+                    before, worked_on
+                )
         self._rename(body_id, shape, [body_id], generated, merged)
 
     def _rename(
