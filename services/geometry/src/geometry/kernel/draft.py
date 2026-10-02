@@ -31,10 +31,10 @@ too-thick path could silently return the un-hollowed body — draft needs NO
 material-validity invariant guard: catching the raise (→ :class:`DraftError`) plus
 the single-solid check is sufficient, never a silently wrong solid. That sweep
 was not exhaustive: OCCT DOES return an invalid draft (the blade-root cap of a
-blade-hub body drafted with the pull along Y, 2026-10-02), which reached the
-evaluator's validity gate as ``invalid_body``. So the result is checked here:
-valid (``BRepCheck``) and no looser than the input's loosest tolerance or the
-fillet's 1e-2 mm floor, else a :class:`DraftError`.
+blade-hub body drafted with the pull along Y, 2026-10-02). The evaluator's
+validity gate (``_admit``) refuses it as ``invalid_body``; here the result is
+held to a tolerance ceiling, the input's loosest or the fillet's 1e-2 mm floor,
+else a :class:`DraftError`.
 
 INPUT UNTOUCHED (DRAFT-IN-PLACE, measured 2026-10-02): ``BRepOffsetAPI_DraftAngle``
 writes to the body it drafts. On the blade-hub bodies every successful draft
@@ -80,11 +80,11 @@ from geometry.kernel.fillet_isolation import (
     needs_isolation,
     run_isolated_draft,
 )
-from geometry.kernel.healing import clean_shape, new_geometry_is_valid
+from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
 from geometry.kernel.naming import OpHistory
 from geometry.kernel.types import BodyShape
-from geometry.kernel.working_faces import working_copy_faces
+from geometry.kernel.working_faces import NotABodyFaceError, working_copy_faces
 
 
 class DraftError(RuntimeError):
@@ -131,22 +131,23 @@ def draft_body(
     the result was built on (its untouched faces are that copy's).
 
     *body* is never modified: the draft runs on a working copy (module
-    docstring), and its result must be valid and no looser than the input's
-    loosest tolerance or 1e-2 mm.
+    docstring), and its result must be no looser than the input's loosest
+    tolerance or 1e-2 mm (validity is checked where every body is admitted,
+    :class:`~geometry.features.state.EvaluationState`).
 
     Raises:
         DraftError: the OCCT draft failed to complete (an angle too large for the
             geometry, an undraftable face, …), left other than exactly one
             solid per drafted lump (single body chain per lump, design §7.6), or
-            built an invalid or loose solid.
+            built a loose solid.
     """
     # OCCT drafts IN PLACE (it rewrites flags of the input's TShapes on every
     # successful draft, kernel/working_faces.py): work on a copy, so *body*,
     # the caller's and the rebuild cache's, is never touched.
     ceiling = max(max_tolerance(body), TOLERANCE_FLOOR_MM)
-    work, work_faces = working_copy_faces(body, faces)
     direction, plane = neutral_plane.z_dir.to_dir(), neutral_plane.wrapped
     try:
+        work, work_faces = working_copy_faces(body, faces)
         _check_kinds(work_faces)
         if draft_needs_isolation(work, work_faces):
             work, work_faces, drafted = run_isolated_draft(
@@ -268,9 +269,9 @@ def _draft_solid(
 
 def _finish(lump: Solid, solids: Sequence[Solid], ceiling_mm: float) -> Solid:
     """The drafted *lump* (of the working copy) as a cleaned solid, after the
-    checks: exactly one solid (design §7.6), valid (``BRepCheck`` of the faces
-    the draft made, :func:`~geometry.kernel.healing.new_geometry_is_valid`) and
-    no looser than *ceiling_mm*; else :class:`_Refused`."""
+    checks: exactly one solid (design §7.6) and no looser than *ceiling_mm*;
+    else :class:`_Refused`. Validity is the evaluator's (``_admit``, the same
+    proportional ``BRepCheck`` every body-affecting feature passes)."""
     if len(solids) != 1:
         raise _Refused(
             f"Draft produced {len(solids)} solids; parts are a single body "
@@ -282,11 +283,6 @@ def _finish(lump: Solid, solids: Sequence[Solid], ceiling_mm: float) -> Solid:
             f"The draft built a body Loft refuses: a vertex or edge tolerance of "
             f"{loosest:.3g} mm, above the {ceiling_mm:.3g} mm a draft may leave. "
             "The body is left as it was."
-        )
-    if not new_geometry_is_valid(solids[0], [lump]):
-        raise _Refused(
-            "The draft built a body Loft refuses: OCCT reports it as an invalid "
-            "solid. The body is left as it was."
         )
     # clean() removes redundant seam faces/edges the operation can leave behind,
     # keeping topology counts meaningful (and golden-assertable).
@@ -301,6 +297,8 @@ def _draft_error(exc: Exception, angle_deg: float) -> DraftError:
     """The typed, sanitized error for a failed draft."""
     if isinstance(exc, _Refused):
         return DraftError(str(exc))
+    if isinstance(exc, NotABodyFaceError):
+        return DraftError("Draft failed: a picked face is not a face of the body.")
     if isinstance(exc, BlendTimedOut):
         return DraftTimeoutError(
             f"Draft stopped: the kernel ran past its time limit on this angle "

@@ -191,7 +191,6 @@ def _evaluate_shell(
     except SubshapeAmbiguousError as exc:
         return FeatureError(code="subshape_ambiguous", message=str(exc))
 
-    sources = face_sources(active, state.face_names())
     worked = OpHistory()
     try:
         shelled = shell_body(active, faces, params.thickness_mm, history=worked)
@@ -200,9 +199,13 @@ def _evaluate_shell(
     except ShellError as exc:
         return FeatureError(code="shell_failed", message=str(exc))
     # Each inner wall is named from the face it offsets (DESIGN-INTENT-REFS
-    # step 3): ``<shell id>:offset:<that face's name>``.
+    # step 3): ``<shell id>:offset:<that face's name>``. The shell ran on a
+    # copy of the body (kernel/working_faces.py), whose faces are the result's
+    # kept faces; the copy keeps the body's face order, so the names align.
+    source_body = active if worked.worked_on is None else worked.worked_on
+    sources = face_sources(source_body, state.face_names())
     history = OpHistory(
-        generated=[*offset_history(active, shelled, params.thickness_mm)]
+        generated=[*offset_history(source_body, shelled, params.thickness_mm)]
     )
     state.set_active_body(
         shelled,

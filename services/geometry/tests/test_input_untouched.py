@@ -27,9 +27,10 @@ import pytest
 from build123d import Cylinder, Face, GeomType, Plane, Pos, Solid
 from geometry.kernel.draft import DraftError, draft_body
 from geometry.kernel.fillet_guard import max_tolerance
+from geometry.kernel.healing import body_is_valid
 from geometry.kernel.naming import OpHistory
 from geometry.kernel.shell import ShellError, shell_body
-from geometry.kernel.working_faces import working_copy_faces
+from geometry.kernel.working_faces import NotABodyFaceError, working_copy_faces
 from OCP.BRepTools import BRepTools
 
 
@@ -101,7 +102,7 @@ CASES: list[tuple[str, Build, Op, bool]] = [
         "draft blade root cap, pull along Y (OCCT builds it invalid)",
         lambda: _cylinder_hub(180.0),
         lambda b: draft_body(b, [_blade_cap(b, 2.0)], Plane.XZ, 3.0),
-        False,
+        True,
     ),
     (
         "draft cylinder hub across its seam (fails)",
@@ -187,7 +188,12 @@ def test_the_working_copy_carries_the_picked_faces_over() -> None:
     owned = copy.faces()
     assert all(any(face.wrapped.IsSame(o.wrapped) for o in owned) for face in faces)
     foreign = _cone_hub(0.0).faces()[0]
-    assert working_copy_faces(body, [foreign])[1] == [foreign]
+    with pytest.raises(NotABodyFaceError):
+        working_copy_faces(body, [foreign])
+    with pytest.raises(DraftError, match="not a face of the body"):
+        draft_body(body, [foreign], Plane.XY.offset(10), 3.0)
+    with pytest.raises(ShellError, match="not a face of the body"):
+        shell_body(body, [foreign], 1.0)
 
 
 def test_two_hubs_drafted_to_one_cone_are_one_body() -> None:
@@ -204,10 +210,11 @@ def test_two_hubs_drafted_to_one_cone_are_one_body() -> None:
     assert len(a.faces()) == len(b.faces())
 
 
-def test_a_draft_occt_builds_invalid_is_refused() -> None:
+def test_an_invalid_draft_is_left_to_the_validity_gate() -> None:
     """OCCT can return an INVALID draft (``BRepCheck``), contrary to what the
     2026-07-13 sweep saw: the blade-root cap of the cylinder hub drafted 3 deg
-    with the pull along Y. It is a ``DraftError``, not a body."""
+    with the pull along Y. The kernel op returns it; the evaluator's admission
+    gate (``EvaluationState._admit``) is what refuses it, as for every op."""
     body = _cylinder_hub(180.0)
-    with pytest.raises(DraftError, match="invalid solid"):
-        draft_body(body, [_blade_cap(body, 2.0)], Plane.XZ, 3.0)
+    drafted = draft_body(body, [_blade_cap(body, 2.0)], Plane.XZ, 3.0)
+    assert not body_is_valid(drafted)
