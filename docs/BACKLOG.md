@@ -9,6 +9,17 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
+- [ ] **SKETCH-SOLVE-HEAP-ORDER** (determinism, pre-existing; review of
+      1b8632f): planegcs orders a subsystem's free parameters by address
+      (`std::deque` of 64-double chunks), so a sketch with more than 64 free
+      parameters solves differently within one process under heap churn:
+      7e-15 apart fully constrained, 27.4 um apart on an under-constrained
+      24-line polygon. A long-running worker can rebuild a stored part
+      differently. Virtual sharps add 2 parameters each. _Accept:_ a patched
+      planegcs (order by index) or a canonical re-solve; the same sketch solves
+      bit-identically 20 times in one churned process and across processes.
+- [x] **SKETCH-FILLET-KEEP-DIMS** (1b8632f): W/H survive a fillet on the
+      virtual sharp; R edits keep the outline.
 - [x] **SKETCH-ENDPOINT-TANGENT** (wrong geometry, review of c6475cf):
       after a sketch fillet the arc is held only by its end coincidents and
       R (the whole-curve line-arc tangent reads redundant with them), so an
@@ -320,7 +331,6 @@ One line each. The founder triages weekly; most are closed without work.
 - The offset datum editor shows a red "Add a feature that creates a body before picking a face" while offsetting from XY (`duct-datum-face-warning.png`).
 - A long horizontal orbit drag rolls the camera to a bottom view (not a turntable), and there is no Back view button; reaching a part's back took 3 tries.
 - View keys (0-4) are ignored while a command's value cell has focus, and the view bar is hidden during sketch face-pick.
-- SKETCH-SOLVE-HEAP-ORDER: planegcs orders a subsystem's free parameters by address and the binding keeps them in a `std::deque` of 64-double chunks, so a sketch with more than 64 free parameters can solve to different last bits in one process (measured: the R15 rounded rectangle plus 4 free lines, 2 results in 12). Fix in a patched planegcs (order by index); sketch goldens stay under 64.
 - A fillet at a rectangle corner coincident with the origin drops that coincidence (no point reference to a virtual sharp yet), so the rounded profile is no longer grounded; SolidWorks keeps it on the sharp.
 - A fillet still drops `equal` between its trimmed legs (a square's equal sides); Fusion keeps it measured to the virtual sharps.
 - Circular pattern shows no preview; the body changes only on Create (`hub-circular-no-preview.png`).
