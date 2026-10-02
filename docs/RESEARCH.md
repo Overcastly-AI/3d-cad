@@ -552,6 +552,29 @@ A chamfer is in place too: a failed R1 chamfer of the cone-hub blade root
 left an input vertex at 71.6 mm, and a successful one loosened it. So a
 chamfer now runs on a copy under the fillet guard, like the fillet.
 
+**Tangent chains (FILLET-TANGENT-CHAIN, 2026-10-02).** OCCT never blends a
+lone edge: `ChFi3d` opens a contour per pick and carries it along every
+G1-continuous edge, and there is no switch to stop it. Fusion 360 (Tangent
+Chain on by default), SolidWorks (Tangent propagation) and Onshape (Tangent
+propagation) round the chain from one pick too, so that is the semantics, and
+Loft offers no "this edge only". The guard measured reach from the clicked
+edges, so one rim edge of the enclosure's 8-edge loop was refused while OCCT
+had built exactly the 8-pick body. Now the picks are expanded first, from
+OCCT's own contours (`BRepFilletAPI_MakeFillet::Add` / `MakeChamfer::Add`
+build the contour without blending, ~3 ms on the enclosure; the input's BRep
+is byte-identical after), so the tangency tolerance is OCCT's and the
+expansion can never reach an edge the blend would not. The contour walk runs
+in-process (it builds nothing; the pinched-corner body whose blend segfaults
+walks clean). The chain, picks first so they open the same contours, is what
+is sent to the blend server and guarded, line, arc or B-spline alike, and its
+edges feed the history. One rim edge equals all 8 and plain OCCT's one-pick body (equal
+volume, area and topology, empty boolean difference; golden
+`fillet-tangent-chain-one-pick-rounded-box-40x25x10-r5-r1` against a closed
+form). A contour stops where convex turns to concave; if the chain runs on
+tangentially into an edge of the other kind (the impeller's blade-top blend
+edge meeting the hub arc), `ChFi3d` fails in plain OCCT too. That is still
+refused, and the message now names the turn instead of the radius.
+
 **Ops that write to their input (DRAFT-IN-PLACE audit, 2026-10-02).** Each
 kernel op that hands a body to an OCCT builder was run on the blade-hub
 bodies and a box, to success and to failure, comparing the input's text BRep

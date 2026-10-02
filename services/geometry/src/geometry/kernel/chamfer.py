@@ -32,7 +32,12 @@ from OCP.TopExp import TopExp
 from OCP.TopoDS import TopoDS
 from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
 
-from geometry.kernel.fillet_guard import fillet_problem, max_tolerance
+from geometry.kernel.fillet_guard import (
+    chain_turns,
+    fillet_problem,
+    max_tolerance,
+    tangent_chain,
+)
 from geometry.kernel.fillet_isolation import (
     BlendCrashed,
     BlendFailed,
@@ -73,6 +78,9 @@ def chamfer_body(
     lump of a k-lump body keeps all k lumps; a lump-count change is a merge/sever
     → :class:`ChamferError`.
 
+    Each picked edge bevels its whole tangent chain, as the fillet rounds it
+    (:func:`~geometry.kernel.fillet_guard.tangent_chain`).
+
     *history*, when given, receives each edge paired with the bevel face(s) it
     generated (``BRepFilletAPI_MakeChamfer::Generated``), for face naming
     (:mod:`geometry.kernel.naming`), and in ``worked_on`` the copy of *body*
@@ -95,6 +103,8 @@ def chamfer_body(
         raise ValueError(f"distance_mm must be > 0, got {distance_mm}")
     lump_count = len(body.solids())
     input_tolerance = max_tolerance(body)
+    # Each pick bevels its whole tangent chain (OCCT's contour, as the fillet).
+    edges = tangent_chain(body, edges, chamfer=True)
     work, work_edges = working_copy(body, edges)
     try:
         if needs_isolation(body, edges):
@@ -124,6 +134,14 @@ def chamfer_body(
             raise ChamferError(
                 f"The chamfer built a body Loft refuses: {exc}. The body is "
                 "left as it was."
+            ) from exc
+        turning = chain_turns(body, edges, chamfer=True)
+        if turning is not None:
+            raise ChamferError(
+                "Chamfer failed in the kernel: the tangent chain of the picked "
+                f"edges ({turning} edges) turns from convex to concave, and one "
+                "chamfer cannot bevel through that turn. The body is left as it "
+                "was."
             ) from exc
         cause = exc.args[0] if isinstance(exc, BlendFailed) else type(exc).__name__
         raise ChamferError(
