@@ -1,24 +1,33 @@
 """The warm blend server: forks a fresh child per fillet/chamfer (see
 :mod:`geometry.kernel.fillet_isolation`, which starts and talks to it).
 
-Run as ``python -m geometry.kernel._fillet_worker <request fd> <reply fd>``.
-It imports the kernel ONCE, says ``ready``, then for each request frame forks a
-child that runs the blend under ``RLIMIT_CPU`` and writes the reply frame. The
-server stays single-threaded (so forking it is safe), waits for the child with a
-wall-clock deadline, and answers ``crashed`` (killed by a signal) or ``timeout``
-(``SIGXCPU`` / the deadline) when the child could not answer itself. It exits
-when its request pipe closes, i.e. when the service process goes away.
+Run as ``python -m geometry.kernel._fillet_worker <control fd>``. It imports the
+kernel ONCE and says ``ready`` on its control socket. Each call then arrives as
+two sockets passed over it (``SCM_RIGHTS``): DATA and STATUS. The server forks a
+child that reads the request from DATA, blends under ``RLIMIT_CPU`` and writes
+the reply to DATA; the server writes the child's pid to STATUS, and, once it has
+reaped the child, how it ended (exit code or signal). The server never waits on
+a child, so calls run concurrently; the CALLER enforces the wall clock by
+killing the pid. The server stays single-threaded (so forking it is safe).
 
-The pipes are dedicated descriptors, not stdout: OCCT prints to stdout.
+LIFECYCLE. A child is killed if the server dies (``PR_SET_PDEATHSIG``). When the
+control socket closes (the service went away or closed it) the server kills and
+reaps every child before it exits, so it leaves nothing for PID 1 to reap.
+
+The sockets are dedicated descriptors, not stdout: OCCT prints to stdout.
 """
 
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
 # pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false
 # pyright: reportAttributeAccessIssue=false
 
+import contextlib
+import ctypes
 import math
 import os
+import select
 import signal
+import socket
 import sys
 import time
 from typing import Any
@@ -31,14 +40,31 @@ from geometry.kernel.fillet import _fillet  # pyright: ignore[reportPrivateUsage
 from geometry.kernel.fillet_isolation import (
     encode_frame,
     make_compound,
-    read_frame,
     read_shapes,
-    write_all,
+    recv_frame,
+    send_frame,
     write_shapes,
 )
 from geometry.kernel.naming import OpHistory
 
-_OPS = {"fillet": _fillet, "chamfer": _chamfer}
+
+def _probe_sleep(
+    _body: object, _edges: object, seconds: float, _history: object
+) -> list[Solid]:
+    """Not a blend: a child that takes *seconds*, the stand-in the tests use
+    for a hung blend (a real one cannot be produced on demand)."""
+    time.sleep(seconds)
+    return []
+
+
+_OPS: dict[str, Any] = {
+    "fillet": _fillet,
+    "chamfer": _chamfer,
+    "probe-sleep": _probe_sleep,
+}
+
+#: ``prctl(PR_SET_PDEATHSIG, ...)``: Linux's "signal me when my parent dies".
+_PR_SET_PDEATHSIG = 1
 
 
 def _blend(header: dict[str, Any], data: bytes) -> bytes:
@@ -50,7 +76,7 @@ def _blend(header: dict[str, Any], data: bytes) -> bytes:
         history = OpHistory() if header["history"] else None
         solids = _OPS[header["op"]](body, edges, float(header["size"]), history)
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
-        return encode_frame({"status": "failed", "error": type(exc).__name__}, b"")
+        return encode_frame({"status": "failed", "error": type(exc).__name__})
     index = {id(edge): i for i, edge in enumerate(edges)}
     generated = [] if history is None else history.generated
     shapes = [
@@ -66,59 +92,110 @@ def _blend(header: dict[str, Any], data: bytes) -> bytes:
     return encode_frame(reply, write_shapes(shapes))
 
 
-def _child(header: dict[str, Any], data: bytes, out: int) -> None:
+def _child(data: socket.socket, server_pid: int) -> None:
+    """The forked child: die with the server, then serve one request."""
+    with contextlib.suppress(OSError, AttributeError):
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.prctl(_PR_SET_PDEATHSIG, signal.SIGKILL, 0, 0, 0)
+    if os.getppid() != server_pid:  # the server died before prctl took
+        return
     import resource
 
+    request = recv_frame(data, None)
+    if request is None:
+        return
+    header, payload = request
     soft = max(1, math.ceil(float(header["cpu"])))
     resource.setrlimit(resource.RLIMIT_CPU, (soft, soft + 1))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    write_all(out, _blend(header, data))
+    data.settimeout(None)
+    data.sendall(_blend(header, payload))
 
 
-def _serve_one(header: dict[str, Any], data: bytes) -> bytes:
-    read_end, write_end = os.pipe()
+def _fork(
+    control: socket.socket, wake: int, data: socket.socket, status: socket.socket
+) -> int:
+    server_pid = os.getpid()
     pid = os.fork()
-    if pid == 0:  # the child: blend, answer, and leave without cleanup
-        code = 0
+    if pid == 0:
+        code = 1
         try:
-            os.close(read_end)
-            _child(header, data, write_end)
+            signal.set_wakeup_fd(-1)
+            signal.signal(signal.SIGCHLD, signal.SIG_DFL)
+            control.close()
+            status.close()
+            os.close(wake)
+            _child(data, server_pid)
+            code = 0
         except BaseException:
             code = 1
         finally:
             os._exit(code)
-    os.close(write_end)
-    reply: tuple[dict[str, Any], bytes] | None = None
-    timed_out = False
-    try:
-        reply = read_frame(read_end, time.monotonic() + float(header["wall"]))
-    except TimeoutError:
-        timed_out = True
-        os.kill(pid, signal.SIGKILL)
-    finally:
-        os.close(read_end)
-    _pid, status = os.waitpid(pid, 0)
-    if os.WIFSIGNALED(status):
-        sig = os.WTERMSIG(status)
-        killed = sig == signal.SIGKILL and reply is None  # RLIMIT_CPU's hard limit
-        if timed_out or killed or sig == signal.SIGXCPU:
-            return encode_frame({"status": "timeout"}, b"")
-        if reply is None:
-            return encode_frame({"status": "crashed", "signal": sig}, b"")
-    if reply is None:
-        return encode_frame({"status": "crashed", "signal": 0}, b"")
-    return encode_frame(*reply)
+    return pid
+
+
+def _report(status: socket.socket, header: dict[str, Any]) -> None:
+    """Tell the caller; a caller that already gave up is not an error."""
+    with contextlib.suppress(OSError):
+        send_frame(status, header)
+
+
+def _reap(children: dict[int, socket.socket], *, block: bool) -> None:
+    """Reap ended children and report how each ended on its STATUS socket."""
+    while children:
+        try:
+            pid, code = os.waitpid(-1, 0 if block else os.WNOHANG)
+        except ChildProcessError:
+            return
+        if pid == 0:
+            return
+        status = children.pop(pid, None)
+        if status is None:
+            continue
+        if os.WIFSIGNALED(code):
+            _report(status, {"signal": os.WTERMSIG(code)})
+        else:
+            _report(status, {"exit": os.WEXITSTATUS(code)})
+        status.close()
 
 
 def main(argv: list[str]) -> int:
-    requests, replies = int(argv[1]), int(argv[2])
+    control = socket.socket(fileno=int(argv[1]))
     signal.signal(signal.SIGINT, signal.SIG_IGN)
-    write_all(replies, encode_frame({"status": "ready"}, b""))
-    while True:
-        request = read_frame(requests, None)
-        if request is None:
-            return 0
-        write_all(replies, _serve_one(*request))
+    wake, wake_in = os.pipe()
+    os.set_blocking(wake, False)
+    os.set_blocking(wake_in, False)
+    signal.set_wakeup_fd(wake_in)
+    signal.signal(signal.SIGCHLD, lambda _signum, _frame: None)
+    children: dict[int, socket.socket] = {}
+    send_frame(control, {"status": "ready"})
+    try:
+        while True:
+            readable = select.select([control, wake], [], [])[0]
+            if wake in readable:
+                with contextlib.suppress(BlockingIOError):
+                    while os.read(wake, 4096):
+                        pass
+            _reap(children, block=False)
+            if control not in readable:
+                continue
+            message, fds, _flags, _address = socket.recv_fds(control, 16, 2)
+            if not message:
+                return 0  # the service closed us (or died)
+            if len(fds) != 2:
+                for fd in fds:
+                    os.close(fd)
+                continue
+            data, status = (socket.socket(fileno=fd) for fd in fds)
+            pid = _fork(control, wake, data, status)
+            data.close()
+            children[pid] = status
+            _report(status, {"pid": pid})
+    finally:
+        for pid in list(children):
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+        _reap(children, block=True)
 
 
 if __name__ == "__main__":

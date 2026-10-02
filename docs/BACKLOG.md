@@ -374,5 +374,5 @@ One line each. The founder triages weekly; most are closed without work.
 - Sketch: applying a user Tangent at a sharp corner silently makes a cusp; endpoint-tangent glyphs sit at the leg midpoint and overlap; old fillet sketches with plain coincident joins are not backfilled.
 - A new Fillet pre-selects a deleted fillet's edges, off-screen ones included; New Sketch's plane picker resets the camera and hides the view bar; at 1280x800 a fitted face sketch runs under the side panels and picks there are lost.
 - `scripts/e2e.sh`, `vite.config.ts` and `playwright.config.ts` hard-code web :5173, so parallel e2e needs a throwaway config.
-- BLEND-SERVER-COLD: the first non-analytic fillet or chamfer in a geometry process waits 5-9 s for the blend server to import the kernel. Prewarming it at boot would cost ~450 MB RSS per worker.
+- BLEND-SERVER-COLD: the first non-analytic fillet or chamfer in a geometry process waits 5-9 s for the blend server to import the kernel, unless `BLEND_SERVER_PREWARM=true` (~0.5 GiB RSS per worker from boot; default lazy).
 - DRAFT-IN-PLACE: a successful draft on the blade-hub bodies rewrites the input's BRep in place (bytes change, tolerances do not). No failed draft in 32 probes touched its input.

@@ -29,8 +29,9 @@
 # this stack unchanged and talks to the same gateway, which is doing the
 # rendezvous-hash fan-out described below.
 #
-# SIZING: one worker per core, ~1 GiB RAM each, one concurrent modeler per
-# worker. Four workers wants a 4-core / 8-16 GiB host. Four workers on two cores
+# SIZING: one worker per core, ~1.5 GiB RAM each (~1 GiB, plus ~0.5 GiB for
+# its blend server once it has run a non-analytic fillet or chamfer), one
+# concurrent modeler per worker. Four workers wants a 4-core / 8-16 GiB host. Four workers on two cores
 # is worse than two workers on two cores. See docs/OPERATIONS.md §6.
 #
 # REQUIRES a SHARED mesh store (S3_URL, which the base file already points at
@@ -53,6 +54,8 @@ x-geometry-worker: &geometry-worker
     args:
       SERVICE_NAME: geometry
       IMAGE_LICENSES: "MIT AND LGPL-2.1-or-later"
+  # tini as PID 1, as in the base file: it reaps orphaned blend children.
+  init: true
   environment:
     PORT: "8002"
     LOG_FORMAT: ${LOG_FORMAT:-json}

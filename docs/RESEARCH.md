@@ -471,7 +471,12 @@ the builder and the routing. Isolation is one warm server per service process
 child per blend. The server is single-threaded, so the fork is safe, which
 forking the threaded service is not. The child runs under `RLIMIT_CPU` 60 s
 and a 180 s wall backstop. A crash is a typed `FilletError` and an overrun a
-`FilletTimeoutError`; the service and the server carry on. Shapes cross as
+`FilletTimeoutError`; the service and the server carry on. Each call hands
+the server its own data and status sockets, and the caller enforces the wall
+clock by killing the child's pid, so blends run concurrently and no lock is
+held while one runs. Children die with the server (`PR_SET_PDEATHSIG`), the
+server kills and reaps them when its control socket closes, and compose runs
+geometry under an init (`init: true`) because uvicorn as PID 1 reaps nothing. Shapes cross as
 binary BRep, body, edges, result and generated faces in one compound, so the
 result's untouched faces are the returned copy's and names re-anchor as on
 any working copy. The result is the in-process result (exact volume, topology

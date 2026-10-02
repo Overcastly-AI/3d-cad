@@ -252,6 +252,10 @@ services:
         # disagrees with the binaries actually present, in either direction —
         # scripts/check-licences.py, docs/LICENSING.md §6.
         IMAGE_LICENSES: "MIT AND LGPL-2.1-or-later"
+    # An init as PID 1 (tini): uvicorn reaps no orphans, and a blend child left
+    # by a killed blend server (geometry.kernel.fillet_isolation) would stay a
+    # zombie under it.
+    init: true
     environment:
       PORT: "8002"
       LOG_FORMAT: ${LOG_FORMAT:-json}
