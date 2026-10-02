@@ -11,15 +11,15 @@ Determinism: entities and constraints are translated in input list order,
 the solve uses planegcs's default DogLeg algorithm from the input positions
 as the starting guess, and PlaneGCS itself has no random restarts. Same
 definition in → bitwise-identical solution out (asserted by the unit suite;
-RESEARCH §9 "solver determinism" gate) — with one measured caveat
-(SKETCH-FILLET-KEEP-DIMS): a planegcs subsystem orders its FREE parameters by
-memory address (``std::set<double*>``) and the binding stores them in a
-``std::deque`` of 64-double chunks whose relative order depends on the heap.
-While the free parameters fit one chunk the order is the allocation order; past
-64 the last bits of a solve can differ between two runs in one process. So the
-free parameters are allocated first and contiguously (entities, then
-:func:`~geometry.sketch.virtual_sharp.allocate_sharps`), and the >64 case is
-a BACKLOG note.
+RESEARCH §9 "solver determinism" gate), in one process whatever its heap and
+across processes (SKETCH-SOLVE-HEAP-ORDER). planegcs 0.8.0 made three choices
+by memory address over a ``std::deque`` of 64-double chunks, so past 64
+parameters one worker solved a sketch several ways (27.4 um on a 24-line
+polygon). Loft builds ``vendor/planegcs`` with ``vendor/planegcs-loft.patch``,
+which orders them by declaration (RESEARCH §2). Free parameters are still
+allocated first and contiguously (entities, then
+:func:`~geometry.sketch.virtual_sharp.allocate_sharps`): the patch preserves
+that order, so every pre-patch result stands.
 
 **An under-constrained solve HOLDS the input geometry** (SOLVE-1, RESEARCH §2).
 DogLeg starting from the current positions is not the same thing as leaving the

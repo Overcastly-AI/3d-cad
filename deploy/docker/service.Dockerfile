@@ -50,6 +50,19 @@ COPY packages/loft-wire/pyproject.toml packages/loft-wire/
 COPY services/gateway/pyproject.toml services/gateway/
 COPY services/documents/pyproject.toml services/documents/
 COPY services/geometry/pyproject.toml services/geometry/
+# planegcs is built here from vendor/planegcs (the PyPI sdist plus
+# vendor/planegcs-loft.patch, SKETCH-SOLVE-HEAP-ORDER, docs/RESEARCH.md §2):
+# the PyPI wheel orders parts of a solve by memory address. It is a path
+# source, not a workspace member, so layer 1 needs it, and the geometry build
+# needs a C++20 compiler, CMake and the Eigen 3 + Boost headers. Headers and
+# compiler stay in this stage; the runtime image gets only the built module.
+COPY vendor/planegcs vendor/planegcs
+RUN if [ "${SERVICE_NAME}" = "geometry" ]; then \
+        apt-get update \
+        && apt-get install -y --no-install-recommends \
+            g++ make cmake libeigen3-dev libboost-dev \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-workspace --package "loft-${SERVICE_NAME}"
 

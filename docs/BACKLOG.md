@@ -9,7 +9,7 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
-- [ ] **SKETCH-SOLVE-HEAP-ORDER** (determinism, pre-existing; review of
+- [x] **SKETCH-SOLVE-HEAP-ORDER** (determinism, pre-existing; review of
       1b8632f): planegcs orders a subsystem's free parameters by address
       (`std::deque` of 64-double chunks), so a sketch with more than 64 free
       parameters solves differently within one process under heap churn:
@@ -376,3 +376,5 @@ One line each. The founder triages weekly; most are closed without work.
 - `scripts/e2e.sh`, `vite.config.ts` and `playwright.config.ts` hard-code web :5173, so parallel e2e needs a throwaway config.
 - BLEND-SERVER-COLD: the first non-analytic fillet or chamfer in a geometry process waits 5-9 s for the blend server to import the kernel, unless `BLEND_SERVER_PREWARM=true` (~0.5 GiB RSS per worker from boot; default lazy).
 - DRAFT-IN-PLACE: a successful draft on the blade-hub bodies rewrites the input's BRep in place (bytes change, tolerances do not). No failed draft in 32 probes touched its input.
+- Upstream the planegcs address-order fix (`vendor/planegcs-loft.patch`) to spookylukey/planegcs (FreeCAD's PlaneGCS has the same ordering); a released wheel would drop the source build and its Eigen/Boost CI step.
+- `scripts/check-build-context.py` checks workspace members against the Dockerfile COPYs but not non-workspace `path` sources such as `vendor/planegcs`, so a second one could be missed until `deploy-path`.

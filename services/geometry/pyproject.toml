@@ -9,7 +9,11 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.32",
     "build123d>=0.11.1",
-    "planegcs>=0.8.0",
+    # Built from vendor/planegcs: the 0.8.0 sdist plus vendor/planegcs-loft.patch,
+    # which stops the solver ordering work by memory address
+    # (SKETCH-SOLVE-HEAP-ORDER, RESEARCH §2). Needs a C++20 compiler, CMake,
+    # Eigen 3 and Boost headers at sync time (docs/ENVIRONMENT.md).
+    "planegcs==0.8.0+loft.1",
     "numpy>=2.0",
     # BSD-3-Clause, tiny, no native code — pins BLAS to one thread around the
     # assembly solve so the FP reduction order (hence placements) is bitwise
@@ -39,6 +43,7 @@ dependencies = [
 
 [tool.uv.sources]
 loft-py-kit = { workspace = true }
+planegcs = { path = "../../vendor/planegcs" }
 
 [build-system]
 requires = ["hatchling"]

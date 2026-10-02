@@ -35,9 +35,10 @@ planegcs / FreeCAD PlaneGCS
 This software uses planegcs, Python bindings for FreeCAD's PlaneGCS 2D
 geometric constraint solver, for sketch constraint solving.
 
-  Version shipped: 0.8.0
+  Version shipped: 0.8.0+loft.1 (0.8.0, modified by Loft on 2026-10-02)
   License:         GNU Lesser General Public License version 2.1 or later
   Source:          https://github.com/spookylukey/planegcs
+  Modification:    vendor/planegcs-loft.patch in the Loft repository
   Upstream:        https://www.freecad.org/ (PlaneGCS, Sketcher workbench)
 
 ================================================================================

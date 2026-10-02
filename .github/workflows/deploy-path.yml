@@ -294,6 +294,8 @@ jobs:
         run: docker compose up -d --wait minio
       - name: Provision the mesh bucket
         run: docker compose run --rm minio-init
+      - name: planegcs build prerequisites (Eigen, Boost)
+        uses: ./.github/actions/planegcs-build-deps
       - name: Sync uv environment (locked)
         run: uv sync --locked
       - name: Cross-process mesh-store smoke (real MinIO)

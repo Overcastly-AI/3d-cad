@@ -238,6 +238,10 @@ lint:
     # same commit (`--tighten`) and the list only shrinks.
     python3 scripts/check-file-size.py --self-test
     python3 scripts/check-file-size.py
+    # vendor/planegcs is the PyPI sdist plus vendor/planegcs-loft.patch and
+    # nothing else (SKETCH-SOLVE-HEAP-ORDER; the LGPL source offer depends on it).
+    python3 scripts/check-vendored-planegcs.py --self-test
+    python3 scripts/check-vendored-planegcs.py
 
 # Unit tests: pytest across the uv workspace + vitest via pnpm (recursive)
 test:

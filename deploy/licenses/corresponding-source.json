@@ -66,10 +66,10 @@
     {
       "id": "planegcs",
       "name": "planegcs (FreeCAD PlaneGCS bindings)",
-      "version": "0.8.0",
+      "version": "0.8.0+loft.1",
       "licence": "LGPL-2.1-or-later",
       "obligation": "LGPL-2.1 §6(d)+(c)",
-      "arrives_via": "planegcs wheel; _planegcs.cpython-*.so",
+      "arrives_via": "built by uv from vendor/planegcs (the 0.8.0 sdist below plus planegcs-loft.patch) into planegcs/_planegcs.cpython-*.so",
       "images": ["geometry"],
       "detect": {
         "kind": "dist-info",
@@ -83,6 +83,14 @@
           "sha256": "09e77e6e3a27fa77d3b5a69065ea4c82ae6ed35753246a2e518b1a6005fea162",
           "sha256_source": "PyPI JSON index for planegcs 0.8.0, re-verified by download 2026-08-01 (digest recomputed from the received bytes)",
           "note": "The PyPI sdist for the exact version whose wheel we install. Verified to contain the PlaneGCS solver itself — src/planegcs/{GCS,Constraints,Geo,SubSystem,qp_eq}.{cpp,h} plus the bindings — and its LGPL-2.1 LICENSE, so it is corresponding source and not merely the Python wrapper. Files under files.pythonhosted.org are immutable. Use this hashed URL, NOT the legacy /packages/source/p/... path: that path returned a ZERO-BYTE body with a success status through this project's egress proxy, which a naive fetch would have bundled as 'the source'."
+        },
+        {
+          "kind": "repo-file",
+          "path": "vendor/planegcs-loft.patch",
+          "filename": "planegcs-loft.patch",
+          "sha256": "23a59e58c3b91d7418ec7055746b8c9dc7ba5347c5394bd44caf5a9cc2843877",
+          "sha256_source": "sha256 of vendor/planegcs-loft.patch as committed with SKETCH-SOLVE-HEAP-ORDER (2026-10-02)",
+          "note": "Loft's modification (LGPL-2.1 §2(b): every changed file carries a dated 'Changed by Loft' notice). Applied with `patch -p1` inside the unpacked sdist it yields vendor/planegcs exactly, which scripts/check-vendored-planegcs.py proves on every `just lint`. It orders three solver choices by declaration index instead of memory address (SKETCH-SOLVE-HEAP-ORDER, docs/RESEARCH.md §2) and sets the version to 0.8.0+loft.1."
         }
       ]
     },

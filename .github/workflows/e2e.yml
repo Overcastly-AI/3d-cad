@@ -418,6 +418,8 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: planegcs build prerequisites (Eigen, Boost)
+        uses: ./.github/actions/planegcs-build-deps
       # The geometry service imports OCP, so every shard needs the full Python
       # environment — this is the ~700MB wheel the uv cache exists for.
       - name: Sync uv environment (locked)
@@ -660,6 +662,8 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: planegcs build prerequisites (Eigen, Boost)
+        uses: ./.github/actions/planegcs-build-deps
       # The geometry service imports OCP, so this needs the full Python
       # environment exactly as the shards do — the body in the viewport is a
       # real OCCT solid, which is the whole reason the GLB/blob: path is
@@ -799,6 +803,8 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: planegcs build prerequisites (Eigen, Boost)
+        uses: ./.github/actions/planegcs-build-deps
       - name: Sync uv environment (locked)
         run: uv sync --locked
       - name: Install (frozen lockfile)

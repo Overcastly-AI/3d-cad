@@ -39,14 +39,48 @@ forbidden.
 Rules the solver keeps:
 
 - **Deterministic.** Same sketch and constraints give a bitwise-identical
-  result, asserted over a sequence of solves. One measured limit
-  (SKETCH-FILLET-KEEP-DIMS): a planegcs subsystem orders its free parameters
-  by address (`std::set<double*>`), and the binding stores parameters in a
-  `std::deque` of 64-double chunks whose order depends on the heap. Up to 64
-  free parameters, allocated first, the order is the allocation order; past
-  that the last bits of a solve can differ between runs in one process
-  (BACKLOG SKETCH-SOLVE-HEAP-ORDER). So the solver allocates every free
-  parameter (entities, then virtual-sharp points) before any fixed one.
+  result, in one process however its heap looks and across processes
+  (`test_sketch_heap_order.py`: 20 solves with the C heap churned between
+  them, plus fresh processes). **Loft builds planegcs from source with a
+  patch to get there** (SKETCH-SOLVE-HEAP-ORDER). planegcs 0.8.0 made three
+  choices by memory address, and its binding stores parameters in a
+  `std::deque` of 64-double chunks whose relative addresses depend on the
+  heap:
+  1. a subsystem's column order (`std::set_intersection` of two
+     `std::set<double*>`);
+  2. the column order of the two-level solve used when a component has
+     non-driving constraints (`std::sort` of pointers);
+  3. after an equality reduction (a coincidence merges two coordinates into
+     one unknown), which of the merged values seeds the solve: the last one
+     in a walk of `std::map<double*, double*>`.
+
+  The third is the large one. It moves the starting point, and an
+  under-constrained sketch keeps whatever the start gives it: a 24-line
+  polygon with 96 free parameters came back 27.4 um apart within one process,
+  and 0.33 mm apart between two processes at 32 lines. The first two only
+  reorder floating-point work (7e-15 on fully constrained sketches). A
+  sketch whose parameters fit one chunk was never affected, which is why the
+  old two-solve test passed. The patch (`vendor/planegcs-loft.patch`, 3
+  files) orders all three by declaration index. Within one chunk address
+  order *is* declaration order, so every result that was deterministic
+  before is unchanged bit for bit: 438 sketches (every golden's sketch plus
+  300 generated) solve byte-identically against the PyPI wheel, and the
+  goldens did not move. The solver still allocates every free parameter
+  (entities, then virtual-sharp points) before any fixed one; that is the
+  order the patch preserves.
+
+  *Rejected:* allocating the parameters ourselves in one contiguous block
+  (the binding owns the storage and exposes no pointer API); a canonical
+  second solve (it would run in the same address-ordered layout, so it is not
+  canonical). The patch is not upstream yet, so `uv sync` compiles it (a
+  C++20 compiler, CMake, Eigen 3 and Boost headers;
+  `.github/actions/planegcs-build-deps`, the geometry Dockerfile).
+  `scripts/check-vendored-planegcs.py` proves that `vendor/planegcs` is
+  exactly the PyPI sdist plus the patch. That is the LGPL corresponding
+  source we offer (`deploy/licenses/corresponding-source.json`). Change the
+  patch by editing the tree, regenerating the patch, and bumping the
+  `+loft.N` version: uv rebuilds a path dependency only when its
+  `pyproject.toml` changes.
 - **An under-constrained solve holds the author's geometry.** After the solve
   converges, it pins every free coordinate and radius back to the author's
   value and re-solves (the "settle"), so a dimension edit moves only what it

@@ -5,6 +5,9 @@ CLAUDE.md
 README.md
 LICENSE
 
+# Third-party source built with a checked patch (scripts/check-vendored-planegcs.py).
+vendor/
+
 # Generated — never hand-edited (CLAUDE.md DRY rule).
 packages/contracts/
 packages/ts-client/

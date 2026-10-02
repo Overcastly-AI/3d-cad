@@ -122,6 +122,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
+      - name: planegcs build prerequisites (Eigen, Boost)
+        uses: ./.github/actions/planegcs-build-deps
       # Python version comes from .python-version; uv installs it if missing.
       - name: Sync uv environment (locked)
         run: uv sync --locked
@@ -180,6 +182,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
+      - name: planegcs build prerequisites (Eigen, Boost)
+        uses: ./.github/actions/planegcs-build-deps
       - name: Sync uv environment (locked)
         run: uv sync --locked
       # PGTEST-GATE. 172 of the documents suite's 468 tests (37%) need REAL
@@ -329,6 +333,8 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: planegcs build prerequisites (Eigen, Boost)
+        uses: ./.github/actions/planegcs-build-deps
       - name: Sync uv environment (locked)
         run: uv sync --locked
       - name: Install (frozen lockfile)
@@ -456,6 +462,14 @@ jobs:
         run: |
           python3 scripts/check-file-size.py --self-test
           python3 scripts/check-file-size.py
+      # SKETCH-SOLVE-HEAP-ORDER. vendor/planegcs must be exactly the PyPI sdist
+      # plus vendor/planegcs-loft.patch: that is the corresponding source the
+      # licence manifest offers for the LGPL solver in the geometry image, and
+      # an unrecorded edit would make the offer false. Stdlib + GNU patch.
+      - name: Vendored planegcs = sdist + patch (+ prove the gate can fail)
+        run: |
+          python3 scripts/check-vendored-planegcs.py --self-test
+          python3 scripts/check-vendored-planegcs.py
       # scripts/web-smoke.sh asserts the compose stack ENDS AT THE APP — the
       # entry document, the hashed bundle it names, the SPA fallback, a
       # transparent /api proxy, and no CDN-loading FastAPI explorer. Those
@@ -513,6 +527,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
+      - name: planegcs build prerequisites (Eigen, Boost)
+        uses: ./.github/actions/planegcs-build-deps
       - name: Sync uv environment (locked)
         run: uv sync --locked
       # The dev environment legitimately still contains jbigkit — the strip
@@ -575,6 +591,8 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: planegcs build prerequisites (Eigen, Boost)
+        uses: ./.github/actions/planegcs-build-deps
       - name: Sync uv environment (locked)
         run: uv sync --locked
       - name: Install (frozen lockfile)

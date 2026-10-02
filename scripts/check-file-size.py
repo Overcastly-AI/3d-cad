@@ -81,6 +81,9 @@ EXCLUDED_PREFIXES: tuple[str, ...] = (
     "packages/ts-client/",
     "services/geometry/goldens/",
     "goldens-gauntlet/",
+    # Third-party source built as-is plus a checked patch
+    # (scripts/check-vendored-planegcs.py): not ours to split.
+    "vendor/",
 )
 #: Single generated files that live beside hand-written ones.
 EXCLUDED_FILES = frozenset({"packages/loft-script/src/loft/_operations.py"})

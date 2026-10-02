@@ -34,6 +34,12 @@ OCP resolves OCCT through ordinary `DT_NEEDED` and `RPATH` lookup.
 
 This is the sketch solver, kept behind the `SketchSolver` protocol. It has the
 same duties as OCCT (licence text, notice, source) and no exception is needed.
+Loft **modifies** it: the image carries a build of `vendor/planegcs`, which is
+the PyPI 0.8.0 sdist plus `vendor/planegcs-loft.patch` (SKETCH-SOLVE-HEAP-ORDER,
+RESEARCH §2). The changed files carry dated notices (LGPL-2.1 §2(b)). The
+corresponding source is the sdist plus the patch, and both are in the
+manifest. `scripts/check-vendored-planegcs.py` (in `just lint` and CI) proves
+the tree is exactly that.
 
 ## 4. jbigkit (GPL-2.0) inside the OCP wheel
 
@@ -88,7 +94,7 @@ checks them against the installed binaries.
 | Component | Version           | Licence                   | Source                                                                   |
 | --------- | ----------------- | ------------------------- | ------------------------------------------------------------------------ |
 | OCCT      | 7.9.3             | LGPL-2.1 + OCCT exception | `github.com/Open-Cascade-SAS/OCCT`, tag `V7_9_3`, commit `a016080`       |
-| planegcs  | 0.8.0             | LGPL-2.1-or-later         | PyPI sdist `planegcs-0.8.0.tar.gz`                                       |
+| planegcs  | 0.8.0+loft.1      | LGPL-2.1-or-later         | PyPI sdist `planegcs-0.8.0.tar.gz` + `vendor/planegcs-loft.patch`        |
 | LibRaw    | 0.19.5-1ubuntu1.4 | LGPL-2.1 (our election)   | Ubuntu 20.04 source package (`.orig` + `.debian` + `.dsc`, with patches) |
 
 FreeImage and FreeType have no source obligation, because we elect their
