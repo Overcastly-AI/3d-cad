@@ -56,7 +56,9 @@ the review's vented lids, open at the bottom at t 1.5: 2.4 s on a 19 s shell at
 tight face boxes (``AddOptimal``) and the box under load (load average 19 on
 4 cores, so every time about 2.5x): 5.8 to 9.9 s on 47 s at 710, 8.1 s on 61
 to 64 s at 910, 12 to 21% and 13%. On small bodies it adds 6 to 83 ms (nine
-bodies, 1 to 26 faces).
+bodies, 1 to 26 faces). A face with many holes is classified hole by hole
+(:class:`_InFace`): on a 906-face slotted plate open at the top at t 1, whose
+cavity floor has 1804 edges, the check went from 9.0 to 5.8 s (2026-10-02).
 
 Near an opened face OCCT (and every mainstream modeller) extends the offset
 faces to meet the opening, where the distance definition would round the cavity
@@ -101,7 +103,14 @@ from OCP.GeomAbs import GeomAbs_SurfaceType
 from OCP.gp import gp_Pnt, gp_Pnt2d, gp_Vec
 from OCP.TopAbs import TopAbs_ShapeEnum, TopAbs_State
 from OCP.TopExp import TopExp
-from OCP.TopoDS import TopoDS, TopoDS_Compound, TopoDS_Edge, TopoDS_Face, TopoDS_Shape
+from OCP.TopoDS import (
+    TopoDS,
+    TopoDS_Compound,
+    TopoDS_Edge,
+    TopoDS_Face,
+    TopoDS_Iterator,
+    TopoDS_Shape,
+)
 from OCP.TopTools import (
     TopTools_IndexedDataMapOfShapeListOfShape,
     TopTools_IndexedMapOfShape,
@@ -225,6 +234,94 @@ class _Foot:
     normal: gp_Vec | None
 
 
+#: A face with more wires than this is classified wire by wire
+#: (:class:`_InFace`).
+_SPLIT_WIRES = 8
+
+
+class _InFace:
+    """Whether a parameter point is inside a face (``BRepTopAdaptor_FClass2d``),
+    with less work on a face with many holes.
+
+    One classifier walks every wire's polygon for every point: 670 us a point
+    on the 1804-edge cavity floor of a slotted lid at t 1, whose 225 holes have
+    rounded corners, which made sampling that one face take 1.9 s. On a
+    non-periodic face with more than :data:`_SPLIT_WIRES` wires, the outer
+    wire and each hole get their own classifier instead (each on the face's own
+    surface and location, so the parameters are the same), and a point inside
+    the outer wire is asked only of the holes whose parameter box holds it: IN
+    the face when it is IN no hole and ON no hole's boundary. Against the one
+    classifier at 164k points on 20 many-holed faces (slotted and round-holed
+    plates, their shells, a tilted copy; 2026-10-02) the two differ only on a
+    hole's boundary or 1e-7 from it, never at a random point or 1e-3 off it;
+    that close to an edge, the edge's own probe measures the same distance."""
+
+    def __init__(self, face: TopoDS_Face) -> None:
+        self._whole: BRepTopAdaptor_FClass2d | None = None
+        wires: list[TopoDS_Shape] = []
+        members = TopoDS_Iterator(face)
+        while members.More():
+            wires.append(members.Value())
+            members.Next()
+        surface = BRepAdaptor_Surface(face)
+        if len(wires) <= _SPLIT_WIRES or surface.IsUPeriodic() or surface.IsVPeriodic():
+            self._whole = BRepTopAdaptor_FClass2d(face, _EXTREMA_TOL)
+            return
+        outer = BRepTools.OuterWire_s(face)
+        builder = BRep_Builder()
+        self._outer = BRepTopAdaptor_FClass2d(
+            _face_of(face, [outer], builder), _EXTREMA_TOL
+        )
+        self._holes: list[BRepTopAdaptor_FClass2d] = []
+        boxes: list[tuple[float, float, float, float]] = []
+        for wire in wires:
+            if wire.IsSame(outer):
+                continue
+            # Reversed, the hole bounds its own region of the surface.
+            hole = _face_of(face, [wire.Reversed()], builder)
+            self._holes.append(BRepTopAdaptor_FClass2d(hole, _EXTREMA_TOL))
+            boxes.append(BRepTools.UVBounds_s(hole))
+        bounds = np.array(boxes, dtype=np.float64).reshape(-1, 4)
+        self._umin, self._umax = bounds[:, 0] - _UV_MARGIN, bounds[:, 1] + _UV_MARGIN
+        self._vmin, self._vmax = bounds[:, 2] - _UV_MARGIN, bounds[:, 3] + _UV_MARGIN
+
+    def state(self, uv: gp_Pnt2d) -> TopAbs_State:
+        if self._whole is not None:
+            return self._whole.Perform(uv)
+        state = self._outer.Perform(uv)
+        if state != TopAbs_State.TopAbs_IN:
+            return state
+        u, v = uv.X(), uv.Y()
+        near = np.flatnonzero(
+            (self._umin <= u)
+            & (u <= self._umax)
+            & (self._vmin <= v)
+            & (v <= self._vmax)
+        )
+        for index in near.tolist():
+            inside_hole = self._holes[index].Perform(uv)
+            if inside_hole == TopAbs_State.TopAbs_IN:
+                return TopAbs_State.TopAbs_OUT
+            if inside_hole == TopAbs_State.TopAbs_ON:
+                return TopAbs_State.TopAbs_ON
+        return TopAbs_State.TopAbs_IN
+
+
+#: Added round each hole's parameter box (:class:`_InFace`).
+_UV_MARGIN = 1e-6
+
+
+def _face_of(
+    face: TopoDS_Face, wires: list[TopoDS_Shape], builder: BRep_Builder
+) -> TopoDS_Face:
+    """A face on *face*'s surface, location and orientation, bounded by
+    *wires* (wires of *face*, so their parameter curves are its own)."""
+    bounded = TopoDS.Face_s(face.EmptyCopied())
+    for wire in wires:
+        builder.Add(bounded, wire)
+    return bounded
+
+
 class _FaceProbe:
     """The nearest point of one face's interior: the surface's extrema, kept
     when inside the face."""
@@ -243,7 +340,7 @@ class _FaceProbe:
             _EXTREMA_TOL,
             _EXTREMA_TOL,
         )
-        self._inside = BRepTopAdaptor_FClass2d(face, _EXTREMA_TOL)
+        self._inside = _InFace(face)
         self._normals = BRepGProp_Face(face)
         self._fallback: BRepExtrema_DistShapeShape | None = None
 
@@ -256,7 +353,7 @@ class _FaceProbe:
         best: tuple[float, gp_Pnt, gp_Vec] | None = None
         for index in range(1, self._extrema.NbExt() + 1):
             u, v = self._extrema.Point(index).Parameter()
-            if self._inside.Perform(gp_Pnt2d(u, v)) != TopAbs_State.TopAbs_IN:
+            if self._inside.state(gp_Pnt2d(u, v)) != TopAbs_State.TopAbs_IN:
                 continue
             distance = math.sqrt(self._extrema.SquareDistance(index))
             if best is None or distance < best[0]:
@@ -674,7 +771,7 @@ def _grid(
             shrink = math.sqrt(size / (across * along))
             across = max(2, math.floor(across * shrink))
             along = max(2, math.floor(along * shrink))
-    inside = BRepTopAdaptor_FClass2d(face, _EXTREMA_TOL)
+    inside = _InFace(face)
     surface = BRepGProp_Face(face)
     points: list[tuple[float, float, float]] = []
     normals: list[tuple[float, float, float]] = []
@@ -682,7 +779,7 @@ def _grid(
         u = umin + (i + _CELL_U) / across * (umax - umin)
         for j in range(along):
             v = vmin + (j + _CELL_V) / along * (vmax - vmin)
-            if inside.Perform(gp_Pnt2d(u, v)) != TopAbs_State.TopAbs_IN:
+            if inside.state(gp_Pnt2d(u, v)) != TopAbs_State.TopAbs_IN:
                 continue
             point, normal = gp_Pnt(), gp_Vec()
             surface.Normal(u, v, point, normal)

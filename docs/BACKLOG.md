@@ -58,7 +58,7 @@ commits carry the ID (`git log --grep=<ID>`).
       marks picked an inner-lip edge, a rim edge and two other wrong edges
       (`hard-parts-2026-10-01/enclosure-lip-fillet-marks-pick-wrong-edges.png`).
       On the impeller, one of 14 root-edge picks also lit an unrequested edge.
-- [ ] **SHELL-INTERSECTION-SLOW** (hang, pre-existing): a sealed plate bored r2.991 with a cross bore r1.424 at t 2.39 spends 133 s in OCCT's Intersection hollow (`shell.py`), past the gateway's 90 s timeout, on every version. _Accept:_ Shell answers (a solid or a typed refusal) within the timeout on that body; the Intersection route is skipped when Arc alone decides.
+- [x] **SHELL-INTERSECTION-SLOW** (hang, pre-existing): a sealed plate bored r2.991 with a cross bore r1.424 at t 2.39 spends 133 s in OCCT's Intersection hollow (`shell.py`), past the gateway's 90 s timeout, on every version. _Accept:_ Shell answers (a solid or a typed refusal) within the timeout on that body; the Intersection route is skipped when Arc alone decides.
 - [x] **SHELL-HEAL-NONDETERMINISM** (P1): a stored sealed Shell can fail to
       rebuild at random. Rod with a cross-bore r6 at t=2 is refused on 31 of
       60 rebuilds (3 processes), before and after 5fda139: the heal step
@@ -374,7 +374,7 @@ One line each. The founder triages weekly; most are closed without work.
 - Sketch: applying a user Tangent at a sharp corner silently makes a cusp; endpoint-tangent glyphs sit at the leg midpoint and overlap; old fillet sketches with plain coincident joins are not backfilled.
 - A new Fillet pre-selects a deleted fillet's edges, off-screen ones included; New Sketch's plane picker resets the camera and hides the view bar; at 1280x800 a fitted face sketch runs under the side panels and picks there are lost.
 - `scripts/e2e.sh`, `vite.config.ts` and `playwright.config.ts` hard-code web :5173, so parallel e2e needs a throwaway config.
-- BLEND-SERVER-COLD: the blend server now starts at boot by default (every fillet, chamfer and draft runs there); with `BLEND_SERVER_PREWARM=false` the first blend waits 5-9 s (6.3 s measured, against 69 ms prewarmed).
+- BLEND-SERVER-COLD: the blend server now starts at boot by default (every fillet, chamfer and draft runs there, and so do a sealed analytic Shell's Intersection build and a 500+-face Shell's offset); with `BLEND_SERVER_PREWARM=false` the first of them waits 5-9 s (6.3 s measured, against 69 ms prewarmed).
 - Fixed: DRAFT-IN-PLACE. A successful draft (123 of 128) or sealed shell cleared the `Checked` flag of 1-2 input TShapes (nothing else moved; later cuts matched). Both now run on a working copy (RESEARCH "Ops that write to their input"; `test_input_untouched.py`).
 - BOOLEAN-INPUT-PCURVES: the booleans behind pattern, circular cut pattern, mirror and a failed severing subtract add pcurves and locations to the input body's edges (no geometry or tolerance change; later cuts match). Left as is: the rebuild ladder forks for it (CM-6b).
 - Fixed: DRAFT-SEGFAULT. Every draft now runs in the blend server (~30 ms warm), so the 30 deg hub draft (seam 180) and the wedge-touched box wall are typed `DraftError`s and the process survives (`test_draft_isolation.py`).

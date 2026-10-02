@@ -232,7 +232,10 @@ The correctness gates, run in CI and by `geometry-qa`:
   also runs, and its byte-deterministic build ships when it matches Arc's in
   shells, faces, volume, area, centroid and inertia. It is never trusted alone:
   it silently drops a pocket when the cavity splits, and it drifts on spline
-  walls. Every other Arc result gets a canonical face order, but its bytes can
+  walls. It only buys reproducible bytes, so it runs in a child of the blend
+  server under a 10 s CPU budget (a cross-bored plate held it 68 to 133 s
+  where Arc took 0.16 s); past the budget Arc's result ships. Every other Arc
+  result gets a canonical face order, but its bytes can
   still move in the last bit (`kernel/shell.py`). The hash order can also
   change the topology. Where a cavity touches itself at a point, about half of
   all address layouts leave one face spanning both sides of the pinch, and the
@@ -259,6 +262,15 @@ The correctness gates, run in CI and by `geometry-qa`:
   is missed too). Every query is capped and answered from a spatial index, so
   the cost grows with the faces: about a fifth to a third of the shell on 710-
   and 910-face lids, tens of ms on small bodies.
+- **A shell answers inside the request.** OCCT's offset pairs every two offset
+  faces whose boxes meet through a boolean over both faces' edges, so it grows
+  with the faces squared where one face borders many: a 906-face slotted plate
+  takes 77 to 89 s of CPU. A body of 500 faces or more is therefore offset in a
+  blend-server child under a 40 s CPU budget (60 s wall), and refused past it
+  with a typed `ShellTimeout` (`shell_failed`) that says to shell before
+  cutting many small features. That outcome depends on the machine's speed, as
+  a fillet's `BLEND_CPU_SECONDS` does; a stored part that shells in time on one
+  machine can time out on a much slower one.
 - **STEP round-trip:** export, re-import and compare, within `ROUNDTRIP_TOL`
   (1e-7) unless a golden records a measured override. A body is made
   conformal before export, but only when `BRepCheck` rejects it, and never if

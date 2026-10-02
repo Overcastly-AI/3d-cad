@@ -48,6 +48,12 @@ from geometry.kernel.fillet_isolation import (
     write_shapes,
 )
 from geometry.kernel.naming import OpHistory
+from geometry.kernel.shell import (
+    ARC_OP,
+    INTERSECTION_OP,
+    intersection_hollow,
+    isolated_arc,
+)
 
 
 def _probe_sleep(
@@ -63,6 +69,10 @@ _OPS: dict[str, Any] = {
     "fillet": _fillet,
     "chamfer": _chamfer,
     "probe-sleep": _probe_sleep,
+    # Not blends: Shell's sealed Intersection build and a large body's Arc
+    # offset, each under a CPU budget (kernel/shell.py, SHELL-INTERSECTION-SLOW).
+    INTERSECTION_OP: intersection_hollow,
+    ARC_OP: isolated_arc,
 }
 
 #: ``prctl(PR_SET_PDEATHSIG, ...)``: Linux's "signal me when my parent dies".
