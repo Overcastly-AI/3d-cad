@@ -61,11 +61,18 @@ _VOLUME_REL_TOL = 1e-9
 _SAMPLES = 9
 
 
-def reseam_near(body: Solid, edges: Sequence[Edge]) -> tuple[Solid, list[Edge]] | None:
+#: How many seam placements the fillet retry tries, widest gap first.
+CANDIDATES = 3
+
+
+def reseam_near(
+    body: Solid, edges: Sequence[Edge], choice: int = 0
+) -> tuple[Solid, list[Edge]] | None:
     """*body* with the seams of the closed faces next to *edges* moved away
     from them, plus *edges* on the new body; ``None`` when there is nothing to
     move or the rebuild does not check out (the caller then reports the
-    original failure)."""
+    original failure). *choice* picks the gap: 0 the widest between the
+    face's edges, 1 the next, and so on (``None`` past the last)."""
     copier = BRepBuilderAPI_Copy(body.wrapped, True, False)
     copy = copier.Shape()
     picked = [copier.ModifiedShape(edge.wrapped) for edge in edges]
@@ -82,7 +89,11 @@ def reseam_near(body: Solid, edges: Sequence[Edge]) -> tuple[Solid, list[Edge]] 
                 continue
             seen.append(face_shape)
             face = TopoDS.Face_s(face_shape)
-            rebuilt = _reseamed(face, [e for e in picked if _on_face(e, face)], reshape)
+            rebuilt = _reseamed(
+                face, [e for e in picked if _on_face(e, face)], reshape, choice
+            )
+            if rebuilt is _NO_CHOICE:
+                return None
             if rebuilt is not None:
                 reshape.Replace(face, rebuilt)
     if not seen:
@@ -104,8 +115,15 @@ def reseam_near(body: Solid, edges: Sequence[Edge]) -> tuple[Solid, list[Edge]] 
     return solid, moved
 
 
+#: Returned by :func:`_reseamed` when *choice* is past the face's gaps.
+_NO_CHOICE = TopoDS_Face()
+
+
 def _reseamed(
-    face: TopoDS_Face, picked: Sequence[TopoDS_Shape], reshape: ShapeBuild_ReShape
+    face: TopoDS_Face,
+    picked: Sequence[TopoDS_Shape],
+    reshape: ShapeBuild_ReShape,
+    choice: int = 0,
 ) -> TopoDS_Face | None:
     """*face* on its surface turned so the seam is clear of *picked*, or
     ``None`` when the face has no seam or is not on a closed elementary
@@ -119,10 +137,15 @@ def _reseamed(
     surface = BRep_Tool.Surface_s(face, location)
     if not isinstance(surface, Geom_ElementarySurface) or not surface.IsUPeriodic():
         return None
-    angles = _picked_angles(surface, picked, location)
+    # Clear of EVERY edge on the face, not only the picked ones: a seam turned
+    # into another blade's root moves the defect there instead of removing it.
+    angles = _picked_angles(surface, [*picked, *_open_edges(face, seams)], location)
     if not angles:
         return None
-    turn = _widest_gap_middle(angles, surface.UPeriod())
+    middles = _gap_middles(angles, surface.UPeriod())
+    if choice >= len(middles):
+        return _NO_CHOICE
+    turn = middles[choice]
     turned = surface.Copy()
     position = turned.Position()
     turned.Rotate(gp_Ax1(position.Location(), position.Direction()), turn)
@@ -206,6 +229,22 @@ def _restart(
     return maker.Edge()
 
 
+def _open_edges(face: TopoDS_Face, seams: Sequence[TopoDS_Shape]) -> list[TopoDS_Shape]:
+    """The face's boundary edges that are neither its seam nor a closed loop
+    (an end circle covers every angle and constrains nothing)."""
+    out: list[TopoDS_Shape] = []
+    explorer = TopExp_Explorer(face, TopAbs_EDGE)
+    while explorer.More():
+        edge = TopoDS.Edge_s(explorer.Current())
+        explorer.Next()
+        if any(edge.IsSame(s) for s in [*seams, *out]):
+            continue
+        if TopExp.FirstVertex_s(edge).IsSame(TopExp.LastVertex_s(edge)):
+            continue
+        out.append(edge)
+    return out
+
+
 def _seam_edges(face: TopoDS_Face) -> list[TopoDS_Shape]:
     out: list[TopoDS_Shape] = []
     explorer = TopExp_Explorer(face, TopAbs_EDGE)
@@ -245,13 +284,33 @@ def _picked_angles(
     return out
 
 
+def _gap_middles(angles: list[float], period: float) -> list[float]:
+    """The middles of the gaps between *angles*, widest first (ties by
+    angle, so the order is a pure function of the geometry)."""
+    ordered = sorted(set(angles))
+    if len(ordered) == 1:
+        return [math.fmod(ordered[0] + period / 2.0, period)]
+    gaps = [
+        ((ordered[(i + 1) % len(ordered)] - a) % period, a)
+        for i, a in enumerate(ordered)
+    ]
+    gaps.sort(key=lambda gap: (-round(gap[0], 9), gap[1]))
+    return [math.fmod(a + width / 2.0, period) for width, a in gaps]
+
+
 def _widest_gap_middle(angles: list[float], period: float) -> float:
-    """The middle of the widest gap between *angles* around the period."""
-    ordered = sorted(angles)
+    """The middle of the widest gap between *angles* around the period.
+
+    Repeated angles (two edges sharing an end) are one angle: counted twice
+    they made a zero gap, which read as a whole period and put the seam
+    half a turn round, on another blade's root."""
+    ordered = sorted(set(angles))
+    if len(ordered) == 1:
+        return math.fmod(ordered[0] + period / 2.0, period)
     best, middle = -1.0, 0.0
     for index, angle in enumerate(ordered):
         following = ordered[(index + 1) % len(ordered)]
-        gap = (following - angle) % period or period
+        gap = (following - angle) % period
         if gap > best:
             best, middle = gap, angle + gap / 2.0
     return math.fmod(middle, period)

@@ -38,6 +38,7 @@ from geometry.kernel.fillet_isolation import (
 from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.naming import OpHistory
+from geometry.kernel.reseam import CANDIDATES as RESEAM_CANDIDATES
 from geometry.kernel.reseam import reseam_near
 from geometry.kernel.types import BodyShape
 
@@ -109,21 +110,13 @@ def fillet_body(
         if isinstance(exc, BlendTimedOut):
             raise _timed_out(radius_mm) from exc
         # A closed face's seam ending on or beside a filleted edge defeats the
-        # OCCT blend (a parameterisation artefact, not geometry): retry ONCE on
-        # a fresh copy of the untouched input with those seams moved clear
-        # (geometry.kernel.reseam), under the same checks.
-        moved = reseam_near(body, edges) if isinstance(body, Solid) else None
+        # OCCT blend (a parameterisation artefact, not geometry): retry on fresh
+        # copies of the untouched input with those seams moved clear, widest gap
+        # first (geometry.kernel.reseam), under the same checks.
         try:
-            if moved is None:
-                raise exc
-            work, work_edges, solids = _attempt(
-                *moved, radius_mm, history, isolate=isolate
+            work, work_edges, solids = _retry(
+                body, edges, radius_mm, history, input_tolerance, exc, isolate=isolate
             )
-            problem = fillet_problem(
-                work, work_edges, radius_mm, solids, input_tolerance
-            )
-            if problem is not None:
-                raise _Rejected(problem) from exc
         except Exception as retry_exc:  # OCCT failure modes are not a stable taxonomy
             if history is not None:
                 history.generated.clear()
@@ -167,6 +160,43 @@ def fillet_body(
     if lump_count == 1:
         return clean_shape(solids[0])
     return assemble_lumps([clean_shape(solid) for solid in solids])
+
+
+def _retry(
+    body: BodyShape,
+    edges: list[Edge],
+    radius_mm: float,
+    history: OpHistory | None,
+    input_tolerance: float,
+    first: Exception,
+    *,
+    isolate: bool,
+) -> tuple[BodyShape, list[Edge], list[Solid]]:
+    """The fillet on re-seamed copies of *body*, trying the seam placements
+    widest gap first; raises *first* when none gives an accepted result (and
+    a timed-out blend at once: the time bound is the user's, not per try)."""
+    if not isinstance(body, Solid):
+        raise first
+    for choice in range(RESEAM_CANDIDATES):
+        moved = reseam_near(body, edges, choice)
+        if moved is None:
+            break
+        try:
+            work, work_edges, solids = _attempt(
+                *moved, radius_mm, history, isolate=isolate
+            )
+        except BlendTimedOut:
+            raise
+        except Exception:  # OCCT failure modes are not a stable taxonomy
+            continue
+        problem = fillet_problem(
+            work, work_edges, radius_mm, solids, input_tolerance, reseamed=True
+        )
+        if problem is None:
+            return work, work_edges, solids
+        if history is not None:
+            history.generated.clear()
+    raise first
 
 
 class _Rejected(RuntimeError):

@@ -320,7 +320,7 @@ def test_the_guard_costs_a_fraction_of_the_fillet() -> None:
 
 
 @pytest.mark.parametrize("op", ["cut", "fuse"])
-def test_a_wrong_body_far_from_the_fillet_is_caught_anywhere(op: str) -> None:
+def test_a_wrong_body_at_the_far_corner_of_a_changed_face_is_caught(op: str) -> None:
     """Material removed or added at the far corner of a face the fillet
     touched (the samples used to cluster in one strip and missed it)."""
     plate = Box(100, 100, 10)
@@ -354,3 +354,52 @@ def test_a_refusal_says_what_was_found() -> None:
     problem = fillet_problem(work, work_edges, 1.0, solids, max_tolerance(fresh))
     assert problem is not None
     assert "radius" not in problem
+
+
+# --- re-review of f339f36: every picked edge must be rounded ---------------------
+
+
+def _ring(blades: int, seam_deg: float) -> tuple[Solid, list[Edge]]:
+    """*blades* QA blades evenly round a Ø44 hub whose seam is turned
+    *seam_deg*, and every root edge (all blades)."""
+    body: Any = (Pos(0, 0, 10) * Cylinder(HUB_R, 20)).rotate(Axis.Z, seam_deg)
+    for k in range(blades):
+        body = body.fuse(_blade().rotate(Axis.Z, 360.0 / blades * k))
+    (solid,) = body.clean().solids()
+    roots = [
+        e
+        for e in solid.edges()
+        if e.geom_type not in (GeomType.LINE, GeomType.CIRCLE)
+        and all(
+            abs(math.hypot((e @ t).X, (e @ t).Y) - HUB_R) < 1e-6 for t in (0, 0.5, 1)
+        )
+    ]
+    return solid, roots
+
+
+@pytest.mark.parametrize(("blades", "radius"), [(6, 1.0), (10, 1.0), (6, 2.0)])
+def test_a_ring_of_blades_is_rounded_whole_or_not_at_all(
+    blades: int, radius: float
+) -> None:
+    """The plain fillet with the seam at 0 drops the hub's top cap; the
+    re-seam retry once turned the seam onto the opposite blade's root (two
+    edges sharing an end counted as a zero gap, read as a whole turn) and
+    OCCT then skipped that blade: a closed body with 2 faces short
+    (35 827.97 for 35 834.59). Now a skipped edge is refused, and the seam
+    goes clear of every root: the body equals the seam-clear one."""
+    crossing, roots = _ring(blades, 0.0)
+    clear, clear_roots = _ring(blades, 180.0 / blades)
+    rescued = fillet_body(crossing, roots, radius)
+    oracle = fillet_body(clear, clear_roots, radius)
+    assert len(rescued.faces()) == len(oracle.faces())
+    assert abs(rescued.volume - oracle.volume) < _BLEND_FIT_MM3
+
+
+def test_a_fillet_that_skips_a_picked_edge_is_refused() -> None:
+    """Completeness on its own: a result that left one picked edge sharp (the
+    fillet of all roots but one, checked against all of them) is refused."""
+    solid, roots = _ring(6, 30.0)
+    work, work_edges = _working_copy(solid, roots)
+    solids = _fillet(work, work_edges[1:], 1.0, None)
+    problem = fillet_problem(work, work_edges, 1.0, solids, max_tolerance(solid))
+    assert problem is not None and "still sharp" in problem

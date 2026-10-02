@@ -7,7 +7,7 @@
     "centroid: the ring of 7 blades and blends, the hub and the bore are centred on the Z axis and the keyway is symmetric in y, so y = 0 (harness 2.3e-12) and x is the keyway's alone, -209.043 * 7.1915 / 34267.594 = -0.043870 (harness -0.0438704). z = 10.0006: the swept tip is not symmetric about z = 10, so z is the harness's.",
     "bounding_box: z 0..20 widened by the 1e-7 vertex tolerance; x and y are the swept tip corners of the 7 instances (max x = 50 at instance 0, the others the harness's).",
     "topology: 56 faces = 1 hub side, 2 caps, bore, 3 keyway walls, 7 blades x 5 faces (sides r1 and r3, the outer end r2, and the end faces at z = 2 and z = 18; r4 is buried in the hub), 14 blends; 141 edges; 1 shell. Identical to the cleaned cross-check.",
-    "mesh counts are the harness's at linear 0.1 mm (asserted exactly; deterministic within a kernel version). GLB byte size is deliberately not pinned.",
+    "mesh counts are the harness's at linear 0.1 mm (asserted exactly; deterministic within a kernel version). GLB byte size is deliberately not pinned. They moved 25360/47436 -> 25388/47492 when the fillet retry's seam placement was fixed (it had counted a shared edge end twice and turned the seam half a turn round): the hub's re-seamed cylinder is tessellated from a different parameter origin. Mass properties, bounds and topology are unchanged (volume within 8e-11).",
     "STEP round trip: the volume moves +2.5e-7 mm^3, above ROUNDTRIP_TOL; the body before the fillet round-trips within 2.8e-10, so it is the R1 blends (the defect already filed for the full-height golden). The bound is NOT loosened: only the volume/area check is a strict xfail (conftest KNOWN_ROUNDTRIP_DEFECTS, BACKLOG FILLET-BLEND-ROUNDTRIP); centroid (4.1e-11), bounds (6.7e-12) and topology stay at ROUNDTRIP_TOL."
   ],
   "tolerance": 1e-6,
@@ -39,7 +39,7 @@
     "shells": 1
   },
   "mesh": {
-    "vertices": 25360,
-    "triangles": 47436
+    "vertices": 25388,
+    "triangles": 47492
   }
 }
