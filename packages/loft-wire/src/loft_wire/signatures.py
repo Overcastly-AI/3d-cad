@@ -185,3 +185,17 @@ class EdgeSignature(BaseModel):
         max_length=TOPO_NAME_MAX_LENGTH,
         description=_TOPO_NAME_DESCRIPTION,
     )
+    end_a_topo_name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=TOPO_NAME_MAX_LENGTH,
+        description=(
+            "The history-based name of the ONE face this edge ends on at "
+            "end_a (the face at that vertex other than the edge's own two), "
+            "or null. A partial edge flange measures its offset from end_a; "
+            "an edit that turns the edge can move end_a to the other end, so "
+            "on a re-found edge the offset is measured from whichever end "
+            "still touches this face (DESIGN-INTENT-REFS). Absent on older "
+            "selectors and on ends without one named face."
+        ),
+    )

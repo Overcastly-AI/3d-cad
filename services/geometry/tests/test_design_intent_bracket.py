@@ -30,7 +30,7 @@ import hashlib
 import importlib.util
 import json
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -268,14 +268,112 @@ def test_a_cap_pick_stays_at_its_end_when_the_edge_turns_past_square() -> None:
     assert rescued_hash == top_hash
 
 
-def test_a_partial_flange_refuses_when_its_offset_end_would_swap() -> None:
-    """offflip: a 10 mm flange at offset 2 from the slanted edge's canonical
-    start. 25 -> 35 swaps which end that is, so the flange would silently jump
-    to the other end: it is refused instead (a re-pick at 35 builds)."""
-    span = {"width_mm": 10.0, "offset_mm": 2.0}
-    edited = [_turned(35.0)[0], *_turned(25.0, **span)[1:]]
-    assert statuses(evaluate(edited, 64))[-1] == ("7c03", "error", "subshape_ambiguous")
-    assert statuses(evaluate(_turned(35.0, **span), 65))[-1] == ("7c03", "ok", None)
+def _quad(corners: Sequence[tuple[float, float]], edge: tuple[Any, Any], **span: float):
+    """A 2 mm base flange on *corners* with a 20 mm 90 deg flange on its top
+    edge between the corners *edge* (at z = 2), restricted to *span*."""
+    sketch = B.sketch(B.AUTHORED_W)
+    sketch["feature"]["params"]["entities"] = [
+        B._line(f"e{i + 1}", corners[i], corners[(i + 1) % len(corners)])
+        for i in range(len(corners))
+    ]
+    tree = [sketch, B.base_flange()]
+    want = {(float(x), float(y), 2.0) for x, y in edge}
+    (sig,) = [
+        e.signature
+        for e in B._overlay(tree).edges
+        if e.signature is not None
+        and e.signature.curve == "line"
+        and {
+            (round(p.x, 6), round(p.y, 6), round(p.z, 6))
+            for p in (e.signature.end_a, e.signature.end_b)
+        }
+        == want
+    ]
+    tree.append(B._flange(B.FLANGE1_ID, B.BASE_ID, sig, 20.0, 90.0, **span))
+    return tree, sig
+
+
+def _same_solid(a: Any, b: Any) -> bool:
+    """Same topology and no material in either that the other lacks."""
+    return (
+        len(a.faces()) == len(b.faces()) and (a - b).volume + (b - a).volume < 1e-6  # pyright: ignore[reportUnknownMemberType]
+    )
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        # offflip: the slanted edge turns past square to X (25 -> 35).
+        (
+            [(-30, -20), (30, -20), (25, 20), (-30, 20)],
+            [(-30, -20), (30, -20), (35, 20), (-30, 20)],
+        ),
+        # rot.py 60 -> 0: a turn past square that keeps the canonical
+        # direction's sign (a turn of phi and of 180 - phi look alike).
+        (
+            [(0, 0), (40, 0), (40, 10), (60, 30)],
+            [(0, 0), (40, 0), (40, 10), (0, 30)],
+        ),
+        # rot.py 60 -> 10: the same edge turned less.
+        (
+            [(0, 0), (40, 0), (40, 10), (60, 30)],
+            [(0, 0), (40, 0), (40, 10), (10, 30)],
+        ),
+    ],
+    ids=["offflip-25-35", "rot-60-0", "rot-60-10"],
+)
+def test_a_partial_flange_stays_at_its_anchored_end_when_the_edge_turns(
+    before: list[tuple[float, float]], after: list[tuple[float, float]]
+) -> None:
+    """A 5 mm flange at offset 2 from the slanted edge's end_a, picked before
+    the edit. Every turn here moves the edge off its line, and a turn can
+    carry end_a to the other end (by coordinate order) with or without the
+    canonical direction flipping, so geometry cannot say which end the offset
+    was from. The pick's ``end_a_topo_name`` (the face the edge ended on
+    there) does: the flange must land at THAT end, the solid a re-pick gets
+    with the offset measured from that end."""
+    span = {"width_mm": 5.0, "offset_mm": 2.0}
+    edge_before, edge_after = (before[2], before[3]), (after[2], after[3])
+    authored, sig = _quad(before, edge_before, **span)
+    assert sig.end_a_topo_name is not None
+    edited = [_quad(after, edge_after)[0][0], *authored[1:]]
+    rescued = evaluate(edited, 64)
+    assert statuses(rescued)[-1] == ("7c03", "ok", None)
+    # The anchored end: the one the stored end_a's corner moved to.
+    anchor = next(
+        a
+        for b, a in zip(before, after, strict=True)
+        if (b[0], b[1], 2.0) == (sig.end_a.x, sig.end_a.y, sig.end_a.z)
+    )
+    _repicked, now = _quad(after, edge_after)
+    length = now.length_mm
+    starts_at_a = (now.end_a.x, now.end_a.y) == anchor
+    offset = 2.0 if starts_at_a else length - 2.0 - 5.0
+    oracle = evaluate(_quad(after, edge_after, width_mm=5.0, offset_mm=offset)[0], 65)
+    assert _same_solid(rescued.body, oracle.body)
+    other = evaluate(
+        _quad(
+            after,
+            edge_after,
+            width_mm=5.0,
+            offset_mm=length - 7.0 if starts_at_a else 2.0,
+        )[0],
+        66,
+    )
+    assert not _same_solid(rescued.body, other.body)
+
+
+def test_a_partial_flange_without_an_end_anchor_refuses_a_moved_edge() -> None:
+    """A selector stored before ``end_a_topo_name`` existed has no anchor: on
+    an edge that left its line it is refused, never placed at a guessed end."""
+    before = [(0, 0), (40, 0), (40, 10), (60, 30)]
+    after = [(0, 0), (40, 0), (40, 10), (0, 30)]
+    authored, _sig = _quad(before, (before[2], before[3]), width_mm=5.0, offset_mm=2.0)
+    authored[2]["feature"]["params"]["edge"]["selector"]["signature"].pop(
+        "end_a_topo_name"
+    )
+    edited = [_quad(after, (after[2], after[3]))[0][0], *authored[1:]]
+    assert statuses(evaluate(edited, 67))[-1] == ("7c03", "error", "subshape_ambiguous")
 
 
 # --- the golden -------------------------------------------------------------------

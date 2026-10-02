@@ -36,12 +36,13 @@ from loft_wire.overlay import (
     OverlayFace,
     OverlayResult,
 )
+from loft_wire.signatures import EdgeSignature
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.GCPnts import GCPnts_QuasiUniformDeflection
 
 from geometry.kernel.edges import edge_adjacency, edge_signature_dto
 from geometry.kernel.faces import face_signature_dto
-from geometry.kernel.naming import edge_names
+from geometry.kernel.naming import EdgeEnds, edge_names
 from geometry.kernel.types import BodyShape
 
 #: OCCT ``GeomType`` → overlay edge kind (a rendering hint only). Anything not a
@@ -133,6 +134,7 @@ def selection_overlay(
     ]
     adjacency = edge_adjacency(body, face_signatures)
     names = edge_names(body, face_names) if face_names is not None else None
+    ends = EdgeEnds(body, face_names) if face_names is not None else None
 
     edges: list[OverlayEdge] = []
     for index, edge in enumerate(body.edges()):
@@ -155,10 +157,14 @@ def selection_overlay(
                 # edit that resizes the part (resolver tier 3); it is absent for
                 # an edge without two distinct planar neighbours, and the tiers
                 # above it do not read it.
-                signature=edge_signature_dto(
+                signature=_with_end_anchor(
+                    edge_signature_dto(
+                        edge,
+                        adjacency.get(index),
+                        None if names is None else names[index],
+                    ),
                     edge,
-                    adjacency.get(index),
-                    None if names is None else names[index],
+                    ends,
                 ),
             )
         )
@@ -180,3 +186,18 @@ def selection_overlay(
         )
 
     return OverlayResult(vertices=vertices, edges=edges, faces=faces)
+
+
+def _with_end_anchor(
+    signature: EdgeSignature, edge: Edge, ends: EdgeEnds | None
+) -> EdgeSignature:
+    """*signature* with ``end_a_topo_name``: the name of the face the edge ends
+    on at its canonical ``end_a``, where a partial edge flange measures its
+    offset from (DESIGN-INTENT-REFS step 3). Unchanged when there is none."""
+    if ends is None:
+        return signature
+    a = signature.end_a
+    name = ends.at(edge, (a.x, a.y, a.z))
+    if name is None:
+        return signature
+    return signature.model_copy(update={"end_a_topo_name": name})

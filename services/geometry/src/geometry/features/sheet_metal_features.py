@@ -38,10 +38,11 @@ from geometry.features.state import (
 from geometry.kernel import (
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
+    durable_edge_match,
     extrude_face,
     resolve_edge_durable,
 )
-from geometry.kernel.naming import OpHistory, edge_end_names
+from geometry.kernel.naming import EdgeEnds, EndNames, OpHistory
 from geometry.kernel.tolerances import KERNEL_LINEAR_TOL_MM
 from geometry.sheet_metal import (
     BendProvenance,
@@ -186,18 +187,17 @@ def _fold_flange_off_edge(
     except SubshapeAmbiguousError as exc:
         return FeatureError(code="subshape_ambiguous", message=str(exc))
     edge = resolved_edge.edge
-    if (width_mm is not None or offset_mm != 0.0) and _ends_swapped(
-        edge_ref.selector.signature, resolved_edge.signature
-    ):
-        return FeatureError(
-            code="subshape_ambiguous",
-            message=(
-                f"{subject}'s edge was found, but an edit turned it past square to "
-                "its stored direction, so the end its offset and width are measured "
-                "from has swapped. Refusing to place the flange at the other end: "
-                "re-pick the edge, or set the offset again."
-            ),
+    ends = EdgeEnds(active, names)
+    offset_from: tuple[float, float, float] | None = None
+    if width_mm is not None or offset_mm != 0.0:
+        anchored = _offset_end(
+            edge_ref.selector.signature, resolved_edge.signature, ends.of(edge)
         )
+        if isinstance(anchored, str):
+            return FeatureError(
+                code="subshape_ambiguous", message=f"{subject}: {anchored}"
+            )
+        offset_from = anchored
 
     # The RADIUS RULE differs by verb, and conflating them shipped HEM-1. An edge
     # flange inherits the part's general base-flange radius when its own is omitted
@@ -227,7 +227,8 @@ def _fold_flange_off_edge(
             width_mm=width_mm,
             offset_mm=offset_mm,
             history=history,
-            end_names=edge_end_names(active, names, edge),
+            end_names=ends.of(edge),
+            offset_from=offset_from,
         )
     except EdgeFlangeEdgeError as exc:
         return FeatureError(code="edge_flange_bad_edge", message=str(exc))
@@ -290,21 +291,38 @@ def _fold_flange_off_edge(
     return None
 
 
-def _ends_swapped(stored: EdgeSignature, current: EdgeSignature) -> bool:
-    """Whether the edge's canonical start (``end_a``, the lexicographically
-    smaller end, where ``offset_mm`` is measured from) now lies at the other
-    end than when it was picked: the canonical direction reversed. The
-    offset's end is defined by that ordering, so a re-found edge whose
-    ordering flipped (it turned past square to an axis) would put a partial
-    flange at the OTHER end with no error (review 2026-10-01)."""
-    a, b = stored.end_a, stored.end_b
-    c, d = current.end_a, current.end_b
-    dot = (
-        (b.x - a.x) * (d.x - c.x)
-        + (b.y - a.y) * (d.y - c.y)
-        + (b.z - a.z) * (d.z - c.z)
+def _offset_end(
+    stored: EdgeSignature,
+    current: EdgeSignature,
+    ends: EndNames,
+) -> tuple[float, float, float] | None | str:
+    """The end of the re-found edge a partial flange's ``offset_mm`` is
+    measured from: ``None`` for the canonical ``end_a`` (the lexicographically
+    smaller end), a position for a named end, or the reason to refuse.
+
+    The offset was authored from the picked edge's ``end_a``. An edge still
+    on its stored supporting line, overlapping its stored span (the durable
+    predicate, whichever tier reported it), keeps its canonical order, so
+    ``end_a`` is still that end. Any other re-find may have turned the edge,
+    and a turn of phi and of 180 - phi leave the same signature, so no
+    geometric test can tell
+    whether ``end_a`` swapped ends (review 2026-10-01: a flange moved from
+    (43, 10) to (3, 30) with every feature ok). The end is then the one that
+    still touches the face the edge ended on at ``end_a`` when it was picked
+    (``end_a_topo_name``), and without exactly one such end the flange is
+    refused rather than placed at a guessed end."""
+    if durable_edge_match(current, stored):
+        return None
+    anchor = stored.end_a_topo_name
+    hits = [] if anchor is None else [at for at, name in ends if name == anchor]
+    if len(hits) == 1:
+        return hits[0]
+    return (
+        "the edge was found after an edit that moved it, and the end its "
+        "offset and width are measured from can no longer be told from the "
+        "other. Refusing to place the flange at a guessed end: re-pick the "
+        "edge, or set the offset again."
     )
-    return dot < 0.0
 
 
 def _evaluate_sheet_metal_edge_flange(

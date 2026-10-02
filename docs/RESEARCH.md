@@ -411,10 +411,16 @@ is, and so does this:
   square to an axis swapped them, moving a fillet to the other end with
   every feature ok (review of 42b4482). A bend-end relief names its far wall
   and floor `relief:<that end's face>:wall|floor`; its near wall lies in the
-  cap's plane and is named as the cap. `offset_mm` is still measured from the
-  edge's lexicographically smaller end, so a partial flange whose re-found
-  edge reversed that order is refused (`subshape_ambiguous`), never placed
-  at the other end.
+  cap's plane and is named as the cap.
+- `offset_mm` is measured from the picked edge's `end_a` (its
+  lexicographically smaller end). A turn of the edge can carry `end_a` to the
+  other end, and a turn of phi and of 180 - phi leave the same signature, so
+  no geometric test can tell. The pick therefore stores `end_a_topo_name`
+  (loft-wire `EdgeSignature`): the face the edge ends on at `end_a`. A
+  re-found edge still on its stored line keeps its order; any other measures
+  the offset from the end that touches that face, and without exactly one
+  such end (or an older selector without the field) the flange is refused
+  (`subshape_ambiguous`), never placed at a guessed end.
 - A face that `UnifySameDomain` MERGES (a flange cap flush with the base's
   side face) is both faces. The merge is read from the upgrader's own
   history (`kernel/clean_history.py`, build123d's boolean-and-clean repeated

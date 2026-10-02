@@ -2868,6 +2868,11 @@ export interface components {
             curve: "line" | "circle" | "other";
             /** @description One endpoint, world mm; the lexicographically SMALLER of the two so the pair is orientation-independent (full precision) */
             end_a: components["schemas"]["Vec3"];
+            /**
+             * End A Topo Name
+             * @description The history-based name of the ONE face this edge ends on at end_a (the face at that vertex other than the edge's own two), or null. A partial edge flange measures its offset from end_a; an edit that turns the edge can move end_a to the other end, so on a re-found edge the offset is measured from whichever end still touches this face (DESIGN-INTENT-REFS). Absent on older selectors and on ends without one named face.
+             */
+            end_a_topo_name?: string | null;
             /** @description The other endpoint, world mm; the lexicographically LARGER. Equals end_a for a closed edge (a full circle's coincident seam). */
             end_b: components["schemas"]["Vec3"];
             /**

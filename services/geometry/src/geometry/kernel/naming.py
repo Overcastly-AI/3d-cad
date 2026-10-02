@@ -53,6 +53,7 @@ exactly what a cold one does (``tests/test_naming.py``).
 
 import hashlib
 import json
+import math
 import uuid
 from collections import Counter
 from collections.abc import Iterable, Sequence
@@ -618,40 +619,73 @@ def _face_neighbours(body: BodyShape, count: int) -> list[list[int]]:
     return [sorted(s) for s in around]
 
 
+EndNames = list[tuple[tuple[float, float, float], str]]
+
+
+class EdgeEnds:
+    """For the edges of one body, the name of the ONE face each end of an
+    edge ends on: the face at that vertex other than the two the edge bounds
+    (a base flange's top edge ends on the side face across the corner). An
+    end with several such faces, or one unnamed, has none: a fold's caps and
+    a partial flange's offset end are anchored on these (step 3), and an
+    unpinned end must stay unanchored rather than guessed. Primary names
+    only. The maps are built once, so the overlay can ask for every edge."""
+
+    def __init__(self, body: BodyShape, face_names: Sequence[str | None]) -> None:
+        faces = explore_faces(body)
+        self._names = list(face_names) if len(faces) == len(face_names) else None
+        self._index = TopTools_IndexedMapOfShape()
+        for face in faces:
+            self._index.Add(face)
+        self._by_vertex = TopTools_IndexedDataMapOfShapeListOfShape()
+        TopExp.MapShapesAndAncestors_s(
+            body.wrapped, TopAbs_VERTEX, TopAbs_FACE, self._by_vertex
+        )
+        self._by_edge = TopTools_IndexedDataMapOfShapeListOfShape()
+        TopExp.MapShapesAndAncestors_s(
+            body.wrapped, TopAbs_EDGE, TopAbs_FACE, self._by_edge
+        )
+
+    def of(self, edge: Edge) -> EndNames:
+        """Each named end of *edge*: its position and that face's name."""
+        names = self._names
+        if names is None or not self._by_edge.Contains(edge.wrapped):
+            return []
+        own = {
+            self._index.FindIndex(f) for f in self._by_edge.FindFromKey(edge.wrapped)
+        }
+        out: EndNames = []
+        for vertex in edge.vertices():
+            if not self._by_vertex.Contains(vertex.wrapped):
+                continue
+            others = {
+                self._index.FindIndex(f)
+                for f in self._by_vertex.FindFromKey(vertex.wrapped)
+            }
+            others -= own | {0}
+            if len(others) != 1:
+                continue
+            name = names[others.pop() - 1]
+            if name is not None:
+                out.append(((vertex.X, vertex.Y, vertex.Z), str(name)))
+        return out
+
+    def at(self, edge: Edge, point: tuple[float, float, float]) -> str | None:
+        """The name of the face *edge* ends on at its end *point*, or ``None``."""
+        hits = [n for at, n in self.of(edge) if math.dist(at, point) <= _END_TOL_MM]
+        return hits[0] if len(hits) == 1 else None
+
+
+#: An edge's end and a vertex of it are the same point: the subshape linear
+#: class (the signature's endpoint tolerance).
+_END_TOL_MM = 1e-6
+
+
 def edge_end_names(
     body: BodyShape, face_names: Sequence[str | None], edge: Edge
-) -> list[tuple[tuple[float, float, float], str]]:
-    """For each end of *edge*, its position and the name of the ONE face of
-    *body* the edge ends on there: the face at that vertex other than the two
-    the edge bounds (a base flange's top edge ends on the side face across
-    the corner). An end with several such faces, or one unnamed, is left out:
-    a fold's caps are named after these (step 3), and an unpinned end must
-    leave its cap unnamed rather than guessed. Primary names only."""
-    faces = explore_faces(body)
-    if len(faces) != len(face_names):
-        return []
-    index = TopTools_IndexedMapOfShape()
-    for face in faces:
-        index.Add(face)
-    by_vertex = TopTools_IndexedDataMapOfShapeListOfShape()
-    TopExp.MapShapesAndAncestors_s(body.wrapped, TopAbs_VERTEX, TopAbs_FACE, by_vertex)
-    by_edge = TopTools_IndexedDataMapOfShapeListOfShape()
-    TopExp.MapShapesAndAncestors_s(body.wrapped, TopAbs_EDGE, TopAbs_FACE, by_edge)
-    if not by_edge.Contains(edge.wrapped):
-        return []
-    own = {index.FindIndex(f) for f in by_edge.FindFromKey(edge.wrapped)}
-    out: list[tuple[tuple[float, float, float], str]] = []
-    for vertex in edge.vertices():
-        if not by_vertex.Contains(vertex.wrapped):
-            continue
-        others = {index.FindIndex(f) for f in by_vertex.FindFromKey(vertex.wrapped)}
-        others -= own | {0}
-        if len(others) != 1:
-            continue
-        name = face_names[others.pop() - 1]
-        if name is not None:
-            out.append(((vertex.X, vertex.Y, vertex.Z), str(name)))
-    return out
+) -> EndNames:
+    """:meth:`EdgeEnds.of` for one edge."""
+    return EdgeEnds(body, face_names).of(edge)
 
 
 def edge_names(

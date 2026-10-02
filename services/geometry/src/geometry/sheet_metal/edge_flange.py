@@ -200,6 +200,7 @@ def build_edge_flange(
     offset_mm: float = 0.0,
     history: OpHistory | None = None,
     end_names: Sequence[tuple[tuple[float, float, float], str]] = (),
+    offset_from: tuple[float, float, float] | None = None,
 ) -> EdgeFlangeResult:
     """Fold a flange off *edge* of the sheet *body* and fuse it across a bend.
 
@@ -213,7 +214,9 @@ def build_edge_flange(
     WIDTH EXTENTS (design §4.5): ``width_mm``/``offset_mm`` restrict the flange to
     the span ``[offset, offset + width]`` of the edge, measured from its CANONICAL
     start (the lexicographically smaller endpoint — the stored ``EdgeSignature``'s
-    ``end_a``, so the offset's meaning never depends on kernel edge orientation).
+    ``end_a``, so the offset's meaning never depends on kernel edge orientation),
+    or from the end at *offset_from* when given (the end the feature layer
+    anchored by name on a re-found edge).
     ``width_mm = None`` spans to the edge's end. Both absent (``None``/``0``) is
     the verbatim legacy full-width build — byte-identical geometry. Each span end
     INTERIOR to the edge gets an automatic rectangular bend-end relief notch cut
@@ -272,10 +275,15 @@ def build_edge_flange(
                 f"{offset_mm:g} mm + width {span_width:g} mm exceeds the edge "
                 f"length {edge_len:g} mm (design §4.5.1)."
             )
-        # Canonical start = lexicographically smaller endpoint (EdgeSignature's
-        # end_a convention); convert to native coordinates if the edge runs the
-        # other way.
-        if (p0.X, p0.Y, p0.Z) <= (p1.X, p1.Y, p1.Z):
+        # The span's start end: *offset_from* when the caller anchored it
+        # (a re-found edge, DESIGN-INTENT-REFS), else the canonical start, the
+        # lexicographically smaller endpoint (EdgeSignature's end_a). Convert to
+        # native coordinates if the edge runs the other way.
+        if offset_from is not None:
+            from_p0 = math.dist(offset_from, (p0.X, p0.Y, p0.Z)) <= _END_TOL_MM
+        else:
+            from_p0 = (p0.X, p0.Y, p0.Z) <= (p1.X, p1.Y, p1.Z)
+        if from_p0:
             span0, span1 = offset_mm, offset_mm + span_width
         else:
             span0, span1 = edge_len - (offset_mm + span_width), edge_len - offset_mm
