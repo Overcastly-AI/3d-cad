@@ -44,22 +44,42 @@ locations never changed. Cosmetic, and a later cut matched a cut on a fresh
 build; but the input is the caller's and the rebuild cache's body, so the draft
 runs on a working copy (:mod:`geometry.kernel.working_faces`), as the fillet does.
 
+CRASH ISOLATION (DRAFT-SEGFAULT, 2026-10-02): OCCT can also SEGFAULT in
+``BRepOffsetAPI_DraftAngle::Build``: a 30 deg draft of a hub's cylinder or cone
+face beside a lofted blade, with the hub's seam at 180 deg (at 0 deg it raises).
+So a draft outside the analytic cases runs in a forked child of the blend server
+(:func:`draft_needs_isolation`, the fillet's rule applied to the edges of the
+picked faces; :mod:`geometry.kernel.fillet_isolation`), and a crash is a typed
+:class:`DraftError`. No analytic draft crashed in a sweep of plane, cylinder and
+cone faces on hubs with box blades, bosses, bores and sphere caps (seams 0-180
+deg, angles 3-60 deg), and isolating those too would add ~30 ms to every draft.
+
 Determinism (RESEARCH §9): the OCCT draft is a pure function of
 ``(body, faces, neutral_plane, angle)``.
 """
 
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
 # pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false
-# pyright: reportAttributeAccessIssue=false
+# pyright: reportAttributeAccessIssue=false, reportUnknownParameterType=false
 
+from collections.abc import Sequence
 from math import radians
 
 from build123d import Compound, DraftAngleError, Face, GeomType, Plane, Solid
+from OCP.BRep import BRep_Tool
 from OCP.BRepOffsetAPI import BRepOffsetAPI_DraftAngle
+from OCP.gp import gp_Dir, gp_Pln
 from OCP.StdFail import StdFail_NotDone
 from OCP.TopoDS import TopoDS
 
 from geometry.kernel.fillet_guard import TOLERANCE_FLOOR_MM, max_tolerance
+from geometry.kernel.fillet_isolation import (
+    BlendCrashed,
+    BlendFailed,
+    BlendTimedOut,
+    needs_isolation,
+    run_isolated_draft,
+)
 from geometry.kernel.healing import clean_shape, new_geometry_is_valid
 from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
 from geometry.kernel.naming import OpHistory
@@ -76,6 +96,11 @@ class DraftError(RuntimeError):
     face OCCT cannot draft), or the result was not exactly one solid. The feature
     layer maps this onto ``draft_failed`` — a legible "the draft could not be
     applied", never a silently wrong solid."""
+
+
+class DraftTimeoutError(DraftError):
+    """The draft ran past its CPU or wall-clock bound in the blend server
+    (:mod:`geometry.kernel.fillet_isolation`) and was killed."""
 
 
 def draft_body(
@@ -120,28 +145,29 @@ def draft_body(
     # the caller's and the rebuild cache's, is never touched.
     ceiling = max(max_tolerance(body), TOLERANCE_FLOOR_MM)
     work, work_faces = working_copy_faces(body, faces)
+    direction, plane = neutral_plane.z_dir.to_dir(), neutral_plane.wrapped
     try:
-        if isinstance(work, Compound):
-            solids = work.solids()
-            groups = group_faces_by_lump(solids, work_faces)
-            result: BodyShape = assemble_lumps(
-                [
-                    _draft_one_lump(
-                        solid, lump_faces, neutral_plane, angle_deg, history, ceiling
-                    )
-                    if (lump_faces := groups.get(index))
-                    else solid
-                    for index, solid in enumerate(solids)
-                ]
+        _check_kinds(work_faces)
+        if draft_needs_isolation(work, work_faces):
+            work, work_faces, drafted = run_isolated_draft(
+                work, work_faces, direction, plane, angle_deg, history
             )
         else:
-            result = _draft_one_lump(
-                work, work_faces, neutral_plane, angle_deg, history, ceiling
+            drafted = draft_lumps(
+                work, work_faces, direction, plane, angle_deg, history
             )
-    except DraftError:
+        lumps = work.solids() if isinstance(work, Compound) else [work]
+        finished = [
+            lump if solids is None else _finish(lump, solids, ceiling)
+            for lump, solids in zip(lumps, drafted, strict=True)
+        ]
+    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         if history is not None:
             history.generated.clear()
-        raise
+        raise _draft_error(exc, angle_deg) from exc
+    result: BodyShape = (
+        assemble_lumps(finished) if isinstance(work, Compound) else finished[0]
+    )
     if history is not None:
         # Report against the CALLER's faces (the names were taken on those),
         # and say which copy the result was built on (names re-anchor on it).
@@ -154,53 +180,111 @@ def draft_body(
     return result
 
 
-def _draft_one_lump(
-    body: Solid,
-    faces: list[Face],
-    neutral_plane: Plane,
+def draft_needs_isolation(body: BodyShape, faces: Sequence[Face]) -> bool:
+    """Whether drafting *faces* of *body* leaves OCCT's analytic cases, so it
+    runs in the blend server (:mod:`geometry.kernel.fillet_isolation`): the
+    blend rule (:func:`~geometry.kernel.fillet_isolation.needs_isolation`)
+    applied to every edge of every picked face. A draft rebuilds each picked
+    face and re-intersects it with every face beside it, so it is analytic
+    exactly when those edges are lines, circles or ellipses between planes,
+    cylinders, cones and spheres. A degenerate edge (a cone's apex) has no
+    curve and is skipped. DRAFT-SEGFAULT (a 30 deg draft of a hub face beside
+    a lofted blade) is outside that class: its root edges are B-splines."""
+    edges = [
+        edge
+        for face in faces
+        for edge in face.edges()
+        if not BRep_Tool.Degenerated_s(TopoDS.Edge_s(edge.wrapped))
+    ]
+    return needs_isolation(body, edges)
+
+
+def draft_lumps(
+    body: BodyShape,
+    faces: Sequence[Face],
+    direction: gp_Dir,
+    plane: gp_Pln,
     angle_deg: float,
     history: OpHistory | None,
-    ceiling_mm: float,
-) -> Solid:
-    """Taper the picked *faces* of ONE lump (of the working copy).
+) -> list[list[Solid] | None]:
+    """The raw OCCT draft, per lump of *body*: the solids of each lump that owns
+    a picked face, ``None`` for a lump that owns none. Raises what OCCT raises.
 
-    Shared by the single-solid fast path and each face-owning lump of the
-    multi-lump path (§MB-4). Returns a new single cleaned solid; a lump with no
-    picked face is passed through by :func:`draft_body` and never reaches here.
-    The drafted solid must be valid (``BRepCheck`` of the faces the draft made,
-    :func:`~geometry.kernel.healing.new_geometry_is_valid`) and no looser than
-    *ceiling_mm*, or it is a :class:`DraftError`.
+    Run in-process, or in a child of the blend server for a draft outside the
+    analytic cases (``_fillet_worker``): the same calls either way. The checks
+    and the clean are the caller's (:func:`_finish`), in this process.
     """
-    try:
-        # draft() carries Shape[Unknown] type params upstream (the same gap
-        # tessellate.py documents for export_gltf) — scoped ignore only.
-        result = (
-            body.draft(faces, neutral_plane, angle_deg)
-            if history is None
-            else _draft_with_history(body, faces, neutral_plane, angle_deg, history)
-        )
-        solids = result.solids()
-    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
-        raise DraftError(
-            f"Draft failed in the kernel ({type(exc).__name__}); the angle "
-            f"({angle_deg} deg) may be too large for these faces, or a face may "
-            "be undraftable."
-        ) from exc
+    if isinstance(body, Compound):
+        solids = body.solids()
+        groups = group_faces_by_lump(solids, list(faces))
+        return [
+            _draft_solid(solid, lump_faces, direction, plane, angle_deg, history)
+            if (lump_faces := groups.get(index))
+            else None
+            for index, solid in enumerate(solids)
+        ]
+    return [_draft_solid(body, faces, direction, plane, angle_deg, history)]
 
+
+def _check_kinds(faces: Sequence[Face]) -> None:
+    for face in faces:
+        if face.geom_type not in {GeomType.PLANE, GeomType.CYLINDER, GeomType.CONE}:
+            raise ValueError(
+                f"Face {face} has unsupported geometry type {face.geom_type.name}."
+            )
+
+
+def _draft_solid(
+    body: Solid,
+    faces: Sequence[Face],
+    direction: gp_Dir,
+    plane: gp_Pln,
+    angle_deg: float,
+    history: OpHistory | None,
+) -> list[Solid]:
+    """``Solid.draft`` (build123d 0.11), call for call, keeping the builder so
+    its ``Modified`` history can be read. Raises what it raises."""
+    _check_kinds(faces)
+    builder = BRepOffsetAPI_DraftAngle(body.wrapped)
+    for face in faces:
+        builder.Add(face.wrapped, direction, radians(angle_deg), plane, Flag=True)
+        if not builder.AddDone():
+            raise DraftAngleError("Draft could not be added to a face.")
+    try:
+        builder.Build()
+        result = Solid(TopoDS.Solid_s(builder.Shape()))
+    except StdFail_NotDone as err:
+        raise DraftAngleError("Draft build failed on the given solid.") from err
+    if history is not None:
+        # ``ModifiedShape``, not ``Modified``: DraftAngle answers the
+        # per-subshape query and returns an EMPTY ``Modified`` list (measured,
+        # OCCT 7.9).
+        for face in faces:
+            produced = builder.ModifiedShape(face.wrapped)
+            if not produced.IsNull():
+                history.generated.append((face, Face(TopoDS.Face_s(produced))))
+    return list(result.solids())
+
+
+def _finish(lump: Solid, solids: Sequence[Solid], ceiling_mm: float) -> Solid:
+    """The drafted *lump* (of the working copy) as a cleaned solid, after the
+    checks: exactly one solid (design §7.6), valid (``BRepCheck`` of the faces
+    the draft made, :func:`~geometry.kernel.healing.new_geometry_is_valid`) and
+    no looser than *ceiling_mm*; else :class:`_Refused`."""
     if len(solids) != 1:
-        raise DraftError(
+        raise _Refused(
             f"Draft produced {len(solids)} solids; parts are a single body "
             "in v1 (design §7.6)."
         )
     loosest = max_tolerance(solids[0])
     if loosest > ceiling_mm:
-        raise DraftError(
+        raise _Refused(
             f"The draft built a body Loft refuses: a vertex or edge tolerance of "
             f"{loosest:.3g} mm, above the {ceiling_mm:.3g} mm a draft may leave. "
             "The body is left as it was."
         )
-    if not new_geometry_is_valid(solids[0], [body]):
-        raise DraftError(
+    if not new_geometry_is_valid(solids[0], [lump]):
+        raise _Refused(
             "The draft built a body Loft refuses: OCCT reports it as an invalid "
             "solid. The body is left as it was."
         )
@@ -209,40 +293,27 @@ def _draft_one_lump(
     return clean_shape(solids[0])
 
 
-def _draft_with_history(
-    body: Solid,
-    faces: list[Face],
-    neutral_plane: Plane,
-    angle_deg: float,
-    history: OpHistory,
-) -> Solid:
-    """``Solid.draft`` (build123d 0.11), call for call, keeping the builder so
-    its ``Modified`` history can be read. Raises what it raises."""
-    for face in faces:
-        if face.geom_type not in {GeomType.PLANE, GeomType.CYLINDER, GeomType.CONE}:
-            raise ValueError(
-                f"Face {face} has unsupported geometry type {face.geom_type.name}."
-            )
-    builder = BRepOffsetAPI_DraftAngle(body.wrapped)
-    for face in faces:
-        builder.Add(
-            face.wrapped,
-            neutral_plane.z_dir.to_dir(),
-            radians(angle_deg),
-            neutral_plane.wrapped,
-            Flag=True,
+class _Refused(RuntimeError):
+    """The draft built, but not a body Loft accepts (:func:`_finish`)."""
+
+
+def _draft_error(exc: Exception, angle_deg: float) -> DraftError:
+    """The typed, sanitized error for a failed draft."""
+    if isinstance(exc, _Refused):
+        return DraftError(str(exc))
+    if isinstance(exc, BlendTimedOut):
+        return DraftTimeoutError(
+            f"Draft stopped: the kernel ran past its time limit on this angle "
+            f"({angle_deg} deg) and face set."
         )
-        if not builder.AddDone():
-            raise DraftAngleError("Draft could not be added to a face.")
-    try:
-        builder.Build()
-        result = Solid(TopoDS.Solid_s(builder.Shape()))
-    except StdFail_NotDone as err:
-        raise DraftAngleError("Draft build failed on the given solid.") from err
-    # ``ModifiedShape``, not ``Modified``: DraftAngle answers the per-subshape
-    # query and returns an EMPTY ``Modified`` list (measured, OCCT 7.9).
-    for face in faces:
-        produced = builder.ModifiedShape(face.wrapped)
-        if not produced.IsNull():
-            history.generated.append((face, Face(TopoDS.Face_s(produced))))
-    return result
+    if isinstance(exc, BlendCrashed):
+        return DraftError(
+            "Draft failed: the kernel crashed on this face configuration (it ran "
+            "isolated, so nothing else was affected). Try another angle "
+            f"({angle_deg} deg) or face set."
+        )
+    cause = exc.args[0] if isinstance(exc, BlendFailed) else type(exc).__name__
+    return DraftError(
+        f"Draft failed in the kernel ({cause}); the angle ({angle_deg} deg) may "
+        "be too large for these faces, or a face may be undraftable."
+    )

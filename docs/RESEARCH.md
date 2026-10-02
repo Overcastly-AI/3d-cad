@@ -560,3 +560,16 @@ failed severing subtract ADD pcurves and locations to their input's edges
 the rebuild ladder forks for exactly this and a copy per boolean would
 re-anchor every boolean's names. Hole, extrude add/cut, `clean`, edge flange,
 fillet and chamfer left their inputs byte-identical.
+
+**Draft isolation (DRAFT-SEGFAULT).** `BRepOffsetAPI_DraftAngle::Build`
+segfaults on a 30 deg draft of a hub's cylinder or cone face beside a lofted
+blade with the hub seam at 180 deg (at 0 deg it raises). A draft now takes the
+blend's route: if any edge of a picked face is not a line, circle or ellipse,
+or any face beside one is not a plane, cylinder, cone or sphere, it runs in a
+child of the blend server, and a crash is a typed `DraftError`. The crash case
+qualifies through the blade's B-spline root edges. A sweep of analytic drafts
+(plane, cylinder and cone faces on hubs with box blades, bosses, bores and
+sphere caps; seams 0-180 deg; angles 3-60 deg; 1758 runs) found no crash, so they stay
+in-process: isolating every draft would cost ~30 ms each (26 ms in-process vs
+55-59 ms isolated on the hub, warm server, load 5). The isolated result has
+the in-process volume, topology, vertices and face areas exactly.

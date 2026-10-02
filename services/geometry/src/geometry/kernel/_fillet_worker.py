@@ -1,4 +1,4 @@
-"""The warm blend server: forks a fresh child per fillet/chamfer (see
+"""The warm blend server: forks a fresh child per fillet/chamfer/draft (see
 :mod:`geometry.kernel.fillet_isolation`, which starts and talks to it).
 
 Run as ``python -m geometry.kernel._fillet_worker <control fd>``. It imports the
@@ -32,12 +32,14 @@ import sys
 import time
 from typing import Any
 
-from build123d import Compound, Edge, Solid
+from build123d import Compound, Edge, Face, Solid
 from OCP.TopoDS import TopoDS
 
 from geometry.kernel.chamfer import _chamfer  # pyright: ignore[reportPrivateUsage]
+from geometry.kernel.draft import draft_lumps
 from geometry.kernel.fillet import _fillet  # pyright: ignore[reportPrivateUsage]
 from geometry.kernel.fillet_isolation import (
+    draft_plane,
     encode_frame,
     make_compound,
     read_shapes,
@@ -67,8 +69,41 @@ _OPS: dict[str, Any] = {
 _PR_SET_PDEATHSIG = 1
 
 
+def _draft(header: dict[str, Any], data: bytes) -> bytes:
+    """The reply frame for a draft request (runs in the forked child): the
+    body, its picked faces, one compound per lump (its draft's solids, empty
+    for a lump not drafted) and the tilted faces."""
+    try:
+        parts = read_shapes(data)
+        body = (Solid if header["kind"] == "Solid" else Compound)(parts[0])
+        faces = [Face(TopoDS.Face_s(shape)) for shape in parts[1:]]
+        history = OpHistory() if header["history"] else None
+        direction, plane = draft_plane(header)
+        drafted = draft_lumps(
+            body, faces, direction, plane, float(header["angle"]), history
+        )
+    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
+        return encode_frame({"status": "failed", "error": type(exc).__name__})
+    index = {id(face): i for i, face in enumerate(faces)}
+    generated = [] if history is None else history.generated
+    shapes = [
+        body.wrapped,
+        *(face.wrapped for face in faces),
+        *(make_compound([s.wrapped for s in solids or []]) for solids in drafted),
+        make_compound([face.wrapped for _source, face in generated]),
+    ]
+    reply = {
+        "status": "ok",
+        "drafted": [solids is not None for solids in drafted],
+        "generated": [index[id(source)] for source, _face in generated],
+    }
+    return encode_frame(reply, write_shapes(shapes))
+
+
 def _blend(header: dict[str, Any], data: bytes) -> bytes:
     """The reply frame for one request (runs in the forked child)."""
+    if header["op"] == "draft":
+        return _draft(header, data)
     try:
         parts = read_shapes(data)
         body = (Solid if header["kind"] == "Solid" else Compound)(parts[0])

@@ -44,6 +44,9 @@ owns socket objects, never bare descriptor numbers). In a container, run the
 service under an init (compose ``init: true``) so nothing orphaned by a killed
 server outlives it as a zombie: uvicorn as PID 1 reaps no one.
 
+A draft outside the analytic cases runs here too (:func:`run_isolated_draft`,
+DRAFT-SEGFAULT): the same server, its own request shape.
+
 Cost (measured 2026-10-01, 4-core sandbox): see ``docs/RESEARCH.md``
 "Blend isolation".
 """
@@ -81,6 +84,7 @@ from OCP.GeomAbs import (
     GeomAbs_Plane,
     GeomAbs_Sphere,
 )
+from OCP.gp import gp_Ax3, gp_Dir, gp_Pln, gp_Pnt
 from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
 from OCP.TopExp import TopExp
 from OCP.TopoDS import TopoDS, TopoDS_Compound, TopoDS_Iterator, TopoDS_Shape
@@ -188,6 +192,73 @@ def run_isolated(
         for index, face in zip(reply["generated"], faces, strict=True):
             history.generated.append((moved[index], Face(TopoDS.Face_s(face))))
     return copy, moved, solids
+
+
+def run_isolated_draft(
+    body: BodyShape,
+    faces: Sequence[Face],
+    direction: gp_Dir,
+    plane: gp_Pln,
+    angle_deg: float,
+    history: OpHistory | None,
+    *,
+    cpu_seconds: float = BLEND_CPU_SECONDS,
+    wall_seconds: float = BLEND_WALL_SECONDS,
+) -> tuple[BodyShape, list[Face], list[list[Solid] | None]]:
+    """Draft *faces* of *body* (``geometry.kernel.draft.draft_lumps``) in a
+    forked child of the warm server: the draft's own crash class
+    (DRAFT-SEGFAULT) is the blend's, and so is the cure.
+
+    Returns ``(body', faces', drafted)``: *body'* is a copy of *body* the result
+    was built on, *faces'* the faces on it, in order, and *drafted* the solids
+    per lump of *body'* (``None`` for a lump with no picked face). The pull
+    *direction* and the neutral *plane* cross as their coordinates. *history*,
+    when given, receives ``(face', tilted face)`` pairs.
+
+    Raises what :func:`run_isolated` raises.
+    """
+    axes = plane.Position()
+    header = {
+        "op": "draft",
+        "angle": angle_deg,
+        "direction": _xyz(direction),
+        "plane": [
+            _xyz(axes.Location()),
+            _xyz(axes.Direction()),
+            _xyz(axes.XDirection()),
+        ],
+        "history": history is not None,
+        "kind": type(body).__name__,
+        "cpu": cpu_seconds,
+    }
+    blob = write_shapes([body.wrapped, *(face.wrapped for face in faces)])
+    reply, data = _call(header, blob, wall_seconds)
+    if reply.get("status") != "ok":
+        raise BlendFailed(str(reply.get("error", "unknown")))
+    parts = read_shapes(data)
+    copy: BodyShape = (Solid if header["kind"] == "Solid" else Compound)(parts[0])
+    count = len(faces)
+    moved = [Face(TopoDS.Face_s(shape)) for shape in parts[1 : 1 + count]]
+    lumps = parts[1 + count : -1]
+    drafted: list[list[Solid] | None] = [
+        [Solid(shape) for shape in _children(lump)] if was_drafted else None
+        for lump, was_drafted in zip(lumps, reply["drafted"], strict=True)
+    ]
+    if history is not None:
+        for index, face in zip(reply["generated"], _children(parts[-1]), strict=True):
+            history.generated.append((moved[index], Face(TopoDS.Face_s(face))))
+    return copy, moved, drafted
+
+
+def draft_plane(header: dict[str, Any]) -> tuple[gp_Dir, gp_Pln]:
+    """The pull direction and neutral plane a draft request carries."""
+    origin, normal, x_dir = header["plane"]
+    plane = gp_Pln(gp_Ax3(gp_Pnt(*origin), gp_Dir(*normal), gp_Dir(*x_dir)))
+    return gp_Dir(*header["direction"]), plane
+
+
+def _xyz(value: Any) -> list[float]:
+    return [value.X(), value.Y(), value.Z()]
 
 
 # --- the wire: frames of (JSON header, binary BRep) ---------------------------------
