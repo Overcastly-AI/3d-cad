@@ -3,9 +3,10 @@
 OCCT 7.9.3 SEGFAULTS in ``BRepOffsetAPI_DraftAngle::Build`` on a 30 deg draft
 of a hub's cylinder or cone face beside a lofted blade, with the hub's seam at
 180 deg (at 0 deg it raises cleanly). In-process that kills the geometry
-worker. A draft outside the analytic cases therefore runs in the blend server
-(:mod:`geometry.kernel.fillet_isolation`), like a fillet: the crash costs the
-draft, and the result of a draft that builds is the in-process result.
+worker, and so does a -20 deg draft of an all-analytic box wall that a twisted
+lofted wedge touches at one vertex. So EVERY draft runs in the blend server
+(:mod:`geometry.kernel.fillet_isolation`): the crash costs the draft, and the
+result of a draft that builds is the in-process result.
 """
 
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
@@ -22,7 +23,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from build123d import Axis, Box, Cylinder, Face, GeomType, Plane, Pos, Solid
+from build123d import Face, GeomType, Plane, Polyline, Solid, loft, make_face
 from geometry.kernel import draft as draft_module
 from geometry.kernel import fillet_isolation
 from geometry.kernel.draft import (
@@ -31,6 +32,7 @@ from geometry.kernel.draft import (
     draft_body,
     draft_needs_isolation,
 )
+from geometry.kernel.healing import body_is_valid
 from geometry.kernel.naming import OpHistory
 
 
@@ -92,19 +94,55 @@ def test_the_crashing_draft_is_a_typed_error_and_the_process_lives(
     assert drafted.volume == pytest.approx(31313.710, abs=1e-3)
 
 
-def test_analytic_drafts_stay_in_process() -> None:
-    """Planes, cylinders and cones meeting along lines and circles: the draft
-    golden's box sides, a hub face beside a box blade, a bore."""
+def _wedge_box() -> tuple[Solid, Face]:
+    """A 40x30x20 box with a twisted ruled-loft wedge on top, one base corner
+    on the box's x=0 top edge, and that x=0 wall: its edges are all lines and
+    its neighbours planes, and the wedge's B-spline sides touch it only at
+    that vertex (the review's case for 2efdeb6)."""
+    base = [(0, 15), (15, 9), (15, 21)]
+    top = [(2, 16), (15, 11), (13, 23)]
+    wedge = loft(
+        [
+            make_face(Plane.XY.offset(20) * Polyline(*base, close=True)),
+            make_face(Plane.XY.offset(30) * Polyline(*top, close=True)),
+        ],
+        ruled=True,
+    )
+    (body,) = Solid.make_box(40, 30, 20).fuse(wedge).clean().solids()
+    (wall,) = [
+        f
+        for f in body.faces()
+        if f.geom_type == GeomType.PLANE and abs(f.center().X) < 1e-9
+    ]
+    return body, wall
+
+
+def test_every_draft_is_isolated() -> None:
+    """No rule on the input is trusted (draft.py): the draft golden's box
+    sides run in the server too."""
     box = Solid.make_box(40, 40, 20)
     sides = [f for f in box.faces() if abs(f.normal_at().Z) < 0.5]
-    assert not draft_needs_isolation(box, sides)
-    hub = (Pos(0, 0, 10) * Cylinder(22, 20)).rotate(Axis.Z, 180)
-    (bladed,) = hub.fuse(Pos(35, 0, 10) * Box(30, 2, 16)).solids()
-    (round_face,) = [f for f in bladed.faces() if f.geom_type == GeomType.CYLINDER]
-    assert not draft_needs_isolation(bladed, [round_face])
-    # ... and a hub face beside the lofted blade does not.
-    lofted = _cylinder_hub(180.0)
-    assert draft_needs_isolation(lofted, [_round_face(lofted)])
+    assert draft_needs_isolation(box, sides)
+
+
+def test_an_analytic_wall_that_crashes_is_a_typed_error() -> None:
+    """The wedge-box wall drafted -20 deg segfaulted in-process (exit 139) on
+    the analytic route. Isolated, it is a typed outcome and both this
+    process and the server carry on."""
+    body, wall = _wedge_box()
+    assert all(e.geom_type == GeomType.LINE for e in wall.edges())
+    try:
+        drafted = draft_body(body, [wall], Plane.XY, -20.0)
+    except DraftError:
+        pass
+    else:
+        assert body_is_valid(drafted)
+    assert fillet_isolation.server_pid() is not None
+    # The next draft is served as usual (the wedge wall crashes even at -3 deg;
+    # the plain box's wall does not).
+    box = Solid.make_box(40, 30, 20)
+    (side,) = [f for f in box.faces() if abs(f.center().X) < 1e-9]
+    assert draft_body(box, [side], Plane.XY, -3.0).volume > box.volume
 
 
 def _snapshot(body: object) -> tuple[object, ...]:

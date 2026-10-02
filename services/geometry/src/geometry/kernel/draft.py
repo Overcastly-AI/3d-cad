@@ -46,13 +46,15 @@ runs on a working copy (:mod:`geometry.kernel.working_faces`), as the fillet doe
 
 CRASH ISOLATION (DRAFT-SEGFAULT, 2026-10-02): OCCT can also SEGFAULT in
 ``BRepOffsetAPI_DraftAngle::Build``: a 30 deg draft of a hub's cylinder or cone
-face beside a lofted blade, with the hub's seam at 180 deg (at 0 deg it raises).
-So a draft outside the analytic cases runs in a forked child of the blend server
-(:func:`draft_needs_isolation`, the fillet's rule applied to the edges of the
-picked faces; :mod:`geometry.kernel.fillet_isolation`), and a crash is a typed
-:class:`DraftError`. No analytic draft crashed in a sweep of plane, cylinder and
-cone faces on hubs with box blades, bosses, bores and sphere caps (seams 0-180
-deg, angles 3-60 deg), and isolating those too would add ~30 ms to every draft.
+face beside a lofted blade, with the hub's seam at 180 deg (at 0 deg it raises);
+and a -20 deg draft of a box wall whose edges are all lines between planes,
+where a twisted lofted wedge touches the wall only at a vertex. No cheap test of
+the input separates those from the drafts that build (the fillet's analytic
+rule passed the second), so EVERY draft runs in a forked child of the blend
+server (:mod:`geometry.kernel.fillet_isolation`) and a crash is a typed
+:class:`DraftError`. It costs ~30 ms a draft once the server is warm (26 ms
+in-process against 55-59 ms isolated on the blade hub), and the result is the
+in-process result: the same volume, topology, vertices and face areas.
 
 Determinism (RESEARCH §9): the OCCT draft is a pure function of
 ``(body, faces, neutral_plane, angle)``.
@@ -66,7 +68,6 @@ from collections.abc import Sequence
 from math import radians
 
 from build123d import Compound, DraftAngleError, Face, GeomType, Plane, Solid
-from OCP.BRep import BRep_Tool
 from OCP.BRepOffsetAPI import BRepOffsetAPI_DraftAngle
 from OCP.gp import gp_Dir, gp_Pln
 from OCP.StdFail import StdFail_NotDone
@@ -77,7 +78,6 @@ from geometry.kernel.fillet_isolation import (
     BlendCrashed,
     BlendFailed,
     BlendTimedOut,
-    needs_isolation,
     run_isolated_draft,
 )
 from geometry.kernel.healing import clean_shape
@@ -182,22 +182,13 @@ def draft_body(
 
 
 def draft_needs_isolation(body: BodyShape, faces: Sequence[Face]) -> bool:
-    """Whether drafting *faces* of *body* leaves OCCT's analytic cases, so it
-    runs in the blend server (:mod:`geometry.kernel.fillet_isolation`): the
-    blend rule (:func:`~geometry.kernel.fillet_isolation.needs_isolation`)
-    applied to every edge of every picked face. A draft rebuilds each picked
-    face and re-intersects it with every face beside it, so it is analytic
-    exactly when those edges are lines, circles or ellipses between planes,
-    cylinders, cones and spheres. A degenerate edge (a cone's apex) has no
-    curve and is skipped. DRAFT-SEGFAULT (a 30 deg draft of a hub face beside
-    a lofted blade) is outside that class: its root edges are B-splines."""
-    edges = [
-        edge
-        for face in faces
-        for edge in face.edges()
-        if not BRep_Tool.Degenerated_s(TopoDS.Edge_s(edge.wrapped))
-    ]
-    return needs_isolation(body, edges)
+    """Whether drafting *faces* of *body* runs in the blend server: always
+    (module docstring). A drafted face is rebuilt and re-intersected with
+    everything that touches it, down to a shared vertex, and an all-analytic
+    face beside a free-form one only at a vertex still crashed, so no rule on
+    the input is trusted. The seam the tests use to compare both routes."""
+    del body, faces
+    return True
 
 
 def draft_lumps(

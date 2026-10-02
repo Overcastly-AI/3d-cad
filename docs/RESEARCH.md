@@ -564,13 +564,14 @@ fillet and chamfer left their inputs byte-identical.
 
 **Draft isolation (DRAFT-SEGFAULT).** `BRepOffsetAPI_DraftAngle::Build`
 segfaults on a 30 deg draft of a hub's cylinder or cone face beside a lofted
-blade with the hub seam at 180 deg (at 0 deg it raises). A draft now takes the
-blend's route: if any edge of a picked face is not a line, circle or ellipse,
-or any face beside one is not a plane, cylinder, cone or sphere, it runs in a
-child of the blend server, and a crash is a typed `DraftError`. The crash case
-qualifies through the blade's B-spline root edges. A sweep of analytic drafts
-(plane, cylinder and cone faces on hubs with box blades, bosses, bores and
-sphere caps; seams 0-180 deg; angles 3-60 deg; 1758 runs) found no crash, so they stay
-in-process: isolating every draft would cost ~30 ms each (26 ms in-process vs
-55-59 ms isolated on the hub, warm server, load 5). The isolated result has
-the in-process volume, topology, vertices and face areas exactly.
+blade with the hub seam at 180 deg (at 0 deg it raises). A first fix routed
+drafts by the blend's analytic rule (lines, circles and ellipses between
+quadrics stay in-process; 1758 such runs in a sweep never crashed), but review
+found a box wall with only line edges and plane neighbours that still crashed
+in-process at -3 and -20 deg: a twisted lofted wedge touches it at one vertex.
+No rule on the input is trusted now: EVERY draft runs in a child of the blend
+server, and a crash is a typed `DraftError`. That costs ~30 ms a draft with
+the server warm (26 ms in-process vs 55-59 ms isolated on the hub, load 5),
+and the isolated result has the in-process volume, topology, vertices and
+face areas exactly. The blend rule may have the same vertex-neighbour gap
+(BACKLOG BLEND-ROUTE-VERTEX-NEIGHBOUR).
