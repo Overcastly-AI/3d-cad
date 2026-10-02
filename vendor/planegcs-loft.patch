@@ -1,0 +1,151 @@
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -4,7 +4,9 @@
+ 
+ [project]
+ name = "planegcs"
+-version = "0.8.0"
++# Changed by Loft on 2026-10-02: local version for the patched build
++# (vendor/planegcs-loft.patch, SKETCH-SOLVE-HEAP-ORDER).
++version = "0.8.0+loft.1"
+ description = "Python bindings for FreeCAD's PlaneGCS 2D geometric constraint solver"
+ readme = "README.md"
+ license = {text = "LGPL-2.1-or-later"}
+--- a/src/planegcs/GCS.cpp
++++ b/src/planegcs/GCS.cpp
+@@ -4512,18 +4512,31 @@
+     int xsizeB = subsysB->pSize();
+     int csizeA = subsysA->cSize();
+ 
+-    VEC_pD plistAB(xsizeA + xsizeB);
++    VEC_pD plistAB;
+     {
+         VEC_pD plistA, plistB;
+         subsysA->getParamList(plistA);
+         subsysB->getParamList(plistB);
+ 
+-        std::sort(plistA.begin(), plistA.end());
+-        std::sort(plistB.begin(), plistB.end());
+-
+-        VEC_pD::const_iterator it;
+-        it = std::set_union(plistA.begin(), plistA.end(), plistB.begin(), plistB.end(), plistAB.begin());
+-        plistAB.resize(it - plistAB.begin());
++        // Changed by Loft on 2026-10-02 (vendor/planegcs-loft.patch):
++        // upstream sorted both lists by ADDRESS and merged them with
++        // std::set_union, so the column order of this
++        // solve depended on the heap (see SubSystem::initialize). Order by
++        // the declaration index (pIndex) instead; within one 64-double chunk
++        // of the binding's storage that is the same order.
++        auto rank = [this](double* p) {
++            const auto it = pIndex.find(p);
++            return it == pIndex.end() ? std::numeric_limits<int>::max() : it->second;
++        };
++        plistAB.reserve(plistA.size() + plistB.size());
++        plistAB.insert(plistAB.end(), plistA.begin(), plistA.end());
++        plistAB.insert(plistAB.end(), plistB.begin(), plistB.end());
++        std::sort(plistAB.begin(), plistAB.end(), [&rank](double* a, double* b) {
++            const int ra = rank(a);
++            const int rb = rank(b);
++            return ra != rb ? ra < rb : std::less<double*>()(a, b);
++        });
++        plistAB.erase(std::unique(plistAB.begin(), plistAB.end()), plistAB.end());
+     }
+     int xsize = plistAB.size();
+ 
+--- a/src/planegcs/SubSystem.cpp
++++ b/src/planegcs/SubSystem.cpp
+@@ -57,10 +57,20 @@
+     csize = static_cast<int>(clist.size());
+ 
+     // tmpplist will contain the subset of parameters from params that are
+-    // relevant for the constraints listed in clist
++    // relevant for the constraints listed in clist, in the order of params.
++    //
++    // Changed by Loft on 2026-10-02 (vendor/planegcs-loft.patch): upstream
++    // built tmpplist with std::set_intersection over two std::set<double*>,
++    // i.e. in ADDRESS order.
++    // The binding stores parameters in a std::deque of 64-double chunks whose
++    // relative addresses depend on the heap, so past 64 parameters the same
++    // sketch was solved with a heap-dependent column order and gave different
++    // answers within one process. Keeping the caller's (declaration) order
++    // makes the order a function of the system alone. Within one chunk the
++    // address order IS the declaration order, so a solve that never spanned
++    // two chunks is unchanged bit for bit.
+     VEC_pD tmpplist;
+     {
+-        SET_pD s1(params.begin(), params.end());
+         SET_pD s2;
+         for (std::vector<Constraint*>::iterator constr = clist.begin(); constr != clist.end();
+              ++constr) {
+@@ -68,7 +78,12 @@
+             VEC_pD constr_params = (*constr)->params();
+             s2.insert(constr_params.begin(), constr_params.end());
+         }
+-        std::set_intersection(s1.begin(), s1.end(), s2.begin(), s2.end(), std::back_inserter(tmpplist));
++        SET_pD seen;
++        for (double* param : params) {
++            if (s2.count(param) != 0 && seen.insert(param).second) {
++                tmpplist.push_back(param);
++            }
++        }
+     }
+ 
+     plist.clear();
+@@ -112,6 +127,33 @@
+         pmap[itr->first] = &pvals[itr->second];
+     }
+ 
++    // Changed by Loft on 2026-10-02 (vendor/planegcs-loft.patch):
++    // redirectParams() copies every original parameter into its pvals
++    // slot, and after an equality reduction several
++    // originals share ONE slot, so the last copy wins. Upstream walked pmap,
++    // i.e. ADDRESS order, which made the solver's starting point depend on the
++    // heap. Walk the keys in declaration order instead (the order of params),
++    // which is the address order whenever they share one storage chunk.
++    pmapOrder.clear();
++    {
++        SET_pD seen;
++        for (double* param : params) {
++            if (pmap.count(param) != 0 && seen.insert(param).second) {
++                pmapOrder.push_back(param);
++            }
++        }
++        // Every key is a parameter of this component, so this never runs; if
++        // it ever did, the leftovers keep upstream's order rather than being
++        // dropped.
++        if (pmapOrder.size() != pmap.size()) {
++            for (MAP_pD_pD::const_iterator p = pmap.begin(); p != pmap.end(); ++p) {
++                if (seen.insert(p->first).second) {
++                    pmapOrder.push_back(p->first);
++                }
++            }
++        }
++    }
++
+     c2p.clear();
+     p2c.clear();
+     for (std::vector<Constraint*>::iterator constr = clist.begin(); constr != clist.end(); ++constr) {
+@@ -136,9 +178,10 @@
+ 
+ void SubSystem::redirectParams()
+ {
+-    // copying values to pvals
+-    for (MAP_pD_pD::const_iterator p = pmap.begin(); p != pmap.end(); ++p) {
+-        *(p->second) = *(p->first);
++    // copying values to pvals, in declaration order (changed by Loft on
++    // 2026-10-02, see initialize)
++    for (double* param : pmapOrder) {
++        *(pmap[param]) = *param;
+     }
+ 
+     // redirect constraints to point to pvals
+--- a/src/planegcs/SubSystem.h
++++ b/src/planegcs/SubSystem.h
+@@ -43,6 +43,7 @@
+     std::vector<Constraint*> clist;
+     VEC_pD plist;    // pointers to the original parameters
+     MAP_pD_pD pmap;  // redirection map from the original parameters to pvals
++    VEC_pD pmapOrder;  // pmap's keys in declaration order (changed by Loft on 2026-10-02)
+     VEC_D pvals;     // current variables vector (psize)
+                      //        JacobianMatrix jacobi;  // jacobi matrix of the residuals
+     std::map<Constraint*, VEC_pD> c2p;                // constraint to parameter adjacency list

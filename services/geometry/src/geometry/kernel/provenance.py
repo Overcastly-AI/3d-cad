@@ -791,6 +791,35 @@ class FaceProvenanceRecorder:
         twin._frozen = self._frozen
         return twin
 
+    def reanchor(self, original: BodyShape, copy: BodyShape) -> None:
+        """Re-anchor, in place, the seen faces of *original* on *copy*: the
+        working copy an op ran on instead of its input (fillet, chamfer, draft,
+        shell; :mod:`geometry.kernel.working_faces`).
+
+        The op's result shares its untouched faces with the copy, not with
+        *original*, so without this every such op would re-fingerprint the whole
+        body, the quadratic the memo removes. Same alignment and argument as
+        :meth:`fork` (the copy keeps the explorer order face for face, and a copy
+        of a face fingerprints to the same numbers); a copy that walks to a
+        different face count is not trusted and nothing is re-anchored.
+        """
+        if not self._memoize:
+            return
+        seen = _explore_faces(original)
+        copied = _explore_faces(copy)
+        if len(seen) != len(copied):
+            return
+        for face, twin in zip(seen, copied, strict=True):
+            index = self._lookup(face)
+            if index is None:
+                continue
+            bucket = self._memo[hash(face)]
+            bucket.remove(index)
+            if not bucket:
+                del self._memo[hash(face)]
+            self._faces[index] = twin
+            self._memo.setdefault(hash(twin), []).append(index)
+
     def _index(self, face: TopoDS_Shape) -> int:
         """The distinct-face index of *face*, adding it if it is new."""
         index = self._lookup(face) if self._memoize else None

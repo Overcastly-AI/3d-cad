@@ -1,0 +1,20 @@
+# The toolchain `uv sync` needs to build planegcs from vendor/planegcs
+# (SKETCH-SOLVE-HEAP-ORDER, docs/RESEARCH.md §2). The PyPI wheel orders parts
+# of a solve by memory address; Loft builds the patched source instead, so
+# every job that syncs the uv environment needs Eigen 3 and Boost headers. The
+# runner already has g++ and CMake. Once uv's cache holds the built wheel the
+# headers go unused, but a cold cache must not turn the job red.
+name: planegcs build prerequisites
+description: Eigen 3 and Boost headers for building the vendored planegcs.
+runs:
+  using: composite
+  steps:
+    - name: Install Eigen 3 + Boost headers
+      shell: bash
+      run: |
+        if [ -f /usr/include/eigen3/Eigen/QR ] && [ -f /usr/include/boost/graph/adjacency_list.hpp ]; then
+          echo "planegcs build prerequisites already present"
+        else
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libeigen3-dev libboost-dev
+        fi

@@ -145,6 +145,21 @@ def fetch_url(artefact: Artefact, downloads: Path) -> None:
     artefact.problem = "; ".join(errors)
 
 
+def fetch_repo_file(artefact: Artefact, downloads: Path) -> None:
+    """A file Loft itself carries, e.g. the patch applied to an upstream sdist.
+
+    Taken from this checkout, so the bundle holds what the tagged commit built;
+    its sha256 is pinned in the manifest like any download.
+    """
+    source = REPO_ROOT / str(artefact.spec["path"])
+    if not source.is_file():
+        artefact.problem = f"{source} is not in this checkout"
+        return
+    dest = downloads / artefact.filename
+    shutil.copy2(source, dest)
+    artefact.path = dest
+
+
 def fetch_git(artefact: Artefact, downloads: Path) -> None:
     """Clone at the pinned tag, verify the commit, repack deterministically."""
     spec = artefact.spec
@@ -346,6 +361,11 @@ def render_manifest_md(
                     f"{spec['repo']} tag `{spec['tag']}`, commit "
                     f"`{spec.get('commit') or 'UNRECORDED'}`"
                 )
+            elif spec.get("kind") == "repo-file":
+                lines.append(
+                    f"- `{spec.get('filename')}` — `{spec['path']}` in the Loft "
+                    f"repository at this release"
+                )
             else:
                 lines.append(f"- `{spec.get('filename')}` — {spec.get('url')}")
         lines.append("")
@@ -360,7 +380,11 @@ satisfied from the same place the object code is offered, rather than by
 pointing you at a third party who may retire a URL.
 
 Loft itself is MIT-licensed; its complete source is at
-<https://github.com/Overcastly-AI/3d-cad>. Nothing here is Loft's own code.
+<https://github.com/Overcastly-AI/3d-cad>. Nothing here is Loft's own code
+except `planegcs/planegcs-loft.patch`, Loft's modification to planegcs, which
+is under planegcs's own LGPL-2.1-or-later. Apply it with `patch -p1` inside
+the unpacked `planegcs-0.8.0.tar.gz` to get the source the image was built
+from.
 
 ## Verifying this bundle
 
@@ -475,6 +499,8 @@ def run(args: argparse.Namespace) -> int:
             artefacts.append(artefact)
             if spec.get("kind") == "git":
                 fetch_git(artefact, downloads)
+            elif spec.get("kind") == "repo-file":
+                fetch_repo_file(artefact, downloads)
             else:
                 fetch_url(artefact, downloads)
             if artefact.path is None:

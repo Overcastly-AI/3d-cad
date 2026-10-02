@@ -293,10 +293,46 @@ def _detect_auditwheel_sbom(detect: JsonDict, roots: list[Path]) -> Detection:
     return Detection(FOUND, versions.pop(), f"auditwheel SBOM ({sboms[0].name})")
 
 
+def _detect_build_stamp(detect: JsonDict, roots: list[Path]) -> Detection:
+    """A header-only library compiled into one of our own builds.
+
+    Eigen ends up inside the planegcs extension that the geometry image builds
+    from vendor/planegcs, and a binary carries no version of the headers it was
+    compiled from. The image's build stage records the Debian package version
+    in ``<venv>/<file>`` (deploy/docker/licence/stamp-build-inputs.py). A dev or
+    CI environment has no stamp, and ships nothing, so that reads ABSENT.
+    """
+    name = str(detect.get("file", ""))
+    key = str(detect.get("key", ""))
+    if not name or not key:
+        return Detection(BROKEN, detail="detect.file / detect.key is empty")
+    for root in roots:
+        stamp = root / name
+        if not stamp.is_file():
+            continue
+        try:
+            data = json.loads(stamp.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return Detection(BROKEN, detail=f"{stamp}: not valid JSON")
+        version = str(cast(JsonDict, data).get(key, "")).strip()
+        if not version:
+            return Detection(
+                BROKEN,
+                detail=(
+                    f"{stamp} records no {key!r}. The image build compiled "
+                    "planegcs without saying which headers it used; fix "
+                    "deploy/docker/licence/stamp-build-inputs.py."
+                ),
+            )
+        return Detection(FOUND, version, f"{name} written by the image build")
+    return Detection(ABSENT, detail=f"no {name} (only the image build writes one)")
+
+
 _DETECTORS = {
     "so-version": _detect_so_version,
     "dist-info": _detect_dist_info,
     "auditwheel-sbom": _detect_auditwheel_sbom,
+    "build-stamp": _detect_build_stamp,
 }
 
 

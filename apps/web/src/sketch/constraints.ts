@@ -17,6 +17,7 @@ import type { Point2D } from "./plane";
 import { endpointTangentFor, joinedPoints } from "./endpointTangent";
 import type { SketchPick } from "./pick";
 import { TOOL_SHORTCUTS, type SketchEntity } from "./tools";
+import { dimensionSpan, lineAnnotationAnchor, sharpIds } from "./virtualSharp";
 
 export type SketchConstraint =
   components["schemas"]["SketchParamsV1"]["constraints"][number];
@@ -230,10 +231,11 @@ export function constraintEntityRefs(constraint: SketchConstraint): string[] {
   switch (constraint.kind) {
     case "horizontal":
     case "vertical":
-    case "distance":
     case "radius":
     case "diameter":
       return [constraint.entity];
+    case "distance": // and the legs of its virtual sharps (virtualSharp.ts)
+      return [constraint.entity, ...sharpIds(constraint)];
     case "fixed":
       return [constraint.point.entity];
     case "coincident":
@@ -1310,23 +1312,6 @@ export function formatDimensionLabel(
   return driven ? `(${core})` : core;
 }
 
-function lineAnnotationAnchor(entity: SketchEntity, offsetMm: number): Point2D {
-  if (entity.kind !== "line") return { x: 0, y: 0 };
-  const mid = {
-    x: (entity.start.x + entity.end.x) / 2,
-    y: (entity.start.y + entity.end.y) / 2,
-  };
-  const dx = entity.end.x - entity.start.x;
-  const dy = entity.end.y - entity.start.y;
-  const length = Math.hypot(dx, dy);
-  if (length === 0) return mid;
-  // Left-hand normal: H/V sit on one side, dimensions on the other.
-  return {
-    x: mid.x + (-dy / length) * offsetMm,
-    y: mid.y + (dx / length) * offsetMm,
-  };
-}
-
 function pointOf(
   ref: EntityPointRef,
   byId: ReadonlyMap<string, SketchEntity>,
@@ -1532,7 +1517,10 @@ export function constraintGlyphs(
           // Opposite side from H/V marks — annotations never stack.
           anchor:
             constraint.kind === "distance"
-              ? lineAnnotationAnchor(entity, -offsetMm)
+              ? lineAnnotationAnchor(
+                  dimensionSpan(constraint, entity, byId),
+                  -offsetMm,
+                )
               : radiusAnchor(entity, offsetMm),
           editable: true,
           driven,
@@ -1692,8 +1680,16 @@ export function dimensionEditorAnchor(
 ): Point2D {
   const entity = entities.find((e) => e.id === target.entity);
   if (entity === undefined) return { x: 0, y: 0 };
-  if (target.kind === "distance")
-    return lineAnnotationAnchor(entity, -offsetMm);
+  if (target.kind === "distance") {
+    // An existing dimension to virtual sharps opens where its glyph sits.
+    const existing = constraints[target.constraintIndex ?? -1];
+    const byId = new Map(entities.map((e) => [e.id, e]));
+    const span =
+      existing?.kind === "distance"
+        ? dimensionSpan(existing, entity, byId)
+        : entity;
+    return lineAnnotationAnchor(span, -offsetMm);
+  }
   if (target.kind !== "angle") return radiusAnchor(entity, offsetMm);
   const other = entities.find((e) => e.id === target.entityB);
   if (other === undefined) return entityGlyphAnchor(entity, offsetMm);

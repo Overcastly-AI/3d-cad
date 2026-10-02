@@ -2607,6 +2607,15 @@ export interface components {
          * DistanceConstraint
          * @description Dimension: the length of a line (mm). Driving by default; see
          *     :class:`DimensionConstraint` for the expression/name/driving fields.
+         *
+         *     **Virtual sharps** (SKETCH-FILLET-KEEP-DIMS). Either end may be measured to
+         *     a *virtual sharp* instead of the line's own endpoint: the point where the
+         *     infinite supports of ``entity`` and another line meet. A sketch fillet or
+         *     chamfer trims a leg back from its corner, and SolidWorks and Fusion 360 keep
+         *     the leg's dimension to the corner that is gone, so the rectangle's typed W
+         *     and H still drive its size and an R edit cannot grow the outline. Both
+         *     fields are additive (absent = the endpoint, the former meaning), so every
+         *     stored sketch parses, dumps and solves exactly as before.
          */
         DistanceConstraint: {
             /**
@@ -2614,6 +2623,11 @@ export interface components {
              * @description Driving/driven flag. None (absent, the default) or True = DRIVING: the value is fed to the solver. False = DRIVEN: excluded from the constraint system; the value is measured back from the solved geometry for display (read-only, never fed as a constraint, so a driven dimension cannot over-constrain). Nullable+None-default (rather than a bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted before it reads as None = driving, and the generated TS client leaves it optional. Read it through `is_driving`, never the raw tri-state.
              */
             driving?: boolean | null;
+            /**
+             * End Sharp
+             * @description Measure the END side to the virtual sharp of `entity` and this line instead of to `entity`'s end point. None = the end point.
+             */
+            end_sharp?: string | null;
             /**
              * Entity
              * @description Sketch-local entity id, e.g. 'e1'
@@ -2634,6 +2648,11 @@ export interface components {
              * @description Optional stable name so another dimension's `expression` can reference this one. Unique within a sketch (enforced on SketchDefinition). None = unnamed: still solves, just not referenceable.
              */
             name?: string | null;
+            /**
+             * Start Sharp
+             * @description Measure the START side to the virtual sharp of `entity` and this line (where their infinite supports meet) instead of to `entity`'s start point. None = the start point.
+             */
+            start_sharp?: string | null;
             /**
              * Value Mm
              * @description Resolved dimension value (mm). The literal value when `expression` is None; otherwise the last solved/resolved value (the expression supersedes it on the next solve, but a positive placeholder is still required so a pre-solve read has a value).
@@ -2949,6 +2968,11 @@ export interface components {
             curve: "line" | "circle" | "other";
             /** @description One endpoint, world mm; the lexicographically SMALLER of the two so the pair is orientation-independent (full precision) */
             end_a: components["schemas"]["Vec3"];
+            /**
+             * End A Topo Name
+             * @description The history-based name of the ONE face this edge ends on at end_a (the face at that vertex other than the edge's own two), or null. A partial edge flange measures its offset from end_a; an edit that turns the edge can move end_a to the other end, so on a re-found edge the offset is measured from whichever end still touches this face (DESIGN-INTENT-REFS). Absent on older selectors and on ends without one named face.
+             */
+            end_a_topo_name?: string | null;
             /** @description The other endpoint, world mm; the lexicographically LARGER. Equals end_a for a closed edge (a full circle's coincident seam). */
             end_b: components["schemas"]["Vec3"];
             /**

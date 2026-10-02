@@ -35,14 +35,19 @@ DTOs at the boundary keep it honest.
 # pyright: reportUnknownParameterType=false, reportAttributeAccessIssue=false
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from build123d import CenterOf, Edge, Face, GeomType, Solid, Vector, Wire
 from loft_wire.features import CylindricalFaceSignature, PlanarFaceSignature
+from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism
+from OCP.TopoDS import TopoDS
 
+from geometry.kernel.clean_history import boolean_recording
 from geometry.kernel.edges import edge_signature_dto
 from geometry.kernel.faces import face_signature_dto
 from geometry.kernel.healing import clean_shape
+from geometry.kernel.naming import OpHistory
 from geometry.kernel.types import BodyShape
 from geometry.sheet_metal.resolve import (
     SheetMetalUnfoldError,
@@ -193,6 +198,9 @@ def build_edge_flange(
     thickness_mm: float,
     width_mm: float | None = None,
     offset_mm: float = 0.0,
+    history: OpHistory | None = None,
+    end_names: Sequence[tuple[tuple[float, float, float], str]] = (),
+    offset_from: tuple[float, float, float] | None = None,
 ) -> EdgeFlangeResult:
     """Fold a flange off *edge* of the sheet *body* and fuse it across a bend.
 
@@ -206,7 +214,9 @@ def build_edge_flange(
     WIDTH EXTENTS (design §4.5): ``width_mm``/``offset_mm`` restrict the flange to
     the span ``[offset, offset + width]`` of the edge, measured from its CANONICAL
     start (the lexicographically smaller endpoint — the stored ``EdgeSignature``'s
-    ``end_a``, so the offset's meaning never depends on kernel edge orientation).
+    ``end_a``, so the offset's meaning never depends on kernel edge orientation),
+    or from the end at *offset_from* when given (the end the feature layer
+    anchored by name on a re-found edge).
     ``width_mm = None`` spans to the edge's end. Both absent (``None``/``0``) is
     the verbatim legacy full-width build — byte-identical geometry. Each span end
     INTERIOR to the edge gets an automatic rectangular bend-end relief notch cut
@@ -221,6 +231,18 @@ def build_edge_flange(
     ``EdgeFlangeEdgeError``, i.e. a typed ``edge_flange_bad_edge``. The guard sits
     HERE rather than in either caller so the hem (parity §2, same fold machinery)
     inherits it.
+
+    NAMING (DESIGN-INTENT-REFS step 3). *history*, when given, receives every
+    face the fold built, labelled by its ROLE (:func:`_fold_roles`): the face
+    each cross-section edge swept (``bend_inner``, ``inner``, ``tip``,
+    ``outer``, ``bend_outer``) and each cap by the face the picked edge ENDS
+    on there (``cap:<that face's name>``, from *end_names*: the position of an
+    end of *edge* and the name of the one face it ends on), plus each bend-end
+    relief's walls likewise. A cap at an end with no such name is unnamed:
+    never "the cap at the lexicographically smaller end", which swaps when an
+    edit turns the edge past square to an axis (review 2026-10-01). The
+    geometry is the same prism either way (``Solid.extrude`` is this
+    ``BRepPrimAPI_MakePrism``); the history only reads it.
 
     Raises:
         EdgeFlangeEdgeError: *edge* is not a straight edge, is not incident to a
@@ -253,10 +275,15 @@ def build_edge_flange(
                 f"{offset_mm:g} mm + width {span_width:g} mm exceeds the edge "
                 f"length {edge_len:g} mm (design §4.5.1)."
             )
-        # Canonical start = lexicographically smaller endpoint (EdgeSignature's
-        # end_a convention); convert to native coordinates if the edge runs the
-        # other way.
-        if (p0.X, p0.Y, p0.Z) <= (p1.X, p1.Y, p1.Z):
+        # The span's start end: *offset_from* when the caller anchored it
+        # (a re-found edge, DESIGN-INTENT-REFS), else the canonical start, the
+        # lexicographically smaller endpoint (EdgeSignature's end_a). Convert to
+        # native coordinates if the edge runs the other way.
+        if offset_from is not None:
+            from_p0 = math.dist(offset_from, (p0.X, p0.Y, p0.Z)) <= _END_TOL_MM
+        else:
+            from_p0 = (p0.X, p0.Y, p0.Z) <= (p1.X, p1.Y, p1.Z)
+        if from_p0:
             span0, span1 = offset_mm, offset_mm + span_width
         else:
             span0, span1 = edge_len - (offset_mm + span_width), edge_len - offset_mm
@@ -355,8 +382,24 @@ def build_edge_flange(
                 "The edge-flange cross-section did not close into one wire "
                 "(check the bend radius / flange length for this gauge)."
             )
-        flange = Solid.extrude(Face(wires[0]), v * width)
-        fused = clean_shape(body.fuse(flange))
+        section = Face(wires[0])
+        if history is None:
+            flange = Solid.extrude(section, v * width)
+        else:
+            roles: dict[str | None, Vector] = {
+                "bend_inner": to3d(inner_mid),
+                "inner": _mid(to3d(C), to3d(D)),
+                "tip": _mid(to3d(D), to3d(E2)),
+                "outer": _mid(to3d(E2), to3d(Fp)),
+                "bend_outer": to3d(outer_mid),
+            }
+            first, last = _end_labels(p0, p1, end_names, "cap")
+            flange = _labelled_prism(section, v * width, roles, (first, last), history)
+        if history is None:
+            fused = clean_shape(body.fuse(flange))
+        else:
+            raw = boolean_recording(body, flange, "fuse", history.merged)
+            fused = clean_shape(raw, history.merged)
     except EdgeFlangeError:
         raise
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
@@ -382,14 +425,24 @@ def build_edge_flange(
     # 1.0). The notch never crosses the bend, so the live bend width stays the
     # authored span (fold-back invariant trivially intact) and the flat notch IS
     # the 3D notch. A blank-corner end (at the edge's own endpoint) needs none.
-    relief_spans: list[tuple[float, float]] = []
+    relief_spans: list[tuple[float, float, bool]] = []
     size = thickness_mm
     if span0 > span_tol:
-        relief_spans.append((span0 - size, span0))
+        relief_spans.append((span0 - size, span0, True))
     if span1 < edge_len - span_tol:
-        relief_spans.append((span1, span1 + size))
+        relief_spans.append((span1, span1 + size, False))
     if relief_spans:
-        result_body = _cut_end_reliefs(result_body, relief_spans, p0, v, d, n, t)
+        result_body = _cut_end_reliefs(
+            result_body,
+            relief_spans,
+            p0,
+            v,
+            d,
+            n,
+            t,
+            history,
+            _end_labels(p0, p1, end_names, ""),
+        )
 
     # Provenance (§5): the bend axis is the edge line lifted r along n; the inner
     # cylindrical face carries the bend signature. The base reference face is the
@@ -443,17 +496,26 @@ def build_edge_flange(
 
 def _cut_end_reliefs(
     body: Solid,
-    relief_spans: list[tuple[float, float]],
+    relief_spans: list[tuple[float, float, bool]],
     p0: Vector,
     v: Vector,
     d: Vector,
     n: Vector,
     t: float,
+    history: OpHistory | None = None,
+    sides: tuple[str | None, str | None] = (None, None),
 ) -> Solid:
     """Cut the auto bend-end relief notches into the base flat (design §4.5.2).
 
-    Each *relief_spans* entry ``(s0, s1)`` is a native along-edge range (already
-    ``size`` wide, on the blank side of an interior span end). The tool is the
+    Each *relief_spans* entry ``(s0, s1, at_start)`` is a native along-edge
+    range (already ``size`` wide, on the blank side of an interior span end),
+    beside the span's native start when ``at_start``. *sides* label the
+    native start and end of the picked edge (:func:`_end_labels`; ``None``
+    leaves that end's notch unnamed).
+    *history*, when given, receives each notch's walls: the wall in the plane
+    of the flange's cap is labelled as that cap (``cap:<side>``; the two are one
+    face once ``clean`` merges them), the far wall ``relief:<side>:wall`` and
+    the wall parallel to the edge ``relief:<side>:floor``. The tool is the
     exact box spanning ``[s0, s1]`` along the edge axis *v*, ``[-size, 0]`` along
     the outward direction *d* (i.e. ``size`` INTO the base beyond the bend tangent
     line at the edge), and the full gauge ``[-t, 0]`` along the reference normal
@@ -469,7 +531,7 @@ def _cut_end_reliefs(
     size = relief_spans[0][1] - relief_spans[0][0]
     try:
         cut = body
-        for s0, _s1 in relief_spans:
+        for s0, _s1, at_start in relief_spans:
             base_pt = p0 + v * s0
             corners = [
                 base_pt,
@@ -488,9 +550,30 @@ def _cut_end_reliefs(
                 raise EdgeFlangeError(
                     "The bend-end relief tool section did not close into one wire."
                 )
-            tool = Solid.extrude(Face(tool_wires[0]), v * size)
-            cut = cut - tool
-        cleaned = clean_shape(cut)
+            section = Face(tool_wires[0])
+            if history is None:
+                tool = Solid.extrude(section, v * size)
+            else:
+                side = sides[0] if at_start else sides[1]
+                near = None if side is None else f"cap:{side}"
+                far = None if side is None else f"relief:{side}:wall"
+                floor = {
+                    None if side is None else f"relief:{side}:floor": _mid(
+                        corners[1], corners[2]
+                    )
+                }
+                tool = _labelled_prism(
+                    section,
+                    v * size,
+                    floor,
+                    (far, near) if at_start else (near, far),
+                    history,
+                )
+            if history is None:
+                cut = cut - tool
+            else:
+                cut = boolean_recording(cut, tool, "cut", history.merged)
+        cleaned = clean_shape(cut, None if history is None else history.merged)
     except EdgeFlangeError:
         raise
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
@@ -541,6 +624,71 @@ def _post_relief_base_signature(
     sig = face_signature_dto(matches[0])
     assert sig is not None, "the notched base flat is planar"
     return sig
+
+
+def _mid(a: Vector, b: Vector) -> Vector:
+    return (a + b) * 0.5
+
+
+def _end_labels(
+    p0: Vector,
+    p1: Vector,
+    end_names: Sequence[tuple[tuple[float, float, float], str]],
+    prefix: str,
+) -> tuple[str | None, str | None]:
+    """The labels of the picked edge's NATIVE start *p0* and end *p1*: the
+    name of the face the edge ends on there (*end_names*, matched by position,
+    exactly one), as ``<prefix>:<name>`` when *prefix* is given. A topological
+    anchor, so it follows the end through any edit; ``None`` where the end has
+    no single named face."""
+
+    def label(point: Vector) -> str | None:
+        hits = [
+            name
+            for at, name in end_names
+            if math.dist(at, (point.X, point.Y, point.Z)) <= _END_TOL_MM
+        ]
+        if len(hits) != 1:
+            return None
+        return f"{prefix}:{hits[0]}" if prefix else hits[0]
+
+    return label(p0), label(p1)
+
+
+#: An end of the resolved edge and the vertex position the feature layer read
+#: its name at are the same point (the same edge): the subshape linear class.
+_END_TOL_MM = 1e-6
+
+
+#: How close (mm) a swept face's generating edge midpoint must be to a role's
+#: construction midpoint to take that role: the kernel's linear tolerance,
+#: since both are the same closed-form point (the edge is built through it).
+_ROLE_TOL_MM = 1e-7
+
+
+def _labelled_prism(
+    section: Face,
+    direction: Vector,
+    roles: dict[str | None, Vector],
+    caps: tuple[str | None, str | None],
+    history: OpHistory,
+) -> Solid:
+    """``Solid.extrude(section, direction)`` (the same ``BRepPrimAPI_MakePrism``
+    call), recording in *history* each side face whose generating edge has its
+    midpoint at a point of *roles* (exactly one role, or the face is left
+    unlabelled), and the first and last caps as *caps*."""
+    builder = BRepPrimAPI_MakePrism(section.wrapped, direction.wrapped)
+    solid = Solid(TopoDS.Solid_s(builder.Shape()))
+    for edge in section.edges():
+        mid = edge @ 0.5
+        hits = [role for role, at in roles.items() if (mid - at).length <= _ROLE_TOL_MM]
+        if len(hits) != 1:
+            continue
+        for produced in builder.Generated(edge.wrapped):
+            history.labelled.append((hits[0], Face(TopoDS.Face_s(produced))))
+    history.labelled.append((caps[0], Face(TopoDS.Face_s(builder.FirstShape()))))
+    history.labelled.append((caps[1], Face(TopoDS.Face_s(builder.LastShape()))))
+    return solid
 
 
 def _sig_key(face: Face) -> tuple[float, float, float]:

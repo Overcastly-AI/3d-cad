@@ -342,12 +342,17 @@ def linear_pattern(
     direction: tuple[float, float, float],
     spacing_mm: float,
     count: int,
+    *,
+    copies: list[BodyShape] | None = None,
 ) -> BodyShape:
     """Array *body* into a row of *count* along the world *direction* (ADD).
 
     Instance 0 is *body* itself; instances ``1..count-1`` are placed at
     ``spacing_mm * k`` along the unit direction and fused in. ``count == 1``
     returns *body* unchanged (a no-op pattern).
+
+    *copies*, when given, receives the placed instances ``1..count-1`` in order
+    (the faces a naming hook names, :mod:`geometry.kernel.naming`).
 
     Raises:
         PatternCountError: ``count < 1``.
@@ -359,8 +364,10 @@ def linear_pattern(
     _check_count(count)
     if count == 1:
         return body  # seed only — nothing to replicate
-    copies = linear_pattern_placements([body], direction, spacing_mm, count)
-    return _fuse_and_finalize(body, copies, count)
+    placed = linear_pattern_placements([body], direction, spacing_mm, count)
+    if copies is not None:
+        copies.extend(placed)
+    return _fuse_and_finalize(body, placed, count)
 
 
 def circular_pattern(
@@ -369,6 +376,8 @@ def circular_pattern(
     axis_direction: tuple[float, float, float],
     angle_deg: float,
     count: int,
+    *,
+    copies: list[BodyShape] | None = None,
 ) -> BodyShape:
     """Array *body* into a ring of *count* about the world axis (ADD).
 
@@ -376,6 +385,9 @@ def circular_pattern(
     count * k`` about the axis (through *axis_point* along *axis_direction*)
     and fused in — so the closing position at ``angle_deg`` is EXCLUSIVE and a
     360° sweep is a clean full ring. ``count == 1`` returns *body* unchanged.
+
+    *copies*, when given, receives the placed instances ``1..count-1`` in order
+    (the faces a naming hook names, :mod:`geometry.kernel.naming`).
 
     Raises:
         PatternCountError: ``count < 1``.
@@ -387,10 +399,12 @@ def circular_pattern(
     _check_count(count)
     if count == 1:
         return body
-    copies = circular_pattern_placements(
+    placed = circular_pattern_placements(
         [body], axis_point, axis_direction, angle_deg, count
     )
-    return _fuse_and_finalize(body, copies, count)
+    if copies is not None:
+        copies.extend(placed)
+    return _fuse_and_finalize(body, placed, count)
 
 
 def linear_pattern_cut(

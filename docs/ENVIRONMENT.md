@@ -31,6 +31,9 @@ environment. Each item here has cost real time before.
 
 - `uv python install` returns 403. Use the system Python
   (`uv sync` picks 3.12). Install `just` with `uv tool install rust-just`.
+- `uv sync` compiles planegcs from `vendor/planegcs` (about 1 min, then
+  cached). It needs `apt-get install -y libeigen3-dev libboost-dev`, which
+  works here; g++ and CMake are already installed.
 - Use `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers` for Playwright.
 - The disk is small. Do not create extra worktrees or `node_modules`
   trees you do not need, and clean up your scratch files.

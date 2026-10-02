@@ -837,12 +837,23 @@ def match_face_records_tiered(
 def named_match(
     records: Sequence[PlanarFaceRecord], name: str | None
 ) -> PlanarFaceRecord | None:
-    """The ONE record whose ``name`` is *name*, or ``None`` (no name, or not
-    exactly one holder)."""
+    """The ONE record whose ``name`` is *name* or answers to it (a face a
+    ``clean`` merged *name* into, :func:`_answers_to`),
+    or ``None`` (no name, or not exactly one holder)."""
     if name is None:
         return None
-    held = [r for r in records if r.name == name]
+    held = [r for r in records if _answers_to(r.name, name)]
     return held[0] if len(held) == 1 else None
+
+
+def _answers_to(held: str | None, name: str) -> bool:
+    """Whether a face named *held* is the face a stored *name* designates: its
+    own name, or one a ``clean`` merged into it (a
+    :class:`~geometry.kernel.naming.FaceName`'s aliases; read by attribute
+    because naming imports this module)."""
+    if held is None:
+        return False
+    return held == name or name in getattr(held, "aliases", frozenset[str]())
 
 
 def _geometric_matches(

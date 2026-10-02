@@ -104,6 +104,7 @@ from geometry.sketch.schemas import (
     VerticalConstraint,
 )
 from geometry.sketch.tangency import endpoint_residual
+from geometry.sketch.virtual_sharp import measured_length
 
 #: Residual reported for a constraint whose references cannot be resolved in
 #: the solved entities. Unresolvable is not "satisfied": every reference was
@@ -292,11 +293,11 @@ def _dimension_residual(
     match constraint:
         case AngleConstraint():
             return _angle_residual(constraint, entities_by_id, requested, frame)
-        case DistanceConstraint():
-            direction = _direction(entities_by_id.get(constraint.entity))
-            if direction is None:
+        case DistanceConstraint():  # to its ends or virtual sharps
+            length = measured_length(constraint, entities_by_id)
+            if length is None:
                 return UNRESOLVABLE
-            return abs(math.hypot(*direction) - requested)
+            return abs(length - requested)
         case RadiusConstraint():
             radius = _radius_of(entities_by_id.get(constraint.entity))
             if radius is None:
@@ -672,7 +673,7 @@ def constraint_residual(
             return _unit_dot(a, b)
         case TangentConstraint() if constraint.a_point is not None:
             solved = _named_points((constraint.a, constraint.b), entities_by_id)
-            residual = endpoint_residual(constraint, solved, input_points)
+            residual = endpoint_residual(constraint, solved)
             return UNRESOLVABLE if residual is None else residual
         case TangentConstraint():
             return _tangent_residual(constraint, entities_by_id)

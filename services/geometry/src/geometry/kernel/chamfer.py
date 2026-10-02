@@ -32,6 +32,15 @@ from OCP.TopExp import TopExp
 from OCP.TopoDS import TopoDS
 from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
 
+from geometry.kernel.fillet_guard import fillet_problem, max_tolerance
+from geometry.kernel.fillet_isolation import (
+    BlendCrashed,
+    BlendFailed,
+    BlendTimedOut,
+    needs_isolation,
+    run_isolated,
+    working_copy,
+)
 from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.naming import OpHistory
@@ -41,6 +50,11 @@ from geometry.kernel.types import BodyShape
 class ChamferError(RuntimeError):
     """The OCCT chamfer failed or produced an unsupported result (e.g. a
     distance too large for the local geometry, self-intersecting the body)."""
+
+
+class ChamferTimeoutError(ChamferError):
+    """The OCCT chamfer ran past its CPU or wall-clock bound (an isolated blend,
+    :mod:`geometry.kernel.fillet_isolation`) and was killed."""
 
 
 def chamfer_body(
@@ -61,30 +75,69 @@ def chamfer_body(
 
     *history*, when given, receives each edge paired with the bevel face(s) it
     generated (``BRepFilletAPI_MakeChamfer::Generated``), for face naming
-    (:mod:`geometry.kernel.naming`).
+    (:mod:`geometry.kernel.naming`), and in ``worked_on`` the copy of *body*
+    the result was built on (its untouched faces are that copy's).
+
+    *body* is never modified. OCCT chamfers IN PLACE, like the fillet (same
+    ``ChFi3d`` builder): a failed chamfer of the cone-hub blade root left an
+    input vertex at a 71.6 mm tolerance, and even a successful one loosened it.
+    So the chamfer runs on a topology copy, its result must pass
+    :func:`~geometry.kernel.fillet_guard.fillet_problem`, and a blend outside
+    OCCT's analytic cases runs isolated (:mod:`geometry.kernel.fillet_isolation`).
 
     Raises:
-        ChamferError: the OCCT chamfer failed, or changed the body's lump count
-            (a distance too large for an adjacent face — design §7.6 / §MB-4).
+        ChamferError: the OCCT chamfer failed or crashed, or changed the body's
+            lump count (a distance too large for an adjacent face — design §7.6
+            / §MB-4).
+        ChamferTimeoutError: the isolated blend ran past its time bound.
     """
     if distance_mm <= 0:
         raise ValueError(f"distance_mm must be > 0, got {distance_mm}")
     lump_count = len(body.solids())
+    input_tolerance = max_tolerance(body)
+    work, work_edges = working_copy(body, edges)
     try:
-        # chamfer(length, length2, edge_list): length2=None → symmetric bevel
-        # (both setbacks == length). Carries Shape[Unknown] type params
-        # upstream (same gap tessellate.py documents) — scoped ignore only.
-        result = (
-            body.chamfer(distance_mm, None, edges)
-            if history is None
-            else _chamfer_with_history(body, edges, distance_mm, history)
-        )
-        solids = list(result.solids())
+        if needs_isolation(body, edges):
+            work, work_edges, solids = run_isolated(
+                "chamfer", work, work_edges, distance_mm, history
+            )
+        else:
+            solids = _chamfer(work, work_edges, distance_mm, history)
+        problem = fillet_problem(work, work_edges, distance_mm, solids, input_tolerance)
+        if problem is not None:
+            raise _Rejected(problem)
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
+        if history is not None:
+            history.generated.clear()
+        if isinstance(exc, BlendTimedOut):
+            raise ChamferTimeoutError(
+                f"Chamfer stopped: the kernel ran past its time limit on this "
+                f"distance ({distance_mm} mm) and edge set."
+            ) from exc
+        if isinstance(exc, BlendCrashed):
+            raise ChamferError(
+                "Chamfer failed: the kernel crashed on this edge and face "
+                "configuration (it ran isolated, so nothing else was affected). "
+                f"Try another distance ({distance_mm} mm) or edge set."
+            ) from exc
+        if isinstance(exc, _Rejected):
+            raise ChamferError(
+                f"The chamfer built a body Loft refuses: {exc}. The body is "
+                "left as it was."
+            ) from exc
+        cause = exc.args[0] if isinstance(exc, BlendFailed) else type(exc).__name__
         raise ChamferError(
-            f"Chamfer failed in the kernel ({type(exc).__name__}); the distance "
+            f"Chamfer failed in the kernel ({cause}); the distance "
             f"({distance_mm} mm) may be too large for an adjacent face."
         ) from exc
+    if history is not None:
+        # Report against the CALLER's edges (the names were taken on those),
+        # and say which copy the result was built on (names re-anchor on it).
+        back = {id(copy): edge for copy, edge in zip(work_edges, edges, strict=True)}
+        history.generated = [
+            (back.get(id(source), source), face) for source, face in history.generated
+        ]
+        history.worked_on = work
 
     if len(solids) != lump_count:
         raise ChamferError(
@@ -99,6 +152,25 @@ def chamfer_body(
     if lump_count == 1:
         return clean_shape(solids[0])
     return assemble_lumps([clean_shape(solid) for solid in solids])
+
+
+class _Rejected(RuntimeError):
+    """The chamfer built, but :func:`fillet_problem` found something wrong."""
+
+
+def _chamfer(
+    body: BodyShape, edges: list[Edge], distance_mm: float, history: OpHistory | None
+) -> list[Solid]:
+    """The OCCT chamfer, as solids. Raises what it raises."""
+    # chamfer(length, length2, edge_list): length2=None → symmetric bevel (both
+    # setbacks == length). Carries Shape[Unknown] type params upstream (same
+    # gap tessellate.py documents) — scoped ignore only.
+    result = (
+        body.chamfer(distance_mm, None, edges)
+        if history is None
+        else _chamfer_with_history(body, edges, distance_mm, history)
+    )
+    return list(result.solids())
 
 
 def _chamfer_with_history(

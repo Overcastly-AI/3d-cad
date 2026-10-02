@@ -14,6 +14,7 @@ from collections.abc import Callable
 
 from loft_wire.features import (
     HEM_CLOSED_RADIUS_RATIO,
+    EdgeSignature,
     EdgeSubshapeRef,
     EvaluatedFeatureInput,
     FeatureError,
@@ -29,6 +30,7 @@ from loft_wire.features import (
 from geometry.features.datum_sketch import (
     _resolve_profile_face,
 )
+from geometry.features.naming_hooks import labelled_names, prism_names
 from geometry.features.state import (
     EvaluationState,
     _add_body,
@@ -36,9 +38,11 @@ from geometry.features.state import (
 from geometry.kernel import (
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
+    durable_edge_match,
     extrude_face,
     resolve_edge_durable,
 )
+from geometry.kernel.naming import EdgeEnds, EndNames, OpHistory
 from geometry.kernel.tolerances import KERNEL_LINEAR_TOL_MM
 from geometry.sheet_metal import (
     BendProvenance,
@@ -85,10 +89,14 @@ def _evaluate_sheet_metal_base_flange(
     resolved = _resolve_profile_face(params.profile, state)
     if isinstance(resolved, FeatureError):
         return resolved
-    face, plane, _ = resolved
+    face, plane, solved = resolved
 
-    tool = extrude_face(face, plane, params.thickness_mm, reverse)
-    error = _add_body(item, state, tool, merge=params.merge)
+    # Named like an extrude's prism (DESIGN-INTENT-REFS step 3): each side from
+    # the sketch entity it swept, the two skins ``start`` / ``end``.
+    history = OpHistory()
+    tool = extrude_face(face, plane, params.thickness_mm, reverse, history=history)
+    generated = prism_names(item.id, history, plane, solved.entities, region=False)
+    error = _add_body(item, state, tool, merge=params.merge, generated=generated)
     if error is not None:
         return error
     state.sheet_metal_defaults[item.id] = SheetMetalDefaults(
@@ -166,14 +174,30 @@ def _fold_flange_off_edge(
             ),
         )
 
+    names = state.face_names()
     try:
-        edge = resolve_edge_durable(
-            active, edge_ref.selector.signature, tally=state.subshape_tally
-        ).edge
+        resolved_edge = resolve_edge_durable(
+            active,
+            edge_ref.selector.signature,
+            tally=state.subshape_tally,
+            face_names=names,
+        )
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
     except SubshapeAmbiguousError as exc:
         return FeatureError(code="subshape_ambiguous", message=str(exc))
+    edge = resolved_edge.edge
+    ends = EdgeEnds(active, names)
+    offset_from: tuple[float, float, float] | None = None
+    if width_mm is not None or offset_mm != 0.0:
+        anchored = _offset_end(
+            edge_ref.selector.signature, resolved_edge.signature, ends.of(edge)
+        )
+        if isinstance(anchored, str):
+            return FeatureError(
+                code="subshape_ambiguous", message=f"{subject}: {anchored}"
+            )
+        offset_from = anchored
 
     # The RADIUS RULE differs by verb, and conflating them shipped HEM-1. An edge
     # flange inherits the part's general base-flange radius when its own is omitted
@@ -191,6 +215,7 @@ def _fold_flange_off_edge(
         radius = override_radius_mm or defaults.bend_radius_mm
     k_factor = override_k_factor if override_k_factor is not None else defaults.k_factor
 
+    history = OpHistory()
     try:
         result = build_edge_flange(
             active,
@@ -201,13 +226,18 @@ def _fold_flange_off_edge(
             thickness_mm=defaults.thickness_mm,
             width_mm=width_mm,
             offset_mm=offset_mm,
+            history=history,
+            end_names=ends.of(edge),
+            offset_from=offset_from,
         )
     except EdgeFlangeEdgeError as exc:
         return FeatureError(code="edge_flange_bad_edge", message=str(exc))
     except EdgeFlangeError as exc:
         return FeatureError(code="edge_flange_failed", message=str(exc))
 
-    state.set_active_body(result.body)
+    # Each face of the fold is named by its role (DESIGN-INTENT-REFS step 3):
+    # ``<feature id>:outer`` is this flange's outer flat whatever the base size.
+    state.set_active_body(result.body, labelled_names(item.id, history), history.merged)
 
     # Maintain the CLEAN (un-notched) sheet body — every bend applied, NO relief
     # notches (§4.4.4). Both the flat-pattern unfold AND each corner relief resolve
@@ -259,6 +289,40 @@ def _fold_flange_off_edge(
         k_factor=k_factor,
     )
     return None
+
+
+def _offset_end(
+    stored: EdgeSignature,
+    current: EdgeSignature,
+    ends: EndNames,
+) -> tuple[float, float, float] | None | str:
+    """The end of the re-found edge a partial flange's ``offset_mm`` is
+    measured from: ``None`` for the canonical ``end_a`` (the lexicographically
+    smaller end), a position for a named end, or the reason to refuse.
+
+    The offset was authored from the picked edge's ``end_a``. An edge still
+    on its stored supporting line, overlapping its stored span (the durable
+    predicate, whichever tier reported it), keeps its canonical order, so
+    ``end_a`` is still that end. Any other re-find may have turned the edge,
+    and a turn of phi and of 180 - phi leave the same signature, so no
+    geometric test can tell
+    whether ``end_a`` swapped ends (review 2026-10-01: a flange moved from
+    (43, 10) to (3, 30) with every feature ok). The end is then the one that
+    still touches the face the edge ended on at ``end_a`` when it was picked
+    (``end_a_topo_name``), and without exactly one such end the flange is
+    refused rather than placed at a guessed end."""
+    if durable_edge_match(current, stored):
+        return None
+    anchor = stored.end_a_topo_name
+    hits = [] if anchor is None else [at for at, name in ends if name == anchor]
+    if len(hits) == 1:
+        return hits[0]
+    return (
+        "the edge was found after an edit that moved it, and the end its "
+        "offset and width are measured from can no longer be told from the "
+        "other. Refusing to place the flange at a guessed end: re-pick the "
+        "edge, or set the offset again."
+    )
 
 
 def _evaluate_sheet_metal_edge_flange(

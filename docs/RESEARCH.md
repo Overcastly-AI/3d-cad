@@ -39,7 +39,63 @@ forbidden.
 Rules the solver keeps:
 
 - **Deterministic.** Same sketch and constraints give a bitwise-identical
-  result, asserted over a sequence of solves.
+  result, in one process however its heap looks and across processes
+  (`test_sketch_heap_order.py`: 20 solves with the C heap churned between
+  them, plus fresh processes). **Loft builds planegcs from source with a
+  patch to get there** (SKETCH-SOLVE-HEAP-ORDER). planegcs 0.8.0 made three
+  choices by memory address, and its binding stores parameters in a
+  `std::deque` of 64-double chunks whose relative addresses depend on the
+  heap:
+  1. a subsystem's column order (`std::set_intersection` of two
+     `std::set<double*>`);
+  2. the column order of the two-level solve used when a component has
+     non-driving constraints (`std::sort` of pointers);
+  3. after an equality reduction (a coincidence merges two coordinates into
+     one unknown), which of the merged values seeds the solve: the last one
+     in a walk of `std::map<double*, double*>`.
+
+  The third is the large one. It moves the starting point, and an
+  under-constrained sketch keeps whatever the start gives it: a 24-line
+  polygon with 96 free parameters came back 27.4 um apart within one process,
+  and 0.33 mm apart between two processes at 32 lines. The first two only
+  reorder floating-point work (7e-15 on fully constrained sketches). A
+  sketch whose parameters fit one chunk was never affected, which is why the
+  old two-solve test passed. The patch (`vendor/planegcs-loft.patch`)
+  touches 4 files: the three solver sources, which order all three choices
+  by declaration index, and `pyproject.toml` for the `+loft.1` version.
+
+  **What the patch changes for existing parts.** Within one chunk, address
+  order *is* declaration order. So the goldens are byte-identical, and so
+  are 438 sketches (every sketch in the goldens plus 300 generated ones)
+  against the PyPI wheel. Sketches past 64 parameters are another matter.
+  The PyPI wheel gave them a layout that fresh processes often, but not
+  always, reproduced, and the patch replaces it with declaration order. An
+  under-constrained sketch past 64 parameters may therefore solve to a
+  different answer once, on upgrade. A reviewer's 200 generated
+  under-constrained polygons moved on 46, by up to 18.4 mm. The PyPI wheel
+  itself was not reproducible on 33 of those 46 across fresh runs. A fully
+  constrained sketch moves only by rounding (7e-15). The operator note is in
+  `docs/OPERATIONS.md` §5. The solver still allocates every free parameter
+  (entities, then virtual-sharp points) before any fixed one; the patch
+  preserves that order.
+
+  *Rejected:* allocating the parameters ourselves in one contiguous block
+  (the binding owns the storage and exposes no pointer API); a canonical
+  second solve (it would run in the same address-ordered layout, so it is not
+  canonical). The patch is not upstream yet, so `uv sync` compiles it (a
+  C++20 compiler, CMake, Eigen 3 and Boost headers;
+  `.github/actions/planegcs-build-deps`, the geometry Dockerfile).
+  `vendor/planegcs` keeps the 27 sdist files the build reads (not the
+  sdist's tests, docs or examples). `scripts/check-vendored-planegcs.py`
+  proves that those files are exactly the patched sdist's, and in CI its
+  `--upstream` mode checks them against the sdist's own bytes. The sdist
+  plus the patch is the LGPL corresponding source we offer
+  (`deploy/licenses/corresponding-source.json`). Eigen (MPL-2.0) is now
+  compiled into the image, so it is in that manifest too (LICENSING §5).
+  Change the
+  patch by editing the tree, regenerating the patch, and bumping the
+  `+loft.N` version: uv rebuilds a path dependency only when its
+  `pyproject.toml` changes.
 - **An under-constrained solve holds the author's geometry.** After the solve
   converges, it pins every free coordinate and radius back to the author's
   value and re-solves (the "settle"), so a dimension edit moves only what it
@@ -59,11 +115,29 @@ Rules the solver keeps:
   `tangent_line_arc` family (centre-to-line distance = r, contact point free).
   A `tangent` that names an end of each curve (`a_point`/`b_point`) is the
   join plus the tangency at it: a coincidence and `angle_via_point` held at
-  0 or pi, the branch read once from the submitted geometry. The whole-curve
+  0 or pi. The branch is read from the end NAMES, never the coordinates: an
+  `end` meeting a `start` is 0, two `start`s or two `end`s are pi, which is
+  the smooth join in each case (a line runs start to end, an arc CCW). Read
+  from the submitted geometry it held two cusps the review built (a leg
+  dragged through straight, an arc dragged outside its corner); read from the
+  names a cusp is not a solution, and a corner that can only be one reads
+  `conflicting` and names the tangent. The whole-curve
   equation is redundant with a coincident at the same join, which is why a
   sketch fillet's joins are endpoint tangents: with plain coincidents an R
   edit pulled the arc off tangent with no warning. An endpoint tangent
   includes its coincidence, so a coincident on the same pair is redundant.
+- **A length can be measured to a virtual sharp, as in SolidWorks and Fusion
+  360** (`geometry.sketch.virtual_sharp`, SKETCH-FILLET-KEEP-DIMS). A
+  `distance` may name another line for either end (`start_sharp`,
+  `end_sharp`); that end is then where the two lines' infinite supports meet.
+  A sketch fillet or chamfer re-attaches the trimmed legs' W and H this way
+  instead of dropping them, so an R edit cannot grow the outline (before:
+  80 x 50 at R5 -> R15 came out 100 x 70). Encoded as FreeCAD encodes its
+  own: an auxiliary point held on both lines by two `point_on_line`, then a
+  point-to-point distance; two parameters and two independent equations, so
+  DOF is what the untrimmed length gave. Parallel lines have no sharp and
+  read `conflicting`. The fields are additive: a stored distance solves
+  byte-identically (2098 sketches, goldens plus the PBT-1 sweep, checked).
 
 ## 3. Monorepo of services, contract-first
 
@@ -317,3 +391,172 @@ rebuild-cache fork face for face.
 **Scope.** Step 1 hooks extrude, draft, fillet and chamfer. Revolve, loft,
 pattern, mirror, shell offsets, sheet metal and `clean_shape` history are
 steps 2-3 (BACKLOG DESIGN-INTENT-REFS). Old selectors are not backfilled.
+
+**Step 2 (impeller, 2026-10-01).** Revolve and loft sides are named like an
+extrude's, from the profile edge's sketch entity (a loft's from its first
+wire section, `side:<id>:<span>` past two sections; OCCT `Generated`). A
+pattern copy is `<pattern>:i<k>:<source face name>` and a mirror image
+`<mirror>:m:<source face name>`, in both scopes; copies share one `TShape`
+at different locations, so identity is `IsSame` (location included), and a
+copy whose face order or surface families differ from its source gets no
+names. A free-form face (a loft's B-spline side) has no `SurfaceKey`, so it
+keeps its name through a boolean by its `Geom_Surface` object plus its
+location matrix, which a re-bounding boolean and `clean` preserve. Two
+refinements to step 1's refusals, both following Onshape's practice of
+naming a split face's pieces by what bounds them:
+
+- A face SPLIT into pieces (seven blades cut the hub side into seven strips)
+  no longer loses its name outright. Each piece is
+  `<name>/<digest of its neighbours' names>`, and stays unnamed if any
+  neighbour is unnamed; two pieces with one neighbourhood are both withdrawn.
+  A qualified name is held by one face or none, so the named tier's rule is
+  unchanged.
+- When faces with different names share a surface (a mirrored boss whose
+  sides lie in its original's planes), a re-bounded face takes the name of the
+  one claimant whose region contains it: interior sample points all IN that
+  claimant and all OUT of every other. A point ON a boundary, or a face
+  straddling claimants (a merge), decides nothing and the step-1 rule stands.
+
+The impeller's 14 root edges (hub cylinder meeting a B-spline blade side,
+curve kind "other") are pairs of a hub piece and a blade side and resolve by
+name after hub 40 -> 44 (golden `revise-hub-d44-blade-root-fillet`). A forged
+`topo_name` can still only select an edge that one name pins, exactly what a
+direct pick of that edge selects.
+
+**Step 2 follow-up (QA impeller, blades z 2..18).** Two more things broke the
+hub edit when the blades pierce the hub side instead of splitting it. First,
+at Ø44 the hub cylinder's seam crosses one root curve and cuts it in two, so
+that face pair names two edges. A stored name (taken where the pair bounded a
+single edge) now also reaches the pieces of ONE boundary run: edges between
+the same two faces forming a single chain joined only at vertices where
+nothing but a seam meets. Two separate runs (a D-shape's chord ends) are
+still no name, and the pick side still names only an edge that alone bounds
+its pair. Second, OCCT's fillet fails when a closed face's seam ends on or
+beside a filleted edge, a re-pick included; Parasolid has no such seam. On
+that failure the fillet retries once on the same solid with each such face
+rebuilt on its surface turned about its own axis, so the seam sits in the
+widest gap between the picked edges (`geometry/kernel/reseam.py`). The
+rebuild must be valid, keep its face count and keep its volume to 1e-9
+relative, or the original failure stands. Golden
+`revise-hub-d44-qa-blade-root-fillet`.
+
+**Step 3 (sheet-metal bracket, 2026-10-01).** QA's bracket (base 60 -> 70)
+failed because nothing on it had a name: the base flange and the folds had no
+hook. The hole's face, the +X flange's outer leg, moved 10 mm along its
+normal, and the tier for that move also admits the -X flange's INNER leg (same
+normal, area and in-plane centroid), so Hole1 was ambiguous. Fusion 360 and
+SolidWorks name a sheet-metal face by the feature and the side of the sheet it
+is, and so does this:
+
+- The base flange is named like an extrude: sides by sketch entity, skins
+  `start` / `end`.
+- An edge flange or hem names each face by the edge of its cross-section that
+  swept it: `bend_inner`, `inner`, `tip`, `outer`, `bend_outer` (inner and
+  outer are the inside and outside of the bend). Each cap is
+  `cap:<name of the face the picked edge ends on there>` (the one face at
+  that vertex besides the edge's own two), unnamed when that face is unnamed
+  or not unique. Not by coordinate order: a first cut named them by the
+  lexicographic order of the ends, and an edit that turns the edge past
+  square to an axis swapped them, moving a fillet to the other end with
+  every feature ok (review of 42b4482). A bend-end relief names its far wall
+  and floor `relief:<that end's face>:wall|floor`; its near wall lies in the
+  cap's plane and is named as the cap.
+- `offset_mm` is measured from the picked edge's `end_a` (its
+  lexicographically smaller end). A turn of the edge can carry `end_a` to the
+  other end, and a turn of phi and of 180 - phi leave the same signature, so
+  no geometric test can tell. The pick therefore stores `end_a_topo_name`
+  (loft-wire `EdgeSignature`): the face the edge ends on at `end_a`. A
+  re-found edge still on its stored line keeps its order; any other measures
+  the offset from the end that touches that face, and without exactly one
+  such end (or an older selector without the field) the flange is refused
+  (`subshape_ambiguous`), never placed at a guessed end.
+- A face that `UnifySameDomain` MERGES (a flange cap flush with the base's
+  side face) is both faces. The merge is read from the upgrader's own
+  history (`kernel/clean_history.py`, build123d's boolean-and-clean repeated
+  verbatim to keep the history; never its process-global `SkipClean`), and
+  the merged face keeps the old body's name and also answers to the others
+  (its aliases). Two old names, or two new ones, give no name. An alias
+  answers for one face: one held twice is withdrawn, and a split piece keeps
+  none. Edge names use the primary name only.
+- A shell's inner walls are `offset:<outer face's name>`, paired with their
+  source by checking the offset (a plane one wall behind with the opposite
+  normal, or a coaxial cylinder one wall in or out). The shell's result is
+  tightened, cleaned and re-ordered, so OCCT's history no longer applies.
+
+The bracket's edge-flange edge, hem edge and hole face resolve by name after
+60 -> 70, byte-identical to a re-pick at 70 (golden
+`revise-base-70-hole-on-flange`). A forged name still only breaks a tie
+among faces the geometric tiers admit.
+
+**Fillet guard (review of 8dedc83).** OCCT fillets in place, and a failed
+attempt can leave the input's vertices at tens of mm of tolerance (74 mm
+measured on a cone hub), which every later boolean then reads as geometry.
+So every fillet attempt now runs on a topology copy and the caller's body is
+never touched; the re-seam retry works from the untouched input. A result is
+accepted only if it has no free edge (`BRepCheck` passes an open shell), is
+no looser than max(input, r/100, 1e-2 mm) (correct blends on lofted faces
+reach 5e-3; the damage was 74 mm), and keeps every input face beyond 3r of
+the rounded edges: the same OCCT face, or, for a face the fillet re-bounded,
+samples spread over it lying inside a result face on the same surface with
+the same orientation (`geometry/kernel/fillet_guard.py`). Everything is
+linear in the body, with no ray casting (a first version classified points
+against the solid and took 127 s on a 906-face plate); the guard costs ~6 %
+of the fillet there. The check rejects OCCT's valid-but-wrong plain result
+on a two-blade hub (24 746 mm^3 for 32 212: the top cap dropped), and the
+retry then gives the right body. A refusal names what it found.
+
+**Blend isolation (FILLET-TORUS-SEGFAULT).** OCCT 7.9.3's `ChFi3d` blend
+can segfault rather than raise: R1 on the eight root edges where a 4x2x30 box
+meets `make_torus(20, 6)`, with the box's x=26 face tangent to the torus's
+outer equator, kills the process in `BRepFilletAPI_MakeFillet`. Nothing
+predicts it: the input is `BRepCheck`-valid, a 5 mm box fillets, and two of
+the edges alone fail cleanly. So a blend that leaves OCCT's analytic cases
+(an edge that is not a line, circle or ellipse, or a face beside it that is
+not a plane, cylinder, cone or sphere) runs isolated; the analytic blends,
+nearly every machined-part fillet, stay in-process and unchanged. The test is
+a function of the input, so a tree always takes the same path. Chamfer shares
+the builder and the routing. Isolation is one warm server per service process
+(`geometry/kernel/_fillet_worker.py`, started on first use) that forks a fresh
+child per blend. The server is single-threaded, so the fork is safe, which
+forking the threaded service is not. The child runs under `RLIMIT_CPU` 60 s
+and a 180 s wall backstop. A crash is a typed `FilletError` and an overrun a
+`FilletTimeoutError`; the service and the server carry on. Each call hands
+the server its own data and status sockets, and the caller enforces the wall
+clock by killing the child's pid, so blends run concurrently and no lock is
+held while one runs. Children die with the server (`PR_SET_PDEATHSIG`), the
+server kills and reaps them when its control socket closes, and compose runs
+geometry under an init (`init: true`) because uvicorn as PID 1 reaps nothing. Shapes cross as
+binary BRep, body, edges, result and generated faces in one compound, so the
+result's untouched faces are the returned copy's and names re-anchor as on
+any working copy. The result is the in-process result (exact volume, topology
+and face areas). Only the BRep text differs: pcurve table order, and `-0`
+where reading rebuilds an axis's Y direction. Measured on a loaded 4-core
+sandbox: the server's first start is 5-9 s (`import build123d`, 450 MB) and
+each blend after that costs about 40-50 ms (mostly forking 450 MB), next to a
+70-500 ms blend. A server importing OCP only would fork in
+17 ms, but it would need a second copy of the blend code.
+
+A chamfer is in place too: a failed R1 chamfer of the cone-hub blade root
+left an input vertex at 71.6 mm, and a successful one loosened it. So a
+chamfer now runs on a copy under the fillet guard, like the fillet.
+
+**Ops that write to their input (DRAFT-IN-PLACE audit, 2026-10-02).** Each
+kernel op that hands a body to an OCCT builder was run on the blade-hub
+bodies and a box, to success and to failure, comparing the input's text BRep
+before and after. Draft (310 runs) and a sealed shell rewrite only the
+`Checked` flag of one or two input `TShape`s on success; no failure touched
+an input, and geometry, tolerances, pcurves and locations never moved. That
+is cosmetic, and a later cut on the input matched a cut on a fresh build, but
+the input is the caller's and the rebuild cache's body, so draft and shell
+now run on a working copy like the fillet (`geometry/kernel/working_faces.py`).
+Names and the face-provenance memo re-anchor on the copy through `worked_on`;
+without the memo half, every op that works on a copy (the fillet and chamfer
+since 1af46bb too) re-fingerprinted the whole body at the next face pick.
+A draft result must also be `BRepCheck`-valid and no looser than
+max(input, 1e-2 mm): OCCT does return invalid drafts (a blade-root cap
+drafted with the pull along Y), which the 2026-07-13 sweep had not seen. The booleans behind pattern, mirror and a
+failed severing subtract ADD pcurves and locations to their input's edges
+(CM-6b) without moving geometry or tolerance; those stay as they are, since
+the rebuild ladder forks for exactly this and a copy per boolean would
+re-anchor every boolean's names. Hole, extrude add/cut, `clean`, edge flange,
+fillet and chamfer left their inputs byte-identical.

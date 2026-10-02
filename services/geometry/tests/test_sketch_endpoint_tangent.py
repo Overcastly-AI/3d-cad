@@ -15,6 +15,7 @@ import pytest
 from geometry.sketch import PlanegcsSketchSolver, SketchDefinition, SolvedSketch
 from geometry.sketch.schemas import SketchArc, SketchLine, TangentConstraint
 from geometry.sketch.solver import SketchDefinitionError
+from geometry.sketch.tangency import endpoint_target_rad
 from pydantic import ValidationError
 
 TOL = 1e-9
@@ -150,8 +151,8 @@ def test_a_leg_drawn_away_from_the_arc_keeps_its_branch() -> None:
     """A leg authored END -> START into the arc is held on the pi branch.
 
     The tangent directions follow each curve's own parameterisation, so the
-    target angle is 0 or pi depending on how the leg was drawn — read from the
-    submitted geometry. Re-deciding it would let the arc flip to a cusp.
+    target angle is 0 or pi depending on which ends meet: two ``start`` ends
+    here, so pi, read from the names (``endpoint_target_rad``).
     """
     reversed_e2 = _line("e2", (40, 20), (40, 0))
     sketch = _filleted(10, moved={"e2": reversed_e2})
@@ -202,3 +203,71 @@ def test_the_whole_curve_tangent_is_unchanged_on_the_wire() -> None:
     """A stored ``tangent`` with no ends parses with both unset — the old form."""
     stored = TangentConstraint.model_validate({"kind": "tangent", "a": "l", "b": "a"})
     assert stored.a_point is None and stored.b_point is None
+
+
+# -- the branch is read from the end NAMES, never the coordinates (review) ----
+
+
+@pytest.mark.parametrize(
+    ("a_point", "b_point", "target"),
+    [
+        ("end", "start", 0.0),
+        ("start", "end", 0.0),
+        ("start", "start", math.pi),
+        ("end", "end", math.pi),
+    ],
+)
+def test_the_target_is_symbolic(a_point: str, b_point: str, target: float) -> None:
+    constraint = TangentConstraint.model_validate(_tan("l", a_point, "a", b_point))
+    assert endpoint_target_rad(constraint) == target
+
+
+def test_a_leg_dragged_through_straight_does_not_hold_a_cusp() -> None:
+    """Review case 1: ``e2`` submitted pointing DOWN into the arc (its start
+    above its end) read as the pi branch from coordinates and solved with the
+    centre at (45, 20), 5 mm OUTSIDE the rectangle. ``end``/``start`` is 0."""
+    dragged = _line("e2", (40, 40), (40, 20))
+    _assert_tangent_round(_solve(_filleted(5, moved={"e2": dragged})), 5)
+
+
+def test_an_arc_dragged_outside_its_corner_comes_back_inside() -> None:
+    """Review case 2: the arc dragged to the outside, centre (45, 20)."""
+    outside = {
+        "id": "e2.1",
+        "kind": "arc",
+        "construction": False,
+        "center": _p(45, 20),
+        "start": _p(40, 20),
+        "end": _p(45, 25),
+    }
+    _assert_tangent_round(_solve(_filleted(5, moved={"e2.1": outside})), 5)
+
+
+def test_a_corner_that_can_only_be_a_cusp_is_reported_not_shipped() -> None:
+    """The arc's centre pinned on the far side of the leg: the only way to meet
+    it is folded back. The solve says conflicting and names the tangent."""
+    sketch = SketchDefinition.model_validate(
+        {
+            "entities": [
+                _line("l", (0, 0), (10, 0)),
+                {
+                    "id": "a",
+                    "kind": "arc",
+                    "construction": False,
+                    "center": _p(10, -5),
+                    "start": _p(10, 0),
+                    "end": _p(15, -5),
+                },
+            ],
+            "constraints": [
+                {"kind": "fixed", "point": {"entity": "l", "point": "start"}},
+                {"kind": "distance", "entity": "l", "value_mm": 10},
+                {"kind": "fixed", "point": {"entity": "a", "point": "center"}},
+                {"kind": "radius", "entity": "a", "value_mm": 5},
+                _tan("l", "end", "a", "start"),
+            ],
+        }
+    )
+    solved = _solve(sketch)
+    assert solved.status == "conflicting"
+    assert 4 in solved.conflicting_constraints

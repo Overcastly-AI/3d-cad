@@ -13,6 +13,7 @@ from py_kit import BaseServiceSettings, create_app
 
 from geometry.api import router
 from geometry.drawing_store import configure_drawing_artifact_store
+from geometry.kernel.fillet_isolation import prewarm as prewarm_blend_server
 from geometry.mesh_store import assert_single_worker_mesh_store, configure_mesh_store
 
 TITLE = "Loft Geometry"
@@ -75,6 +76,13 @@ class GeometrySettings(BaseServiceSettings):
     #: ``STEP_IMPORT_WALL_TIMEOUT_SECONDS``. Default 60.0s.
     step_import_wall_timeout_seconds: float = 60.0
 
+    #: Start the blend server (:mod:`geometry.kernel.fillet_isolation`) at boot,
+    #: in the background, instead of on the first fillet or chamfer outside
+    #: OCCT's analytic cases. That first blend otherwise waits 5-9 s for the
+    #: server to import the kernel; prewarming costs ~0.5 GiB RSS per worker
+    #: from boot. Env: ``BLEND_SERVER_PREWARM``. Default: lazy.
+    blend_server_prewarm: bool = False
+
 
 def build_app(settings: GeometrySettings | None = None) -> FastAPI:
     """Build the geometry app with its Redis (queue) readiness check.
@@ -124,6 +132,8 @@ def build_app(settings: GeometrySettings | None = None) -> FastAPI:
 
     app = create_app(settings, title=TITLE, version=VERSION, readiness_checks=(redis,))
     app.include_router(router)
+    if settings.blend_server_prewarm:
+        prewarm_blend_server()
     return app
 
 

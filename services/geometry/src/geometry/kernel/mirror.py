@@ -96,7 +96,9 @@ class MirrorUnreachableError(MirrorError):
     """
 
 
-def mirror_union(body: BodyShape, plane: Plane) -> BodyShape:
+def mirror_union(
+    body: BodyShape, plane: Plane, *, images: list[BodyShape] | None = None
+) -> BodyShape:
     """Reflect *body* about *plane* and boolean-union the reflection into it.
 
     The reflection is placed by ``Shape.mirror`` (an exact handedness-reversing
@@ -109,6 +111,9 @@ def mirror_union(body: BodyShape, plane: Plane) -> BodyShape:
     * an overlapping reflection → ONE merged solid (the hand-computed union);
     * a symmetric body → the body itself, unchanged (``V``).
 
+    *images*, when given, receives the reflected body (the faces a naming hook
+    names, :mod:`geometry.kernel.naming`).
+
     Raises:
         MirrorError: the OCCT reflection/union failed, or the union produced no
             solid (never expected — a reflection of a solid is a solid).
@@ -120,6 +125,8 @@ def mirror_union(body: BodyShape, plane: Plane) -> BodyShape:
             f"Mirror reflection failed in the kernel ({type(exc).__name__}); the "
             "mirror plane may be degenerate."
         ) from exc
+    if images is not None:
+        images.append(reflected)
 
     try:
         fused = body.fuse(reflected)

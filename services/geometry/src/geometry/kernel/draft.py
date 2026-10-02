@@ -29,7 +29,20 @@ collapse) OCCT NEVER silently returned a bad/invalid body (every built result wa
 a valid single solid; every over-angle raised). So — UNLIKE shell, whose
 too-thick path could silently return the un-hollowed body — draft needs NO
 material-validity invariant guard: catching the raise (→ :class:`DraftError`) plus
-the single-solid check is sufficient, never a silently wrong solid.
+the single-solid check is sufficient, never a silently wrong solid. That sweep
+was not exhaustive: OCCT DOES return an invalid draft (the blade-root cap of a
+blade-hub body drafted with the pull along Y, 2026-10-02), which reached the
+evaluator's validity gate as ``invalid_body``. So the result is checked here:
+valid (``BRepCheck``) and no looser than the input's loosest tolerance or the
+fillet's 1e-2 mm floor, else a :class:`DraftError`.
+
+INPUT UNTOUCHED (DRAFT-IN-PLACE, measured 2026-10-02): ``BRepOffsetAPI_DraftAngle``
+writes to the body it drafts. On the blade-hub bodies every successful draft
+(123 of 128) cleared the ``Checked`` flag of one or two input ``TShape`` objects;
+no failure (178) touched the input, and geometry, tolerances, pcurves and
+locations never changed. Cosmetic, and a later cut matched a cut on a fresh
+build; but the input is the caller's and the rebuild cache's body, so the draft
+runs on a working copy (:mod:`geometry.kernel.working_faces`), as the fillet does.
 
 Determinism (RESEARCH §9): the OCCT draft is a pure function of
 ``(body, faces, neutral_plane, angle)``.
@@ -46,10 +59,12 @@ from OCP.BRepOffsetAPI import BRepOffsetAPI_DraftAngle
 from OCP.StdFail import StdFail_NotDone
 from OCP.TopoDS import TopoDS
 
-from geometry.kernel.healing import clean_shape
+from geometry.kernel.fillet_guard import TOLERANCE_FLOOR_MM, max_tolerance
+from geometry.kernel.healing import clean_shape, new_geometry_is_valid
 from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
 from geometry.kernel.naming import OpHistory
 from geometry.kernel.types import BodyShape
+from geometry.kernel.working_faces import working_copy_faces
 
 
 class DraftError(RuntimeError):
@@ -87,25 +102,56 @@ def draft_body(
 
     *history*, when given, receives each picked face paired with the tilted face
     it became (``BRepOffsetAPI_DraftAngle::Modified``), for face naming
-    (:mod:`geometry.kernel.naming`).
+    (:mod:`geometry.kernel.naming`), and in ``worked_on`` the copy of *body*
+    the result was built on (its untouched faces are that copy's).
+
+    *body* is never modified: the draft runs on a working copy (module
+    docstring), and its result must be valid and no looser than the input's
+    loosest tolerance or 1e-2 mm.
 
     Raises:
         DraftError: the OCCT draft failed to complete (an angle too large for the
-            geometry, an undraftable face, …) or left other than exactly one
-            solid per drafted lump (single body chain per lump, design §7.6).
+            geometry, an undraftable face, …), left other than exactly one
+            solid per drafted lump (single body chain per lump, design §7.6), or
+            built an invalid or loose solid.
     """
-    if isinstance(body, Compound):
-        solids = body.solids()
-        groups = group_faces_by_lump(solids, faces)
-        return assemble_lumps(
-            [
-                _draft_one_lump(solid, lump_faces, neutral_plane, angle_deg, history)
-                if (lump_faces := groups.get(index))
-                else solid
-                for index, solid in enumerate(solids)
-            ]
-        )
-    return _draft_one_lump(body, faces, neutral_plane, angle_deg, history)
+    # OCCT drafts IN PLACE (it rewrites flags of the input's TShapes on every
+    # successful draft, kernel/working_faces.py): work on a copy, so *body*,
+    # the caller's and the rebuild cache's, is never touched.
+    ceiling = max(max_tolerance(body), TOLERANCE_FLOOR_MM)
+    work, work_faces = working_copy_faces(body, faces)
+    try:
+        if isinstance(work, Compound):
+            solids = work.solids()
+            groups = group_faces_by_lump(solids, work_faces)
+            result: BodyShape = assemble_lumps(
+                [
+                    _draft_one_lump(
+                        solid, lump_faces, neutral_plane, angle_deg, history, ceiling
+                    )
+                    if (lump_faces := groups.get(index))
+                    else solid
+                    for index, solid in enumerate(solids)
+                ]
+            )
+        else:
+            result = _draft_one_lump(
+                work, work_faces, neutral_plane, angle_deg, history, ceiling
+            )
+    except DraftError:
+        if history is not None:
+            history.generated.clear()
+        raise
+    if history is not None:
+        # Report against the CALLER's faces (the names were taken on those),
+        # and say which copy the result was built on (names re-anchor on it).
+        back = {id(copy): face for copy, face in zip(work_faces, faces, strict=True)}
+        history.generated = [
+            (back.get(id(source), source), tilted)
+            for source, tilted in history.generated
+        ]
+        history.worked_on = work
+    return result
 
 
 def _draft_one_lump(
@@ -114,12 +160,16 @@ def _draft_one_lump(
     neutral_plane: Plane,
     angle_deg: float,
     history: OpHistory | None,
+    ceiling_mm: float,
 ) -> Solid:
-    """Taper the picked *faces* of ONE lump — the byte-identical single-body path.
+    """Taper the picked *faces* of ONE lump (of the working copy).
 
     Shared by the single-solid fast path and each face-owning lump of the
     multi-lump path (§MB-4). Returns a new single cleaned solid; a lump with no
     picked face is passed through by :func:`draft_body` and never reaches here.
+    The drafted solid must be valid (``BRepCheck`` of the faces the draft made,
+    :func:`~geometry.kernel.healing.new_geometry_is_valid`) and no looser than
+    *ceiling_mm*, or it is a :class:`DraftError`.
     """
     try:
         # draft() carries Shape[Unknown] type params upstream (the same gap
@@ -141,6 +191,18 @@ def _draft_one_lump(
         raise DraftError(
             f"Draft produced {len(solids)} solids; parts are a single body "
             "in v1 (design §7.6)."
+        )
+    loosest = max_tolerance(solids[0])
+    if loosest > ceiling_mm:
+        raise DraftError(
+            f"The draft built a body Loft refuses: a vertex or edge tolerance of "
+            f"{loosest:.3g} mm, above the {ceiling_mm:.3g} mm a draft may leave. "
+            "The body is left as it was."
+        )
+    if not new_geometry_is_valid(solids[0], [body]):
+        raise DraftError(
+            "The draft built a body Loft refuses: OCCT reports it as an invalid "
+            "solid. The body is left as it was."
         )
     # clean() removes redundant seam faces/edges the operation can leave behind,
     # keeping topology counts meaningful (and golden-assertable).

@@ -485,6 +485,11 @@ _NOT_EXACT: dict[tuple[str, str], str] = {
     ("revise-width-drafted-fillet-shell-130x80x35", "draft"): "named",
     ("revise-width-drafted-fillet-shell-130x80x35", "fillet"): "named",
     ("revise-width-drafted-fillet-shell-130x80x35", "shell"): "named",
+    # Step 2: the impeller's 14 root edges, picked at hub 40, after the edit to
+    # 44 (each a hub side piece meeting a loft or pattern blade side).
+    ("revise-hub-d44-blade-root-fillet", "fillet"): "named",
+    # The QA blade (z 2..18): one root curve is cut by the hub's seam at 44.
+    ("revise-hub-d44-qa-blade-root-fillet", "fillet"): "named",
 }
 
 #: holed-bracket drills two holes per face with ONE stored face signature each;
@@ -495,6 +500,19 @@ _SECOND_HOLE_ON_A_SHARED_FACE = frozenset(
         ("holed-bracket-flat-pattern-view", "5e100000-0000-0000-0000-00000000d004"),
     }
 )
+
+
+#: Step 3: the bracket's picks, taken at base 60, after the edit to 70. Edge
+#: flange1 (its edge moved with the base), Edge flange3 and the hem (their
+#: edges grew) and the hole (its face moved) resolve by name; Edge flange2's
+#: edge, at the anchored -X end, is exact. Per feature, since two edge
+#: flanges resolve on different tiers.
+_NAMED_BY_ID: dict[tuple[str, str], str] = {
+    ("revise-base-70-hole-on-flange", f"00000000-0000-0000-0000-0000000b7c0{i}"): (
+        "named"
+    )
+    for i in (3, 5, 6, 7)
+}
 
 
 def _chamfer_fixture() -> list[dict[str, Any]]:
@@ -559,6 +577,7 @@ def test_every_schema_root_reports_one_tier_per_picked_reference() -> None:
                 expected = None
             else:
                 tier = _NOT_EXACT.get((name, kind), "exact")
+                tier = _NAMED_BY_ID.get((name, item["id"]), tier)
                 if (name, item["id"]) in _SECOND_HOLE_ON_A_SHARED_FACE:
                     tier = "durable"
                 expected = (

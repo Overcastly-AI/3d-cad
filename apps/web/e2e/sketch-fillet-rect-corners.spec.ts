@@ -34,6 +34,12 @@ import { createPartViaApi, seedSession } from "./support";
  * extrude, with no warning. The joins are endpoint tangents now; the second
  * test edits R after the fillets and checks the extrude against the analytic
  * rounded-rectangle volume.
+ *
+ * SKETCH-FILLET-KEEP-DIMS: the fillets used to DROP the W and H typed on the
+ * legs they trim, so an R edit could grow the outline (80 x 50 at R5 -> R15
+ * came out 100 x 70). They are kept now, measured to the virtual sharps where
+ * the legs' lines meet, as SolidWorks and Fusion keep them, and drawn there
+ * as a small point. The R edit must leave the outline exactly 80 x 50.
  */
 
 interface Pt {
@@ -104,6 +110,13 @@ async function filletedRectangle(page: Page) {
   await filletCorner(page, at, { x: 0, y: -HALF_H }, { x: HALF_W, y: 0 });
   // The re-homed corners solve cleanly: nothing reads redundant or in conflict.
   await expect(page.getByTestId("dro-solve")).not.toHaveText(/OVER|CONFLICT/i);
+  // W and H survive both fillets, anchored to the virtual sharps: one at each
+  // right-hand corner (W's right end and H's lower end share the bottom one).
+  const lengths = page.locator('[data-testid^="glyph-"][data-kind="distance"]');
+  await expect(lengths).toHaveCount(2);
+  await expect(lengths.filter({ hasText: /^80$/ })).toHaveCount(1);
+  await expect(lengths.filter({ hasText: /^50$/ })).toHaveCount(1);
+  await expect(page.getByTestId("virtual-sharp")).toHaveCount(2);
   return { token, part };
 }
 
@@ -231,6 +244,11 @@ test("editing R after the fillets keeps them tangent; the extrude is the rounded
   expect(ys, dump).toHaveLength(2);
   const [left, right] = [Math.min(...xs), Math.max(...xs)];
   const [bottom, top] = [Math.min(...ys), Math.max(...ys)];
+  // The outline did not move: W and H, kept to the virtual sharps, still hold
+  // it at 80 x 50 where it was drawn (before SKETCH-FILLET-KEEP-DIMS nothing
+  // held the trimmed legs apart).
+  expect(right - left, dump).toBeCloseTo(2 * HALF_W, 6);
+  expect(top - bottom, dump).toBeCloseTo(2 * HALF_H, 6);
   // Every arc is TANGENT to both legs it joins: its centre sits r inside the
   // right leg and r inside the top or bottom leg. Before the fix the edited
   // arc's centre sat 9.1 mm from legs it should have been 10 mm from.
@@ -249,8 +267,53 @@ test("editing R after the fillets keeps them tangent; the extrude is the rounded
     const toEdge = c.y > (top + bottom) / 2 ? top - c.y : c.y - bottom;
     expect(toEdge, dump).toBeCloseTo(r, 6);
   }
-  // A rounded corner of radius r removes r^2 (1 - pi/4) from the rectangle.
-  const corner = (r: number) => r * r * (1 - Math.PI / 4);
-  const area = (right - left) * (top - bottom) - corner(R) - corner(10);
-  expect(body.properties?.volume ?? NaN, dump).toBeCloseTo(area * 10, 4);
+  // A rounded corner of radius r removes r^2 (1 - pi/4) from the rectangle:
+  // 80 x 50 less an R5 and an R10 corner, extruded 10, is
+  // 10 * (4000 - 125 (1 - pi/4)) = 38750 + 312.5 pi, ANALYTIC (not measured
+  // off the solved outline, which nothing held before the fix).
+  const analytic = 38750 + 312.5 * Math.PI;
+  expect(body.properties?.volume ?? NaN, dump).toBeCloseTo(analytic, 4);
+});
+
+test("editing W after the fillets still drives the size, sharp to sharp", async ({
+  page,
+}) => {
+  test.setTimeout(150_000);
+  const { token, part } = await filletedRectangle(page);
+  await page.keyboard.press("Escape"); // leave Fillet: the glyphs take clicks
+  const lengths = page.locator('[data-testid^="glyph-"][data-kind="distance"]');
+  await lengths.first().click();
+  const input = page.getByTestId("dimension-input");
+  await expect(input).toBeVisible();
+  await input.fill("100");
+  await input.press("Enter");
+  // (Unordered: an edited glyph's overlay re-mounts at the end of the DOM.)
+  await expect(lengths.filter({ hasText: /^100$/ })).toHaveCount(1);
+  await expect(lengths.filter({ hasText: /^50$/ })).toHaveCount(1);
+  await expect(page.getByTestId("dro-solve")).not.toHaveText(/SOLVING/);
+  await page.waitForTimeout(1500);
+  await expect(page.getByTestId("dro-solve")).not.toHaveText(/OVER|CONFLICT/i);
+  // Still anchored to the sharps: the edit kept them (the inline editor
+  // rebuilds the constraint, and W to the trimmed leg's ends would be 95).
+  await expect(page.getByTestId("virtual-sharp")).toHaveCount(2);
+  await saveAndRead(page, token, part.id);
+
+  const evaluated = await page.request.post(
+    `/api/v1/parts/${part.id}/evaluate`,
+    { data: {}, headers: { Authorization: `Bearer ${token}` } },
+  );
+  expect(evaluated.ok(), await evaluated.text()).toBe(true);
+  const body = (await evaluated.json()) as {
+    features: Array<{ data?: { entities?: PersistedEntity[] } }>;
+  };
+  const lines = (body.features[0]?.data?.entities ?? []).filter(
+    (e) => e.kind === "line" && e.construction !== true,
+  );
+  const dump = JSON.stringify(lines);
+  const xs = lines.flatMap((l) => [(l.start as Pt).x, (l.end as Pt).x]);
+  const ys = lines.flatMap((l) => [(l.start as Pt).y, (l.end as Pt).y]);
+  // The outline is 100 x 50 sharp to sharp: the left leg stays where it was
+  // drawn and the right leg moves out 20 mm.
+  expect(Math.max(...xs) - Math.min(...xs), dump).toBeCloseTo(100, 6);
+  expect(Math.max(...ys) - Math.min(...ys), dump).toBeCloseTo(2 * HALF_H, 6);
 });

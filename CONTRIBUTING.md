@@ -20,6 +20,10 @@ Prerequisites:
 - Node 22 + [pnpm](https://pnpm.io/) 10 (version pinned in `package.json` `packageManager`)
 - [uv](https://docs.astral.sh/uv/)
 - [just](https://just.systems/) — `uv tool install rust-just`
+- A C++20 compiler, CMake, and the Eigen 3 and Boost headers. `uv sync` builds
+  the patched sketch solver from `vendor/planegcs` (docs/RESEARCH.md §2).
+  Debian/Ubuntu: `apt install g++ cmake libeigen3-dev libboost-dev`; macOS:
+  `brew install cmake eigen boost`
 - Docker (optional — only for the compose stack; the container-free path
   below is how the project is developed day to day)
 

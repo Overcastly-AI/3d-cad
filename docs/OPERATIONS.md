@@ -95,6 +95,23 @@ scripts/smoke-healthz.sh 8000
 Migrations only go forward, and run from the images. To roll back, restore the
 pre-upgrade backup with the old tag's images.
 
+### Upgrade notes
+
+- **Sketch solver build (SKETCH-SOLVE-HEAP-ORDER).** Geometry now builds the
+  sketch solver with a patch that makes solves independent of memory layout
+  (docs/RESEARCH.md §2). Goldens and small sketches rebuild byte-identically.
+  One kind of stored part can shift once, on its first rebuild after the
+  upgrade: a sketch that meets all three of these conditions.
+  - It is under-constrained.
+  - It has more than 64 free parameters (each line has 4, each arc has 9).
+  - Its last edit was saved unsolved, so the stored geometry does not satisfy
+    its constraints.
+
+  Such a sketch was not reproducible before the upgrade either: the old
+  solver could give it different answers in different worker processes.
+  Fully constrain these sketches, so the constraints alone fix the geometry.
+  Re-check any downstream feature that depends on them.
+
 ## 6. Sizing
 
 Three facts drive sizing:
@@ -111,8 +128,14 @@ Three facts drive sizing:
   `docker compose -f docker-compose.yml -f docker-compose.scale.yml up -d`
   with `S3_URL` set. Bare `--scale geometry=N` has no affinity.
 
-**Rule: one geometry worker per concurrent modeller, one core and about 1 GiB
-of RAM per worker.** An idle worker's floor is about 500 MiB. Gateway and
+**Rule: one geometry worker per concurrent modeller, one core and about 1.5 GiB
+of RAM per worker.** An idle worker's floor is about 500 MiB. The first fillet
+or chamfer outside OCCT's analytic cases (an intersection curve, a torus, a
+free-form face) starts the worker's blend server, about 0.5 GiB more, which
+runs each such blend in a forked child so an OCCT crash cannot take the worker
+down. It starts in 5-9 s on first use; `BLEND_SERVER_PREWARM=true` starts it
+at boot instead. Run geometry under an init (compose sets `init: true`;
+on Kubernetes, use an init such as tini as the entrypoint). Gateway and
 documents need tens of MiB, and Postgres 0.5 to 1 GiB. Size the Postgres disk
 for imported STEP stored inline, which can reach 16 MiB per import.
 

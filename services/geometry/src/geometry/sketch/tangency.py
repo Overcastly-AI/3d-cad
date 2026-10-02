@@ -22,14 +22,27 @@ kink in the extrude with no warning). The angle-at-a-point equation is
 independent of the coincidence, so the pair is three equations for three
 removed degrees of freedom.
 
-**Which of ``0`` / ``pi``** is read ONCE from the author's submitted geometry
-(:func:`endpoint_target_rad`), like :mod:`geometry.sketch.angles` reads an
-angle's frame: the tangent directions follow each curve's own parameterisation
-(a line ``start -> end``, an arc counter-clockwise), so a fillet's leg can run
-either way into the arc, and re-deciding mid-solve would let the branch follow
-the solver rather than the drawing. The angle conventions are planegcs's own,
-measured (``calculate_angle_via_point``): the signed angle from ``a``'s tangent
-to ``b``'s, error ``wrap(actual - target)`` in radians.
+**Which of ``0`` / ``pi``** is decided SYMBOLICALLY from the two end names
+(:func:`endpoint_target_rad`), never from coordinates, as the web's
+``endpointTangent.ts`` reads every join from the constraints. The tangent
+directions follow each curve's own parameterisation (a line ``start -> end``,
+an arc counter-clockwise), so at a smooth join one curve runs INTO the point
+and the other OUT of it: an ``end`` meeting a ``start`` gives the same
+direction (``0``); two ``start`` ends or two ``end`` ends give opposite ones
+(``pi``). The other target at the same join is a CUSP: the arc folded back
+over the leg.
+
+The first version read the target from the submitted geometry (``0`` when the
+two tangents ran within a right angle). The review built two sketches where
+that read a cusp as intended and held it: a leg dragged through straight
+(submitted reversed) and an arc dragged to the outside of its corner, both
+solved with the centre 5 mm OUTSIDE the rectangle and no warning. Read
+symbolically, the only solutions are the smooth ones; a corner that cannot
+reach one does not converge or fails the payload's residual gate, and reads
+``conflicting`` naming this tangent. That is the warning: a silent cusp is no
+longer an outcome. The angle conventions are planegcs's own, measured
+(``calculate_angle_via_point``): the signed angle from ``a``'s tangent to
+``b``'s, error ``wrap(actual - target)`` in radians.
 """
 
 import math
@@ -86,14 +99,17 @@ def endpoint_angle_rad(
     return math.atan2(ta[0] * tb[1] - ta[1] * tb[0], ta[0] * tb[0] + ta[1] * tb[1])
 
 
-def endpoint_target_rad(constraint: TangentConstraint, submitted: PointTable) -> float:
-    """``0`` when the submitted tangents run the same way, else ``pi``."""
-    angle = endpoint_angle_rad(constraint, submitted)
-    return 0.0 if angle is None or abs(angle) <= math.pi / 2 else math.pi
+def endpoint_target_rad(constraint: TangentConstraint) -> float:
+    """``0`` when one join end is a ``start`` and the other an ``end``, else ``pi``.
+
+    The smooth branch, from the names alone (module note): the curve that ends
+    at the join runs into it, the one that starts there runs out of it.
+    """
+    return 0.0 if constraint.a_point != constraint.b_point else math.pi
 
 
 def endpoint_residual(
-    constraint: TangentConstraint, solved: PointTable, submitted: PointTable
+    constraint: TangentConstraint, solved: PointTable
 ) -> float | None:
     """``max(join gap mm, wrapped angle miss rad)``, planegcs's two errors."""
     a = solved.get((constraint.a, constraint.a_point or ""))
@@ -101,7 +117,7 @@ def endpoint_residual(
     angle = endpoint_angle_rad(constraint, solved)
     if a is None or b is None or angle is None:
         return None
-    miss = angle - endpoint_target_rad(constraint, submitted)
+    miss = angle - endpoint_target_rad(constraint)
     miss = (miss + math.pi) % math.tau - math.pi
     return max(math.hypot(b[0] - a[0], b[1] - a[1]), abs(miss))
 
@@ -147,7 +163,7 @@ def add_tangent(
         handle: dict[str, LineId | ArcId] = {**lines, **arcs}
         entity, end = join_point(constraint, submitted)
         join = point(EntityPointRef(entity=entity, point=end))
-        target = endpoint_target_rad(constraint, submitted)
+        target = endpoint_target_rad(constraint)
         return [
             gcs.coincident(
                 point(EntityPointRef(entity=a_id, point=constraint.a_point)),

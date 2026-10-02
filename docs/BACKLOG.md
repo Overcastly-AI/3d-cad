@@ -9,7 +9,18 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
-- [ ] **SKETCH-ENDPOINT-TANGENT** (wrong geometry, review of c6475cf):
+- [x] **SKETCH-SOLVE-HEAP-ORDER** (determinism, pre-existing; review of
+      1b8632f): planegcs orders a subsystem's free parameters by address
+      (`std::deque` of 64-double chunks), so a sketch with more than 64 free
+      parameters solves differently within one process under heap churn:
+      7e-15 apart fully constrained, 27.4 um apart on an under-constrained
+      24-line polygon. A long-running worker can rebuild a stored part
+      differently. Virtual sharps add 2 parameters each. _Accept:_ a patched
+      planegcs (order by index) or a canonical re-solve; the same sketch solves
+      bit-identically 20 times in one churned process and across processes.
+- [x] **SKETCH-FILLET-KEEP-DIMS** (1b8632f): W/H survive a fillet on the
+      virtual sharp; R edits keep the outline.
+- [x] **SKETCH-ENDPOINT-TANGENT** (wrong geometry, review of c6475cf):
       after a sketch fillet the arc is held only by its end coincidents and
       R (the whole-curve line-arc tangent reads redundant with them), so an
       R edit leaves it off-tangent: a 40x25 rect R5 -> R10 puts the centre
@@ -18,7 +29,7 @@ commits carry the ID (`git log --grep=<ID>`).
       the solver and the fillet reconcile, also used for a user tangent
       between line and arc that share an end; R5 -> R10 / R3 and a leg drag
       keep centre-to-leg = r; the sketch reads no redundancy.
-- [ ] **SKETCH-FILLET-UNTRIM** (wrong geometry, HARD-PARTS 2026-10-01): on
+- [x] **SKETCH-FILLET-UNTRIM** (wrong geometry, HARD-PARTS 2026-10-01): on
       a rectangle whose size was typed as it was drawn, a sketch fillet on a
       second corner restores the first corner's trims. The leg that carries
       the H dimension is solved back to full length, so the first arc dangles,
@@ -34,7 +45,7 @@ commits carry the ID (`git log --grep=<ID>`).
       75 mm^3 sliver). _Accept:_ Shell builds the right walls or raises a
       typed ShellError, checked by a method independent of the joins; the
       170-case bore/tube sweep is a standing test; goldens unchanged.
-- [ ] **EDGE-MARK-OVERLAP** (wrong geometry, REFERENCE-RUN 2026-09-30): on a
+- [x] **EDGE-MARK-OVERLAP** (wrong geometry, REFERENCE-RUN 2026-09-30): on a
       2 mm wall the 24 px midpoint marks of the outer and inner rim edges sit
       6-11 px apart and the later one covers the earlier, so clicking the
       outer back/left rim mark picks the INNER edge. The editor only says
@@ -48,13 +59,13 @@ commits carry the ID (`git log --grep=<ID>`).
       (`hard-parts-2026-10-01/enclosure-lip-fillet-marks-pick-wrong-edges.png`).
       On the impeller, one of 14 root-edge picks also lit an unrequested edge.
 - [ ] **SHELL-INTERSECTION-SLOW** (hang, pre-existing): a sealed plate bored r2.991 with a cross bore r1.424 at t 2.39 spends 133 s in OCCT's Intersection hollow (`shell.py`), past the gateway's 90 s timeout, on every version. _Accept:_ Shell answers (a solid or a typed refusal) within the timeout on that body; the Intersection route is skipped when Arc alone decides.
-- [ ] **SHELL-HEAL-NONDETERMINISM** (P1): a stored sealed Shell can fail to
+- [x] **SHELL-HEAL-NONDETERMINISM** (P1): a stored sealed Shell can fail to
       rebuild at random. Rod with a cross-bore r6 at t=2 is refused on 31 of
       60 rebuilds (3 processes), before and after 5fda139: the heal step
       raises HealingError on OCCT's address-dependent Arc output. Non-strict
       xfail in `tests/test_shell_walls_qa.py` (the outcome is per process). _Accept:_ the same body gives
       the same outcome in several fresh processes, checked by a multi-process test that replaces the xfail.
-- [ ] **PICK-ENTER-UNPICKS**: in Fillet and Draft pick mode, focus stays on
+- [x] **PICK-ENTER-UNPICKS**: in Fillet and Draft pick mode, focus stays on
       the last pick mark, so Enter (the panel's advertised Create key)
       toggles that pick off (4 -> 3 edges, 4 -> 3 faces) instead of creating.
       _Accept:_ Enter after a pick creates the feature with every pick; an
@@ -73,16 +84,31 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Next
 
+- [ ] **FILLET-PARTIAL-RESOLVE**: when some of a fillet's picked edges no
+      longer exist (an impeller going 7 -> 6 blades), the whole fillet fails.
+      Fusion keeps the edges that still resolve and warns about the rest.
+      _Accept:_ the fillet builds on the resolved edges with a per-edge
+      warning; nothing resolves to an unpicked edge.
+- [ ] **SKETCH-PROJECT-EDGES**: no Project/Include of body edges into a
+      sketch, so a lip sketched on a face keeps its typed size after the body
+      widens (QA rerun 2026-10-01). _Accept:_ projected edges follow the body
+      on rebuild, as in Fusion.
+- [ ] **SHELL-EDGE-DETERMINISM**: the sealed cross-bored rod rebuilds with
+      21 or 20 edges depending on OCCT's address order (46c075f); volume and
+      faces agree. _Accept:_ one edge count in every process.
+- [ ] **SHELL-HEAL-VOLUME-GUARD**: `conform_solid` measures volume after
+      `split_pinched_faces`, so the split itself is never volume-checked
+      (shell_heal.py claims it is). _Accept:_ volume measured before the split.
 - [ ] **DESIGN-INTENT-BACKFILL**: parts saved before DESIGN-INTENT-REFS
       keep picks without history names, so they still lose them on an early
       size edit until re-picked. _Accept:_ a one-off pass names each stored
       pick while it still resolves exactly at the part's current sizes; the
       three hard-parts edits then rebuild on the QA's saved parts.
-- [ ] **SKETCH-FILLET-KEEP-DIMS**: a sketch fillet drops the typed W/H on
+- [x] **SKETCH-FILLET-KEEP-DIMS**: a sketch fillet drops the typed W/H on
       the legs it trims (the sharp corner is gone), leaving 5 free DOF;
       Fusion keeps them to the virtual sharp. _Accept:_ a virtual-sharp
       dimension survives the fillet and still drives the size.
-- [ ] **DESIGN-INTENT-REFS** (HARD-PARTS 2026-10-01, the top design-intent
+- [ ] **DESIGN-INTENT-REFS** (steps 1-2 landed and reviewed: enclosure 8566ec1, impeller 37b2de8 + 8dedc83/95a38e3; step 3 bracket 42b4482 is blocked on cap-name swap) (HARD-PARTS 2026-10-01, the top design-intent
       blocker): picked edges and faces are re-found by geometric signature,
       so changing an early size loses them. Enclosure width 120 -> 130:
       Fillet1 SUBSHAPE_UNRESOLVED and 23 later features skipped. Impeller hub
@@ -93,9 +119,16 @@ commits carry the ID (`git log --grep=<ID>`).
       corresponding edge or face; a golden covers the enclosure width edit.
       _Step 1 done 2026-10-01_ (history names, RESEARCH §14): the enclosure
       width edit rebuilds (golden
-      `revise-width-drafted-fillet-shell-130x80x35`). Left: impeller (step 2,
-      loft/pattern/revolve hooks) and bracket (step 3, sheet metal, shell,
-      `clean_shape` history), each re-checked on a fresh QA part.
+      `revise-width-drafted-fillet-shell-130x80x35`). _Step 2 done
+      2026-10-01_: loft, revolve, pattern and mirror hooks, split-face pieces
+      named by their neighbours; the impeller hub 40 -> 44 rebuilds its 14
+      root fillets (golden `revise-hub-d44-blade-root-fillet`). _Step 3
+      done 2026-10-01_: base flange, edge flange, hem and bend-relief faces
+      named by role, shell inner walls by the face they offset, faces a
+      clean merges carry every merged name; the bracket base 60 -> 70
+      rebuilds Hole1 and Edge flange1 by name (golden
+      `goldens-sheet-metal/revise-base-70-hole-on-flange`). Left: a QA rerun
+      of all three on fresh parts.
 - [x] **TYPED-POLYLINE-UNJOINED**: lines whose ends are typed onto an
       existing endpoint are not joined (no coincident constraint, unlike a
       pointer snap). The first dimension on the shaft's typed 18-line profile
@@ -104,7 +137,7 @@ commits carry the ID (`git log --grep=<ID>`).
       (`hard-parts-2026-10-01/shaft-dimension-tears-typed-profile.png`).
       _Accept:_ a typed point on an existing endpoint adds a coincident
       constraint; dimensioning that profile rebuilds the shaft.
-- [ ] **HOLE-BLIND-FALSE-DEEP**: a Ø2.5 x 10 blind hole on the top of an
+- [x] **HOLE-BLIND-FALSE-DEEP**: a Ø2.5 x 10 blind hole on the top of an
       Ø8 x 31 boss is refused HOLE_TOO_DEEP (also at depth 25). The drill
       removes 49.0779 mm³ against an analytic 49.0874, because volume noise on
       a 50 000 mm³ body exceeds `_POCKET_REL_TOL` (1e-6 of the pocket) in
@@ -137,7 +170,7 @@ commits carry the ID (`git log --grep=<ID>`).
       and a pick in a cancelled command is not a pre-selection.
 - [x] **FILE-SIZE-RATCHET**: a `just lint` + CI check that no source file over 1,500 lines grows and no new file passes 1,500, with the current oversized files listed with their sizes and each split lowering its entry. _Accept:_ the check fails on a +1 line to `apps/web/src/routes/PartPage.tsx` and on a new 1,501-line file; the list only shrinks.
 - [x] **SPLIT-EVALUATE** (`services/geometry/src/geometry/features/evaluate.py`, 4,382 lines): one module per feature family behind the same dispatch, no behaviour change. _Accept:_ full geometry suite green, every golden byte-identical, determinism tests green, no file over 1,500 lines.
-- [ ] **SPLIT-PARTPAGE** (`apps/web/src/routes/PartPage.tsx`, 6,502 lines; after FILLET-EDIT-REPICK lands): move per-feature edit logic, the edit-rollback/preview, pick and timeline wiring into their own modules and hooks; no behaviour change. _Accept:_ typecheck, vitest and the full e2e lane green; PartPage under 1,500 lines.
+- [x] **SPLIT-PARTPAGE** (`apps/web/src/routes/PartPage.tsx`, 6,502 lines; after FILLET-EDIT-REPICK lands): move per-feature edit logic, the edit-rollback/preview, pick and timeline wiring into their own modules and hooks; no behaviour change. _Accept:_ typecheck, vitest and the full e2e lane green; PartPage under 1,500 lines.
 - [x] **SPLIT-COMPOSE** (`services/geometry/src/geometry/drawings/compose.py`, 4,297 lines; after the drawings fix lands): layout, dimensioning, views and export emitters in separate modules. _Accept:_ drawing goldens byte-identical; no file over 1,500 lines.
 - [x] **SPLIT-DRAWINGPAGE** (`DrawingPage.tsx` 3,382 -> 680, 0ab6cf2).
 - [ ] **SPLIT-SKETCHSCENE** (`SketchScene.tsx` 2,944): same treatment. _Accept:_ typecheck, vitest, covering e2e green; each under 1,500.
@@ -298,6 +331,8 @@ One line each. The founder triages weekly; most are closed without work.
 - The offset datum editor shows a red "Add a feature that creates a body before picking a face" while offsetting from XY (`duct-datum-face-warning.png`).
 - A long horizontal orbit drag rolls the camera to a bottom view (not a turntable), and there is no Back view button; reaching a part's back took 3 tries.
 - View keys (0-4) are ignored while a command's value cell has focus, and the view bar is hidden during sketch face-pick.
+- A fillet at a rectangle corner coincident with the origin drops that coincidence (no point reference to a virtual sharp yet), so the rounded profile is no longer grounded; SolidWorks keeps it on the sharp.
+- A fillet still drops `equal` between its trimmed legs (a square's equal sides); Fusion keeps it measured to the virtual sharps.
 - Circular pattern shows no preview; the body changes only on Create (`hub-circular-no-preview.png`).
 - There is no centre-point rectangle; the duct's centred squares needed their corners aimed by the DRO.
 - An empty dark panel covers the sketch viewport under the tree header (`sketch-empty-panel.png`).
@@ -321,3 +356,27 @@ One line each. The founder triages weekly; most are closed without work.
 - During a fillet edit: tip-body face highlights paint over the preview body, the timeline is unheld until the preview lands, mass properties show the tip, a failed preview is silent, and extrude/flange/hem edits have no preview.
 - The sketch corner reconcile compares against the store when the result arrives, not when the fillet was asked for; a drag in between reads as a trim.
 - SHELL-ROUND-ASYM: an open 2 mm shell of a drafted, R5-rounded box leaves one of its four inner R3 rounds 5.2e-8 mm^2 off its mirror twins (edges fitted at 1e-6 mm), so the STEP round trip moves the volume 1.1e-6 mm^3; `offset_edges` tightens only spline walls. Golden `revise-width-drafted-fillet-shell-130x80x35` has its volume/area STEP round-trip check as a strict xfail (conftest `KNOWN_ROUNDTRIP_DEFECTS`) until it is fixed.
+- DESIGN-INTENT-REFS step 2 leaves no naming hook on sweep, twisted extrude/sweep, hole, a body-scope cut pattern or `mirror_cut` (their new faces are unnamed and picks there use the geometric tiers, as before).
+- DESIGN-INTENT-REFS step 3 leaves no naming hook on the corner-relief feature's notch or on a shell wall offset from anything but a plane or cylinder; merged-face history is read only for the sheet-metal folds (other ops' cleans keep the step 1-2 surface rule).
+- FILLET-BLEND-ROUNDTRIP: OCCT fits the R1 rolling-ball blends between a B-spline blade side and the hub cylinder at 3.2e-5 mm; a STEP round trip re-reads each blend 4.2e-6 mm^2 off, moving the impeller's volume 2.0e-5 mm^3 (the pure build123d cross-check moves 2.4e-5; centroid, bounds and topology hold at 1e-7). Goldens `revise-hub-d44-blade-root-fillet` and `revise-hub-d44-qa-blade-root-fillet` (2.5e-7 mm^3) have their volume/area STEP round-trip check as a strict xfail (conftest `KNOWN_ROUNDTRIP_DEFECTS`) until it is fixed.
+- Hard-parts re-run at 7916a63: EDGE-MARK-OVERLAP (lip outer corners 4/4, no stray), SKETCH-FILLET-UNTRIM (8 corners on a typed 118x78 lip), TYPED-POLYLINE-UNJOINED and HOLE-BLIND-FALSE-DEEP verified fixed in the app. PICK-ENTER-UNPICKS no longer reproduces: Enter on a focused fillet mark creates the feature.
+- The sketcher has no Project/Include edges, so the enclosure lip cannot follow the rim. After width 120 -> 130, the lip keeps its typed 118 mm and bridges the cavity at the X ends. Fusion projects the rim.
+- A new Fillet after deleting one pre-selects the deleted fillet's edges, including off-screen ones (4 pre-picked, 2 of them not wanted). This is the edge-pick sibling of SKETCH-STALE-FACE.
+- New Sketch's plane picker resets the camera to iso and hides the view bar, so a Top view set first is lost and a click "on the floor" sketches on the front wall. Only an orbit inside the picker reaches the floor.
+- The rib-root edges (2.2 mm floor segments beside a 1.5 mm rib) were buried in nearly every view at 1280x800, so the rib-root fillet was dropped. Root edges on a Shell floor also carry no topo_name (step 3).
+- With 1280x800 and Sketch Fit, a 118x78 face sketch runs under the feature tree and the DRO panel. A sketch-fillet pick that lands there is lost without a message.
+- SKETCH-FILLET-KEEP-DIMS confirmed: after 8 corner fillets the lip sketch went from DOF 0 to DOF 24, so the 118/116 sizes cannot be edited to follow a width change.
+- Fixed after 1942b0f (golden `revise-hub-d44-qa-blade-root-fillet`: the hub seam cut one root curve in two, and OCCT's fillet failed at the seam): DESIGN-INTENT-REFS step 2 did not hold on the QA impeller at 1942b0f. On a fresh UI-built part, all 14 root picks carry names, but hub R20 -> R22 still leaves Fillet1 SUBSHAPE_UNRESOLVED. The golden's blade spans the full hub height (z 0..20) and splits the hub side. The QA blade is z 2..18 (sections on XY+2 and XY+18), so it pierces the hub side without splitting it and the root edges end on the loft caps (`hard-parts-rerun-2026-10-01/impeller-step2-after-hub44.png`).
+- Fixed: FILLET-TORUS-SEGFAULT. A non-analytic fillet/chamfer now runs in a forked child of a warm blend server (RESEARCH "Blend isolation"), so the torus case is a typed `FilletError` and the service survives (`test_fillet_isolation.py`).
+- Hole: a countersink overhanging a boss rim by 0.05 mm is accepted (volume cannot see a thin crescent); the drill starts a bbox diagonal outside the face, so material above the plane on a C-shaped body is cut and counted.
+- Edge marks: a back edge whose hidden run lies under the pointer can beat the front edge (seen only as an x-ray hover); a picked edge resolved again is silently un-picked; `CORNER_ROOM_PENALTY_PX` is 6 px, its comment says 12.
+- Naming: a merged coplanar face's name flips with dimensions (3 samples), so stored names go stale more often; `_containing` checks only 3 interior points.
+- Sketch: applying a user Tangent at a sharp corner silently makes a cusp; endpoint-tangent glyphs sit at the leg midpoint and overlap; old fillet sketches with plain coincident joins are not backfilled.
+- A new Fillet pre-selects a deleted fillet's edges, off-screen ones included; New Sketch's plane picker resets the camera and hides the view bar; at 1280x800 a fitted face sketch runs under the side panels and picks there are lost.
+- `scripts/e2e.sh`, `vite.config.ts` and `playwright.config.ts` hard-code web :5173, so parallel e2e needs a throwaway config.
+- BLEND-SERVER-COLD: the first non-analytic fillet or chamfer in a geometry process waits 5-9 s for the blend server to import the kernel, unless `BLEND_SERVER_PREWARM=true` (~0.5 GiB RSS per worker from boot; default lazy).
+- Fixed: DRAFT-IN-PLACE. A successful draft (123 of 128) or sealed shell cleared the `Checked` flag of 1-2 input TShapes (nothing else moved; later cuts matched). Both now run on a working copy (RESEARCH "Ops that write to their input"; `test_input_untouched.py`).
+- BOOLEAN-INPUT-PCURVES: the booleans behind pattern, circular cut pattern, mirror and a failed severing subtract add pcurves and locations to the input body's edges (no geometry or tolerance change; later cuts match). Left as is: the rebuild ladder forks for it (CM-6b).
+- DRAFT-SEGFAULT (blocking, open): drafting the hub's cylinder or cone face 30 deg (neutral XY or XY+10) on the blade-hub body with the seam at 180 deg segfaults in `BRepOffsetAPI_DraftAngle::Build`; seam at 0 raises cleanly. Candidate fix: route drafts whose faces border a non-analytic face through the blend server.
+- Upstream the planegcs address-order fix (`vendor/planegcs-loft.patch`) to spookylukey/planegcs (FreeCAD's PlaneGCS has the same ordering); a released wheel would drop the source build and its Eigen/Boost CI step.
+- `scripts/check-build-context.py` checks workspace members against the Dockerfile COPYs but not non-workspace `path` sources such as `vendor/planegcs`, so a second one could be missed until `deploy-path`.

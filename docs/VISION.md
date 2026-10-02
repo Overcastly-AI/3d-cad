@@ -70,6 +70,26 @@ independent build123d script, then an early dimension was edited
 | Turned shaft: Ø60/30/25/20 revolve, 2 circlip grooves, keyway, 0.5 mm chamfers, 6-hole flange, cross hole    | Built and exact (72 532.21 mm³). A dimension on the typed profile tore it open and all 11 features failed. The PCD and cross-hole datum edits rebuilt correctly                                                           | 7.3 min, 131                     | TYPED-POLYLINE-UNJOINED                                                                        |
 | Impeller: Ø40 hub, twisted ruled-loft blade x7, R1 root fillets, Ø12 bore with keyway                        | Built and exact (29 488.49 mm³). Hub Ø40 -> Ø44: the root fillet lost all 14 edges                                                                                                                                        | 7.6 min, 133                     | DESIGN-INTENT-REFS                                                                             |
 
+**Re-run 2026-10-01 @ `7916a63`** (DESIGN-INTENT-REFS step 1; impeller also
+at `1942b0f`, step 2), on fresh parts
+with the same dimensions and the same headless setup
+(`docs/screenshots/hard-parts-rerun-2026-10-01/`). The enclosure now has a
+rounded lip (R7/R6 sketch fillets) and real blind holes, and it has no
+rib-root fillets.
+
+| Part      | Before edit (app, check)                                                                            | Edit           | After edit                                                                                                                               | Check                                              |
+| --------- | --------------------------------------------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Enclosure | 49 606.57 mm³, 18 features; STEP 49 606.51 against script 49 606.65, empty boolean difference      | width 120->130 | All 18 rebuilt. Draft1 (4 faces), Fillet1 (4 edges), Fillet2 (8 edges), Shell1, Plane1 and Hole1 all resolved through the named tier     | 52 639.35 against script 52 639.50, empty boolean difference |
+| Bracket   | 11 529.75 mm³, matches the hand calculation                                                         | base 60->70    | Hole1 SUBSHAPE_AMBIGUOUS ("2 planar faces match"), and Edge flange1 shows "edge moved". As expected, because step 3 is not in             | flanges and hem 12 597.41, matches the hand calculation |
+| Impeller  | 29 488.49 mm³; STEP equals script, empty boolean difference | hub Ø40->Ø44 | Fillet1 SUBSHAPE_UNRESOLVED on all 14 edges, which carry no names. Re-checked on a fresh part at `1942b0f` (step 2): all 14 picks now carry names and it still fails (`impeller-step2-after-hub44.png`) | unfilleted body 34 277.28, matches the script |
+
+Since the morning run, EDGE-MARK-OVERLAP is fixed on the lip: clicks on the 4
+outer-corner marks picked those 4 edges and no stray, even where an inner-edge
+mark is topmost (`enclosure-lip-fillet-picks.png`). Sketch fillets on the typed,
+dimensioned 118x78 lip kept every trim across all 8 corners, and typed
+polylines now get their coincident constraints. HOLE-BLIND-FALSE-DEEP is fixed:
+a Ø2.5x25 blind hole builds on the boss.
+
 ## Part complexity ladder and reference assemblies
 
 Parts get harder in five levels, with 3-4 fully dimensioned parts per level

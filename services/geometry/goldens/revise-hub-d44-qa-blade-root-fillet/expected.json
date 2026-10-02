@@ -1,0 +1,45 @@
+{
+  "description": "THE QA IMPELLER VARIANT OF THE DESIGN-INTENT-REFS STEP 2 GOLDEN (hard-parts re-run 2026-10-01, docs/VISION.md). The same tree as revise-hub-d44-blade-root-fillet except the blade, which is the QA part's as modelled: sections on Plane1 (z=2) and Plane2 (z=18), a 2 mm root at x=18 (inside the hub) with the tip swept from y -8..-6 to -14..-12. Each blade pierces the hub side without splitting it, so every root edge lies between the ONE hub side face and a blade side and ends on the blade's end faces. Fillet1's 14 picks are taken from the overlay at hub 40, each with a topo_name; then the hub is retyped 40 -> 44 and nothing is re-picked. At 1942b0f this failed SUBSHAPE_UNRESOLVED, for two reasons this golden pins: (1) at \u00d844 the hub cylinder's seam (the +X generator) crosses blade 0's r3 root curve and cuts it into two edges, so the (hub side, Loft1 side r3) pair names two edges and its name was withdrawn; a stored name now also reaches the pieces of ONE boundary run cut at a seam vertex; (2) with the seam ending on or beside a root curve OCCT's fillet fails (a fresh re-pick at \u00d844 fails too), so the fillet now retries once on the same solid with that closed face's seam turned clear of the picked edges (geometry.kernel.reseam). The gate is that the body equals an exact re-pick at \u00d844 (byte-identical, tests/test_design_intent_impeller.py) and an independent build123d build whose hub seam is turned 180 deg.",
+  "derivation": [
+    "Expected values are the harness's, cross-checked against two independent truths below (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "Independent build. goldens/.../crosscheck.py builds the \u00d844 QA impeller straight in build123d (Cylinder turned 180 deg so its seam is clear of every blade, loft ruled, rotate, one fuse, cut bore and keyway, fillet R1 on the edges it selects BY GEOMETRY) with no Loft code, no tree, no names and no re-seam: volume 34267.593861434194; after clean() 34267.59386142266 with 56 faces / 141 edges. The evaluator's Solid.volume on the golden body is 34267.593861428846 (6e-9 from the cleaned cross-check), the harness's integrator reports 34267.59386167119 (2.4e-7); topology identical.",
+    "Cross-section integral (no OCCT), before the fillet: the hub section is pi*484 - pi*36 - 10.452162760666852 (keyway outside the bore) = 1396.9813460475602 mm^2 over 20 mm = 27939.6269 mm^3. A ruled loft between straight section edges is a bilinear patch, so each blade section at t = (z - 2)/16 is the quadrilateral of the linearly interpolated corners; its area outside the hub disk (exact polygon-minus-circle clipping, 40-point Gauss-Legendre) integrates to 897.3792288420673 mm^3 per blade. Pre-fillet = 27939.6269 + 7 * 897.3792 = 34221.281522846 mm^3; the evaluator's pre-fillet body is 34221.28152342821 (+5.8e-7, the boolean's approximated intersection curves). The 14 R1 root blends add 46.312 mm^3.",
+    "centroid: the ring of 7 blades and blends, the hub and the bore are centred on the Z axis and the keyway is symmetric in y, so y = 0 (harness 2.3e-12) and x is the keyway's alone, -209.043 * 7.1915 / 34267.594 = -0.043870 (harness -0.0438704). z = 10.0006: the swept tip is not symmetric about z = 10, so z is the harness's.",
+    "bounding_box: z 0..20 widened by the 1e-7 vertex tolerance; x and y are the swept tip corners of the 7 instances (max x = 50 at instance 0, the others the harness's).",
+    "topology: 56 faces = 1 hub side, 2 caps, bore, 3 keyway walls, 7 blades x 5 faces (sides r1 and r3, the outer end r2, and the end faces at z = 2 and z = 18; r4 is buried in the hub), 14 blends; 141 edges; 1 shell. Identical to the cleaned cross-check.",
+    "mesh counts are the harness's at linear 0.1 mm (asserted exactly; deterministic within a kernel version). GLB byte size is deliberately not pinned. They moved 25360/47436 -> 25388/47492 when the fillet retry's seam placement was fixed (it had counted a shared edge end twice and turned the seam half a turn round): the hub's re-seamed cylinder is tessellated from a different parameter origin. Mass properties, bounds and topology are unchanged (volume within 8e-11).",
+    "STEP round trip: the volume moves +2.5e-7 mm^3, above ROUNDTRIP_TOL; the body before the fillet round-trips within 2.8e-10, so it is the R1 blends (the defect already filed for the full-height golden). The bound is NOT loosened: only the volume/area check is a strict xfail (conftest KNOWN_ROUNDTRIP_DEFECTS, BACKLOG FILLET-BLEND-ROUNDTRIP); centroid (4.1e-11), bounds (6.7e-12) and topology stay at ROUNDTRIP_TOL."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Free-form (B-spline blade sides) plus rolling-ball blends, measured then set, as for revise-hub-d44-blade-root-fillet. The pinned values are the harness's own, so the bound covers only run-to-run and host-to-host variation; loosening it requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 34267.59386167119,
+    "surface_area": 13874.626718188336,
+    "centroid": {
+      "x": -0.043870408270754266,
+      "y": 2.2514021178250046e-12,
+      "z": 10.00060601895058
+    },
+    "bounding_box": {
+      "min": {
+        "x": -51.12281584276677,
+        "y": -47.820431449423765,
+        "z": -1e-7
+      },
+      "max": {
+        "x": 50.0000001,
+        "y": 51.86168878447958,
+        "z": 20.0000001
+      }
+    }
+  },
+  "topology": {
+    "faces": 56,
+    "edges": 141,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 25388,
+    "triangles": 47492
+  }
+}
