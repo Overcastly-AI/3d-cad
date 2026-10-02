@@ -466,10 +466,24 @@ jobs:
       # plus vendor/planegcs-loft.patch: that is the corresponding source the
       # licence manifest offers for the LGPL solver in the geometry image, and
       # an unrecorded edit would make the offer false. Stdlib + GNU patch.
+      # The offline check trusts vendor/planegcs-upstream.sha256, so a vendored
+      # edit made together with the list would pass it; --upstream proves the
+      # list against the real sdist, cached by the digest the manifest pins.
+      - name: Cache the planegcs sdist (keyed by its pinned sha256)
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/planegcs-sdist
+          key: planegcs-sdist-09e77e6e3a27fa77d3b5a69065ea4c82ae6ed35753246a2e518b1a6005fea162
       - name: Vendored planegcs = sdist + patch (+ prove the gate can fail)
         run: |
           python3 scripts/check-vendored-planegcs.py --self-test
-          python3 scripts/check-vendored-planegcs.py
+          sdist="$RUNNER_TEMP/planegcs-sdist/planegcs-0.8.0.tar.gz"
+          if [ ! -f "$sdist" ]; then
+            mkdir -p "$(dirname "$sdist")"
+            curl -fsSL --retry 3 -o "$sdist" \
+              https://files.pythonhosted.org/packages/6c/6d/2ae123c5913387f52ab5b969f25bbc513d41f04546ecc5662ab86464a495/planegcs-0.8.0.tar.gz
+          fi
+          python3 scripts/check-vendored-planegcs.py --upstream "$sdist"
       # scripts/web-smoke.sh asserts the compose stack ENDS AT THE APP — the
       # entry document, the hashed bundle it names, the SPA fallback, a
       # transparent /api proxy, and no CDN-loading FastAPI explorer. Those

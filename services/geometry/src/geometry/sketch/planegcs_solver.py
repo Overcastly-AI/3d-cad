@@ -18,8 +18,8 @@ parameters one worker solved a sketch several ways (27.4 um on a 24-line
 polygon). Loft builds ``vendor/planegcs`` with ``vendor/planegcs-loft.patch``,
 which orders them by declaration (RESEARCH §2). Free parameters are still
 allocated first and contiguously (entities, then
-:func:`~geometry.sketch.virtual_sharp.allocate_sharps`): the patch preserves
-that order, so every pre-patch result stands.
+:func:`~geometry.sketch.virtual_sharp.allocate_sharps`). Goldens are unchanged;
+an under-constrained sketch past 64 parameters may solve differently on upgrade.
 
 **An under-constrained solve HOLDS the input geometry** (SOLVE-1, RESEARCH §2).
 DogLeg starting from the current positions is not the same thing as leaving the

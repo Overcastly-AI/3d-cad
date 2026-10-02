@@ -90,7 +90,51 @@
           "filename": "planegcs-loft.patch",
           "sha256": "23a59e58c3b91d7418ec7055746b8c9dc7ba5347c5394bd44caf5a9cc2843877",
           "sha256_source": "sha256 of vendor/planegcs-loft.patch as committed with SKETCH-SOLVE-HEAP-ORDER (2026-10-02)",
-          "note": "Loft's modification (LGPL-2.1 §2(b): every changed file carries a dated 'Changed by Loft' notice). Applied with `patch -p1` inside the unpacked sdist it yields vendor/planegcs exactly, which scripts/check-vendored-planegcs.py proves on every `just lint`. It orders three solver choices by declaration index instead of memory address (SKETCH-SOLVE-HEAP-ORDER, docs/RESEARCH.md §2) and sets the version to 0.8.0+loft.1."
+          "note": "Loft's modification (LGPL-2.1 §2(b): every changed file carries a dated 'Changed by Loft' notice). It touches 4 files: src/planegcs/{GCS.cpp,SubSystem.cpp,SubSystem.h}, which order three solver choices by declaration index instead of memory address (SKETCH-SOLVE-HEAP-ORDER, docs/RESEARCH.md §2), and pyproject.toml, which sets the version to 0.8.0+loft.1. Apply it with `patch -p1` inside the unpacked sdist to get the source the image was built from. vendor/planegcs keeps only the 27 sdist files the build reads (pyproject.toml, CMakeLists.txt, LICENSE, README.md, src/, python/), not the tests, docs and examples; scripts/check-vendored-planegcs.py proves on every `just lint` that those 27 files are the patched sdist's, and its --upstream mode, run in CI, proves them against this sdist's bytes."
+        }
+      ]
+    },
+    {
+      "id": "eigen",
+      "name": "Eigen (C++ linear algebra headers)",
+      "version": "3.4.0-4",
+      "licence": "MPL-2.0",
+      "obligation": "MPL-2.0 §3.2(a): the Source Code Form of the Covered Software in an Executable Form we distribute",
+      "arrives_via": "header-only; compiled into planegcs/_planegcs.cpython-*.so by the geometry image's build stage from Debian bookworm's libeigen3-dev (vendor/planegcs, SKETCH-SOLVE-HEAP-ORDER)",
+      "images": ["geometry"],
+      "detect": {
+        "kind": "build-stamp",
+        "file": "loft-build-inputs.json",
+        "key": "libeigen3-dev",
+        "note": "The binary carries no Eigen version, so the image build records the Debian package it compiled against (deploy/docker/licence/stamp-build-inputs.py). Dev and CI environments compile against their own distro's Eigen and ship nothing; they read ABSENT."
+      },
+      "artefacts": [
+        {
+          "kind": "url",
+          "url": "https://deb.debian.org/debian/pool/main/e/eigen3/eigen3_3.4.0.orig.tar.bz2",
+          "fallback_url": "http://archive.ubuntu.com/ubuntu/pool/universe/e/eigen3/eigen3_3.4.0.orig.tar.bz2",
+          "filename": "eigen3_3.4.0.orig.tar.bz2",
+          "sha256": "b4c198460eba6f28d34894e3a5710998818515104d6e74e5cc331ce31e46e626",
+          "sha256_source": "computed 2026-10-02 from the archive.ubuntu.com download (Ubuntu carries Debian's 3.4.0-4 source unchanged); the orig and debian digests equal the Checksums-Sha256 stanza of eigen3_3.4.0-4.dsc",
+          "note": "Upstream Eigen 3.4.0 as Debian packages it."
+        },
+        {
+          "kind": "url",
+          "url": "https://deb.debian.org/debian/pool/main/e/eigen3/eigen3_3.4.0-4.debian.tar.xz",
+          "fallback_url": "http://archive.ubuntu.com/ubuntu/pool/universe/e/eigen3/eigen3_3.4.0-4.debian.tar.xz",
+          "filename": "eigen3_3.4.0-4.debian.tar.xz",
+          "sha256": "10746fe711162ac7882a838b0af1e9826b5a0ea5b8d9963220ec78f71586250c",
+          "sha256_source": "computed 2026-10-02 from the archive.ubuntu.com download (Ubuntu carries Debian's 3.4.0-4 source unchanged); the orig and debian digests equal the Checksums-Sha256 stanza of eigen3_3.4.0-4.dsc",
+          "note": "Debian's packaging and patch series for 3.4.0-4, the build the image compiles."
+        },
+        {
+          "kind": "url",
+          "url": "https://deb.debian.org/debian/pool/main/e/eigen3/eigen3_3.4.0-4.dsc",
+          "fallback_url": "http://archive.ubuntu.com/ubuntu/pool/universe/e/eigen3/eigen3_3.4.0-4.dsc",
+          "filename": "eigen3_3.4.0-4.dsc",
+          "sha256": "fc8497759df4b6d3803b90fb03853d69feee68a76c992355c187ca59ae60afe1",
+          "sha256_source": "computed 2026-10-02 from the archive.ubuntu.com download (Ubuntu carries Debian's 3.4.0-4 source unchanged); the orig and debian digests equal the Checksums-Sha256 stanza of eigen3_3.4.0-4.dsc",
+          "note": "The signed source description; its checksums pin the two files above."
         }
       ]
     },
@@ -327,6 +371,10 @@
     {
       "component": "libgomp / libgfortran / libquadmath (GPL-3.0 WITH GCC-exception-3.1)",
       "why": "SETTLED 2026-08-01 (LIC-4): the GCC Runtime Library Exception's §1 permits propagating the Runtime Library combined with Independent Modules 'under terms of your choice', and that combination is the only form in which Loft ever conveys them. Full reasoning, and the exact GCC build behind each of the eight files — all eight identified, none guessed — are in the `gcc_runtime` block above."
+    },
+    {
+      "component": "Boost 1.74 headers (BSL-1.0), Debian bookworm libboost-dev",
+      "why": "Header-only; Boost.Graph is compiled into planegcs/_planegcs.cpython-*.so by the geometry image's build stage. BSL-1.0 lifts its notice condition for copies 'solely in the form of machine-executable object code generated by a source language processor' and asks for no source. Named in NOTICE anyway; the exact package version is in /app/.venv/loft-build-inputs.json."
     }
   ]
 }

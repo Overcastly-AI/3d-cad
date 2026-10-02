@@ -42,6 +42,26 @@ geometric constraint solver, for sketch constraint solving.
   Upstream:        https://www.freecad.org/ (PlaneGCS, Sketcher workbench)
 
 ================================================================================
+Header-only libraries compiled into planegcs
+================================================================================
+
+The geometry image builds planegcs from source, so two header-only libraries
+are compiled into its extension module (planegcs/_planegcs.cpython-*.so).
+The exact Debian package versions are recorded in the image at
+/app/.venv/loft-build-inputs.json.
+
+  Eigen 3.4.0 (Debian bookworm libeigen3-dev 3.4.0-4)
+  License:         Mozilla Public License 2.0 (text: /app/licenses/MPL-2.0.txt)
+  Source:          https://eigen.tuxfamily.org/ ; the exact source (Debian
+                   eigen3 3.4.0-4: .orig.tar.bz2, .debian.tar.xz, .dsc) is in
+                   Loft's corresponding-source bundle, see
+                   /app/licenses/CORRESPONDING-SOURCE.md
+
+  Boost 1.74 headers (Debian bookworm libboost-dev; Boost.Graph)
+  License:         Boost Software License 1.0
+  Source:          https://www.boost.org/
+
+================================================================================
 Libraries bundled inside the OCP wheel
 ================================================================================
 

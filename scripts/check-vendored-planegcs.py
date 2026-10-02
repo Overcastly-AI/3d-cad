@@ -16,9 +16,15 @@ tree really is that, so this gate checks it offline, on every ``just lint``:
      ``vendor/planegcs-upstream.sha256`` (the pristine sdist's files).
 
 An edit made straight in the tree without updating the patch, a patch that no
-longer applies, or a stray file all fail. ``--upstream SDIST`` additionally
-proves the hash list itself: the sdist must hash to the digest pinned in the
-licence manifest, and its files to the list.
+longer applies, or a stray file (a ``build/`` directory included) all fail.
+
+The offline check trusts the hash list, so an edit to a vendored file AND to
+the list would pass it. ``--upstream SDIST`` closes that, and CI runs it on
+every push (the sdist is cached by its pinned digest): the sdist must hash to
+the digest pinned in the licence manifest, and every listed file must be an
+sdist member with exactly that hash. The tree keeps 27 of the sdist's 77
+files, the build inputs (pyproject.toml, CMakeLists.txt, LICENSE, README.md,
+src/, python/); the sdist's tests, docs and examples are not vendored.
 
     python3 scripts/check-vendored-planegcs.py
     python3 scripts/check-vendored-planegcs.py --upstream planegcs-0.8.0.tar.gz
@@ -45,9 +51,12 @@ PATCH = VENDOR / "planegcs-loft.patch"
 HASHES = VENDOR / "planegcs-upstream.sha256"
 MANIFEST = REPO_ROOT / "deploy" / "licenses" / "corresponding-source.json"
 SDIST_PREFIX = "planegcs-0.8.0/"
-#: Build/cache litter a local `uv sync` or an editor can leave in the tree.
 PATCH_REVERSE = ("patch", "-R", "-p1", "-s", "-f", "--no-backup-if-mismatch")
-IGNORED_PARTS = frozenset({"__pycache__", "build", ".ruff_cache"})
+#: The only litter tolerated: bytecode, if something imports python/planegcs
+#: from the tree. `uv sync` builds out of tree (scikit-build-core's build dir
+#: is temporary) and leaves nothing behind, so a `build/` directory is drift
+#: like any other stray file.
+IGNORED_PARTS = frozenset({"__pycache__"})
 
 
 def _sha256(data: bytes) -> str:
@@ -128,7 +137,10 @@ def check_upstream(sdist: Path, hashes: Path) -> list[str]:
                 handle = tar.extractfile(member)
                 assert handle is not None
                 found[rel] = _sha256(handle.read())
-    return compare(found, expected)
+    return [
+        f"{hashes.name} does not describe the pinned sdist: {problem}"
+        for problem in compare(found, expected)
+    ]
 
 
 def self_test() -> int:
@@ -154,14 +166,19 @@ def self_test() -> int:
         if not check_tree(bad, PATCH, HASHES):
             failures.append("an edit inside a patched file was not caught")
         target.write_bytes(original)
-        # A stray file.
+        # A stray file, and a stray build/ directory.
         (bad / "src" / "extra.cpp").write_text("int x;\n")
         if not any("extra.cpp" in p for p in check_tree(bad, PATCH, HASHES)):
             failures.append("a file absent from the sdist was not caught")
+        (bad / "src" / "extra.cpp").unlink()
+        (bad / "src" / "build").mkdir()
+        (bad / "src" / "build" / "GCS.cpp").write_text("int y;\n")
+        if not any("build/GCS.cpp" in p for p in check_tree(bad, PATCH, HASHES)):
+            failures.append("a stray build/ directory was not caught")
     for failure in failures:
         print(f"check-vendored-planegcs --self-test: FAIL {failure}", file=sys.stderr)
     if not failures:
-        print("check-vendored-planegcs --self-test: ok (3 drifts caught, tree clean)")
+        print("check-vendored-planegcs --self-test: ok (4 drifts caught, tree clean)")
     return 1 if failures else 0
 
 

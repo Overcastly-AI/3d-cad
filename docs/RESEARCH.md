@@ -60,14 +60,24 @@ Rules the solver keeps:
   and 0.33 mm apart between two processes at 32 lines. The first two only
   reorder floating-point work (7e-15 on fully constrained sketches). A
   sketch whose parameters fit one chunk was never affected, which is why the
-  old two-solve test passed. The patch (`vendor/planegcs-loft.patch`, 3
-  files) orders all three by declaration index. Within one chunk address
-  order *is* declaration order, so every result that was deterministic
-  before is unchanged bit for bit: 438 sketches (every golden's sketch plus
-  300 generated) solve byte-identically against the PyPI wheel, and the
-  goldens did not move. The solver still allocates every free parameter
-  (entities, then virtual-sharp points) before any fixed one; that is the
-  order the patch preserves.
+  old two-solve test passed. The patch (`vendor/planegcs-loft.patch`)
+  touches 4 files: the three solver sources, which order all three choices
+  by declaration index, and `pyproject.toml` for the `+loft.1` version.
+
+  **What the patch changes for existing parts.** Within one chunk, address
+  order *is* declaration order. So the goldens are byte-identical, and so
+  are 438 sketches (every sketch in the goldens plus 300 generated ones)
+  against the PyPI wheel. Sketches past 64 parameters are another matter.
+  The PyPI wheel gave them a layout that fresh processes often, but not
+  always, reproduced, and the patch replaces it with declaration order. An
+  under-constrained sketch past 64 parameters may therefore solve to a
+  different answer once, on upgrade. A reviewer's 200 generated
+  under-constrained polygons moved on 46, by up to 18.4 mm. The PyPI wheel
+  itself was not reproducible on 33 of those 46 across fresh runs. A fully
+  constrained sketch moves only by rounding (7e-15). The operator note is in
+  `docs/OPERATIONS.md` §5. The solver still allocates every free parameter
+  (entities, then virtual-sharp points) before any fixed one; the patch
+  preserves that order.
 
   *Rejected:* allocating the parameters ourselves in one contiguous block
   (the binding owns the storage and exposes no pointer API); a canonical
@@ -75,9 +85,14 @@ Rules the solver keeps:
   canonical). The patch is not upstream yet, so `uv sync` compiles it (a
   C++20 compiler, CMake, Eigen 3 and Boost headers;
   `.github/actions/planegcs-build-deps`, the geometry Dockerfile).
-  `scripts/check-vendored-planegcs.py` proves that `vendor/planegcs` is
-  exactly the PyPI sdist plus the patch. That is the LGPL corresponding
-  source we offer (`deploy/licenses/corresponding-source.json`). Change the
+  `vendor/planegcs` keeps the 27 sdist files the build reads (not the
+  sdist's tests, docs or examples). `scripts/check-vendored-planegcs.py`
+  proves that those files are exactly the patched sdist's, and in CI its
+  `--upstream` mode checks them against the sdist's own bytes. The sdist
+  plus the patch is the LGPL corresponding source we offer
+  (`deploy/licenses/corresponding-source.json`). Eigen (MPL-2.0) is now
+  compiled into the image, so it is in that manifest too (LICENSING §5).
+  Change the
   patch by editing the tree, regenerating the patch, and bumping the
   `+loft.N` version: uv rebuilds a path dependency only when its
   `pyproject.toml` changes.

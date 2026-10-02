@@ -32,10 +32,13 @@ offered from the same place — backed by the **§6(c)** written offer below.
 | OCCT      | 7.9.3             | `https://github.com/Open-Cascade-SAS/OCCT`, tag `V7_9_3`, commit `a016080bf6738d6aeae020badee4e888ad1540a5`   |
 | planegcs  | 0.8.0+loft.1      | PyPI sdist `planegcs-0.8.0.tar.gz` (`https://github.com/spookylukey/planegcs`) + Loft's `planegcs-loft.patch` |
 | LibRaw    | 0.19.5-1ubuntu1.4 | Ubuntu 20.04 source package `libraw` — `.orig.tar.gz` **and** `.debian.tar.xz`                                |
+| Eigen     | 3.4.0-4           | Debian bookworm source package `eigen3` — `.orig.tar.bz2`, `.debian.tar.xz`, `.dsc` (MPL-2.0)                 |
 | FreeImage | 3.18.0            | Ubuntu 20.04 source package `libfreeimage`                                                                    |
 | FreeType  | 2.10.1            | Ubuntu 20.04 source package `freetype`                                                                        |
 
-OCCT, planegcs and LibRaw are the components with a source obligation. LibRaw
+OCCT, planegcs, LibRaw and Eigen are the components with a source obligation.
+Eigen is MPL-2.0 and header-only; it is compiled into the planegcs module, so
+§3.2 of the MPL asks for its source. LibRaw
 is LGPL-2.1 by our election (it is offered as LGPL-2.1 **or** CDDL-1.0), and it
 is Ubuntu's build, so its corresponding source is upstream **plus the Ubuntu
 patch series** — both are in the bundle. FreeImage and FreeType are shipped

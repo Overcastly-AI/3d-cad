@@ -65,6 +65,15 @@ RUN if [ "${SERVICE_NAME}" = "geometry" ]; then \
     fi
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-workspace --package "loft-${SERVICE_NAME}"
+# Eigen (MPL-2.0) and Boost (BSL-1.0) are header-only and now compiled INTO
+# planegcs, so the binary cannot say which versions it carries. Record the
+# Debian package versions in the venv; the runtime stage's licence gate checks
+# them against deploy/licenses/corresponding-source.json (Eigen's MPL §3.2
+# source offer names an exact version).
+COPY deploy/docker/licence/stamp-build-inputs.py /licence/stamp-build-inputs.py
+RUN if [ "${SERVICE_NAME}" = "geometry" ]; then \
+        python3 /licence/stamp-build-inputs.py /app/.venv/loft-build-inputs.json; \
+    fi
 
 # Layer 2 — workspace sources; members installed as built wheels
 # (--no-editable) so the runtime stage only needs the venv.
