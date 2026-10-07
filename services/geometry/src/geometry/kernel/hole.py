@@ -31,7 +31,7 @@ maps these 1:1 onto ``hole_off_body`` / ``hole_too_deep`` / ``boolean_failed``):
   into empty space. Caught by the material-removed invariant (a real hole
   strictly reduces the volume), the SAME posture the shell feature uses.
 * :class:`HoleTooDeepError` — a BLIND hole could not form its full pocket: the
-  material under the drill (``tool ∩ body``, :func:`_material_under`) is short of
+  material under the drill (``tool ∩ body``, :func:`_pocket`) is short of
   ``pi * r**2 * depth_mm``, so the depth exceeds the available material (the
   drill broke through the far side) or the bore overhangs the face edge. Use a
   through-all hole, reduce the depth, or move the point.
@@ -62,7 +62,7 @@ import math
 from build123d import Compound, Plane, Solid, Vector
 from OCP.ShapeAnalysis import ShapeAnalysis_ShapeTolerance
 
-from geometry.kernel.extrude import CutRemovedNothingError, combine_body
+from geometry.kernel.extrude import combine_body
 from geometry.kernel.properties import volume_properties
 from geometry.kernel.types import BodyShape
 
@@ -124,36 +124,58 @@ class HoleRecessInvalidError(HoleError):
     """
 
 
-def _cut_drill(body: BodyShape, tool: Solid, off_body: HoleError) -> BodyShape:
-    """Cut a drill/recess *tool* through the shared boolean, keeping the Hole
-    taxonomy when the tool cannot reach the body.
+def _cut_drill(
+    body: BodyShape, tool: Solid, off_body: HoleError
+) -> tuple[BodyShape, float, float]:
+    """Cut a drill/recess *tool* from *body*: ``(drilled body, removed, tolerance)``.
 
-    :func:`~geometry.kernel.extrude.combine_body` now refuses an in-chain cut that
-    would remove nothing (CM-3, the SHARED
-    :func:`geometry.kernel.removal.removal_reaches_body` predicate). A Hole has
-    always reported that case in its OWN vocabulary — ``hole_off_body`` for the
-    bore, ``hole_too_deep`` for a recess that forms none of its annulus — so the
-    generic error is translated to the caller's *off_body* here rather than
-    leaking a ``boolean_failed`` where a hole-specific code used to be. The
-    post-cut analytic checks below stay: they also catch a bore that removes a
-    sliver, which "reaches the body" but is still off the face.
+    *removed* and *tolerance* are :func:`_pocket` of ``(body, tool)``,
+    the pocket the cut takes out, measured BEFORE the cut from the same common
+    that answers "does the tool reach the body at all?". That question is the
+    shared :func:`geometry.kernel.removal.removal_reaches_body` predicate (CM-3),
+    which IS "does ``body ∩ tool`` hold a solid", so asking it and then measuring
+    the pocket used to run the same whole-body boolean twice per drill: 6 % of a
+    200-feature rebuild (RESEARCH §15). Asked once here, the answer is handed
+    to :func:`~geometry.kernel.extrude.combine_body` as ``reaches``.
+
+    A tool that misses the body is reported in the Hole's OWN vocabulary,
+    *off_body* (``hole_off_body`` for the bore, ``hole_too_deep`` for a recess
+    that forms none of its annulus), never the generic ``boolean_failed``. The
+    caller's analytic checks on *removed* stay: they also catch a bore that
+    removes a sliver, which "reaches the body" but is still off the face.
+
+    Failure order is the one the two-boolean form had. The predicate answers
+    "reaches" when its common RAISES (an OCCT anomaly must not turn a working
+    feature into an error), so the cut still runs and reports its own
+    ``BooleanError``; only then does the measurement's exception surface.
     """
+    pocket: tuple[float, float] | None = None
+    measured = True
     try:
-        return combine_body(body, tool, "cut")
-    except CutRemovedNothingError as exc:
-        raise off_body from exc
+        pocket = _pocket(body, tool)
+    except Exception:  # OCCT failure modes are not a stable taxonomy
+        measured = False
+    if measured and pocket is None:
+        raise off_body
+    result = combine_body(body, tool, "cut", reaches=True)
+    if not measured:
+        pocket = _pocket(body, tool)
+    removed, tolerance = (0.0, 0.0) if pocket is None else pocket
+    return result, removed, tolerance
 
 
-def _material_under(body: BodyShape, tool: Solid) -> tuple[float, float]:
-    """``(volume, tolerance)`` of the material the drill *tool* occupies in *body*.
+def _pocket(body: BodyShape, tool: Solid) -> tuple[float, float] | None:
+    """``(volume, tolerance)`` of the material the drill *tool* occupies in
+    *body*, or ``None`` when ``body ∩ tool`` holds no solid (the tool does not
+    reach the body: the shared removal predicate's ``False``).
 
     The common solid IS the pocket the cut removes, measured on its own scale
     rather than as the difference of two whole-body readings. *tolerance* is the
-    largest vertex/edge/face tolerance OCCT gave that solid (0 when empty)."""
+    largest vertex/edge/face tolerance OCCT gave that solid."""
     common = body.intersect(tool)
     solids = [] if common is None else list(common.solids())
     if not solids:
-        return 0.0, 0.0
+        return None
     pocket = solids[0] if len(solids) == 1 else Compound(children=solids)
     tolerance = ShapeAnalysis_ShapeTolerance().Tolerance(pocket.wrapped, 1)
     return volume_properties(pocket).volume, float(tolerance)
@@ -179,14 +201,14 @@ def _pocket_slack(tolerance: float, boundary_area: float) -> float:
 
 
 def _require_full_pocket(
-    body: BodyShape,
-    tool: Solid,
+    removed: float,
+    tolerance: float,
     expected: float,
     boundary_area: float,
     error: HoleError,
 ) -> None:
-    """Raise *error* unless *tool* finds its whole analytic pocket in *body*."""
-    removed, tolerance = _material_under(body, tool)
+    """Raise *error* unless the measured pocket (*removed*, its *tolerance*,
+    from :func:`_cut_drill`) is the whole analytic pocket *expected*."""
     if removed < expected - _pocket_slack(tolerance, boundary_area):
         raise error
 
@@ -290,8 +312,7 @@ def bore_hole(
         "(outside the body), or the cut direction points into empty space. "
         "Re-place the hole on the face."
     )
-    result = _cut_drill(body, tool, off_body)
-    removed, tolerance = _material_under(body, tool)
+    result, removed, tolerance = _cut_drill(body, tool, off_body)
 
     if removed <= float(body.volume) * _REMOVED_REL_TOL:
         raise off_body
@@ -386,7 +407,7 @@ def cut_counterbore(
         "(the recess would break through), or it overhangs the face edge. "
         "Reduce the counterbore depth or diameter, or move the hole inward."
     )
-    result = _cut_drill(body, tool, too_deep)
+    result, removed, tolerance = _cut_drill(body, tool, too_deep)
     expected = math.pi * (radius * radius - bore_radius * bore_radius) * cbore_depth_mm
     # Outer and inner walls plus the floor and the face-plane cap.
     area = (
@@ -398,7 +419,7 @@ def cut_counterbore(
             - bore_radius * bore_radius
         )
     )
-    _require_full_pocket(body, tool, expected, area, too_deep)
+    _require_full_pocket(removed, tolerance, expected, area, too_deep)
     return result
 
 
@@ -490,7 +511,7 @@ def cut_countersink(
         "available material (it would break through), or it overhangs the face "
         "edge. Reduce the countersink diameter/angle, or move the hole inward."
     )
-    result = _cut_drill(body, tool, too_deep)
+    result, removed, tolerance = _cut_drill(body, tool, too_deep)
     expected = (
         math.pi
         * cone_depth
@@ -505,5 +526,5 @@ def cut_countersink(
         + radius * radius
         - bore_radius * bore_radius
     )
-    _require_full_pocket(body, tool, expected, area, too_deep)
+    _require_full_pocket(removed, tolerance, expected, area, too_deep)
     return result

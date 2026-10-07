@@ -26,16 +26,64 @@ to a face/shell, never a solid, and correctly reads as "does not reach". A tool
 that shares any volume — however small — reads as "reaches", so a legitimate
 grazing cut is never turned into an error by a tolerance choice.
 
-Determinism (RESEARCH §9): a pure boolean probe on the given shapes in the given
-order, with no state and no unordered iteration. It short-circuits on the first
-tool that reaches, so the ordinary case (the seed copy of a patterned cut, the
-one tool of a plain cut) costs a single probe.
+COST, and the interior-point certificate (RESEARCH §15). The common is a
+whole-body boolean: on a 442-face part it costs as much as the cut it guards
+(~90 ms each), and it was 14 % of a 200-feature rebuild. So each tool is first
+offered a cheap certificate: the tool's own centre of mass, when OCCT's solid
+classifier puts it strictly IN the tool AND strictly IN the body, is a point
+interior to both, so the open interiors meet and the common holds a solid —
+the same "reaches" the boolean would answer, by a sufficient condition, not a
+metric guess. ~10 ms on that part. Nothing else changes: a centroid that is
+OUT or ON either solid (a hollow or L-shaped tool, a drill started a body span
+outside its face, a tool sitting exactly against the body) proves nothing and
+the boolean decides exactly as before. Only a single :class:`~build123d.Solid`
+body and tool are classified; a multi-lump body goes straight to the boolean.
+
+Determinism (RESEARCH §9): a pure probe on the given shapes in the given order,
+with no state and no unordered iteration. It short-circuits on the first tool
+that reaches, so the ordinary case (the seed copy of a patterned cut, the one
+tool of a plain cut) costs at most one classification and one boolean.
 """
-# pyright: reportUnknownMemberType=false
+# pyright: reportUnknownMemberType=false, reportMissingTypeStubs=false
+# pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false
+# pyright: reportAttributeAccessIssue=false, reportUnknownParameterType=false
 
 from collections.abc import Sequence
 
+from build123d import CenterOf, Solid
+from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+from OCP.gp import gp_Pnt
+from OCP.TopAbs import TopAbs_IN
+
 from geometry.kernel.types import BodyShape
+
+#: ``Precision::Confusion()`` (mm): a point closer than this to a solid's
+#: boundary classifies ON, never IN, so a certificate point is never a
+#: boundary point within OCCT's own idea of coincidence.
+_CONFUSION_MM = 1e-7
+
+
+def _strictly_inside(solid: Solid, point: gp_Pnt) -> bool:
+    """Does OCCT's solid classifier put *point* strictly inside *solid*?"""
+    classifier = BRepClass3d_SolidClassifier(solid.wrapped, point, _CONFUSION_MM)
+    return classifier.State() == TopAbs_IN
+
+
+def shares_interior_point(body: BodyShape, tool: BodyShape) -> bool:
+    """A cheap SUFFICIENT condition for :func:`removal_reaches_body`'s ``True``.
+
+    ``True`` only when *tool*'s centre of mass lies strictly inside both *tool*
+    and *body* (single solids only). ``False`` means "not proven", never
+    "misses": the caller then asks the boolean. Any OCCT raise is ``False``.
+    """
+    if not isinstance(body, Solid) or not isinstance(tool, Solid):
+        return False
+    try:
+        centre = tool.center(CenterOf.MASS)
+        point = gp_Pnt(centre.X, centre.Y, centre.Z)
+        return _strictly_inside(tool, point) and _strictly_inside(body, point)
+    except Exception:  # OCCT failure modes are not a stable taxonomy
+        return False
 
 
 def removal_reaches_body(body: BodyShape, tools: Sequence[BodyShape]) -> bool:
@@ -51,6 +99,8 @@ def removal_reaches_body(body: BodyShape, tools: Sequence[BodyShape]) -> bool:
     :func:`geometry.kernel.mirror.mirror_cut` shipped with in `fa30220`).
     """
     for tool in tools:
+        if shares_interior_point(body, tool):
+            return True
         try:
             # build123d types the boolean common as ShapeList[Unknown] | None (the
             # OCP wheel ships no stubs); the ignore is scoped to this one call.

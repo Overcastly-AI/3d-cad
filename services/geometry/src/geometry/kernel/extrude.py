@@ -529,7 +529,11 @@ def extrude_face(
 
 
 def combine_body(
-    body: BodyShape | None, tool: Solid, operation: Literal["add", "cut"]
+    body: BodyShape | None,
+    tool: Solid,
+    operation: Literal["add", "cut"],
+    *,
+    reaches: bool | None = None,
 ) -> BodyShape:
     """Boolean *tool* against *body*; returns the new body, LUMP-COUNT-PRESERVING.
 
@@ -556,6 +560,13 @@ def combine_body(
     (empty result, lump count) passes, which is exactly how a pocket sketched
     beside the part — or the same cut applied twice — used to report ``ok``.
 
+    *reaches* is that predicate's answer when the caller has ALREADY asked it
+    for this exact ``(body, tool)`` pair; ``None`` (every caller but one) asks
+    here. The one caller is the Hole (``geometry.kernel.hole._cut_drill``, for
+    the bore and each recess), which must compute the full ``body ∩ tool``
+    common anyway to measure its pocket, so asking again would run the same
+    whole-body boolean twice (RESEARCH §15).
+
     Raises:
         BooleanError: the kernel boolean failed, produced no solid (e.g. a cut
             that consumed the whole body), or changed the lump count (an add that
@@ -566,7 +577,9 @@ def combine_body(
         assert operation == "add", "cut without a body is handled by the caller"
         return tool
 
-    if operation == "cut" and not removal_reaches_body(body, [tool]):
+    if reaches is None and operation == "cut":
+        reaches = removal_reaches_body(body, [tool])
+    if operation == "cut" and not reaches:
         raise CutRemovedNothingError(
             "This cut removed no material: the profile lies off the body (beside "
             "it, or in free space), the cut direction points away from the "

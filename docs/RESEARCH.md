@@ -625,3 +625,40 @@ byte-identical GLBs: the draft frustum's GLB has four float32 zeros that
 became -0.0 (the BRep read rebuilds a plane's axes), the same number. The
 server starts at boot by default (`BLEND_SERVER_PREWARM`): lazily, the first
 fillet took 6.3 s; prewarmed (ready 4.9 s after boot), 69 ms.
+
+## 15. Rebuild cost: one whole-body boolean per question
+
+**Measured (2026-10-07, `housing_tree`, the 360 x 240 tray of
+`tests/_big_part_builders.py`, load 4-7 on 4 cores).** At 200 features (442
+faces) a cold rebuild spent its time on: OCCT's cut and fuse booleans (~28 %),
+`clean_shape` (~17 %: `UnifySameDomain` again on a result build123d's boolean
+already unified, plus the CM-6 guard's two volumes and a deep copy), the
+"does the tool reach the body?" probe (14 %), face-reference resolution
+(`planar_faces`, ~12 %, a full signature and a `Plane` for every planar face),
+admission `BRepCheck` of the changed faces (~10 %, mostly the top face that
+borders every pocket), and a Hole's second identical common (6 %). The probe is
+a boolean COMMON: on that body it costs as much as the cut it guards (~90 ms).
+
+**Decision.** Ask each question once, and prove "reaches" cheaply when it can.
+
+- A Hole computes `body ∩ tool` once: it answers "reaches" (a solid in the
+  common) and measures the pocket (`kernel/hole.py` `_cut_drill`), and hands
+  the answer to `combine_body(..., reaches=True)`.
+- `removal_reaches_body` first tries an interior-point certificate: the
+  tool's centre of mass, classified strictly IN the tool and strictly IN the
+  body by `BRepClass3d_SolidClassifier` (tolerance `Precision::Confusion`).
+  A point interior to both means the interiors meet, so the common holds a
+  solid: a sufficient condition, not a metric threshold. A centroid that is
+  OUT or ON proves nothing, and the boolean decides exactly as before. Single
+  solids only. OCCT's own boolean classifies faces with the same classifier,
+  so the two cannot disagree on a valid body; a seeded 120-tool sweep around a
+  pocketed tray pins that they do not (`test_removal_probe_cost.py`).
+
+Result: the tray's rebuild runs 4 commons for 29 features instead of 15, and
+none for an extrude cut, pattern or mirror whose tool centroid is in material.
+Every golden's GLB and metadata are byte-identical.
+
+**Not changed, and why.** The cut itself, `UnifySameDomain` and BRepCheck are
+OCCT's. The double clean (build123d cleans inside every boolean, then
+`clean_shape` cleans again under the CM-6 guard) and the eager per-face `Plane`
+in `planar_faces` are ours and are the next costs to take; both are in BACKLOG.
