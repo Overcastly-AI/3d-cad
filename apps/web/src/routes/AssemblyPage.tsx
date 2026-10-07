@@ -80,6 +80,12 @@ import {
   useMateAuthoringStore,
 } from "../assembly/mateStore";
 import { placementToScene } from "../assembly/placement";
+import {
+  type DrawnPoses,
+  NO_DRAWN_POSES,
+  posesPending,
+  recordDrawnPose,
+} from "../assembly/posePublication";
 import { buildEvaluateTree } from "../measure/geometry";
 import { deriveAssemblySolve } from "../features/assemblySolve";
 import { FloatingPanel } from "../components/FloatingPanel";
@@ -406,6 +412,18 @@ export function AssemblyPage() {
       }),
     [instances, solvedById, byMeshId, visibility],
   );
+
+  // The pose each balloon has actually DRAWN (MATE-OBS-3,
+  // `assembly/posePublication`). The viewport commits a beat after this page,
+  // so until it acknowledges the poses rendered here the solve is still being
+  // published, and no readout may claim it.
+  const [drawnPoses, setDrawnPoses] = useState<DrawnPoses>(NO_DRAWN_POSES);
+  const onPoseDrawn = useCallback(
+    (instanceId: string, key: string | null) =>
+      setDrawnPoses((drawn) => recordDrawnPose(drawn, instanceId, key)),
+    [],
+  );
+  const drawing = posesPending(sceneInstances, drawnPoses);
 
   // ---------------------------------------------------------------------
   // Selection + mate authoring session.
@@ -988,6 +1006,9 @@ export function AssemblyPage() {
   //            part-docs key, `partTrees` goes undefined, and the evaluate
   //            query is DISABLED — quiet, not fetching, still serving the old
   //            solve as placeholder data.
+  //   drawing  the solve has landed HERE but the viewport has not drawn it:
+  //            balloons and meshes commit from other React roots a scheduler
+  //            task or two after this one (MATE-OBS-3).
   // ---------------------------------------------------------------------
   const solve = deriveAssemblySolve({
     writing: mutationInFlight || historyStep !== null,
@@ -997,6 +1018,7 @@ export function AssemblyPage() {
       graph !== undefined && instances.length > 0 && partTrees !== undefined,
     placeholder: evalQuery.isPlaceholderData,
     failed: evalQuery.isError,
+    drawing,
     evaluation,
   });
 
@@ -1185,6 +1207,7 @@ export function AssemblyPage() {
               overlaysByInstance={overlaysByInstance}
               clashingInstanceIds={clashIds.measured}
               unverifiedInstanceIds={clashIds.unverifiedOnly}
+              onPoseDrawn={onPoseDrawn}
             />
           </Viewport>
           <FloatingPanel side="left" title="Components" id="tree">
