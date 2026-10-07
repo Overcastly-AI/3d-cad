@@ -84,15 +84,17 @@ from loft_wire.sketch import (
     SketchEditRequest,
     SketchEditResult,
     SketchEntity,
-    SketchMirrorRequest,
-    SketchMirrorResult,
-    SketchOffsetRequest,
-    SketchOffsetResult,
 )
 from loft_wire.sketch_corner import (
     SketchChamferRequest,
     SketchCornerResult,
     SketchFilletRequest,
+)
+from loft_wire.sketch_offset_mirror import (
+    SketchMirrorRequest,
+    SketchMirrorResult,
+    SketchOffsetRequest,
+    SketchOffsetResult,
 )
 from loft_wire.step_import import (
     StepAssemblyImportRequest,

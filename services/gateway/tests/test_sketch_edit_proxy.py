@@ -24,15 +24,17 @@ from loft_wire.sketch import (
     SketchEditRequest,
     SketchEditResult,
     SketchLine,
-    SketchMirrorRequest,
-    SketchMirrorResult,
-    SketchOffsetRequest,
-    SketchOffsetResult,
 )
 from loft_wire.sketch_corner import (
     SketchChamferRequest,
     SketchCornerResult,
     SketchFilletRequest,
+)
+from loft_wire.sketch_offset_mirror import (
+    SketchMirrorRequest,
+    SketchMirrorResult,
+    SketchOffsetRequest,
+    SketchOffsetResult,
 )
 from py_kit import REQUEST_ID_HEADER
 from py_kit.db import async_dsn

@@ -17,6 +17,17 @@ import type { Point2D } from "./plane";
 import { endpointTangentFor, joinedPoints } from "./endpointTangent";
 import type { SketchPick } from "./pick";
 import { TOOL_SHORTCUTS, type SketchEntity } from "./tools";
+import {
+  measurePointDimension,
+  operandRef,
+  type DimensionPointRef,
+  pointDimensionConstraint,
+  pointDimensionLayout,
+  pointDimensionRefs,
+  sameSubject,
+  subjectOf,
+  type PointDimensionSubject,
+} from "./pointDimension";
 import { dimensionSpan, lineAnnotationAnchor, sharpIds } from "./virtualSharp";
 
 export type SketchConstraint =
@@ -258,6 +269,9 @@ export function constraintEntityRefs(constraint: SketchConstraint): string[] {
       return [constraint.a, constraint.b, constraint.line];
     case "midpoint":
       return [constraint.point.entity, constraint.line];
+    case "point_distance":
+    case "point_line_distance":
+      return pointDimensionRefs(constraint);
   }
 }
 
@@ -449,6 +463,13 @@ export interface DimensionEditorTarget {
   initialDriving: boolean;
   /** Existing constraint being edited, or null when creating a new one. */
   constraintIndex: number | null;
+  /**
+   * A point-to-point or point-to-line dimension's operands
+   * (SKETCH-POINT-DISTANCE); absent for the single-entity dims and `angle`.
+   * The kind stays `distance` (same noun, same unit) and the commit builds
+   * the point kind from this.
+   */
+  subject?: PointDimensionSubject;
 }
 
 /**
@@ -473,6 +494,12 @@ export type ConstraintActionResult =
       replaces?: SketchConstraint[];
     }
   | { outcome: "editor"; target: DimensionEditorTarget }
+  /**
+   * Two points: the label is placed next, and WHERE decides aligned,
+   * horizontal or vertical (Fusion's rule, `placementDirection`). The store
+   * runs the placement and then opens the editor.
+   */
+  | { outcome: "place"; a: DimensionPointRef; b: DimensionPointRef }
   | {
       outcome: "hint";
       hint: string;
@@ -695,6 +722,11 @@ export function sameConstraint(
           (a.a === other.b && a.b === other.a))
       );
     }
+    // A point dimension is the same DIMENSION on the same operands (and, for
+    // two points, the same direction), whatever its number.
+    case "point_distance":
+    case "point_line_distance":
+      return sameSubject(subjectOf(a), subjectOf(b as typeof a));
     // midpoint ties ONE point to one line: same point, same line.
     case "midpoint": {
       const other = b as typeof a;
@@ -816,6 +848,8 @@ export function priorDimension(
     case "distance":
     case "radius":
     case "diameter":
+    case "point_distance":
+    case "point_line_distance":
       return {
         value: constraint.value_mm,
         expression: constraint.expression ?? null,
@@ -840,6 +874,7 @@ const targetOf = (
   entityB: string | null,
   prior: PriorDimension,
   constraintIndex: number | null,
+  subject?: PointDimensionSubject,
 ): DimensionEditorTarget => ({
   kind,
   entity,
@@ -851,7 +886,59 @@ const targetOf = (
   initialName: prior.name,
   initialDriving: prior.driving,
   constraintIndex,
+  ...(subject === undefined ? {} : { subject }),
 });
+
+/** The entity a point dimension's editor is keyed and anchored by. */
+const subjectEntity = (subject: PointDimensionSubject): string =>
+  subject.kind === "point_distance" ? subject.a.entity : subject.point.entity;
+
+/**
+ * A point dimension's editor (SKETCH-POINT-DISTANCE), prefilled from the same
+ * dimension if it is already there (so dimensioning the pair twice EDITS
+ * rather than stacking a redundant one) or from the measured geometry.
+ */
+export function pointDimensionEditor(
+  subject: PointDimensionSubject,
+  entities: readonly SketchEntity[],
+  constraints: readonly SketchConstraint[],
+): DimensionEditorTarget {
+  const byId = new Map(entities.map((e) => [e.id, e]));
+  const index = constraints.findIndex(
+    (c) =>
+      (c.kind === "point_distance" || c.kind === "point_line_distance") &&
+      sameSubject(subjectOf(c), subject),
+  );
+  const prior = priorDimension(
+    index === -1 ? undefined : constraints[index],
+  ) ?? {
+    value: measurePointDimension(subject, byId) ?? 0,
+    expression: null,
+    name: null,
+    driving: true,
+  };
+  return targetOf(
+    "distance",
+    subjectEntity(subject),
+    null,
+    prior,
+    index === -1 ? null : index,
+    subject,
+  );
+}
+
+/** The wire constraint a point dimension's editor commits. */
+export function pointDimensionCommit(
+  subject: PointDimensionSubject,
+  commit: DimensionCommit,
+): SketchConstraint {
+  return pointDimensionConstraint(subject, {
+    value_mm: commit.value,
+    expression: commit.driving ? commit.expression : null,
+    name: commit.name,
+    driving: commit.driving ? null : false,
+  });
+}
 
 /**
  * A dimension verb's answer: open the inline editor on the target, prefilled
@@ -912,9 +999,105 @@ export function dimensionEditorTarget(
         prior,
         constraintIndex,
       );
+    case "point_distance":
+    case "point_line_distance": {
+      const subject = subjectOf(constraint);
+      return targetOf(
+        "distance",
+        subjectEntity(subject),
+        null,
+        prior,
+        constraintIndex,
+        subject,
+      );
+    }
     default:
       return null;
   }
+}
+
+/** The sine of the angle under which two lines read as parallel. */
+const PARALLEL_SIN = Math.sin((ANGLE_MIN_DEG * Math.PI) / 180);
+
+/**
+ * D on POINTS (SKETCH-POINT-DISTANCE), Fusion's Sketch Dimension: two points
+ * go to label placement (which picks aligned / horizontal / vertical), a
+ * point and a line open the perpendicular distance, and two PARALLEL lines
+ * the distance between them (from one end of the second to the first, the way
+ * FreeCAD and Onshape hold it). Null when the selection is none of these, so
+ * the line-length / diameter path answers as before.
+ */
+function pointDimensionAction(
+  selection: readonly SketchPick[],
+  entities: readonly SketchEntity[],
+  constraints: readonly SketchConstraint[],
+): ConstraintActionResult | null {
+  const points = selection.flatMap((pick) =>
+    pick.kind === "point" ? [{ entity: pick.entity, point: pick.point }] : [],
+  );
+  const lines = selectedLineIds(selection, entities);
+  const curves = selectedEntities(selection, entities).length;
+  if (points.length === 0 && lines.length !== 2) return null;
+  const [a, b] = points;
+  if (
+    points.length === 2 &&
+    curves === 0 &&
+    a !== undefined &&
+    b !== undefined
+  ) {
+    if (sameRef(a, b)) return hint("Pick two different points.");
+    return { outcome: "place", a: operandRef(a), b: operandRef(b) };
+  }
+  const line = lines[0];
+  if (points.length === 1 && lines.length === 1 && curves === 1) {
+    if (a === undefined || line === undefined) return null;
+    if (a.entity === line) {
+      return hint(
+        "A line's own end is always on it — pick a point on other geometry.",
+      );
+    }
+    return {
+      outcome: "editor",
+      target: pointDimensionEditor(
+        { kind: "point_line_distance", point: operandRef(a), line },
+        entities,
+        constraints,
+      ),
+    };
+  }
+  if (points.length === 0 && lines.length === 2 && curves === 2) {
+    const byId = new Map(entities.map((e) => [e.id, e]));
+    // The frame is the target when it is in the pair: measure FROM the line.
+    const [target, subject] = isDatumId(lines[1] ?? "")
+      ? [lines[1], lines[0]]
+      : [lines[0], lines[1]];
+    const u = byId.get(target ?? "");
+    const v = byId.get(subject ?? "");
+    if (u?.kind !== "line" || v?.kind !== "line" || isDatumId(v.id)) {
+      return null;
+    }
+    const ux = u.end.x - u.start.x;
+    const uy = u.end.y - u.start.y;
+    const vx = v.end.x - v.start.x;
+    const vy = v.end.y - v.start.y;
+    const scale = Math.hypot(ux, uy) * Math.hypot(vx, vy);
+    if (scale === 0 || Math.abs(ux * vy - uy * vx) / scale > PARALLEL_SIN) {
+      return null; // not parallel: the length path refuses, A takes the angle
+    }
+    return {
+      outcome: "editor",
+      target: pointDimensionEditor(
+        {
+          kind: "point_line_distance",
+          point: { entity: v.id, point: "start" },
+          line: u.id,
+        },
+        entities,
+        constraints,
+      ),
+    };
+  }
+  return hint("Select two points, or a point and a line, to dimension.");
 }
 
 /**
@@ -930,6 +1113,17 @@ export function applyConstraintAction(
   constraints: readonly SketchConstraint[],
 ): ConstraintActionResult {
   const byId = new Map(entities.map((e) => [e.id, e]));
+  // A point dimension may MEASURE FROM the frame (a point to the origin, to an
+  // axis), which is the frame as a target; it is answered before the refusal
+  // below, which is about dimensioning the frame itself.
+  if (action === "distance") {
+    const pointDimension = pointDimensionAction(
+      selection,
+      entities,
+      constraints,
+    );
+    if (pointDimension !== null) return pointDimension;
+  }
   // THE SKETCH FRAME IS A TARGET, NOT A SUBJECT (SKETCH-2). The origin and the
   // two axes are selectable so a profile can be GROUNDED to them — coincident,
   // symmetric, parallel, perpendicular. The verbs that would DRIVE the frame
@@ -1528,6 +1722,34 @@ export function constraintGlyphs(
         });
         return;
       }
+      case "point_distance":
+      case "point_line_distance": {
+        const layout = pointDimensionLayout(
+          subjectOf(constraint),
+          byId,
+          offsetMm,
+        );
+        if (layout === null) return;
+        const readout = readoutIn(solved, index, "mm");
+        const driven =
+          readout !== undefined
+            ? !readout.driving
+            : constraint.driving === false;
+        glyphs.push({
+          index,
+          kind: constraint.kind,
+          label: formatDimensionLabel(
+            "distance",
+            readout?.value ?? constraint.value_mm,
+            driven,
+          ),
+          anchor: layout.anchor,
+          editable: true,
+          driven,
+          expression: readout?.expression ?? constraint.expression ?? null,
+        });
+        return;
+      }
       case "angle": {
         const a = byId.get(constraint.a);
         const b = byId.get(constraint.b);
@@ -1678,6 +1900,16 @@ export function dimensionEditorAnchor(
   offsetMm: number,
   constraints: readonly SketchConstraint[] = [],
 ): Point2D {
+  if (target.subject !== undefined) {
+    // Exactly where the glyph will land (the label rule is the same function).
+    const byId = new Map(entities.map((e) => [e.id, e]));
+    return (
+      pointDimensionLayout(target.subject, byId, offsetMm)?.anchor ?? {
+        x: 0,
+        y: 0,
+      }
+    );
+  }
   const entity = entities.find((e) => e.id === target.entity);
   if (entity === undefined) return { x: 0, y: 0 };
   if (target.kind === "distance") {
@@ -1694,306 +1926,4 @@ export function dimensionEditorAnchor(
   const other = entities.find((e) => e.id === target.entityB);
   if (other === undefined) return entityGlyphAnchor(entity, offsetMm);
   return angleAnchor(entity, other, constraints, offsetMm);
-}
-
-// ---------------------------------------------------------------------------
-// Solve feedback
-// ---------------------------------------------------------------------------
-
-/**
- * The DRO/diagnostic view of one evaluate round-trip for the bound sketch.
- * `"invalid"` is the sketcher's local status for a `sketch_invalid` feature
- * error (bad expression / cycle / unknown or driven reference / div-by-zero) —
- * the sketch didn't solve at all, so it has no solver status; `message` carries
- * the server's descriptive text for the diagnostic stamp.
- */
-export interface SolveInfo {
-  status: SolveStatus | "invalid";
-  dof: number | null;
-  conflicting: number[];
-  redundant: number[];
-  /** The `sketch_invalid` message when `status === "invalid"`; else absent. */
-  message?: string;
-}
-
-// Conflicting sketches now carry their offending constraint ids in the TYPED
-// `FeatureError.sketch_diagnosis` field (BACKLOG #6), read directly in
-// PartPage — the former `parseConflictIndices` regex over the human message
-// was removed once the backend promoted the ids to a structured field.
-
-/** DRO SOLVE cell: value text + ink. Status vocabulary stays terse (DRO). */
-export function formatSolveCell(
-  info: SolveInfo | null,
-  busy: boolean,
-): { value: string; tone: "brass" | "mist" | "flag" | "gauge" } {
-  if (busy) return { value: "SOLVING…", tone: "gauge" };
-  if (info === null) return { value: "—", tone: "gauge" };
-  switch (info.status) {
-    case "converged":
-      return { value: "DOF 0 · CONVERGED", tone: "brass" };
-    case "underconstrained":
-      return {
-        value: `DOF ${info.dof ?? "?"} · UNDER-CONSTRAINED`,
-        tone: "mist",
-      };
-    case "overconstrained":
-      return { value: "OVER-CONSTRAINED", tone: "flag" };
-    case "conflicting":
-      return { value: "CONFLICT", tone: "flag" };
-    case "diverged":
-      return { value: "DIVERGED", tone: "flag" };
-    case "invalid":
-      return { value: "INVALID EXPRESSION", tone: "flag" };
-  }
-}
-
-/** The in-viewport diagnostic stamp for a sick solve; null when healthy. */
-export function solveDiagnostic(
-  info: SolveInfo | null,
-): { title: string; body: string } | null {
-  if (info === null) return null;
-  switch (info.status) {
-    case "conflicting":
-      return {
-        title: "Solve conflict",
-        body:
-          info.conflicting.length > 0
-            ? `${info.conflicting.length} constraints cannot all hold — they are flagged in the sketch. Remove or edit one.`
-            : // Nothing is flagged, so do not claim there is. The solver
-              // located the conflict only in constraints the user cannot
-              // reach — in practice the frame's own pins, which are the only
-              // hidden constraints there are (`sketch/datum.ts`). Never
-              // silenced: a conflicting sketch did not solve, so the geometry
-              // on screen is wrong and saying so is mandatory. Point at the
-              // one place it can be, instead of at a flag that is not there.
-              "The constraints cannot all hold, and the conflict is with the origin and axes — the frame cannot move. Remove or edit a constraint that reaches for it.",
-      };
-    case "overconstrained":
-      return {
-        title: "Over-constrained",
-        body:
-          info.redundant.length > 0
-            ? "A redundant constraint is flagged in the sketch. Remove it — the geometry is already determined without it."
-            : "The sketch has one constraint more than it needs, and the solver could not say which. Remove the last one you added.",
-      };
-    case "invalid":
-      return {
-        title: "Dimension expression",
-        body:
-          info.message ??
-          "A dimension expression could not be evaluated. Check the names it references, and for cycles or division by zero.",
-      };
-    case "diverged":
-      return {
-        title: "Solve diverged",
-        body: "The solver could not converge from the current positions. Edit a dimension or remove the last constraint.",
-      };
-    default:
-      return null;
-  }
-}
-
-/**
- * Constraints the USER authored — the frame's pins excluded. The "N applied"
- * readout counts these: grounding a corner to the origin is one constraint the
- * user made, and reporting the pin that came with it would be the readout
- * claiming work nobody did.
- */
-export function authoredConstraintCount(
-  constraints: readonly SketchConstraint[],
-): number {
-  return constraints.filter((c) => !isDatumPin(c)).length;
-}
-
-/** Short selection readout for the constraint strip ("1 line · 2 pts"). */
-export function describeSelection(selection: readonly SketchPick[]): string {
-  const entities = selection.filter((p) => p.kind === "entity").length;
-  const points = selection.length - entities;
-  if (selection.length === 0) return "nothing selected";
-  const parts: string[] = [];
-  if (entities > 0)
-    parts.push(`${entities} ${entities === 1 ? "ent" : "ents"}`);
-  if (points > 0) parts.push(`${points} ${points === 1 ? "pt" : "pts"}`);
-  return parts.join(" · ");
-}
-
-/** A surfaced keyboard verb — the key to press and its plain-verb label. */
-export interface SketchVerbHint {
-  key: string;
-  label: string;
-  /** The verb the key runs, so the keycap can also be CLICKED to run it. */
-  action: ConstraintAction;
-}
-
-/**
- * The verbs the offer rail may propose, MOST SPECIFIC FIRST.
- *
- * Order is the whole design. Every verb below is already reachable by key, and
- * a list of everything the selection accepts would be a menu — which is the
- * thing the user was already failing to read. So the rail proposes the verbs
- * that this PARTICULAR selection unlocks and a general toolbar cannot: the
- * dimension the selection implies, then the relations that need a specific
- * shape of pick (an angle needs two lines; symmetric needs a centerline in the
- * selection). The broad relations that apply to almost any pair — parallel,
- * perpendicular, equal — come last and usually fall off the end.
- */
-const VERB_OFFER_ORDER: readonly ConstraintAction[] = [
-  "angle",
-  // Diameter before distance: on a round, D routes to diameter, so both verbs
-  // accept the same selection and the more specific label must win the key.
-  "diameter",
-  "distance",
-  "radius",
-  "collinear",
-  "symmetric",
-  "midpoint",
-  "concentric",
-  "tangent",
-  "equal",
-  "parallel",
-  "perpendicular",
-];
-
-/** Plain-verb labels — what the user is about to do, in their words. */
-const VERB_LABEL: Readonly<Record<ConstraintAction, string>> = {
-  horizontal: "horizontal",
-  vertical: "vertical",
-  distance: "dimension",
-  radius: "radius",
-  diameter: "diameter",
-  angle: "angle",
-  fixed: "fix",
-  coincident: "join",
-  parallel: "parallel",
-  perpendicular: "perpendicular",
-  collinear: "collinear",
-  tangent: "tangent",
-  equal: "equal",
-  symmetric: "symmetric",
-  midpoint: "midpoint",
-  concentric: "concentric",
-};
-
-/**
- * THE PICK SHAPE EACH VERB NEEDS — a noun phrase, never a sentence.
- *
- * The one thing a user cannot deduce from a verb's NAME is what to hold before
- * pressing it, and it is the only reason the offer rail is not the whole
- * answer: the rail proposes a verb once the selection already fits, so it can
- * never teach the selection that would make it appear. "Angle" is not
- * discoverable from an empty selection at any price; "angle · needs 2 lines"
- * is.
- *
- * Deliberately NOT derived from `applyConstraintAction`'s refusal strings.
- * Those are full sentences aimed at a user who has just been refused ("Select
- * two lines to dimension the angle between them"), and sixteen of them stacked
- * in a menu is prose, not an instrument. The totality is what keeps the two
- * honest instead: this is an exhaustive `Record<ConstraintAction, …>`, so a new
- * verb cannot compile without stating its shape here.
- */
-const VERB_SELECTION: Readonly<Record<ConstraintAction, string>> = {
-  horizontal: "a line",
-  vertical: "a line",
-  distance: "a line",
-  radius: "a circle/arc",
-  diameter: "a circle/arc",
-  angle: "2 non-parallel lines",
-  fixed: "a point",
-  coincident: "2 points",
-  parallel: "2 lines",
-  perpendicular: "2 lines",
-  collinear: "2 lines",
-  tangent: "a curve + a circle/arc",
-  equal: "2 lines, or 2 circles/arcs",
-  // Both forms, even though it wraps: this row is the one the OLD caption got
-  // wrong by naming only the points form, and a shorter half-truth here would
-  // reintroduce exactly that defect one line lower.
-  symmetric: "2 points + a line, or 2 lines + a centerline",
-  midpoint: "a point + a line",
-  concentric: "2 circles/arcs",
-};
-
-/** The pick shape {@link action} needs, for a surface that must say so. */
-export function verbSelectionShape(action: ConstraintAction): string {
-  return VERB_SELECTION[action];
-}
-
-/**
- * Would {@link action} DO something with this exact selection?
- *
- * The single availability predicate, and deliberately the only one. Both
- * surfaces that answer "can I use this verb right now" read it: the offer rail
- * (which verbs to propose) and the constraint catalogue (which rows are live).
- * A second rule written for the catalogue would be a rule that can disagree
- * with the rail about the same selection — the drift `VERB_KEY` was inverted
- * out of `CONSTRAINT_SHORTCUTS` to prevent, in a new place.
- *
- * Truthful by construction: it asks the VERB, rather than re-deriving the
- * verb's own preconditions, so it cannot advertise a row that answers "Select
- * two lines…", and it goes false for a constraint that is already stated.
- */
-export function verbIsAvailable(
-  action: ConstraintAction,
-  selection: readonly SketchPick[],
-  entities: readonly SketchEntity[],
-  constraints: readonly SketchConstraint[],
-): boolean {
-  return (
-    applyConstraintAction(action, selection, entities, constraints).outcome !==
-    "hint"
-  );
-}
-
-/**
- * The key a verb answers to. Inverted from {@link CONSTRAINT_SHORTCUTS} so the
- * rail can never advertise a key the keyboard does not honour — the two used to
- * be written out twice and that is exactly how a hint becomes a lie.
- */
-const VERB_KEY: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries(CONSTRAINT_SHORTCUTS).map(([key, action]) => [
-    action,
-    key.toUpperCase(),
-  ]),
-);
-
-/** Diameter has no key of its own — D is the dimension key (see the doc there). */
-const verbKey = (action: ConstraintAction): string =>
-  action === "diameter" ? "D" : (VERB_KEY[action] ?? "");
-
-/** How many verbs the rail will show. Three is a glance; five is a menu. */
-const MAX_VERB_HINTS = 3;
-
-/**
- * THE SELECTION OFFERS THE VERBS THAT APPLY TO IT — the reachability mechanism
- * for SKETCH-VOCAB-1, and the generalisation of the single dimension hint this
- * replaced (FINDINGS #12: select-then-D was invisible, the probable novice
- * give-up point). Five verbs shipped in the contract with no way for a user to
- * find them; a sixth toolbar row would not have fixed that, because the problem
- * was never that the button was missing — it was that nothing told you your
- * current selection had made a verb available.
- *
- * Truthful by construction: an offer appears only when
- * {@link applyConstraintAction} would actually DO something with this exact
- * selection — open an editor, or add a constraint that is not already there.
- * There is no parallel rule to drift out of sync, and the rail can never
- * propose a key that answers "Select two lines…".
- */
-export function selectionVerbHints(
-  selection: readonly SketchPick[],
-  entities: readonly SketchEntity[],
-  constraints: readonly SketchConstraint[],
-): SketchVerbHint[] {
-  if (selection.length === 0) return [];
-  const hints: SketchVerbHint[] = [];
-  for (const action of VERB_OFFER_ORDER) {
-    if (hints.length === MAX_VERB_HINTS) break;
-    const key = verbKey(action);
-    // One cap per key: distance and diameter share D, and a rail offering the
-    // same keycap twice would be asking the user to choose what the selection
-    // has already decided.
-    if (hints.some((h) => h.key === key)) continue;
-    if (!verbIsAvailable(action, selection, entities, constraints)) continue;
-    hints.push({ key, label: VERB_LABEL[action], action });
-  }
-  return hints;
 }

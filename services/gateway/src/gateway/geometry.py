@@ -48,15 +48,17 @@ from loft_wire.overlay import OverlayRequest, OverlayResult
 from loft_wire.sketch import (
     SketchEditRequest,
     SketchEditResult,
-    SketchMirrorRequest,
-    SketchMirrorResult,
-    SketchOffsetRequest,
-    SketchOffsetResult,
 )
 from loft_wire.sketch_corner import (
     SketchChamferRequest,
     SketchCornerResult,
     SketchFilletRequest,
+)
+from loft_wire.sketch_offset_mirror import (
+    SketchMirrorRequest,
+    SketchMirrorResult,
+    SketchOffsetRequest,
+    SketchOffsetResult,
 )
 from pydantic import BaseModel
 

@@ -247,7 +247,7 @@ async function dimensionTheBottomEdge(
   await page.getByTestId("constraint-group-dimensional").click();
   await page.getByTestId("constraint-distance").click();
   await expect(page.getByTestId("constraint-hint")).toHaveText(
-    "Click a line to dimension it.",
+    "Click a line to dimension it — or a point, then a point or a line.",
   );
   // The half-drawn second rectangle is GONE, not merely unmentioned: its live
   // size chip is that rubber band's own readout.

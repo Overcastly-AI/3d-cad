@@ -138,6 +138,27 @@ Rules the solver keeps:
   DOF is what the untrimmed length gave. Parallel lines have no sharp and
   read `conflicting`. The fields are additive: a stored distance solves
   byte-identically (2098 sketches, goldens plus the PBT-1 sweep, checked).
+- **Point dimensions follow Fusion 360's Sketch Dimension**
+  (`geometry.sketch.point_distance`, SKETCH-POINT-DISTANCE). Two points give
+  `point_distance` with `direction` aligned (planegcs `P2PDistance`),
+  horizontal or vertical (`Difference` on the x or y parameters, FreeCAD's
+  DistanceX/DistanceY); the web picks the direction from where the label is
+  dropped. A point and a line give `point_line_distance`, the perpendicular
+  distance to the line's support; two parallel lines are dimensioned the same
+  way from one end. Either operand may be a virtual sharp (`sharp` on the
+  point ref), and a projected edge is an ordinary entity, so it needs no new
+  kind. **The horizontal, vertical and point-line forms are SIGNED, the side
+  read from the submitted geometry** (like an angle's frame). planegcs's
+  `P2LDistance` is unsigned: moving a rim edge from x = 120 to 100 took a lip
+  corner drawn at 119 to 101, outside the rim, with the typed 1 mm reading
+  true. The side is held with native constraints: an auxiliary point on a
+  rigid stick from the point (`P2PDistance` = value, `L2LAngle` at
+  `side * pi/2` to the line) whose tip is `PointOnLine`. Two parameters and
+  three equations, so the dimension takes one DOF. The tempting alternative,
+  `P2LDistance` plus the foot of the perpendicular at a signed right angle,
+  cannot flip but cannot cross either: when a step carries the line past the
+  point the angle error sits at `pi`, where `atan2` wraps, and the same rim
+  edit read `diverged`. The new kinds are additive; no stored sketch changes.
 
 ## 3. Monorepo of services, contract-first
 

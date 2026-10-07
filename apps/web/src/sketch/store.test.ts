@@ -7,14 +7,12 @@ import { readFileSync } from "node:fs";
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import {
-  constraintEntityRefs,
-  formatSolveCell,
-  solveDiagnostic,
-} from "./constraints";
+import { constraintEntityRefs } from "./constraints";
+import { formatSolveCell, solveDiagnostic } from "./solveFeedback";
 import { datumFrame } from "./datum";
 import { shapeRigidity } from "./drawDimensions";
-import { DIMENSION_PICK_HINT, useSketchStore } from "./store";
+import { DIMENSION_PICK_HINT } from "./dimensionPick";
+import { useSketchStore } from "./store";
 import type { Point2D } from "./plane";
 import type { SketchEntity } from "./tools";
 
@@ -466,7 +464,7 @@ describe("dimension verb with nothing selected — arms instead of refusing", ()
     expect(store().tool).toBe("select"); // the load-bearing half
     expect(store().pending).toEqual([]);
     expect(store().drawDimension).toBeNull();
-    expect(store().hint).toBe("Click a line to dimension it.");
+    expect(store().hint).toBe(DIMENSION_PICK_HINT.distance);
     expect(store().dimensionEdit).toBeNull();
   });
 

@@ -38,6 +38,7 @@ from geometry.sketch import (
     CollinearConstraint,
     ConcentricConstraint,
     DiameterConstraint,
+    DimensionPointRef,
     DistanceConstraint,
     EntityPointRef,
     EqualConstraint,
@@ -48,6 +49,8 @@ from geometry.sketch import (
     PerpendicularConstraint,
     PlanegcsSketchSolver,
     Point2D,
+    PointDistanceConstraint,
+    PointLineDistanceConstraint,
     RadiusConstraint,
     SketchArc,
     SketchCircle,
@@ -278,6 +281,61 @@ OFF_SOLUTION: dict[str, SketchDefinition] = {
             SymmetricLinesConstraint(kind="symmetric_lines", a="r1", b="l1", line="ax")
         ],
     ),
+    # All three directions on one pair drawn 3 x 4 apart, each asked a value
+    # it does not have, so each of its witnesses reads non-zero.
+    "point-distance": SketchDefinition(
+        entities=[
+            SketchPoint(id="p1", kind="point", position=_p(2, 1)),
+            SketchPoint(id="p2", kind="point", position=_p(-1, 5)),
+        ],
+        constraints=[
+            PointDistanceConstraint(
+                kind="point_distance",
+                a=DimensionPointRef(entity="p1", point="position"),
+                b=DimensionPointRef(entity="p2", point="position"),
+                direction="aligned",
+                value_mm=7.0,
+            ),
+            PointDistanceConstraint(
+                kind="point_distance",
+                a=DimensionPointRef(entity="p1", point="position"),
+                b=DimensionPointRef(entity="p2", point="position"),
+                direction="horizontal",
+                value_mm=9.0,
+            ),
+            PointDistanceConstraint(
+                kind="point_distance",
+                a=DimensionPointRef(entity="p1", point="position"),
+                b=DimensionPointRef(entity="p2", point="position"),
+                direction="vertical",
+                value_mm=2.0,
+            ),
+        ],
+    ),
+    # Below a slanted line, asked to be further below it; the second operand is
+    # a virtual sharp, so its two point-on-line witnesses are compared too.
+    "point-line-distance": SketchDefinition(
+        entities=[
+            _line("l1", (0, 0), (40, 10)),
+            SketchPoint(id="p1", kind="point", position=_p(20, -3)),
+            _line("l2", (50, 0), (61, 0)),
+            _line("l3", (64, 3), (64, 20)),
+        ],
+        constraints=[
+            PointLineDistanceConstraint(
+                kind="point_line_distance",
+                point=DimensionPointRef(entity="p1", point="position"),
+                line="l1",
+                value_mm=6.0,
+            ),
+            PointLineDistanceConstraint(
+                kind="point_line_distance",
+                point=DimensionPointRef(entity="l2", point="end", sharp="l3"),
+                line="l1",
+                value_mm=2.0,
+            ),
+        ],
+    ),
     "symmetric": SketchDefinition(
         entities=[
             _line("axis", (0, 0), (50, 0)),
@@ -376,6 +434,8 @@ def test_every_constraint_kind_is_covered_by_a_fixture() -> None:
         "midpoint",
         "parallel",
         "perpendicular",
+        "point_distance",
+        "point_line_distance",
         "radius",
         "symmetric",
         "symmetric_lines",

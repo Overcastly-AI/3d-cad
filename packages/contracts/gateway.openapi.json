@@ -2756,6 +2756,56 @@
         "title": "DimensionPlacement",
         "type": "object"
       },
+      "DimensionPointRef": {
+        "description": "One point operand of a point dimension: a named point, or a virtual sharp.\n\nWith ``sharp`` absent this is exactly an :class:`EntityPointRef`. With\n``sharp`` set, ``entity`` and ``sharp`` are two lines and the operand is\ntheir **virtual sharp** (where their infinite supports meet), named from\n``entity``'s ``point`` end: the corner a sketch fillet or chamfer trimmed\naway. It is :class:`DistanceConstraint`'s ``start_sharp``/``end_sharp``\napplied to one point, so a dimension to a corner survives the fillet that\nremoves the corner, as in SolidWorks and Fusion 360.\n\nAny entity's named points qualify, a projected edge's included\n(SKETCH-PROJECT-EDGES keeps projected geometry as ordinary entities), so no\nnew kind is needed for them.",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "point": {
+            "anyOf": [
+              {
+                "enum": [
+                  "start",
+                  "end",
+                  "center",
+                  "position"
+                ],
+                "type": "string"
+              },
+              {
+                "description": "A spline fit point by zero-based index, e.g. 'fit0'.",
+                "pattern": "^fit(?:0|[1-9][0-9]*)$",
+                "type": "string"
+              }
+            ],
+            "title": "Point"
+          },
+          "sharp": {
+            "anyOf": [
+              {
+                "description": "Sketch-local entity id, e.g. 'e1'",
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Measure to the virtual sharp of `entity` (a line) and this line instead of to the named point. `point` must then be `start` or `end`: the end of `entity` the sharp stands in for. None = the point.",
+            "title": "Sharp"
+          }
+        },
+        "required": [
+          "entity",
+          "point"
+        ],
+        "title": "DimensionPointRef",
+        "type": "object"
+      },
       "DimensionResponse": {
         "description": "A dimension as stored, with its params envelope reassembled (design \u00a73).",
         "properties": {
@@ -8129,6 +8179,158 @@
         "title": "Point2D",
         "type": "object"
       },
+      "PointDistanceConstraint": {
+        "description": "Dimension: the distance between two points (mm).\n\nSKETCH-POINT-DISTANCE. Fusion 360's Sketch Dimension on two points gives the\naligned distance, or the horizontal or vertical one depending on where the\nlabel is dropped; SolidWorks and Onshape do the same. ``direction`` records\nthat choice.\n\nThe horizontal and vertical forms hold a SIGNED offset whose sign is read\nfrom the geometry as submitted, so ``b`` stays on the side of ``a`` it was\ndrawn on and typing a number never mirrors the sketch. The aligned form is\na distance and has no side.",
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/DimensionPointRef"
+          },
+          "b": {
+            "$ref": "#/components/schemas/DimensionPointRef"
+          },
+          "direction": {
+            "default": "aligned",
+            "description": "`aligned` (straight-line distance), `horizontal` (along sketch X) or `vertical` (along sketch Y).",
+            "enum": [
+              "aligned",
+              "horizontal",
+              "vertical"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "driving": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Driving/driven flag. None (absent, the default) or True = DRIVING: the value is fed to the solver. False = DRIVEN: excluded from the constraint system; the value is measured back from the solved geometry for display (read-only, never fed as a constraint, so a driven dimension cannot over-constrain). Nullable+None-default (rather than a bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted before it reads as None = driving, and the generated TS client leaves it optional. Read it through `is_driving`, never the raw tri-state.",
+            "title": "Driving"
+          },
+          "expression": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional math expression over other dimension NAMES (`+ - * / ( )`, unary minus, decimals), e.g. `\"width/2\"`. When present it SUPERSEDES `value_mm` and the geometry service re-evaluates it each solve. A bare literal dimension leaves this None. Only *driving* dimensions may be referenced; a bad expression / unknown or driven reference / cycle / division-by-zero is a clean `sketch_invalid` error, never a crash. Capped at 256 chars: an expression is a short formula over dimension names (`(width+gap)/2`), never prose, and the cap bounds parser paren-depth (<=128) and evaluator AST-depth (<=128) well under Python's recursion limit, so a hostile deeply-nested / very-long string 422s at request validation BEFORE the recursive-descent parser runs \u2014 it can never reach the kernel as an uncaught RecursionError. The parser also carries its own depth guard (defense in depth) should this cap ever be raised.",
+            "title": "Expression"
+          },
+          "kind": {
+            "const": "point_distance",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "description": "Dimension reference name: identifier-like, unique per sketch.",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional stable name so another dimension's `expression` can reference this one. Unique within a sketch (enforced on SketchDefinition). None = unnamed: still solves, just not referenceable.",
+            "title": "Name"
+          },
+          "value_mm": {
+            "description": "Resolved dimension value (mm). The literal value when `expression` is None; otherwise the last solved/resolved value (the expression supersedes it on the next solve, but a positive placeholder is still required so a pre-solve read has a value).",
+            "exclusiveMinimum": 0.0,
+            "title": "Value Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "value_mm",
+          "kind",
+          "a",
+          "b"
+        ],
+        "title": "PointDistanceConstraint",
+        "type": "object"
+      },
+      "PointLineDistanceConstraint": {
+        "description": "Dimension: the perpendicular distance from a point to a line (mm).\n\nSKETCH-POINT-DISTANCE. Fusion 360's Sketch Dimension on a point and a line\ngives the perpendicular distance to the line's infinite support; so do\nSolidWorks and Onshape. It is how a lip is held 1 mm inside a rim. Two\nparallel lines are dimensioned the same way, from an end of one to the\nother.\n\nThe distance is SIGNED in the solver: the point stays on the side of the\nline it was drawn on, read from the geometry as submitted. planegcs's own\npoint-to-line distance is unsigned, so without that a value edit could\ncarry the point across the line and still report the typed number.",
+        "properties": {
+          "driving": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Driving/driven flag. None (absent, the default) or True = DRIVING: the value is fed to the solver. False = DRIVEN: excluded from the constraint system; the value is measured back from the solved geometry for display (read-only, never fed as a constraint, so a driven dimension cannot over-constrain). Nullable+None-default (rather than a bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted before it reads as None = driving, and the generated TS client leaves it optional. Read it through `is_driving`, never the raw tri-state.",
+            "title": "Driving"
+          },
+          "expression": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional math expression over other dimension NAMES (`+ - * / ( )`, unary minus, decimals), e.g. `\"width/2\"`. When present it SUPERSEDES `value_mm` and the geometry service re-evaluates it each solve. A bare literal dimension leaves this None. Only *driving* dimensions may be referenced; a bad expression / unknown or driven reference / cycle / division-by-zero is a clean `sketch_invalid` error, never a crash. Capped at 256 chars: an expression is a short formula over dimension names (`(width+gap)/2`), never prose, and the cap bounds parser paren-depth (<=128) and evaluator AST-depth (<=128) well under Python's recursion limit, so a hostile deeply-nested / very-long string 422s at request validation BEFORE the recursive-descent parser runs \u2014 it can never reach the kernel as an uncaught RecursionError. The parser also carries its own depth guard (defense in depth) should this cap ever be raised.",
+            "title": "Expression"
+          },
+          "kind": {
+            "const": "point_line_distance",
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Line",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "description": "Dimension reference name: identifier-like, unique per sketch.",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional stable name so another dimension's `expression` can reference this one. Unique within a sketch (enforced on SketchDefinition). None = unnamed: still solves, just not referenceable.",
+            "title": "Name"
+          },
+          "point": {
+            "$ref": "#/components/schemas/DimensionPointRef"
+          },
+          "value_mm": {
+            "description": "Resolved dimension value (mm). The literal value when `expression` is None; otherwise the last solved/resolved value (the expression supersedes it on the next solve, but a positive placeholder is still required so a pre-solve read has a value).",
+            "exclusiveMinimum": 0.0,
+            "title": "Value Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "value_mm",
+          "kind",
+          "point",
+          "line"
+        ],
+        "title": "PointLineDistanceConstraint",
+        "type": "object"
+      },
       "PointTarget": {
         "description": "A measurement endpoint given by explicit world coordinates (mm).\n\nExact on its own \u2014 a picked vertex/snap point already has exact world\ncoordinates, so no body recomputation is needed for a point target.",
         "properties": {
@@ -10272,6 +10474,8 @@
                   "midpoint": "#/components/schemas/MidpointConstraint",
                   "parallel": "#/components/schemas/ParallelConstraint",
                   "perpendicular": "#/components/schemas/PerpendicularConstraint",
+                  "point_distance": "#/components/schemas/PointDistanceConstraint",
+                  "point_line_distance": "#/components/schemas/PointLineDistanceConstraint",
                   "radius": "#/components/schemas/RadiusConstraint",
                   "symmetric": "#/components/schemas/SymmetricConstraint",
                   "symmetric_lines": "#/components/schemas/SymmetricLinesConstraint",
@@ -10292,6 +10496,12 @@
                 },
                 {
                   "$ref": "#/components/schemas/DistanceConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/PointDistanceConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/PointLineDistanceConstraint"
                 },
                 {
                   "$ref": "#/components/schemas/RadiusConstraint"

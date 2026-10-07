@@ -57,6 +57,7 @@ import { cornerPoint } from "../sketch/corner";
 import { entityAnchor } from "../sketch/geometry";
 import { planeToWorld, type PlaneBasis } from "../sketch/plane";
 import { useSketchStore } from "../sketch/store";
+import { PointDimensionInk } from "./PointDimensionInk";
 import { VirtualSharpMarks } from "./VirtualSharpMarks";
 
 /** Keep annotation overlays under the HUD strips (Viewport hud sits at z-40). */
@@ -197,6 +198,8 @@ function glyphAria(glyph: ConstraintGlyph): string {
     case "fixed":
       return "Fixed point constraint";
     case "distance":
+    case "point_distance":
+    case "point_line_distance":
     case "radius": {
       const bare = glyph.label.replace(/[()R]/g, "");
       const noun = glyph.kind === "radius" ? "Radius" : "Distance";
@@ -857,6 +860,7 @@ export function ConstraintGlyphs({ basis }: { basis: PlaneBasis }) {
         );
       })}
       <VirtualSharpMarks basis={basis} />
+      <PointDimensionInk basis={basis} />
       <SplineHandles basis={basis} />
       <DimensionEditor basis={basis} />
       <OffsetEditor basis={basis} />

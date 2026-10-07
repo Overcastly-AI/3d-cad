@@ -197,7 +197,9 @@ test.describe("dimension a just-drawn shape (desktop 1440)", () => {
 
     // Armed, not refused. Pre-fix this read "Select one line to dimension."
     const hint = page.getByTestId("constraint-hint");
-    await expect(hint).toHaveText("Click a line to dimension it.");
+    await expect(hint).toHaveText(
+      "Click a line to dimension it — or a point, then a point or a line.",
+    );
     await page.mouse.move(1360, 840);
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/dimension-pick-armed-desktop.png`,
@@ -273,7 +275,9 @@ test.describe("dimension a just-drawn shape (desktop 1440)", () => {
     // D with an EMPTY selection used to resolve to nothing at all.
     await page.keyboard.press("d");
     const hint = page.getByTestId("constraint-hint");
-    await expect(hint).toHaveText("Click a line to dimension it.");
+    await expect(hint).toHaveText(
+      "Click a line to dimension it — or a point, then a point or a line.",
+    );
 
     // Escape gives the click back — and must not take the sketch with it.
     await page.keyboard.press("Escape");

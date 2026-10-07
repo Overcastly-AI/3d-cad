@@ -2604,6 +2604,36 @@ export interface components {
             text_pos?: components["schemas"]["SheetPoint"] | null;
         };
         /**
+         * DimensionPointRef
+         * @description One point operand of a point dimension: a named point, or a virtual sharp.
+         *
+         *     With ``sharp`` absent this is exactly an :class:`EntityPointRef`. With
+         *     ``sharp`` set, ``entity`` and ``sharp`` are two lines and the operand is
+         *     their **virtual sharp** (where their infinite supports meet), named from
+         *     ``entity``'s ``point`` end: the corner a sketch fillet or chamfer trimmed
+         *     away. It is :class:`DistanceConstraint`'s ``start_sharp``/``end_sharp``
+         *     applied to one point, so a dimension to a corner survives the fillet that
+         *     removes the corner, as in SolidWorks and Fusion 360.
+         *
+         *     Any entity's named points qualify, a projected edge's included
+         *     (SKETCH-PROJECT-EDGES keeps projected geometry as ordinary entities), so no
+         *     new kind is needed for them.
+         */
+        DimensionPointRef: {
+            /**
+             * Entity
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            entity: string;
+            /** Point */
+            point: ("start" | "end" | "center" | "position") | string;
+            /**
+             * Sharp
+             * @description Measure to the virtual sharp of `entity` (a line) and this line instead of to the named point. `point` must then be `start` or `end`: the end of `entity` the sharp stands in for. None = the point.
+             */
+            sharp?: string | null;
+        };
+        /**
          * DistanceConstraint
          * @description Dimension: the length of a line (mm). Driving by default; see
          *     :class:`DimensionConstraint` for the expression/name/driving fields.
@@ -5553,6 +5583,104 @@ export interface components {
             y: number;
         };
         /**
+         * PointDistanceConstraint
+         * @description Dimension: the distance between two points (mm).
+         *
+         *     SKETCH-POINT-DISTANCE. Fusion 360's Sketch Dimension on two points gives the
+         *     aligned distance, or the horizontal or vertical one depending on where the
+         *     label is dropped; SolidWorks and Onshape do the same. ``direction`` records
+         *     that choice.
+         *
+         *     The horizontal and vertical forms hold a SIGNED offset whose sign is read
+         *     from the geometry as submitted, so ``b`` stays on the side of ``a`` it was
+         *     drawn on and typing a number never mirrors the sketch. The aligned form is
+         *     a distance and has no side.
+         */
+        PointDistanceConstraint: {
+            a: components["schemas"]["DimensionPointRef"];
+            b: components["schemas"]["DimensionPointRef"];
+            /**
+             * Direction
+             * @description `aligned` (straight-line distance), `horizontal` (along sketch X) or `vertical` (along sketch Y).
+             * @default aligned
+             * @enum {string}
+             */
+            direction: "aligned" | "horizontal" | "vertical";
+            /**
+             * Driving
+             * @description Driving/driven flag. None (absent, the default) or True = DRIVING: the value is fed to the solver. False = DRIVEN: excluded from the constraint system; the value is measured back from the solved geometry for display (read-only, never fed as a constraint, so a driven dimension cannot over-constrain). Nullable+None-default (rather than a bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted before it reads as None = driving, and the generated TS client leaves it optional. Read it through `is_driving`, never the raw tri-state.
+             */
+            driving?: boolean | null;
+            /**
+             * Expression
+             * @description Optional math expression over other dimension NAMES (`+ - * / ( )`, unary minus, decimals), e.g. `"width/2"`. When present it SUPERSEDES `value_mm` and the geometry service re-evaluates it each solve. A bare literal dimension leaves this None. Only *driving* dimensions may be referenced; a bad expression / unknown or driven reference / cycle / division-by-zero is a clean `sketch_invalid` error, never a crash. Capped at 256 chars: an expression is a short formula over dimension names (`(width+gap)/2`), never prose, and the cap bounds parser paren-depth (<=128) and evaluator AST-depth (<=128) well under Python's recursion limit, so a hostile deeply-nested / very-long string 422s at request validation BEFORE the recursive-descent parser runs — it can never reach the kernel as an uncaught RecursionError. The parser also carries its own depth guard (defense in depth) should this cap ever be raised.
+             */
+            expression?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "point_distance";
+            /**
+             * Name
+             * @description Optional stable name so another dimension's `expression` can reference this one. Unique within a sketch (enforced on SketchDefinition). None = unnamed: still solves, just not referenceable.
+             */
+            name?: string | null;
+            /**
+             * Value Mm
+             * @description Resolved dimension value (mm). The literal value when `expression` is None; otherwise the last solved/resolved value (the expression supersedes it on the next solve, but a positive placeholder is still required so a pre-solve read has a value).
+             */
+            value_mm: number;
+        };
+        /**
+         * PointLineDistanceConstraint
+         * @description Dimension: the perpendicular distance from a point to a line (mm).
+         *
+         *     SKETCH-POINT-DISTANCE. Fusion 360's Sketch Dimension on a point and a line
+         *     gives the perpendicular distance to the line's infinite support; so do
+         *     SolidWorks and Onshape. It is how a lip is held 1 mm inside a rim. Two
+         *     parallel lines are dimensioned the same way, from an end of one to the
+         *     other.
+         *
+         *     The distance is SIGNED in the solver: the point stays on the side of the
+         *     line it was drawn on, read from the geometry as submitted. planegcs's own
+         *     point-to-line distance is unsigned, so without that a value edit could
+         *     carry the point across the line and still report the typed number.
+         */
+        PointLineDistanceConstraint: {
+            /**
+             * Driving
+             * @description Driving/driven flag. None (absent, the default) or True = DRIVING: the value is fed to the solver. False = DRIVEN: excluded from the constraint system; the value is measured back from the solved geometry for display (read-only, never fed as a constraint, so a driven dimension cannot over-constrain). Nullable+None-default (rather than a bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted before it reads as None = driving, and the generated TS client leaves it optional. Read it through `is_driving`, never the raw tri-state.
+             */
+            driving?: boolean | null;
+            /**
+             * Expression
+             * @description Optional math expression over other dimension NAMES (`+ - * / ( )`, unary minus, decimals), e.g. `"width/2"`. When present it SUPERSEDES `value_mm` and the geometry service re-evaluates it each solve. A bare literal dimension leaves this None. Only *driving* dimensions may be referenced; a bad expression / unknown or driven reference / cycle / division-by-zero is a clean `sketch_invalid` error, never a crash. Capped at 256 chars: an expression is a short formula over dimension names (`(width+gap)/2`), never prose, and the cap bounds parser paren-depth (<=128) and evaluator AST-depth (<=128) well under Python's recursion limit, so a hostile deeply-nested / very-long string 422s at request validation BEFORE the recursive-descent parser runs — it can never reach the kernel as an uncaught RecursionError. The parser also carries its own depth guard (defense in depth) should this cap ever be raised.
+             */
+            expression?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "point_line_distance";
+            /**
+             * Line
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            line: string;
+            /**
+             * Name
+             * @description Optional stable name so another dimension's `expression` can reference this one. Unique within a sketch (enforced on SketchDefinition). None = unnamed: still solves, just not referenceable.
+             */
+            name?: string | null;
+            point: components["schemas"]["DimensionPointRef"];
+            /**
+             * Value Mm
+             * @description Resolved dimension value (mm). The literal value when `expression` is None; otherwise the last solved/resolved value (the expression supersedes it on the next solve, but a positive placeholder is still required so a pre-solve read has a value).
+             */
+            value_mm: number;
+        };
+        /**
          * PointTarget
          * @description A measurement endpoint given by explicit world coordinates (mm).
          *
@@ -6927,7 +7055,7 @@ export interface components {
              * Constraints
              * @description The sketch's constraints, bounded by MAX_SKETCH_CONSTRAINTS (work bound, audit G2)
              */
-            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["DiameterConstraint"] | components["schemas"]["AngleConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["SymmetricLinesConstraint"] | components["schemas"]["ConcentricConstraint"] | components["schemas"]["MidpointConstraint"] | components["schemas"]["CollinearConstraint"])[];
+            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["PointDistanceConstraint"] | components["schemas"]["PointLineDistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["DiameterConstraint"] | components["schemas"]["AngleConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["SymmetricLinesConstraint"] | components["schemas"]["ConcentricConstraint"] | components["schemas"]["MidpointConstraint"] | components["schemas"]["CollinearConstraint"])[];
             /**
              * Entities
              * @description The sketch's entities, bounded by MAX_SKETCH_ENTITIES (work bound, audit G2)

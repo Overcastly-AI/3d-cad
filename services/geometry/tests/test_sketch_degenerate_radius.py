@@ -54,11 +54,9 @@ from geometry.sketch import (
     SketchSolver,
     TangentConstraint,
 )
-from geometry.sketch.planegcs_solver import (
-    DEGENERATE_RADIUS_MM,
-    SATISFIED_TOL_MM,
-    _shippable_radius,  # pyright: ignore[reportPrivateUsage]
-)
+from geometry.sketch.degenerate import DEGENERATE_RADIUS_MM
+from geometry.sketch.degenerate import shippable_radius as _shippable_radius
+from geometry.sketch.planegcs_solver import SATISFIED_TOL_MM
 from geometry.sketch.residual import worst_residual
 
 SOLVER: SketchSolver = PlanegcsSketchSolver()

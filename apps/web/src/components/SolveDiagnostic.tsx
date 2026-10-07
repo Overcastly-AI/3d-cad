@@ -5,7 +5,7 @@
  * (conflicting / over-constrained / diverged); a healthy solve renders
  * nothing. Never a silent failure.
  */
-import { solveDiagnostic } from "../sketch/constraints";
+import { solveDiagnostic } from "../sketch/solveFeedback";
 import { useSketchStore } from "../sketch/store";
 
 export function SolveDiagnostic() {
