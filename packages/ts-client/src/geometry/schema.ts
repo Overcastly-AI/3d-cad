@@ -6570,17 +6570,21 @@ export interface components {
          *     deleting the referenced body feature is a write-time 409-with-dependents and
          *     a reorder re-checks strict-backward.
          *
-         *     Thickness is a UNIFORM INWARD offset (the wall grows into the solid, so the
-         *     outer envelope is unchanged). An empty ``faces`` list hollows to a sealed
-         *     (fully-enclosed) cavity; a non-empty list opens those faces
-         *     (:class:`FaceSelector`). A thickness that would collapse or self-intersect
-         *     the cavity (≥ the smallest half-wall) is a per-feature
-         *     ``shell_thickness_too_large`` rebuild error, never a silently wrong body
-         *     (docs/GEOMETRY-QA.md 2026-07-13).
+         *     Thickness is a UNIFORM INWARD offset (the outer envelope is unchanged); an
+         *     empty ``faces`` list hollows to a sealed cavity. A thickness that would
+         *     collapse or self-intersect the cavity (≥ the smallest half-wall) is a
+         *     per-feature ``shell_thickness_too_large`` rebuild error, never a silently
+         *     wrong body (docs/GEOMETRY-QA.md 2026-07-13).
          */
         ShellParamsV1: {
             /** @description The faces to leave OPEN (a picked-face selector). Empty = a fully-enclosed hollow with no opening (design decision). */
             faces: components["schemas"]["FaceSelector"];
+            /**
+             * Shell Type
+             * @description How the cavity turns a CONCAVE edge of the body. `sharp` (what a new shell is authored with, as SolidWorks, Onshape and Fusion do by default) extends the inward walls until they meet, so the cavity has a sharp corner and the wall there is thicker than `thickness_mm`; `rounded` rounds it at the wall thickness from the edge. Convex edges are sharp either way. Absent reads `rounded` (every shell stored before the field existed), and `rounded` is not serialized, so those rows stay byte-identical.
+             * @enum {string}
+             */
+            shell_type?: "sharp" | "rounded";
             /**
              * Thickness Mm
              * @description Uniform inward wall thickness (mm). Must be small enough that the inward cavity does not self-intersect; too large is a `shell_thickness_too_large` rebuild error.
