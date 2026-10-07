@@ -68,6 +68,7 @@ import sys
 import threading
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from build123d import Compound, Edge, Face, Solid
@@ -102,6 +103,16 @@ class BlendTimedOut(RuntimeError):
     """The isolated blend exceeded its CPU or wall-clock bound."""
 
 
+@dataclass
+class CpuMeter:
+    """The CPU seconds the child of one :func:`run_isolated` call reported it
+    used: ``None`` until a child answered (one killed or crashed reports
+    nothing). A caller that shares one budget across several children charges
+    it with this (``kernel/shell.py``, SHELL-MULTIBODY-HANG)."""
+
+    seconds: float | None = None
+
+
 def working_copy(
     body: BodyShape, edges: Sequence[Edge]
 ) -> tuple[BodyShape, list[Edge]]:
@@ -130,6 +141,7 @@ def run_isolated(
     *,
     cpu_seconds: float = BLEND_CPU_SECONDS,
     wall_seconds: float = BLEND_WALL_SECONDS,
+    meter: CpuMeter | None = None,
 ) -> tuple[BodyShape, list[Edge], list[Solid]]:
     """Blend *edges* of *body* (``op`` is ``"fillet"`` or ``"chamfer"``) in a
     forked child of the warm server.
@@ -137,6 +149,7 @@ def run_isolated(
     Returns ``(body', edges', solids)``: *body'* is a copy of *body* the result
     was built on (its untouched faces are the result's), *edges'* the edges on
     it, in order. *history*, when given, receives ``(edge', face)`` pairs.
+    *meter*, when given, receives the CPU seconds the child reported.
 
     Raises:
         BlendFailed: the kernel raised (as the in-process call would have).
@@ -152,6 +165,8 @@ def run_isolated(
     }
     blob = write_shapes([body.wrapped, *(edge.wrapped for edge in edges)])
     reply, data = _call(header, blob, wall_seconds)
+    if meter is not None and "cpu" in reply:
+        meter.seconds = float(reply["cpu"])
     if reply.get("status") != "ok":
         raise BlendFailed(str(reply.get("error", "unknown")))
     parts = read_shapes(data)

@@ -113,7 +113,9 @@ The Arc offset itself grows with the faces squared where one face borders many
 edges): a 240 x 160 x 6 plate with 225 slots, opened at the top at t 1, takes 77
 to 89 s of CPU. A body of :data:`ISOLATED_ARC_FACES` or more is offset in a
 child under :data:`ARC_CPU_SECONDS` and refused past it with a typed
-:class:`ShellTimeout`.
+:class:`ShellTimeout`. A body of several lumps takes that path lump by lump,
+on ONE budget for the whole feature (:class:`_Budget`, SHELL-MULTIBODY-HANG):
+two 906-face lids side by side took 163 s in-process and are refused at 45 s.
 
 With the Intersection route, measured over 4 processes x 3 rebuilds
 (2026-09-25), BREP bytes and mass properties were identical for a box, a
@@ -146,6 +148,8 @@ such a face before the heal, so the outcome no longer depends on the layout.
 # pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
 
 import math
+import time
+from dataclasses import dataclass
 
 import numpy as np
 from build123d import Compound, Face, Kind, Solid, Vector
@@ -174,7 +178,7 @@ from OCP.TopoDS import (
 from OCP.TopTools import TopTools_IndexedMapOfShape
 
 from geometry.kernel.degenerate import find_zero_width_slits
-from geometry.kernel.fillet_isolation import BlendTimedOut, run_isolated
+from geometry.kernel.fillet_isolation import BlendTimedOut, CpuMeter, run_isolated
 from geometry.kernel.healing import HealingError, clean_shape, conform_solid
 from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
 from geometry.kernel.naming import OpHistory
@@ -302,6 +306,11 @@ def shell_body(
     the explicit lump order. Every lump is hollowed, so the lump count is
     preserved and the material-removed invariant is checked per lump.
 
+    Every lump takes the single solid's path (SHELL-MULTIBODY-HANG): a lump of
+    :data:`ISOLATED_ARC_FACES` faces or more is offset in a child, as it would
+    be alone. The time budgets are the whole feature's (:class:`_Budget`), not
+    each lump's, so a body of many lumps answers in the time one solid does.
+
     Raises:
         ShellThicknessError: the thickness collapses the cavity on some lump (the
             hollow completed but removed no material — OCCT's silent too-thick
@@ -322,17 +331,23 @@ def shell_body(
             "Shell failed: a face to open is not a face of the body."
         ) from exc
     built_on: BodyShape = work
+    budget = _Budget.for_body(len(work.faces()))
     if isinstance(work, Compound):
         solids = work.solids()
         groups = group_faces_by_lump(solids, opened)
-        shelled: BodyShape = assemble_lumps(
-            [
-                _shell_one_lump(solid, groups.get(index, []), thickness_mm)[0]
-                for index, solid in enumerate(solids)
-            ]
-        )
+        lumps = [
+            _shell_one_lump(solid, groups.get(index, []), thickness_mm, budget)
+            for index, solid in enumerate(solids)
+        ]
+        shelled: BodyShape = assemble_lumps([lump for lump, _on in lumps])
+        if any(
+            on is not solid for (_lump, on), solid in zip(lumps, solids, strict=True)
+        ):
+            # An isolated lump was built on its copy: the result's untouched
+            # faces are the copies', in the body's face order (lump by lump).
+            built_on = Compound([on for _lump, on in lumps])
     else:
-        shelled, built_on = _shell_one_lump(work, opened, thickness_mm, isolate=True)
+        shelled, built_on = _shell_one_lump(work, opened, thickness_mm, budget)
     if history is not None:
         history.worked_on = built_on
     return shelled
@@ -342,8 +357,7 @@ def _shell_one_lump(
     body: Solid,
     faces_to_remove: list[Face],
     thickness_mm: float,
-    *,
-    isolate: bool = False,
+    budget: "_Budget",
 ) -> tuple[Solid, Solid]:
     """Hollow ONE lump (a single solid) — the byte-identical single-body path.
 
@@ -353,14 +367,14 @@ def _shell_one_lump(
     or the isolated copy of a large one, :func:`_arc`), or raises
     :func:`_refusal`: a :class:`ShellThicknessError` when the thickness leaves no
     cavity, a :class:`ShellError` naming what the kernel got wrong otherwise.
-    *isolate* lets a large body's offset run under a time budget
-    (:class:`ShellTimeout`); the lumps of a compound always run in-process.
+    Its children draw on the feature's *budget*: a large body's offset is
+    refused past it (:class:`ShellTimeout`).
     """
     original_volume = body.volume
     definition = ShellDefinition(body, faces_to_remove, thickness_mm)
     try:
         solids, canonicalise, built_on = _hollow(
-            body, faces_to_remove, thickness_mm, isolate=isolate
+            body, faces_to_remove, thickness_mm, budget
         )
     except ShellTimeout:
         raise
@@ -558,7 +572,7 @@ def _convex_radius(face: Face) -> float | None:
 
 
 def _hollow(
-    body: Solid, faces_to_remove: list[Face], thickness_mm: float, *, isolate: bool
+    body: Solid, faces_to_remove: list[Face], thickness_mm: float, budget: "_Budget"
 ) -> tuple[list[Solid], bool, Solid]:
     """OCCT's inward hollow of *body*, whether its face order still needs
     :func:`_canonical_face_order` (module docstring), and the body it was built
@@ -591,20 +605,12 @@ def _hollow(
     blends = (
         0 if faces_to_remove and free > 1 else _concave_edge_count(body, thickness_mm)
     )
-    arc, built_on = _arc(body, faces_to_remove, thickness_mm, isolate=isolate)
+    arc, built_on = _arc(body, faces_to_remove, thickness_mm, budget)
     canonicalise = free + blends > 1
     if faces_to_remove or blends or len(arc) != 1 or not _all_analytic(body):
         return arc, canonicalise, built_on
     try:
-        _copy, _none, probe = run_isolated(
-            INTERSECTION_OP,
-            body,
-            [],
-            thickness_mm,
-            None,
-            cpu_seconds=INTERSECTION_CPU_SECONDS,
-            wall_seconds=INTERSECTION_WALL_SECONDS,
-        )
+        _copy, probe = budget.intersection.run(body, thickness_mm)
     except Exception:  # refused, over budget, or the isolation failed: keep Arc
         return arc, canonicalise, built_on
     if len(probe) != 1 or not _same_hollow(arc[0], probe[0]):
@@ -622,7 +628,7 @@ def _hollow(
 #: (``kernel/_fillet_worker.py``).
 INTERSECTION_OP = "hollow-intersection"
 
-#: CPU seconds the isolated Intersection build may take before Arc's result
+#: CPU seconds one isolated Intersection build may take before Arc's result
 #: ships instead (``RLIMIT_CPU``, so machine load does not move it). Over the
 #: 220 sweep bodies that take the route (2026-10-02) it took at most 1.4 s
 #: together with Arc's; the cross-bored plate of SHELL-INTERSECTION-SLOW takes
@@ -630,6 +636,12 @@ INTERSECTION_OP = "hollow-intersection"
 INTERSECTION_CPU_SECONDS = 10.0
 #: Wall-clock backstop for a child that is starved rather than computing.
 INTERSECTION_WALL_SECONDS = 30.0
+#: How many builds' worth of :data:`INTERSECTION_CPU_SECONDS` (and wall) the
+#: lumps of one Shell share (:class:`_Budget`). With two, one lump that runs
+#: out its budget leaves every other lump the budget it has alone, so a body
+#: with one slow lump ships what its lumps would alone; a second slow lump
+#: spends the rest, and the lumps after it ship Arc's result.
+INTERSECTION_BUILDS = 2
 
 
 def intersection_hollow(
@@ -649,9 +661,10 @@ def intersection_hollow(
 #: this many faces it stays in-process: a 410-face vented lid takes 5.5 s.
 ISOLATED_ARC_FACES = 500
 
-#: CPU seconds a large body's Arc offset may take before the shell is refused
-#: (:class:`ShellTimeout`): with the check, the heal and the mesh after it, the
-#: request still answers inside the gateway's 90 s.
+#: CPU seconds the Arc offsets of one Shell may take, over all its lumps and
+#: wherever they run (:class:`_Budget`), before the shell is refused
+#: (:class:`ShellTimeout`): with the check, the heal and the mesh after it,
+#: the request still answers inside the gateway's 90 s.
 ARC_CPU_SECONDS = 40.0
 #: Wall-clock backstop for a child that is starved rather than computing.
 ARC_WALL_SECONDS = 60.0
@@ -662,41 +675,144 @@ ARC_OP = "hollow-arc"
 
 class ShellTimeout(ShellError):
     """The kernel's offset ran past its time budget (:data:`ARC_CPU_SECONDS`)
-    on a large body and was stopped: a typed refusal (``shell_failed``), never
-    a request left to hang."""
+    on a large body, or a body of many lumps, and was stopped: a typed refusal
+    (``shell_failed``), never a request left to hang."""
 
 
 def _arc(
-    body: Solid, faces_to_remove: list[Face], thickness_mm: float, *, isolate: bool
+    body: Solid, faces_to_remove: list[Face], thickness_mm: float, budget: "_Budget"
 ) -> tuple[list[Solid], Solid]:
-    """Arc's hollow of *body*, and the body it was built on.
+    """Arc's hollow of *body*, and the body it was built on, on the feature's
+    Arc budget (:class:`_Budget`): once it is spent, the shell is refused
+    (:class:`ShellTimeout`).
 
-    A body of :data:`ISOLATED_ARC_FACES` faces or more (with *isolate*) is
-    hollowed in a child of the blend server under a time budget, past which
-    the shell is refused (:class:`ShellTimeout`). The opened faces ride in the
-    body's compound, so they arrive as the copy's own faces, and the result's
-    untouched faces are the returned copy's."""
-    if not isolate or len(body.faces()) < ISOLATED_ARC_FACES:
-        return list(body.hollow(faces_to_remove, -thickness_mm).solids()), body
+    A body of :data:`ISOLATED_ARC_FACES` faces or more is hollowed in a child
+    of the blend server, which is stopped when the budget runs out. The opened
+    faces ride in the body's compound, so they arrive as the copy's own faces,
+    and the result's untouched faces are the returned copy's. A smaller body is
+    hollowed here and charged the CPU it took; the budget can run out on it
+    only by as much as one such body takes."""
+    if budget.arc.cpu_seconds <= 0:
+        raise budget.timeout()
+    if len(body.faces()) < ISOLATED_ARC_FACES:
+        start = time.thread_time()
+        try:
+            return list(body.hollow(faces_to_remove, -thickness_mm).solids()), body
+        finally:
+            budget.arc.cpu_seconds -= time.thread_time() - start
     try:
-        copy, _none, solids = run_isolated(
-            ARC_OP,
-            Compound(_carrier(body, faces_to_remove)),
-            [],
-            thickness_mm,
-            None,
-            cpu_seconds=ARC_CPU_SECONDS,
-            wall_seconds=ARC_WALL_SECONDS,
+        copy, solids = budget.arc.run(
+            Compound(_carrier(body, faces_to_remove)), thickness_mm
         )
     except BlendTimedOut as exc:
-        raise ShellTimeout(
-            f"Shell stopped: the kernel's offset of this {len(body.faces())}-face "
+        raise budget.timeout() from exc
+    built_on, _opened = _carried(copy.wrapped)
+    return solids, built_on
+
+
+@dataclass
+class _Allowance:
+    """What the children of one Shell feature that run *op* may still spend,
+    and what any one of them may (*child_cpu_seconds*, *child_wall_seconds*).
+
+    Each child gets the CPU left, up to its own limit, as its ``RLIMIT_CPU``
+    and is charged what it reports it used
+    (:class:`~geometry.kernel.fillet_isolation.CpuMeter`), or its wall time
+    when it reports nothing (it crashed); one stopped is charged its limit.
+    A child's limit is whole seconds, rounded up, so the children together
+    stop within 1 s of the allowance however many there are."""
+
+    op: str
+    cpu_seconds: float
+    wall_seconds: float
+    child_cpu_seconds: float
+    child_wall_seconds: float
+
+    def run(
+        self, shape: BodyShape, thickness_mm: float
+    ) -> tuple[BodyShape, list[Solid]]:
+        """*op* on *shape* in a child: the copy it was built on, and the solids.
+
+        Raises what :func:`~geometry.kernel.fillet_isolation.run_isolated`
+        raises, and :class:`BlendTimedOut` when the CPU is already spent."""
+        if self.cpu_seconds <= 0:
+            raise BlendTimedOut(self.op)
+        cpu = min(self.cpu_seconds, self.child_cpu_seconds)
+        meter = CpuMeter()
+        start = time.monotonic()
+        timed_out = False
+        try:
+            copy, _none, solids = run_isolated(
+                self.op,
+                shape,
+                [],
+                thickness_mm,
+                None,
+                cpu_seconds=cpu,
+                wall_seconds=max(min(self.wall_seconds, self.child_wall_seconds), 0),
+                meter=meter,
+            )
+        except BlendTimedOut:
+            timed_out = True
+            raise
+        finally:
+            elapsed = time.monotonic() - start
+            self.wall_seconds -= elapsed
+            if timed_out:
+                self.cpu_seconds -= math.ceil(cpu)
+            else:
+                self.cpu_seconds -= elapsed if meter.seconds is None else meter.seconds
+        return copy, solids
+
+
+@dataclass
+class _Budget:
+    """The time budgets of ONE Shell feature, shared by every lump of its body
+    (SHELL-MULTIBODY-HANG).
+
+    A multi-lump body is shelled lump by lump, each exactly as that solid
+    alone would be, so which faces open and how each lump is offset do not
+    change, and neither does where it runs (a lump is isolated by its own
+    faces, :data:`ISOLATED_ARC_FACES`, as the cost of its offset is). What the
+    lumps share is the time. The Arc offsets get :data:`ARC_CPU_SECONDS` for
+    the whole feature, in-process or isolated, so a body of N lumps is refused
+    when one solid would be, not after N times as long. The Intersection
+    builds, which only make bytes reproducible, get :data:`INTERSECTION_BUILDS`
+    times one build's budget between them (that constant says why)."""
+
+    faces: int
+    arc: _Allowance
+    intersection: _Allowance
+
+    @classmethod
+    def for_body(cls, faces: int) -> "_Budget":
+        """The budget of a Shell of a body of *faces* faces (all lumps)."""
+        return cls(
+            faces=faces,
+            arc=_Allowance(
+                ARC_OP,
+                ARC_CPU_SECONDS,
+                ARC_WALL_SECONDS,
+                ARC_CPU_SECONDS,
+                ARC_WALL_SECONDS,
+            ),
+            intersection=_Allowance(
+                INTERSECTION_OP,
+                INTERSECTION_BUILDS * INTERSECTION_CPU_SECONDS,
+                INTERSECTION_BUILDS * INTERSECTION_WALL_SECONDS,
+                INTERSECTION_CPU_SECONDS,
+                INTERSECTION_WALL_SECONDS,
+            ),
+        )
+
+    def timeout(self) -> ShellTimeout:
+        """The refusal once the Arc budget is spent."""
+        return ShellTimeout(
+            f"Shell stopped: the kernel's offset of this {self.faces}-face "
             f"body ran past its {ARC_CPU_SECONDS:.0f} s limit. Its cost grows with "
             f"the faces the walls run along: shell the body before cutting many "
             f"small features (vents, slots, hole patterns) into it, then add them."
-        ) from exc
-    built_on, _opened = _carried(copy.wrapped)
-    return solids, built_on
+        )
 
 
 def isolated_arc(

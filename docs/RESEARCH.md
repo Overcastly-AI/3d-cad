@@ -306,6 +306,21 @@ The correctness gates, run in CI and by `geometry-qa`:
   cutting many small features. That outcome depends on the machine's speed, as
   a fillet's `BLEND_CPU_SECONDS` does; a stored part that shells in time on one
   machine can time out on a much slower one.
+- **A multi-body shell gets one solid's time, not N times it.** Like Fusion's
+  Shell over several bodies, each lump is hollowed on its own, opening only its
+  own picked faces, so the lumps keep the single-solid path, routing included:
+  a lump of 500 faces or more goes to the child, a smaller one stays
+  in-process, and a lump's result does not depend on its neighbours. The time
+  is per feature: one 40 s Arc allowance for every lump, charged with the CPU
+  each child reports (counted from its fork) and the thread CPU of each
+  in-process offset, and refused with `ShellTimeout` once spent. Two 906-face
+  lids side by side took 163 s in-process and now stop at 45 s. The
+  Intersection builds share two builds' budgets (20 s), so one slow lump leaves
+  the others the 10 s each has alone. We did not route every lump of a large
+  body through the child: the BinTools round trip rebuilds location chains,
+  and the result's exported STEP and GLB bytes differ in signed zeros
+  (`-0.` vs `0.`), with identical geometry. Bodies whose lumps all have under
+  500 faces keep their bytes.
 - **STEP round-trip:** export, re-import and compare, within `ROUNDTRIP_TOL`
   (1e-7) unless a golden records a measured override. A body is made
   conformal before export, but only when `BRepCheck` rejects it, and never if
