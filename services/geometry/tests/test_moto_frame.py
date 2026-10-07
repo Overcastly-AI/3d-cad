@@ -12,7 +12,7 @@ test:
   in ONE piece, where the tree sweeps two open halves) -- volume and the
   two-way boolean difference;
 * the Pappus volume of the swept rail, annulus area x path length;
-* the three strict xfails that pin what the tree cannot do yet (BACKLOG Notes,
+* the two strict xfails that pin what the tree cannot do yet (BACKLOG Notes,
   2026-10-07 "moto frame").
 """
 
@@ -48,6 +48,11 @@ TUBE_OD = 25.4
 TUBE_ID = 22.2
 BEND_R = 80.0
 RAIL_Y = 110.0
+#: The cross tubes end 6 mm short of the rail centrelines. Ending ON the centreline
+#: puts the tube's end face in the plane where the two equal-diameter outer
+#: cylinders' intersection curves cross (a singular point), and OCCT's fuse and
+#: its STEP round trip both wander by 1e-2 mm^3 there.
+TUBE_Y = 104.0
 RAIL_CORNERS_XZ = [
     (0.0, 520.0),
     (-520.0, 560.0),
@@ -55,9 +60,31 @@ RAIL_CORNERS_XZ = [
     (-560.0, 300.0),
     (-80.0, 120.0),
 ]
-CROSS_TUBES_XZ = [(-520.0, 560.0), (-560.0, 300.0), (-80.0, 120.0)]
+
+
+def _front_apex_xz() -> tuple[float, float]:
+    """Where the rail centreline passes nearest the front corner (0, 520).
+
+    Closed form for a fillet of radius R in a corner whose neighbours subtend
+    the angle 2*phi: the arc's centre sits R/sin(phi) from the corner along the
+    bisector, so the arc's apex is R/sin(phi) - R from the corner towards it.
+    """
+    corner = Vector(*RAIL_CORNERS_XZ[0])
+    toward = [Vector(*RAIL_CORNERS_XZ[i]) - corner for i in (1, -1)]
+    a, b = (v.normalized() for v in toward)
+    bisector = (a + b).normalized()
+    phi = math.acos(max(-1.0, min(1.0, a.dot(b)))) / 2
+    apex = corner + bisector * (BEND_R / math.sin(phi) - BEND_R)
+    return (apex.X, apex.Y)
+
+
+#: Four Y cross tubes. Three sit on the rail centreline: two at corners that the
+#: fillet barely moves, and (-300, 202.5), the point of the straight lower run
+#: from (-560,300) to (-80,120) (slope -0.375: 300 - 0.375 * 260). The fourth is
+#: the front apex, through whose centre the steering-head axis passes.
+CROSS_TUBES_XZ = [(-520.0, 560.0), (-560.0, 300.0), (-300.0, 202.5), _front_apex_xz()]
 HEAD_OD, HEAD_ID, HEAD_LEN = 50.0, 32.0, 160.0
-HEAD_CENTRE_XZ = (40.0, 600.0)
+HEAD_CENTRE_XZ = CROSS_TUBES_XZ[3]
 HEAD_RAKE_DEG = 25.0
 
 ANNULUS_AREA = math.pi * ((TUBE_OD / 2) ** 2 - (TUBE_ID / 2) ** 2)
@@ -99,14 +126,17 @@ def _independent_frame() -> tuple[BodyShape, float]:
     mirrored about XZ, three Y tubes, one revolved-by-construction head tube
     (a hollow cylinder on a plane whose normal is the raked axis).
     """
+    # The tubes stop at TUBE_Y: a tube that ends ON the rail axis (equal diameters,
+    # axes crossing) made OCCT's fuse of the one-piece ring sweep return a negative
+    # volume, and a fuzzy fuse is no fix (it moves the volume by up to 1 mm^3).
     path = _rail_path()
     start = Plane(path.location_at(0))
     rail = Solid.sweep(_annulus(start, TUBE_OD, TUBE_ID), path)
     frame = rail.fuse(rail.mirror(Plane.XZ))
     for x, z in CROSS_TUBES_XZ:
-        plane = Plane(origin=(x, RAIL_Y, z), x_dir=(1, 0, 0), z_dir=(0, -1, 0))
+        plane = Plane(origin=(x, TUBE_Y, z), x_dir=(1, 0, 0), z_dir=(0, -1, 0))
         tube = Solid.extrude(
-            _annulus(plane, TUBE_OD, TUBE_ID), plane.z_dir * (2 * RAIL_Y)
+            _annulus(plane, TUBE_OD, TUBE_ID), plane.z_dir * (2 * TUBE_Y)
         )
         frame = frame.fuse(tube)
     rake = math.radians(HEAD_RAKE_DEG)
@@ -161,30 +191,13 @@ def test_swept_rail_volume_is_pappus() -> None:
     assert rail_volume == pytest.approx(expected, rel=1e-6)
 
 
-def test_head_and_loose_cross_tube_volumes_are_closed_form() -> None:
-    """The two members that touch nothing are plain tubes: area x length."""
-    evaluation = evaluate_tree(_tree())
-    assert evaluation.body is not None
-    volumes = sorted(solid.volume for solid in evaluation.body.solids())
-    head = math.pi * ((HEAD_OD / 2) ** 2 - (HEAD_ID / 2) ** 2) * HEAD_LEN
-    tube = ANNULUS_AREA * 2 * RAIL_Y
-    assert volumes[0] == pytest.approx(tube, rel=1e-9)
-    assert volumes[1] == pytest.approx(head, rel=1e-9)
-    assert len(volumes) == 3  # frame, loose tube, head
-
-
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="BACKLOG Notes 2026-10-07 'moto frame': the spec leaves the frame in 3 "
-    "lumps (cross tube at (-80,120) sits 43.6 mm off the R80-filleted corner, "
-    "18.2 mm clear of the rail; the steering head at y=0 is 72 mm clear of rails "
-    "at y=+-110)",
-)
-def test_frame_is_one_lump() -> None:
+def test_frame_is_one_lump_and_so_is_the_independent_twin() -> None:
+    """Every member overlaps real tube material: one lump, in both builds."""
     evaluation = evaluate_tree(_tree())
     assert evaluation.body is not None
     assert lump_count(evaluation.body) == 1
+    independent, _ = _independent_frame()
+    assert lump_count(independent) == 1
 
 
 @pytest.mark.xfail(
