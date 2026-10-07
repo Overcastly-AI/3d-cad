@@ -116,7 +116,8 @@ def _evaluate_hole(
     params = feature.params
 
     active = state.active_body
-    if active is None:
+    active_id = state.active_body_id
+    if active is None or active_id is None:
         return FeatureError(
             code="no_prior_body",
             message=(
@@ -146,6 +147,7 @@ def _evaluate_hole(
             params.diameter_mm,
             through_all=not blind,
             depth_mm=depth_mm,
+            body_volume=state.body_volume(active_id),
         )
         # Slice 2: sink the optional coaxial recess (counterbore / countersink) at
         # the face, cut ALONGSIDE the bore (design: HoleType additive member).

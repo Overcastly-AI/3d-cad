@@ -14,7 +14,9 @@ from geometry.kernel.boolean import (
     BooleanDisjointError,
     BooleanEmptyError,
     boolean_bodies,
+    boolean_bodies_measured,
 )
+from geometry.kernel.boolean_guard import BooleanIntegrityError, MeasuredBody
 from geometry.kernel.chamfer import ChamferError, chamfer_body
 from geometry.kernel.datum import (
     DATUM_PLANES,
@@ -59,6 +61,7 @@ from geometry.kernel.extrude import (
     build_profile_face,
     build_profile_faces,
     combine_body,
+    combine_body_measured,
     extrude_face,
 )
 from geometry.kernel.faces import (
@@ -207,6 +210,7 @@ __all__ = [
     "BooleanDisjointError",
     "BooleanEmptyError",
     "BooleanError",
+    "BooleanIntegrityError",
     "ChamferError",
     "CutRemovedNothingError",
     "DraftError",
@@ -229,6 +233,7 @@ __all__ = [
     "ImportTooManyProductsError",
     "LoftError",
     "MeasureError",
+    "MeasuredBody",
     "MeshExportNotManifoldError",
     "MeshExportTooDenseError",
     "MirrorError",
@@ -270,6 +275,7 @@ __all__ = [
     "ZeroWidthSlit",
     "attribute_faces",
     "boolean_bodies",
+    "boolean_bodies_measured",
     "bore_hole",
     "bore_tool",
     "build_box",
@@ -289,6 +295,7 @@ __all__ = [
     "circular_pattern_cut",
     "circular_pattern_placements",
     "combine_body",
+    "combine_body_measured",
     "combine_properties",
     "counterbore_tool",
     "countersink_tool",

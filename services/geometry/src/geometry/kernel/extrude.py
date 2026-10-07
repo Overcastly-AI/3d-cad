@@ -53,7 +53,15 @@ from OCP.BRepPrimAPI import (  # pyright: ignore[reportMissingTypeStubs]
 )
 from OCP.TopoDS import TopoDS  # pyright: ignore[reportMissingTypeStubs]
 
-from geometry.kernel.healing import clean_shape
+from geometry.kernel.boolean_guard import (
+    BooleanError as BooleanError,  # re-exported: its historical home
+)
+from geometry.kernel.boolean_guard import (
+    MeasuredBody,
+    fuzzy_boolean_solids,
+    guarded_boolean,
+)
+from geometry.kernel.healing import BodyReading, clean_and_read, shape_volume
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.naming import OpHistory
 from geometry.kernel.removal import removal_reaches_body
@@ -74,10 +82,6 @@ class ProfileUnsupportedError(ValueError):
     """The profile's loops are all closed but their arrangement is outside v1
     support: disjoint outer boundaries (a multi-region / multi-body sketch), a
     hole that crosses the outer boundary, or holes that overlap or nest."""
-
-
-class BooleanError(RuntimeError):
-    """A boolean against the body failed or left an unsupported result."""
 
 
 class CutRemovedNothingError(BooleanError):
@@ -535,6 +539,18 @@ def combine_body(
     *,
     reaches: bool | None = None,
 ) -> BodyShape:
+    """:func:`combine_body_measured`, for a caller that does not keep volumes."""
+    return combine_body_measured(body, tool, operation, reaches=reaches).shape
+
+
+def combine_body_measured(
+    body: BodyShape | None,
+    tool: Solid,
+    operation: Literal["add", "cut"],
+    *,
+    reaches: bool | None = None,
+    body_volume: float | None = None,
+) -> MeasuredBody:
     """Boolean *tool* against *body*; returns the new body, LUMP-COUNT-PRESERVING.
 
     ``add`` with no prior body starts the body chain with *tool*. ``cut``
@@ -567,15 +583,25 @@ def combine_body(
     common anyway to measure its pocket, so asking again would run the same
     whole-body boolean twice (RESEARCH §15).
 
+    The result passes the boolean integrity guard
+    (:func:`~geometry.kernel.boolean_guard.guarded_boolean`, BOOLEAN-COINCIDENT-
+    TUBE): its volume lies within the bounds of *body* and *tool*, and each lump
+    has one outer shell and closed void shells. *body_volume* is *body*'s volume
+    when the caller already knows it (the evaluation's per-body memo); the
+    returned :class:`~geometry.kernel.boolean_guard.MeasuredBody` carries the
+    result's, for the next boolean.
+
     Raises:
         BooleanError: the kernel boolean failed, produced no solid (e.g. a cut
             that consumed the whole body), or changed the lump count (an add that
             lands disjoint, a cut that severs a lump — design §7.6 / §MB-4).
+        BooleanIntegrityError: the result broke the guard and the fuzzy retry
+            did not repair it (a coincident or tangent contact).
         CutRemovedNothingError: a ``cut`` whose tool misses the body entirely.
     """
     if body is None:
         assert operation == "add", "cut without a body is handled by the caller"
-        return tool
+        return MeasuredBody(tool, shape_volume(tool))
 
     if reaches is None and operation == "cut":
         reaches = removal_reaches_body(body, [tool])
@@ -588,36 +614,49 @@ def combine_body(
         )
 
     lump_count = len(body.solids())
-    try:
-        # fuse/cut signatures carry Shape[Unknown] type params upstream (same
-        # gap tessellate.py documents for export_gltf) — scoped ignores only.
-        result = (
-            body.fuse(tool)  # pyright: ignore[reportUnknownMemberType]
-            if operation == "add"
-            else body.cut(tool)  # pyright: ignore[reportUnknownMemberType]
-        )
-        solids = list(result.solids())
-    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
-        raise BooleanError(
-            f"Boolean {operation} failed in the kernel "
-            f"({type(exc).__name__}); the profile may self-intersect or "
-            "graze the body."
-        ) from exc
+    guarded = "union" if operation == "add" else "subtract"
 
-    if len(solids) == 0:
-        raise BooleanError(
-            f"Boolean {operation} left no material — the cut consumed the entire body."
-        )
-    if len(solids) != lump_count:
-        raise BooleanError(
-            f"Boolean {operation} produced {len(solids)} lumps from a "
-            f"{lump_count}-lump body; an in-chain add/cut must preserve each "
-            "lump (start a new body with merge=False, or a disjoint boolean)."
-        )
-    # clean() removes redundant seam faces/edges a boolean can leave behind,
-    # keeping topology counts meaningful (and golden-assertable). k==1 stays a
-    # bare cleaned Solid (byte-identical); a multi-lump body reassembles in the
-    # explicit lump order (RESEARCH §9).
-    if lump_count == 1:
-        return clean_shape(solids[0])
-    return assemble_lumps([clean_shape(solid) for solid in solids])
+    def attempt(fuzzy: float | None) -> tuple[BodyShape, BodyReading]:
+        try:
+            if fuzzy is not None:
+                solids = fuzzy_boolean_solids(body, tool, guarded, fuzzy)
+            else:
+                # fuse/cut signatures carry Shape[Unknown] type params upstream
+                # (same gap tessellate.py documents for export_gltf) — scoped
+                # ignores only.
+                result = (
+                    body.fuse(tool)  # pyright: ignore[reportUnknownMemberType]
+                    if operation == "add"
+                    else body.cut(tool)  # pyright: ignore[reportUnknownMemberType]
+                )
+                solids = list(result.solids())
+        except Exception as exc:  # OCCT failure modes are not a stable taxonomy
+            raise BooleanError(
+                f"Boolean {operation} failed in the kernel "
+                f"({type(exc).__name__}); the profile may self-intersect or "
+                "graze the body."
+            ) from exc
+
+        if len(solids) == 0:
+            raise BooleanError(
+                f"Boolean {operation} left no material — the cut consumed the "
+                "entire body."
+            )
+        if len(solids) != lump_count:
+            raise BooleanError(
+                f"Boolean {operation} produced {len(solids)} lumps from a "
+                f"{lump_count}-lump body; an in-chain add/cut must preserve each "
+                "lump (start a new body with merge=False, or a disjoint boolean)."
+            )
+        # clean() removes redundant seam faces/edges a boolean can leave behind,
+        # keeping topology counts meaningful (and golden-assertable). k==1 stays
+        # a bare cleaned Solid (byte-identical); a multi-lump body reassembles in
+        # the explicit lump order (RESEARCH §9).
+        lumps = [clean_and_read(solid) for solid in solids]
+        reading = sum((lump[1] for lump in lumps), BodyReading(()))
+        if lump_count == 1:
+            return lumps[0][0], reading
+        return assemble_lumps([lump[0] for lump in lumps]), reading
+
+    known = shape_volume(body) if body_volume is None else body_volume
+    return guarded_boolean(attempt, guarded, (body, tool), known, shape_volume(tool))

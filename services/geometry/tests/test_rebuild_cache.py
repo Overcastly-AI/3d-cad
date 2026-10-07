@@ -904,10 +904,9 @@ def test_thinning_only_touches_its_own_chain() -> None:
 
 #: Every EvaluationState field, by how ``EvaluationState.fork`` treats it. A new
 #: field fails ``test_every_state_field_is_classified_for_the_fork`` until it is
-#: classified, and one holding a kernel shape must join ``shape_slots`` (the fork
-#: and detach walk it) or a ladder rung would share it with the evaluation that
-#: carries on. ``test_every_shape_the_state_holds_is_forked_and_detached`` gates
-#: the behaviour; ``topo_names`` is re-anchored like ``provenance``.
+#: classified; one holding a kernel shape must join ``shape_slots`` or a ladder
+#: rung shares it (``test_every_shape_the_state_holds_is_forked_and_detached``).
+#: ``topo_names`` is re-anchored like ``provenance``.
 _FORKED_FIELDS = frozenset(
     {
         "bodies",
@@ -923,6 +922,7 @@ _FORKED_FIELDS = frozenset(
         "bend_provenance",
         "corner_reliefs",
         "scoped_feature_types",
+        "body_volumes",
     }
 )
 _SHARED_IMMUTABLE_FIELDS = frozenset(

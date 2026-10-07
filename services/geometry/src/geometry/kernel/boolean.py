@@ -42,8 +42,13 @@ from typing import Literal
 
 from build123d import ShapeList, Solid
 
-from geometry.kernel.extrude import BooleanError
-from geometry.kernel.healing import clean_shape
+from geometry.kernel.boolean_guard import (
+    BooleanError,
+    MeasuredBody,
+    fuzzy_boolean_solids,
+    guarded_boolean,
+)
+from geometry.kernel.healing import BodyReading, clean_and_read, shape_volume
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.types import BodyShape
 
@@ -78,6 +83,21 @@ def boolean_bodies(
     *,
     allow_disjoint: bool = False,
 ) -> BodyShape:
+    """:func:`boolean_bodies_measured`, for a caller that does not keep volumes."""
+    return boolean_bodies_measured(
+        target, tool, operation, allow_disjoint=allow_disjoint
+    ).shape
+
+
+def boolean_bodies_measured(
+    target: BodyShape,
+    tool: BodyShape,
+    operation: Literal["union", "subtract", "intersect"],
+    *,
+    allow_disjoint: bool = False,
+    target_volume: float | None = None,
+    tool_volume: float | None = None,
+) -> MeasuredBody:
     """Boolean two whole part bodies; return the new body (one or more lumps).
 
     *target* is the surviving body, *tool* the consumed body (multi-body
@@ -95,6 +115,14 @@ def boolean_bodies(
     order, RESEARCH §9) — rather than raised. An EMPTY result is
     :class:`BooleanEmptyError` / :class:`BooleanError` regardless of the flag.
 
+    The result passes the boolean integrity guard
+    (:func:`~geometry.kernel.boolean_guard.guarded_boolean`, BOOLEAN-COINCIDENT-
+    TUBE): volume within the operands' bounds, one outer shell and closed void
+    shells per lump, else one fuzzy retry, else a refusal. *target_volume* /
+    *tool_volume* are the operands' volumes when the caller already knows them;
+    the returned :class:`~geometry.kernel.boolean_guard.MeasuredBody` carries the
+    result's.
+
     Raises:
         BooleanDisjointError: the result is >1 disconnected solid and
             *allow_disjoint* is False — a union of non-touching bodies, or a
@@ -102,25 +130,36 @@ def boolean_bodies(
             invariant, §Decisions-3).
         BooleanEmptyError: a ``subtract``/``intersect`` produced no solid — the
             tool consumed the whole target, or the operands do not overlap.
+        BooleanIntegrityError: the result broke the guard and the fuzzy retry
+            did not repair it (a coincident or tangent contact).
         BooleanError: the kernel boolean raised, or a ``union`` produced no solid.
     """
+
+    def attempt(fuzzy: float | None) -> tuple[BodyShape, BodyReading]:
+        return _attempt(target, tool, operation, allow_disjoint, fuzzy)
+
+    return guarded_boolean(
+        attempt,
+        operation,
+        (target, tool),
+        shape_volume(target) if target_volume is None else target_volume,
+        shape_volume(tool) if tool_volume is None else tool_volume,
+    )
+
+
+def _attempt(
+    target: BodyShape,
+    tool: BodyShape,
+    operation: Literal["union", "subtract", "intersect"],
+    allow_disjoint: bool,
+    fuzzy: float | None,
+) -> tuple[BodyShape, BodyReading]:
+    """One run of the boolean (plain, or at *fuzzy* mm) with its result rules."""
     try:
-        # fuse/cut/intersect carry Shape[Unknown] type params upstream (the same
-        # gap combine_body / tessellate.py document); intersect returns a
-        # ShapeList (or None for an empty common) rather than a Shape. Extract the
-        # solid list per branch so the mixed return type never leaks — scoped
-        # ignores only, exactly like combine_body.
-        solids: list[Solid]
-        if operation == "union":
-            solids = list(target.fuse(tool).solids())  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
-        elif operation == "subtract":
-            solids = list(target.cut(tool).solids())  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
-        else:  # intersect — the closed Literal's only remaining member
-            # An empty intersect returns None (build123d); a non-empty one a
-            # ShapeList whose .solids() is the lump list. Annotate so the mixed
-            # partially-unknown return does not leak past this line.
-            common: ShapeList[Solid] | None = target.intersect(tool)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-            solids = list(common.solids()) if common is not None else []  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        if fuzzy is not None:
+            solids = fuzzy_boolean_solids(target, tool, operation, fuzzy)
+        else:
+            solids = _plain_solids(target, tool, operation)
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise BooleanError(
             f"Boolean {operation} failed in the kernel ({type(exc).__name__}); "
@@ -146,7 +185,7 @@ def boolean_bodies(
             # Opt-in multi-lump body (§MB-4): keep the >1 lumps as ONE body — a
             # lump-sorted Compound of the cleaned lumps (each lump's boolean seams
             # cleaned, then the explicit total order imposed for determinism).
-            return assemble_lumps([clean_shape(solid) for solid in solids])
+            return _lumps([clean_and_read(solid) for solid in solids])
         if operation == "subtract":
             detail = (
                 f"severed the target into {len(solids)} disconnected pieces — the "
@@ -166,4 +205,33 @@ def boolean_bodies(
             f"Boolean {operation} {detail}. Set 'allow_disjoint' to keep the "
             "result as one multi-lump body (design §MB-4)."
         )
-    return clean_shape(solids[0])
+    return clean_and_read(solids[0])
+
+
+def _lumps(lumps: list[tuple[Solid, BodyReading]]) -> tuple[BodyShape, BodyReading]:
+    """A multi-lump body (lump-sorted, :func:`assemble_lumps`) and its reading."""
+    reading = sum((lump[1] for lump in lumps), BodyReading(()))
+    return assemble_lumps([lump[0] for lump in lumps]), reading
+
+
+def _plain_solids(
+    target: BodyShape,
+    tool: BodyShape,
+    operation: Literal["union", "subtract", "intersect"],
+) -> list[Solid]:
+    """The solids of the plain (build123d) boolean, the path every body takes."""
+    # fuse/cut/intersect carry Shape[Unknown] type params upstream (the same
+    # gap combine_body / tessellate.py document); intersect returns a
+    # ShapeList (or None for an empty common) rather than a Shape. Extract the
+    # solid list per branch so the mixed return type never leaks — scoped
+    # ignores only, exactly like combine_body.
+    if operation == "union":
+        return list(target.fuse(tool).solids())  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+    if operation == "subtract":
+        return list(target.cut(tool).solids())  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+    # intersect — the closed Literal's only remaining member. An empty
+    # intersect returns None (build123d); a non-empty one a ShapeList whose
+    # .solids() is the lump list. Annotate so the mixed partially-unknown
+    # return does not leak past this line.
+    common: ShapeList[Solid] | None = target.intersect(tool)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    return list(common.solids()) if common is not None else []  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]

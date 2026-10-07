@@ -62,7 +62,7 @@ import math
 from build123d import Compound, Plane, Solid, Vector
 from OCP.ShapeAnalysis import ShapeAnalysis_ShapeTolerance
 
-from geometry.kernel.extrude import combine_body
+from geometry.kernel.extrude import combine_body_measured
 from geometry.kernel.properties import volume_properties
 from geometry.kernel.types import BodyShape
 
@@ -125,7 +125,11 @@ class HoleRecessInvalidError(HoleError):
 
 
 def _cut_drill(
-    body: BodyShape, tool: Solid, off_body: HoleError
+    body: BodyShape,
+    tool: Solid,
+    off_body: HoleError,
+    *,
+    body_volume: float | None = None,
 ) -> tuple[BodyShape, float, float]:
     """Cut a drill/recess *tool* from *body*: ``(drilled body, removed, tolerance)``.
 
@@ -148,6 +152,9 @@ def _cut_drill(
     "reaches" when its common RAISES (an OCCT anomaly must not turn a working
     feature into an error), so the cut still runs and reports its own
     ``BooleanError``; only then does the measurement's exception surface.
+
+    *body_volume* is *body*'s volume when known, for the boolean integrity guard
+    (:mod:`geometry.kernel.boolean_guard`).
     """
     pocket: tuple[float, float] | None = None
     measured = True
@@ -157,7 +164,9 @@ def _cut_drill(
         measured = False
     if measured and pocket is None:
         raise off_body
-    result = combine_body(body, tool, "cut", reaches=True)
+    result = combine_body_measured(
+        body, tool, "cut", reaches=True, body_volume=body_volume
+    ).shape
     if not measured:
         pocket = _pocket(body, tool)
     removed, tolerance = (0.0, 0.0) if pocket is None else pocket
@@ -279,6 +288,7 @@ def bore_hole(
     *,
     through_all: bool,
     depth_mm: float | None,
+    body_volume: float | None = None,
 ) -> BodyShape:
     """Drill a cylindrical hole into *body* at *position* on *face_plane*.
 
@@ -288,7 +298,8 @@ def bore_hole(
     axis. The drill cuts INTO the solid (``-z_dir``); ``through_all`` cuts fully
     through, otherwise a blind pocket ``depth_mm`` deep (``depth_mm`` must be a
     positive float when ``through_all`` is False — the feature layer's discriminated
-    depth union guarantees it).
+    depth union guarantees it). *body_volume* is *body*'s volume when the caller
+    knows it (the evaluation's per-body memo), so it is not integrated again.
 
     Returns the drilled body (lump-count-preserving, via ``combine_body``).
 
@@ -312,9 +323,10 @@ def bore_hole(
         "(outside the body), or the cut direction points into empty space. "
         "Re-place the hole on the face."
     )
-    result, removed, tolerance = _cut_drill(body, tool, off_body)
+    volume = float(body.volume) if body_volume is None else body_volume
+    result, removed, tolerance = _cut_drill(body, tool, off_body, body_volume=volume)
 
-    if removed <= float(body.volume) * _REMOVED_REL_TOL:
+    if removed <= volume * _REMOVED_REL_TOL:
         raise off_body
     if not through_all:
         assert depth_mm is not None, "a blind hole carries a positive depth_mm"

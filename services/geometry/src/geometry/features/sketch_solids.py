@@ -57,7 +57,7 @@ from geometry.kernel import (
     build_path_wire,
     build_revolve_profile_face,
     check_axis_clears_profile,
-    combine_body,
+    combine_body_measured,
     extrude_face,
     loft_sections,
     resolve_revolve_axis,
@@ -192,14 +192,18 @@ def _evaluate_extrude_cut(
                 feature_id, history, plane, solved.entities, region=len(faces) > 1
             )
         )
+    body_id = state.active_body_id
+    assert body_id is not None
+    volume = state.body_volume(body_id)
     try:
         for tool in tools:
-            body = combine_body(body, tool, "cut")
+            cut = combine_body_measured(body, tool, "cut", body_volume=volume)
+            body, volume = cut.shape, cut.volume
     except CutRemovedNothingError as exc:
         return FeatureError(code="cut_removed_nothing", message=str(exc))
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
-    state.set_active_body(body, generated)
+    state.set_active_body(body, generated, volume=volume)
     state.record_cut_tools(feature_id, tools)
     state.record_feature_tools(feature_id, "cut", list(tools), generated)
     return None
