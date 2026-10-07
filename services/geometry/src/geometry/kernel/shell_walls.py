@@ -65,6 +65,22 @@ faces to meet the opening, where the distance definition would round the cavity
 around the opened face's edges. The two differ only there, so a cavity point
 whose nearest kept point is on an opened face's boundary is not tested.
 
+A SHARP shell (*sharp*, kernel/shell.py) differs from that definition only
+behind a CONCAVE edge: its inward walls are extended until they meet, so the
+cavity there has a corner where the distance definition has a tube, and the
+material between them is wall. The kept faces, the cavity's face-offset
+boundary and every convex corner are the same, so the face, missing-cavity and
+corner tests stand as they are. The wall test takes one more reading: a cavity
+point thicker than ``t`` whose nearest kept point is on a concave edge (or a
+vertex of one) passes when it lies ``t`` inside the UNTRIMMED surface of one
+of that edge's kept faces, which is where an extended wall runs
+(:meth:`ShellDefinition._on_extended_wall`). Thinner than ``t`` never passes.
+The extension itself is tested too, or a rounded result would pass: along
+each concave edge between two kept faces, the line where the two extended
+walls meet (``p - t (n1 + n2) / (1 + n1.n2)``, as for a convex corner) must lie
+on the result wherever it is ``t`` or more from every kept face
+(:attr:`ShellDefinition._sharp_corners`).
+
 Deterministic: the samples follow the input's and the result's face order and
 fixed grids, and the first fault in that order is reported.
 """
@@ -100,6 +116,7 @@ from OCP.BRepTopAdaptor import BRepTopAdaptor_FClass2d
 from OCP.ChFiDS import ChFiDS_TypeOfConcavity
 from OCP.Extrema import Extrema_ExtPC, Extrema_ExtPS
 from OCP.GeomAbs import GeomAbs_SurfaceType
+from OCP.GeomAPI import GeomAPI_ProjectPointOnSurf
 from OCP.gp import gp_Pnt, gp_Pnt2d, gp_Vec
 from OCP.TopAbs import TopAbs_ShapeEnum, TopAbs_State
 from OCP.TopExp import TopExp
@@ -147,6 +164,11 @@ _EDGE_DEPTH_SHARE = 0.05
 #: nearest kept point is on an edge: the sharp corner Arc keeps (see
 #: :meth:`ShellDefinition.fault`).
 _CORNER_SLACK_SHARE = 0.05
+
+#: build123d's ``hollow`` tolerance and ``Precision::Confusion()``, from which
+#: OCCT's offset derives the angle it classifies edges at (kernel/shell.py).
+_HOLLOW_TOL_MM = 1e-4
+_CONFUSION_MM = 1e-7
 
 #: The angle (rad) under which OCCT's edge analysis calls two faces tangent.
 _TANGENT_ANGLE = 0.01
@@ -203,6 +225,9 @@ class FaultKind(Enum):
     WALL = "wall"
     #: A point of the true cavity's boundary is not on the result.
     MISSING = "missing"
+    #: A sharp shell's cavity corner behind a concave edge is not on the
+    #: result (rounded, or cut away).
+    CORNER = "corner"
 
 
 @dataclass(frozen=True)
@@ -841,13 +866,63 @@ def _at(row: Points) -> tuple[float, float, float]:
     return (float(row[0]), float(row[1]), float(row[2]))
 
 
+class _Wedge:
+    """The material a sharp shell keeps behind one concave edge: the points
+    within *reach* of *edge* that are less than ``t`` inside both *walls*'
+    untrimmed surfaces (:meth:`ShellDefinition._in_wedge`). *box* bounds the
+    reach (xmin, ymin, zmin, xmax, ymax, zmax)."""
+
+    def __init__(
+        self,
+        edge: TopoDS_Edge,
+        reach: float,
+        box: Points,
+        walls: tuple[TopoDS_Face, ...],
+    ) -> None:
+        self.reach = reach
+        self.box = box
+        self.walls = walls
+        self._probe = _EdgeProbe(edge)
+        self._ends = [
+            BRep_Tool.Pnt_s(TopExp.FirstVertex_s(edge)),
+            BRep_Tool.Pnt_s(TopExp.LastVertex_s(edge)),
+        ]
+
+    def distance(self, point: gp_Pnt) -> float | None:
+        """Distance from *point* to the edge (its interior or an end)."""
+        ends = [end.Distance(point) for end in self._ends]
+        inner = self._probe.nearest(point)
+        return min([*ends, inner[0]] if inner is not None else ends)
+
+
+def _depth_under(face: TopoDS_Face, point: gp_Pnt) -> float:
+    """How far *point* is inside *face*'s untrimmed surface (negative when it
+    is outside, on the side the outward normal points to)."""
+    projection = GeomAPI_ProjectPointOnSurf(point, BRep_Tool.Surface_s(face))
+    if projection.NbPoints() == 0:
+        return math.inf
+    u, v = projection.LowerDistanceParameters()
+    on_surface, normal = gp_Pnt(), gp_Vec()
+    BRepGProp_Face(face).Normal(u, v, on_surface, normal)
+    distance = projection.LowerDistance()
+    return distance if gp_Vec(on_surface, point).Dot(normal) <= 0 else -distance
+
+
 class ShellDefinition:
     """The shell of *body* at *thickness_mm*, opening *opened*, by definition:
     the material within the thickness of the kept faces."""
 
-    def __init__(self, body: Solid, opened: list[Face], thickness_mm: float) -> None:
+    def __init__(
+        self,
+        body: Solid,
+        opened: list[Face],
+        thickness_mm: float,
+        *,
+        sharp: bool = False,
+    ) -> None:
         self._body = body
         self.thickness_mm = thickness_mm
+        self._sharp = sharp
         faces = [face.wrapped for face in body.faces()]
         kept = [not any(face.IsSame(o.wrapped) for o in opened) for face in faces]
         self._kept = [face for face, keep in zip(faces, kept, strict=True) if keep]
@@ -985,8 +1060,9 @@ class ShellDefinition:
         true cavity."""
         floor = self.thickness_mm + (depth - self.thickness_mm) / 2
         clear = np.flatnonzero(self._near.many(points, depth, True, floor) >= floor)
+        clear = clear[self._within(points[clear], depth)]
         result = np.zeros(len(points), dtype=bool)
-        result[clear[self._within(points[clear], depth)]] = True
+        result[clear[~self._in_wedge(points[clear])]] = True
         return result
 
     @cached_property
@@ -1013,12 +1089,14 @@ class ShellDefinition:
         clear = self._near.many(offsets, t, True, t - WALL_TOL_MM)
         rows = np.flatnonzero(clear >= t - WALL_TOL_MM)
         rows = rows[self._within(offsets[rows], t)]
+        rows = rows[~self._in_wedge(offsets[rows])]
         depth = t + MIN_CAVITY_MM
         deeper = points[rows] - depth * normals[rows]
         floor = depth - MIN_CAVITY_MM / 2
         clear = self._near.many(deeper, depth, True, floor) >= floor
         rows, deeper = rows[clear], deeper[clear]
-        result[rows[self._within(deeper, depth)]] = True
+        inside = self._within(deeper, depth) & ~self._in_wedge(deeper)
+        result[rows[inside]] = True
         return result
 
     def _within(self, points: Points, depth: float) -> NDArray[np.bool_]:
@@ -1133,8 +1211,13 @@ class ShellDefinition:
                 and foot.support is not _Support.FACE
             ):
                 continue
+            if wall > t and self._on_extended_wall(points[row], foot):
+                continue
             if not self._at_rim(foot):
                 return WallFault(FaultKind.WALL, _at(points[row]), wall)
+        corner = self._corner_fault(result_faces)
+        if corner is not None:
+            return corner
         # On the result is always fine (a result face where no cavity belongs
         # fails the wall test above). Off it, the point may still be within the
         # tolerances of a cavity corner, so the verdict is taken where it cannot
@@ -1163,6 +1246,204 @@ class ShellDefinition:
                 if inside_result.State() != TopAbs_State.TopAbs_OUT:
                     return WallFault(FaultKind.MISSING, _at(where))
         return None
+
+    @cached_property
+    def _concave_walls(
+        self,
+    ) -> tuple[TopTools_IndexedMapOfShape, dict[int, tuple[TopoDS_Face, ...]]]:
+        """For a sharp shell, the concave edges and their vertices, and the
+        kept faces along each, keyed by its index in that map: the walls a
+        sharp cavity extends."""
+        shapes = TopTools_IndexedMapOfShape()
+        found: dict[int, list[TopoDS_Face]] = {}
+        if not self._sharp:
+            return shapes, {}
+        t = self.thickness_mm
+        # The angle BRepOffset_MakeOffset classifies edges at (kernel/shell.py,
+        # _concave_edge_count): the edges the Intersection join extends at.
+        coefficient = min(_HOLLOW_TOL_MM / (t / 2 + _CONFUSION_MM), 1.0)
+        analysis = BRepOffset_Analyse(self._body.wrapped, 4 * math.asin(coefficient))
+        ancestry = TopTools_IndexedDataMapOfShapeListOfShape()
+        TopExp.MapShapesAndAncestors_s(
+            self._body.wrapped,
+            TopAbs_ShapeEnum.TopAbs_EDGE,
+            TopAbs_ShapeEnum.TopAbs_FACE,
+            ancestry,
+        )
+        kept = TopTools_IndexedMapOfShape()
+        for face in self._kept:
+            kept.Add(face)
+        concave = ChFiDS_TypeOfConcavity.ChFiDS_Concave
+        for index in range(1, ancestry.Extent() + 1):
+            edge = TopoDS.Edge_s(ancestry.FindKey(index))
+            if BRep_Tool.Degenerated_s(edge):
+                continue
+            intervals = analysis.Type(edge)
+            if not any(interval.Type() == concave for interval in intervals):
+                continue
+            owners = ancestry.FindFromIndex(index)
+            walls = [
+                TopoDS.Face_s(face)
+                for face in (owners.First(), owners.Last())
+                if kept.Contains(face)
+            ]
+            vertices = TopTools_IndexedMapOfShape()
+            TopExp.MapShapes_s(edge, TopAbs_ShapeEnum.TopAbs_VERTEX, vertices)
+            for shape in [edge] + [
+                vertices.FindKey(i) for i in range(1, vertices.Extent() + 1)
+            ]:
+                key = shapes.Add(shape)
+                found.setdefault(key, []).extend(walls)
+        return shapes, {key: tuple(walls) for key, walls in found.items()}
+
+    @cached_property
+    def _sharp_corners(self) -> Points:
+        """For a sharp shell, points on the cavity's corner line behind each
+        concave edge between two kept faces, about ``t`` apart, that are at
+        least ``t`` from every kept face and inside the body: where the two
+        extended walls meet, which a sharp result must have on it."""
+        if not self._sharp:
+            return np.zeros((0, 3))
+        t = self.thickness_mm
+        shapes, walls_of = self._concave_walls
+        found: list[tuple[float, float, float]] = []
+        for index in range(1, shapes.Extent() + 1):
+            shape = shapes.FindKey(index)
+            walls = walls_of.get(index, ())
+            if shape.ShapeType() != TopAbs_ShapeEnum.TopAbs_EDGE or len(walls) != 2:
+                continue
+            edge = TopoDS.Edge_s(shape)
+            curve = BRepAdaptor_Curve(edge)
+            first, last = curve.FirstParameter(), curve.LastParameter()
+            ends = [curve.Value(v) for v in (first, (first + last) / 2, last)]
+            length = ends[0].Distance(ends[1]) + ends[1].Distance(ends[2])
+            count = min(EDGE_GRID, max(1, math.ceil(length / (SPACING_SHARE * t))))
+            sides = [
+                (BRepAdaptor_Curve2d(edge, wall), BRepGProp_Face(wall))
+                for wall in walls
+            ]
+            for step in range(count):
+                parameter = first + (step + _CELL_U) / count * (last - first)
+                normals = []
+                for pcurve, surface in sides:
+                    uv = pcurve.Value(parameter)
+                    normal = gp_Vec()
+                    surface.Normal(uv.X(), uv.Y(), gp_Pnt(), normal)
+                    if normal.Magnitude() < 1e-9:
+                        break
+                    normals.append(normal.Normalized())
+                if len(normals) != 2:
+                    continue
+                cosine = normals[0].Dot(normals[1])
+                if cosine < -0.9:  # a knife edge: the two walls never meet
+                    continue
+                way = normals[0].Added(normals[1]).Multiplied(t / (1 + cosine))
+                point = curve.Value(parameter).Translated(way.Reversed())
+                found.append(_xyz(point))
+        points = np.array(found, dtype=np.float64).reshape(-1, 3)
+        floor = t - WALL_TOL_MM
+        clear = np.flatnonzero(self._near.many(points, t, True, floor) >= floor)
+        clear = clear[self._within(points[clear], t)]
+        return points[clear]
+
+    def _corner_fault(self, result_faces: list[TopoDS_Face]) -> WallFault | None:
+        """The first sharp cavity corner (:attr:`_sharp_corners`) that is not
+        on the result, or None."""
+        corners = self._sharp_corners
+        if not len(corners):
+            return None
+        on_result = _Nearest(result_faces, 2 * self.thickness_mm)
+        reach = on_result.many(corners, _ON_CAP_MM, floor=ON_TOL_MM)
+        off = np.flatnonzero(reach > ON_TOL_MM)
+        if len(off):
+            return WallFault(FaultKind.CORNER, _at(corners[off[0]]))
+        return None
+
+    @cached_property
+    def _wedges(self) -> list[_Wedge]:
+        """For a sharp shell, the wall a sharp cavity keeps behind each concave
+        edge between two kept faces (:class:`_Wedge`)."""
+        if not self._sharp:
+            return []
+        t = self.thickness_mm
+        shapes, walls_of = self._concave_walls
+        wedges: list[_Wedge] = []
+        for index in range(1, shapes.Extent() + 1):
+            shape = shapes.FindKey(index)
+            walls = walls_of.get(index, ())
+            if shape.ShapeType() != TopAbs_ShapeEnum.TopAbs_EDGE or len(walls) != 2:
+                continue
+            edge = TopoDS.Edge_s(shape)
+            curve = BRepAdaptor_Curve(edge)
+            first, last = curve.FirstParameter(), curve.LastParameter()
+            # The corner line's farthest reach from the edge, over a few
+            # points: t sqrt(2 / (1 + n1.n2)).
+            reach = 0.0
+            sides = [
+                (BRepAdaptor_Curve2d(edge, wall), BRepGProp_Face(wall))
+                for wall in walls
+            ]
+            for share in (0.0, 0.25, 0.5, 0.75, 1.0):
+                parameter = first + share * (last - first)
+                normals = []
+                for pcurve, surface in sides:
+                    uv = pcurve.Value(parameter)
+                    normal = gp_Vec()
+                    surface.Normal(uv.X(), uv.Y(), gp_Pnt(), normal)
+                    if normal.Magnitude() > 1e-9:
+                        normals.append(normal.Normalized())
+                if len(normals) == 2:
+                    cosine = max(normals[0].Dot(normals[1]), -0.9)
+                    reach = max(reach, t * math.sqrt(2 / (1 + cosine)))
+            if reach == 0.0:
+                continue
+            box = Bnd_Box()
+            BRepBndLib.Add_s(edge, box, False)
+            box.Enlarge(reach + WALL_TOL_MM)
+            wedges.append(_Wedge(edge, reach, np.array(box.Get()), walls))
+        return wedges
+
+    def _in_wedge(self, points: Points) -> NDArray[np.bool_]:
+        """For each point, whether a sharp shell keeps it as wall behind a
+        concave edge although it is ``t`` or more from every kept face: within
+        the corner line's reach of the edge, and less than ``t`` inside the
+        untrimmed surfaces of both its faces (the distance definition's tube
+        cuts into that material, the sharp cavity does not)."""
+        result = np.zeros(len(points), dtype=bool)
+        if not len(points) or not self._wedges:
+            return result
+        t = self.thickness_mm
+        for wedge in self._wedges:
+            low, high = wedge.box[:3], wedge.box[3:]
+            near = np.flatnonzero(
+                np.all((points >= low) & (points <= high), axis=1) & ~result
+            )
+            for row in near.tolist():
+                here = gp_Pnt(*points[row])
+                reach = wedge.distance(here)
+                if reach is None or reach > wedge.reach + WALL_TOL_MM:
+                    continue
+                if all(
+                    _depth_under(wall, here) < t - WALL_TOL_MM for wall in wedge.walls
+                ):
+                    result[row] = True
+        return result
+
+    def _on_extended_wall(self, point: Points, foot: _Foot | None) -> bool:
+        """Whether a cavity point of a sharp shell, nearest a concave edge or a
+        vertex of one, is on the extended inward wall of a kept face along it:
+        ``t`` inside that face's untrimmed surface (module docstring)."""
+        if not self._sharp or foot is None or foot.support is _Support.FACE:
+            return False
+        shapes, walls_of = self._concave_walls
+        walls = walls_of.get(shapes.FindIndex(foot.shape))
+        if not walls:
+            return False
+        here = gp_Pnt(*point)
+        return any(
+            abs(_depth_under(wall, here) - self.thickness_mm) <= WALL_TOL_MM
+            for wall in walls
+        )
 
     def _at_rim(self, foot: _Foot | None) -> bool:
         """Whether a kept-face query's nearest point is on an opened face's edge

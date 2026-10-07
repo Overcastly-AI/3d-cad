@@ -779,3 +779,36 @@ Every golden's GLB and metadata are byte-identical.
 OCCT's. The double clean (build123d cleans inside every boolean, then
 `clean_shape` cleans again under the CM-6 guard) and the eager per-face `Plane`
 in `planar_faces` are ours and are the next costs to take; both are in BACKLOG.
+
+## 16. Shell corners: sharp by default, rounded where stored
+
+**What mainstream CAD does.** SolidWorks, Onshape and Fusion 360 shell with
+sharp inside corners: behind a concave edge of the body, the two inward walls
+are extended until they meet, so the wall across that corner is
+`t / sin(a / 2)` thick (`t sqrt 2` at 90 deg). OCCT's `MakeThickSolid` calls
+that the Intersection join. Its default, Arc, rounds the corner with a tube of
+radius `t` round the edge (every wall exactly `t`). Convex edges come out sharp
+either way. Loft shipped Arc only until 2026-10-07.
+
+**Decision (SHELL-SHARP-DEFAULT).** `ShellParamsV1.shell_type` is
+`sharp | rounded`. Absent reads `rounded` and `rounded` is not serialized, so
+every stored shell keeps its shape and its bytes; the web authors `sharp`.
+
+- A sharp shell of a body with no concave edge (by OCCT's own
+  `BRepOffset_Analyse` at the offset's angle) takes the rounded route byte for
+  byte: both joins build the same faces there.
+- With a concave edge, the Intersection join is the outcome. It always runs in
+  a child of the blend server (it held a cross-bored plate 68 to 133 s,
+  SHELL-INTERSECTION-SLOW), on the feature's offset budget (40 s of CPU over
+  all lumps), and is refused past it with `ShellTimeout`, never answered with
+  Arc's shape.
+- The result is checked against the sharp definition
+  (`kernel/shell_walls.py`): the distance definition, less the wedge of wall
+  kept behind each concave edge, with the extended walls exactly `t` inside
+  their faces' untrimmed surfaces and the corner line where they meet on the
+  result. A rounded result fails it, and a sharp one fails the rounded one.
+- Truth for the tests is built without any offset: a convex box minus box and
+  cylinder pockets, every face moved by `t` (`tests/test_shell_sharp.py`, 43
+  bodies), and two goldens derived by hand
+  (`shell-sharp-bored-plate-60x40x12-blind-r6-t1.5`,
+  `shell-sharp-l-bracket-40x30x25-open-top-t2`).

@@ -193,7 +193,13 @@ def _evaluate_shell(
 
     worked = OpHistory()
     try:
-        shelled = shell_body(active, faces, params.thickness_mm, history=worked)
+        shelled = shell_body(
+            active,
+            faces,
+            params.thickness_mm,
+            sharp=params.shell_type == "sharp",
+            history=worked,
+        )
     except ShellThicknessError as exc:
         return FeatureError(code="shell_thickness_too_large", message=str(exc))
     except ShellError as exc:
