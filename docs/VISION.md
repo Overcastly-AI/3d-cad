@@ -156,7 +156,7 @@ reference-part run or a live-app check.
 | Drawings                    | ➖    | Views, sections, dimensions, PDF/DXF. No detail views.                                                                                                  |
 | Sheet metal                 | ➖    | Flanges, hems, flat-pattern DXF.                                                                                                                        |
 | Workspace and documents     | ➖    | Parts, assemblies and drawings register. No versioning.                                                                                                 |
-| Performance on real parts   | ❌    | A cold rebuild hits a wall near 50 features (about 26 s at 200). Big imports are slow to pick.                                                          |
+| Performance on real parts   | ❌    | A cold rebuild grows about N^1.9: 29 s at 200 features, 7.6 s at 100 (2026-10-07, loaded 4-core). OCCT booleans dominate; the double face-merge is ours. |
 | Collaboration and versions  | ❌    | No document versions, no realtime presence.                                                                                                             |
 | Scripting API               | ➖    | `loft-script` shipped.                                                                                                                                  |
 | Agent access (MCP)          | ❌    | Not started. It is the one gap no incumbent can answer.                                                                                                 |

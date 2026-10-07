@@ -97,6 +97,13 @@ commits carry the ID (`git log --grep=<ID>`).
       are singular or tangent; a post-fuse volume/shell sanity guard in
       `combine_body` would catch it.
 
+- [ ] **SHELL-MULTIBODY-HANG** (hang, pre-existing): a body of several
+      separate solids is still hollowed in-process with no CPU budget
+      (`isolate=False` in `shell.py`), so the 317 s class of shell hang that
+      SHELL-INTERSECTION-SLOW bounded for single solids remains for multi-body
+      parts. _Accept:_ a multi-solid shell answers (a solid or a typed
+      `ShellTimeout`) inside the gateway timeout, through the same child path.
+
 ## Next
 
 - [ ] **FILLET-PARTIAL-RESOLVE**: when some of a fillet's picked edges no
@@ -408,3 +415,13 @@ One line each. The founder triages weekly; most are closed without work.
 - Moto frame round trip: the 704,000 mm^3 frame drifts 1.3e-5 mm^3 / 0.18 mm^2 through STEP (a pure-build123d twin drifts the same), above the absolute 1e-7 `ROUNDTRIP_TOL`, so its golden carries a reviewed `roundtrip_tolerance` 0.5; a relative bound would size this without per-golden overrides.
 - PERF: every in-chain boolean is unified twice (build123d's `_bool_op` cleans, then `clean_shape` cleans again under the CM-6 guard, which brackets only the second pass with two whole-body volumes and a deep copy): ~17 % of a 200-feature rebuild (RESEARCH §15).
 - PERF: `planar_faces` builds a full signature and a `Plane` for every planar face on each face-reference resolution (~107 ms per hole at 442 faces, ~12 % of a 200-feature rebuild); the `Plane` is about a third of that and only the matched face's is used.
+- Shell: the 906-face slotted lid is now a typed `ShellTimeout` in 54 s (was 317 s and a gateway timeout); a solid needs a faster offset of many-holed faces (OCCT's Arc alone takes 77-89 s CPU) or a larger budget and gateway timeout.
+- Shell: the `_arc` 60 s wall-clock backstop also raises `ShellTimeout`, so on a loaded host a body under its 40 s CPU budget can be refused; the outcome depends on load as well as speed (the comment says load does not move it).
+- Shell: a sealed shell on the Intersection route now builds it twice (in the child, then in-process) and needs the blend server; with the server cold or down, Arc's bytes ship instead.
+- Shell: on a sealed analytic body of 500+ faces the in-process Intersection build now runs on the untouched input rather than Arc's result; untested, and it could change those bytes.
+- `test_offset_history_on_a_slotted_lid_stays_cheap` compares two timings taken in one process; it may flake on a loaded CI runner.
+- Shell: tessellating the 2936-face lid result takes 10-12 s, and the admission BRepCheck repeats 2-3 s of work.
+- Blend isolation (41d07a0): the three sheet-metal unfold goldens were not compared before and after (they do not load through the evaluate path).
+- Fillet `_retry` now reseams around the whole tangent chain, so a stored part that passed only on a reseam retry could pick another seam candidate (none seen in the goldens).
+- Fillet/chamfer on sheet metal: one pick now spreads across the bend's tangent edges (chains of up to 5 edges), as Fusion does.
+- Removal probe (0375d30): the 120-tool agreement sweep in `test_removal_probe_cost.py` uses only convex boxes and cylinders; add a ring tool and a body with a void.
