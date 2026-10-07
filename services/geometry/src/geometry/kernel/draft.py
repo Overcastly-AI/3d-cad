@@ -153,7 +153,7 @@ def draft_body(
             work, work_faces, drafted = run_isolated_draft(
                 work, work_faces, direction, plane, angle_deg, history
             )
-        else:
+        else:  # test-only seam: production always isolates
             drafted = draft_lumps(
                 work, work_faces, direction, plane, angle_deg, history
             )
@@ -202,8 +202,8 @@ def draft_lumps(
     """The raw OCCT draft, per lump of *body*: the solids of each lump that owns
     a picked face, ``None`` for a lump that owns none. Raises what OCCT raises.
 
-    Run in-process, or in a child of the blend server for a draft outside the
-    analytic cases (``_fillet_worker``): the same calls either way. The checks
+    Run in a child of the blend server (``_fillet_worker``), or in-process
+    where a test compares the two routes: the same calls either way. The checks
     and the clean are the caller's (:func:`_finish`), in this process.
     """
     if isinstance(body, Compound):

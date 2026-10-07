@@ -44,8 +44,8 @@ owns socket objects, never bare descriptor numbers). In a container, run the
 service under an init (compose ``init: true``) so nothing orphaned by a killed
 server outlives it as a zombie: uvicorn as PID 1 reaps no one.
 
-A draft outside the analytic cases runs here too (:func:`run_isolated_draft`,
-DRAFT-SEGFAULT): the same server, its own request shape.
+Every draft runs here too (:func:`run_isolated_draft`, DRAFT-SEGFAULT): the
+same server, its own request shape.
 
 Cost (measured 2026-10-01, 4-core sandbox): see ``docs/RESEARCH.md``
 "Blend isolation".
@@ -494,16 +494,22 @@ def _discard(server: _Server) -> None:
     server.close()
 
 
-def prewarm() -> None:
+#: The name of :func:`prewarm`'s thread (a test joins it to know it is done).
+PREWARM_THREAD = "blend-server-prewarm"
+
+
+def prewarm() -> threading.Thread:
     """Start this process's server now, in the background
-    (``BLEND_SERVER_PREWARM``); the first non-analytic blend then skips the
-    5-9 s start."""
+    (``BLEND_SERVER_PREWARM``, on by default); the first blend then skips the
+    5-9 s start. Returns the starting thread."""
 
     def start() -> None:
         with contextlib.suppress(BlendCrashed):
             _current()
 
-    threading.Thread(target=start, name="blend-server-prewarm", daemon=True).start()
+    thread = threading.Thread(target=start, name=PREWARM_THREAD, daemon=True)
+    thread.start()
+    return thread
 
 
 def shutdown() -> None:

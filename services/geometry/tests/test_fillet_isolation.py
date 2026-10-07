@@ -263,13 +263,21 @@ def _server_up() -> int:
 
 
 def test_prewarm_starts_the_server_at_boot() -> None:
-    """``BLEND_SERVER_PREWARM`` (the default: every blend is isolated) starts
-    the server from ``build_app`` in the background."""
+    """``BLEND_SERVER_PREWARM`` (on by default: every blend is isolated) starts
+    the server from ``build_app`` in the background. Every prewarm thread is
+    joined before the server is checked, so the one ``geometry.main`` started
+    at import cannot race the shutdown."""
+    assert GeometrySettings.model_fields["blend_server_prewarm"].default is True
+    _join_prewarm_threads()
     fillet_isolation.shutdown()
     assert server_pid() is None
-    assert GeometrySettings().blend_server_prewarm is True
     build_app(GeometrySettings(web_concurrency=1, blend_server_prewarm=True))
-    deadline = time.monotonic() + 120
-    while server_pid() is None and time.monotonic() < deadline:
-        time.sleep(0.2)
+    _join_prewarm_threads()
     assert server_pid() is not None
+
+
+def _join_prewarm_threads() -> None:
+    for thread in threading.enumerate():
+        if thread.name == fillet_isolation.PREWARM_THREAD:
+            thread.join(timeout=150)
+            assert not thread.is_alive()

@@ -82,8 +82,8 @@ def chamfer_body(
     ``ChFi3d`` builder): a failed chamfer of the cone-hub blade root left an
     input vertex at a 71.6 mm tolerance, and even a successful one loosened it.
     So the chamfer runs on a topology copy, its result must pass
-    :func:`~geometry.kernel.fillet_guard.fillet_problem`, and a blend outside
-    OCCT's analytic cases runs isolated (:mod:`geometry.kernel.fillet_isolation`).
+    :func:`~geometry.kernel.fillet_guard.fillet_problem`, and every chamfer runs
+    isolated (:mod:`geometry.kernel.fillet_isolation`).
 
     Raises:
         ChamferError: the OCCT chamfer failed or crashed, or changed the body's
@@ -101,7 +101,7 @@ def chamfer_body(
             work, work_edges, solids = run_isolated(
                 "chamfer", work, work_edges, distance_mm, history
             )
-        else:
+        else:  # test-only seam: production always isolates
             solids = _chamfer(work, work_edges, distance_mm, history)
         problem = fillet_problem(work, work_edges, distance_mm, solids, input_tolerance)
         if problem is not None:

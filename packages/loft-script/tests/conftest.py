@@ -32,6 +32,10 @@ from typing import NamedTuple
 # gateway conftest has already set it, and a test whose subject is LOFT_ENV must
 # monkeypatch explicitly rather than inherit either way (CLAUDE.md).
 os.environ.setdefault("LOFT_ENV", "dev")
+# `geometry.main` builds its app at import, and the blend server is prewarmed
+# by default (~0.5 GiB, several seconds). Nothing here needs it up front: a
+# blend, if any, starts it on first use.
+os.environ.setdefault("BLEND_SERVER_PREWARM", "false")
 
 import pytest
 import uvicorn

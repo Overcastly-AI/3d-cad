@@ -79,9 +79,9 @@ def fillet_body(
     :func:`~geometry.kernel.fillet_guard.fillet_problem` (closed, no looser
     than it may be, faces beyond the fillet's reach intact).
 
-    A blend outside OCCT's analytic cases runs in a forked child
-    (:mod:`geometry.kernel.fillet_isolation`): OCCT can segfault there, and a
-    crash must cost this fillet, not the service.
+    Every fillet runs in a forked child of the blend server
+    (:mod:`geometry.kernel.fillet_isolation`): OCCT can segfault in any blend,
+    and a crash must cost this fillet, not the service.
 
     Raises:
         FilletError: the OCCT fillet failed or crashed, or changed the body's
@@ -220,7 +220,7 @@ def _attempt(
 ) -> tuple[BodyShape, list[Edge], list[Solid]]:
     """One fillet of a working copy, in-process or isolated; returns the copy
     the result was built on, its edges and the result's solids."""
-    if not isolate:
+    if not isolate:  # test-only seam: production always isolates
         return work, work_edges, _fillet(work, work_edges, radius_mm, history)
     return run_isolated("fillet", work, work_edges, radius_mm, history)
 
