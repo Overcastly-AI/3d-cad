@@ -12,7 +12,13 @@
  * with zero picks. The picked-open set lives in the face-pick store (shared with
  * the overlay); this editor reads its count and builds the params on submit.
  */
-import { NumberField, Panel, PanelActionCell } from "@loft/design";
+import {
+  NumberField,
+  Panel,
+  PanelActionCell,
+  SegmentedControl,
+  type SegmentOption,
+} from "@loft/design";
 import { type KeyboardEvent, useCallback, useEffect } from "react";
 
 import type { ShellParams } from "../api/parts";
@@ -25,6 +31,7 @@ import {
   parseThicknessMm,
   shellSubmitBlocker,
   type ShellForm,
+  type ShellType,
   thicknessError,
 } from "../features/shell";
 import { EditorCard } from "./EditorCard";
@@ -65,6 +72,25 @@ export interface ShellEditorProps {
    */
   onThicknessChange?: (mm: number | null) => void;
 }
+
+/**
+ * Inside corners: sharp (the walls extended until they meet, the mainstream
+ * default) or rounded at the wall thickness. Only a concave edge differs.
+ */
+const CORNER_OPTIONS: ReadonlyArray<SegmentOption<ShellType>> = [
+  {
+    value: "sharp",
+    label: "Sharp",
+    "data-testid": "shell-corners-sharp",
+    "aria-label": "Inside corners: sharp",
+  },
+  {
+    value: "rounded",
+    label: "Rounded",
+    "data-testid": "shell-corners-rounded",
+    "aria-label": "Inside corners: rounded",
+  },
+];
 
 /** The live open-count line — names the sealed-vs-open default honestly. */
 function openCountText(count: number): string {
@@ -211,6 +237,13 @@ export function ShellEditor({
                 setForm((f) => ({ ...f, thicknessInput: e.target.value }))
               }
               onFocus={(e) => e.currentTarget.select()}
+            />
+
+            <SegmentedControl
+              label="Inside corners"
+              value={form.shellType}
+              options={CORNER_OPTIONS}
+              onChange={(shellType) => setForm((f) => ({ ...f, shellType }))}
             />
 
             <div className="flex flex-col gap-1.5">
