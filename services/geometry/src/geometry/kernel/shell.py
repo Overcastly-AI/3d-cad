@@ -152,7 +152,7 @@ from geometry.kernel.shell_heal import split_pinched_faces
 from geometry.kernel.shell_walls import FaultKind, ShellDefinition, WallFault
 from geometry.kernel.tolerances import KERNEL_LINEAR_TOL_MM
 from geometry.kernel.types import BodyShape
-from geometry.kernel.working_faces import working_copy_faces
+from geometry.kernel.working_faces import NotABodyFaceError, working_copy_faces
 
 #: A valid inward shell strictly REMOVES material (the cavity), so the shelled
 #: volume is below the original. The margin absorbs GProp float noise while
@@ -276,12 +276,18 @@ def shell_body(
             exactly ``2 * thickness_mm`` wide, leaving coincident faces with no
             material between them — SH-1; see that class for why this is an error).
         ShellError: the OCCT hollow failed to complete, or left other than
-            exactly one solid per lump (single body chain per lump, design §7.6).
+            exactly one solid per lump (single body chain per lump, design §7.6),
+            or a face to open is not a face of *body*.
     """
     if thickness_mm <= 0:
         raise ValueError(f"thickness_mm must be > 0, got {thickness_mm}")
 
-    work, opened = working_copy_faces(body, faces_to_remove)
+    try:
+        work, opened = working_copy_faces(body, faces_to_remove)
+    except NotABodyFaceError as exc:
+        raise ShellError(
+            "Shell failed: a face to open is not a face of the body."
+        ) from exc
     if isinstance(work, Compound):
         solids = work.solids()
         groups = group_faces_by_lump(solids, opened)

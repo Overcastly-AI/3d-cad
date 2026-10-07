@@ -123,11 +123,13 @@ def test_a_crashing_fillet_is_a_typed_error_and_the_process_survives() -> None:
     assert sum(s.volume for s in solids) == pytest.approx(rounded, rel=1e-9)
 
 
-def test_an_analytic_fillet_stays_in_process() -> None:
+def test_every_blend_is_isolated() -> None:
+    """No rule on the input is trusted (BLEND-ROUTE-VERTEX-NEIGHBOUR): a box's
+    or a cylinder's edges run in the server like any other."""
     box = Solid.make_box(40, 25, 10)
-    assert not needs_isolation(box, list(box.edges()))
+    assert needs_isolation(box, list(box.edges()))
     cylinder = Solid.make_cylinder(10, 20)
-    assert not needs_isolation(cylinder, list(cylinder.edges()))
+    assert needs_isolation(cylinder, list(cylinder.edges()))
 
 
 def test_an_isolated_fillet_is_the_in_process_fillet() -> None:
@@ -261,11 +263,11 @@ def _server_up() -> int:
 
 
 def test_prewarm_starts_the_server_at_boot() -> None:
-    """``BLEND_SERVER_PREWARM`` starts the server from ``build_app`` in the
-    background (default: lazy, on the first isolated blend)."""
+    """``BLEND_SERVER_PREWARM`` (the default: every blend is isolated) starts
+    the server from ``build_app`` in the background."""
     fillet_isolation.shutdown()
     assert server_pid() is None
-    assert GeometrySettings().blend_server_prewarm is False
+    assert GeometrySettings().blend_server_prewarm is True
     build_app(GeometrySettings(web_concurrency=1, blend_server_prewarm=True))
     deadline = time.monotonic() + 120
     while server_pid() is None and time.monotonic() < deadline:

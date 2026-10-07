@@ -33,12 +33,19 @@ from geometry.kernel.fillet_isolation import working_copy
 from geometry.kernel.types import BodyShape
 
 
+class NotABodyFaceError(ValueError):
+    """A face handed to a face op is not a face of the body it works on."""
+
+
 def working_copy_faces(
     body: BodyShape, faces: Sequence[Face]
 ) -> tuple[BodyShape, list[Face]]:
     """A topology copy of *body* and *faces* on it, in order (each keeps its
-    orientation). A face that is not *body*'s is passed through as it is, so
-    the op sees exactly what it would have seen on *body*."""
+    orientation).
+
+    Raises:
+        NotABodyFaceError: a face is not a face of *body*.
+    """
     copy, _edges = working_copy(body, [])
     seen, copied = TopTools_IndexedMapOfShape(), TopTools_IndexedMapOfShape()
     TopExp.MapShapes_s(body.wrapped, TopAbs_FACE, seen)
@@ -49,8 +56,7 @@ def working_copy_faces(
     for face in faces:
         index = seen.FindIndex(face.wrapped)
         if index == 0:
-            out.append(face)
-            continue
+            raise NotABodyFaceError("a picked face is not a face of the body")
         twin = TopoDS.Face_s(copied.FindKey(index))
         out.append(Face(TopoDS.Face_s(twin.Oriented(face.wrapped.Orientation()))))
     return copy, out

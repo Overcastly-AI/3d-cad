@@ -110,7 +110,7 @@ def test_a_sound_body_has_no_slit() -> None:
     """The no-op path on the two simplest real bodies: a box and a shelled tray."""
     box = Solid.make_box(40.0, 25.0, 10.0)
     assert find_zero_width_slits(box) == []
-    tray = shell_body(box, _top_face(Solid.make_box(40.0, 25.0, 10.0)), 2.0)
+    tray = shell_body(box, _top_face(box), 2.0)
     assert find_zero_width_slits(tray) == []
 
 

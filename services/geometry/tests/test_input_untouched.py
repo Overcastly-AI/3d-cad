@@ -17,56 +17,38 @@ to a cylinder or cone hub, the hub's seam turned 0 or 180 degrees.
 # pyright: reportAttributeAccessIssue=false
 
 import hashlib
+import importlib.util
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from types import ModuleType
 
 import pytest
-from build123d import (
-    Axis,
-    Cylinder,
-    Face,
-    GeomType,
-    Plane,
-    Polyline,
-    Pos,
-    Solid,
-    loft,
-    make_face,
-)
+from build123d import Cylinder, Face, GeomType, Plane, Pos, Solid
 from geometry.kernel.draft import DraftError, draft_body
 from geometry.kernel.fillet_guard import max_tolerance
+from geometry.kernel.healing import body_is_valid
 from geometry.kernel.naming import OpHistory
 from geometry.kernel.shell import ShellError, shell_body
-from geometry.kernel.working_faces import working_copy_faces
+from geometry.kernel.working_faces import NotABodyFaceError, working_copy_faces
 from OCP.BRepTools import BRepTools
 
-HUB_R = 22.0
 
-
-def _blade() -> Any:
-    root = [(18.0, -1.0), (50.0, -8.0), (50.0, -6.0), (18.0, 1.0)]
-    tip = [(18.0, -1.0), (50.0, -14.0), (50.0, -12.0), (18.0, 1.0)]
-    return loft(
-        [
-            make_face(Plane.XY.offset(2) * Polyline(*root, close=True)),
-            make_face(Plane.XY.offset(18) * Polyline(*tip, close=True)),
-        ],
-        ruled=True,
+def _load_hub() -> ModuleType:
+    """``tests/_blade_hub.py``, loaded by file path (importlib import-mode)."""
+    spec = importlib.util.spec_from_file_location(
+        "_blade_hub", Path(__file__).with_name("_blade_hub.py")
     )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def _cylinder_hub(seam_deg: float) -> Solid:
-    hub = (Pos(0, 0, 10) * Cylinder(HUB_R, 20)).rotate(Axis.Z, seam_deg)
-    (solid,) = hub.fuse(_blade()).clean().solids()  # pyright: ignore[reportUnknownMemberType]
-    return solid
-
-
-def _cone_hub(seam_deg: float) -> Solid:
-    hub = Solid.make_cone(24, 20, 20).rotate(Axis.Z, seam_deg)
-    (solid,) = hub.fuse(_blade()).clean().solids()  # pyright: ignore[reportUnknownMemberType]
-    return solid
+_HUB = _load_hub()
+_cylinder_hub: Callable[[float], Solid] = _HUB.cylinder_hub
+_cone_hub: Callable[[float], Solid] = _HUB.cone_hub
+_round_face: Callable[[Solid], Face] = _HUB.round_face
 
 
 def _dump(body: Solid) -> str:
@@ -76,14 +58,6 @@ def _dump(body: Solid) -> str:
         path = Path(tmp) / "body.brep"
         assert BRepTools.Write_s(body.wrapped, str(path))
         return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _round_face(body: Solid) -> Face:
-    """The hub's cylinder or cone face."""
-    (face,) = [
-        f for f in body.faces() if f.geom_type in (GeomType.CYLINDER, GeomType.CONE)
-    ]
-    return face
 
 
 def _blade_cap(body: Solid, z: float) -> Face:
@@ -128,7 +102,7 @@ CASES: list[tuple[str, Build, Op, bool]] = [
         "draft blade root cap, pull along Y (OCCT builds it invalid)",
         lambda: _cylinder_hub(180.0),
         lambda b: draft_body(b, [_blade_cap(b, 2.0)], Plane.XZ, 3.0),
-        False,
+        True,
     ),
     (
         "draft cylinder hub across its seam (fails)",
@@ -214,7 +188,12 @@ def test_the_working_copy_carries_the_picked_faces_over() -> None:
     owned = copy.faces()
     assert all(any(face.wrapped.IsSame(o.wrapped) for o in owned) for face in faces)
     foreign = _cone_hub(0.0).faces()[0]
-    assert working_copy_faces(body, [foreign])[1] == [foreign]
+    with pytest.raises(NotABodyFaceError):
+        working_copy_faces(body, [foreign])
+    with pytest.raises(DraftError, match="not a face of the body"):
+        draft_body(body, [foreign], Plane.XY.offset(10), 3.0)
+    with pytest.raises(ShellError, match="not a face of the body"):
+        shell_body(body, [foreign], 1.0)
 
 
 def test_two_hubs_drafted_to_one_cone_are_one_body() -> None:
@@ -231,10 +210,11 @@ def test_two_hubs_drafted_to_one_cone_are_one_body() -> None:
     assert len(a.faces()) == len(b.faces())
 
 
-def test_a_draft_occt_builds_invalid_is_refused() -> None:
+def test_an_invalid_draft_is_left_to_the_validity_gate() -> None:
     """OCCT can return an INVALID draft (``BRepCheck``), contrary to what the
     2026-07-13 sweep saw: the blade-root cap of the cylinder hub drafted 3 deg
-    with the pull along Y. It is a ``DraftError``, not a body."""
+    with the pull along Y. The kernel op returns it; the evaluator's admission
+    gate (``EvaluationState._admit``) is what refuses it, as for every op."""
     body = _cylinder_hub(180.0)
-    with pytest.raises(DraftError, match="invalid solid"):
-        draft_body(body, [_blade_cap(body, 2.0)], Plane.XZ, 3.0)
+    drafted = draft_body(body, [_blade_cap(body, 2.0)], Plane.XZ, 3.0)
+    assert not body_is_valid(drafted)

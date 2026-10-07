@@ -90,6 +90,29 @@ dimensioned 118x78 lip kept every trim across all 8 corners, and typed
 polylines now get their coincident constraints. HOLE-BLIND-FALSE-DEEP is fixed:
 a Ø2.5x25 blind hole builds on the boss.
 
+**Re-run 2026-10-02 @ `fbaaa6c`** (main `aab2b34`: DESIGN-INTENT-REFS steps
+1-3 and the fillet guard), on fresh parts with the same dimensions and the same
+headless setup (`docs/screenshots/hard-parts-rerun-2026-10-02/`). The enclosure
+is its 6-feature core (sketch, extrude, 1.5° draft, R8 and R3 fillets, 2 mm
+shell), with no lip, bosses or holes. All three edits now pass.
+
+| Part      | Before edit (app, check)                                                                 | Edit           | After edit                                                                                                                                         | Check                                                    |
+| --------- | ---------------------------------------------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Bracket   | 11 529.75 mm³; STEP equals the hand calculation                                          | base 60->70    | All 7 rebuilt with no warning. Hole1 stays on Edge flange1 (Ø5 at z 8 through x 42..44 and -34..-32), and the hem runs x -30..40                    | 12 518.87, equals the hand calculation                   |
+| Impeller  | 29 488.49 mm³; STEP equals script, empty boolean difference                              | hub Ø40->Ø44   | All 13 rebuilt. Fillet1 keeps all 14 named edges, and no blade root is sharp (0 of 14 hub edges over 5°; the unfilleted body has 14)                | 34 323.59 against script 34 323.59, empty boolean difference |
+| Enclosure | 42 638.25 mm³; STEP 42 638.15 against script 42 638.24, empty boolean difference         | width 120->130 | All 6 rebuilt, and Draft1, Fillet1 (4 edges), Fillet2 (8 edges) and Shell1 kept their picks                                                        | 45 490.69 against script 45 490.79, empty boolean difference |
+
+**Tangent chains are refused.** An R1 fillet on ONE outer rim edge of the
+130-wide enclosure fails: "a face farther than the fillet can reach is missing
+or changed". OCCT carries that one pick round the whole 8-edge tangent loop and
+builds exactly the 8-pick body (45 397.08 mm³, empty difference), so the guard
+refuses a correct result where Fusion would round the chain. Picking all 8 edges
+builds and matches the script (`enclosure-rim-loop-*.png`). On the impeller, an
+R0.5 on one blade-top blend edge is refused as well, but plain OCCT fails there
+too: the chain turns from convex to concave at the hub. That refusal is right,
+but its message ("the radius may be too large") is not
+(`impeller-tangent-chain-*.png`).
+
 ## Part complexity ladder and reference assemblies
 
 Parts get harder in five levels, with 3-4 fully dimensioned parts per level

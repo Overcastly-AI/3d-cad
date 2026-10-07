@@ -552,11 +552,41 @@ now run on a working copy like the fillet (`geometry/kernel/working_faces.py`).
 Names and the face-provenance memo re-anchor on the copy through `worked_on`;
 without the memo half, every op that works on a copy (the fillet and chamfer
 since 1af46bb too) re-fingerprinted the whole body at the next face pick.
-A draft result must also be `BRepCheck`-valid and no looser than
-max(input, 1e-2 mm): OCCT does return invalid drafts (a blade-root cap
-drafted with the pull along Y), which the 2026-07-13 sweep had not seen. The booleans behind pattern, mirror and a
-failed severing subtract ADD pcurves and locations to their input's edges
+A draft result must also be no looser than max(input, 1e-2 mm). OCCT does
+return invalid drafts (a blade-root cap drafted with the pull along Y), which
+the 2026-07-13 sweep had not seen; the evaluator's validity gate refuses them
+as `invalid_body`. The booleans behind pattern, mirror and a failed severing
+subtract ADD pcurves and locations to their input's edges
 (CM-6b) without moving geometry or tolerance; those stay as they are, since
 the rebuild ladder forks for exactly this and a copy per boolean would
 re-anchor every boolean's names. Hole, extrude add/cut, `clean`, edge flange,
 fillet and chamfer left their inputs byte-identical.
+
+**Draft isolation (DRAFT-SEGFAULT).** `BRepOffsetAPI_DraftAngle::Build`
+segfaults on a 30 deg draft of a hub's cylinder or cone face beside a lofted
+blade with the hub seam at 180 deg (at 0 deg it raises). A first fix routed
+drafts by the blend's analytic rule (lines, circles and ellipses between
+quadrics stay in-process; 1758 such runs in a sweep never crashed), but review
+found a box wall with only line edges and plane neighbours that still crashed
+in-process at -3 and -20 deg: a twisted lofted wedge touches it at one vertex.
+No rule on the input is trusted now: EVERY draft runs in a child of the blend
+server, and a crash is a typed `DraftError`. That costs ~30 ms a draft with
+the server warm (26 ms in-process vs 55-59 ms isolated on the hub, load 5),
+and the isolated result has the in-process volume, topology, vertices and
+face areas exactly.
+
+**Every blend is isolated (BLEND-ROUTE-VERTEX-NEIGHBOUR).** The blend rule had
+the same gap: a 40x30x20 box with a triangular boss whose corner sits on the
+box's corner vertex is all planes, yet an R1 fillet or 1 mm chamfer of the
+box edge ending there segfaults in `ChFi3d` (72 of 3480 probes, all at such a
+six-edge vertex). Topology causes it, not surface type, so the analytic
+shortcut is gone: every fillet, chamfer and draft runs in the blend server,
+one call per feature (two when the fillet's re-seam retry runs). Cost, warm
+server, load 4-5: a 4-edge box fillet 16-27 ms in-process vs 47-58 ms
+isolated; the 246- and 906-face lids show no difference above noise (0.26 s
+and 1.3-1.6 s either way). All 91 tree and shape goldens give the same
+metadata (mass properties, topology, mesh counts, GLB size) and, but for one,
+byte-identical GLBs: the draft frustum's GLB has four float32 zeros that
+became -0.0 (the BRep read rebuilds a plane's axes), the same number. The
+server starts at boot by default (`BLEND_SERVER_PREWARM`): lazily, the first
+fillet took 6.3 s; prewarmed (ready 4.9 s after boot), 69 ms.
