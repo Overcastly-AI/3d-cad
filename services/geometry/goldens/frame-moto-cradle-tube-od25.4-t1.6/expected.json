@@ -1,0 +1,47 @@
+{
+  "description": "The founder's standing tube-frame test case (2026-10-07): a motorcycle cradle frame of OD 25.4 x 1.6 wall tube. Two R80-filleted, tangent-continuous side rails at y = +-110 (each the annulus swept along a closed loop through (0,520) (-520,560) (-760,600) (-560,300) (-80,120), built as TWO OPEN sweeps because a sweep along a closed path is refused, `sweep_path_closed`), the second rail by a body-scope mirror about XZ, three Y cross tubes of total length 220 (y = +-110) at (-520,560) (-560,300) (-80,120), and a 50/32 x 160 steering-head tube raked 25 deg back about (40,0,600), joined with `boolean` unions. THE SPEC LEAVES THE BODY IN 3 LUMPS and this golden records exactly that (allow_disjoint): the cross tube at (-80,120) sits on the UN-filleted corner, which the R80 fillet cuts back 43.6 mm, so it floats 18.2 mm clear of the rail; and the head at y=0 is 72 mm clear of rails at y=+-110. test_moto_frame.py::test_frame_is_one_lump is a strict xfail on this. Locks: swept-annulus volume along filleted paths, a mirror producing two lumps, pipe-pipe intersections of equal-diameter perpendicular tubes, a revolve about a tilted sketch axis (the tree has no tilted datum, so the 25 deg head is a revolve of its radial section), union with and without allow_disjoint.",
+  "derivation": [
+    "Expectations are INDEPENDENT of the code under test: the volume, area and centroid come from a second build in plain build123d (tests/test_moto_frame.py::_independent_frame): ONE closed ring sweep of the filleted polygon (Face.fillet_2d) instead of two open halves, Plane.XZ mirror, Solid.extrude cross tubes, and a hollow Solid.make_cylinder head on a plane whose normal is the raked axis. Integrated with the same adaptive GProp rule as the product (measure_shape, VOLUME_EPS 1e-10) so the comparison is of the two BUILDS.",
+    "Closed-form parts, each checked in the test: annulus area = pi*(12.7^2-11.1^2) = 119.63184824869931 mm^2. Rail volume = area x path length (Pappus, tangent path, bend R80 > tube R 12.7) = 119.63184824869931 x 1766.0415908222212 = 211274.8195941355 mm^3; the tree's two fused halves read 211274.81960330863 (relative 4.3e-11). The loose cross tube = 119.63184824869931 x 220 = 26319.00661471385; the head = pi*(25^2-16^2)*160 = 185479.6302679414; the tree's solids read 26319.006614713886 and 185479.63026794075.",
+    "The frame lump (rails + two bridging tubes) adds the cross-tube/rail overlap, which has no closed form; its volume comes from the independent build: 474125.63454 (adaptive per-solid). Total volume = 685924.2712375063 mm^3 (independent) against 685924.2712803889 (tree): 4.3e-5 mm^3, 6e-11 relative. Boolean difference tree minus independent and independent minus tree are both empty (volume 0).",
+    "Surface area 668560.876673889 mm^2 is the independent build under the ADAPTIVE area rule (eps 1e-6..1e-10 all agree to 1e-11 relative; the tree reads 668560.8767020969 under it, 2.8e-5 off). The product REPORTS area from the fixed-order rule (kernel/properties.py: area is deliberately left on it), which reads 668560.8778048222 on this part: +1.1e-3 mm^2 (1.6e-9 relative). That is why the tolerance below is not 1e-9.",
+    "Centroid: y = 0 exactly (symmetric about XZ; tree reads 7.2e-11). x = -231.9868275446785, z = 438.55966747302006 from the independent build (tree: 2.6e-8 and 7e-9 off).",
+    "Bounding box, analytic: x_min = -591.005836433098 - 80 - 12.7 = -683.705836433098 (leftmost point of the R80 seat-rail fillet at (-760,600), its centre x being the tangent-point x); y = +-(110 + 12.7) = +-122.7; z_min = 120 - 12.7 = 107.3 (floating cross tube); head: x_max = 40 + 80 sin25 + 25 cos25 = 96.4671556151722 and z_max = 600 + 80 cos25 + 25 sin25 = 683.0700795064495. OCCT pads swept-surface boxes by 1e-7 (the tree reads y = 122.7000001).",
+    "Topology: 84 faces / 218 edges / 6 shells (3 lumps: the frame, the loose cross tube and the head). The independent single-ring build reads 83 faces / 201 edges / 6 shells: the extra face and 17 edges in the tree are the two butt joints of the upper/lower half sweeps; the shell count agrees. Pinned as a regression, not hand-derived.",
+    "Mesh (linear_deflection 0.1): 76999 vertices / 131166 triangles, recorded from the harness; not hand-derivable at this face count. The mass properties above are the independent numbers."
+  ],
+  "tolerance": 0.005,
+  "tolerance_rationale": "MEASURED, then set (geometry-gates skill). Worst observed deviation of the product from the independent values (2026-10-07, build123d 0.11.1 / OCCT 7.9): surface area +1.1e-3 mm^2, from the fixed-order Gauss rule the product deliberately keeps for AREA (kernel/properties.py VOLUME_EPS note: adaptive area does not converge on the lofted NURBS part, so the known small bias is kept) on the trimmed pipe-pipe intersection faces, where the fixed order is not exact. Volume deviates 4.3e-5 mm^3, centroid 2.6e-8 mm, AABB 1e-7 mm (OCCT's box padding on swept surfaces). 5e-3 is ~4.5x the worst observed (area), not a fit to volume: the volume itself is held 100x tighter by the Pappus check (relative 1e-6, observed 4.3e-11) and the independent-build check in test_moto_frame.py. A single tolerance covers every property here, so it is set by the area bound.",
+  "roundtrip_tolerance": 0.01,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-07: STEP re-approximates the trimmed pipe-pipe intersection and swept faces, and a 686,000 mm^3 part carries it at a scale the absolute 1e-7 bound was never sized for. Round-trip drift of the tree body: volume 1.1e-6 mm^3 (1.7e-12 relative), area 3.9e-3 mm^2, centroid 4e-8 / 1e-7 mm. The same drift appears on the independent PURE build123d twin of the frame (volume 3.3e-7, area 1.5e-3, centroid 4.8e-8 / 8.8e-8), so it is OCCT's STEP writer/reader, not Loft's export. 1e-2 is 2.6x the worst observed (area); it covers volume and area only, the centroid and bounds keep ROUNDTRIP_TOL (conftest F5) and the centroid sits at 1e-7 against that bound.",
+  "properties": {
+    "volume": 685924.2712375063,
+    "surface_area": 668560.876673889,
+    "centroid": {
+      "x": -231.9868275446785,
+      "y": 0.0,
+      "z": 438.55966747302006
+    },
+    "bounding_box": {
+      "min": {
+        "x": -683.705836433098,
+        "y": -122.7,
+        "z": 107.3
+      },
+      "max": {
+        "x": 96.4671556151722,
+        "y": 122.7,
+        "z": 683.0700795064495
+      }
+    }
+  },
+  "topology": {
+    "faces": 84,
+    "edges": 218,
+    "shells": 6
+  },
+  "mesh": {
+    "vertices": 76999,
+    "triangles": 131166
+  }
+}
