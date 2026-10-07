@@ -324,23 +324,26 @@ The correctness gates, run in CI and by `geometry-qa`:
   BOOLEAN-COINCIDENT-TUBE: 732801.92 shipped against a derived 718211.506 and
   a member sum of 725460.9). Two straight tubes do not do it; a torus segment
   and one tube do. After every union, cut and intersect of the `boolean`
-  feature and of the in-chain add/cut (`kernel/boolean_guard.py`), the volume
-  must lie in [max(A,B), A+B], [A-B, A] or [0, min(A,B)] within 1e-4 of A+B,
-  and each solid must have one outer shell, negative void shells and no open
-  shell. The volumes are GProp's fixed-order ones, which `clean_shape` already
+  feature, the in-chain add/cut (merging extrude, revolve, sweep, loft, hole,
+  extrude cut), and the one-shot fuse/cut of a mirror (both scopes) and a
+  pattern (`kernel/boolean_guard.py`), the volume must lie in [max, A+sum B],
+  [A-sum B, A] or [0, min] within 1e-6 of A+sum B, and each solid must have one
+  outer shell, negative void shells and no open shell. The sheet-metal edge
+  flange is not guarded yet (BACKLOG Notes). The volumes are GProp's fixed-order ones, which `clean_shape` already
   integrates and a per-body memo carries to the next boolean, so a chain of
   booleans integrates each body once (a solid with voids also integrates its
   shells, for their signs; they do not sum to its volume, because OCCT
   integrates each shape about its own barycentre). That rule reads crossing
-  tubes 9e-6 off, hence 1e-4, and a lofted solid 13 % off, so a failed bound
-  is confirmed on `volume_properties` before anything acts on it. Over the
+  tubes 9e-6 off and a lofted solid 13 % off, so a failed bound is only a
+  trigger: it is confirmed on `volume_properties` at the same 1e-6 before
+  anything acts on it (1e-6 keeps a 7295 mm^3 loss visible up to ~7e9 mm^3). Over the
   goldens and the boolean, hole, composition and rebuild-cache suites (1455
   checks) the worst excursion of a right result past a bound is 1.4e-13, except
   the lofted fixture's misreads (up to 4.6e-2, all cleared by the confirmation).
   A violating result is re-run once with
   `SetFuzzyValue(100 x Precision::Confusion)` (1e-5 mm) and ships only if it
   passes the same check (the frame then reads 718211.504, the same across a
-  restart); otherwise the feature is refused (`boolean_failed`). 1 x Confusion
+  restart; its `BRepCheck` is asked at admission, like any body); otherwise the feature is refused (`boolean_failed`). 1 x Confusion
   changes nothing, 10 x splits the two-solid case into seven lumps, and the
   1e-4 mm kernel tolerance moves the frame by 0.5 mm^3. A violating result
   that `BRepCheck` also rejects is left to the admission gate (`invalid_body`),

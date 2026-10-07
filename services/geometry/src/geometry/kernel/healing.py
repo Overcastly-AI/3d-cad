@@ -338,6 +338,34 @@ def clean_and_read(solid: Solid) -> tuple[Solid, BodyReading]:
     return spare, BodyReading((read_solid(spare.wrapped, before),))
 
 
+def clean_and_read_shape[ShapeT: BodyShape](
+    shape: ShapeT,
+) -> tuple[ShapeT, BodyReading]:
+    """:func:`clean_shape` of a whole boolean result (any lumps), and its reading.
+
+    The variadic booleans (mirror, pattern) clean the raw result as ONE shape;
+    this keeps exactly that call and its integrals, so their bodies stay
+    byte-identical. A one-solid result costs nothing more; a multi-lump one
+    integrates each lump once for the reading.
+    """
+    if shape.wrapped is None:  # pragma: no cover - never an empty shape here
+        return shape.clean(), BodyReading(())
+    before = _volume(shape.wrapped)
+    spare = copy.deepcopy(shape)
+    cleaned = shape.clean()
+    after = _volume(cleaned.wrapped)
+    kept, volume = (
+        (cleaned, after) if _kept_material(before, after) else (spare, before)
+    )
+    assert kept.wrapped is not None
+    solids = kept.solids()
+    if len(solids) == 1:
+        only = solids[0].wrapped
+        assert only is not None
+        return kept, BodyReading((read_solid(only, volume),))
+    return kept, read_solids(kept.wrapped)
+
+
 def shape_volume(shape: BodyShape) -> float:
     """The GProp volume of a body (the rule :func:`clean_shape` measures with)."""
     return 0.0 if shape.wrapped is None else _volume(shape.wrapped)

@@ -41,7 +41,7 @@ operands and re-runs the boolean fuzzy, which keeps the void.
 # The OCP wheel ships no type stubs; scoped to this file as in the kernel.
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
 # pyright: reportUnknownVariableType=false, reportAttributeAccessIssue=false
-# pyright: reportUnknownArgumentType=false
+# pyright: reportUnknownArgumentType=false, reportPrivateUsage=false
 
 import json
 import math
@@ -76,6 +76,7 @@ from geometry.kernel.boolean_guard import (
     GuardedOperation,
     guarded_boolean,
     integrity_violation,
+    volume_violation,
 )
 from geometry.kernel.healing import (
     BodyReading,
@@ -83,6 +84,8 @@ from geometry.kernel.healing import (
     SolidReading,
     read_solids,
 )
+from geometry.kernel.mirror import fuse_reflected_tools
+from geometry.kernel.pattern import _fuse_and_finalize
 from geometry.kernel.types import BodyShape
 from loft_wire.features import EvaluateTreeRequest
 from numpy.typing import NDArray
@@ -261,6 +264,60 @@ def test_tubes_ending_on_the_rail_centreline_are_right() -> None:
     assert len(evaluation.body.solids()) == 1
 
 
+def _symmetric_frame() -> EvaluateTreeRequest:
+    """The skin-case frame modelled symmetrically (the review of 89edf74): each
+    cross tube extruded from y=0 to the near rail's skin, MERGED into the rails,
+    then a features-scope mirror about XZ reflects the four tube extrudes, so
+    the joints on the far rail are made by the MIRROR's fuse."""
+    data: dict[str, Any] = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    tubes: list[str] = []
+    features: list[dict[str, Any]] = []
+    for item in data["features"]:
+        kind, params = item["feature"]["type"], item["feature"]["params"]
+        if kind == "boolean" and params["tool"]["feature_id"] in tubes:
+            continue  # the tubes merge instead
+        if kind == "datum" and item["id"].endswith("04"):
+            params["offset_mm"] = 0.0
+        if kind == "extrude":
+            params["distance_mm"] = 122.7  # y = 0 to the y = -110 rail's skin
+            params["merge"] = True
+            tubes.append(item["id"])
+        if kind == "sketch" and item["id"].endswith("1e"):  # before the head
+            scope = {
+                "kind": "features",
+                "features": [{"kind": "feature", "feature_id": t} for t in tubes],
+            }
+            features.append(
+                {
+                    "id": "00000000-0000-0000-0000-0000000000f0",
+                    "feature": {
+                        "type": "mirror",
+                        "version": 1,
+                        "params": {
+                            "plane": {"kind": "datum_plane", "plane": "XZ"},
+                            "scope": scope,
+                        },
+                    },
+                }
+            )
+        features.append(item)
+    data["features"] = features
+    return EvaluateTreeRequest.model_validate(data)
+
+
+def test_a_features_scope_mirror_of_skin_tubes_is_right() -> None:
+    """The mirror's fuse is guarded too: unguarded it shipped 725506.71."""
+    evaluation = evaluate_tree(_symmetric_frame())
+    assert all(r.status == "ok" for r in evaluation.result.features), [
+        (r.feature_id, r.error) for r in evaluation.result.features if r.error
+    ]
+    assert evaluation.body is not None
+    assert len(evaluation.body.solids()) == 1
+    assert measure_shape(evaluation.body).volume == pytest.approx(
+        SKIN_VOLUME, abs=GOLDEN_TOL
+    )
+
+
 def test_tubes_ending_past_the_centreline_are_refused_not_shipped_wrong() -> None:
     evaluation = evaluate_tree(_frame_with_tubes_ending_at(110.5))
     errors = [r for r in evaluation.result.features if r.error is not None]
@@ -383,6 +440,18 @@ def test_the_guarded_union_of_the_two_solid_reproduction_is_right() -> None:
         assert shells[1] == pytest.approx(-COMPARTMENT_VOLUME, abs=1)
 
 
+def test_the_mirror_and_pattern_fuses_of_the_reproduction_are_right() -> None:
+    """The same defect through a mirror's and a pattern's one-shot fuse (raw:
+    27747.27 against a member sum of 21337.98)."""
+    expected = _repro_union_volume()
+    for body in (
+        fuse_reflected_tools(_bend(), [_tube(SKIN_Y)]),
+        _fuse_and_finalize(_bend(), [_tube(SKIN_Y)], 2),
+    ):
+        assert len(body.solids()) == 1
+        assert measure_shape(body).volume == pytest.approx(expected, abs=GOLDEN_TOL)
+
+
 def test_two_straight_tubes_ending_on_the_skin_need_no_repair(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -453,11 +522,11 @@ def _reading(*shells: float, closed: bool = True) -> BodyReading:
 @pytest.mark.parametrize(
     ("operation", "a", "b", "result", "words"),
     [
-        ("union", 100.0, 50.0, 151.0, "exceeds the sum"),
-        ("union", 100.0, 50.0, 99.0, "below the larger body"),
+        ("union", 100.0, 50.0, 151.0, "exceeds the sum of the bodies"),
+        ("union", 100.0, 50.0, 99.0, "below the largest body"),
         ("subtract", 100.0, 50.0, 101.0, "exceeds the target"),
-        ("subtract", 100.0, 50.0, 49.0, "below the target less the whole tool"),
-        ("intersect", 100.0, 50.0, 51.0, "exceeds the smaller body"),
+        ("subtract", 100.0, 50.0, 49.0, "below the target less every tool"),
+        ("intersect", 100.0, 50.0, 51.0, "exceeds the smallest body"),
     ],
 )
 def test_each_volume_bound_is_enforced(
@@ -482,6 +551,17 @@ def test_a_result_on_its_bounds_passes(
     operation: GuardedOperation, result: float
 ) -> None:
     assert integrity_violation(operation, 100.0, 50.0, _reading(result)) is None
+
+
+def test_a_variadic_boolean_is_bounded_by_all_its_tools() -> None:
+    """A mirror's or pattern's one-shot boolean: union in [max, A + sum], cut in
+    [A - sum, A]; overlapping tools legitimately sum past the union."""
+    tools = [50.0, 50.0]
+    assert volume_violation("union", 100.0, tools, 199.0) is None
+    assert volume_violation("union", 100.0, tools, 120.0) is None
+    assert volume_violation("union", 100.0, tools, 201.0) is not None
+    assert volume_violation("subtract", 100.0, tools, 1.0) is None
+    assert volume_violation("subtract", 100.0, tools, -1.0) is not None
 
 
 def test_shell_rules_are_enforced() -> None:

@@ -62,7 +62,7 @@ from collections.abc import Sequence
 from build123d import Axis, Solid, Vector
 from loft_wire.features import MAX_PATTERN_COUNT
 
-from geometry.kernel.healing import clean_shape
+from geometry.kernel.boolean_guard import guarded_variadic
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.types import BodyShape
@@ -175,27 +175,34 @@ def _fuse_and_finalize(
         PatternDisjointError: the union changed the body's lump count.
     """
     lump_count = len(body.solids())
-    try:
+
+    def finish(solids: list[Solid]) -> BodyShape:
+        if len(solids) != lump_count:
+            raise PatternDisjointError(
+                f"The pattern's {count} instances do not merge into {lump_count} "
+                f"connected lump(s) — the union left {len(solids)} disjoint lumps. "
+                "Overlap or abut the instances (reduce the spacing/angle); a "
+                "spreading array of a multi-lump body is not supported (design "
+                "§MB-4)."
+            )
+        if lump_count == 1:
+            return solids[0]
+        return assemble_lumps(solids)
+
+    return guarded_variadic(
+        body,
+        copies,
+        "union",
         # fuse carries Shape[Unknown] type params upstream (same gap
         # tessellate.py documents for export_gltf) — scoped ignore only.
-        fused = body.fuse(*copies)  # pyright: ignore[reportUnknownMemberType]
-        solids = list(clean_shape(fused).solids())
-    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
-        raise PatternError(
+        plain=lambda: body.fuse(*copies),  # pyright: ignore[reportUnknownMemberType, reportUnknownLambdaType]
+        finish=finish,
+        kernel_failure=lambda exc: PatternError(
             f"Pattern union failed in the kernel ({type(exc).__name__}); an "
             "instance may self-intersect the body."
-        ) from exc
-
-    if len(solids) != lump_count:
-        raise PatternDisjointError(
-            f"The pattern's {count} instances do not merge into {lump_count} "
-            f"connected lump(s) — the union left {len(solids)} disjoint lumps. "
-            "Overlap or abut the instances (reduce the spacing/angle); a "
-            "spreading array of a multi-lump body is not supported (design §MB-4)."
-        )
-    if lump_count == 1:
-        return solids[0]
-    return assemble_lumps(solids)
+        ),
+        refusal=PatternError,
+    )
 
 
 def _cut_and_finalize(
@@ -217,31 +224,37 @@ def _cut_and_finalize(
         PatternDisjointError: the cut changed the body's lump count.
     """
     lump_count = len(body.solids())
-    try:
+
+    def finish(solids: list[Solid]) -> BodyShape:
+        if len(solids) == 0:
+            raise PatternError(
+                f"The pattern's {count} cut instances removed the entire body — "
+                "nothing remains. Reduce the count or the tool size."
+            )
+        if len(solids) != lump_count:
+            raise PatternDisjointError(
+                f"The pattern's {count} cut instances changed the body from "
+                f"{lump_count} to {len(solids)} disjoint lumps. Move the cuts so "
+                "they do not slice a lump apart (design §7.6 / §MB-4)."
+            )
+        if lump_count == 1:
+            return solids[0]
+        return assemble_lumps(solids)
+
+    return guarded_variadic(
+        body,
+        tools,
+        "subtract",
         # cut carries Shape[Unknown] type params upstream (same gap
         # tessellate.py documents for export_gltf) — scoped ignore only.
-        cut = body.cut(*tools)  # pyright: ignore[reportUnknownMemberType]
-        solids = list(clean_shape(cut).solids())
-    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
-        raise PatternError(
+        plain=lambda: body.cut(*tools),  # pyright: ignore[reportUnknownMemberType, reportUnknownLambdaType]
+        finish=finish,
+        kernel_failure=lambda exc: PatternError(
             f"Pattern cut failed in the kernel ({type(exc).__name__}); a tool "
             "copy may graze or self-intersect the body."
-        ) from exc
-
-    if len(solids) == 0:
-        raise PatternError(
-            f"The pattern's {count} cut instances removed the entire body — "
-            "nothing remains. Reduce the count or the tool size."
-        )
-    if len(solids) != lump_count:
-        raise PatternDisjointError(
-            f"The pattern's {count} cut instances changed the body from "
-            f"{lump_count} to {len(solids)} disjoint lumps. Move the cuts so they "
-            "do not slice a lump apart (design §7.6 / §MB-4)."
-        )
-    if lump_count == 1:
-        return solids[0]
-    return assemble_lumps(solids)
+        ),
+        refusal=PatternError,
+    )
 
 
 def _linear_unit(direction: tuple[float, float, float]) -> Vector:
