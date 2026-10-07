@@ -229,7 +229,7 @@ commits carry the ID (`git log --grep=<ID>`).
       viewport after it is created (`duct-datum-not-drawn.png`); it shows only
       as a tree row and a plane-pick chip. _Accept:_ a datum is drawn as a
       sized, selectable plane, as origin planes are.
-- [ ] **SKETCH-POINT-DISTANCE**: point-to-point and point-to-line distance
+- [x] **SKETCH-POINT-DISTANCE**: point-to-point and point-to-line distance
       dimensions. _Accept:_ both can be created, solved and edited in the UI.
 - [ ] **EDGE-LOOP-SELECT**: select a face's edges, a loop, or a tangent chain
       for fillet and chamfer. _Accept:_ one gesture selects all the edges of
