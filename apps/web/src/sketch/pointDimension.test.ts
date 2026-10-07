@@ -23,8 +23,10 @@ import {
 import type { SketchPick } from "./pick";
 import {
   DIMENSION_PLACE_HINT,
+  DIMENSION_FROM_ORIGIN_HINT,
   DIMENSION_SECOND_PICK_HINT,
 } from "./dimensionPick";
+import { datumFrame, withDatums } from "./datum";
 import { useSketchStore } from "./store";
 import type { SketchEntity } from "./tools";
 
@@ -350,6 +352,62 @@ describe("the armed Dimension tool on points (store)", () => {
       constraintIndex: 0,
       subject: { kind: "point_line_distance", line: "rim" },
     });
+  });
+});
+
+describe("the frame is a TARGET of a point dimension, never its only operand", () => {
+  const framed = withDatums(ENTITIES, datumFrame(50));
+  const origin = pt("origin", "position");
+
+  it("the origin and a point: placement, dimensioning the point FROM it", () => {
+    const result = applyConstraintAction(
+      "distance",
+      [origin, pt("p", "position")],
+      framed,
+      [],
+    );
+    expect(result).toMatchObject({ outcome: "place" });
+  });
+
+  it("the origin alone, or the origin and an axis, is refused by name", () => {
+    for (const picks of [[origin], [origin, ent("x-axis")]]) {
+      const result = applyConstraintAction("distance", picks, framed, []);
+      expect(result.outcome).toBe("hint");
+      if (result.outcome === "hint") {
+        expect(result.hint).toMatch(/origin and axes are fixed/);
+      }
+    }
+  });
+
+  it("armed: the origin is held as the reference, and the point is placed from it", () => {
+    useSketchStore.getState().exit();
+    useSketchStore
+      .getState()
+      .beginEdit("f1", { kind: "origin", base: "XY" }, ENTITIES, []);
+    const store = useSketchStore.getState;
+    store().applyConstraint("distance");
+    store().selectAt({ x: 0, y: 0 }, 0.5);
+    expect(store().dimensionOperands).toEqual([
+      { entity: "origin", point: "position" },
+    ]);
+    expect(store().hint).toBe(DIMENSION_FROM_ORIGIN_HINT);
+    store().selectAt({ x: 100, y: 40 }, 0.5);
+    expect(store().dimensionPlace).not.toBeNull();
+    store().selectAt({ x: 50, y: 60 }, 0.5); // above the pair: horizontal
+    store().commitDimension({
+      value: 90,
+      expression: null,
+      name: null,
+      driving: true,
+    });
+    // The origin is materialised and pinned, so the POINT is what moves.
+    expect(store().constraints).toEqual([
+      expect.objectContaining({ kind: "point_distance", value_mm: 90 }),
+      expect.objectContaining({
+        kind: "fixed",
+        point: { entity: "origin", point: "position" },
+      }),
+    ]);
   });
 });
 

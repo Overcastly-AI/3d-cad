@@ -463,12 +463,7 @@ export interface DimensionEditorTarget {
   initialDriving: boolean;
   /** Existing constraint being edited, or null when creating a new one. */
   constraintIndex: number | null;
-  /**
-   * A point-to-point or point-to-line dimension's operands
-   * (SKETCH-POINT-DISTANCE); absent for the single-entity dims and `angle`.
-   * The kind stays `distance` (same noun, same unit) and the commit builds
-   * the point kind from this.
-   */
+  /** A point dimension's operands (kind stays `distance`); else absent. */
   subject?: PointDimensionSubject;
 }
 
@@ -550,7 +545,7 @@ const DATUM_SUBJECT_REFUSED: ReadonlySet<ConstraintAction> = new Set([
 ]);
 
 const DATUM_SUBJECT_HINT =
-  "The origin and axes are fixed — constrain TO them (coincident, symmetric, parallel, perpendicular).";
+  "The origin and axes are fixed — constrain or dimension TO them (coincident, symmetric, parallel, perpendicular, a distance from them).";
 
 function selectedLineIds(
   selection: readonly SketchPick[],
@@ -1021,11 +1016,8 @@ const PARALLEL_SIN = Math.sin((ANGLE_MIN_DEG * Math.PI) / 180);
 
 /**
  * D on POINTS (SKETCH-POINT-DISTANCE), Fusion's Sketch Dimension: two points
- * go to label placement (which picks aligned / horizontal / vertical), a
- * point and a line open the perpendicular distance, and two PARALLEL lines
- * the distance between them (from one end of the second to the first, the way
- * FreeCAD and Onshape hold it). Null when the selection is none of these, so
- * the line-length / diameter path answers as before.
+ * go to label placement, a point and a line (or two PARALLEL lines, from one
+ * end of the second) open the perpendicular distance. Null otherwise.
  */
 function pointDimensionAction(
   selection: readonly SketchPick[],
@@ -1038,6 +1030,14 @@ function pointDimensionAction(
   const lines = selectedLineIds(selection, entities);
   const curves = selectedEntities(selection, entities).length;
   if (points.length === 0 && lines.length !== 2) return null;
+  // The frame is a TARGET (Fusion: dimension a point FROM the origin), never
+  // the only operand: a dimension on the frame alone would drive the frame.
+  const frameOnly =
+    points.every((p) => isDatumId(p.entity)) &&
+    lines.every((id) => isDatumId(id));
+  if (frameOnly && points.length + lines.length <= 2) {
+    return hint(DATUM_SUBJECT_HINT);
+  }
   const [a, b] = points;
   if (
     points.length === 2 &&

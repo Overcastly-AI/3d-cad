@@ -42,6 +42,13 @@ export const DIMENSION_SECOND_PICK_HINT =
   "Click a second point, or a line, to dimension to.";
 
 /**
+ * The first pick was the ORIGIN: it is the fixed reference the dimension
+ * measures from (Fusion's way), so say which side of it will move.
+ */
+export const DIMENSION_FROM_ORIGIN_HINT =
+  "Measuring from the origin, which stays fixed — click the point or line to place from it.";
+
+/**
  * Two points are held: the label follows the pointer and the click that drops
  * it decides the direction, as Fusion's does (`placementDirection`).
  */
@@ -150,7 +157,9 @@ export function armedDistanceClick(
   if (pick.kind === "point" && held.length === 0) {
     return {
       dimensionOperands: [operandRef(pick)],
-      hint: DIMENSION_SECOND_PICK_HINT,
+      hint: isDatumId(pick.entity)
+        ? DIMENSION_FROM_ORIGIN_HINT
+        : DIMENSION_SECOND_PICK_HINT,
     };
   }
   const picks: SketchPick[] = [
