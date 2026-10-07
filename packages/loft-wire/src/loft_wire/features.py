@@ -43,13 +43,17 @@ from loft_wire.geometry import (
 )
 from loft_wire.instrument import notify_feature_error
 from loft_wire.materials import MaterialAssignment, MaterialKey
+from loft_wire.signatures import EdgeSelectorV1 as EdgeSelectorV1
 from loft_wire.signatures import EdgeSignature as EdgeSignature
+from loft_wire.signatures import EdgeSubshapeRef as EdgeSubshapeRef
+from loft_wire.signatures import EdgeSubshapeSelector as EdgeSubshapeSelector
 from loft_wire.signatures import PlanarFaceSignature as PlanarFaceSignature
 from loft_wire.sketch import (
     EntityId,
     Point2D,
     SketchConstraintDiagnosis,
     SketchDefinition,
+    SketchProjection,
     SolvedSketch,
 )
 
@@ -282,66 +286,6 @@ class SubshapeRef(BaseModel):
     feature_id: uuid.UUID
     subshape_type: Literal["face"]
     selector: Selector
-
-
-# --- Stage-1 topological naming: EDGE signatures (topological-naming.md §2b/§10) ---
-#
-# The SECOND SubshapeRef consumer the topo-naming design anticipated (§10, "edge
-# selection is BACKLOG #2"), mirroring the planar-face signature above. An
-# EdgeSubshapeRef names ONE edge of a body-affecting feature's result by a
-# geometric SIGNATURE (§2b), NOT an enumeration index (§1.3 rejects indices).
-# Same stage-1 posture as the face signature, stated with the same honesty: a
-# signature is BEST-EFFORT — it resolves the same edge across the common edits
-# (parametric changes that do not move the edge; upstream inserts that do not
-# touch it) and FAILS HONESTLY (``subshape_unresolved`` / ``subshape_ambiguous``)
-# for most others, but a drastic model change CAN retarget to a
-# coincidentally-congruent edge without erroring. It is NOT structurally
-# non-retargeting; only stage-2 provenance (coordinate-blind) makes that
-# structural. The exactly-one-or-error rule is load-bearing, but note WHAT it
-# guards: the signature is ABSOLUTE-position-based, so mirror-congruent edges of
-# a symmetric part have DISTINCT signatures and never tie — a picked edge
-# resolves only to the edge at that position. The real ``subshape_ambiguous``
-# source is two edges that truly COINCIDE in space (a boolean seam, a
-# non-manifold duplicate, a near-collision within tolerance), where the resolver
-# refuses to guess.
-
-
-class EdgeSelectorV1(BaseModel):
-    """Stage-1 edge selector payload: the geometric signature alone (§3, §4).
-
-    The edge sibling of :class:`SelectorV1`. ``selector_version`` is the
-    discriminator of the (currently single-member) edge selector union,
-    decoupled from feature ``param_version`` (§4); stage 2 adds a signature +
-    provenance member additively, with no change to persisted v1 rows.
-    """
-
-    selector_version: Literal[1] = 1
-    signature: EdgeSignature
-
-
-#: Version-discriminated edge selector union (§4). One member (stage 1) today,
-#: so a plain alias; stage 2 promotes it to a discriminated union — the same
-#: idiom as the face :data:`Selector`.
-EdgeSubshapeSelector = EdgeSelectorV1
-
-
-class EdgeSubshapeRef(BaseModel):
-    """Stage-1 reference to ONE edge of a body-affecting feature's result.
-
-    The edge sibling of :class:`SubshapeRef` (topological-naming.md §4/§10).
-    ``feature_id`` is the stage-1 anchor — "the prior body-affecting feature
-    whose body I signature-match against" (§4) — and materializes into
-    ``feature_dependencies`` like a :class:`SubshapeRef`/:class:`FeatureRef` (via
-    the widened :func:`iter_feature_refs` / :func:`feature_references`), so
-    deleting that feature is a write-time 409-with-dependents and a reorder
-    re-checks strict-backward. ``subshape_type`` is ``"edge"``. A pick UI echoes
-    a picked edge's ``/overlay`` :class:`EdgeSignature` straight into ``selector``.
-    """
-
-    kind: Literal["subshape"]
-    feature_id: uuid.UUID
-    subshape_type: Literal["edge"]
-    selector: EdgeSubshapeSelector
 
 
 # --- §2.4 EdgeSelector — deterministic edge selection (predicate + picked) ---
@@ -3470,6 +3414,19 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                         "plane", feature.params.plane, frozenset({"datum"})
                     )
                 )
+            # A projected entity names an edge of an earlier body-affecting
+            # feature's result (SKETCH-PROJECT-EDGES), the picked-fillet rule.
+            # getattr: a model_construct'ed entity list is not type-checked.
+            for entity in feature.params.entities:
+                link = getattr(entity, "projection", None)
+                if isinstance(link, SketchProjection):
+                    references.append(
+                        FeatureReference(
+                            f"projection:{entity.id}",
+                            link.edge,
+                            BODY_AFFECTING_FEATURE_TYPES,
+                        )
+                    )
         case ExtrudeFeature() | RevolveFeature():
             # Both take a single sketch profile ref; revolve's axis is either a
             # sketch-LOCAL entity id (a line within that same sketch) or a world
@@ -4283,31 +4240,6 @@ class FeatureError(BaseModel):
         notify_feature_error(self.code)
 
 
-class SolvedSketchData(SolvedSketch):
-    """Per-feature solved-sketch payload (§7.10): the solver's solved entity
-    positions, status, and DOF diagnosis for an ``ok`` sketch feature — what
-    the sketcher UI renders. ``kind`` is the :data:`FeatureData` union tag."""
-
-    kind: Literal["solved_sketch"] = "solved_sketch"
-    diagnosis: SketchConstraintDiagnosis | None = Field(
-        default=None,
-        description="Typed over-constraint classification for a SOLVED-but-over-"
-        "constrained sketch (``overconstrained`` status): the redundant, "
-        "removable constraints named so the sketcher can flag them without "
-        "parsing text (BACKLOG #6). None for a cleanly-constrained sketch. The "
-        'unsolvable ("conflicting") case rides FeatureError.sketch_diagnosis.',
-    )
-
-
-#: The typed per-feature ``FeatureResult.data`` payload (design §7.10).
-#: Every variant carries a ``kind`` literal tag, so when a second feature
-#: type grows a payload this alias becomes the discriminated union
-#: ``Annotated[SolvedSketchData | NewData, Field(discriminator="kind")]`` —
-#: purely additive on the wire (pydantic forbids a discriminator on a
-#: single-member union, hence the plain alias until then).
-FeatureData = SolvedSketchData
-
-
 #: Which tier of the stage-1 matcher re-found a picked subshape reference on a
 #: rebuild (docs/design/topological-naming.md §13/§14), best to worst:
 #: ``exact`` - the stored signature matched verbatim, the subshape is where the
@@ -4330,6 +4262,70 @@ SUBSHAPE_RESOLUTION_TIERS: tuple[SubshapeResolutionTier, ...] = (
     "durable",
     "adjacent",
 )
+
+
+#: Why a projected sketch entity is sick (SKETCH-PROJECT-EDGES): its edge
+#: did not resolve, or resolved to more than one edge, there is no body at the
+#: sketch, the edge projects to a curve the sketch has no entity for (an
+#: ellipse, a B-spline), it projects to nothing (seen end-on), or it projects
+#: to another kind than the entity holds.
+SketchProjectionReason = Literal[
+    "unresolved",
+    "ambiguous",
+    "no_body",
+    "unsupported_curve",
+    "degenerate",
+    "kind_changed",
+]
+
+
+class SketchProjectionStatus(BaseModel):
+    """How one projected entity re-projected on this rebuild.
+
+    ``sick`` is Fusion 360's sick projection: the sketch keeps the entity's
+    stored coordinates (the last good projection) and stays ``ok``; this says
+    why it could not follow its edge.
+    """
+
+    entity: EntityId
+    state: Literal["ok", "sick"]
+    tier: SubshapeResolutionTier | None = Field(
+        default=None, description="The tier that re-found the edge; None if sick."
+    )
+    reason: SketchProjectionReason | None = Field(
+        default=None, description="Why the entity is sick; None when ok."
+    )
+
+
+class SolvedSketchData(SolvedSketch):
+    """Per-feature solved-sketch payload (§7.10): the solver's solved entity
+    positions, status, and DOF diagnosis for an ``ok`` sketch feature — what
+    the sketcher UI renders. ``kind`` is the :data:`FeatureData` union tag."""
+
+    kind: Literal["solved_sketch"] = "solved_sketch"
+    diagnosis: SketchConstraintDiagnosis | None = Field(
+        default=None,
+        description="Typed over-constraint classification for a SOLVED-but-over-"
+        "constrained sketch (``overconstrained`` status): the redundant, "
+        "removable constraints named so the sketcher can flag them without "
+        "parsing text (BACKLOG #6). None for a cleanly-constrained sketch. The "
+        'unsolvable ("conflicting") case rides FeatureError.sketch_diagnosis.',
+    )
+    projections: list[SketchProjectionStatus] = Field(
+        default_factory=list["SketchProjectionStatus"],
+        description="One status per projected entity, in entity order: whether "
+        "it followed its body edge on this rebuild, and why not when sick. "
+        "Empty for a sketch with no projected entities.",
+    )
+
+
+#: The typed per-feature ``FeatureResult.data`` payload (design §7.10).
+#: Every variant carries a ``kind`` literal tag, so when a second feature
+#: type grows a payload this alias becomes the discriminated union
+#: ``Annotated[SolvedSketchData | NewData, Field(discriminator="kind")]`` —
+#: purely additive on the wire (pydantic forbids a discriminator on a
+#: single-member union, hence the plain alias until then).
+FeatureData = SolvedSketchData
 
 
 class SubshapeResolutionSummary(BaseModel):

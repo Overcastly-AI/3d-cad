@@ -835,6 +835,9 @@ def _solved_sketch_data() -> dict[str, Any]:
         # [], but this fixture asserts an EXACT round-trip, so it states it.
         "angles": [],
         "diagnosis": None,
+        # Per projected entity re-projection status (SKETCH-PROJECT-EDGES);
+        # additive, [] for a sketch with no projected entity.
+        "projections": [],
     }
 
 

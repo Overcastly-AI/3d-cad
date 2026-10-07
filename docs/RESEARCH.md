@@ -96,6 +96,20 @@ Rules the solver keeps:
   patch by editing the tree, regenerating the patch, and bumping the
   `+loft.N` version: uv rebuilds a path dependency only when its
   `pyproject.toml` changes.
+- **A projected entity is fixed solver geometry** (SKETCH-PROJECT-EDGES,
+  as FreeCAD treats external geometry). Every parameter of a projected line,
+  arc or circle is declared fixed, the radius included, so it adds 0 DOF and
+  the settle never pins it. Its fixed parameters sit among the free ones in
+  entity order; the patched planegcs orders by declaration, so that is still
+  deterministic, and a sketch without one declares exactly what it did. The
+  binding adds arc rules to every arc and offers no way not to; over
+  all-fixed parameters they are a constraint with no unknowns, which the
+  diagnosis reports redundant, so `geometry.sketch.projected` clears them by
+  tag (tags count from 1 and only arcs take one while entities are added).
+  *Rejected:* free parameters pinned by internal constraints (the solver
+  would still move them within its tolerance, so the body's geometry would
+  not come back bit for bit) and patching the binding (a vendored change for
+  one call).
 - **An under-constrained solve holds the author's geometry.** After the solve
   converges, it pins every free coordinate and radius back to the author's
   value and re-solves (the "settle"), so a dimension edit moves only what it

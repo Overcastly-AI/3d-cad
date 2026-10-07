@@ -9753,6 +9753,17 @@
             "title": "Kind",
             "type": "string"
           },
+          "projection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SketchProjection"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The body edge this entity is projected from (Project / Convert Entities). Set, the entity is fixed and follows the edge on a rebuild; its coordinates are the last good projection. Line, arc and circle only. Absent on unlinked entities."
+          },
           "start": {
             "$ref": "#/components/schemas/Point2D"
           }
@@ -9855,6 +9866,17 @@
             "const": "circle",
             "title": "Kind",
             "type": "string"
+          },
+          "projection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SketchProjection"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The body edge this entity is projected from (Project / Convert Entities). Set, the entity is fixed and follows the edge on a rebuild; its coordinates are the last good projection. Line, arc and circle only. Absent on unlinked entities."
           },
           "radius": {
             "description": "Radius (mm)",
@@ -10194,6 +10216,17 @@
             "const": "line",
             "title": "Kind",
             "type": "string"
+          },
+          "projection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SketchProjection"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The body edge this entity is projected from (Project / Convert Entities). Set, the entity is fixed and follows the edge on a rebuild; its coordinates are the last good projection. Line, arc and circle only. Absent on unlinked entities."
           },
           "start": {
             "$ref": "#/components/schemas/Point2D"
@@ -10632,6 +10665,17 @@
           },
           "position": {
             "$ref": "#/components/schemas/Point2D"
+          },
+          "projection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SketchProjection"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The body edge this entity is projected from (Project / Convert Entities). Set, the entity is fixed and follows the edge on a rebuild; its coordinates are the last good projection. Line, arc and circle only. Absent on unlinked entities."
           }
         },
         "required": [
@@ -10640,6 +10684,82 @@
           "position"
         ],
         "title": "SketchPoint",
+        "type": "object"
+      },
+      "SketchProjection": {
+        "description": "The body edge a projected entity is linked to (SKETCH-PROJECT-EDGES).\n\nFusion 360's Project and SolidWorks' Convert Entities: the entity is the\nedge seen from the sketch plane, and it follows the edge when the body\nchanges. ``edge`` is the same stage-1 :class:`EdgeSubshapeRef` a picked\nfillet edge stores; its ``feature_id`` is a feature dependency of the\nsketch. The entity's own coordinates are the last good projection, so a\nsketch whose edge no longer resolves keeps them, as Fusion does. The\nsolver holds a projected entity fixed (0 DOF).",
+        "properties": {
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSubshapeRef"
+          }
+        },
+        "required": [
+          "edge"
+        ],
+        "title": "SketchProjection",
+        "type": "object"
+      },
+      "SketchProjectionStatus": {
+        "description": "How one projected entity re-projected on this rebuild.\n\n``sick`` is Fusion 360's sick projection: the sketch keeps the entity's\nstored coordinates (the last good projection) and stays ``ok``; this says\nwhy it could not follow its edge.",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unresolved",
+                  "ambiguous",
+                  "no_body",
+                  "unsupported_curve",
+                  "degenerate",
+                  "kind_changed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the entity is sick; None when ok.",
+            "title": "Reason"
+          },
+          "state": {
+            "enum": [
+              "ok",
+              "sick"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "exact",
+                  "named",
+                  "durable",
+                  "adjacent"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The tier that re-found the edge; None if sick.",
+            "title": "Tier"
+          }
+        },
+        "required": [
+          "entity",
+          "state"
+        ],
+        "title": "SketchProjectionStatus",
         "type": "object"
       },
       "SketchSpline": {
@@ -10671,6 +10791,17 @@
             "minItems": 2,
             "title": "Points",
             "type": "array"
+          },
+          "projection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SketchProjection"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The body edge this entity is projected from (Project / Convert Entities). Set, the entity is fixed and follows the edge on a rebuild; its coordinates are the last good projection. Line, arc and circle only. Absent on unlinked entities."
           }
         },
         "required": [
@@ -10874,6 +11005,14 @@
             "default": "solved_sketch",
             "title": "Kind",
             "type": "string"
+          },
+          "projections": {
+            "description": "One status per projected entity, in entity order: whether it followed its body edge on this rebuild, and why not when sick. Empty for a sketch with no projected entities.",
+            "items": {
+              "$ref": "#/components/schemas/SketchProjectionStatus"
+            },
+            "title": "Projections",
+            "type": "array"
           },
           "redundant_constraints": {
             "description": "Indices into the input constraint list that are redundant.",

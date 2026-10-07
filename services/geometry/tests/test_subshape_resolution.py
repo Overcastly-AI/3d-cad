@@ -603,8 +603,24 @@ def test_every_schema_root_reports_one_tier_per_picked_reference() -> None:
     assert contributed.keys() == _schema_roots(), (
         f"a non-root type carried a subshape ref: {contributed}"
     )
-    silent = sorted(kind for kind, count in contributed.items() if count == 0)
+    silent = sorted(
+        kind
+        for kind, count in contributed.items()
+        if count == 0 and kind not in _NOT_RESOLVED_YET
+    )
     assert not silent, f"schema roots with NO reported reference: {silent}"
+    started = sorted(kind for kind in _NOT_RESOLVED_YET if contributed.get(kind))
+    assert not started, f"now reports its tiers; drop from _NOT_RESOLVED_YET: {started}"
+
+
+#: Roots whose reference the evaluator does not resolve YET, each with the step
+#: that will. Self-expiring: the census fails once one contributes a reference.
+#: A sketch's projected entity names a body edge (SKETCH-PROJECT-EDGES step 1:
+#: the wire and the fixed solver geometry); step 2 re-projects it, reports its
+#: tier and ships the golden that leaves this list empty.
+_NOT_RESOLVED_YET: dict[str, str] = {
+    "sketch": "SKETCH-PROJECT-EDGES step 2 (re-projection)",
+}
 
 
 # --- the tally itself --------------------------------------------------------------

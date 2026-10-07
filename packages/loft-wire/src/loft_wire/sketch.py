@@ -22,9 +22,11 @@ into 3D is the sketch *feature's* job, not the solver's.
 """
 
 import re
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
 from pydantic import BaseModel, Field, model_validator
+
+from loft_wire.signatures import EdgeSubshapeRef
 
 #: Sketch-local entity id — unique within one sketch, stable across edits.
 EntityId = Annotated[
@@ -70,6 +72,28 @@ class Point2D(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _absent(value: object) -> bool:
+    """``exclude_if``: an unset additive field is not serialized, so a dumped
+    entity or constraint (the stored row, the rebuild-cache key) is
+    byte-for-byte what it was before the field existed."""
+    return value is None
+
+
+class SketchProjection(BaseModel):
+    """The body edge a projected entity is linked to (SKETCH-PROJECT-EDGES).
+
+    Fusion 360's Project and SolidWorks' Convert Entities: the entity is the
+    edge seen from the sketch plane, and it follows the edge when the body
+    changes. ``edge`` is the same stage-1 :class:`EdgeSubshapeRef` a picked
+    fillet edge stores; its ``feature_id`` is a feature dependency of the
+    sketch. The entity's own coordinates are the last good projection, so a
+    sketch whose edge no longer resolves keeps them, as Fusion does. The
+    solver holds a projected entity fixed (0 DOF).
+    """
+
+    edge: EdgeSubshapeRef
+
+
 class SketchEntityBase(BaseModel):
     """Fields shared by every sketch entity: identity and the construction flag.
 
@@ -98,6 +122,26 @@ class SketchEntityBase(BaseModel):
             "pre-construction-field sketches, which read as False."
         ),
     )
+    projection: SketchProjection | None = Field(
+        default=None,
+        exclude_if=_absent,
+        description=(
+            "The body edge this entity is projected from (Project / Convert "
+            "Entities). Set, the entity is fixed and follows the edge on a "
+            "rebuild; its coordinates are the last good projection. Line, arc "
+            "and circle only. Absent on unlinked entities."
+        ),
+    )
+
+    #: Whether this kind may carry a ``projection``: a body edge projects to a
+    #: line, an arc or a circle (an ellipse or a B-spline is not one of these).
+    projectable: ClassVar[bool] = False
+
+    @model_validator(mode="after")
+    def _projection_is_a_curve(self) -> "SketchEntityBase":
+        if self.projection is not None and not self.projectable:
+            raise ValueError("Only a line, an arc or a circle can be projected")
+        return self
 
 
 class SketchPoint(SketchEntityBase):
@@ -110,6 +154,8 @@ class SketchPoint(SketchEntityBase):
 class SketchLine(SketchEntityBase):
     """A line segment between two endpoints."""
 
+    projectable: ClassVar[bool] = True
+
     kind: Literal["line"]
     start: Point2D
     end: Point2D
@@ -117,6 +163,8 @@ class SketchLine(SketchEntityBase):
 
 class SketchCircle(SketchEntityBase):
     """A full circle."""
+
+    projectable: ClassVar[bool] = True
 
     kind: Literal["circle"]
     center: Point2D
@@ -129,6 +177,8 @@ class SketchArc(SketchEntityBase):
     The radius is implied by ``|start - center|``; the solver keeps start and
     end on the circle (they may move to satisfy constraints).
     """
+
+    projectable: ClassVar[bool] = True
 
     kind: Literal["arc"]
     center: Point2D
@@ -409,13 +459,6 @@ class LinearDimensionConstraint(DimensionConstraint):
     @property
     def value(self) -> float:
         return self.value_mm
-
-
-def _absent(value: object) -> bool:
-    """``exclude_if``: an unset additive field is not serialized, so a dumped
-    constraint (the stored row, the rebuild-cache key) is byte-for-byte what it
-    was before the field existed."""
-    return value is None
 
 
 class DistanceConstraint(LinearDimensionConstraint):

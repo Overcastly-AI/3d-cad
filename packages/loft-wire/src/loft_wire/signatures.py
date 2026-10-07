@@ -1,11 +1,15 @@
 """Stage-1 subshape signatures: the planar-face and edge fingerprints.
 
-Split out of :mod:`loft_wire.features` (which re-exports both) so that module
+Split out of :mod:`loft_wire.features` (which re-exports them) so that module
 stays under the file-size ratchet; the topological-naming commentary that
-introduces them is still there, beside the selectors that carry them. Pure
-pydantic, no kernel types (CLAUDE.md service boundaries).
+introduces them is still there, beside the selectors that carry them. The edge
+REFERENCE (:class:`EdgeSubshapeRef`) lives here too, because a sketch's
+projected entity carries one and :mod:`loft_wire.features` imports
+:mod:`loft_wire.sketch` (SKETCH-PROJECT-EDGES). Pure pydantic, no kernel types
+(CLAUDE.md service boundaries).
 """
 
+import uuid
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -199,3 +203,63 @@ class EdgeSignature(BaseModel):
             "selectors and on ends without one named face."
         ),
     )
+
+
+# --- Stage-1 topological naming: EDGE signatures (topological-naming.md §2b/§10) ---
+#
+# The SECOND SubshapeRef consumer the topo-naming design anticipated (§10, "edge
+# selection is BACKLOG #2"), mirroring the planar-face signature above. An
+# EdgeSubshapeRef names ONE edge of a body-affecting feature's result by a
+# geometric SIGNATURE (§2b), NOT an enumeration index (§1.3 rejects indices).
+# Same stage-1 posture as the face signature, stated with the same honesty: a
+# signature is BEST-EFFORT — it resolves the same edge across the common edits
+# (parametric changes that do not move the edge; upstream inserts that do not
+# touch it) and FAILS HONESTLY (``subshape_unresolved`` / ``subshape_ambiguous``)
+# for most others, but a drastic model change CAN retarget to a
+# coincidentally-congruent edge without erroring. It is NOT structurally
+# non-retargeting; only stage-2 provenance (coordinate-blind) makes that
+# structural. The exactly-one-or-error rule is load-bearing, but note WHAT it
+# guards: the signature is ABSOLUTE-position-based, so mirror-congruent edges of
+# a symmetric part have DISTINCT signatures and never tie — a picked edge
+# resolves only to the edge at that position. The real ``subshape_ambiguous``
+# source is two edges that truly COINCIDE in space (a boolean seam, a
+# non-manifold duplicate, a near-collision within tolerance), where the resolver
+# refuses to guess.
+
+
+class EdgeSelectorV1(BaseModel):
+    """Stage-1 edge selector payload: the geometric signature alone (§3, §4).
+
+    The edge sibling of :class:`SelectorV1`. ``selector_version`` is the
+    discriminator of the (currently single-member) edge selector union,
+    decoupled from feature ``param_version`` (§4); stage 2 adds a signature +
+    provenance member additively, with no change to persisted v1 rows.
+    """
+
+    selector_version: Literal[1] = 1
+    signature: EdgeSignature
+
+
+#: Version-discriminated edge selector union (§4). One member (stage 1) today,
+#: so a plain alias; stage 2 promotes it to a discriminated union — the same
+#: idiom as the face :data:`Selector`.
+EdgeSubshapeSelector = EdgeSelectorV1
+
+
+class EdgeSubshapeRef(BaseModel):
+    """Stage-1 reference to ONE edge of a body-affecting feature's result.
+
+    The edge sibling of :class:`SubshapeRef` (topological-naming.md §4/§10).
+    ``feature_id`` is the stage-1 anchor — "the prior body-affecting feature
+    whose body I signature-match against" (§4) — and materializes into
+    ``feature_dependencies`` like a :class:`SubshapeRef`/:class:`FeatureRef` (via
+    the widened :func:`iter_feature_refs` / :func:`feature_references`), so
+    deleting that feature is a write-time 409-with-dependents and a reorder
+    re-checks strict-backward. ``subshape_type`` is ``"edge"``. A pick UI echoes
+    a picked edge's ``/overlay`` :class:`EdgeSignature` straight into ``selector``.
+    """
+
+    kind: Literal["subshape"]
+    feature_id: uuid.UUID
+    subshape_type: Literal["edge"]
+    selector: EdgeSubshapeSelector
