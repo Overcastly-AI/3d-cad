@@ -483,7 +483,11 @@ def measure_dimension(
                 entity.end.x - entity.start.x, entity.end.y - entity.start.y
             )
         case PointDistanceConstraint() | PointLineDistanceConstraint():
-            value = measured(constraint, *entity_lookups(entities_by_id))
+            # A sharp whose legs are parallel in THIS geometry reads its named
+            # point, as `distance` reads its own end; non-lines still refuse.
+            value = measured(
+                constraint, *entity_lookups(entities_by_id), sharp_fallback=True
+            )
             if value is None:
                 raise SketchDefinitionError(
                     f"Driven {constraint.kind!r} dimension does not resolve: a "

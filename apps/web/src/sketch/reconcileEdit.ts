@@ -109,6 +109,18 @@ export function reconcileEditedConstraints(
         return (c.a === target || c.b === target) && lengthChanged ? null : c;
       case "tangent":
         return followEndpointTangent(c, follow);
+      // A point dimension's operands follow their ends as a coincident's do.
+      // A virtual-sharp operand names where two lines MEET, which a trim or
+      // extend along the line does not move: it is left as it is.
+      case "point_distance": {
+        const a = c.a.sharp == null ? follow(c.a) : c.a;
+        const b = c.b.sharp == null ? follow(c.b) : c.b;
+        return a === null || b === null ? null : { ...c, a, b };
+      }
+      case "point_line_distance": {
+        const point = c.point.sharp == null ? follow(c.point) : c.point;
+        return point === null ? null : { ...c, point };
+      }
       default:
         return c;
     }

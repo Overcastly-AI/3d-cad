@@ -431,6 +431,19 @@ def test_a_sharp_on_a_non_line_is_malformed() -> None:
     raw["constraints"][-1]["b"] = _ref("l1", "end", sharp="c")
     with pytest.raises(SketchDefinitionError, match="virtual sharp"):
         _solve(raw)
+    raw["constraints"][-1]["driving"] = False  # a reference reads it too
+    with pytest.raises(SketchDefinitionError, match="virtual sharp"):
+        _solve(raw)
+
+
+def test_a_driven_sharp_on_parallel_legs_reads_its_own_end() -> None:
+    """No sharp exists, so the readout falls back as a driven `distance` does
+    (review of 564aa68: it used to raise `sketch_invalid`)."""
+    raw = _chamfered(1.0, driving=False)
+    raw["entities"][2] = _line("l2", (30, 3), (60, 3))  # parallel to l1
+    raw["constraints"][2] = {"kind": "horizontal", "entity": "l2"}
+    solved = _solve(raw)
+    assert solved.dimensions[0].value_mm == pytest.approx(27.0, abs=TOL)
 
 
 # -- determinism ---------------------------------------------------------------

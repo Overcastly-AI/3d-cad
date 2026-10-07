@@ -39,8 +39,9 @@ the stick never turns over, wherever the line goes relative to ``P``.
 
 ``Q`` starts at ``P - side * value * n``, so the stick starts at its target
 length and direction and is never zero-length, even when the stored point lies
-on the line. It is not an entity: nothing reads it back and the settle never
-pins it.
+on the line. That holds only because the wire refuses a value of 0
+(``value_mm`` is ``gt=0``): at 0 the stick, and the angle on it, would vanish.
+It is not an entity: nothing reads it back and the settle never pins it.
 
 **The side** is a function of the submitted sketch alone, like an angle's frame
 (:mod:`geometry.sketch.angles`): the sign of the cross product of the line's
@@ -147,19 +148,29 @@ def operands(constraint: PointDimension) -> tuple[tuple[str, DimensionPointRef],
 
 
 def operand(
-    ref: DimensionPointRef, point_at: PointLookup, line_at: LineLookup
+    ref: DimensionPointRef,
+    point_at: PointLookup,
+    line_at: LineLookup,
+    *,
+    sharp_fallback: bool = False,
 ) -> _Vec | None:
     """Where a point operand is: the named point, or the virtual sharp it names.
 
     ``None`` when a reference does not resolve, or a sharp's two lines are
-    parallel (they meet nowhere).
+    parallel (they meet nowhere). With ``sharp_fallback`` a parallel pair reads
+    the named point instead, as a driven ``distance`` reads its own end: the
+    solve already reports such a sharp conflicting, and the readout must not
+    turn that into ``sketch_invalid``.
     """
     if ref.sharp is None:
         return point_at(ref.entity, ref.point)
     own, other = line_at(ref.entity), line_at(ref.sharp)
     if own is None or other is None:
         return None
-    return intersect(own[0], own[1], other[0], other[1])
+    at = intersect(own[0], own[1], other[0], other[1])
+    if at is None and sharp_fallback:
+        return point_at(ref.entity, ref.point)
+    return at
 
 
 def signed_line_offset(point: _Vec, start: _Vec, end: _Vec) -> float | None:
@@ -181,7 +192,11 @@ def sense(value: float) -> float:
 
 
 def signed_value(
-    constraint: PointDimension, point_at: PointLookup, line_at: LineLookup
+    constraint: PointDimension,
+    point_at: PointLookup,
+    line_at: LineLookup,
+    *,
+    sharp_fallback: bool = False,
 ) -> float | None:
     """The quantity the solver holds, with its sign; ``None`` if unresolvable.
 
@@ -189,8 +204,8 @@ def signed_value(
     Point to line: the signed perpendicular offset (+ is left of the line).
     """
     if isinstance(constraint, PointDistanceConstraint):
-        a = operand(constraint.a, point_at, line_at)
-        b = operand(constraint.b, point_at, line_at)
+        a = operand(constraint.a, point_at, line_at, sharp_fallback=sharp_fallback)
+        b = operand(constraint.b, point_at, line_at, sharp_fallback=sharp_fallback)
         if a is None or b is None:
             return None
         match constraint.direction:
@@ -200,7 +215,7 @@ def signed_value(
                 return b[0] - a[0]
             case "vertical":
                 return b[1] - a[1]
-    point = operand(constraint.point, point_at, line_at)
+    point = operand(constraint.point, point_at, line_at, sharp_fallback=sharp_fallback)
     line = line_at(constraint.line)
     if point is None or line is None:
         return None
@@ -208,10 +223,14 @@ def signed_value(
 
 
 def measured(
-    constraint: PointDimension, point_at: PointLookup, line_at: LineLookup
+    constraint: PointDimension,
+    point_at: PointLookup,
+    line_at: LineLookup,
+    *,
+    sharp_fallback: bool = False,
 ) -> float | None:
     """The unsigned value the dimension reads on this geometry, or ``None``."""
-    value = signed_value(constraint, point_at, line_at)
+    value = signed_value(constraint, point_at, line_at, sharp_fallback=sharp_fallback)
     return None if value is None else abs(value)
 
 

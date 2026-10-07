@@ -154,6 +154,95 @@ describe("reconcileEditedConstraints", () => {
   });
 });
 
+describe("point dimensions follow a trim or extend (SKETCH-POINT-DISTANCE)", () => {
+  const span: SketchConstraint = {
+    kind: "point_distance",
+    a: { entity: "a", point: "start" },
+    b: { entity: "a", point: "end" },
+    direction: "horizontal",
+    value_mm: 40,
+  };
+  const inset: SketchConstraint = {
+    kind: "point_line_distance",
+    point: { entity: "a", point: "end" },
+    line: "rim",
+    value_mm: 1,
+  };
+  const rim = line("rim", [41, -10], [41, 10]);
+
+  it("a trim drops point dimensions on the end it moved (the review's repro)", () => {
+    const before = [line("a", [0, 0], [40, 0]), rim];
+    const after = [line("a", [0, 0], [20, 0]), rim];
+    const result = reconcileEditedConstraints(
+      [span, inset],
+      before,
+      after,
+      "a",
+    );
+    expect(result.constraints).toEqual([]);
+    expect(result.removed).toBe(2);
+  });
+
+  it("an extend drops them too: the dimension described the old end", () => {
+    const before = [line("a", [0, 0], [40, 0]), rim];
+    const after = [line("a", [0, 0], [41, 0]), rim];
+    const result = reconcileEditedConstraints(
+      [span, inset],
+      before,
+      after,
+      "a",
+    );
+    expect(result.constraints).toEqual([]);
+    expect(result.removed).toBe(2);
+  });
+
+  it("a split re-homes an operand onto the piece that now owns its point", () => {
+    const before = [line("a", [0, 0], [40, 0]), rim];
+    const after = [
+      line("a", [0, 0], [10, 0]),
+      line("a.2", [30, 0], [40, 0]),
+      rim,
+    ];
+    const result = reconcileEditedConstraints(
+      [span, inset],
+      before,
+      after,
+      "a",
+    );
+    expect(result.constraints).toEqual([
+      { ...span, b: { entity: "a.2", point: "end" } },
+      { ...inset, point: { entity: "a.2", point: "end" } },
+    ]);
+    expect(result.removed).toBe(0);
+  });
+
+  it("an operand on the end that did not move, or on a virtual sharp, is kept", () => {
+    const corner: SketchConstraint = {
+      kind: "point_line_distance",
+      point: { entity: "a", point: "end", sharp: "b" },
+      line: "rim",
+      value_mm: 1,
+    };
+    const fromStart: SketchConstraint = {
+      kind: "point_distance",
+      a: { entity: "a", point: "start" },
+      b: { entity: "rim", point: "start" },
+      direction: "aligned",
+      value_mm: 41,
+    };
+    const b = line("b", [40, -5], [40, 5]);
+    const before = [line("a", [0, 0], [40, 0]), b, rim];
+    const after = [line("a", [0, 0], [30, 0]), b, rim];
+    const result = reconcileEditedConstraints(
+      [corner, fromStart],
+      before,
+      after,
+      "a",
+    );
+    expect(result.constraints).toEqual([corner, fromStart]);
+  });
+});
+
 describe("deleteSelectedEntities", () => {
   const entities = [line("e1", [0, 0], [10, 0]), line("e2", [10, 0], [10, 10])];
   const constraints: SketchConstraint[] = [
