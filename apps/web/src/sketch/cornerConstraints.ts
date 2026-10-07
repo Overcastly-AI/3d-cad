@@ -49,6 +49,7 @@ import { isCurveEnd, joinedPoints } from "./endpointTangent";
 import { namedPoints } from "./pick";
 import type { Point2D } from "./plane";
 import type { SketchEntity } from "./tools";
+import { sharpenOperands } from "./pointDimension";
 import type { DistanceConstraint } from "./virtualSharp";
 
 /**
@@ -74,6 +75,11 @@ function pointRefs(c: SketchConstraint): EntityPointRef[] {
     case "fixed":
     case "midpoint":
       return [c.point];
+    // A virtual-sharp operand names the corner, not the trimmed end.
+    case "point_distance":
+      return [c.a, c.b].filter((ref) => ref.sharp == null);
+    case "point_line_distance":
+      return c.point.sharp == null ? [c.point] : [];
     default:
       return [];
   }
@@ -183,7 +189,18 @@ export function reconcileCornerConstraints(
         return false;
     }
   };
-  const kept = base.constraints
+  // A point dimension to a trimmed end is kept, to the corner's virtual sharp
+  // (SKETCH-POINT-DISTANCE), exactly as a leg's length is.
+  const otherLeg = (ref: EntityPointRef): string | null => {
+    if (!gone.has(movedKey(ref))) return null;
+    return trimmed.find((leg) => leg.id !== ref.entity)?.id ?? null;
+  };
+  const sharpened = base.constraints.map((c) =>
+    c.kind === "point_distance" || c.kind === "point_line_distance"
+      ? (sharpenOperands(c, otherLeg) ?? c)
+      : c,
+  );
+  const kept = sharpened
     .filter((c) => !stale(c))
     .map((c) => (c.kind === "distance" ? (toSharp(c, trimmed) ?? c) : c));
 

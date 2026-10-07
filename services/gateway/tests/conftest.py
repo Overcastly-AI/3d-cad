@@ -21,6 +21,10 @@ import pytest
 from _pytest.terminal import TerminalReporter
 
 os.environ.setdefault("LOFT_ENV", "dev")
+# `geometry.main` builds its app at import, and the blend server is prewarmed
+# by default (~0.5 GiB, several seconds). Nothing here needs it up front: a
+# blend, if any, starts it on first use.
+os.environ.setdefault("BLEND_SERVER_PREWARM", "false")
 
 #: Every service the route-auth sweep covers. Named here rather than counted
 #: at runtime so a sweep that silently stops covering one is legible in the

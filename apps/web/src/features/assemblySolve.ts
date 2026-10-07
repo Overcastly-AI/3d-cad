@@ -100,6 +100,17 @@ export interface AssemblySolveInput {
   placeholder: boolean;
   /** The evaluate request came back an error — there is no verdict to spend. */
   failed: boolean;
+  /**
+   * The evaluation has landed on THIS page but the viewport has not drawn it
+   * yet (MATE-OBS-3, `assembly/posePublication`).
+   *
+   * The status cell commits from the page's React root; the meshes and the
+   * balloons' `data-solved-*` poses commit from react-three-fiber's and drei
+   * `<Html>`'s roots a scheduler task or two later. Without this input the
+   * verdict for the new solve stood over the PRE-mate pose for that gap —
+   * ~85 ms with the solve held back, one 25 ms sample under CI load.
+   */
+  drawing: boolean;
   /** The evaluation currently rendered — possibly a previous solve. */
   evaluation: EvaluateAssemblyResult | undefined;
 }
@@ -153,11 +164,12 @@ export function deriveAssemblySolve({
   solvable,
   placeholder,
   failed,
+  drawing,
   evaluation,
 }: AssemblySolveInput): AssemblySolve {
   // WORK IS UNDER WAY — the one condition that entitles a surface to spend a
-  // transient word instead of a verdict. Four ways in, and they tile the whole
-  // window from the click to the new solve landing:
+  // transient word instead of a verdict. Five ways in, and they tile the whole
+  // window from the click to the new solve being DRAWN:
   //
   //  - `writing`     the app is holding a write it knows supersedes this solve;
   //  - `loading`     the graph / part rows are refetching, which is when the
@@ -165,9 +177,12 @@ export function deriveAssemblySolve({
   //  - `evaluating`  the evaluate itself is in flight;
   //  - a placeholder solve on a SOLVABLE assembly — the current key has no
   //    answer yet and one is coming, so calling that idle would flash "—"
-  //    between two renders of a running rebuild.
+  //    between two renders of a running rebuild;
+  //  - `drawing`     the answer is here but the viewport still shows the
+  //                  previous pose — the last beat of the window, and the one
+  //                  that only opened under load.
   const inFlight =
-    writing || loading || evaluating || (placeholder && solvable);
+    writing || loading || evaluating || drawing || (placeholder && solvable);
   // Anything but a settled answer for the CURRENT key is stale. `!solvable`
   // is in here on its own account: it is the state that does not resolve.
   const stale = inFlight || placeholder || failed || !solvable;

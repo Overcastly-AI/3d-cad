@@ -132,6 +132,8 @@ Three facts drive sizing:
 of RAM per worker.** An idle worker's floor is about 500 MiB, plus about
 0.5 GiB for its blend server, which runs every fillet, chamfer and draft in a
 forked child so an OCCT crash cannot take the worker down (~30 ms per blend).
+Shell runs OCCT offsets there under a CPU budget too: a sealed shell's
+Intersection build, and the offset of a body of 500 faces or more.
 The server starts at boot; `BLEND_SERVER_PREWARM=false` defers it to the first
 blend, which then waits 5-9 s. Run geometry under an init (compose sets `init: true`;
 on Kubernetes, use an init such as tini as the entrypoint). Gateway and

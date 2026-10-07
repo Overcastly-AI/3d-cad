@@ -41,7 +41,7 @@ import {
 } from "@loft/design";
 
 import { formatDro } from "../lib/format";
-import { formatSolveCell } from "../sketch/constraints";
+import { formatSolveCell } from "../sketch/solveFeedback";
 import { describePlane } from "../sketch/plane";
 import { gridStepOptions } from "../sketch/pointEntry";
 import { useSketchStore } from "../sketch/store";

@@ -24,6 +24,8 @@ from typing import Any
 # unset LOFT_ENV + unset JWT_SECRET refuses to boot). Schema export needs no
 # real secret, so opt into the dev fallback explicitly — BEFORE the imports.
 os.environ.setdefault("LOFT_ENV", "dev")
+# Schema export runs no blend: do not start the blend server at import.
+os.environ.setdefault("BLEND_SERVER_PREWARM", "false")
 
 from documents.main import build_app as build_documents
 from fastapi import FastAPI

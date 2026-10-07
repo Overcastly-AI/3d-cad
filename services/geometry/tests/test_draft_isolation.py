@@ -32,7 +32,6 @@ from geometry.kernel.draft import (
     draft_body,
     draft_needs_isolation,
 )
-from geometry.kernel.healing import body_is_valid
 from geometry.kernel.naming import OpHistory
 
 
@@ -131,13 +130,14 @@ def test_an_analytic_wall_that_crashes_is_a_typed_error() -> None:
     process and the server carry on."""
     body, wall = _wedge_box()
     assert all(e.geom_type == GeomType.LINE for e in wall.edges())
-    try:
-        drafted = draft_body(body, [wall], Plane.XY, -20.0)
-    except DraftError:
-        pass
-    else:
-        assert body_is_valid(drafted)
+    server = fillet_isolation.server_pid()
+    with pytest.raises(DraftError, match="crashed") as caught:
+        draft_body(body, [wall], Plane.XY, -20.0)
+    assert not isinstance(caught.value, DraftTimeoutError)
+    # Only the child died: this process and the same server carry on.
     assert fillet_isolation.server_pid() is not None
+    if server is not None:
+        assert fillet_isolation.server_pid() == server
     # The next draft is served as usual (the wedge wall crashes even at -3 deg;
     # the plain box's wall does not).
     box = Solid.make_box(40, 30, 20)

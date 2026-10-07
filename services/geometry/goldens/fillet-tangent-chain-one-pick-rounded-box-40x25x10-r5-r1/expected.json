@@ -1,0 +1,30 @@
+{
+  "description": "TANGENT-CHAIN FILLET GOLDEN (FILLET-TANGENT-CHAIN, hard-parts re-run 2026-10-02). The 40x25x10 plate with its four vertical edges rounded R5 (Fillet1, predicate axis_parallel Z), so the top face's boundary is one G1 loop of 4 lines and 4 quarter arcs. Fillet2 picks ONE edge of that loop (the front-top line (5,0,10)-(35,0,10), by its stage-1 EdgeSignature) at R1. As in Fusion 360, SolidWorks and Onshape, and as OCCT's ChFi3d contour does, the pick rounds the whole tangent chain: all 8 edges. Before the fix the far-face guard measured reach from the one picked line only, saw the other 7 rounded edges as damage beyond 3r, and refused the body. The body here is the 8-edge rim round, checked against a closed form.",
+  "derivation": [
+    "Expected values are HAND-DERIVED analytic values, cross-checked against the harness (geometry-gates skill: a golden recorded from buggy output enshrines the bug). r = 1 (rim), R = 5 (corners).",
+    "Base body. The rounded-corner prism: 40*25*10 minus four R5 corner spandrels, each R^2 (1 - pi/4) by 10: V0 = 10000 - 1000 (1 - pi/4) = 9000 + 250 pi = 9785.398163397448.",
+    "Rim cross-section. Every point of the loop is a 90 deg convex dihedral (top plane against a vertical wall or a vertical cylinder), so the round removes the same spandrel S everywhere: the unit square at the corner minus the quarter disc of radius r = 1 centred 1 inside it. With u the depth in from the wall and w the depth down from the top: area A = 1 - pi/4; first moments int u dA = int w dA = 5/6 - pi/4 (the spandrel centroid sits (10 - 3 pi)/(12 - 3 pi) = 0.2234 from the corner); product moment int u w dA = 1/4 - (pi/4 - 2/3 + 1/8) = 19/24 - pi/4.",
+    "Straight runs. The four lines are 30, 15, 30, 15 long (40 - 2R and 25 - 2R): 90 mm of prism of section S, removing 90 A.",
+    "Corner runs. Each quarter arc of the R5 round's top edge is rounded by a quarter torus (major radius 4, minor 1): S swept 90 deg about the corner's vertical axis, at radius rho = 5 - u. By Pappus, (pi/2) int (5 - u) dA = (pi/2)(5A - (5/6 - pi/4)) each, four of them.",
+    "volume = V0 - 90 A - 4 (pi/2)(5A - 5/6 + pi/4) = 9759.643268125483 mm^3 (closed form at float64). Harness 9759.643268125485 (+1.8e-12).",
+    "surface_area. Bottom unchanged, 1000 - 100(1 - pi/4) = 900 + 25 pi. Top shrinks to the 38x23 rounded rectangle of corner radius 4: 874 - 64(1 - pi/4) = 810 + 16 pi. The walls lose their top 1 mm: lines 90*9 = 810, R5 quarter cylinders 4*(5 pi/2)*9 = 90 pi. Straight rim rounds: quarter cylinders of radius 1, 90 * pi/2 = 45 pi. Corner rounds by Pappus: arc length pi/2, its centroid at rho = 4 + 2/pi, swept pi/2: (pi/2)(pi/2)(4 + 2/pi) = pi^2 + pi/2 each, 4 pi^2 + 2 pi in all. Total = 2520 + 178 pi + 4 pi^2 = 3118.6819099433405 mm^2. Harness 3118.6819099433415 (+1.0e-12).",
+    "centroid. x = 20 and y = 12.5 by the part's two mirror planes. z: the prism's moment is 5 V0; the straight runs remove 90 int (10 - w) dA = 90 (10A - (5/6 - pi/4)); each corner removes (pi/2) int (10 - w)(5 - u) dA = (pi/2)(50A - 15(5/6 - pi/4) + 19/24 - pi/4). z = 4.987397718740629 (closed form); harness 4.987397718740642 (+1.3e-14).",
+    "bounding_box = [0,0,0]..[40,25,10]: the rim round stays inside the plate (top at z 10 keeps the 38x23 face, the walls keep x 0..40 and y 0..25 below z 9). The harness's min x/y are -8.9e-16, the R5 corner construction's residual.",
+    "topology: 18 faces = top + bottom + 4 walls + 4 R5 corner cylinders + 4 rim cylinders + 4 rim tori. 40 edges = bottom loop 8 + wall/corner verticals 8 + top loop 8 + rim-round lower loop 8 + the 8 cross-section arcs where each rim cylinder meets a rim torus. 24 vertices (three loops of 8), V - E + F = 24 - 40 + 18 = 2. 1 shell. The harness's counts are the same.",
+    "Picking all 8 rim edges builds the identical body (tests/test_fillet_tangent_chain.py asserts volume, area and topology equal, and an empty boolean difference). Before the fix this tree's Fillet2 failed with fillet_failed (\"a face farther than the fillet can reach is missing or changed\").",
+    "mesh counts are the harness's at linear 0.1 mm (asserted exactly; deterministic within a kernel version). GLB byte size is deliberately not pinned."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Curved geometry (cylinders and tori), measured then set: volume 1.8e-12 mm^3, area 1.0e-12 mm^2 and centroid z 1.3e-14 mm off the closed form, AABB within 9e-16. The 1e-9 ceiling is the fillet goldens' (fillet-top-edge-40x25x10-r5, fillet-plate-r5), ~5e2x the observed worst case, for libm/platform variation in GProp's quadrature across CI hosts. Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 9759.643268125483,
+    "surface_area": 3118.6819099433405,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 4.987397718740629 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 18, "edges": 40, "shells": 1 },
+  "mesh": { "vertices": 5164, "triangles": 8972 }
+}

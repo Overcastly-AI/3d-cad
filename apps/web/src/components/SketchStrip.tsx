@@ -79,15 +79,17 @@ import { isTypingTarget } from "../lib/isTypingTarget";
 import { useGlobalKeys } from "../lib/modalGate";
 import { undoRedoStep } from "../lib/undoRedoShortcut";
 import {
-  authoredConstraintCount,
   deleteSelectedEntities,
-  describeSelection,
   selectionAllConstruction,
+  type ConstraintAction,
+} from "../sketch/constraints";
+import {
+  authoredConstraintCount,
+  describeSelection,
   selectionVerbHints,
   verbIsAvailable,
   verbSelectionShape,
-  type ConstraintAction,
-} from "../sketch/constraints";
+} from "../sketch/solveFeedback";
 import { withoutDatums } from "../sketch/datum";
 import { describeOpenEnds } from "../sketch/openEnds";
 import {
@@ -329,11 +331,9 @@ const CONSTRAINT_GROUPS: ReadonlyArray<{
         icon: <RadiusIcon />,
       },
       {
-        // D IS "DIMENSION", AND THE SELECTION SAYS WHICH ONE — diameter has no
-        // key of its own (see CONSTRAINT_SHORTCUTS). The row is still listed,
-        // because the catalogue's job is to say the verb EXISTS: someone
-        // hunting "how do I call out a diameter" finds it here and learns that
-        // D on a round already is it, which no amount of pressing D teaches.
+        // D IS "DIMENSION" and the selection says which (CONSTRAINT_SHORTCUTS):
+        // diameter has no key, but is listed so someone hunting a diameter
+        // callout learns here that D on a round already is it.
         action: "diameter",
         label: "Diameter",
         keyHint: "D",

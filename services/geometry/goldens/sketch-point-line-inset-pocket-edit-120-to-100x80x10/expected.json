@@ -1,0 +1,28 @@
+{
+  "description": "FIRST POINT-DIMENSION GOLDEN (SKETCH-POINT-DISTANCE): the QA rerun's inset lip, as a 20 x 10 through-pocket held 1 mm inside a plate's right and top edges by two point-to-line dimensions, with the pocket's own size set by a horizontal and a vertical point-to-point dimension. The sketch is stored as DRAWN at 120 x 80 with the width typed 100: the edit moves the plate's right edge from x = 120 to x = 100, PAST the pocket corner drawn at x = 119. planegcs's native point-to-line distance is unsigned and settles that corner at x = 101, outside the plate (test_sketch_point_distance pins it); the golden fails if the side is not held, because the pocket then breaks through the edge and the solid is not a plate with one pocket. It also fails if the inset does not follow the edit (the pocket stays at x 99..119, off the 100 mm plate).",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill).",
+    "solved sketch: plate fixed at the origin, width 100 and height 80, so its right edge is x = 100 and top edge y = 80. The pocket's top-right corner is 1 mm inside both, on the side it was drawn: (99, 79). Its width (horizontal point distance) is 20 and height (vertical point distance) 10, both signed as drawn, so the pocket spans x 79..99, y 69..79.",
+    "volume = (100*80 - 20*10) * 10 = 7800 * 10 = 78000 mm^3",
+    "surface_area = 2*(8000 - 200) [top and bottom, each pierced]  + 2*(100+80)*10 [outer walls]  + 2*(20+10)*10 [pocket walls] = 15600 + 3600 + 600 = 19800 mm^2",
+    "centroid: plate (50, 40) area 8000 less pocket (89, 74) area 200: x = (400000 - 17800)/7800 = 382200/7800 = 49.0; y = (320000 - 14800)/7800 = 305200/7800 = 39.12820512820513; z = 5",
+    "bounding_box = [0,0,0]..[100,80,10]: the pocket is interior (1 mm walls on its right and top)",
+    "topology: 10 faces (top, bottom, 4 outer walls, 4 pocket walls), 24 edges (8 on each cap, 8 vertical), 1 shell",
+    "mesh: every face is planar. Each cap is a 4-gon with one 4-gon hole: 8 boundary nodes, 8 - 2 + 2*1 = 8 triangles; two caps 16 nodes / 16 triangles. Eight rectangular walls at 4 nodes / 2 triangles each: 32 nodes / 16 triangles. Totals 48 vertices, 32 triangles (per-face faceted normals, no vertex sharing across faces).",
+    "no material is assigned, so mass and centre of mass must be reported ABSENT (null) — never 0 g (docs/design/materials.md 6)",
+    "GLB byte size is deliberately NOT pinned: asserted deterministic (byte-identical) by the runner within one kernel version."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Same posture and number as sketch-extrude-40x25x10 and the midpoint golden, whose construction path this one shares: the solve lands on exact sums of typed values (100 - 1, 99 - 20, 80 - 1, 79 - 10), so the residual error is the solver's convergence on a fully constrained system plus the kernel's wire->face->prism path. The bound stays 1e5 x tighter than the kernel linear tolerance (1e-4 mm). Loosening it is never a fix for a red run.",
+  "properties": {
+    "volume": 78000.0,
+    "surface_area": 19800.0,
+    "centroid": { "x": 49.0, "y": 39.12820512820513, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 100.0, "y": 80.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 10, "edges": 24, "shells": 1 },
+  "mesh": { "vertices": 48, "triangles": 32 }
+}

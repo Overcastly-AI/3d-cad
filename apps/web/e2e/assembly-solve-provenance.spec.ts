@@ -100,9 +100,10 @@ async function installSampler(
   page: Page,
   instanceId: string,
   preY: number,
+  everyCommit = false,
 ): Promise<void> {
   await page.evaluate(
-    ([id, before]) => {
+    ([id, before, onCommit]) => {
       const trace: SolveTrace = {
         statusLies: [],
         dofLies: [],
@@ -122,7 +123,7 @@ async function installSampler(
           document.querySelector(selector) as HTMLElement | null
         )?.innerText.trim() ?? "";
 
-      const sample = () => {
+      const check = () => {
         const elapsed = Date.now() - started;
         const status = text('[data-testid="assembly-solve-status"]');
         // PanelRow renders <label><value>[<unit>]; the value is the second child.
@@ -193,14 +194,166 @@ async function installSampler(
 
         // Keep sampling a beat past the settle so a claim made AFTER the new pose
         // lands is still caught, then stop. The budget is a CEILING, not a wait.
-        const done =
-          trace.settledAt >= 0 &&
-          elapsed - trace.armed - trace.settledAt > 1000;
-        if (!done && elapsed < 40_000) window.setTimeout(sample, 25);
+        return (
+          (trace.settledAt >= 0 &&
+            elapsed - trace.armed - trace.settledAt > 1000) ||
+          elapsed >= 40_000
+        );
       };
-      sample();
+
+      // EVERY COMMIT, not every 25 ms (MATE-OBS-3). The status cell and the
+      // balloon are written by DIFFERENT React roots — the page's, then
+      // react-three-fiber's, then each drei `<Html>` root — so the gap between
+      // them is a scheduler task or two: ~0 ms on an idle machine, a whole
+      // 25 ms tick on a loaded CI runner. A timer catches that gap by luck. A
+      // MutationObserver runs at the microtask checkpoint after EVERY DOM
+      // write, before the next root can commit, so it reads each intermediate
+      // state the DOM ever holds: the race is pinned, not sampled.
+      let observer: MutationObserver | null = null;
+      if (onCommit) {
+        observer = new MutationObserver(() => {
+          if (check()) observer?.disconnect();
+        });
+        observer.observe(document.body, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          characterData: true,
+        });
+      }
+      const tick = () => {
+        if (check()) observer?.disconnect();
+        else window.setTimeout(tick, 25);
+      };
+      tick();
     },
-    [instanceId, preY] as const,
+    [instanceId, preY, everyCommit] as const,
+  );
+}
+
+/**
+ * How the write is observed. `everyCommit` adds the MutationObserver sampler
+ * to the 25 ms timer; `holdSolveMs` holds every evaluate request back by that
+ * long (Playwright routing), so the solved answer lands at a fixed point well
+ * after the write rather than whenever a loaded geometry service gets to it.
+ */
+interface MateObsMode {
+  everyCommit: boolean;
+  holdSolveMs: number;
+}
+
+async function assertNoClaimOverPreMatePose(
+  page: Page,
+  mode: MateObsMode,
+): Promise<void> {
+  if (mode.holdSolveMs > 0) {
+    await page.route("**/api/v1/geometry/assembly/evaluate", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, mode.holdSolveMs));
+      await route.continue();
+    });
+  }
+  const { idA, idB } = await setupTwoInstances(page);
+
+  const before = await balloonPose(page, idB);
+  expect(before, "the free instance's balloon is on screen").not.toBeNull();
+  expect(
+    before?.stale,
+    "the fixture must start from a SETTLED solve, else the sampler's " +
+      "pre-mate baseline is itself a previous solve",
+  ).toBe(false);
+  const preY = before?.y ?? Number.NaN;
+  expect(Number.isNaN(preY)).toBe(false);
+
+  // Arm the coincident tool and collect the first face; the SECOND pick is
+  // the write (the value-free mates auto-commit on a complete pair).
+  await page.getByTestId("mate-coincident").click();
+  await expect(page.getByTestId("mate-hud")).toBeVisible();
+  await pickDispatch(
+    page,
+    `[data-testid^="mate-face-${idA}-"][aria-label*="12.5, 10 "]`,
+  );
+
+  await installSampler(page, idB, preY, mode.everyCommit);
+  await pickDispatch(
+    page,
+    `[data-testid^="mate-face-${idB}-"][aria-label*="12.5, 0 "]`,
+  );
+
+  await expect
+    .poll(async () => (await readTrace(page)).settledAt, {
+      timeout: 45_000,
+      message:
+        "the free instance never left its pre-mate seat, so the sampler " +
+        "watched nothing happen and its silence proves nothing about the app",
+    })
+    .toBeGreaterThanOrEqual(0);
+  // The sampler runs one beat past the settle — let it finish.
+  await page.waitForTimeout(1300);
+  const trace = await readTrace(page);
+
+  console.log(
+    `MATE-OBS timeline (ms from the write, armed by ${trace.armTell}):\n  ` +
+      trace.timeline.join("\n  "),
+  );
+
+  // THE INSTRUMENT'S OWN GUARDS, first and non-negotiable. Every assertion
+  // below is a `toBe(0)`, which a sampler that measured NOTHING satisfies
+  // trivially — so the gate must first prove it watched the write go out,
+  // recorded readouts, and saw the mated pose arrive.
+  expect(
+    trace.armed,
+    "the sampler never saw the mate write go out (neither the HUD's submit " +
+      "state nor the mate row), so it measured the wrong window",
+  ).toBeGreaterThanOrEqual(0);
+  expect(
+    trace.timeline.length,
+    "the sampler armed but recorded no readouts at all",
+  ).toBeGreaterThan(0);
+  expect(
+    trace.settledAt,
+    "the sampler never saw the mated pose reach the screen",
+  ).toBeGreaterThanOrEqual(0);
+
+  const span = (moments: number[]) =>
+    moments.length === 0
+      ? 0
+      : (moments[moments.length - 1] as number) - (moments[0] as number);
+  const tail = `Timeline:\n  ${trace.timeline.join("\n  ")}`;
+
+  expect(
+    trace.statusLies.length,
+    `SOLVE STATUS reported a settled verdict for ${span(trace.statusLies)} ms ` +
+      `(${trace.statusLies.length} samples from t+${trace.statusLies[0]}) while ` +
+      `the free instance was still at its PRE-mate seat y=${preY}. That reading ` +
+      `is indistinguishable from a mate that did nothing. ${tail}`,
+  ).toBe(0);
+  expect(
+    trace.dofLies.length,
+    `FREE DOF spent the previous solve's count for ${span(trace.dofLies)} ms ` +
+      `(${trace.dofLies.length} samples) over the pre-mate pose — the exact ` +
+      `6-instead-of-3 the kernel investigation was handed. ${tail}`,
+  ).toBe(0);
+  expect(
+    trace.stampLies.length,
+    `data-eval-stale said "false" over the pre-mate pose for ` +
+      `${span(trace.stampLies)} ms. The provenance stamp is the one thing ` +
+      `every pose reader trusts; it may not be wrong. ${tail}`,
+  ).toBe(0);
+
+  // MUTATION EVIDENCE, measured on the same write: the OLD barrier's
+  // predicate (any status that is not "Solving…"/"—") was satisfiable inside
+  // the window before the fix — that is why `waitForSolved` returned on its
+  // first tick and every pose read after it got the previous solve. It is
+  // logged rather than asserted in either direction: asserting it stayed > 0
+  // would pin the defect open, and asserting it is 0 duplicates the status
+  // gate above. What matters is that the stamp gate is 0 regardless.
+  console.log(
+    `MATE-OBS: the OLD waitForSolved predicate was satisfied over the ` +
+      `pre-mate pose in ${trace.oldBarrierEarly.length} samples ` +
+      `(t+${trace.oldBarrierEarly[0] ?? "-"}..${
+        trace.oldBarrierEarly[trace.oldBarrierEarly.length - 1] ?? "-"
+      } ms); the provenance barrier in ${trace.stampLies.length}. ` +
+      `The mated pose reached the screen at t+${trace.settledAt} ms.`,
   );
 }
 
@@ -208,109 +361,26 @@ test.describe("MATE-OBS — a mate in flight is never reported as the solve", ()
   test("no readout claims a settled solve over the pre-mate pose", async ({
     page,
   }) => {
-    const { idA, idB } = await setupTwoInstances(page);
+    await assertNoClaimOverPreMatePose(page, {
+      everyCommit: false,
+      holdSolveMs: 0,
+    });
+  });
 
-    const before = await balloonPose(page, idB);
-    expect(before, "the free instance's balloon is on screen").not.toBeNull();
-    expect(
-      before?.stale,
-      "the fixture must start from a SETTLED solve, else the sampler's " +
-        "pre-mate baseline is itself a previous solve",
-    ).toBe(false);
-    const preY = before?.y ?? Number.NaN;
-    expect(Number.isNaN(preY)).toBe(false);
-
-    // Arm the coincident tool and collect the first face; the SECOND pick is
-    // the write (the value-free mates auto-commit on a complete pair).
-    await page.getByTestId("mate-coincident").click();
-    await expect(page.getByTestId("mate-hud")).toBeVisible();
-    await pickDispatch(
-      page,
-      `[data-testid^="mate-face-${idA}-"][aria-label*="12.5, 10 "]`,
-    );
-
-    await installSampler(page, idB, preY);
-    await pickDispatch(
-      page,
-      `[data-testid^="mate-face-${idB}-"][aria-label*="12.5, 0 "]`,
-    );
-
-    await expect
-      .poll(async () => (await readTrace(page)).settledAt, {
-        timeout: 45_000,
-        message:
-          "the free instance never left its pre-mate seat, so the sampler " +
-          "watched nothing happen and its silence proves nothing about the app",
-      })
-      .toBeGreaterThanOrEqual(0);
-    // The sampler runs one beat past the settle — let it finish.
-    await page.waitForTimeout(1300);
-    const trace = await readTrace(page);
-
-    console.log(
-      `MATE-OBS timeline (ms from the write, armed by ${trace.armTell}):\n  ` +
-        trace.timeline.join("\n  "),
-    );
-
-    // THE INSTRUMENT'S OWN GUARDS, first and non-negotiable. Every assertion
-    // below is a `toBe(0)`, which a sampler that measured NOTHING satisfies
-    // trivially — so the gate must first prove it watched the write go out,
-    // recorded readouts, and saw the mated pose arrive.
-    expect(
-      trace.armed,
-      "the sampler never saw the mate write go out (neither the HUD's submit " +
-        "state nor the mate row), so it measured the wrong window",
-    ).toBeGreaterThanOrEqual(0);
-    expect(
-      trace.timeline.length,
-      "the sampler armed but recorded no readouts at all",
-    ).toBeGreaterThan(0);
-    expect(
-      trace.settledAt,
-      "the sampler never saw the mated pose reach the screen",
-    ).toBeGreaterThanOrEqual(0);
-
-    const span = (moments: number[]) =>
-      moments.length === 0
-        ? 0
-        : (moments[moments.length - 1] as number) - (moments[0] as number);
-    const tail = `Timeline:\n  ${trace.timeline.join("\n  ")}`;
-
-    expect(
-      trace.statusLies.length,
-      `SOLVE STATUS reported a settled verdict for ${span(trace.statusLies)} ms ` +
-        `(${trace.statusLies.length} samples from t+${trace.statusLies[0]}) while ` +
-        `the free instance was still at its PRE-mate seat y=${preY}. That reading ` +
-        `is indistinguishable from a mate that did nothing. ${tail}`,
-    ).toBe(0);
-    expect(
-      trace.dofLies.length,
-      `FREE DOF spent the previous solve's count for ${span(trace.dofLies)} ms ` +
-        `(${trace.dofLies.length} samples) over the pre-mate pose — the exact ` +
-        `6-instead-of-3 the kernel investigation was handed. ${tail}`,
-    ).toBe(0);
-    expect(
-      trace.stampLies.length,
-      `data-eval-stale said "false" over the pre-mate pose for ` +
-        `${span(trace.stampLies)} ms. The provenance stamp is the one thing ` +
-        `every pose reader trusts; it may not be wrong. ${tail}`,
-    ).toBe(0);
-
-    // MUTATION EVIDENCE, measured on the same write: the OLD barrier's
-    // predicate (any status that is not "Solving…"/"—") was satisfiable inside
-    // the window before the fix — that is why `waitForSolved` returned on its
-    // first tick and every pose read after it got the previous solve. It is
-    // logged rather than asserted in either direction: asserting it stayed > 0
-    // would pin the defect open, and asserting it is 0 duplicates the status
-    // gate above. What matters is that the stamp gate is 0 regardless.
-    console.log(
-      `MATE-OBS: the OLD waitForSolved predicate was satisfied over the ` +
-        `pre-mate pose in ${trace.oldBarrierEarly.length} samples ` +
-        `(t+${trace.oldBarrierEarly[0] ?? "-"}..${
-          trace.oldBarrierEarly[trace.oldBarrierEarly.length - 1] ?? "-"
-        } ms); the provenance barrier in ${trace.stampLies.length}. ` +
-        `The mated pose reached the screen at t+${trace.settledAt} ms.`,
-    );
+  test("no DOM commit pairs a settled verdict with the pre-mate pose, with the solve held back", async ({
+    page,
+  }) => {
+    // MATE-OBS-3, the race the 25 ms sampler above only caught under CI load
+    // (one sample, t+800 ms, shard 1/6 of 0fbd6cf): the readouts and the
+    // balloon commit from different React roots, so for a scheduler task or
+    // two the status said "Under constrained" over the pre-mate seat. Here
+    // every DOM write is inspected, and the solve is held back 1.5 s so the
+    // answer lands at a fixed point long after the write — the window cannot
+    // be missed by timing, and it fails on every run if it is open.
+    await assertNoClaimOverPreMatePose(page, {
+      everyCommit: true,
+      holdSolveMs: 1500,
+    });
   });
 
   test("waitForSolved returns only once the mated pose is on screen", async ({

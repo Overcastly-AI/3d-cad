@@ -97,7 +97,25 @@ when all three hold:
   it keeps one, and a bored plate came out 20% to 65% heavy where Arc raises.
 
 Arc's outcome is what the user gets either way; the Intersection route only
-makes its bytes reproducible. Measured over 4 processes x 3 rebuilds
+makes its bytes reproducible, so it gets a budget (SHELL-INTERSECTION-SLOW,
+2026-10-02). A 40 x 20 x 10 plate bored r2.991 and cross-bored r1.424, sealed
+at t 2.39, hollows right by Arc in 0.16 s and held the Intersection join for 68
+to 133 s, past the gateway's 90 s. It now runs first in a child of the blend
+server (:mod:`geometry.kernel.fillet_isolation`) under
+:data:`INTERSECTION_CPU_SECONDS`; past it, or where it fails or disagrees, Arc's
+result ships in canonical order. Over the 220 sweep bodies that take the route
+it needed at most 1.4 s together with Arc, so the budget decides nothing else.
+Only a build that finished and agrees is built again in-process, where its outer
+faces are the input's, so what ships is byte for byte what shipped before.
+
+The Arc offset itself grows with the faces squared where one face borders many
+(OCCT intersects each pair of offset faces through a boolean over both faces'
+edges): a 240 x 160 x 6 plate with 225 slots, opened at the top at t 1, takes 77
+to 89 s of CPU. A body of :data:`ISOLATED_ARC_FACES` or more is offset in a
+child under :data:`ARC_CPU_SECONDS` and refused past it with a typed
+:class:`ShellTimeout`.
+
+With the Intersection route, measured over 4 processes x 3 rebuilds
 (2026-09-25), BREP bytes and mass properties were identical for a box, a
 cylinder, a cone, a sphere, a torus, a stadium and a hex prism, a plate with a
 hole, a chamfered box, and boxes with filleted vertical or all edges. Hollows
@@ -129,19 +147,34 @@ such a face before the heal, so the outcome no longer depends on the layout.
 
 import math
 
+import numpy as np
 from build123d import Compound, Face, Kind, Solid, Vector
 from OCP.Bnd import Bnd_Box
 from OCP.BRep import BRep_Builder
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.BRepBndLib import BRepBndLib
-from OCP.BRepGProp import BRepGProp
+from OCP.BRepCheck import BRepCheck_Analyzer
+from OCP.BRepGProp import BRepGProp, BRepGProp_Face
 from OCP.BRepOffset import BRepOffset_Analyse
 from OCP.ChFiDS import ChFiDS_TypeOfConcavity
 from OCP.GeomAbs import GeomAbs_SurfaceType
+from OCP.gp import gp_Dir, gp_Pnt, gp_Vec
 from OCP.GProp import GProp_GProps
-from OCP.TopoDS import TopoDS, TopoDS_Face, TopoDS_Iterator, TopoDS_Shell, TopoDS_Solid
+from OCP.TopAbs import TopAbs_ShapeEnum
+from OCP.TopExp import TopExp
+from OCP.TopoDS import (
+    TopoDS,
+    TopoDS_Compound,
+    TopoDS_Face,
+    TopoDS_Iterator,
+    TopoDS_Shape,
+    TopoDS_Shell,
+    TopoDS_Solid,
+)
+from OCP.TopTools import TopTools_IndexedMapOfShape
 
 from geometry.kernel.degenerate import find_zero_width_slits
+from geometry.kernel.fillet_isolation import BlendTimedOut, run_isolated
 from geometry.kernel.healing import HealingError, clean_shape, conform_solid
 from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
 from geometry.kernel.naming import OpHistory
@@ -288,37 +321,49 @@ def shell_body(
         raise ShellError(
             "Shell failed: a face to open is not a face of the body."
         ) from exc
+    built_on: BodyShape = work
     if isinstance(work, Compound):
         solids = work.solids()
         groups = group_faces_by_lump(solids, opened)
         shelled: BodyShape = assemble_lumps(
             [
-                _shell_one_lump(solid, groups.get(index, []), thickness_mm)
+                _shell_one_lump(solid, groups.get(index, []), thickness_mm)[0]
                 for index, solid in enumerate(solids)
             ]
         )
     else:
-        shelled = _shell_one_lump(work, opened, thickness_mm)
+        shelled, built_on = _shell_one_lump(work, opened, thickness_mm, isolate=True)
     if history is not None:
-        history.worked_on = work
+        history.worked_on = built_on
     return shelled
 
 
 def _shell_one_lump(
-    body: Solid, faces_to_remove: list[Face], thickness_mm: float
-) -> Solid:
+    body: Solid,
+    faces_to_remove: list[Face],
+    thickness_mm: float,
+    *,
+    isolate: bool = False,
+) -> tuple[Solid, Solid]:
     """Hollow ONE lump (a single solid) — the byte-identical single-body path.
 
     Shared by the single-solid fast path and each lump of the multi-lump path
     (§MB-4). Returns a new single cleaned solid that passed the definition check
-    (:mod:`geometry.kernel.shell_walls`), or raises :func:`_refusal`: a
-    :class:`ShellThicknessError` when the thickness leaves no cavity, a
-    :class:`ShellError` naming what the kernel got wrong otherwise.
+    (:mod:`geometry.kernel.shell_walls`), and the body it was built on (*body*,
+    or the isolated copy of a large one, :func:`_arc`), or raises
+    :func:`_refusal`: a :class:`ShellThicknessError` when the thickness leaves no
+    cavity, a :class:`ShellError` naming what the kernel got wrong otherwise.
+    *isolate* lets a large body's offset run under a time budget
+    (:class:`ShellTimeout`); the lumps of a compound always run in-process.
     """
     original_volume = body.volume
     definition = ShellDefinition(body, faces_to_remove, thickness_mm)
     try:
-        solids, canonicalise = _hollow(body, faces_to_remove, thickness_mm)
+        solids, canonicalise, built_on = _hollow(
+            body, faces_to_remove, thickness_mm, isolate=isolate
+        )
+    except ShellTimeout:
+        raise
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise _refusal(
             definition, body, f"the kernel's offset failed ({type(exc).__name__})"
@@ -364,8 +409,14 @@ def _shell_one_lump(
     # A cavity that touches itself at a point can come back with a face spanning
     # both sides of the pinch, depending on OCCT's hash order: split it first
     # (kernel/shell_heal.py, SHELL-HEAL-NONDETERMINISM).
+    # Both return a valid body as it is: ask BRepCheck once (1.7 s on a
+    # 2936-face shell).
     try:
-        shelled = conform_solid(split_pinched_faces(cleaned))
+        shelled = (
+            cleaned
+            if BRepCheck_Analyzer(cleaned.wrapped).IsValid()
+            else conform_solid(split_pinched_faces(cleaned))
+        )
     except HealingError as exc:
         raise _refusal(
             definition, body, "the kernel's result is not a valid solid"
@@ -392,7 +443,7 @@ def _shell_one_lump(
         # some of it (kernel/shell_walls.py).
         split = fault.kind is FaultKind.MISSING
         raise _refusal(definition, body, _describe(fault), split=split)
-    return shelled
+    return shelled, built_on
 
 
 def _refusal(
@@ -507,10 +558,11 @@ def _convex_radius(face: Face) -> float | None:
 
 
 def _hollow(
-    body: Solid, faces_to_remove: list[Face], thickness_mm: float
-) -> tuple[list[Solid], bool]:
-    """OCCT's inward hollow of *body*, and whether its face order still needs
-    :func:`_canonical_face_order` (module docstring).
+    body: Solid, faces_to_remove: list[Face], thickness_mm: float, *, isolate: bool
+) -> tuple[list[Solid], bool, Solid]:
+    """OCCT's inward hollow of *body*, whether its face order still needs
+    :func:`_canonical_face_order` (module docstring), and the body it was built
+    on (*body*, or the isolated copy :func:`_arc` returns).
 
     Negative thickness shells INWARD (the wall grows into the solid); the faces
     list is removed (left open).
@@ -525,19 +577,160 @@ def _hollow(
     the cavity should split into separate pockets (a plate bored nearly through
     its width), the Intersection join returns one valid solid that keeps one
     pocket and drops the rest, while Arc raises.
+
+    Arc alone decides the outcome, so the Intersection join is built first in a
+    child under :data:`INTERSECTION_CPU_SECONDS` (SHELL-INTERSECTION-SLOW: a
+    cross-bored plate whose Arc hollow takes 0.16 s kept it 68 to 133 s). Past
+    the budget, or where it fails or disagrees, Arc's result ships, in canonical
+    face order; only a build that finished in time and agrees is built again
+    here, where its outer faces are *body*'s.
     """
-    blends = _concave_edge_count(body, thickness_mm)
-    arc = list(body.hollow(faces_to_remove, -thickness_mm).solids())
-    canonicalise = _free_face_count(body, faces_to_remove) + blends > 1
+    free = _free_face_count(body, faces_to_remove)
+    # An open shell with two free faces is canonicalised whatever its edges
+    # are, so it skips the edge analysis (0.7 s on a 906-face lid).
+    blends = (
+        0 if faces_to_remove and free > 1 else _concave_edge_count(body, thickness_mm)
+    )
+    arc, built_on = _arc(body, faces_to_remove, thickness_mm, isolate=isolate)
+    canonicalise = free + blends > 1
     if faces_to_remove or blends or len(arc) != 1 or not _all_analytic(body):
-        return arc, canonicalise
+        return arc, canonicalise, built_on
     try:
-        intersection = body.hollow([], -thickness_mm, kind=Kind.INTERSECTION).solids()
+        _copy, _none, probe = run_isolated(
+            INTERSECTION_OP,
+            body,
+            [],
+            thickness_mm,
+            None,
+            cpu_seconds=INTERSECTION_CPU_SECONDS,
+            wall_seconds=INTERSECTION_WALL_SECONDS,
+        )
+    except Exception:  # refused, over budget, or the isolation failed: keep Arc
+        return arc, canonicalise, built_on
+    if len(probe) != 1 or not _same_hollow(arc[0], probe[0]):
+        return arc, canonicalise, built_on
+    try:
+        intersection = intersection_hollow(body, [], thickness_mm, None)
     except Exception:  # the Intersection join refuses some bodies: keep Arc
-        return arc, canonicalise
+        return arc, canonicalise, built_on
     if len(intersection) == 1 and _same_hollow(arc[0], intersection[0]):
-        return [intersection[0]], False
-    return arc, canonicalise
+        return [intersection[0]], False, body
+    return arc, canonicalise, built_on
+
+
+#: The blend server's name for :func:`intersection_hollow`
+#: (``kernel/_fillet_worker.py``).
+INTERSECTION_OP = "hollow-intersection"
+
+#: CPU seconds the isolated Intersection build may take before Arc's result
+#: ships instead (``RLIMIT_CPU``, so machine load does not move it). Over the
+#: 220 sweep bodies that take the route (2026-10-02) it took at most 1.4 s
+#: together with Arc's; the cross-bored plate of SHELL-INTERSECTION-SLOW takes
+#: 68 to 133 s.
+INTERSECTION_CPU_SECONDS = 10.0
+#: Wall-clock backstop for a child that is starved rather than computing.
+INTERSECTION_WALL_SECONDS = 30.0
+
+
+def intersection_hollow(
+    body: Solid, _edges: object, thickness_mm: float, _history: object
+) -> list[Solid]:
+    """The sealed inward hollow of *body* by the Intersection join, in the
+    blend server's op signature (its child runs it as :data:`INTERSECTION_OP`;
+    there are no edges and no history)."""
+    return list(body.hollow([], -thickness_mm, kind=Kind.INTERSECTION).solids())
+
+
+#: Faces from which a body's Arc offset runs isolated, under
+#: :data:`ARC_CPU_SECONDS`. OCCT's offset intersects every pair of offset faces
+#: whose boxes meet, each pair through a boolean over both faces' edges: on a
+#: 240 x 160 x 6 plate with 225 slots (906 faces), opened at the top at t 1,
+#: that took 77 to 89 s of CPU (2026-10-02, 4-core sandbox under load). Under
+#: this many faces it stays in-process: a 410-face vented lid takes 5.5 s.
+ISOLATED_ARC_FACES = 500
+
+#: CPU seconds a large body's Arc offset may take before the shell is refused
+#: (:class:`ShellTimeout`): with the check, the heal and the mesh after it, the
+#: request still answers inside the gateway's 90 s.
+ARC_CPU_SECONDS = 40.0
+#: Wall-clock backstop for a child that is starved rather than computing.
+ARC_WALL_SECONDS = 60.0
+
+#: The blend server's name for :func:`isolated_arc` (``kernel/_fillet_worker.py``).
+ARC_OP = "hollow-arc"
+
+
+class ShellTimeout(ShellError):
+    """The kernel's offset ran past its time budget (:data:`ARC_CPU_SECONDS`)
+    on a large body and was stopped: a typed refusal (``shell_failed``), never
+    a request left to hang."""
+
+
+def _arc(
+    body: Solid, faces_to_remove: list[Face], thickness_mm: float, *, isolate: bool
+) -> tuple[list[Solid], Solid]:
+    """Arc's hollow of *body*, and the body it was built on.
+
+    A body of :data:`ISOLATED_ARC_FACES` faces or more (with *isolate*) is
+    hollowed in a child of the blend server under a time budget, past which
+    the shell is refused (:class:`ShellTimeout`). The opened faces ride in the
+    body's compound, so they arrive as the copy's own faces, and the result's
+    untouched faces are the returned copy's."""
+    if not isolate or len(body.faces()) < ISOLATED_ARC_FACES:
+        return list(body.hollow(faces_to_remove, -thickness_mm).solids()), body
+    try:
+        copy, _none, solids = run_isolated(
+            ARC_OP,
+            Compound(_carrier(body, faces_to_remove)),
+            [],
+            thickness_mm,
+            None,
+            cpu_seconds=ARC_CPU_SECONDS,
+            wall_seconds=ARC_WALL_SECONDS,
+        )
+    except BlendTimedOut as exc:
+        raise ShellTimeout(
+            f"Shell stopped: the kernel's offset of this {len(body.faces())}-face "
+            f"body ran past its {ARC_CPU_SECONDS:.0f} s limit. Its cost grows with "
+            f"the faces the walls run along: shell the body before cutting many "
+            f"small features (vents, slots, hole patterns) into it, then add them."
+        ) from exc
+    built_on, _opened = _carried(copy.wrapped)
+    return solids, built_on
+
+
+def isolated_arc(
+    carrier: Compound, _edges: object, thickness_mm: float, _history: object
+) -> list[Solid]:
+    """Arc's hollow of the solid in *carrier*, opening the faces carried with
+    it, in the blend server's op signature (its child runs it as
+    :data:`ARC_OP`)."""
+    body, opened = _carried(carrier.wrapped)
+    return list(body.hollow(opened, -thickness_mm).solids())
+
+
+def _carrier(body: Solid, faces: list[Face]) -> TopoDS_Compound:
+    """*body* and its *faces* in one compound: written together, the faces stay
+    the body's own (shared) through the blend server's BRep transfer."""
+    builder = BRep_Builder()
+    carrier = TopoDS_Compound()
+    builder.MakeCompound(carrier)
+    builder.Add(carrier, body.wrapped)
+    for face in faces:
+        builder.Add(carrier, face.wrapped)
+    return carrier
+
+
+def _carried(carrier: TopoDS_Shape) -> tuple[Solid, list[Face]]:
+    """The body and faces :func:`_carrier` packed, in order."""
+    members = TopoDS_Iterator(carrier, True, True)
+    body = Solid(TopoDS.Solid_s(members.Value()))
+    members.Next()
+    faces: list[Face] = []
+    while members.More():
+        faces.append(Face(TopoDS.Face_s(members.Value())))
+        members.Next()
+    return body, faces
 
 
 #: Surfaces whose inward offset is the same kind of surface, so both joins meet
@@ -634,16 +827,18 @@ def _free_face_count(body: Solid, faces_to_remove: list[Face]) -> int:
     """Faces of *body* neither opened nor sharing an edge with an opened face:
     the ones the Arc offset keeps in its address-ordered map (module
     docstring)."""
-    opened_edges = [edge.wrapped for face in faces_to_remove for edge in face.edges()]
+    # Maps compare by IsSame; a lid opened at a face with 900 edges made the
+    # pairwise test take 1.9 s (2026-10-02).
+    opened_faces = TopTools_IndexedMapOfShape()
+    opened_edges = TopTools_IndexedMapOfShape()
+    for face in faces_to_remove:
+        opened_faces.Add(face.wrapped)
+        TopExp.MapShapes_s(face.wrapped, TopAbs_ShapeEnum.TopAbs_EDGE, opened_edges)
     return sum(
         1
         for face in body.faces()
-        if not any(face.wrapped.IsSame(opened.wrapped) for opened in faces_to_remove)
-        and not any(
-            edge.wrapped.IsSame(opened)
-            for edge in face.edges()
-            for opened in opened_edges
-        )
+        if not opened_faces.Contains(face.wrapped)
+        and not any(opened_edges.Contains(edge.wrapped) for edge in face.edges())
     )
 
 
@@ -719,16 +914,106 @@ def offset_history(
     """
     sources = body.faces()
     kept = {surface_key(face) for face in sources} - {None}
+    own = TopTools_IndexedMapOfShape()  # IsSame: the same TShape and location
+    for source in sources:
+        own.Add(source.wrapped)
+    near = _OffsetCandidates(sources, thickness_mm)
     out: list[tuple[Face, Face]] = []
     for face in shelled.faces():
-        if any(face.wrapped.IsSame(s.wrapped) for s in sources):
+        if own.Contains(face.wrapped):
             continue
         if surface_key(face) in kept:
             continue
-        offsets = [s for s in sources if _offsets_to(s, face, thickness_mm)]
+        offsets = [
+            sources[index]
+            for index in near.of(face)
+            if _offsets_to(sources[index], face, thickness_mm)
+        ]
         if len(offsets) == 1:
             out.append((offsets[0], face))
     return out
+
+
+#: How much looser than :func:`_offsets_to` the candidate filter is (mm, and
+#: in the cosine): it only has to keep every pair that test can accept.
+_CANDIDATE_SLACK = 1e-6
+
+
+class _OffsetCandidates:
+    """The sources :func:`_offsets_to` could accept for a face, found with
+    array arithmetic: a superset, in source order, that the exact test then
+    decides. Asking it of every source made :func:`offset_history` quadratic:
+    111 s on a 906-face lid whose shell has 2936 faces (2026-10-02)."""
+
+    def __init__(self, sources: list[Face], thickness_mm: float) -> None:
+        self._t = thickness_mm
+        planes: list[tuple[int, Coordinates, Coordinates]] = []
+        cylinders: list[tuple[int, Coordinates, Coordinates, float]] = []
+        for index, source in enumerate(sources):
+            surface = BRepAdaptor_Surface(source.wrapped)
+            kind = surface.GetType()
+            if kind == GeomAbs_SurfaceType.GeomAbs_Plane:
+                location = surface.Plane().Location()
+                planes.append((index, _plane_normal(source), _coordinates(location)))
+            elif kind == GeomAbs_SurfaceType.GeomAbs_Cylinder:
+                cylinder = surface.Cylinder()
+                cylinders.append(
+                    (
+                        index,
+                        _coordinates(cylinder.Axis().Direction()),
+                        _coordinates(cylinder.Location()),
+                        cylinder.Radius(),
+                    )
+                )
+        self._plane_index = np.array([p[0] for p in planes], dtype=np.int64)
+        self._plane_normal = np.array([p[1] for p in planes]).reshape(-1, 3)
+        self._plane_at = np.array([p[2] for p in planes]).reshape(-1, 3)
+        self._cylinder_index = np.array([c[0] for c in cylinders], dtype=np.int64)
+        self._axis = np.array([c[1] for c in cylinders]).reshape(-1, 3)
+        self._centre = np.array([c[2] for c in cylinders]).reshape(-1, 3)
+        self._radius = np.array([c[3] for c in cylinders], dtype=np.float64)
+
+    def of(self, face: Face) -> list[int]:
+        """Indices (ascending) of the sources *face* may be the offset of."""
+        surface = BRepAdaptor_Surface(face.wrapped)
+        kind = surface.GetType()
+        slack = _CANDIDATE_SLACK
+        reach = KERNEL_LINEAR_TOL_MM + slack
+        if kind == GeomAbs_SurfaceType.GeomAbs_Plane and len(self._plane_index):
+            inward = np.array(_plane_normal(face))
+            at = np.array(_coordinates(surface.Plane().Location()))
+            facing = self._plane_normal @ inward <= -1.0 + _PARALLEL_TOL + slack
+            gap = ((at - self._plane_at) * self._plane_normal).sum(axis=1)
+            hits = facing & (np.abs(gap + self._t) <= reach)
+            return self._plane_index[hits].tolist()
+        if kind == GeomAbs_SurfaceType.GeomAbs_Cylinder and len(self._cylinder_index):
+            cylinder = surface.Cylinder()
+            axis = np.array(_coordinates(cylinder.Axis().Direction()))
+            centre = np.array(_coordinates(cylinder.Location()))
+            aligned = np.abs(self._axis @ axis) >= 1.0 - _PARALLEL_TOL - slack
+            apart = centre - self._centre
+            along = (apart * self._axis).sum(axis=1)
+            off_axis = np.linalg.norm(apart - self._axis * along[:, None], axis=1)
+            step = np.abs(np.abs(self._radius - cylinder.Radius()) - self._t)
+            hits = aligned & (off_axis <= reach) & (step <= reach)
+            return self._cylinder_index[hits].tolist()
+        return []
+
+
+Coordinates = tuple[float, float, float]
+
+
+def _coordinates(xyz: gp_Pnt | gp_Dir) -> Coordinates:
+    return (xyz.X(), xyz.Y(), xyz.Z())
+
+
+def _plane_normal(face: Face) -> Coordinates:
+    """The outward unit normal of a planar *face* (its orientation applied),
+    as ``Face.normal_at`` gives it, without the parameter box it reads."""
+    normal = gp_Vec()
+    BRepGProp_Face(face.wrapped).Normal(0.0, 0.0, gp_Pnt(), normal)
+    normal.Normalize()
+    return (normal.X(), normal.Y(), normal.Z())
 
 
 def _offsets_to(source: Face, face: Face, thickness_mm: float) -> bool:

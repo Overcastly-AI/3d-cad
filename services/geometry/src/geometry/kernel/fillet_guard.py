@@ -32,6 +32,14 @@ plate, past the gateway's budget):
 
 A failed check is reported as what it found (:func:`fillet_problem`), never
 as a guess about the radius.
+
+TANGENT CHAINS. OCCT never blends a lone edge: ``ChFi3d`` carries every pick
+on along the edges tangent to it (its contour), as Fusion 360, SolidWorks and
+Onshape do with their tangent-chain default. One picked edge of the 130 wide
+enclosure's 8-edge rim loop builds the 8-pick body. "Picked" in every check
+above is therefore the chain OCCT will round (:func:`tangent_chain`), read from
+OCCT's own contours, never the clicks alone: measured from the clicks, the
+other 7 rounded edges looked like damage beyond the fillet's reach.
 """
 
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
@@ -46,11 +54,16 @@ from pathlib import Path
 from build123d import Edge, Face, Solid, Vector
 from OCP.Bnd import Bnd_Box
 from OCP.BRep import BRep_Builder, BRep_Tool
+from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.BRepBndLib import BRepBndLib
 from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
 from OCP.BRepClass import BRepClass_FaceClassifier
 from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+from OCP.BRepFilletAPI import BRepFilletAPI_MakeChamfer, BRepFilletAPI_MakeFillet
 from OCP.BRepGProp import BRepGProp
+from OCP.ChFi3d import ChFi3d
+from OCP.ChFiDS import ChFiDS_Concave, ChFiDS_Convex, ChFiDS_Mixed
+from OCP.gp import gp_Pnt, gp_Vec
 from OCP.GProp import GProp_GProps
 from OCP.IFSelect import IFSelect_RetDone
 from OCP.ShapeAnalysis import ShapeAnalysis_ShapeTolerance
@@ -82,6 +95,160 @@ _SAMPLES_PER_FACE = 5
 #: At most this many sample points in all (each costs a distance query and a
 #: face classification, so the check stays bounded on a big part).
 _MAX_SAMPLES = 64
+
+
+def tangent_chain(
+    body: BodyShape, edges: Sequence[Edge], *, chamfer: bool = False
+) -> list[Edge]:
+    """*edges*, then every other edge of *body* OCCT's blend carries them on
+    to (the tangent chain of each pick), in contour order.
+
+    Read from OCCT's own contours (``BRepFilletAPI_MakeFillet::Add`` builds a
+    pick's contour of tangent edges without blending anything; the chamfer's
+    builder walks the same way), so the set is exactly what the blend rounds,
+    with OCCT's own tangency tolerance, line, arc or spline alike. Picks come
+    first, in their order: handed back to the blend, they open the same
+    contours one pick would, and the edges after them are already in those
+    contours. A pick OCCT puts in no contour (a seam, an edge between tangent
+    faces) is kept as it is. If OCCT cannot build the contours, the picks
+    are returned alone: the guard then measures from fewer edges, which can
+    only refuse more, never accept more."""
+    try:
+        contours = _contours(body, edges, chamfer)
+    except Exception:  # OCCT failure modes are not a stable taxonomy
+        return list(edges)
+    return [edge for contour in contours for edge in contour]
+
+
+def chain_turns(
+    body: BodyShape, edges: Sequence[Edge], *, chamfer: bool = False
+) -> int | None:
+    """The edge count of the first tangent chain of *edges* that turns from
+    convex to concave, or ``None`` when none does. For a failure message only:
+    it never decides what is built.
+
+    A chain turns when its own edges are of both kinds, or when it runs on,
+    tangent, into an edge of the other kind. ``ChFi3d`` stops a contour there
+    (a convex blend cannot continue as a concave one) and then cannot end the
+    blend against the tangent edge: R0.5 on the QA impeller's blade-top
+    blend edge, whose chain meets the hub's concave arc tangentially, fails in
+    plain OCCT. A query OCCT cannot answer reads as no turn (the caller then
+    gives its plain failure message)."""
+    try:
+        return _first_turn(body, edges, chamfer)
+    except Exception:  # OCCT failure modes are not a stable taxonomy
+        return None
+
+
+def _first_turn(body: BodyShape, edges: Sequence[Edge], chamfer: bool) -> int | None:
+    ancestors = TopTools_IndexedDataMapOfShapeListOfShape()
+    TopExp.MapShapesAndAncestors_s(body.wrapped, TopAbs_EDGE, TopAbs_FACE, ancestors)
+    at_vertex = TopTools_IndexedDataMapOfShapeListOfShape()
+    TopExp.MapShapesAndAncestors_s(body.wrapped, TopAbs_VERTEX, TopAbs_EDGE, at_vertex)
+    for contour in _contours(body, edges, chamfer):
+        members = TopTools_IndexedMapOfShape()
+        for edge in contour:
+            members.Add(edge.wrapped)
+        kinds = {_connection(edge.wrapped, ancestors) for edge in contour}
+        if ChFiDS_Mixed in kinds or {ChFiDS_Convex, ChFiDS_Concave} <= kinds:
+            return len(contour)
+        own = kinds & {ChFiDS_Convex, ChFiDS_Concave}
+        if len(own) != 1:
+            continue
+        other = ChFiDS_Concave if ChFiDS_Convex in own else ChFiDS_Convex
+        for edge in contour:
+            for vertex in edge.vertices():
+                if not at_vertex.Contains(vertex.wrapped):
+                    continue
+                for neighbour in at_vertex.FindFromKey(vertex.wrapped):
+                    if members.Contains(neighbour):
+                        continue
+                    if _connection(neighbour, ancestors) == other and _tangent_at(
+                        edge.wrapped, neighbour, vertex.wrapped
+                    ):
+                        return len(contour)
+    return None
+
+
+def _connection(
+    edge: TopoDS_Shape, ancestors: TopTools_IndexedDataMapOfShapeListOfShape
+) -> object:
+    """How the two faces of *edge* meet (``ChFi3d``'s own classification:
+    convex, concave, tangential, mixed), or ``None`` without two faces."""
+    if not ancestors.Contains(edge):
+        return None
+    users = ancestors.FindFromKey(edge)
+    if users.Size() != 2:
+        return None
+    first, second = (TopoDS.Face_s(face) for face in users)
+    if first.IsSame(second):
+        return None  # a seam
+    return ChFi3d.DefineConnectType_s(
+        TopoDS.Edge_s(edge), first, second, math.sin(_SMOOTH_RAD), False
+    )
+
+
+#: Two edges meeting at a vertex at less than this angle (radians, either
+#: direction) run on tangent. The impeller's blend edge meets the hub arc at 0.
+_TANGENT_RAD = 1e-2
+
+
+def _tangent_at(
+    first: TopoDS_Shape, second: TopoDS_Shape, vertex: TopoDS_Shape
+) -> bool:
+    """Whether edges *first* and *second* are tangent at their common *vertex*."""
+    directions: list[gp_Vec] = []
+    for shape in (first, second):
+        edge = TopoDS.Edge_s(shape)
+        if BRep_Tool.Degenerated_s(edge):
+            return False
+        point, direction = gp_Pnt(), gp_Vec()
+        BRepAdaptor_Curve(edge).D1(
+            BRep_Tool.Parameter_s(TopoDS.Vertex_s(vertex), edge), point, direction
+        )
+        if direction.Magnitude() <= KERNEL_LINEAR_TOL_MM:
+            return False
+        directions.append(direction)
+    angle = directions[0].Angle(directions[1])
+    return min(angle, math.pi - angle) < _TANGENT_RAD
+
+
+def _contours(
+    body: BodyShape, edges: Sequence[Edge], chamfer: bool
+) -> list[list[Edge]]:
+    """OCCT's contours for *edges*: one list per pick that opens a contour,
+    the pick first, then the contour's other edges in spine order; a pick in
+    no contour is a list of itself. Edges are *body*'s own (as it explores
+    them), never copies, so they map onto a working copy like any pick."""
+    builder = (
+        BRepFilletAPI_MakeChamfer(body.wrapped)
+        if chamfer
+        else BRepFilletAPI_MakeFillet(body.wrapped)
+    )
+    own = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(body.wrapped, TopAbs_EDGE, own)
+    taken = TopTools_IndexedMapOfShape()
+    out: list[list[Edge]] = []
+    for edge in edges:
+        if taken.Contains(edge.wrapped):
+            continue  # already in an earlier pick's contour
+        taken.Add(edge.wrapped)
+        contour = [edge]
+        out.append(contour)
+        if not own.Contains(edge.wrapped):
+            continue  # not the body's: the blend itself will say so
+        before = builder.NbContours()
+        builder.Add(TopoDS.Edge_s(edge.wrapped))
+        index = builder.Contour(TopoDS.Edge_s(edge.wrapped))
+        if index <= before:
+            continue  # OCCT opened no contour for it (a seam, a smooth edge)
+        for position in range(1, builder.NbEdges(index) + 1):
+            other = builder.Edge(index, position)
+            if taken.Contains(other) or not own.Contains(other):
+                continue
+            taken.Add(other)
+            contour.append(Edge(TopoDS.Edge_s(own.FindKey(own.FindIndex(other)))))
+    return out
 
 
 def max_tolerance(shape: BodyShape) -> float:

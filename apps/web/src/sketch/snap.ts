@@ -869,3 +869,38 @@ function alignedAxis(
   }
   return null;
 }
+
+/**
+ * SNAP-5 — AN INFERRED CONSTRAINT THE USER CANNOT SEE IS A TRAP, so the draw
+ * that earns one SAYS so, in the same `hint` line every other automatic
+ * decision in this store speaks through (`constraint-hint`, `role="status"`,
+ * so it is announced rather than merely drawn). Two things are named because
+ * both are actions the user may want in the next second: how to DROP it (the
+ * glyph is live in the viewport the instant it is authored — select it, press
+ * Delete, the ordinary constraint-removal path) and how to have avoided it
+ * (Ctrl/Cmd, which was already the "no snapping" modifier and is honoured by
+ * the inference for the same reason `resolveAim` honours it).
+ *
+ * This is the distinction between INFERRED and AUTHORED that the product owes
+ * the user, made where it is cheapest and truest — at the moment of the draw.
+ * A permanent per-glyph tone would be better still, and it is a viewport change
+ * rather than a sketch-model one: `SketchConstraint` is the GENERATED client
+ * type (DRY rule), so provenance cannot ride on the constraint itself without
+ * a contract change nobody needs yet.
+ */
+export const axisInferenceHint = (
+  added: readonly SketchConstraint[],
+): string | null => {
+  const axes = added.filter(
+    (constraint) =>
+      constraint.kind === "horizontal" || constraint.kind === "vertical",
+  );
+  if (axes.length === 0) return null;
+  const named =
+    axes.length === 1
+      ? axes[0]?.kind === "horizontal"
+        ? "Horizontal"
+        : "Vertical"
+      : "Horizontal and vertical";
+  return `${named} inferred from the line you drew — press Esc for Select, click the glyph and press Delete to drop it, or hold Ctrl/Cmd while drawing to place freehand.`;
+};

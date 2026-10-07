@@ -1,0 +1,48 @@
+{
+  "description": "The founder's standing tube-frame test case (2026-10-07), ONE body: a motorcycle cradle frame of OD 25.4 x 1.6 wall tube. Two R80-filleted, tangent-continuous side rails at y = +-110 (each the annulus swept along a closed loop through (0,520) (-520,560) (-760,600) (-560,300) (-80,120), built as TWO OPEN sweeps because a sweep along a closed path is refused, `sweep_path_closed`; the second rail by a body-scope mirror about XZ), four Y cross tubes at (-520,560), (-560,300), (-300,202.5) (on the straight lower run, on the rail centreline: 300 - 0.375*260) and the front apex of the (0,520) corner fillet (-32.384,495.467), each 208 long (y = +-104, six millimetres inside the rail centrelines), and a 50/32 x 160 steering-head tube raked 25 deg back whose AXIS PASSES THROUGH THE CENTRE OF THE FRONT-APEX TUBE, so it overlaps real tube material. Joined by `boolean` unions into ONE lump (no allow_disjoint). The tree has no tilted datum, so the 25 deg head is a revolve of its radial section about a tilted sketch axis. The cross tubes end at y=+-104 and not on the rail centreline because an end face on the centreline sits in the plane where the two equal-diameter outer cylinders' intersection curves cross: there the independent build123d twin's fuse and the STEP round trip both wander by 1e-2 mm^3 (the tree's own fuse is right there: 708479.158 against 708479.161 derived, tests/test_boolean_coincident_tube.py); 6 mm inside it is well-conditioned (volume tree vs independent twin 1.3e-5 mm^3). Locks: swept-annulus volume along filleted paths, a mirror producing two lumps, four pipe-pipe junctions, a revolve about a tilted sketch axis, unions that bridge lumps.",
+  "derivation": [
+    "Expectations are INDEPENDENT of the code under test: the volume, area and centroid come from a second build in plain build123d (tests/test_moto_frame.py::_independent_frame): ONE closed ring sweep of the filleted polygon (Face.fillet_2d) instead of two open halves, Plane.XZ mirror, Solid.extrude cross tubes, and a hollow Solid.make_cylinder head on a plane whose normal is the raked axis. Integrated with the same adaptive GProp rule as the product (measure_shape, VOLUME_EPS 1e-10) so the comparison is of the two BUILDS.",
+    "Closed-form parts: annulus area = pi*(12.7^2-11.1^2) = 119.63184824869931 mm^2. Rail volume = area x path length (Pappus, tangent path, bend R80 > tube R 12.7) = 119.63184824869931 x 1766.0415908222212 = 211274.8195941355 mm^3; the tree's two fused halves read 211274.81960330863 (relative 4.3e-11). A cross tube that reached the rail axis on the straight lower run would overlap ONE rail by half the intersection of two perpendicular equal annular cylinders, (1/2)[F(ro,ro) - 2F(ro,ri) + F(ri,ri)] with F(a,b) = 8 * integral_0^min(a,b) sqrt(a^2-x^2) sqrt(b^2-x^2) dx = 340.193 mm^3 for the 12.7/11.1 pair; tree and build123d read that overlap at 340.199 and 340.187 (within the 6e-3 adaptive-integration noise). That experiment is how OCCT's singular behaviour at an end face on the centreline was found (the ring sweep fused with such a tube in the natural operand order returned a NEGATIVE volume), and why the golden's tubes stop 6 mm short.",
+    "Total volume = 703888.3768493247 mm^3 (independent) against 703888.3768365656 (tree): 1.3e-5 mm^3, 1.8e-11 relative. Boolean difference tree minus independent and independent minus tree are both empty. Single lump in both builds.",
+    "Surface area 690126.2133142853 mm^2 is the independent build under the ADAPTIVE area rule (eps 1e-6..1e-10 agree to 1e-12 relative; the tree reads 690126.2133392573, 2.5e-5 off). The product REPORTS area from the fixed-order rule (kernel/properties.py: area is deliberately left on it), which reads 690126.2310627991 on this part: +1.8e-2 mm^2 (2.6e-8 relative). That sets the tolerance below.",
+    "Centroid: y = 0 exactly (symmetric about XZ; tree reads -7.7e-12). x = -251.7630997912854, z = 416.55895777446136 from the independent build (tree: 2e-8 and 2e-9 off).",
+    "Bounding box, analytic: x_min = -591.005836433098 - 80 - 12.7 = -683.705836433098 (leftmost point of the R80 seat-rail fillet at (-760,600), its centre x being the tangent-point x); y = +-(110 + 12.7) = +-122.7; z_min = c_E.z - 80 - 12.7 = 135.2387484044019 (bottom of the lower-front fillet); z_max = 570.7308056682069 + 12.7 = 583.4308056682069 (top of the seat-rail fillet); x_max = P4.x + 80 sin25 + 25 cos25 = 24.08306201652283 with P4 = (-32.38409359864937, 495.46749033400226), the head's lower rim (the rail's own x_max is -3.452). OCCT pads swept-surface boxes by 1e-7 (the tree reads y = 122.7000001).",
+    "P4, the front apex: the fillet at (0,520) has its centre R/sin(phi) from the corner along the bisector (phi = half the angle between the neighbours); the arc's apex is R/sin(phi) - R from the corner towards it. test_moto_frame.py computes it independently from the corner vectors.",
+    "Topology: 130 faces / 308 edges / 8 shells, one lump. The independent single-ring build reads 126 faces / 288 edges / 8 shells: the extra faces and edges in the tree are the two butt joints of the upper/lower half sweeps. Pinned as a regression, not hand-derived.",
+    "Mesh (linear_deflection 0.1): 85304 vertices / 141490 triangles, recorded from the harness; not hand-derivable at this face count. The mass properties above are the independent numbers."
+  ],
+  "tolerance": 0.05,
+  "tolerance_rationale": "MEASURED, then set (geometry-gates skill). Worst observed deviation of the product from the independent values (2026-10-07, build123d 0.11.1 / OCCT 7.9): surface area +1.8e-2 mm^2, from the fixed-order Gauss rule the product deliberately keeps for AREA (kernel/properties.py VOLUME_EPS note: adaptive area does not converge on a lofted NURBS part, so the known small bias is kept), inexact on trimmed pipe-pipe intersection faces. Volume deviates 1.3e-5 mm^3, centroid 2e-8 mm, AABB 1e-7 mm (OCCT's box padding on swept surfaces). 0.05 is ~2.8x the worst observed (area), not a fit to volume: the volume itself is held to 1e-6 relative by the Pappus check (observed 4.3e-11) and to the tolerance by the independent-build check in test_moto_frame.py. One tolerance covers every property, so the area bound sets it.",
+  "roundtrip_tolerance": 0.5,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-07 on the one-lump frame: STEP re-approximates the trimmed pipe-pipe intersection and swept faces. Round-trip drift of the tree body: volume 1.3e-5 mm^3 (1.9e-11 relative; the absolute 1e-7 bound was sized for parts a thousand times smaller), area 0.178 mm^2 (2.6e-7 relative: the fixed-order area integral re-evaluated on re-approximated faces), centroid 5e-12 / 1.9e-9 mm. The independent PURE build123d twin drifts the same way (volume 1.3e-5, area 0.293, centroid 2e-10 / 1.9e-9), so it is OCCT's STEP writer/reader plus the area integrator, not Loft's export. 0.5 is 1.7x the worst observed (the twin's area) and applies to volume and area only; the centroid and bounds keep ROUNDTRIP_TOL and sit at 1.9e-9 against 1e-7.",
+  "properties": {
+    "volume": 703888.3768493247,
+    "surface_area": 690126.2133142853,
+    "centroid": {
+      "x": -251.7630997912854,
+      "y": 0.0,
+      "z": 416.55895777446136
+    },
+    "bounding_box": {
+      "min": {
+        "x": -683.705836433098,
+        "y": -122.7,
+        "z": 135.2387484044019
+      },
+      "max": {
+        "x": 24.08306201652283,
+        "y": 122.7,
+        "z": 583.4308056682069
+      }
+    }
+  },
+  "topology": {
+    "faces": 130,
+    "edges": 308,
+    "shells": 8
+  },
+  "mesh": {
+    "vertices": 85304,
+    "triangles": 141490
+  }
+}

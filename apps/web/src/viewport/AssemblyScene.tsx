@@ -10,12 +10,19 @@
  */
 import { assembly as assemblyTokens, viewport } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Box3, Matrix4, Quaternion, Vector3 } from "three";
 
 import type { OverlayResult } from "../api/measure";
 import type { PlanarFaceSignature } from "../api/parts";
 import type { SceneTransform } from "../assembly/placement";
+import { poseKey } from "../assembly/posePublication";
 import {
   activeEntry,
   useMateColumnStore,
@@ -70,6 +77,13 @@ export interface AssemblySceneProps {
    * the tree: a dashed gauge balloon and an edge-light, never the alarm.
    */
   unverifiedInstanceIds: ReadonlySet<string>;
+  /**
+   * Each balloon's acknowledgement of the pose it has DRAWN — its `poseKey`
+   * after its own root commits, `null` when it unmounts (MATE-OBS-3,
+   * `assembly/posePublication`). The page holds its verdict until these agree
+   * with the pose it is rendering.
+   */
+  onPoseDrawn?: (instanceId: string, key: string | null) => void;
 }
 
 /** How much the last interference check actually knows about an instance. */
@@ -187,17 +201,49 @@ function useInstancePools(instances: readonly SceneInstance[]): {
   }, [instances]);
 }
 
+/**
+ * The balloon's receipt for the pose it just drew (MATE-OBS-3).
+ *
+ * Rendered INSIDE the `<Html>` portal, so its layout effect runs in the
+ * balloon's own react-dom root, after that root has written the
+ * `data-solved-*` attributes — and that root is only scheduled once the R3F
+ * commit that moved the mesh has run. The acknowledgement is therefore proof
+ * that every surface showing this instance's pose has been written.
+ */
+function PoseDrawnAck({
+  instanceId,
+  poseKey: key,
+  onPoseDrawn,
+}: {
+  instanceId: string;
+  poseKey: string;
+  onPoseDrawn: NonNullable<AssemblySceneProps["onPoseDrawn"]>;
+}) {
+  useLayoutEffect(() => {
+    onPoseDrawn(instanceId, key);
+  }, [instanceId, key, onPoseDrawn]);
+  // Unmount withdraws the receipt: a balloon that is gone shows no pose, so it
+  // may not hold the verdict back (a hidden instance, a deleted one).
+  useLayoutEffect(
+    () => () => onPoseDrawn(instanceId, null),
+    [instanceId, onPoseDrawn],
+  );
+  return null;
+}
+
 /** A drafting balloon — circled BOM item number, anchor mark when grounded. */
 function Balloon({
   instance,
   selected,
   clashState,
   onSelect,
+  onPoseDrawn,
 }: {
   instance: SceneInstance;
   selected: boolean;
   clashState: ClashState;
   onSelect: () => void;
+  onPoseDrawn: AssemblySceneProps["onPoseDrawn"];
 }) {
   // Anchor at the top-centre of the instance's transformed bounds.
   const anchor = useMemo(() => {
@@ -259,6 +305,13 @@ function Balloon({
       >
         {instance.grounded ? "⏚" : instance.balloon}
       </button>
+      {onPoseDrawn ? (
+        <PoseDrawnAck
+          instanceId={instance.id}
+          poseKey={poseKey(instance.transform)}
+          onPoseDrawn={onPoseDrawn}
+        />
+      ) : null}
     </Html>
   );
 }
@@ -271,6 +324,7 @@ export function AssemblyScene({
   overlaysByInstance,
   clashingInstanceIds,
   unverifiedInstanceIds,
+  onPoseDrawn,
 }: AssemblySceneProps) {
   const { pools, floor } = useInstancePools(instances);
   const tool = useMateAuthoringStore((s) => s.tool);
@@ -612,6 +666,7 @@ export function AssemblyScene({
           instance={inst}
           selected={selectedInstanceId === inst.id}
           clashState={clashStateOf(inst.id)}
+          onPoseDrawn={onPoseDrawn}
           onSelect={() =>
             tool === "lock" ? pickInstance(inst.id) : onSelectInstance(inst.id)
           }

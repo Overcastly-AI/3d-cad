@@ -60,7 +60,8 @@
  * The ids are reserved words: `entityId` mints `e1`, `e2`, … so a drawn entity
  * can never collide with one.
  */
-import type { SketchConstraint, SolveInfo } from "./constraints";
+import type { SketchConstraint } from "./constraints";
+import type { SolveInfo } from "./solveFeedback";
 import {
   ORIGIN_AXIS_FRACTION,
   ORIGIN_RING_FRACTION,

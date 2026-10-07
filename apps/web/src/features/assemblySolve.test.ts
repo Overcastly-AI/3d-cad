@@ -60,6 +60,7 @@ function settled(over: Partial<AssemblySolveInput> = {}): AssemblySolveInput {
     solvable: true,
     placeholder: false,
     failed: false,
+    drawing: false,
     evaluation: mated,
     ...over,
   };
@@ -120,6 +121,10 @@ describe("deriveAssemblySolve — the superseded window", () => {
     // The last instance deleted: disabled for good, retained solve forever.
     ["an assembly with nothing left to solve", { solvable: false }],
     ["an evaluate that failed", { failed: true }],
+    // MATE-OBS-3: the new answer is in this page's hand, but the viewport
+    // (other React roots) still draws the previous pose, so the verdict is
+    // not yet true of anything on screen.
+    ["a solve the viewport has not drawn yet", { drawing: true }],
   ];
 
   for (const [name, over] of paths) {
@@ -145,6 +150,7 @@ describe("deriveAssemblySolve — the superseded window", () => {
       { loading: true, solvable: false },
       { evaluating: true },
       { placeholder: true },
+      { drawing: true },
     ]) {
       const solve = deriveAssemblySolve(
         settled({ evaluation: preMate, ...over }),
@@ -168,7 +174,7 @@ describe("deriveAssemblySolve — the superseded window", () => {
 describe("deriveAssemblySolve — the invariant", () => {
   /**
    * `stale` STRUCTURALLY implies there is no verdict. Asserted over the whole
-   * 2^6 space of the transient inputs rather than the rows above, because the
+   * 2^7 space of the transient inputs rather than the rows above, because the
    * defect this closes is a combination nobody enumerated: on the part page a
    * second, unmeasured route to the same lie existed for weeks behind the one
    * that was found. A matrix does not care which route you thought of.
@@ -181,6 +187,7 @@ describe("deriveAssemblySolve — the invariant", () => {
       "solvable",
       "placeholder",
       "failed",
+      "drawing",
     ] as const;
     let stalest = 0;
     let settledCount = 0;
@@ -214,12 +221,13 @@ describe("deriveAssemblySolve — the invariant", () => {
           solvable: true,
           placeholder: false,
           failed: false,
+          drawing: false,
         });
       }
     }
     // The counts are the guard on the guard: a matrix that never reached the
     // settled branch would pass this test while asserting nothing about it.
     expect(settledCount).toBe(1);
-    expect(stalest).toBe(63);
+    expect(stalest).toBe(127);
   });
 });

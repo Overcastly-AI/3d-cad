@@ -25,11 +25,11 @@ from loft_wire.features import (
 from geometry.kernel import (
     BooleanError,
     CutRemovedNothingError,
-    combine_body,
+    combine_body_measured,
 )
 from geometry.kernel.clean_history import MergedFaces
 from geometry.kernel.fork import fork_shapes
-from geometry.kernel.healing import new_geometry_is_valid
+from geometry.kernel.healing import new_geometry_is_valid, shape_volume
 from geometry.kernel.naming import BodyNames, NameHook, carry_names, tool_face_names
 from geometry.kernel.provenance import FaceProvenanceRecorder
 from geometry.kernel.resolution import ResolutionTally
@@ -263,6 +263,30 @@ class EvaluationState:
     topo_names: dict[uuid.UUID, BodyNames] = field(
         default_factory=dict[uuid.UUID, BodyNames]
     )
+    #: The volume of each body's CURRENT shape, where one is known, keyed like
+    #: :attr:`bodies`: the operand volumes the boolean integrity guard bounds a
+    #: result by (:mod:`geometry.kernel.boolean_guard`). A guarded boolean
+    #: returns its result's volume, and the body funnel that installs the result
+    #: records it, so a chain of booleans integrates each body once. Every funnel
+    #: that installs a shape WITHOUT a volume drops the entry, so a value here
+    #: always describes the shape in :attr:`bodies` (the funnels are the only
+    #: writers of :attr:`bodies`). Read through :meth:`body_volume`.
+    body_volumes: dict[uuid.UUID, float] = field(default_factory=dict[uuid.UUID, float])
+
+    def body_volume(self, body_id: uuid.UUID) -> float:
+        """The volume of body *body_id*'s current shape, integrated at most once."""
+        known = self.body_volumes.get(body_id)
+        if known is None:
+            known = shape_volume(self.bodies[body_id])
+            self.body_volumes[body_id] = known
+        return known
+
+    def _note_volume(self, body_id: uuid.UUID, volume: float | None) -> None:
+        """Record (or, for ``None``, forget) the volume of a body just installed."""
+        if volume is None:
+            self.body_volumes.pop(body_id, None)
+        else:
+            self.body_volumes[body_id] = volume
 
     def face_names(self) -> list[str | None]:
         """The ACTIVE body's face names, aligned with ``active_body.faces()``
@@ -395,6 +419,7 @@ class EvaluationState:
         merged: Sequence[MergedFaces] = (),
         *,
         worked_on: BodyShape | None = None,
+        volume: float | None = None,
     ) -> None:
         """Replace the ACTIVE body's current shape (a modifying feature result).
 
@@ -407,13 +432,15 @@ class EvaluationState:
         *worked_on* is the copy of the active body the op ran on, when it did
         not run on the body itself (a fillet, chamfer, draft or shell): the
         body's names and the provenance memo are re-anchored on that copy, face
-        for face, so its untouched faces keep them.
+        for face, so its untouched faces keep them. *volume* is *shape*'s volume
+        when the op measured it (a guarded boolean), for :attr:`body_volumes`.
         """
         body_id = self.active_body_id
         assert body_id is not None, "no active body to modify"
         before = self.bodies[body_id]
         consumed = before if worked_on is None else worked_on
         self.bodies[body_id] = self._admit(shape, consumed)
+        self._note_volume(body_id, volume)
         if worked_on is not None:
             # The result's untouched faces are the copy's: re-anchor what is
             # keyed on face identity (names, the provenance memo) on it.
@@ -441,7 +468,12 @@ class EvaluationState:
         )
 
     def start_body(
-        self, base_id: uuid.UUID, shape: BodyShape, generated: NameHook = ()
+        self,
+        base_id: uuid.UUID,
+        shape: BodyShape,
+        generated: NameHook = (),
+        *,
+        volume: float | None = None,
     ) -> None:
         """Insert a NEW body keyed by its base feature id and make it active.
 
@@ -452,11 +484,17 @@ class EvaluationState:
         the kernel did not build itself and so the one it should trust least.
         """
         self.bodies[base_id] = self._admit(shape)
+        self._note_volume(base_id, volume)
         self.active_body_id = base_id
         self._rename(base_id, shape, [], generated)
 
     def combine_bodies(
-        self, target_id: uuid.UUID, tool_id: uuid.UUID, shape: BodyShape
+        self,
+        target_id: uuid.UUID,
+        tool_id: uuid.UUID,
+        shape: BodyShape,
+        *,
+        volume: float | None = None,
     ) -> None:
         """Replace two operand bodies with a boolean result (multi-body §MB-1).
 
@@ -473,6 +511,8 @@ class EvaluationState:
             shape, self.bodies[target_id], self.bodies[tool_id]
         )
         del self.bodies[tool_id]
+        self._note_volume(target_id, volume)
+        self.body_volumes.pop(tool_id, None)
         self.active_body_id = target_id
         self._rename(target_id, shape, [target_id, tool_id], ())
         self.topo_names.pop(tool_id, None)
@@ -553,6 +593,7 @@ class EvaluationState:
                 for feature_id, recorded in self.feature_tools.items()
             },
             scoped_feature_types=dict(self.scoped_feature_types),
+            body_volumes=dict(self.body_volumes),
         )
         # The twin's containers are its own now, so its slots can be rewritten
         # with the copies without touching this state.
@@ -618,10 +659,12 @@ def _add_body(
         active = state.active_body
         assert active is not None
         try:
-            fused = combine_body(active, tool, "add")
+            fused = combine_body_measured(
+                active, tool, "add", body_volume=state.body_volume(state.active_body_id)
+            )
         except BooleanError as exc:
             return FeatureError(code="boolean_failed", message=str(exc))
-        state.set_active_body(fused, generated)
+        state.set_active_body(fused.shape, generated, volume=fused.volume)
         state.record_feature_tools(item.id, "fuse", [tool], generated)
         return None
     state.start_body(item.id, tool, generated)
@@ -665,8 +708,13 @@ def _cut_active(
     """
     active = state.active_body
     assert active is not None, "cut without an active body is handled by the caller"
+    body_id = state.active_body_id
+    assert body_id is not None
     try:
-        state.set_active_body(combine_body(active, tool, "cut"), generated)
+        cut = combine_body_measured(
+            active, tool, "cut", body_volume=state.body_volume(body_id)
+        )
+        state.set_active_body(cut.shape, generated, volume=cut.volume)
     except CutRemovedNothingError as exc:
         return FeatureError(code="cut_removed_nothing", message=str(exc))
     except BooleanError as exc:

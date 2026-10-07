@@ -72,9 +72,13 @@ that could matter at :data:`SATISFIED_TOL_MM`.
 import math
 from typing import assert_never
 
-from loft_wire.sketch import spline_fit_index
-
 from geometry.sketch.angles import AngleFrame, angle_frames, oriented_angle_rad
+from geometry.sketch.point_distance import (
+    entity_lookups,
+    named_point,
+    point_table_lookups,
+)
+from geometry.sketch.point_distance import residual as point_dimension_residual
 from geometry.sketch.schemas import (
     AngleConstraint,
     CoincidentConstraint,
@@ -90,14 +94,14 @@ from geometry.sketch.schemas import (
     MidpointConstraint,
     ParallelConstraint,
     PerpendicularConstraint,
+    PointDistanceConstraint,
+    PointLineDistanceConstraint,
     RadiusConstraint,
     SketchArc,
     SketchCircle,
     SketchConstraint,
     SketchEntity,
     SketchLine,
-    SketchPoint,
-    SketchSpline,
     SymmetricConstraint,
     SymmetricLinesConstraint,
     TangentConstraint,
@@ -121,40 +125,7 @@ def _point_of(
     ref: EntityPointRef, entities_by_id: dict[str, SketchEntity]
 ) -> _Vec | None:
     """The DTO coordinate an ``EntityPointRef`` names, or ``None`` if it names none."""
-    entity = entities_by_id.get(ref.entity)
-    match entity:
-        case SketchPoint():
-            return (
-                (entity.position.x, entity.position.y)
-                if ref.point == "position"
-                else None
-            )
-        case SketchLine():
-            if ref.point == "start":
-                return (entity.start.x, entity.start.y)
-            if ref.point == "end":
-                return (entity.end.x, entity.end.y)
-            return None
-        case SketchCircle():
-            return (entity.center.x, entity.center.y) if ref.point == "center" else None
-        case SketchArc():
-            if ref.point == "center":
-                return (entity.center.x, entity.center.y)
-            if ref.point == "start":
-                return (entity.start.x, entity.start.y)
-            if ref.point == "end":
-                return (entity.end.x, entity.end.y)
-            return None
-        case SketchSpline():
-            index = spline_fit_index(ref.point)
-            if index is None or not 0 <= index < len(entity.points):
-                return None
-            fit = entity.points[index]
-            return (fit.x, fit.y)
-        case None:
-            return None
-        case _:  # pragma: no cover — the entity union is closed
-            assert_never(entity)
+    return named_point(entities_by_id.get(ref.entity), ref.point)
 
 
 def _named_points(
@@ -287,6 +258,7 @@ def _angle_residual(
 def _dimension_residual(
     constraint: DimensionConstraint,
     entities_by_id: dict[str, SketchEntity],
+    input_points: dict[tuple[str, str], _Vec],
     requested: float,
     frame: AngleFrame | None,
 ) -> float:
@@ -298,6 +270,16 @@ def _dimension_residual(
             if length is None:
                 return UNRESOLVABLE
             return abs(length - requested)
+        case PointDistanceConstraint() | PointLineDistanceConstraint():
+            # Signed where the solver holds a side, the side read from the
+            # SUBMITTED sketch exactly as the build reads it (point_distance.py).
+            miss = point_dimension_residual(
+                constraint,
+                entity_lookups(entities_by_id),
+                point_table_lookups(input_points),
+                requested,
+            )
+            return UNRESOLVABLE if miss is None else miss
         case RadiusConstraint():
             radius = _radius_of(entities_by_id.get(constraint.entity))
             if radius is None:
@@ -634,7 +616,9 @@ def constraint_residual(
         case DimensionConstraint():
             if requested is None:
                 return None
-            return _dimension_residual(constraint, entities_by_id, requested, frame)
+            return _dimension_residual(
+                constraint, entities_by_id, input_points, requested, frame
+            )
         case CoincidentConstraint():
             a = _point_of(constraint.a, entities_by_id)
             b = _point_of(constraint.b, entities_by_id)

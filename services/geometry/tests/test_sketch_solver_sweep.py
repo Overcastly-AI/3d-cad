@@ -195,10 +195,9 @@ from geometry.sketch import (
     VerticalConstraint,
 )
 from geometry.sketch.angles import angle_frames
+from geometry.sketch.degenerate import DEGENERATE_ARC_RADIUS_MM, DEGENERATE_RADIUS_MM
 from geometry.sketch.expression import evaluate_driving_dimensions
 from geometry.sketch.planegcs_solver import (
-    DEGENERATE_ARC_RADIUS_MM,
-    DEGENERATE_RADIUS_MM,
     SATISFIED_TOL_MM,
     _submitted_points,  # pyright: ignore[reportPrivateUsage]
     plain_solve,

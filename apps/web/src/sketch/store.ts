@@ -39,6 +39,7 @@ import {
   constraintEntityRefs,
   deleteSelectedEntities,
   dimensionEditorTarget,
+  pointDimensionCommit,
   toggleConstruction,
   type ConstraintAction,
   type DimensionCommit,
@@ -47,9 +48,21 @@ import {
   type SketchConstraint,
   type SolvedAngle,
   type SolvedDimension,
-  type SolveInfo,
 } from "./constraints";
+import { type SolveInfo } from "./solveFeedback";
+import { operandRef, type DimensionPointRef } from "./pointDimension";
+import {
+  armedDistanceClick,
+  withArmedPrompt,
+  DIMENSION_PICK_HINT,
+  DIMENSION_PLACE_HINT,
+  DIMENSION_SECOND_PICK_HINT,
+  placeDimensionLabel,
+  wrongPickHint,
+  type DimensionPickAction,
+} from "./dimensionPick";
 import { reconcileEditedConstraints } from "./reconcileEdit";
+import { axisInferenceHint } from "./snap";
 import { toggleCornerPick, type CornerOp } from "./corner";
 import { keepSharps, reconcileCornerConstraints } from "./cornerConstraints";
 import {
@@ -57,7 +70,6 @@ import {
   datumSafeSolve,
   DEFAULT_FRAME_HALF_HEIGHT_MM,
   groundDatums,
-  isDatumId,
   pickWithDatums,
   selectionTouchesDatum,
   withDatums,
@@ -110,90 +122,6 @@ import {
 export const DEFAULT_SNAP_STEP_MM = 1;
 
 export type SketchMode = "off" | "plane" | "draw";
-
-/** The two verbs that open a value editor, hence the two that can be ARMED. */
-export type DimensionPickAction = "distance" | "radius";
-
-/** What an armed dimension verb asks for, in the user's words. */
-export const DIMENSION_PICK_HINT: Readonly<
-  Record<DimensionPickAction, string>
-> = {
-  distance: "Click a line to dimension it.",
-  radius: "Click a circle or arc to dimension it.",
-};
-
-/**
- * SNAP-5 — AN INFERRED CONSTRAINT THE USER CANNOT SEE IS A TRAP, so the draw
- * that earns one SAYS so, in the same `hint` line every other automatic
- * decision in this store speaks through (`constraint-hint`, `role="status"`,
- * so it is announced rather than merely drawn). Two things are named because
- * both are actions the user may want in the next second: how to DROP it (the
- * glyph is live in the viewport the instant it is authored — select it, press
- * Delete, the ordinary constraint-removal path) and how to have avoided it
- * (Ctrl/Cmd, which was already the "no snapping" modifier and is honoured by
- * the inference for the same reason `resolveAim` honours it).
- *
- * This is the distinction between INFERRED and AUTHORED that the product owes
- * the user, made where it is cheapest and truest — at the moment of the draw.
- * A permanent per-glyph tone would be better still, and it is a viewport change
- * rather than a sketch-model one: `SketchConstraint` is the GENERATED client
- * type (DRY rule), so provenance cannot ride on the constraint itself without
- * a contract change nobody needs yet.
- */
-const axisInferenceHint = (
-  added: readonly SketchConstraint[],
-): string | null => {
-  const axes = added.filter(
-    (constraint) =>
-      constraint.kind === "horizontal" || constraint.kind === "vertical",
-  );
-  if (axes.length === 0) return null;
-  const named =
-    axes.length === 1
-      ? axes[0]?.kind === "horizontal"
-        ? "Horizontal"
-        : "Vertical"
-      : "Horizontal and vertical";
-  return `${named} inferred from the line you drew — press Esc for Select, click the glyph and press Delete to drop it, or hold Ctrl/Cmd while drawing to place freehand.`;
-};
-
-/** How a picked entity is named back to the user ("That is a circle."). */
-const ENTITY_KIND_LABEL: Readonly<Record<SketchEntity["kind"], string>> = {
-  point: "a point",
-  line: "a line",
-  circle: "a circle",
-  arc: "an arc",
-  spline: "a spline",
-};
-
-/**
- * What to say when an ARMED dimension verb is handed the wrong thing (DIM-3).
- *
- * NOT the selection-first refusal — "Select one line to dimension." is the exact
- * sentence arming exists to eliminate, and while armed it is also false: the
- * user DID click, and "select" names a step this flow no longer has. Answering
- * a click with it reads as the dead end the fix was supposed to have removed.
- * So the reply names what was picked and repeats the standing instruction,
- * which is the truthful pair: this is not it, here is what is.
- *
- * THE FRAME IS THE EXCEPTION, and for a different reason: the origin and axes
- * are refused as a SUBJECT rather than for their kind (SKETCH-2 — the axis is
- * not yours to move), and that refusal stays true while armed. It is passed
- * through from the verb that owns it rather than re-derived here.
- */
-const wrongPickHint = (
-  armed: DimensionPickAction,
-  pickedId: string,
-  entities: readonly SketchEntity[],
-  refusal: string | null,
-): string => {
-  if (isDatumId(pickedId)) return refusal ?? DIMENSION_PICK_HINT[armed];
-  const picked = entities.find((entity) => entity.id === pickedId);
-  // An id the buffer cannot resolve names nothing, so say nothing about it and
-  // keep asking — better a repeated instruction than an invented noun.
-  if (picked === undefined) return DIMENSION_PICK_HINT[armed];
-  return `That is ${ENTITY_KIND_LABEL[picked.kind]}. ${DIMENSION_PICK_HINT[armed]}`;
-};
 
 /**
  * The size cells a just-drawn shape is offering (FB-16). Held apart from
@@ -256,6 +184,8 @@ const CLEARED_BY_HISTORY = {
   selectedConstraint: null,
   dimensionEdit: null,
   dimensionPick: null,
+  dimensionOperands: [] as DimensionPointRef[],
+  dimensionPlace: null,
   drawDimension: null,
   pointEntry: null,
   drawDimensionFocus: null,
@@ -379,6 +309,18 @@ export interface SketchState {
    * call site: see `withArmedPrompt`.
    */
   dimensionPick: DimensionPickAction | null;
+  /**
+   * Points an ARMED Dimension has taken so far (SKETCH-POINT-DISTANCE): Fusion's
+   * Sketch Dimension takes a point, then a second point or a line. Empty unless
+   * `dimensionPick` is `distance` and a point was clicked.
+   */
+  dimensionOperands: DimensionPointRef[];
+  /**
+   * Two points held, the label not yet placed: the click that drops it
+   * decides aligned / horizontal / vertical (`placementDirection`), and the
+   * editor opens there. Null otherwise.
+   */
+  dimensionPlace: { a: DimensionPointRef; b: DimensionPointRef } | null;
   /**
    * The size cells the shape under the cursor is offering (FB-16), or null.
    * Set by the placement that emitted the shape; cleared by anything that ends
@@ -744,6 +686,8 @@ const INITIAL = {
   selectedConstraint: null,
   dimensionEdit: null,
   dimensionPick: null,
+  dimensionOperands: [],
+  dimensionPlace: null,
   drawDimension: null,
   pointEntry: null,
   drawDimensionFocus: null,
@@ -841,7 +785,7 @@ function resolveAim(
 }
 
 /** The `set` signature every action in this store uses (no `replace`). */
-type SketchSet = (
+export type SketchSet = (
   partial:
     Partial<SketchState> | ((state: SketchState) => Partial<SketchState>),
 ) => void;
@@ -882,36 +826,6 @@ const withSketchHistory =
         // A new edit forks the timeline: what was undone is unreachable now.
         future: [],
       });
-    }, get);
-
-/**
- * ARMED IS NEVER SILENT (DIM-3). `dimensionPick` has no surface of its own: the
- * hint is the only thing on screen saying the next canvas click will open a
- * dimension editor rather than select something. Clearing the hint is what an
- * ordinary action DOES when its own message is over — `selectConstraint` and
- * `togglePick` both did, correctly, and both left the verb armed and silent, so
- * the click after them opened an editor with no visible cause.
- *
- * Restoring the prompt at those two call sites would have fixed the two we
- * found and not the third. This is `withSketchHistory`'s argument again: a rule
- * that has to be remembered at every site will be forgotten at one, and the
- * cost here is a UI state that cannot be explained from the screen. So it is an
- * INVARIANT, re-established after every transition — "armed with no hint" is
- * not a state this store can be left in, by any action, present or future.
- *
- * Two things it deliberately does not do: it never overwrites a hint (a site
- * with something more specific to say — the wrong-kind pick — keeps its own),
- * and it never fires for a site that DISARMS, because clearing `dimensionPick`
- * and the prompt together is the arming ending, not going quiet.
- */
-const withArmedPrompt =
-  (creator: (set: SketchSet, get: () => SketchState) => SketchState) =>
-  (set: SketchSet, get: () => SketchState): SketchState =>
-    creator((partial) => {
-      set(partial);
-      const after = get();
-      if (after.dimensionPick === null || after.hint !== null) return;
-      set({ hint: DIMENSION_PICK_HINT[after.dimensionPick] });
     }, get);
 
 /**
@@ -978,6 +892,8 @@ const createSketchState = (
       // Reaching for another tool abandons an armed dimension pick, the same
       // way it abandons a mirror or corner draft.
       dimensionPick: null,
+      dimensionOperands: [],
+      dimensionPlace: null,
       drawDimension: null,
       pointEntry: null,
       drawDimensionFocus: null,
@@ -1343,7 +1259,36 @@ const createSketchState = (
     // the whole point of arming was that "select the line first" was the step
     // the user could not reach. Take the CURVE under the pointer (points are
     // not dimensionable), exactly as trim/extend/offset do.
+    // Two points held: THIS click drops the label (dimensionPick.ts).
+    if (state.dimensionPlace !== null) {
+      set({
+        ...placeDimensionLabel(
+          state.dimensionPlace,
+          withDatums(state.entities, datumFrame(state.datumFrameHalfMm)),
+          state.constraints,
+          point,
+        ),
+        selection: [],
+        selectedConstraint: null,
+        hint: null,
+      });
+      return;
+    }
     const armed = state.dimensionPick;
+    if (armed === "distance") {
+      // Fusion's Sketch Dimension: point, then point or line (dimensionPick.ts).
+      set({
+        ...armedDistanceClick(
+          state.dimensionOperands,
+          candidates[0],
+          withDatums(state.entities, datumFrame(state.datumFrameHalfMm)),
+          state.constraints,
+        ),
+        selection: [],
+        selectedConstraint: null,
+      });
+      return;
+    }
     if (armed !== null) {
       const entityPick = candidates.find((pick) => pick.kind === "entity");
       if (entityPick === undefined) {
@@ -1439,6 +1384,21 @@ const createSketchState = (
       case "editor":
         set({ dimensionEdit: result.target, dimensionPick: null, hint: null });
         return;
+      case "place":
+        set({
+          dimensionPlace: { a: result.a, b: result.b },
+          dimensionPick: null,
+          dimensionOperands: [],
+          selection: [],
+          selectedConstraint: null,
+          tool: "select",
+          pending: [],
+          snapAnchors: [],
+          drawDimension: null,
+          drawDimensionFocus: null,
+          hint: DIMENSION_PLACE_HINT,
+        });
+        return;
       case "hint":
         // A DIMENSION verb with nothing usable selected ARMS instead of
         // refusing (see `dimensionPick`). Dropping the draw tool is the
@@ -1454,8 +1414,18 @@ const createSketchState = (
           (action === "distance" || action === "radius") &&
           !selectionTouchesDatum(selection)
         ) {
+          // One point held is the FIRST half of a point dimension: keep it
+          // and ask for the second pick rather than dropping it.
+          const [only] = selection;
+          const first =
+            action === "distance" &&
+            selection.length === 1 &&
+            only?.kind === "point"
+              ? [operandRef(only)]
+              : [];
           set({
             dimensionPick: action,
+            dimensionOperands: first,
             tool: "select",
             pending: [],
             snapAnchors: [],
@@ -1463,7 +1433,10 @@ const createSketchState = (
             selectedConstraint: null,
             drawDimension: null,
             drawDimensionFocus: null,
-            hint: DIMENSION_PICK_HINT[action],
+            hint:
+              first.length > 0
+                ? DIMENSION_SECOND_PICK_HINT
+                : DIMENSION_PICK_HINT[action],
           });
           return;
         }
@@ -1813,7 +1786,8 @@ const createSketchState = (
   },
 
   commitDimension: (commit) => {
-    const { dimensionEdit, constraints, revision } = get();
+    const { dimensionEdit, constraints, revision, entities, datumFrameHalfMm } =
+      get();
     if (dimensionEdit === null || !(commit.value > 0)) return;
     // An angle's domain is the solver's, not the cell's: `AngleConstraint`
     // requires 0 < value_deg < 180, so a 200° typo is refused HERE, in the
@@ -1836,27 +1810,38 @@ const createSketchState = (
     // field NAME on the wire, so the branch is here, once, rather than in a
     // caller that might reach for the wrong one.
     const constraint: SketchConstraint =
-      dimensionEdit.kind === "angle"
-        ? {
-            kind: "angle",
-            a: dimensionEdit.entity,
-            b: dimensionEdit.entityB ?? dimensionEdit.entity,
-            value_deg: commit.value,
-            ...shared,
-          }
-        : {
-            kind: dimensionEdit.kind,
-            entity: dimensionEdit.entity,
-            value_mm: commit.value,
-            ...shared,
-          };
-    const next =
+      dimensionEdit.subject !== undefined
+        ? pointDimensionCommit(dimensionEdit.subject, commit)
+        : dimensionEdit.kind === "angle"
+          ? {
+              kind: "angle",
+              a: dimensionEdit.entity,
+              b: dimensionEdit.entityB ?? dimensionEdit.entity,
+              value_deg: commit.value,
+              ...shared,
+            }
+          : {
+              kind: dimensionEdit.kind,
+              entity: dimensionEdit.entity,
+              value_mm: commit.value,
+              ...shared,
+            };
+    const edited =
       dimensionEdit.constraintIndex === null
         ? [...constraints, constraint]
         : constraints.map((c, i) =>
             i === dimensionEdit.constraintIndex ? keepSharps(c, constraint) : c,
           );
+    // A point dimension may measure from the frame (the origin, an axis):
+    // materialise what it reached for, pinned, as the relational verbs do.
+    const grounded = groundDatums(
+      entities,
+      constraintEntityRefs(constraint),
+      datumFrame(datumFrameHalfMm),
+    );
+    const next = [...edited, ...grounded.constraints];
     set({
+      entities: grounded.entities,
       constraints: next,
       // A dimension typed into the inline editor.
       userConstrained: true,
@@ -1989,15 +1974,21 @@ const createSketchState = (
       featureId,
       dimensionEdit,
       dimensionPick,
+      dimensionPlace,
       offsetDraft,
       mirror,
       corner,
     } = get();
+    // A label being placed is the most local rung of all: Escape drops it.
+    if (dimensionPlace !== null) {
+      set({ dimensionPlace: null, hint: null });
+      return;
+    }
     // An ARMED dimension verb is the most local rung there is — it owns the
     // next click, so it must be what the next Escape gives back. Without this
     // the cascade would fall through to "nothing to lose" and exit the sketch.
     if (dimensionPick !== null && dimensionEdit === null) {
-      set({ dimensionPick: null, hint: null });
+      set({ dimensionPick: null, dimensionOperands: [], hint: null });
       return;
     }
     // Corner's own cascade, most-local first: an open editor / any picks →

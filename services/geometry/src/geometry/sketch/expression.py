@@ -42,6 +42,8 @@ from loft_wire.sketch import (
     DiameterConstraint,
     DimensionConstraint,
     DistanceConstraint,
+    PointDistanceConstraint,
+    PointLineDistanceConstraint,
     RadiusConstraint,
     SketchArc,
     SketchCircle,
@@ -51,6 +53,7 @@ from loft_wire.sketch import (
 )
 
 from geometry.sketch.angles import AngleFrame, measured_angle_deg
+from geometry.sketch.point_distance import entity_lookups, measured
 from geometry.sketch.solver import SketchDefinitionError
 from geometry.sketch.virtual_sharp import measured_length
 
@@ -479,6 +482,19 @@ def measure_dimension(
             return math.hypot(
                 entity.end.x - entity.start.x, entity.end.y - entity.start.y
             )
+        case PointDistanceConstraint() | PointLineDistanceConstraint():
+            # A sharp whose legs are parallel in THIS geometry reads its named
+            # point, as `distance` reads its own end; non-lines still refuse.
+            value = measured(
+                constraint, *entity_lookups(entities_by_id), sharp_fallback=True
+            )
+            if value is None:
+                raise SketchDefinitionError(
+                    f"Driven {constraint.kind!r} dimension does not resolve: a "
+                    "point it names is missing, a virtual sharp's lines are not "
+                    "two crossing lines, or the line is not a line"
+                )
+            return value
         case RadiusConstraint():
             entity = entities_by_id.get(constraint.entity)
             if isinstance(entity, SketchCircle):

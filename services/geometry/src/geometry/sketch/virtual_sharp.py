@@ -49,10 +49,10 @@ def line_intersection(a: SketchLine, b: SketchLine) -> _Vec | None:
     sharp, which is the true answer for them.
     """
     p1, p2 = (a.start.x, a.start.y), (a.end.x, a.end.y)
-    return _intersect(p1, p2, (b.start.x, b.start.y), (b.end.x, b.end.y))
+    return intersect(p1, p2, (b.start.x, b.start.y), (b.end.x, b.end.y))
 
 
-def _intersect(p1: _Vec, p2: _Vec, q1: _Vec, q2: _Vec) -> _Vec | None:
+def intersect(p1: _Vec, p2: _Vec, q1: _Vec, q2: _Vec) -> _Vec | None:
     rx, ry = p2[0] - p1[0], p2[1] - p1[1]
     sx, sy = q2[0] - q1[0], q2[1] - q1[1]
     cross = rx * sy - ry * sx
@@ -147,7 +147,7 @@ def allocate_sharps(
             ends = [(constraint.entity, "start"), (constraint.entity, "end")]
             own = [gcs.get_point(points[key]) for key in ends]
             other = [gcs.get_point(points[(sharp, p)]) for p in ("start", "end")]
-            guess = _intersect(own[0], own[1], other[0], other[1])
+            guess = intersect(own[0], own[1], other[0], other[1])
             at = guess if guess is not None else own[0 if name == "start" else 1]
             allocated.setdefault(index, {})[name] = gcs.add_point(at[0], at[1])
     return allocated

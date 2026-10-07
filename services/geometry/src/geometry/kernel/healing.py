@@ -106,14 +106,15 @@ distinct holes, and this module now closes both:
 
 import copy
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from build123d import Solid
-from OCP.BRep import BRep_Builder
+from OCP.BRep import BRep_Builder, BRep_Tool
 from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
 from OCP.ShapeFix import ShapeFix_Shape
-from OCP.TopAbs import TopAbs_FACE, TopAbs_SOLID
+from OCP.TopAbs import TopAbs_FACE, TopAbs_SHELL, TopAbs_SOLID
 from OCP.TopExp import TopExp, TopExp_Explorer
 from OCP.TopoDS import TopoDS, TopoDS_Compound, TopoDS_Shape
 from OCP.TopTools import TopTools_IndexedMapOfShape
@@ -226,12 +227,148 @@ def clean_shape[ShapeT: BodyShape](
     spare = copy.deepcopy(shape)
     found: list[MergedFaces] = []
     cleaned = shape.clean() if merges is None else clean_recording(shape, spare, found)
-    moved = abs(_volume(cleaned.wrapped) - before)
-    if moved <= max(CLEAN_VOLUME_FLOOR_MM3, CLEAN_VOLUME_REL_TOL * abs(before)):
+    if _kept_material(before, _volume(cleaned.wrapped)):
         if merges is not None:
             merges.extend(found)
         return cleaned
     return spare
+
+
+def _kept_material(before: float, after: float) -> bool:
+    """Did a simplification leave the volume where it was (:func:`clean_shape`)?"""
+    moved = abs(after - before)
+    return moved <= max(CLEAN_VOLUME_FLOOR_MM3, CLEAN_VOLUME_REL_TOL * abs(before))
+
+
+@dataclass(frozen=True)
+class ShellReading:
+    """One shell of a solid: the SIGN-bearing volume it encloses, and closure.
+
+    Oriented as the solid holds it, so the outer shell reads positive and a void
+    (an inner shell) reads negative. Only the sign is meant: OCCT integrates each
+    shape about its own rough barycentre, so with the fixed-order rule a solid's
+    shells do not sum to the solid's volume (8.5 mm^3 apart on the 703888 mm^3
+    moto frame); :attr:`SolidReading.volume` is the volume.
+    """
+
+    volume: float
+    closed: bool
+
+
+@dataclass(frozen=True)
+class SolidReading:
+    """One solid: its volume (as :func:`clean_shape` reads it) and its shells."""
+
+    volume: float
+    shells: tuple[ShellReading, ...]
+
+
+@dataclass(frozen=True)
+class BodyReading:
+    """The volume and the shell structure of a body's solids.
+
+    What the boolean integrity guard (:mod:`geometry.kernel.boolean_guard`)
+    checks, read by :func:`clean_and_read` from the integration the
+    simplification check pays for anyway.
+    """
+
+    solids: tuple[SolidReading, ...]
+
+    @property
+    def volume(self) -> float:
+        """The body's volume: its solids' volumes, summed."""
+        return sum(solid.volume for solid in self.solids)
+
+    def __add__(self, other: "BodyReading") -> "BodyReading":
+        """The reading of two lumps' bodies taken together."""
+        return BodyReading(self.solids + other.solids)
+
+
+def read_solid(solid: TopoDS_Shape, volume: float) -> SolidReading:
+    """The shells of *solid*, whose volume (*volume*) the caller has measured.
+
+    A solid with ONE shell (every solid without a void) costs no integration:
+    its shell's sign is its volume's. Only a solid with voids integrates its
+    shells, once each, for their signs.
+    """
+    shells: list[TopoDS_Shape] = []
+    walk = TopExp_Explorer(solid, TopAbs_SHELL)
+    while walk.More():
+        shells.append(walk.Current())
+        walk.Next()
+    if len(shells) == 1:
+        closed = bool(BRep_Tool.IsClosed_s(shells[0]))
+        return SolidReading(volume, (ShellReading(volume, closed),))
+    return SolidReading(
+        volume,
+        tuple(
+            ShellReading(_volume(shell), bool(BRep_Tool.IsClosed_s(shell)))
+            for shell in shells
+        ),
+    )
+
+
+def read_solids(shape: TopoDS_Shape) -> BodyReading:
+    """:func:`read_solid` for every solid of *shape*, each one measured here."""
+    solids: list[SolidReading] = []
+    walk = TopExp_Explorer(shape, TopAbs_SOLID)
+    while walk.More():
+        solids.append(read_solid(walk.Current(), _volume(walk.Current())))
+        walk.Next()
+    return BodyReading(tuple(solids))
+
+
+def clean_and_read(solid: Solid) -> tuple[Solid, BodyReading]:
+    """:func:`clean_shape` for ONE solid, returning its reading as well.
+
+    Exactly :func:`clean_shape`'s rule and integrals (the same "before" and
+    "after" volumes, so the same simplifications are kept and every body is
+    byte-identical); the reading reuses the volume of whichever shape is
+    returned, so a caller that must know it, the boolean integrity guard, gets
+    it without a second walk of the body.
+    """
+    if solid.wrapped is None:  # pragma: no cover - never an empty solid here
+        return solid.clean(), BodyReading(())
+    before = _volume(solid.wrapped)
+    spare = copy.deepcopy(solid)
+    cleaned = solid.clean()
+    after = _volume(cleaned.wrapped)
+    if _kept_material(before, after):
+        return cleaned, BodyReading((read_solid(cleaned.wrapped, after),))
+    return spare, BodyReading((read_solid(spare.wrapped, before),))
+
+
+def clean_and_read_shape[ShapeT: BodyShape](
+    shape: ShapeT,
+) -> tuple[ShapeT, BodyReading]:
+    """:func:`clean_shape` of a whole boolean result (any lumps), and its reading.
+
+    The variadic booleans (mirror, pattern) clean the raw result as ONE shape;
+    this keeps exactly that call and its integrals, so their bodies stay
+    byte-identical. A one-solid result costs nothing more; a multi-lump one
+    integrates each lump once for the reading.
+    """
+    if shape.wrapped is None:  # pragma: no cover - never an empty shape here
+        return shape.clean(), BodyReading(())
+    before = _volume(shape.wrapped)
+    spare = copy.deepcopy(shape)
+    cleaned = shape.clean()
+    after = _volume(cleaned.wrapped)
+    kept, volume = (
+        (cleaned, after) if _kept_material(before, after) else (spare, before)
+    )
+    assert kept.wrapped is not None
+    solids = kept.solids()
+    if len(solids) == 1:
+        only = solids[0].wrapped
+        assert only is not None
+        return kept, BodyReading((read_solid(only, volume),))
+    return kept, read_solids(kept.wrapped)
+
+
+def shape_volume(shape: BodyShape) -> float:
+    """The GProp volume of a body (the rule :func:`clean_shape` measures with)."""
+    return 0.0 if shape.wrapped is None else _volume(shape.wrapped)
 
 
 def body_is_valid(shape: BodyShape) -> bool:

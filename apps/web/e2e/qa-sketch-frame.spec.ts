@@ -1114,21 +1114,80 @@ test.describe("QA SKETCH-2 — grounding to the sketch frame", () => {
     );
 
     // Arm Distance with NOTHING selected (the `dimensionPick` rung), then
-    // click the origin: the frame must neither open an editor nor swallow the
-    // arming.
+    // click the origin. SKETCH-POINT-DISTANCE, as in Fusion: the origin is a
+    // TARGET a dimension measures FROM, so it is held as the fixed reference —
+    // no editor yet, and the hint names that role.
     await parkOnEmptySteel(page, at);
     await page.keyboard.press("d");
     const origin = at({ x: 0, y: 0 });
     await page.mouse.click(origin.x + 11, origin.y);
     await expect(page.getByTestId("dimension-editor")).toHaveCount(0);
     await expect(page.getByTestId("constraint-hint")).toContainText(
+      "Measuring from the origin, which stays fixed",
+    );
+    // The frame alone is still never the subject: origin to the X axis would
+    // drive the frame, so it is refused by name — and the arming survives.
+    const axis = at({ x: 30, y: 0 });
+    await page.mouse.click(axis.x, axis.y);
+    await expect(page.getByTestId("dimension-editor")).toHaveCount(0);
+    await expect(page.getByTestId("constraint-hint")).toContainText(
       "origin and axes are fixed",
     );
-    // Still armed: the very next click on a real line dimensions THAT line.
+    // Still armed, origin still held: the next click on a real line opens the
+    // distance FROM the origin to that line (the bottom edge, 8 mm up).
     await page.mouse.click(at({ x: 22, y: 8 }).x, at({ x: 22, y: 8 }).y);
     await expect(page.getByTestId("dimension-editor")).toBeVisible();
-    await expect(page.getByTestId("dimension-input")).toHaveValue("24");
+    await expect(page.getByTestId("dimension-input")).toHaveValue("8");
     await page.keyboard.press("Escape");
+  });
+
+  test("a point dimensioned FROM the origin moves the point, never the origin", async ({
+    page,
+  }) => {
+    const { token, partId } = await openPartWithRect(page, "From the origin");
+    await reopenSketch(page);
+    const at = await calibratePlane(
+      page,
+      { x: 700, y: 620 },
+      { x: 1000, y: 420 },
+    );
+    const origin = at({ x: 0, y: 0 });
+    await parkThenClick(page, at, { x: origin.x + 11, y: origin.y });
+    await page.keyboard.down("Shift");
+    const corner = at({ x: 10, y: 8 }); // the rectangle's bottom-left corner
+    await page.mouse.click(corner.x, corner.y);
+    await page.keyboard.up("Shift");
+    await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
+    await page.keyboard.press("d");
+    // Dropped BELOW the pair: a horizontal dimension, as Fusion places it.
+    const below = at({ x: 5, y: -6 });
+    await page.mouse.move(below.x, below.y);
+    await expect(page.getByTestId("dimension-place")).toHaveAttribute(
+      "data-direction",
+      "horizontal",
+    );
+    await page.mouse.click(below.x, below.y);
+    const value = page.getByTestId("dimension-input");
+    await expect(value).toHaveValue("10");
+    await value.pressSequentially("15");
+    await value.press("Enter");
+    await expect(page.getByTestId("dimension-editor")).toHaveCount(0);
+    await expect(page.getByTestId("selection-readout")).toContainText(
+      `${FIXTURE_CONSTRAINTS + 1} applied`,
+    );
+    await finishSketch(page);
+    const solved = await solvedSketch(page, token, partId);
+    // The point moved to 15 mm from the origin; the rectangle came with it.
+    expectCorners(solved, [
+      [15, 8],
+      [39, 8],
+      [39, 24],
+      [15, 24],
+    ]);
+    // …and the origin did not move: it is the frame, pinned at (0, 0).
+    const held = solved.find((e) => e.id === "origin")?.position;
+    expect(held?.x).toBeCloseTo(0, 9);
+    expect(held?.y).toBeCloseTo(0, 9);
   });
 
   test("a FACE-SEATED sketch's origin is selectable and grounds a profile to the face centroid", async ({

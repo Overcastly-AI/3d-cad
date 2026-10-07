@@ -138,6 +138,27 @@ Rules the solver keeps:
   DOF is what the untrimmed length gave. Parallel lines have no sharp and
   read `conflicting`. The fields are additive: a stored distance solves
   byte-identically (2098 sketches, goldens plus the PBT-1 sweep, checked).
+- **Point dimensions follow Fusion 360's Sketch Dimension**
+  (`geometry.sketch.point_distance`, SKETCH-POINT-DISTANCE). Two points give
+  `point_distance` with `direction` aligned (planegcs `P2PDistance`),
+  horizontal or vertical (`Difference` on the x or y parameters, FreeCAD's
+  DistanceX/DistanceY); the web picks the direction from where the label is
+  dropped. A point and a line give `point_line_distance`, the perpendicular
+  distance to the line's support; two parallel lines are dimensioned the same
+  way from one end. Either operand may be a virtual sharp (`sharp` on the
+  point ref), and a projected edge is an ordinary entity, so it needs no new
+  kind. **The horizontal, vertical and point-line forms are SIGNED, the side
+  read from the submitted geometry** (like an angle's frame). planegcs's
+  `P2LDistance` is unsigned: moving a rim edge from x = 120 to 100 took a lip
+  corner drawn at 119 to 101, outside the rim, with the typed 1 mm reading
+  true. The side is held with native constraints: an auxiliary point on a
+  rigid stick from the point (`P2PDistance` = value, `L2LAngle` at
+  `side * pi/2` to the line) whose tip is `PointOnLine`. Two parameters and
+  three equations, so the dimension takes one DOF. The tempting alternative,
+  `P2LDistance` plus the foot of the perpendicular at a signed right angle,
+  cannot flip but cannot cross either: when a step carries the line past the
+  point the angle error sits at `pi`, where `atan2` wraps, and the same rim
+  edit read `diverged`. The new kinds are additive; no stored sketch changes.
 
 ## 3. Monorepo of services, contract-first
 
@@ -232,7 +253,10 @@ The correctness gates, run in CI and by `geometry-qa`:
   also runs, and its byte-deterministic build ships when it matches Arc's in
   shells, faces, volume, area, centroid and inertia. It is never trusted alone:
   it silently drops a pocket when the cavity splits, and it drifts on spline
-  walls. Every other Arc result gets a canonical face order, but its bytes can
+  walls. It only buys reproducible bytes, so it runs in a child of the blend
+  server under a 10 s CPU budget (a cross-bored plate held it 68 to 133 s
+  where Arc took 0.16 s); past the budget Arc's result ships. Every other Arc
+  result gets a canonical face order, but its bytes can
   still move in the last bit (`kernel/shell.py`). The hash order can also
   change the topology. Where a cavity touches itself at a point, about half of
   all address layouts leave one face spanning both sides of the pinch, and the
@@ -259,6 +283,15 @@ The correctness gates, run in CI and by `geometry-qa`:
   is missed too). Every query is capped and answered from a spatial index, so
   the cost grows with the faces: about a fifth to a third of the shell on 710-
   and 910-face lids, tens of ms on small bodies.
+- **A shell answers inside the request.** OCCT's offset pairs every two offset
+  faces whose boxes meet through a boolean over both faces' edges, so it grows
+  with the faces squared where one face borders many: a 906-face slotted plate
+  takes 77 to 89 s of CPU. A body of 500 faces or more is therefore offset in a
+  blend-server child under a 40 s CPU budget (60 s wall), and refused past it
+  with a typed `ShellTimeout` (`shell_failed`) that says to shell before
+  cutting many small features. That outcome depends on the machine's speed, as
+  a fillet's `BLEND_CPU_SECONDS` does; a stored part that shells in time on one
+  machine can time out on a much slower one.
 - **STEP round-trip:** export, re-import and compare, within `ROUNDTRIP_TOL`
   (1e-7) unless a golden records a measured override. A body is made
   conformal before export, but only when `BRepCheck` rejects it, and never if
@@ -284,6 +317,39 @@ The correctness gates, run in CI and by `geometry-qa`:
   `clean()` that moves the volume. `BRepCheck` validity is checked when a body
   is admitted and again at publish time, and an invalid body is never
   measured, meshed or exported.
+- **A boolean is checked against its operands, not only by `BRepCheck`.**
+  OCCT can return a valid, wrong solid. An annular tube whose end face is
+  tangent to an equal-diameter annular bend's skin comes back without the void
+  of the compartment sealed inside the joint (7295.2 mm^3 on the moto frame,
+  BOOLEAN-COINCIDENT-TUBE: 732801.92 shipped against a derived 718211.506 and
+  a member sum of 725460.9). Two straight tubes do not do it; a torus segment
+  and one tube do. After every union, cut and intersect of the `boolean`
+  feature, the in-chain add/cut (merging extrude, revolve, sweep, loft, hole,
+  extrude cut), and the one-shot fuse/cut of a mirror (both scopes) and a
+  pattern (`kernel/boolean_guard.py`), the volume must lie in [max, A+sum B],
+  [A-sum B, A] or [0, min] within 1e-6 of A+sum B, and each solid must have one
+  outer shell, negative void shells and no open shell. The sheet-metal edge
+  flange is not guarded yet (BACKLOG Notes). The volumes are GProp's fixed-order ones, which `clean_shape` already
+  integrates and a per-body memo carries to the next boolean, so a chain of
+  booleans integrates each body once (a solid with voids also integrates its
+  shells, for their signs; they do not sum to its volume, because OCCT
+  integrates each shape about its own barycentre). That rule reads crossing
+  tubes 9e-6 off and a lofted solid 13 % off, so a failed bound is only a
+  trigger: it is confirmed on `volume_properties` at the same 1e-6 before
+  anything acts on it (1e-6 keeps a 7295 mm^3 loss visible up to ~7e9 mm^3). Over the
+  goldens and the boolean, hole, composition and rebuild-cache suites (1455
+  checks) the worst excursion of a right result past a bound is 1.4e-13, except
+  the lofted fixture's misreads (up to 4.6e-2, all cleared by the confirmation).
+  A violating result is re-run once with
+  `SetFuzzyValue(100 x Precision::Confusion)` (1e-5 mm) and ships only if it
+  passes the same check (the frame then reads 718211.504, the same across a
+  restart; its `BRepCheck` is asked at admission, like any body); otherwise the feature is refused (`boolean_failed`). 1 x Confusion
+  changes nothing, 10 x splits the two-solid case into seven lumps, and the
+  1e-4 mm kernel tolerance moves the frame by 0.5 mm^3. A violating result
+  that `BRepCheck` also rejects is left to the admission gate (`invalid_body`),
+  so no part that was refused starts building. The retry would repair many of
+  those (frame tubes ending 0.5 to 12.6 mm past the bend's centreline build
+  within 0.08 mm^3 of the derived volume); that widening is the founder's call.
 - **An assembly STEP instances its parts** (solid count equals unique part
   count).
 - **Artifacts for a machine are checked against the part**, not against
@@ -540,6 +606,29 @@ A chamfer is in place too: a failed R1 chamfer of the cone-hub blade root
 left an input vertex at 71.6 mm, and a successful one loosened it. So a
 chamfer now runs on a copy under the fillet guard, like the fillet.
 
+**Tangent chains (FILLET-TANGENT-CHAIN, 2026-10-02).** OCCT never blends a
+lone edge: `ChFi3d` opens a contour per pick and carries it along every
+G1-continuous edge, and there is no switch to stop it. Fusion 360 (Tangent
+Chain on by default), SolidWorks (Tangent propagation) and Onshape (Tangent
+propagation) round the chain from one pick too, so that is the semantics, and
+Loft offers no "this edge only". The guard measured reach from the clicked
+edges, so one rim edge of the enclosure's 8-edge loop was refused while OCCT
+had built exactly the 8-pick body. Now the picks are expanded first, from
+OCCT's own contours (`BRepFilletAPI_MakeFillet::Add` / `MakeChamfer::Add`
+build the contour without blending, ~3 ms on the enclosure; the input's BRep
+is byte-identical after), so the tangency tolerance is OCCT's and the
+expansion can never reach an edge the blend would not. The contour walk runs
+in-process (it builds nothing; the pinched-corner body whose blend segfaults
+walks clean). The chain, picks first so they open the same contours, is what
+is sent to the blend server and guarded, line, arc or B-spline alike, and its
+edges feed the history. One rim edge equals all 8 and plain OCCT's one-pick body (equal
+volume, area and topology, empty boolean difference; golden
+`fillet-tangent-chain-one-pick-rounded-box-40x25x10-r5-r1` against a closed
+form). A contour stops where convex turns to concave; if the chain runs on
+tangentially into an edge of the other kind (the impeller's blade-top blend
+edge meeting the hub arc), `ChFi3d` fails in plain OCCT too. That is still
+refused, and the message now names the turn instead of the radius.
+
 **Ops that write to their input (DRAFT-IN-PLACE audit, 2026-10-02).** Each
 kernel op that hands a body to an OCCT builder was run on the blade-hub
 bodies and a box, to success and to failure, comparing the input's text BRep
@@ -590,3 +679,40 @@ byte-identical GLBs: the draft frustum's GLB has four float32 zeros that
 became -0.0 (the BRep read rebuilds a plane's axes), the same number. The
 server starts at boot by default (`BLEND_SERVER_PREWARM`): lazily, the first
 fillet took 6.3 s; prewarmed (ready 4.9 s after boot), 69 ms.
+
+## 15. Rebuild cost: one whole-body boolean per question
+
+**Measured (2026-10-07, `housing_tree`, the 360 x 240 tray of
+`tests/_big_part_builders.py`, load 4-7 on 4 cores).** At 200 features (442
+faces) a cold rebuild spent its time on: OCCT's cut and fuse booleans (~28 %),
+`clean_shape` (~17 %: `UnifySameDomain` again on a result build123d's boolean
+already unified, plus the CM-6 guard's two volumes and a deep copy), the
+"does the tool reach the body?" probe (14 %), face-reference resolution
+(`planar_faces`, ~12 %, a full signature and a `Plane` for every planar face),
+admission `BRepCheck` of the changed faces (~10 %, mostly the top face that
+borders every pocket), and a Hole's second identical common (6 %). The probe is
+a boolean COMMON: on that body it costs as much as the cut it guards (~90 ms).
+
+**Decision.** Ask each question once, and prove "reaches" cheaply when it can.
+
+- A Hole computes `body ∩ tool` once: it answers "reaches" (a solid in the
+  common) and measures the pocket (`kernel/hole.py` `_cut_drill`), and hands
+  the answer to `combine_body(..., reaches=True)`.
+- `removal_reaches_body` first tries an interior-point certificate: the
+  tool's centre of mass, classified strictly IN the tool and strictly IN the
+  body by `BRepClass3d_SolidClassifier` (tolerance `Precision::Confusion`).
+  A point interior to both means the interiors meet, so the common holds a
+  solid: a sufficient condition, not a metric threshold. A centroid that is
+  OUT or ON proves nothing, and the boolean decides exactly as before. Single
+  solids only. OCCT's own boolean classifies faces with the same classifier,
+  so the two cannot disagree on a valid body; a seeded 120-tool sweep around a
+  pocketed tray pins that they do not (`test_removal_probe_cost.py`).
+
+Result: the tray's rebuild runs 4 commons for 29 features instead of 15, and
+none for an extrude cut, pattern or mirror whose tool centroid is in material.
+Every golden's GLB and metadata are byte-identical.
+
+**Not changed, and why.** The cut itself, `UnifySameDomain` and BRepCheck are
+OCCT's. The double clean (build123d cleans inside every boolean, then
+`clean_shape` cleans again under the CM-6 guard) and the eager per-face `Plane`
+in `planar_faces` are ours and are the next costs to take; both are in BACKLOG.

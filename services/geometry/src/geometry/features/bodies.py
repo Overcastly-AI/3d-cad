@@ -20,7 +20,7 @@ from geometry.kernel import (
     ImportNoSolidError,
     ImportParseError,
     ImportParseTimeoutError,
-    boolean_bodies,
+    boolean_bodies_measured,
 )
 from geometry.kernel.types import BodyShape
 from geometry.step_cache import import_step_solid_cached
@@ -188,8 +188,13 @@ def _evaluate_boolean(
         return tool
 
     try:
-        combined = boolean_bodies(
-            target, tool, params.operation, allow_disjoint=params.allow_disjoint
+        combined = boolean_bodies_measured(
+            target,
+            tool,
+            params.operation,
+            allow_disjoint=params.allow_disjoint,
+            target_volume=state.body_volume(params.target.feature_id),
+            tool_volume=state.body_volume(params.tool.feature_id),
         )
     except BooleanDisjointError as exc:
         return FeatureError(code="boolean_disjoint", message=str(exc))
@@ -198,5 +203,10 @@ def _evaluate_boolean(
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
 
-    state.combine_bodies(params.target.feature_id, params.tool.feature_id, combined)
+    state.combine_bodies(
+        params.target.feature_id,
+        params.tool.feature_id,
+        combined.shape,
+        volume=combined.volume,
+    )
     return None

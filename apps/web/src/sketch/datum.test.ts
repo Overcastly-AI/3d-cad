@@ -21,7 +21,8 @@ import {
   withDatums,
   withoutDatums,
 } from "./datum";
-import type { SketchConstraint, SolveInfo } from "./constraints";
+import type { SketchConstraint } from "./constraints";
+import type { SolveInfo } from "./solveFeedback";
 import {
   ORIGIN_AXIS_FRACTION,
   ORIGIN_RING_FRACTION,

@@ -61,6 +61,7 @@ function settledSolve(result: EvaluateAssemblyResult | undefined) {
     solvable: result !== undefined,
     placeholder: false,
     failed: false,
+    drawing: false,
     evaluation: result,
   });
 }
@@ -199,6 +200,7 @@ describe("AssemblyInspector", () => {
             solvable: true,
             placeholder: false,
             failed: false,
+            drawing: false,
             evaluation: result,
           })}
         />

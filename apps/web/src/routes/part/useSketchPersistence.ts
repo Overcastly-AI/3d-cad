@@ -14,7 +14,7 @@ import {
   sketchFeatureUpdate,
   updateFeature,
 } from "../../api/parts";
-import { type SolveInfo } from "../../sketch/constraints";
+import { type SolveInfo } from "../../sketch/solveFeedback";
 import { planeRefFromSpec } from "../../sketch/plane";
 import { useSketchStore } from "../../sketch/store";
 import {

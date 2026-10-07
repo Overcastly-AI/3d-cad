@@ -24,8 +24,10 @@ from OCP.StdFail import StdFail_NotDone
 from OCP.TopoDS import TopoDS
 
 from geometry.kernel.fillet_guard import (
+    chain_turns,
     fillet_problem,
     max_tolerance,
+    tangent_chain,
 )
 from geometry.kernel.fillet_isolation import (
     BlendCrashed,
@@ -69,6 +71,11 @@ def fillet_body(
     k lumps. A result whose lump count differs from the input is a merge/sever
     (unsupported) → :class:`FilletError`.
 
+    Each picked edge rounds its whole tangent chain, as OCCT (and Fusion 360,
+    SolidWorks, Onshape) propagate it: the chain
+    (:func:`~geometry.kernel.fillet_guard.tangent_chain`) is what is blended
+    and checked, so one edge of a tangent loop builds the loop picked whole.
+
     *history*, when given, receives each edge paired with the fillet face(s) it
     generated (``BRepFilletAPI_MakeFillet::Generated``), for face naming
     (:mod:`geometry.kernel.naming`), and in ``worked_on`` the copy of *body*
@@ -79,9 +86,9 @@ def fillet_body(
     :func:`~geometry.kernel.fillet_guard.fillet_problem` (closed, no looser
     than it may be, faces beyond the fillet's reach intact).
 
-    A blend outside OCCT's analytic cases runs in a forked child
-    (:mod:`geometry.kernel.fillet_isolation`): OCCT can segfault there, and a
-    crash must cost this fillet, not the service.
+    Every fillet runs in a forked child of the blend server
+    (:mod:`geometry.kernel.fillet_isolation`): OCCT can segfault in any blend,
+    and a crash must cost this fillet, not the service.
 
     Raises:
         FilletError: the OCCT fillet failed or crashed, or changed the body's
@@ -93,6 +100,10 @@ def fillet_body(
         raise ValueError(f"radius_mm must be > 0, got {radius_mm}")
     lump_count = len(body.solids())
     input_tolerance = max_tolerance(body)
+    # OCCT rounds each pick's whole tangent chain; every step below (the
+    # isolation test, the blend, the guard, the history) works on that chain,
+    # so one picked edge of a tangent loop is the loop picked edge by edge.
+    edges = tangent_chain(body, edges)
     # OCCT fillets IN PLACE: a failed attempt can leave the input's vertices at
     # any tolerance (74 mm measured), so every attempt works on its own copy and
     # *body*, the caller's and the rebuild cache's, is never touched.
@@ -132,6 +143,14 @@ def fillet_body(
                 raise FilletError(
                     f"The fillet built a body Loft refuses: {exc}. The body is "
                     "left as it was."
+                ) from exc
+            turning = chain_turns(body, edges)
+            if turning is not None:
+                raise FilletError(
+                    "Fillet failed in the kernel: the tangent chain of the picked "
+                    f"edges ({turning} edges) turns from convex to concave, and "
+                    "one fillet cannot round through that turn. The body is left "
+                    "as it was."
                 ) from exc
             cause = exc.args[0] if isinstance(exc, BlendFailed) else type(exc).__name__
             raise FilletError(
@@ -220,7 +239,7 @@ def _attempt(
 ) -> tuple[BodyShape, list[Edge], list[Solid]]:
     """One fillet of a working copy, in-process or isolated; returns the copy
     the result was built on, its edges and the result's solids."""
-    if not isolate:
+    if not isolate:  # test-only seam: production always isolates
         return work, work_edges, _fillet(work, work_edges, radius_mm, history)
     return run_isolated("fillet", work, work_edges, radius_mm, history)
 

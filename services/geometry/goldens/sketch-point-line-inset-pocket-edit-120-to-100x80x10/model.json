@@ -1,0 +1,167 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000d7",
+  "tree_version": 2,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-00000000d7d7",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": { "kind": "datum_plane", "plane": "XY" },
+          "entities": [
+            {
+              "id": "ob",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 0.0 },
+              "end": { "x": 120.0, "y": 0.0 }
+            },
+            {
+              "id": "or",
+              "kind": "line",
+              "start": { "x": 120.0, "y": 0.0 },
+              "end": { "x": 120.0, "y": 80.0 }
+            },
+            {
+              "id": "ot",
+              "kind": "line",
+              "start": { "x": 120.0, "y": 80.0 },
+              "end": { "x": 0.0, "y": 80.0 }
+            },
+            {
+              "id": "ol",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 80.0 },
+              "end": { "x": 0.0, "y": 0.0 }
+            },
+            {
+              "id": "ib",
+              "kind": "line",
+              "start": { "x": 99.0, "y": 69.0 },
+              "end": { "x": 119.0, "y": 69.0 }
+            },
+            {
+              "id": "ir",
+              "kind": "line",
+              "start": { "x": 119.0, "y": 69.0 },
+              "end": { "x": 119.0, "y": 79.0 }
+            },
+            {
+              "id": "it",
+              "kind": "line",
+              "start": { "x": 119.0, "y": 79.0 },
+              "end": { "x": 99.0, "y": 79.0 }
+            },
+            {
+              "id": "il",
+              "kind": "line",
+              "start": { "x": 99.0, "y": 79.0 },
+              "end": { "x": 99.0, "y": 69.0 }
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "coincident",
+              "a": { "entity": "ob", "point": "end" },
+              "b": { "entity": "or", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "or", "point": "end" },
+              "b": { "entity": "ot", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "ot", "point": "end" },
+              "b": { "entity": "ol", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "ol", "point": "end" },
+              "b": { "entity": "ob", "point": "start" }
+            },
+            { "kind": "horizontal", "entity": "ob" },
+            { "kind": "horizontal", "entity": "ot" },
+            { "kind": "vertical", "entity": "or" },
+            { "kind": "vertical", "entity": "ol" },
+            { "kind": "fixed", "point": { "entity": "ob", "point": "start" } },
+            {
+              "kind": "distance",
+              "entity": "ob",
+              "value_mm": 100.0,
+              "name": "width"
+            },
+            { "kind": "distance", "entity": "or", "value_mm": 80.0 },
+            {
+              "kind": "coincident",
+              "a": { "entity": "ib", "point": "end" },
+              "b": { "entity": "ir", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "ir", "point": "end" },
+              "b": { "entity": "it", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "it", "point": "end" },
+              "b": { "entity": "il", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "il", "point": "end" },
+              "b": { "entity": "ib", "point": "start" }
+            },
+            { "kind": "horizontal", "entity": "ib" },
+            { "kind": "horizontal", "entity": "it" },
+            { "kind": "vertical", "entity": "ir" },
+            { "kind": "vertical", "entity": "il" },
+            {
+              "kind": "point_distance",
+              "a": { "entity": "ib", "point": "start" },
+              "b": { "entity": "ib", "point": "end" },
+              "direction": "horizontal",
+              "value_mm": 20.0
+            },
+            {
+              "kind": "point_distance",
+              "a": { "entity": "ir", "point": "start" },
+              "b": { "entity": "ir", "point": "end" },
+              "direction": "vertical",
+              "value_mm": 10.0
+            },
+            {
+              "kind": "point_line_distance",
+              "point": { "entity": "ir", "point": "end" },
+              "line": "or",
+              "value_mm": 1.0
+            },
+            {
+              "kind": "point_line_distance",
+              "point": { "entity": "ir", "point": "end" },
+              "line": "ot",
+              "value_mm": 1.0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000d8d8",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-00000000d7d7"
+          },
+          "distance_mm": 10.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

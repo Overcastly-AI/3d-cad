@@ -58,7 +58,7 @@ commits carry the ID (`git log --grep=<ID>`).
       marks picked an inner-lip edge, a rim edge and two other wrong edges
       (`hard-parts-2026-10-01/enclosure-lip-fillet-marks-pick-wrong-edges.png`).
       On the impeller, one of 14 root-edge picks also lit an unrequested edge.
-- [ ] **SHELL-INTERSECTION-SLOW** (hang, pre-existing): a sealed plate bored r2.991 with a cross bore r1.424 at t 2.39 spends 133 s in OCCT's Intersection hollow (`shell.py`), past the gateway's 90 s timeout, on every version. _Accept:_ Shell answers (a solid or a typed refusal) within the timeout on that body; the Intersection route is skipped when Arc alone decides.
+- [x] **SHELL-INTERSECTION-SLOW** (hang, pre-existing): a sealed plate bored r2.991 with a cross bore r1.424 at t 2.39 spends 133 s in OCCT's Intersection hollow (`shell.py`), past the gateway's 90 s timeout, on every version. _Accept:_ Shell answers (a solid or a typed refusal) within the timeout on that body; the Intersection route is skipped when Arc alone decides.
 - [x] **SHELL-HEAL-NONDETERMINISM** (P1): a stored sealed Shell can fail to
       rebuild at random. Rod with a cross-bore r6 at t=2 is refused on 31 of
       60 rebuilds (3 processes), before and after 5fda139: the heal step
@@ -81,6 +81,28 @@ commits carry the ID (`git log --grep=<ID>`).
       shape. _Accept:_ a stored `shell_type` (sharp | rounded, legacy rows
       read as rounded); sharp is correct on a bored plate and an L-bracket,
       checked by a method that does not rely on Arc; goldens for both.
+- [ ] **BOOLEAN-COINCIDENT-TUBE** (wrong geometry, moto frame 2026-10-07):
+      four Y cross tubes of the golden's OD 25.4 / wall 1.6 tube, 245.4 long so
+      the ends sit at the rail's outer skin (y = +-122.7), union into the frame
+      with every feature `ok`, one BRepCheck-valid lump, and STEP re-reading to
+      the same number, but the volume reads 732801.9 mm^3 and 18 shells. A
+      union cannot exceed the sum of its members (725460.9); the truth is near
+      729620. No warning. The same tree ended on the rail centreline (220 long)
+      is right (708479.158 against 708479.161 extrapolated from a smooth twin,
+      STEP drift 1e-2), and 0.5 mm past the centreline is refused
+      (`invalid_body`, strict prefix). _Accept:_ the skin case is refused or
+      right (volume <= the member sum, shells = lumps + bores);
+      `tests/test_boolean_coincident_tube.py` XPASSes and loses its xfail. Cause
+      to chase: OCCT's fuse of equal-diameter tubes whose intersection curves
+      are singular or tangent; a post-fuse volume/shell sanity guard in
+      `combine_body` would catch it.
+
+- [ ] **SHELL-MULTIBODY-HANG** (hang, pre-existing): a body of several
+      separate solids is still hollowed in-process with no CPU budget
+      (`isolate=False` in `shell.py`), so the 317 s class of shell hang that
+      SHELL-INTERSECTION-SLOW bounded for single solids remains for multi-body
+      parts. _Accept:_ a multi-solid shell answers (a solid or a typed
+      `ShellTimeout`) inside the gateway timeout, through the same child path.
 
 ## Next
 
@@ -207,7 +229,7 @@ commits carry the ID (`git log --grep=<ID>`).
       viewport after it is created (`duct-datum-not-drawn.png`); it shows only
       as a tree row and a plane-pick chip. _Accept:_ a datum is drawn as a
       sized, selectable plane, as origin planes are.
-- [ ] **SKETCH-POINT-DISTANCE**: point-to-point and point-to-line distance
+- [x] **SKETCH-POINT-DISTANCE**: point-to-point and point-to-line distance
       dimensions. _Accept:_ both can be created, solved and edited in the UI.
 - [ ] **EDGE-LOOP-SELECT**: select a face's edges, a loop, or a tangent chain
       for fillet and chamfer. _Accept:_ one gesture selects all the edges of
@@ -292,6 +314,9 @@ commits carry the ID (`git log --grep=<ID>`).
 
 One line each. The founder triages weekly; most are closed without work.
 
+- An aligned `point_distance` between two points drawn coincident reads `conflicting`: planegcs P2PDistance has no gradient at zero, so the solve cannot pull them apart (review of 564aa68).
+- An impossible pair of a point-line and an aligned point distance reads `diverged` with no constraint named, so the sketcher cannot flag which one to remove (review of 564aa68).
+
 - MinIO is built from RELEASE.2024-12-18 with Go 1.23.4 and has no image scan; a weekly trivy scan of the shipped images (plus `pnpm audit` / pip-audit) would catch advisories without reddening unrelated commits.
 - `scripts/e2e.sh` does not derive `GATEWAY_ORIGIN` from `GATEWAY_PORT`, so specs on non-default ports fail with a register 500 (local only; CI uses the defaults).
 - `scripts/e2e-teardown.sh --self-test` flakes under load (a polite process takes over 5 s to exit), turning `just lint` red locally.
@@ -374,14 +399,33 @@ One line each. The founder triages weekly; most are closed without work.
 - Sketch: applying a user Tangent at a sharp corner silently makes a cusp; endpoint-tangent glyphs sit at the leg midpoint and overlap; old fillet sketches with plain coincident joins are not backfilled.
 - A new Fillet pre-selects a deleted fillet's edges, off-screen ones included; New Sketch's plane picker resets the camera and hides the view bar; at 1280x800 a fitted face sketch runs under the side panels and picks there are lost.
 - `scripts/e2e.sh`, `vite.config.ts` and `playwright.config.ts` hard-code web :5173, so parallel e2e needs a throwaway config.
-- BLEND-SERVER-COLD: the blend server now starts at boot by default (every fillet, chamfer and draft runs there); with `BLEND_SERVER_PREWARM=false` the first blend waits 5-9 s (6.3 s measured, against 69 ms prewarmed).
+- BLEND-SERVER-COLD: the blend server now starts at boot by default (every fillet, chamfer and draft runs there, and so do a sealed analytic Shell's Intersection build and a 500+-face Shell's offset); with `BLEND_SERVER_PREWARM=false` the first of them waits 5-9 s (6.3 s measured, against 69 ms prewarmed).
 - Fixed: DRAFT-IN-PLACE. A successful draft (123 of 128) or sealed shell cleared the `Checked` flag of 1-2 input TShapes (nothing else moved; later cuts matched). Both now run on a working copy (RESEARCH "Ops that write to their input"; `test_input_untouched.py`).
 - BOOLEAN-INPUT-PCURVES: the booleans behind pattern, circular cut pattern, mirror and a failed severing subtract add pcurves and locations to the input body's edges (no geometry or tolerance change; later cuts match). Left as is: the rebuild ladder forks for it (CM-6b).
 - Fixed: DRAFT-SEGFAULT. Every draft now runs in the blend server (~30 ms warm), so the 30 deg hub draft (seam 180) and the wedge-touched box wall are typed `DraftError`s and the process survives (`test_draft_isolation.py`).
 - Fixed: BLEND-ROUTE-VERTEX-NEIGHBOUR. An all-planar fillet/chamfer ending where a boss corner sits on a box corner segfaulted on the analytic in-process route; every fillet, chamfer and draft now runs in the blend server (`test_blend_route_vertex.py`).
 - Upstream the planegcs address-order fix (`vendor/planegcs-loft.patch`) to spookylukey/planegcs (FreeCAD's PlaneGCS has the same ordering); a released wheel would drop the source build and its Eigen/Boost CI step.
 - `scripts/check-build-context.py` checks workspace members against the Dockerfile COPYs but not non-workspace `path` sources such as `vendor/planegcs`, so a second one could be missed until `deploy-path`.
-- Fillet: one picked edge of a tangent loop is refused ("a face farther than the fillet can reach ...") because `fillet_guard` measures reach from the picked edges, not the contour OCCT propagates. On the 130 enclosure rim (R1), OCCT's one-pick body equals the 8-pick body (45 397.08 mm³). Fusion rounds the chain (`hard-parts-rerun-2026-10-02/enclosure-rim-loop-*`).
-- Fillet: on the impeller, R0.5 on one blade-top blend edge (a chain that turns from convex to concave) fails in plain OCCT too, but the message says "the radius may be too large". The picked blend-end edge stores no topo_name.
+- Fixed: FILLET-TANGENT-CHAIN. One picked edge rounds (or bevels) its whole tangent chain, read from OCCT's own contours (`fillet_guard.tangent_chain`); one enclosure rim edge equals all 8 (`test_fillet_tangent_chain.py`, golden `fillet-tangent-chain-one-pick-rounded-box-40x25x10-r5-r1`). The impeller blade-top chain that runs tangent into the hub's concave arc is still refused, now with "turns from convex to concave".
+- Fillet preview: the rolling-ball band and edge highlight show only the clicked edges, not the chain that will round. Needs the chain per overlay edge (a loft-wire field, `just gen`, `FilletGauge`/`ChamferGauge`).
+- Naming: a fillet's source edge that is one boundary run cut by a seam (impeller blade 0's r3 root at hub 44) gets no name, because `edge_names` for a subset demands exactly one common edge and ignores `_one_run`, which the whole-body path honours. Its fillet face is then unnamed, and so is the blade-top blend edge on it (no `topo_name`).
+- Fillet: faces rounded from propagated chain edges are unnamed (the feature names sources from the clicked edges only, `features/modify.py`).
 - Edge flange CENTERED is saved as OFFSET 5 from end_a, so after bracket base 60 -> 70 the 50 mm flange sits 5/15 mm from the edge ends and its editor reads OFFSET (`bracket-centred-flange-saved-as-offset.png`). Fusion keeps Symmetric extents.
 - After the 8-edge rim R1 on the enclosure, the app's Volume reads 45 398.31 while its STEP reads 45 397.08 (script 45 397.18, empty difference): a 2.7e-5 gap, against 2e-6 before that fillet.
+- Moto frame (2026-10-07): a sweep along a CLOSED tangent-continuous path (the filleted rail loop) is refused with `sweep_path_closed`, so the golden sweeps two open halves butted end to end. Repro: `test_closed_loop_rail_sweeps_in_one_piece` (strict xfail).
+- Moto frame: after a mirror leaves 2 lumps, a merging `extrude` that bridges them fails `boolean_failed` ("produced 1 lumps from a 2-lump body"); Fusion and SolidWorks join them. The golden uses `merge: false` + a `boolean` union instead. Repro: `test_cross_tube_extrude_joins_the_mirrored_rails` (strict xfail).
+- Tube-frame gaps against SolidWorks Weldments / Fusion frames: no angled (tilted) datum plane (only offset, on-face, midplane bisector), so the 25 deg steering head is a revolve about a sketch axis; no symmetric (midplane) extrude, so the cross tubes extrude from a datum at y=+110; sweep paths are planar sketches anchored at the profile (no 3D sketch), so profiles sit on axis-aligned datums at tangent-axis-aligned points; no structural-member placement along edges, no mitre/cope/end-trim at joints, no cut list.
+- Moto frame round trip: the 704,000 mm^3 frame drifts 1.3e-5 mm^3 / 0.18 mm^2 through STEP (a pure-build123d twin drifts the same), above the absolute 1e-7 `ROUNDTRIP_TOL`, so its golden carries a reviewed `roundtrip_tolerance` 0.5; a relative bound would size this without per-golden overrides.
+- PERF: every in-chain boolean is unified twice (build123d's `_bool_op` cleans, then `clean_shape` cleans again under the CM-6 guard, which brackets only the second pass with two whole-body volumes and a deep copy): ~17 % of a 200-feature rebuild (RESEARCH §15).
+- PERF: `planar_faces` builds a full signature and a `Plane` for every planar face on each face-reference resolution (~107 ms per hole at 442 faces, ~12 % of a 200-feature rebuild); the `Plane` is about a third of that and only the matched face's is used.
+- Shell: the 906-face slotted lid is now a typed `ShellTimeout` in 54 s (was 317 s and a gateway timeout); a solid needs a faster offset of many-holed faces (OCCT's Arc alone takes 77-89 s CPU) or a larger budget and gateway timeout.
+- Shell: the `_arc` 60 s wall-clock backstop also raises `ShellTimeout`, so on a loaded host a body under its 40 s CPU budget can be refused; the outcome depends on load as well as speed (the comment says load does not move it).
+- Shell: a sealed shell on the Intersection route now builds it twice (in the child, then in-process) and needs the blend server; with the server cold or down, Arc's bytes ship instead.
+- Shell: on a sealed analytic body of 500+ faces the in-process Intersection build now runs on the untouched input rather than Arc's result; untested, and it could change those bytes.
+- `test_offset_history_on_a_slotted_lid_stays_cheap` compares two timings taken in one process; it may flake on a loaded CI runner.
+- Shell: tessellating the 2936-face lid result takes 10-12 s, and the admission BRepCheck repeats 2-3 s of work.
+- Blend isolation (41d07a0): the three sheet-metal unfold goldens were not compared before and after (they do not load through the evaluate path).
+- Fillet `_retry` now reseams around the whole tangent chain, so a stored part that passed only on a reseam retry could pick another seam candidate (none seen in the goldens).
+- Fillet/chamfer on sheet metal: one pick now spreads across the bend's tangent edges (chains of up to 5 edges), as Fusion does.
+- Removal probe (0375d30): the 120-tool agreement sweep in `test_removal_probe_cost.py` uses only convex boxes and cylinders; add a ring tool and a body with a void.
+- Boolean guard (BOOLEAN-COINCIDENT-TUBE): the sheet-metal edge flange and bend relief (`boolean_recording`, edge_flange.py) are not guarded; a retry there must keep the face-naming history, and thin plates do not hit the tube-on-bend case.

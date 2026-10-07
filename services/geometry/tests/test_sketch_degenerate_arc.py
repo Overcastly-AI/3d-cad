@@ -83,14 +83,18 @@ from geometry.sketch import (
     TangentConstraint,
 )
 from geometry.sketch.angles import angle_frames
-from geometry.sketch.expression import evaluate_driving_dimensions
-from geometry.sketch.planegcs_solver import (
+from geometry.sketch.degenerate import (
     DEGENERATE_ARC_RADIUS_MM,
     DEGENERATE_RADIUS_MM,
+)
+from geometry.sketch.degenerate import (
+    shippable_arc_points as _shippable_arc_points,
+)
+from geometry.sketch.expression import evaluate_driving_dimensions
+from geometry.sketch.planegcs_solver import (
     SATISFIED_TOL_MM,
     _GcsBuild,  # pyright: ignore[reportPrivateUsage]
     _restarted_without_the_collapse,  # pyright: ignore[reportPrivateUsage]
-    _shippable_arc_points,  # pyright: ignore[reportPrivateUsage]
     _submitted_points,  # pyright: ignore[reportPrivateUsage]
 )
 from geometry.sketch.residual import worst_residual

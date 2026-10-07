@@ -2,27 +2,29 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyConstraintAction,
-  authoredConstraintCount,
   CONSTRAINT_SHORTCUTS,
   constraintEntityRefs,
   constraintGlyphs,
-  describeSelection,
   dimensionEditorAnchor,
-  selectionVerbHints,
   formatDimensionMm,
-  formatSolveCell,
   groundingAnchor,
   reconcileConstraints,
   resolveSketchKey,
   sameConstraint,
   selectionAllConstruction,
-  solveDiagnostic,
   solvedReadouts,
   toggleConstruction,
-  verbIsAvailable,
-  verbSelectionShape,
   type SketchConstraint,
 } from "./constraints";
+import {
+  authoredConstraintCount,
+  describeSelection,
+  selectionVerbHints,
+  formatSolveCell,
+  solveDiagnostic,
+  verbIsAvailable,
+  verbSelectionShape,
+} from "./solveFeedback";
 import { DATUM_X_AXIS_ID, datumEntities, datumFrame } from "./datum";
 import type { SketchPick } from "./pick";
 import type { SketchEntity } from "./tools";
@@ -202,11 +204,9 @@ describe("construction geometry", () => {
   });
 
   it("is not pressed for a selection the verb would refuse — the frame", () => {
-    // A control that looks engaged and then declines. The axis is not in
-    // `entities` until something grounds to it, so resolving the selected id
-    // against them found nothing and `[].every(…)` answered true: the chip
-    // rendered pressed and, pressed, hinted "Select an entity to toggle
-    // construction." The pressed state and the verb now share one derivation.
+    // A control that looks engaged and then declines: the axis is not in
+    // `entities` until grounded, so `[].every(…)` answered true and the chip
+    // rendered pressed. The pressed state and the verb share one derivation.
     const onlyAxis = [pickLine(DATUM_X_AXIS_ID)];
     expect(toggleConstruction(onlyAxis, entities)).toBeNull();
     expect(selectionAllConstruction(onlyAxis, entities)).toBe(false);

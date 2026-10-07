@@ -207,10 +207,13 @@ def test_golden_inventory_is_nonempty() -> None:
 
 #: Goldens whose STEP round trip is held to a reviewed bound of their own
 #: (``roundtrip_tolerance`` in expected.json) instead of ROUNDTRIP_TOL. Listed
-#: here, not discovered, so an override cannot appear unreviewed. Empty since
-#: GEOMETRY-QA 2026-09-25 F1: shell-spline-prism-30x10-t1's 1e-6 was retired
-#: when its round trip met ROUNDTRIP_TOL.
-ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset()
+#: here, not discovered, so an override cannot appear unreviewed. Empty from
+#: GEOMETRY-QA 2026-09-25 F1 (shell-spline-prism-30x10-t1's 1e-6 retired) until
+#: 2026-10-07, when the 704,000 mm^3 moto frame arrived: its STEP drift (1.3e-5
+#: mm^3, 0.18 mm^2) is OCCT's, shared by a pure-build123d twin.
+ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
+    {"frame-moto-cradle-tube-od25.4-t1.6"}
+)
 
 
 def test_roundtrip_overrides_are_the_reviewed_ones() -> None:

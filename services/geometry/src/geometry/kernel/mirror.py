@@ -67,7 +67,7 @@ from collections.abc import Sequence
 
 from build123d import Plane, Solid
 
-from geometry.kernel.healing import clean_shape
+from geometry.kernel.boolean_guard import guarded_variadic
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.types import BodyShape
@@ -128,21 +128,26 @@ def mirror_union(
     if images is not None:
         images.append(reflected)
 
-    try:
-        fused = body.fuse(reflected)
-        solids = list(clean_shape(fused).solids())
-    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
-        raise MirrorError(
+    def finish(solids: list[Solid]) -> BodyShape:
+        if not solids:
+            raise MirrorError(
+                "Mirror produced no solid — the reflected union is empty. This is "
+                "unexpected for a valid body; check the mirror plane."
+            )
+        return assemble_lumps(solids)
+
+    return guarded_variadic(
+        body,
+        [reflected],
+        "union",
+        plain=lambda: body.fuse(reflected),
+        finish=finish,
+        kernel_failure=lambda exc: MirrorError(
             f"Mirror union failed in the kernel ({type(exc).__name__}); the "
             "reflection may graze or self-intersect the body."
-        ) from exc
-
-    if not solids:
-        raise MirrorError(
-            "Mirror produced no solid — the reflected union is empty. This is "
-            "unexpected for a valid body; check the mirror plane."
-        )
-    return assemble_lumps(solids)
+        ),
+        refusal=MirrorError,
+    )
 
 
 def mirror_cut(body: BodyShape, tools: Sequence[Solid], plane: Plane) -> BodyShape:
@@ -256,29 +261,34 @@ def cut_reflected_tools(body: BodyShape, reflected: Sequence[BodyShape]) -> Body
             "would remove nothing."
         )
 
-    try:
-        cut = body.cut(*reflected)
-        solids = list(clean_shape(cut).solids())
-    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
-        raise MirrorError(
+    def finish(solids: list[Solid]) -> BodyShape:
+        if not solids:
+            raise MirrorError(
+                "The mirrored cut removed the entire body — nothing remains. Check "
+                "the mirror plane and the cut it reflects."
+            )
+        if len(solids) != lump_count:
+            raise MirrorError(
+                f"The mirrored cut changed the body from {lump_count} to "
+                f"{len(solids)} disjoint lumps — a reflected tool sliced a lump "
+                "apart (design §7.6 / §MB-4)."
+            )
+        if lump_count == 1:
+            return solids[0]
+        return assemble_lumps(solids)
+
+    return guarded_variadic(
+        body,
+        reflected,
+        "subtract",
+        plain=lambda: body.cut(*reflected),
+        finish=finish,
+        kernel_failure=lambda exc: MirrorError(
             f"Mirror cut failed in the kernel ({type(exc).__name__}); a reflected "
             "tool may graze or self-intersect the body."
-        ) from exc
-
-    if not solids:
-        raise MirrorError(
-            "The mirrored cut removed the entire body — nothing remains. Check the "
-            "mirror plane and the cut it reflects."
-        )
-    if len(solids) != lump_count:
-        raise MirrorError(
-            f"The mirrored cut changed the body from {lump_count} to {len(solids)} "
-            "disjoint lumps — a reflected tool sliced a lump apart (design §7.6 / "
-            "§MB-4)."
-        )
-    if lump_count == 1:
-        return solids[0]
-    return assemble_lumps(solids)
+        ),
+        refusal=MirrorError,
+    )
 
 
 def fuse_reflected_tools(body: BodyShape, reflected: Sequence[BodyShape]) -> BodyShape:
@@ -297,19 +307,25 @@ def fuse_reflected_tools(body: BodyShape, reflected: Sequence[BodyShape]) -> Bod
         MirrorError: the OCCT fuse failed, or produced no solid (never expected — a
             reflection of a solid is a solid).
     """
-    try:
-        fused = body.fuse(*reflected)
-        solids = list(clean_shape(fused).solids())
-    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
-        raise MirrorError(
+
+    def finish(solids: list[Solid]) -> BodyShape:
+        if not solids:
+            raise MirrorError(
+                "The mirrored add produced no solid — this is unexpected for a "
+                "valid body and tool; check the mirror plane."
+            )
+        return assemble_lumps(solids)
+
+    return guarded_variadic(
+        body,
+        reflected,
+        "union",
+        plain=lambda: body.fuse(*reflected),
+        finish=finish,
+        kernel_failure=lambda exc: MirrorError(
             f"Mirror fuse of the reflected tool failed in the kernel "
             f"({type(exc).__name__}); the reflected tool may graze or "
             "self-intersect the body."
-        ) from exc
-
-    if not solids:
-        raise MirrorError(
-            "The mirrored add produced no solid — this is unexpected for a valid "
-            "body and tool; check the mirror plane."
-        )
-    return assemble_lumps(solids)
+        ),
+        refusal=MirrorError,
+    )
