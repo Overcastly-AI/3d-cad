@@ -81,6 +81,21 @@ commits carry the ID (`git log --grep=<ID>`).
       shape. _Accept:_ a stored `shell_type` (sharp | rounded, legacy rows
       read as rounded); sharp is correct on a bored plate and an L-bracket,
       checked by a method that does not rely on Arc; goldens for both.
+- [ ] **BOOLEAN-COINCIDENT-TUBE** (wrong geometry, moto frame 2026-10-07):
+      four Y cross tubes of the golden's OD 25.4 / wall 1.6 tube, 245.4 long so
+      the ends sit at the rail's outer skin (y = +-122.7), union into the frame
+      with every feature `ok`, one BRepCheck-valid lump, and STEP re-reading to
+      the same number, but the volume reads 732801.9 mm^3 and 18 shells. A
+      union cannot exceed the sum of its members (725460.9); the truth is near
+      729620. No warning. The same tree ended on the rail centreline (220 long)
+      is right (708479.158 against 708479.161 extrapolated from a smooth twin,
+      STEP drift 1e-2), and 0.5 mm past the centreline is refused
+      (`invalid_body`, strict prefix). _Accept:_ the skin case is refused or
+      right (volume <= the member sum, shells = lumps + bores);
+      `tests/test_boolean_coincident_tube.py` XPASSes and loses its xfail. Cause
+      to chase: OCCT's fuse of equal-diameter tubes whose intersection curves
+      are singular or tangent; a post-fuse volume/shell sanity guard in
+      `combine_body` would catch it.
 
 ## Next
 
@@ -391,4 +406,3 @@ One line each. The founder triages weekly; most are closed without work.
 - Moto frame: after a mirror leaves 2 lumps, a merging `extrude` that bridges them fails `boolean_failed` ("produced 1 lumps from a 2-lump body"); Fusion and SolidWorks join them. The golden uses `merge: false` + a `boolean` union instead. Repro: `test_cross_tube_extrude_joins_the_mirrored_rails` (strict xfail).
 - Tube-frame gaps against SolidWorks Weldments / Fusion frames: no angled (tilted) datum plane (only offset, on-face, midplane bisector), so the 25 deg steering head is a revolve about a sketch axis; no symmetric (midplane) extrude, so the cross tubes extrude from a datum at y=+110; sweep paths are planar sketches anchored at the profile (no 3D sketch), so profiles sit on axis-aligned datums at tangent-axis-aligned points; no structural-member placement along edges, no mitre/cope/end-trim at joints, no cut list.
 - Moto frame round trip: the 704,000 mm^3 frame drifts 1.3e-5 mm^3 / 0.18 mm^2 through STEP (a pure-build123d twin drifts the same), above the absolute 1e-7 `ROUNDTRIP_TOL`, so its golden carries a reviewed `roundtrip_tolerance` 0.5; a relative bound would size this without per-golden overrides.
-- Moto frame: a cross tube whose end face lies ON a rail's centreline (equal diameters, axes crossing) makes OCCT's fuse unreliable: `ring_sweep.fuse(tube)` returned a NEGATIVE volume, and the tree's and a twin's results wandered by 0.3 mm^3 and 1e-2 mm^3 through STEP; ending the tubes 6 mm short of the centreline fixed all of it. Worth a guard or a fuzzy retry in `boolean`/`combine_body`.
