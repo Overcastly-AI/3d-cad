@@ -440,3 +440,6 @@ One line each. The founder triages weekly; most are closed without work.
 - CI: the e2e "planegcs build prerequisites" apt step has no timeout or retry; one hung 45 min on 0fbd6cf, and the orchestrator cannot re-run jobs (403).
 - Shell: a sealed cross-bored plate plus a box varies byte-wise across processes (Arc's sealed hollow face order follows memory addresses), related to SHELL-EDGE-DETERMINISM. A 500+-face solid offset in the child differs from in-process only in signed zeros.
 - Fixed: SHELL-MULTIBODY-HANG (92b85b0). One 40 s budget covers every lump of a shell; an in-process lump (<500 faces) can overshoot it by at most one lump (~10 s).
+- LIP-SEAM-UNIFY: a sketch-on-face lip flush with a wall keeps a seam face per wall (34 faces where a unified body has 19); the join's clean unifies 1 of 16 pairs, with or without projection (revise-width-lip-projected-rim-130x80x35).
+- The durable circle tier re-anchors a deleted arc onto a concentric arc of another radius for fillet, chamfer and edge-flange refs too; projections now refuse it by name (`keep_name`).
+- Suppressing the feature a projection is anchored on fails the sketch with `references_suppressed`; Fusion keeps the sketch and marks the projection sick.

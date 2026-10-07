@@ -709,6 +709,40 @@ became -0.0 (the BRep read rebuilds a plane's axes), the same number. The
 server starts at boot by default (`BLEND_SERVER_PREWARM`): lazily, the first
 fillet took 6.3 s; prewarmed (ready 4.9 s after boot), 69 ms.
 
+**Projected sketch entities follow their edges (SKETCH-PROJECT-EDGES step 2).**
+Fusion 360's Project and SolidWorks' Convert Entities. A projected line, arc
+or circle re-finds its edge on the body at the sketch's tree position (the
+active body, as `on_face` and fillet use) through the same picked-edge
+matcher, once per sketch (`resolve_edges_each`, non-raising), and is
+re-projected along the plane normal BEFORE the solve, so what is constrained
+to it follows. Only exact projections: a line (its two ends), and a circle or
+arc whose axis is parallel to the normal (CCW kept by swapping the ends when
+the axis is antiparallel). A tilted circle is an ellipse, and an ellipse or
+B-spline has no exact sketch entity: those are `unsupported_curve`, never a
+fit-point approximation (SKETCH-PROJECT-SPLINE). Rules:
+- *Sick, as in Fusion.* An edge that does not resolve, resolves to several,
+  has no body, projects to nothing (`degenerate`) or to another kind
+  (`kind_changed`) leaves the entity at its stored coordinates, which are its
+  last good projection, and the sketch stays `ok`; `SolvedSketchData.
+  projections` says why. Failing the sketch would take every feature after it
+  down for an edge the user may not need.
+- *A geometric re-find of a named edge must keep the name.* The durable circle
+  tier is invariant under a radius change, so with a shell deleted the rim's
+  inner R3 arc re-found the outer R5 arc concentric with it and the sketch
+  moved with no error. A projection (`keep_name=True`) refuses a durable or
+  adjacent match whose edge the body names differently from the stored name;
+  an unnamed ref, or an edge the body cannot name, matches as before. Fillet
+  and the other consumers keep the old rule (BACKLOG note).
+- *A line's ends keep their slot.* Signature ends are canonical
+  (lexicographic) and an edit can swap them, but a constraint names `start` or
+  `end`. An edge still on its stored line keeps its order; otherwise the end
+  touching the stored `end_a_topo_name` face is the stored `end_a`
+  (the partial-flange rule of 58f1fa3), and without one the assignment with the
+  least summed distance to the stored ends wins.
+Goldens `revise-width-lip-projected-rim-130x80x35` and the inset variant
+(`point_line_distance` off the projected rim) agree with closed forms to
+2e-10 mm^3.
+
 ## 15. Rebuild cost: one whole-body boolean per question
 
 **Measured (2026-10-07, `housing_tree`, the 360 x 240 tray of

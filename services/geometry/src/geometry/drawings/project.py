@@ -313,7 +313,7 @@ def _iter_edges(shape: TopoDS_Shape | None) -> list[BRepAdaptor_Curve]:
 def _canonical_segment(start: Point2D, end: Point2D) -> tuple[Point2D, Point2D]:
     """Order two endpoints lexicographically — orientation independence (§1.3):
     the signature must not depend on which way OCCT walked the edge (the same
-    subtlety ``kernel.edges._canonical_endpoints`` handles for 3D edges)."""
+    subtlety ``kernel.edges.canonical_endpoints`` handles for 3D edges)."""
     return (start, end) if start <= end else (end, start)
 
 

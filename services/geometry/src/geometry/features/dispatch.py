@@ -161,5 +161,9 @@ def _feature_data(feature_id: uuid.UUID, state: EvaluationState) -> FeatureData 
         {
             **solved.model_dump(),
             "diagnosis": diagnosis.model_dump() if diagnosis else None,
+            "projections": [
+                status.model_dump()
+                for status in state.sketch_projections.get(feature_id, [])
+            ],
         }
     )

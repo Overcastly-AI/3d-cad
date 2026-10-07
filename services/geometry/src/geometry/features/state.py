@@ -20,6 +20,7 @@ from build123d import Plane, Solid
 from loft_wire.features import (
     EvaluatedFeatureInput,
     FeatureError,
+    SketchProjectionStatus,
 )
 
 from geometry.kernel import (
@@ -145,6 +146,12 @@ class EvaluationState:
         default_factory=dict[uuid.UUID, Plane]
     )
     datum_planes: dict[uuid.UUID, Plane] = field(default_factory=dict[uuid.UUID, Plane])
+    #: How each ok sketch's projected entities re-projected (SKETCH-PROJECT-
+    #: EDGES), keyed by sketch id; absent for a sketch with none. Read into the
+    #: sketch's ``SolvedSketchData.projections``.
+    sketch_projections: dict[uuid.UUID, list[SketchProjectionStatus]] = field(
+        default_factory=dict[uuid.UUID, list[SketchProjectionStatus]]
+    )
     bodies: dict[uuid.UUID, BodyShape] = field(
         default_factory=dict[uuid.UUID, BodyShape]
     )
@@ -575,6 +582,7 @@ class EvaluationState:
             solved_sketches=dict(self.solved_sketches),
             sketch_planes=dict(self.sketch_planes),
             datum_planes=dict(self.datum_planes),
+            sketch_projections=dict(self.sketch_projections),
             bodies=dict(self.bodies),
             sheet_metal_defaults=dict(self.sheet_metal_defaults),
             bend_provenance=dict(self.bend_provenance),

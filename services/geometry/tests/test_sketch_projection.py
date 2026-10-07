@@ -1,18 +1,35 @@
-"""SKETCH-PROJECT-EDGES step 1: projected entities are fixed solver geometry.
+"""SKETCH-PROJECT-EDGES: projected entities, in the solver and on a rebuild.
 
 A projected line, arc or circle is a body edge seen from the sketch plane
-(Fusion 360's Project, SolidWorks' Convert Entities). Until re-projection lands
-the solver honours the stored coordinates: the entity is built from fixed
-parameters, adds no degrees of freedom, takes constraints through its ordinary
-points, and comes back unchanged with its link. Edits that reshape it in place
-are refused until the link is broken.
+(Fusion 360's Project, SolidWorks' Convert Entities). In the solver (step 1)
+the entity is built from fixed parameters, adds no degrees of freedom, takes
+constraints through its ordinary points, and comes back unchanged with its
+link. Edits that reshape it in place are refused until the link is broken.
+
+On a rebuild (step 2) the evaluator re-finds the edge on the body at the
+sketch's tree position and re-projects it before the solve
+(:func:`geometry.kernel.project.project_edge`); one that cannot follow its edge
+is sick: it keeps its stored coordinates and the sketch stays ok. The width
+edit itself, against a fresh pick, is ``test_sketch_projection_revision.py``.
 """
 
+import copy
+import importlib.util
 import math
 import uuid
+from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
+from build123d import Edge, Plane
+from geometry.features.evaluate import rebuild_cache_stats, reset_rebuild_cache
+from geometry.kernel.project import (
+    ProjectedArc,
+    ProjectedCircle,
+    ProjectedLine,
+    project_edge,
+)
 from geometry.sketch import (
     PlanegcsSketchSolver,
     SketchDefinition,
@@ -29,6 +46,7 @@ from geometry.sketch.planegcs_solver import (
     SETTLE_WORK_UNITS,
     _GcsBuild,  # pyright: ignore[reportPrivateUsage]
 )
+from geometry.sketch.projected import entity_point_names
 from geometry.sketch.schemas import (
     MirrorAxisEntity,
     Point2D,
@@ -38,6 +56,7 @@ from geometry.sketch.schemas import (
     SketchLine,
 )
 from geometry.sketch.solver import SketchDefinitionError
+from loft_wire.features import SolvedSketchData
 
 TOL = 1e-9
 ANCHOR = uuid.UUID("00000000-0000-4000-8000-000000000001")
@@ -337,3 +356,283 @@ def test_offset_and_mirror_copies_are_unlinked() -> None:
     assert len(copies) == 3
     assert all(copy.projection is None for copy in copies)
     assert isinstance(copies[2], SketchArc)
+
+
+# --- step 2: re-projection on a rebuild ---------------------------------------------
+
+_V3 = tuple[float, float, float]
+
+#: Sketch planes as explicit (origin, x axis, y axis, normal): the expected
+#: local coordinates below are dot products with these axes, worked by hand,
+#: never the kernel's own transform. Offset: XY lifted 10. Tilted: rotated 30
+#: deg about X. Antiparallel: XY seen from below (normal -Z, so local y = -y).
+_S, _C = math.sin(math.radians(30.0)), math.cos(math.radians(30.0))
+_PLANES: dict[str, tuple[_V3, _V3, _V3, _V3]] = {
+    "offset": ((0.0, 0.0, 10.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+    "tilted": ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, _C, _S), (0.0, -_S, _C)),
+    "antiparallel": (
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (0.0, -1.0, 0.0),
+        (0.0, 0.0, -1.0),
+    ),
+}
+
+
+def _plane(name: str) -> Plane:
+    origin, x, _y, z = _PLANES[name]
+    return Plane(origin=origin, x_dir=x, z_dir=z)
+
+
+def _dot(a: _V3, b: _V3) -> float:
+    return sum(p * q for p, q in zip(a, b, strict=True))
+
+
+def _add(a: _V3, b: _V3, k: float = 1.0) -> _V3:
+    return (a[0] + k * b[0], a[1] + k * b[1], a[2] + k * b[2])
+
+
+def _local(name: str, p: _V3) -> tuple[float, float]:
+    origin, x, y, _z = _PLANES[name]
+    d = _add(p, origin, -1.0)
+    return (_dot(d, x), _dot(d, y))
+
+
+def _near(got: tuple[float, float], want: tuple[float, float]) -> bool:
+    return math.dist(got, want) <= 1e-9
+
+
+@pytest.mark.parametrize("name", sorted(_PLANES))
+def test_a_line_projects_to_its_ends_seen_along_the_normal(name: str) -> None:
+    a, b = (1.0, 2.0, 3.0), (4.0, 6.0, 3.0)
+    got = project_edge(Edge.make_line(b, a), _plane(name), "line")
+    assert isinstance(got, ProjectedLine)
+    # The canonical ends: end_a is the lexicographically smaller, whichever
+    # way the edge runs.
+    assert _near(got.a, _local(name, a))
+    assert _near(got.b, _local(name, b))
+    assert got.a_3d == pytest.approx(a) and got.b_3d == pytest.approx(b)
+
+
+@pytest.mark.parametrize("name", sorted(_PLANES))
+@pytest.mark.parametrize("sense", [1.0, -1.0])
+def test_an_arc_projects_counter_clockwise_whichever_way_its_axis_points(
+    name: str, sense: float
+) -> None:
+    """A quarter arc 7 mm off the plane, its axis along (+) or against (-)
+    the normal. Seen from the sketch, the -axis arc runs clockwise, so its
+    ends swap to keep the sketch's counter-clockwise convention."""
+    origin, x, y, z = _PLANES[name]
+    centre = _add(_add(origin, z, 7.0), x, 2.0)
+    axis = (sense * z[0], sense * z[1], sense * z[2])
+    arc = Edge.make_circle(
+        4.0, Plane(origin=centre, x_dir=x, z_dir=axis), start_angle=0, end_angle=90
+    )
+    got = project_edge(arc, _plane(name), "arc")
+    assert isinstance(got, ProjectedArc)
+    on_x, on_y = _add(centre, x, 4.0), _add(centre, y, 4.0 * sense)
+    first, last = (on_x, on_y) if sense > 0 else (on_y, on_x)
+    assert _near(got.center, _local(name, centre))
+    assert _near(got.start, _local(name, first))
+    assert _near(got.end, _local(name, last))
+
+
+@pytest.mark.parametrize("name", sorted(_PLANES))
+@pytest.mark.parametrize("sense", [1.0, -1.0])
+def test_a_circle_projects_to_its_centre_and_radius(name: str, sense: float) -> None:
+    origin, x, _y, z = _PLANES[name]
+    centre = _add(_add(origin, z, -3.0), x, 5.0)
+    axis = (sense * z[0], sense * z[1], sense * z[2])
+    circle = Edge.make_circle(2.5, Plane(origin=centre, x_dir=x, z_dir=axis))
+    got = project_edge(circle, _plane(name), "circle")
+    assert isinstance(got, ProjectedCircle)
+    assert _near(got.center, _local(name, centre))
+    assert got.radius == pytest.approx(2.5, abs=1e-12)
+
+
+def test_a_line_along_the_normal_is_degenerate() -> None:
+    edge = Edge.make_line((1.0, 1.0, 0.0), (1.0, 1.0, 5.0))
+    assert project_edge(edge, Plane.XY, "line") == "degenerate"
+
+
+@pytest.mark.parametrize(
+    "edge",
+    [
+        Edge.make_circle(3.0, Plane.XZ),
+        Edge.make_circle(3.0, Plane(origin=(0, 0, 0), z_dir=(0, 0.1, 1))),
+        Edge.make_ellipse(5.0, 3.0),
+        Edge.make_spline([(0, 0, 0), (5, 3, 0), (10, 0, 0)]),
+    ],
+    ids=["circle-end-on", "circle-tilted", "ellipse", "bspline"],
+)
+def test_a_curve_without_an_exact_sketch_entity_is_unsupported(edge: Edge) -> None:
+    for kind in ("line", "arc", "circle"):
+        assert project_edge(edge, Plane.XY, kind) == "unsupported_curve"
+
+
+def test_an_edge_that_projects_to_another_kind_is_kind_changed() -> None:
+    line = Edge.make_line((0, 0, 0), (5, 0, 0))
+    arc = Edge.make_circle(3.0, start_angle=0, end_angle=90)
+    circle = Edge.make_circle(3.0)
+    assert project_edge(line, Plane.XY, "arc") == "kind_changed"
+    assert project_edge(arc, Plane.XY, "line") == "kind_changed"
+    assert project_edge(arc, Plane.XY, "circle") == "kind_changed"
+    assert project_edge(circle, Plane.XY, "arc") == "kind_changed"
+
+
+def _load_lip_builder() -> ModuleType:
+    path = Path(__file__).resolve().parent / "_lip_builder.py"
+    spec = importlib.util.spec_from_file_location("_lip_builder", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+LIP = _load_lip_builder()
+
+
+def _solved(evaluation: Any, feature_id: uuid.UUID) -> SolvedSketchData:
+    (result,) = [r for r in evaluation.result.features if r.feature_id == feature_id]
+    assert result.status == "ok", result.error
+    assert isinstance(result.data, SolvedSketchData)
+    return result.data
+
+
+def _stored(tree: list[dict[str, Any]], feature_id: uuid.UUID) -> list[SketchEntity]:
+    (item,) = [i for i in tree if i["id"] == str(feature_id)]
+    return SketchDefinition.model_validate(item["feature"]["params"]).entities
+
+
+def _states(data: SolvedSketchData) -> dict[str, tuple[str, str | None, str | None]]:
+    return {p.entity: (p.state, p.tier, p.reason) for p in data.projections}
+
+
+def _same_place(got: SketchEntity, want: SketchEntity) -> bool:
+    pairs = zip(entity_point_names(got), entity_point_names(want), strict=True)
+    return all(math.dist((p.x, p.y), (q.x, q.y)) <= 1e-9 for (_n, p), (_m, q) in pairs)
+
+
+def test_an_unedited_rebuild_re_projects_every_edge_onto_its_stored_place() -> None:
+    tree = LIP.authored_tree(LIP.AUTHORED_W)
+    data = _solved(LIP.evaluate(tree), LIP.RIM_SKETCH_ID)
+    assert len(data.projections) == 16
+    assert set(_states(data).values()) == {("ok", "exact", None)}
+    assert data.dof == 0
+    stored = _stored(tree, LIP.RIM_SKETCH_ID)
+    assert all(
+        _same_place(got, want) for got, want in zip(data.entities, stored, strict=True)
+    )
+
+
+def test_with_no_body_every_projection_is_sick_and_keeps_its_coordinates() -> None:
+    """A projected sketch ahead of every body: sick with ``no_body``, and the
+    sketch still ok on its stored coordinates."""
+    tree = LIP.authored_tree(LIP.AUTHORED_W)
+    rim = copy.deepcopy(next(i for i in tree if i["id"] == str(LIP.RIM_SKETCH_ID)))
+    rim["feature"]["params"]["plane"] = {"kind": "datum_plane", "plane": "XY"}
+    data = _solved(LIP.evaluate([rim]), LIP.RIM_SKETCH_ID)
+    assert set(_states(data).values()) == {("sick", None, "no_body")}
+    assert data.entities == _stored([rim], LIP.RIM_SKETCH_ID)
+
+
+def test_deleting_the_shell_leaves_the_sketch_ok_with_its_inner_loop_sick() -> None:
+    """Without the shell there is no inner rim. Its 8 edges are sick and keep
+    their stored place; the outer 8 still resolve, exactly, onto theirs. The
+    inner arcs are NOT re-found on the concentric outer arcs, as the durable
+    circle tier alone would: a geometric re-find the body names differently
+    is another edge (``resolve_edges_each(keep_name=True)``)."""
+    tree = LIP.authored_tree(LIP.AUTHORED_W)
+    gone = [i for i in tree if i["id"] != str(LIP.SHELL_ID)]
+    evaluation = LIP.evaluate(gone)
+    assert all(status == "ok" for _i, status, _c in LIP.statuses(evaluation))
+    data = _solved(evaluation, LIP.RIM_SKETCH_ID)
+    states = _states(data)
+    inner = {e for e in states if e.startswith("i")}
+    assert len(inner) == 8
+    assert {e for e, s in states.items() if s == ("sick", None, "unresolved")} == inner
+    assert {e for e, s in states.items() if s == ("ok", "exact", None)} == (
+        set(states) - inner
+    )
+    stored = _stored(tree, LIP.RIM_SKETCH_ID)
+    for got, want in zip(data.entities, stored, strict=True):
+        assert got == want if got.id in inner else _same_place(got, want)
+
+
+def test_an_edge_that_now_projects_to_another_kind_is_sick() -> None:
+    """The outer +X/-Y corner arc stored as a line between its ends."""
+    tree = LIP.authored_tree(LIP.AUTHORED_W)
+    rim = next(i for i in tree if i["id"] == str(LIP.RIM_SKETCH_ID))
+    entities = rim["feature"]["params"]["entities"]
+    index = next(k for k, e in enumerate(entities) if e["id"] == "obr")
+    arc = entities[index]
+    entities[index] = {
+        "id": "obr",
+        "kind": "line",
+        "start": arc["start"],
+        "end": arc["end"],
+        "construction": True,
+        "projection": arc["projection"],
+    }
+    data = _solved(LIP.evaluate(tree[:6]), LIP.RIM_SKETCH_ID)
+    assert _states(data)["obr"] == ("sick", None, "kind_changed")
+    want = _by_id(_stored(tree, LIP.RIM_SKETCH_ID), "obr")
+    assert _by_id(data.entities, "obr") == want
+
+
+def test_seen_end_on_a_line_is_degenerate_and_an_arc_unsupported() -> None:
+    """A sketch on the XZ plane projecting the rim's -X line (it runs along Y,
+    the plane's normal) and a corner arc (its axis lies IN the plane)."""
+    tree = LIP.authored_tree(LIP.AUTHORED_W)
+    rim = next(i for i in tree if i["id"] == str(LIP.RIM_SKETCH_ID))
+    picked = [
+        e for e in rim["feature"]["params"]["entities"] if e["id"] in ("ol", "obr")
+    ]
+    side_id = uuid.UUID(int=0xF1F1)
+    side = {
+        "id": str(side_id),
+        "feature": {
+            "type": "sketch",
+            "version": 1,
+            "params": {
+                "plane": {"kind": "datum_plane", "plane": "XZ"},
+                "entities": picked,
+                "constraints": [],
+            },
+        },
+    }
+    data = _solved(LIP.evaluate([*tree[:5], side]), side_id)
+    assert _states(data) == {
+        "obr": ("sick", None, "unsupported_curve"),
+        "ol": ("sick", None, "degenerate"),
+    }
+
+
+def test_a_cold_and_a_cache_resumed_rebuild_are_byte_identical() -> None:
+    """Resumed before the sketch (it projects off a cached body) and after it
+    (its payload comes back from the checkpoint): the same bytes and the same
+    projection statuses as a rebuild with the cache emptied."""
+    tree = LIP.revised(LIP.authored_tree(LIP.AUTHORED_W, inset=True), LIP.REVISED_W)
+
+    def answer() -> tuple[bytes | None, str | None, Any, list[Any]]:
+        evaluation = LIP.evaluate(tree, 7)
+        result = evaluation.result
+        return (
+            evaluation.glb,
+            result.mesh_glb_id,
+            result.properties,
+            [r.data for r in result.features],
+        )
+
+    reset_rebuild_cache()
+    cold = answer()
+    try:
+        for prefix in (5, 6):
+            reset_rebuild_cache()
+            LIP.evaluate(tree[:prefix], 6)
+            hits = rebuild_cache_stats().hits
+            warm = answer()
+            assert rebuild_cache_stats().hits > hits
+            assert warm == cold
+    finally:
+        reset_rebuild_cache()

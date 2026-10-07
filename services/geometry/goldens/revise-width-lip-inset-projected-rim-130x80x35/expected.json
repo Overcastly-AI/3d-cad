@@ -1,0 +1,43 @@
+{
+  "description": "SKETCH-PROJECT-EDGES step 2, the INSET lip: a projected rim drives free geometry through a point-to-line distance. The same 120x80x35 R5 box, 2 mm shell open at the top and on_face rim datum as revise-width-lip-projected-rim-130x80x35. The rim sketch projects all 16 rim edges, keeps the 8 outer ones as CONSTRUCTION, and draws a free loop 1 mm inside them: 4 lines + 4 arcs joined by endpoint tangency, each arc's centre coincident with its projected R5 corner's centre, each line held 1 mm off its projected side by a point_line_distance (564aa68); DOF 0. The profile is that loop around the projected inner loop, extruded 3 mm: a 1 mm lip on the inner half of the rim. Picks and stored coordinates at width 120 (tests/_lip_builder.py inset), then ONLY the base width retyped to 130: the projected edges move 5 mm out and the solver carries the free loop with them.",
+  "derivation": [
+    "Closed form, k = 4 - pi: Ao = 130*80 - 25k (outer R5 footprint), Al = 128*78 - 16k (the lip's outer R4 boundary), Ai = 126*76 - 9k (the R3 cavity). volume = 35 Ao + 3 (Al - Ai) - 33 Ai = 48701.8139995003 mm^3. Harness 48701.813999500504 (+2.0e-10). crosscheck.py (pure build123d: make_box, fillet, offset; the lip is the rim's outer wire offset_2d by -1 around the rim's inner wire, extruded 3 mm and fused; no Loft code, no sketch, no solver) gives 48701.81399950022 (-8e-11).",
+    "surface_area = 35 (380 + 10 pi) + (Ao - Al) [the 1 mm ledge left at z=35] + 3 (380 + 8 pi) [lip outer sides] + (Al - Ai) [lip top] + 36 (380 + 6 pi) [inner walls up the lip] + Ao + Ai = 50730.61929829746; harness 50730.61929829745, cross-check 50730.61929829746.",
+    "centroid: x and y are 0 by symmetry (harness ~5e-15); z = (35 Ao * 17.5 + 3 (Al - Ai) * 36.5 - 33 Ai * 18.5) / V = 11.487091372975572, harness 11.487091372975517 (-5.5e-14).",
+    "bounding_box = [-65,-40,0]..[65,40,38].",
+    "topology: 36 faces / 88 edges / 1 shell = the shell's 19 faces (the rim now the 1 mm ledge) + the lip's 8 outer sides, 8 inner sides and top. None of the 8 inner lip sides is unified with the flush inner wall below it (see revise-width-lip-projected-rim-130x80x35, BACKLOG LIP-SEAM-UNIFY); the cross-check's fuse unifies 3 of them (33/83). Volume, area and bounds are unaffected.",
+    "mesh counts are the harness's at linear 0.1 mm (asserted exactly). GLB byte size is deliberately not pinned."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Curved (cylindrical rounds) plus shell offset geometry, as revise-width-lip-projected-rim-130x80x35. The harness agrees with the closed form to 2e-10 mm^3; an inset left at the 120 width misses by 60 mm^3. Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 48701.813999500504,
+    "surface_area": 50730.61929829745,
+    "centroid": {
+      "x": 4.724714351521091e-15,
+      "y": -5.3806653064506505e-15,
+      "z": 11.487091372975517
+    },
+    "bounding_box": {
+      "min": {
+        "x": -65.0,
+        "y": -40.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 65.0,
+        "y": 40.0,
+        "z": 38.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 36,
+    "edges": 88,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 1912,
+    "triangles": 1844
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "description": "SKETCH-PROJECT-EDGES step 2: a projected sketch follows its body edges on a rebuild (Fusion 360 Project, SolidWorks Convert Entities). A 120x80x35 box (Extrude1 of a centred rectangle), Fillet1 rounding the four vertical edges R5, Shell1 hollowing to a 2 mm wall open at the top, an on_face datum on the rim, and a sketch on it that PROJECTS the rim's 16 edges (outer loop: 4 lines + 4 R5 arcs; inner loop: 4 lines + 4 R3 arcs), extruded 3 mm into a lip that joins the body. Every pick was captured from the selection overlay at width 120 and the entities store their width-120 coordinates (tests/_lip_builder.py generates model.json). Then ONLY the base width is retyped 120 -> 130. Each projected entity re-finds its edge (all 16 on the 'named' tier) and re-projects before the solve, so the lip is the 130 mm rim extruded and its walls are flush with the shell's. Without re-projection the lip stays at 120 (the control in tests/test_sketch_projection_revision.py: 120 mm^3 short).",
+  "derivation": [
+    "Closed form, k = 4 - pi (four R1 corner rounds remove k from a rectangle's area): the result is a rounded 130x80 R5 prism 38 tall minus the R3 126x76 cavity from z=2 to 38. Ao = 130*80 - 25k, Ai = 126*76 - 9k. volume = 38 Ao - 36 Ai = 49926.6370011472 mm^3. Harness 49926.637001147144 (-5.6e-11). crosscheck.py (pure build123d: make_box, fillet, offset, the rim face itself extruded 3 mm and fused; no Loft code, no sketch) gives 49926.63700114719 (-1.0e-11).",
+    "surface_area = 38 (380 + 10 pi) [outer walls + rounds] + 36 (380 + 6 pi) [inner walls + rounds] + Ao [bottom] + Ai [cavity floor] + (Ao - Ai) [lip top] = 50749.468854219005; harness 50749.46885421901 (+5e-12), cross-check 50749.46885421899.",
+    "centroid: x and y are 0 by the two mirror planes (harness ~1e-14); z = (Ao*38*19 - Ai*36*20) / V = 12.100719441370584, harness 12.100719441370636 (+5e-14).",
+    "bounding_box = [-65,-40,0]..[65,40,38]. A lip left at 120 has the same box but 120 mm^3 less volume (3 mm x the 40 mm^2 the rim grows by), so the volume is the gate.",
+    "topology: 34 faces / 79 edges / 1 shell. Outer walls: 3 planes (z 0-35), 1 plane unified with its lip side (z 0-38), 4 R5 rounds; lip outer sides: 3 planes + 4 cylinders (z 35-38); inner walls: 4 planes + 4 R3 rounds (z 2-35); lip inner sides: 4 planes + 4 cylinders; bottom, cavity floor, lip top. The join's clean unifies only 1 of the 16 flush wall/lip-side pairs. The same tree with hand-typed, rounded, UNLINKED coordinates gives the same 34/79, so this is the existing join-and-clean behaviour of a sketch-on-face lip, not the projection (BACKLOG LIP-SEAM-UNIFY). The cross-check's rim-face extrude unifies a different subset (32/76); a fully unified body is 19/56. None of these change the volume, area or bounds.",
+    "mesh counts are the harness's at linear 0.1 mm (asserted exactly; deterministic within a kernel version). GLB byte size is deliberately not pinned."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Curved (cylindrical rounds) plus shell offset geometry: the documented curved-shell scale used by revise-width-drafted-fillet-shell-130x80x35. The harness agrees with the closed form to 6e-11 mm^3, four orders inside the bound; a lip left at 120 or on the wrong loop misses by >= 120 mm^3. Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 49926.637001147144,
+    "surface_area": 50749.46885421901,
+    "centroid": {
+      "x": 9.361066916300111e-15,
+      "y": 8.197480150493893e-15,
+      "z": 12.100719441370636
+    },
+    "bounding_box": {
+      "min": {
+        "x": -65.0,
+        "y": -40.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 65.0,
+        "y": 40.0,
+        "z": 38.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 34,
+    "edges": 79,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 1646,
+    "triangles": 1580
+  }
+}

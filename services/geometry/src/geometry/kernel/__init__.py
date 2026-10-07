@@ -38,6 +38,7 @@ from geometry.kernel.edges import (
     enumerate_edges_with_adjacency,
     resolve_edge,
     resolve_edge_durable,
+    resolve_edges_each,
     select_edges,
 )
 from geometry.kernel.export import (
@@ -348,6 +349,7 @@ __all__ = [
     "resolve_axis_line",
     "resolve_edge",
     "resolve_edge_durable",
+    "resolve_edges_each",
     "resolve_face_plane",
     "resolve_faces",
     "resolve_iso_metric_thread",
