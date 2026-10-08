@@ -117,14 +117,14 @@ commits carry the ID (`git log --grep=<ID>`).
       parts. _Accept:_ a multi-solid shell answers (a solid or a typed
       `ShellTimeout`) inside the gateway timeout, through the same child path.
 
-- [ ] **DESIGN-INTENT-BACKFILL** (now also refuses: since EDGE-REF-CONCENTRIC, a circular ref stored before DESIGN-INTENT-REFS refuses on any radius edit): parts saved before DESIGN-INTENT-REFS
+- [x] **DESIGN-INTENT-BACKFILL** (merged to main 60f7ed5; now also refuses: since EDGE-REF-CONCENTRIC, a circular ref stored before DESIGN-INTENT-REFS refuses on any radius edit): parts saved before DESIGN-INTENT-REFS
       keep picks without history names, so they still lose them on an early
       size edit until re-picked. _Accept:_ a one-off pass names each stored
       pick while it still resolves exactly at the part's current sizes; the
       three hard-parts edits then rebuild on the QA's saved parts.
 
-- [ ] **LOFT-VERSIONS** (.loft step 2): named part versions (author display name, message, time) in a never-pruned `part_versions` table, restorable through history_core, and written into `.loft` `versions/`. Plan: scratchpad plan "loft-file-format" step 2 and docs/FILE-FORMAT.md. Migration number after DESIGN-INTENT-BACKFILL's 0016. _Accept:_ save, list and restore a named version in the app and loft-script; versions round-trip through `.loft`.
-- [ ] **DUPLICATE-MATERIALS** (wrong data): `duplicate_part` keeps per-body material overrides pointing at the source's feature ids, so a copy shows the default material and the wrong mass. Fix committed in a worktree (f328528, documents only) but not pushed: its rebase was refused by the session's permission check, awaiting the founder. _Accept:_ a copy's overrides point at its own features; the reported mass equals the source's.
+- [ ] **LOFT-VERSIONS** (.loft step 2; backend DONE: routes, migration 0017, loft-script, .loft 1.1; web UI still open): named part versions (author display name, message, time) in a never-pruned `part_versions` table, restorable through history_core, and written into `.loft` `versions/`. Plan: scratchpad plan "loft-file-format" step 2 and docs/FILE-FORMAT.md. Migration number after DESIGN-INTENT-BACKFILL's 0016. _Accept:_ save, list and restore a named version in the app and loft-script; versions round-trip through `.loft`.
+- [x] **DUPLICATE-MATERIALS** (wrong data; fixed by cherry-picked 2bfe3f7): `duplicate_part` keeps per-body material overrides pointing at the source's feature ids, so a copy shows the default material and the wrong mass. Fix committed in a worktree (f328528, documents only) but not pushed: its rebase was refused by the session's permission check, awaiting the founder. _Accept:_ a copy's overrides point at its own features; the reported mass equals the source's.
 
 ## Next
 
@@ -331,6 +331,17 @@ commits carry the ID (`git log --grep=<ID>`).
 
 One line each. The founder triages weekly; most are closed without work.
 
+- BACKFILL-GIVEUP-ACTIVE: an actively editing user can stale three backfill runs and give the part up; unnamed picks then wait for a `--part` sweep.
+- BACKFILL-JOURNAL-TRIGGER: the `gave_up` journal row stores the reason in `trigger` (elsewhere open/sweep); give it its own column.
+- BACKFILL-FAILURE-VERSION: `POST /ref-names/failure` ignores the body's `tree_version`, so a late report counts against the current version.
+- BACKFILL-MULTI-REPLICA: the `in_flight` dedupe is per gateway process; with replicas only documents' backoff limits duplicates.
+- CARRY-REF-ANCHOR: `carry_ref_names` matches on signature only, not the ref's `feature_id`; a ref moved to another anchor with an identical signature inherits the name (untested).
+- CARRY-REF-DUP-SIG: `known.setdefault` keeps the first name when two stored picks share a bare signature; nothing asserts signatures are unique.
+- CARRY-REF-BROAD-EXCEPT: `update_feature` wraps the registry load in `except Exception`; narrow it to validation/migration errors.
+- CARRY-REF-NO-EXPIRY: the carry never expires; a backfill-named pick a user strips by hand (same signature) gets its name back on every save.
+- FEATURES-IMPORTS-BACKFILL: `features.py` now imports `documents.ref_backfill`; new coupling, no cycle today.
+- DUPLICATE-NAMES-NULLED: `duplicate.py:98` nulls hashed topo names in assembly and drawing duplicates, where part ids don't change, so those copies lose the named tier needlessly.
+- DUPLICATE-NESTED-UUIDS: duplicate remaps only the leading uuid of a topo name; nested uuids and `adjacent_topo_names` keep source ids (unlike `loft_file._rewrite_topo_name`), so they fail to match.
 - `.loft` version feature ids that exist only in another part's versions or undo ring pass the import id check, giving a 409 on restore or a 500 on the other part's redo (LOFT-VERSIONS review).
 - The feature-id check in `documents.versions._version_state` is not atomic, so a concurrent claim of an id gives a 500 instead of a 409 (LOFT-VERSIONS review).
 - On SQLite, racing version saves give a 500 (unique seq) because FOR UPDATE is ignored (LOFT-VERSIONS review).
