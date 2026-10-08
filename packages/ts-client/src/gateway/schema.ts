@@ -1636,8 +1636,10 @@ export interface paths {
          *     The file holds the parametric tree (what an import rebuilds from), the
          *     part's named versions, and the exported STEP body and its mass properties
          *     as an untrusted cache. A part with no body exports without the cache. Not a
-         *     backup: undo history and other documents are not in it. A part over a
-         *     `.loft` limit is refused with its `loft_*` code rather than written.
+         *     backup: undo history and other documents are not in it. If the cached body
+         *     would take the file over a `.loft` size limit it is left out (an import
+         *     rebuilds from the tree anyway); only trees over a limit are refused, with
+         *     their `loft_*` code.
          */
         get: operations["export_part_loft_api_v1_parts__part_id__export_loft_get"];
         put?: never;

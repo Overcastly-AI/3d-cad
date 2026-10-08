@@ -922,3 +922,47 @@ def test_a_fan_out_is_refused_at_the_reference_that_crosses_the_total(
     with pytest.raises(LoftFileError) as caught:
         pack_part(document_id=PART_ID, tree=_big_import_tree(3), loft_version="t")
     assert caught.value.code == "loft_member_too_large"
+
+
+# --- a part never becomes unexportable ------------------------------------------
+
+
+@pytest.mark.parametrize("cap", ["MAX_LOFT_TOTAL_BYTES", "MAX_LOFT_BODY_STEP_BYTES"])
+def test_the_cache_is_dropped_when_it_is_what_goes_over_a_cap(
+    cap: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A part near the version cap with a big body still exports: the untrusted
+    cache is left out (an import rebuilds from the tree anyway), the trees and
+    versions are all there, and the file reads back."""
+    without = pack_part(
+        document_id=PART_ID,
+        tree=_golden_tree(),
+        loft_version="golden",
+        versions=_golden_versions(),
+    )
+    if cap == "MAX_LOFT_TOTAL_BYTES":
+        limit = sum(len(data) for data in _members(without).values()) + 3 * len(
+            STEP_TEXT.encode()
+        )
+        assert limit < sum(len(data) for data in _members(_golden_bytes()).values())
+    else:
+        limit = len(BODY_STEP) - 1
+    monkeypatch.setattr(loft_file, cap, limit)
+
+    data = _golden_bytes()
+    assert data == without
+    assert BODY_STEP_PATH not in _members(data)
+    archive = read_loft(data)
+    assert archive.cache is None
+    assert archive.warnings == ()
+    assert [v.seq for v in archive.versions] == [1, 2]
+
+
+def test_trees_over_the_total_are_still_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dropping the cache is the only give: trees over the cap still refuse."""
+    monkeypatch.setattr(loft_file, "MAX_LOFT_TOTAL_BYTES", 1024)
+    with pytest.raises(LoftFileError) as caught:
+        _golden_bytes()
+    assert caught.value.code == "loft_member_too_large"

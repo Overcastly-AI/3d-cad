@@ -575,9 +575,34 @@ def pack_part(
     into ``blobs/`` here. *body_step* is the geometry export of the same tree
     and *properties* its mass properties; both are optional (a tree with no
     body has no cache). *versions* are the part's named versions; each tree is
-    written with the same rules as ``tree.json`` and shares ``blobs/``. Raises
-    :class:`LoftFileError` rather than write a file over the reader's caps.
+    written with the same rules as ``tree.json`` and shares ``blobs/``.
+
+    A part must never become unexportable, so when the cached body is what
+    takes the file over a size cap (its own, or the total), the file is written
+    WITHOUT the cache: the cache is untrusted and an import rebuilds from the
+    tree anyway, so only the offline STEP preview is lost. Raises
+    :class:`LoftFileError` only when the trees themselves are over a cap.
     """
+    if body_step is not None:
+        try:
+            return _pack(
+                document_id, tree, loft_version, body_step, properties, versions
+            )
+        except LoftFileError as exc:
+            if exc.code != "loft_member_too_large":
+                raise
+        # Over a size cap with the cache: try without it (raises if still over).
+    return _pack(document_id, tree, loft_version, None, None, versions)
+
+
+def _pack(
+    document_id: uuid.UUID,
+    tree: LoftTree,
+    loft_version: str,
+    body_step: bytes | None,
+    properties: LoftCacheProperties | None,
+    versions: Sequence[LoftVersion],
+) -> bytes:
     if len(versions) > MAX_LOFT_VERSIONS:
         _check_packable([], inlined=0, versions=len(versions))
     tree_bytes, blobs = encode_tree(tree)

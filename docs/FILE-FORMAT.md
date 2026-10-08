@@ -195,8 +195,11 @@ is a newer minor version. Version members must match `versions/index.json`
 exactly: a tree it does not list, version trees with no index, or an index not in
 ascending `seq` is `loft_versions_invalid`, and an entry without its tree is
 `loft_member_missing`. Each version may name the blobs the current tree does;
-every copy any tree inlines counts against the 256 MiB total. The export applies the same caps and refuses (`422`, same
-codes) rather than write a file no Loft could open. Both routes are
+every copy any tree inlines counts against the 256 MiB total. The export applies the same caps rather than write a file no Loft
+could open. When the cached body is what takes a part over a cap, the file is
+written without `cache/body.step` (the cache is untrusted and an import rebuilds
+from the tree anyway), so a part never becomes unexportable; only trees over a
+cap are refused (`422`, same codes). Both routes are
 authenticated and rate-limited (`COMPUTE_RATE_LIMIT`).
 
 ## Not a backup
