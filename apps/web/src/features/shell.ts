@@ -11,6 +11,15 @@
  * fully sealed hollow (a closed cavity, no opening) — so the editor submits with
  * zero picks. Each picked face becomes the SAME stage-1 `SubshapeRef` the
  * sketch-on-face pick echoes, anchored on the prior body-affecting feature.
+ *
+ * SHARP OR ROUNDED (SHELL-SHARP-DEFAULT). Where the body has a concave edge,
+ * a sharp shell extends the inside walls until they meet (a sharp inside
+ * corner, what SolidWorks, Onshape and Fusion do by default) and a rounded one
+ * rounds the corner at the wall thickness. A NEW shell is sharp; an existing
+ * one shows what it stored, and a shell stored before the choice existed is
+ * rounded (its params carry no `shell_type`). Rounded is sent the way the
+ * server stores it, by omitting the field, so a no-op Save of an old shell
+ * sends back exactly what it read.
  */
 import type { LengthUnit } from "@loft/design";
 
@@ -31,6 +40,8 @@ import { fieldBlocker } from "./submitBlocker";
  */
 export interface ShellForm {
   thicknessInput: string;
+  /** How the cavity turns a concave edge (see the module comment). */
+  shellType: ShellType;
   /** The params as STORED, when editing (a no-op Save sends them back). */
   stored?: ShellParams;
 }
@@ -47,9 +58,15 @@ export function parseThicknessMm(
   return parsePositiveLengthMm(input, unit);
 }
 
-/** The default new-shell form: a 2-unit wall — the common enclosure thickness. */
+/** The stored shell kinds, from the generated client. */
+export type ShellType = NonNullable<ShellParams["shell_type"]>;
+
+/**
+ * The default new-shell form: a 2-unit wall (the common enclosure thickness)
+ * with sharp inside corners, the mainstream default.
+ */
 export function defaultShellForm(): ShellForm {
-  return { thicknessInput: "2" };
+  return { thicknessInput: "2", shellType: "sharp" };
 }
 
 /** Seed the form from an existing shell feature for editing (in `unit`). */
@@ -59,6 +76,8 @@ export function formFromShellParams(
 ): ShellForm {
   return {
     thicknessInput: storedLengthInput(params.thickness_mm, unit),
+    // Absent is a shell stored before the choice existed: rounded.
+    shellType: params.shell_type ?? "rounded",
     stored: params,
   };
 }
@@ -117,7 +136,9 @@ export function buildShellParams(
   if (thickness === null) return null;
   const faces = facesSelector(bodyFeatureId, pickedFaces);
   if (faces === null) return null;
-  return { thickness_mm: thickness, faces };
+  return form.shellType === "sharp"
+    ? { thickness_mm: thickness, faces, shell_type: "sharp" }
+    : { thickness_mm: thickness, faces };
 }
 
 /** True when the shell form can be submitted (valid thickness + resolvable faces). */

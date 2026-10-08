@@ -52,8 +52,10 @@ from geometry.kernel.naming import OpHistory
 from geometry.kernel.shell import (
     ARC_OP,
     INTERSECTION_OP,
+    SHARP_OP,
     intersection_hollow,
     isolated_arc,
+    isolated_sharp,
 )
 
 
@@ -70,10 +72,13 @@ _OPS: dict[str, Any] = {
     "fillet": _fillet,
     "chamfer": _chamfer,
     "probe-sleep": _probe_sleep,
-    # Not blends: Shell's sealed Intersection build and a large body's Arc
-    # offset, each under a CPU budget (kernel/shell.py, SHELL-INTERSECTION-SLOW).
+    # Not blends: Shell's sealed Intersection build, a large body's Arc offset
+    # and a sharp shell's offset, each under a CPU budget (kernel/shell.py,
+    # SHELL-INTERSECTION-SLOW).
     INTERSECTION_OP: intersection_hollow,
     ARC_OP: isolated_arc,
+    # A sharp Shell's offset, the outcome itself, on the same budget.
+    SHARP_OP: isolated_sharp,
 }
 
 #: ``prctl(PR_SET_PDEATHSIG, ...)``: Linux's "signal me when my parent dies".

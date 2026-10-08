@@ -22,7 +22,7 @@ four-tier face matcher. Tier 1 is the strict signature above — exact on a clea
 rebuild. Tier 2 (only when tier 1 finds NOTHING) re-matches on the
 rebuild-invariant of the edge's curve kind: a STRAIGHT edge on its supporting line
 + span overlap (invariant under the edge growing or shrinking along itself), a
-CIRCLE on its centre + angular station (invariant under a radius change). Before
+CIRCLE on its centre + radius + angular station (EDGE-REF-CONCENTRIC). Before
 it existed, every dimension edit that moved a picked edge orphaned its fillet /
 chamfer / edge flange / hem on the FIRST edit. Tier 3 (only when tier 2 finds
 NOTHING) re-matches on the edge's ADJACENCY — the two planar faces it bounds,
@@ -484,8 +484,8 @@ _V = tuple[float, float, float]
 _UNRESOLVED_MESSAGE = (
     "No edge of the current body matches the stored edge signature (curve / "
     "endpoints / midpoint / length), none shares its rebuild invariant (a "
-    "straight edge's supporting line and span, a circle's centre and angular "
-    "station), and the two faces the edge bounded do not meet at a single edge "
+    "straight edge's supporting line and span, a circle's centre, radius and "
+    "angular station), and the two faces the edge bounded do not meet at a single edge "
     "on the rebuilt body; the referenced edge no longer exists after the "
     "rebuild. Re-pick the edge, or edit the upstream feature back to a state "
     "where it resolves."
@@ -630,19 +630,37 @@ def _circle_centre(sig: EdgeSignature) -> _V | None:
     return (a[0] + offset[0], a[1] + offset[1], a[2] + offset[2])
 
 
+def _same_radius(candidate: EdgeSignature, target: EdgeSignature) -> bool:
+    """True when two CIRCULAR signatures have the same radius (to the edge
+    point tolerance); False when either has no centre."""
+    t_centre = _circle_centre(target)
+    c_centre = _circle_centre(candidate)
+    if t_centre is None or c_centre is None:
+        return False
+    t_radius = math.dist(t_centre, _t(target.midpoint))
+    c_radius = math.dist(c_centre, _t(candidate.midpoint))
+    return abs(t_radius - c_radius) <= _EDGE_POINT_TOL_MM
+
+
 def concentric_same_station_match(
     candidate: EdgeSignature, target: EdgeSignature
 ) -> bool:
-    """Durable match for a CIRCULAR edge: same centre, same angular station.
+    """Durable match for a CIRCULAR edge: same circle, same angular station.
 
-    Invariant under a RADIUS change — the resized hole whose rim was chamfered,
-    the boss turned down after its top edge was filleted. Scaling a circle about
-    its centre moves every point radially, so the centre and the unit directions
-    from the centre to the stored ``end_a`` / ``end_b`` / ``midpoint`` are all
-    preserved; those directions also pin the circle's PLANE and, for an arc, its
-    sweep, so a coaxial circle in a different plane or a different arc of the same
-    circle is not accepted. Closedness must match too (a full circle never
-    re-anchors onto an arc).
+    Same centre, same RADIUS, and the unit directions from the centre to the
+    stored ``end_a`` / ``end_b`` / ``midpoint`` preserved; those directions also
+    pin the circle's PLANE and, for an arc, its sweep, so a coaxial circle in a
+    different plane or a different arc of the same circle is not accepted.
+    Closedness must match too (a full circle never re-anchors onto an arc).
+
+    NOT invariant under a radius change (EDGE-REF-CONCENTRIC, RESEARCH §14). It
+    once was, so a resized bore's chamfered rim would follow; but then a picked
+    edge whose own edge vanished re-anchored onto any CONCENTRIC edge of another
+    radius left standing (the inner R3 rim arc of a deleted shell onto the outer
+    R5 arc, a counterbore's R5 floor edge onto a pocket's R9 one) with status
+    ok. A concentric circle of another radius is another edge, as in Fusion 360,
+    where a fillet whose edge is gone is an error, never a different edge. A
+    NAMED reference still follows its resized edge, through the named tier.
     """
     target_closed = _norm(_sub(_t(target.end_a), _t(target.end_b)))
     candidate_closed = _norm(_sub(_t(candidate.end_a), _t(candidate.end_b)))
@@ -655,6 +673,8 @@ def concentric_same_station_match(
     if t_centre is None or c_centre is None:
         return False
     if math.dist(t_centre, c_centre) > _EDGE_POINT_TOL_MM:
+        return False
+    if not _same_radius(candidate, target):
         return False
     for t_point, c_point in (
         (target.end_a, candidate.end_a),
@@ -674,7 +694,7 @@ def durable_edge_match(candidate: EdgeSignature, target: EdgeSignature) -> bool:
     """The tier-2 predicate for *target*'s curve kind.
 
     A ``line`` re-matches on its supporting line and span, a ``circle`` on its
-    centre and angular station, and anything else (spline / ellipse —
+    centre, radius and angular station, and anything else (spline / ellipse —
     ``curve == "other"``) has no invariant we can state honestly, so it stays an
     honest ``subshape_unresolved`` rather than being guessed at.
     """
@@ -793,7 +813,16 @@ def _adjacency_matches(
         record
         for record in records
         if edge_index.FindIndex(record.edge.wrapped) in shared
+        and _same_curve(record.signature, target)
     ]
+
+
+def _same_curve(candidate: EdgeSignature, target: EdgeSignature) -> bool:
+    """Tier 3 keeps the curve: a circle re-anchors only onto a circle of the
+    same radius (EDGE-REF-CONCENTRIC); a line moves freely with its faces."""
+    if target.curve != "circle":
+        return True
+    return candidate.curve == "circle" and _same_radius(candidate, target)
 
 
 def _match_edge_records(
@@ -811,7 +840,7 @@ def _match_edge_records(
       canonical endpoints, midpoint and length. Exact on a clean rebuild.
     * **Tier 2 — durable** (:func:`durable_edge_match`): the rebuild invariant of
       the edge's curve kind — a straight edge's supporting line + span overlap, a
-      circle's centre + angular station. Models the edge growing or shrinking
+      circle's centre + radius + angular station. Models the edge growing or shrinking
       ALONG ITSELF.
     * **Tier 3 — adjacency** (:func:`_adjacency_matches`): the two PLANAR FACES
       the edge bounds, re-resolved through the four-tier face matcher. Models the
@@ -828,42 +857,54 @@ def _match_edge_records(
     names) wins when tiers 2-3 find nothing or find several including it, and
     yields to them when they find edges without it. Without names, nothing
     here changes.
+
+    THE NAME GUARD (EDGE-REF-CONCENTRIC): a tier-2/3 match of a NAMED reference
+    whose edge the body names DIFFERENTLY is dropped before that rule runs. It
+    is another edge standing where the referenced one was, not the referenced
+    edge moved; Fusion 360 fails such a reference rather than move it. One
+    guard for every edge-ref consumer (fillet, chamfer, edge flange, hem, a
+    sketch projection). An unnamed reference, or an edge the body cannot name,
+    is matched as before.
     """
     strict = [r for r in records if edge_signatures_match(r.signature, target)]
     if strict:
         return strict, "exact"
     geometric, tier = _geometric_edge_matches(body, records, target, face_names)
-    named = _named_edges(body, records, target.topo_name, face_names)
+    name = target.topo_name
+    if name is None:
+        return geometric, tier
+    names = _record_names(body, records, face_names)
+    by_index = {r.index: n for r, n in zip(records, names, strict=True)}
+    geometric = [r for r in geometric if by_index[r.index] in (None, name)]
+    named = [r for r, n in zip(records, names, strict=True) if n == name]
     held = {r.index for r in named}
     if named and (not geometric or any(r.index in held for r in geometric)):
         return named, "named"
     return geometric, tier
 
 
-def _named_edges(
+def _record_names(
     body: BodyShape,
     records: list[EdgeRecord],
-    name: str | None,
     face_names: Sequence[str | None] | None,
-) -> list[EdgeRecord]:
-    """The records whose name is *name*: ONE edge, or the pieces of one RUN.
+) -> list[str | None]:
+    """Each record's name, aligned with *records*: ONE edge, or the pieces of
+    one RUN, may share a name.
 
     The records' own ``name`` when they carry one; otherwise the body's edge
-    names are worked out here, only now that the strict tier has missed, so an
+    names are worked out here, only once the strict tier has missed, so an
     unedited rebuild never pays for naming every edge. A name is only ever
     STORED from an edge that alone bounds its two faces; here it also reaches
     the pieces of that boundary when an edit cut it at a vertex (a cylinder's
     seam now crossing a blade's root curve), because the pieces are still the
     whole of the boundary between the same two faces (:func:`edge_names`
-    ``runs``). Anything else is no match."""
-    if name is None:
-        return []
+    ``runs``). All ``None`` when the body cannot be named."""
     names = [r.name for r in records]
     if all(n is None for n in names) and face_names is not None:
-        names = edge_names(body, face_names, runs=True)
-        if len(names) != len(records):
-            return []
-    return [r for r, n in zip(records, names, strict=True) if n == name]
+        computed = edge_names(body, face_names, runs=True)
+        if len(computed) == len(records):
+            return computed
+    return names
 
 
 def _geometric_edge_matches(
@@ -895,7 +936,7 @@ def _ambiguous(count: int, *, tier: EdgeMatchTier) -> SubshapeAmbiguousError:
         return SubshapeAmbiguousError(
             f"{count} edges of the current body are equally valid re-anchors for "
             "the stored edge signature (collinear segments of one line overlapping "
-            "its span, or coincident-centre circles at the same angular station). "
+            "its span, or coincident circles at the same angular station). "
             "Refusing to guess which one the feature meant — re-pick the edge."
         )
     return SubshapeAmbiguousError(
@@ -945,7 +986,6 @@ def resolve_edges_each(
     *,
     tally: ResolutionTally | None = None,
     face_names: Sequence[str | None] | None = None,
-    keep_name: bool = False,
 ) -> list[ResolvedEdge | SubshapeUnresolvedError | SubshapeAmbiguousError]:
     """:func:`resolve_edge_durable` for many references at once, NON-RAISING.
 
@@ -958,19 +998,14 @@ def resolve_edges_each(
 
     The body is enumerated ONCE for every target, and its edge names are worked
     out at most once, only when some target misses the strict tier (the
-    records then carry them, which is exactly what :func:`_named_edges` would
+    records then carry them, which is exactly what :func:`_record_names` would
     compute per target). Only a resolved target is reported to *tally*, as a
     raising resolver reports nothing for the reference it raised on.
 
-    *keep_name* refuses a GEOMETRIC re-find (the durable or adjacent tier) of a
-    named reference when the body names the edge it found differently: that is
-    another edge standing where the referenced one was, not the referenced edge
-    moved. The durable circle tier is invariant under a radius change, so when
-    a shell is deleted the rim's inner R3 arc would otherwise re-find the outer
-    R5 arc concentric with it. A projection opts in: re-anchoring it moves
-    sketch geometry with no error, and Fusion 360 marks such a projection sick
-    instead. An unnamed reference, or an edge the body cannot name, is matched
-    as before.
+    A geometric re-find that the body names differently from the stored name
+    is refused by :func:`_match_edge_records`'s name guard, as for every
+    consumer (a projection would otherwise move sketch geometry with no error;
+    Fusion 360 marks it sick instead).
     """
     records = enumerate_edges(body)
     named: list[EdgeRecord] | None = None
@@ -999,34 +1034,12 @@ def resolve_edges_each(
             out.append(_ambiguous(len(matches), tier=tier))
             continue
         record = matches[0]
-        if keep_name and _renamed(record, target, tier):
-            out.append(SubshapeUnresolvedError(_RENAMED_MESSAGE))
-            continue
         if tally is not None:
             tally.note(tier)
         out.append(
             ResolvedEdge(edge=record.edge, signature=record.signature, tier=tier)
         )
     return out
-
-
-#: Why a geometric re-find was refused by name (:func:`resolve_edges_each`).
-_RENAMED_MESSAGE = (
-    "The edge found where the stored edge was is a different edge of the body "
-    "(its name differs from the stored one), so the referenced edge no longer "
-    "exists after the rebuild. Re-pick the edge."
-)
-
-
-def _renamed(record: EdgeRecord, target: EdgeSignature, tier: EdgeMatchTier) -> bool:
-    """A durable/adjacent match whose edge the body names, differently from
-    the stored name (see *keep_name*)."""
-    return (
-        tier in ("durable", "adjacent")
-        and target.topo_name is not None
-        and record.name is not None
-        and record.name != target.topo_name
-    )
 
 
 def _resolve_picked_edges(
@@ -1061,7 +1074,7 @@ def _resolve_picked_edges(
         if tally is not None:
             tally.note(tier)
         # A named match of several records is ONE picked edge an edit cut into
-        # pieces (a run, see _named_edges): a fillet rounds all of it.
+        # pieces (a run, see _record_names): a fillet rounds all of it.
         for match in matches:
             chosen[match.index] = match.edge
     return [chosen[index] for index in sorted(chosen)]

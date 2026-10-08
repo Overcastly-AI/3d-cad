@@ -43,6 +43,7 @@ from loft_wire.geometry import (
 )
 from loft_wire.instrument import notify_feature_error
 from loft_wire.materials import MaterialAssignment, MaterialKey
+from loft_wire.shell import SHELL_TYPE_FIELD, ShellType
 from loft_wire.signatures import EdgeSelectorV1 as EdgeSelectorV1
 from loft_wire.signatures import EdgeSignature as EdgeSignature
 from loft_wire.signatures import EdgeSubshapeRef as EdgeSubshapeRef
@@ -1117,13 +1118,11 @@ class ShellParamsV1(BaseModel):
     deleting the referenced body feature is a write-time 409-with-dependents and
     a reorder re-checks strict-backward.
 
-    Thickness is a UNIFORM INWARD offset (the wall grows into the solid, so the
-    outer envelope is unchanged). An empty ``faces`` list hollows to a sealed
-    (fully-enclosed) cavity; a non-empty list opens those faces
-    (:class:`FaceSelector`). A thickness that would collapse or self-intersect
-    the cavity (≥ the smallest half-wall) is a per-feature
-    ``shell_thickness_too_large`` rebuild error, never a silently wrong body
-    (docs/GEOMETRY-QA.md 2026-07-13).
+    Thickness is a UNIFORM INWARD offset (the outer envelope is unchanged); an
+    empty ``faces`` list hollows to a sealed cavity. A thickness that would
+    collapse or self-intersect the cavity (≥ the smallest half-wall) is a
+    per-feature ``shell_thickness_too_large`` rebuild error, never a silently
+    wrong body (docs/GEOMETRY-QA.md 2026-07-13).
     """
 
     thickness_mm: float = Field(
@@ -1136,6 +1135,7 @@ class ShellParamsV1(BaseModel):
         description="The faces to leave OPEN (a picked-face selector). Empty = a "
         "fully-enclosed hollow with no opening (design decision)."
     )
+    shell_type: ShellType = SHELL_TYPE_FIELD
 
 
 # --- Draft params — taper picked faces by an angle (mold/casting release) --------

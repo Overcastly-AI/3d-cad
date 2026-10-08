@@ -80,12 +80,13 @@ describe("facesSelector", () => {
 });
 
 describe("buildShellParams", () => {
-  const form: ShellForm = { thicknessInput: "2" };
+  const form: ShellForm = { thicknessInput: "2", shellType: "sharp" };
 
   it("builds a sealed hollow from thickness alone (no picks)", () => {
     expect(buildShellParams(form, [], "feat-1", "mm")).toEqual({
       thickness_mm: 2,
       faces: { kind: "faces", refs: [] },
+      shell_type: "sharp",
     });
   });
 
@@ -94,6 +95,15 @@ describe("buildShellParams", () => {
     expect(params).toEqual({
       thickness_mm: 2,
       faces: { kind: "faces", refs: [faceSubshapeRef("feat-1", TOP)] },
+      shell_type: "sharp",
+    });
+  });
+
+  it("sends rounded as the server stores it: no shell_type", () => {
+    const rounded: ShellForm = { ...form, shellType: "rounded" };
+    expect(buildShellParams(rounded, [], "feat-1", "mm")).toEqual({
+      thickness_mm: 2,
+      faces: { kind: "faces", refs: [] },
     });
   });
 
@@ -103,7 +113,7 @@ describe("buildShellParams", () => {
 
   it("is null for an invalid thickness", () => {
     expect(
-      buildShellParams({ thicknessInput: "0" }, [], "feat-1", "mm"),
+      buildShellParams({ ...form, thicknessInput: "0" }, [], "feat-1", "mm"),
     ).toBeNull();
   });
 
@@ -114,21 +124,27 @@ describe("buildShellParams", () => {
 
 describe("canSubmitShell", () => {
   it("allows a valid thickness with zero picks (sealed hollow)", () => {
-    expect(canSubmitShell({ thicknessInput: "2" }, [], "feat-1", "mm")).toBe(
-      true,
-    );
+    expect(canSubmitShell(defaultShellForm(), [], "feat-1", "mm")).toBe(true);
   });
 
   it("blocks an invalid thickness", () => {
-    expect(canSubmitShell({ thicknessInput: "" }, [], "feat-1", "mm")).toBe(
-      false,
-    );
+    expect(
+      canSubmitShell(
+        { ...defaultShellForm(), thicknessInput: "" },
+        [],
+        "feat-1",
+        "mm",
+      ),
+    ).toBe(false);
   });
 });
 
 describe("defaultShellForm", () => {
-  it("seeds a 2 mm wall", () => {
-    expect(defaultShellForm()).toEqual({ thicknessInput: "2" });
+  it("seeds a 2 mm wall with sharp inside corners", () => {
+    expect(defaultShellForm()).toEqual({
+      thicknessInput: "2",
+      shellType: "sharp",
+    });
   });
 });
 
@@ -146,12 +162,25 @@ describe("formFromShellParams / pickedFacesFromShellParams", () => {
     // `stored` is carried so a no-op Save sends every stored number back.
     expect(formFromShellParams(sealed, "mm")).toEqual({
       thicknessInput: "3",
+      shellType: "rounded",
       stored: sealed,
     });
     expect(formFromShellParams(open, "mm")).toEqual({
       thicknessInput: "2.5",
+      shellType: "rounded",
       stored: open,
     });
+  });
+
+  it("reads a stored sharp shell as sharp, and one without the field as rounded", () => {
+    const sharp: ShellParams = { ...sealed, shell_type: "sharp" };
+    expect(formFromShellParams(sharp, "mm").shellType).toBe("sharp");
+    expect(
+      buildShellParams(formFromShellParams(sharp, "mm"), [], "f", "mm"),
+    ).toEqual(sharp);
+    expect(
+      buildShellParams(formFromShellParams(sealed, "mm"), [], "f", "mm"),
+    ).toEqual(sealed);
   });
 
   it("seeds no picked faces from a sealed shell", () => {

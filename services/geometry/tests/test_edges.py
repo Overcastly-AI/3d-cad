@@ -21,7 +21,6 @@ line-exact in OCCT, so deviation from analytic is round-off only.
 # file, exactly as the kernel modules and the other builder-using suites do.
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
 
-import math
 from typing import Any
 
 import pytest
@@ -405,35 +404,36 @@ def _bored_plate(radius_mm: float) -> BodyShape:
     return plate.cut(bore)  # pyright: ignore[reportUnknownMemberType]
 
 
-def test_a_bore_rim_re_anchors_across_a_diameter_change() -> None:
-    """The circular half of the tier: a hole resized keeps its centre, its plane
-    and its angular station, so a chamfer/fillet picked on its rim survives the
-    edit that resizes it. Every strict field moves (a circle scaled about its
-    centre moves both stored points and its length)."""
-    rim = next(
+def _top_rim(radius_mm: float) -> EdgeSignature:
+    return next(
         record.signature
-        for record in enumerate_edges(_bored_plate(4.0))
+        for record in enumerate_edges(_bored_plate(radius_mm))
         if record.signature.curve == "circle"
         and record.signature.midpoint.z == pytest.approx(10.0, abs=TOL)
     )
-    resolved = resolve_edge_durable(_bored_plate(6.0), rim)
-    assert resolved.tier == "durable"
-    assert resolved.edge.length == pytest.approx(2.0 * math.pi * 6.0, abs=1e-6)
+
+
+def test_a_resized_bore_rim_is_another_circle_and_refuses() -> None:
+    """EDGE-REF-CONCENTRIC: the circular half of the tier keeps the RADIUS. A
+    bore resized R4 -> R6 leaves a concentric rim at the same station, but an
+    unnamed reference cannot tell it from any other concentric edge (an inner
+    shell rim vs the outer one), so it fails, typed, as Fusion fails a fillet
+    whose edge is gone. A NAMED reference follows through the named tier."""
+    with pytest.raises(SubshapeUnresolvedError):
+        resolve_edge_durable(_bored_plate(6.0), _top_rim(4.0))
 
 
 def test_a_bore_rim_does_not_re_anchor_onto_the_opposite_rim() -> None:
     """The angular-station + centre clauses doing the load-bearing work: the two
     rims of one through bore are congruent circles on one axis, and the tier must
-    not slide the top rim onto the bottom one. Enlarging the bore leaves BOTH rims
-    present, so a sloppy predicate would tie or pick wrong; the centres differ in
-    z, so only the top rim is a candidate."""
-    rim = next(
-        record.signature
-        for record in enumerate_edges(_bored_plate(4.0))
-        if record.signature.curve == "circle"
-        and record.signature.midpoint.z == pytest.approx(10.0, abs=TOL)
-    )
-    resolved = resolve_edge_durable(_bored_plate(6.0), rim)
+    not slide the top rim onto the bottom one. A stored length drifted past the
+    strict tolerance forces the durable tier with BOTH rims present, so a sloppy
+    predicate would tie or pick wrong; the centres differ in z, so only the top
+    rim is a candidate."""
+    rim = _top_rim(4.0)
+    drifted = rim.model_copy(update={"length_mm": rim.length_mm + 1e-3})
+    resolved = resolve_edge_durable(_bored_plate(4.0), drifted)
+    assert resolved.tier == "durable"
     assert _mid(resolved.edge)[2] == pytest.approx(10.0, abs=TOL)
 
 

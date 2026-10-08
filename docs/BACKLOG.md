@@ -9,7 +9,7 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
-- [ ] **EDGE-REF-CONCENTRIC** (wrong geometry; found probing SKETCH-PROJECT-EDGES
+- [x] **EDGE-REF-CONCENTRIC** (wrong geometry; found probing SKETCH-PROJECT-EDGES
       step 2, 3203624): a picked fillet/chamfer edge whose own edge vanishes
       re-anchors on the tier-2 `concentric_same_station_match` onto a
       CONCENTRIC edge of another radius, status ok, tier `durable`, no error.
@@ -454,5 +454,5 @@ One line each. The founder triages weekly; most are closed without work.
 - Shell: a sealed cross-bored plate plus a box varies byte-wise across processes (Arc's sealed hollow face order follows memory addresses), related to SHELL-EDGE-DETERMINISM. A 500+-face solid offset in the child differs from in-process only in signed zeros.
 - Fixed: SHELL-MULTIBODY-HANG (92b85b0). One 40 s budget covers every lump of a shell; an in-process lump (<500 faces) can overshoot it by at most one lump (~10 s).
 - LIP-SEAM-UNIFY: a sketch-on-face lip flush with a wall keeps a seam face per wall (34 faces where a unified body has 19); the join's clean unifies 1 of 16 pairs, with or without projection (revise-width-lip-projected-rim-130x80x35).
-- The durable circle tier re-anchors a deleted arc onto a concentric arc of another radius for fillet, chamfer and edge-flange refs too; projections now refuse it by name (`keep_name`).
+- EDGE-REF-CONCENTRIC: Hole faces carry no history names, so a chamfer/fillet on a simple hole's rim now fails `subshape_unresolved` when the hole is resized (it used to follow through the radius-blind tier); naming Hole faces would let the named tier follow, as in Fusion.
 - Suppressing the feature a projection is anchored on fails the sketch with `references_suppressed`; Fusion keeps the sketch and marks the projection sick.

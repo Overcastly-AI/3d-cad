@@ -137,6 +137,24 @@ spread 5e-11 mm^3 on 2869 mm^3, and the L's centroid moved in its last bit. A
 sealed spline wall moves further: its fitted edges, and the volume by up to
 1.8e-5 mm^3.
 
+SHARP SHELLS (SHELL-SHARP-DEFAULT, 2026-10-07). Everything above is the
+ROUNDED shell, the only kind stored before ``shell_type`` existed. A SHARP
+shell (*sharp*, what a new shell is authored with, as in SolidWorks, Onshape
+and Fusion) differs only at a CONCAVE edge of the body: the inward walls of
+its two faces are extended until they meet, so the cavity has a sharp corner
+there where Arc puts a tube, and the wall across that corner is thicker than
+``t`` (``t / sin(a / 2)`` for an inside angle ``a``: ``t sqrt 2`` at 90 deg).
+That is OCCT's Intersection join. A body with no concave edge (by OCCT's own
+analysis, :func:`_concave_edge_count`) hollows the same either way, so a sharp
+shell of it takes the rounded route above, byte for byte. With one, the
+Intersection join is the outcome, not a probe: it runs in a child of the blend
+server on the feature's offset budget (:data:`ARC_CPU_SECONDS`, shared by the
+lumps, :class:`_Budget`) and is refused past it with :class:`ShellTimeout`.
+Its result goes through the same tightening, slit probe, heal, material and
+definition checks, the definition being the sharp one
+(:class:`~geometry.kernel.shell_walls.ShellDefinition` with *sharp*), which
+also catches the Intersection join's dropped pockets.
+
 The hash order can also decide VALIDITY. Where a cavity touches itself at a point
 (a rod r10 with an r6 cross-bore at t = 2), about half of all layouts leave a
 face spanning both sides of the pinch. :mod:`geometry.kernel.shell_heal` splits
@@ -285,12 +303,15 @@ def shell_body(
     faces_to_remove: list[Face],
     thickness_mm: float,
     *,
+    sharp: bool = False,
     history: OpHistory | None = None,
 ) -> BodyShape:
     """Hollow *body* to a uniform inward *thickness_mm*, opening *faces_to_remove*.
 
     An empty *faces_to_remove* produces a sealed (fully-enclosed) hollow; a
-    non-empty list leaves those faces open.
+    non-empty list leaves those faces open. *sharp* leaves a sharp cavity
+    corner at each concave edge (the Intersection join); the default rounds it
+    (Arc), as every shell stored before ``shell_type`` does (module docstring).
 
     *body* is never modified. ``MakeThickSolid`` writes to the body it hollows
     (every sealed hollow of the blade-hub bodies cleared the ``Checked`` flag of
@@ -336,7 +357,7 @@ def shell_body(
         solids = work.solids()
         groups = group_faces_by_lump(solids, opened)
         lumps = [
-            _shell_one_lump(solid, groups.get(index, []), thickness_mm, budget)
+            _shell_one_lump(solid, groups.get(index, []), thickness_mm, budget, sharp)
             for index, solid in enumerate(solids)
         ]
         shelled: BodyShape = assemble_lumps([lump for lump, _on in lumps])
@@ -347,7 +368,7 @@ def shell_body(
             # faces are the copies', in the body's face order (lump by lump).
             built_on = Compound([on for _lump, on in lumps])
     else:
-        shelled, built_on = _shell_one_lump(work, opened, thickness_mm, budget)
+        shelled, built_on = _shell_one_lump(work, opened, thickness_mm, budget, sharp)
     if history is not None:
         history.worked_on = built_on
     return shelled
@@ -358,6 +379,7 @@ def _shell_one_lump(
     faces_to_remove: list[Face],
     thickness_mm: float,
     budget: "_Budget",
+    sharp: bool = False,
 ) -> tuple[Solid, Solid]:
     """Hollow ONE lump (a single solid) — the byte-identical single-body path.
 
@@ -371,10 +393,10 @@ def _shell_one_lump(
     refused past it (:class:`ShellTimeout`).
     """
     original_volume = body.volume
-    definition = ShellDefinition(body, faces_to_remove, thickness_mm)
+    definition = ShellDefinition(body, faces_to_remove, thickness_mm, sharp=sharp)
     try:
         solids, canonicalise, built_on = _hollow(
-            body, faces_to_remove, thickness_mm, budget
+            body, faces_to_remove, thickness_mm, budget, sharp
         )
     except ShellTimeout:
         raise
@@ -534,6 +556,8 @@ def _describe(fault: WallFault) -> str:
         return f"its result has a {fault.wall_mm:.4g} mm wall at {where}"
     if fault.kind is FaultKind.MISSING:
         return f"its result is missing the cavity at {where}"
+    if fault.kind is FaultKind.CORNER:
+        return f"its result does not keep the cavity's sharp corner at {where}"
     return f"its result lost the body's face at {where}"
 
 
@@ -572,7 +596,11 @@ def _convex_radius(face: Face) -> float | None:
 
 
 def _hollow(
-    body: Solid, faces_to_remove: list[Face], thickness_mm: float, budget: "_Budget"
+    body: Solid,
+    faces_to_remove: list[Face],
+    thickness_mm: float,
+    budget: "_Budget",
+    sharp: bool = False,
 ) -> tuple[list[Solid], bool, Solid]:
     """OCCT's inward hollow of *body*, whether its face order still needs
     :func:`_canonical_face_order` (module docstring), and the body it was built
@@ -598,13 +626,23 @@ def _hollow(
     the budget, or where it fails or disagrees, Arc's result ships, in canonical
     face order; only a build that finished in time and agrees is built again
     here, where its outer faces are *body*'s.
+
+    A *sharp* hollow of a body with a concave edge is the Intersection join's
+    alone (:func:`_sharp`); without one, both joins build the same faces and
+    it takes the route above.
     """
     free = _free_face_count(body, faces_to_remove)
     # An open shell with two free faces is canonicalised whatever its edges
-    # are, so it skips the edge analysis (0.7 s on a 906-face lid).
+    # are, so it skips the edge analysis (0.7 s on a 906-face lid), unless the
+    # shell is sharp, where a concave edge decides the join.
     blends = (
-        0 if faces_to_remove and free > 1 else _concave_edge_count(body, thickness_mm)
+        0
+        if faces_to_remove and free > 1 and not sharp
+        else _concave_edge_count(body, thickness_mm)
     )
+    if sharp and blends:
+        solids, built_on = _sharp(body, faces_to_remove, thickness_mm, budget)
+        return solids, False, built_on
     arc, built_on = _arc(body, faces_to_remove, thickness_mm, budget)
     canonicalise = free + blends > 1
     if faces_to_remove or blends or len(arc) != 1 or not _all_analytic(body):
@@ -710,6 +748,42 @@ def _arc(
     return solids, built_on
 
 
+#: The blend server's name for :func:`isolated_sharp` (``kernel/_fillet_worker.py``).
+SHARP_OP = "hollow-sharp"
+
+
+def _sharp(
+    body: Solid, faces_to_remove: list[Face], thickness_mm: float, budget: "_Budget"
+) -> tuple[list[Solid], Solid]:
+    """The sharp hollow of *body* (the Intersection join), and the body it was
+    built on: the copy a child of the blend server returns.
+
+    Always isolated, whatever the size: a 40 x 20 x 10 plate cross-bored
+    r2.991 / r1.424 held this join for 68 to 133 s where Arc took 0.16 s
+    (SHELL-INTERSECTION-SLOW), and only a child can be stopped. It runs on the
+    feature's offset budget (:attr:`_Budget.arc`), the one a rounded shell's
+    offset spends, and past it the shell is refused (:class:`ShellTimeout`).
+    The opened faces ride in the body's compound (:func:`_carrier`)."""
+    try:
+        copy, solids = budget.arc.run(
+            Compound(_carrier(body, faces_to_remove)), thickness_mm, op=SHARP_OP
+        )
+    except BlendTimedOut as exc:
+        raise budget.timeout() from exc
+    built_on, _opened = _carried(copy.wrapped)
+    return solids, built_on
+
+
+def isolated_sharp(
+    carrier: Compound, _edges: object, thickness_mm: float, _history: object
+) -> list[Solid]:
+    """The Intersection join's inward hollow of the solid in *carrier*, opening
+    the faces carried with it, in the blend server's op signature (its child
+    runs it as :data:`SHARP_OP`)."""
+    body, opened = _carried(carrier.wrapped)
+    return list(body.hollow(opened, -thickness_mm, kind=Kind.INTERSECTION).solids())
+
+
 @dataclass
 class _Allowance:
     """What the children of one Shell feature that run *op* may still spend,
@@ -729,21 +803,23 @@ class _Allowance:
     child_wall_seconds: float
 
     def run(
-        self, shape: BodyShape, thickness_mm: float
+        self, shape: BodyShape, thickness_mm: float, op: str | None = None
     ) -> tuple[BodyShape, list[Solid]]:
-        """*op* on *shape* in a child: the copy it was built on, and the solids.
+        """*op* (this allowance's own unless given) on *shape* in a child: the
+        copy it was built on, and the solids.
 
         Raises what :func:`~geometry.kernel.fillet_isolation.run_isolated`
         raises, and :class:`BlendTimedOut` when the CPU is already spent."""
+        op = self.op if op is None else op
         if self.cpu_seconds <= 0:
-            raise BlendTimedOut(self.op)
+            raise BlendTimedOut(op)
         cpu = min(self.cpu_seconds, self.child_cpu_seconds)
         meter = CpuMeter()
         start = time.monotonic()
         timed_out = False
         try:
             copy, _none, solids = run_isolated(
-                self.op,
+                op,
                 shape,
                 [],
                 thickness_mm,

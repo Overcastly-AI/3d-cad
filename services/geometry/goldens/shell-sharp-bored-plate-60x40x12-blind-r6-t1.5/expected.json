@@ -1,0 +1,45 @@
+{
+  "description": "SHARP SHELL GOLDEN, sealed (SHELL-SHARP-DEFAULT, 2026-10-07). A 60x40x12 plate with a blind r6 bore 8 deep from the bottom face, shelled to a 1.5 mm wall with no face opened and shell_type 'sharp'. The bore's FLOOR meets its wall at a CONCAVE edge (270 deg of material round it), where a sharp shell extends the cavity's two walls (the r7.5 cylinder round the bore and the plane 1.5 above its floor) until they meet: a sharp cavity corner, as SolidWorks, Onshape and Fusion shell by default. A rounded (Arc) shell puts an r1.5 torus there instead and reads 10306.2005 mm^3 with 17 faces; this golden reads the sharp cavity's 10327.9380 with 16. The kernel builds it with OCCT's Intersection join; the numbers below are derived WITHOUT any offset, from the cavity's closed form.",
+  "derivation": [
+    "Hand-derived, no offset used. Base body: box 60x40x12 (28800 mm^3) minus the bore, r 6 over z 0..8 (288 pi mm^3). t = 1.5, sealed: every wall moves inward by t and concave corners stay sharp.",
+    "The sharp cavity is the box inset by t, x 1.5..58.5 (57), y 1.5..38.5 (37), z 1.5..10.5 (9), MINUS the bore grown by t, r 7.5 over z 0..9.5; inside the inset box that cylinder spans z 1.5..9.5 (8). cavity = 57*37*9 - pi*7.5^2*8 = 18981 - 450 pi.",
+    "volume = 28800 - 288 pi - (18981 - 450 pi) = 9819 + 162 pi = 10327.938009881545 mm^3.",
+    "surface_area: outer skin 2*(60*40 + 60*12 + 40*12) = 7200, minus the bore mouth (36 pi), plus the bore wall 2 pi 6 8 = 96 pi and its floor 36 pi: 7200 + 96 pi. Cavity skin 2*(57*37 + 57*9 + 37*9) = 5910, minus the r7.5 disc on the cavity floor (56.25 pi), plus the boss wall 2 pi 7.5 8 = 120 pi and its top 56.25 pi: 5910 + 120 pi. Total 13110 + 216 pi = 13788.584013175394 mm^2.",
+    "centroid: x 30, y 20 by symmetry. z from the moments: box 28800*6, bore -288 pi*4, cavity box -18981*6, the r7.5 boss given back to the material +450 pi*5.5 (its z 1.5..9.5): z = (58914 + 1323 pi) / (9819 + 162 pi) = 6.106768555383948.",
+    "bounding_box = [0,0,0]..[60,40,12]: an inward shell leaves the envelope untouched.",
+    "topology: outer 6 box faces (the bottom one holed) + bore wall + bore floor = 8, cavity 6 + boss wall + boss top = 8, so 16 faces; edges 12 + 2 circles + 1 cylinder seam per skin, 15 x 2 = 30; 2 shells (outer skin and the void). A rounded shell adds the torus face and its circle (17 / 32).",
+    "mesh (linear 0.1 mm / angular 0.1 rad): 1060 vertices / 1032 triangles, RECORDED from the deterministic tessellation: the two cylinders and the four faces with circular edges are faceted by the deflection, which no hand count follows (as for the hole goldens). Byte-identical across an interpreter restart, as the runner asserts."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Planes and right cylinders only, which GProp integrates exactly; measured 2026-10-07 (build123d 0.11.1 / OCCT 7.9.3): volume 0.0, surface_area +1.8e-12, centroid.x -2.1e-14, centroid.y +3.6e-15, centroid.z 0.0, AABB exact. 1e-9 matches the hole and shell goldens.",
+  "properties": {
+    "volume": 10327.938009881545,
+    "surface_area": 13788.584013175394,
+    "centroid": {
+      "x": 30.0,
+      "y": 20.0,
+      "z": 6.106768555383948
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 60.0,
+        "y": 40.0,
+        "z": 12.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 16,
+    "edges": 30,
+    "shells": 2
+  },
+  "mesh": {
+    "vertices": 1060,
+    "triangles": 1032
+  }
+}

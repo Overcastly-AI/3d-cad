@@ -9681,11 +9681,20 @@
         "type": "object"
       },
       "ShellParamsV1": {
-        "description": "Hollow the current body to a uniform wall thickness, opening picked faces.\n\nThe housing / enclosure / cup primitive (a Part-modeling scorecard item):\nthe solid is thinned inward to a uniform wall of ``thickness_mm`` and the\nfaces named by ``faces`` are REMOVED, leaving those sides open. Like a\nfillet/chamfer/pattern it modifies the implicit single body chain (design\n\u00a77.6), so it carries no whole-feature ``FeatureRef`` \u2014 its dependency on the\nprior body-affecting feature is tree order. The picked openings ARE named\nreferences, though: each :class:`SubshapeRef` in ``faces`` materializes into\n``feature_dependencies`` exactly like an ``on_face`` datum's face ref, so\ndeleting the referenced body feature is a write-time 409-with-dependents and\na reorder re-checks strict-backward.\n\nThickness is a UNIFORM INWARD offset (the wall grows into the solid, so the\nouter envelope is unchanged). An empty ``faces`` list hollows to a sealed\n(fully-enclosed) cavity; a non-empty list opens those faces\n(:class:`FaceSelector`). A thickness that would collapse or self-intersect\nthe cavity (\u2265 the smallest half-wall) is a per-feature\n``shell_thickness_too_large`` rebuild error, never a silently wrong body\n(docs/GEOMETRY-QA.md 2026-07-13).",
+        "description": "Hollow the current body to a uniform wall thickness, opening picked faces.\n\nThe housing / enclosure / cup primitive (a Part-modeling scorecard item):\nthe solid is thinned inward to a uniform wall of ``thickness_mm`` and the\nfaces named by ``faces`` are REMOVED, leaving those sides open. Like a\nfillet/chamfer/pattern it modifies the implicit single body chain (design\n\u00a77.6), so it carries no whole-feature ``FeatureRef`` \u2014 its dependency on the\nprior body-affecting feature is tree order. The picked openings ARE named\nreferences, though: each :class:`SubshapeRef` in ``faces`` materializes into\n``feature_dependencies`` exactly like an ``on_face`` datum's face ref, so\ndeleting the referenced body feature is a write-time 409-with-dependents and\na reorder re-checks strict-backward.\n\nThickness is a UNIFORM INWARD offset (the outer envelope is unchanged); an\nempty ``faces`` list hollows to a sealed cavity. A thickness that would\ncollapse or self-intersect the cavity (\u2265 the smallest half-wall) is a\nper-feature ``shell_thickness_too_large`` rebuild error, never a silently\nwrong body (docs/GEOMETRY-QA.md 2026-07-13).",
         "properties": {
           "faces": {
             "$ref": "#/components/schemas/FaceSelector",
             "description": "The faces to leave OPEN (a picked-face selector). Empty = a fully-enclosed hollow with no opening (design decision)."
+          },
+          "shell_type": {
+            "description": "How the cavity turns a CONCAVE edge of the body. `sharp` (what a new shell is authored with, as SolidWorks, Onshape and Fusion do by default) extends the inward walls until they meet, so the cavity has a sharp corner and the wall there is thicker than `thickness_mm`; `rounded` rounds it at the wall thickness from the edge. Convex edges are sharp either way. Absent reads `rounded` (every shell stored before the field existed), and `rounded` is not serialized, so those rows stay byte-identical.",
+            "enum": [
+              "sharp",
+              "rounded"
+            ],
+            "title": "Shell Type",
+            "type": "string"
           },
           "thickness_mm": {
             "description": "Uniform inward wall thickness (mm). Must be small enough that the inward cavity does not self-intersect; too large is a `shell_thickness_too_large` rebuild error.",

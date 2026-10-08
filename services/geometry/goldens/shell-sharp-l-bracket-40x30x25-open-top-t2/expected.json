@@ -1,0 +1,45 @@
+{
+  "description": "SHARP SHELL GOLDEN, open (SHELL-SHARP-DEFAULT, 2026-10-07). An L-bracket, the profile (0,0) (40,0) (40,10) (10,10) (10,30) (0,30) extruded 25 in z, shelled to a 2 mm wall with its top face (z 25) opened and shell_type 'sharp'. The inside corner of the L, the edge x 10, y 10 along z, is CONCAVE: a sharp shell extends the cavity walls x 8 and y 8 until they meet at (8, 8), as SolidWorks, Onshape and Fusion shell by default, so the wall across that corner is 2 sqrt 2 thick. A rounded (Arc) shell puts an r2 quarter tube round the edge instead and reads 7252.2566 mm^3 with 16 faces; this golden reads the sharp cavity's 7272 with 15. Derived WITHOUT any offset, from the inset L's closed form.",
+  "derivation": [
+    "Hand-derived, no offset used. Base body: the L profile, area 40*10 + 10*20 = 600 mm^2, centroid (15, 10), perimeter 40+10+30+20+10+30 = 140, extruded 25: 15000 mm^3. t = 2, the top face open.",
+    "The sharp cavity is the L inset by t with sharp corners: x 2..38 by y 2..8 (216) plus x 2..8 by y 8..28 (120), area 336, perimeter 36+6+30+20+6+26 = 124, from the floor z 2 up through the opening at z 25 (23 deep). cavity = 336*23 = 7728.",
+    "volume = 15000 - 7728 = 7272 mm^3.",
+    "surface_area: bottom 600 + outer walls 140*25 = 3500 + the top rim 600 - 336 = 264 + cavity walls 124*23 = 2852 + cavity floor 336 = 7552 mm^2.",
+    "centroid from the moments: the prism 15000 at (15, 10, 12.5) less the cavity 7728 at (4920/336, 3240/336, 13.5): x = (225000 - 23*4920)/7272 = 15.37953795379538, y = (150000 - 23*3240)/7272 = 10.37953795379538, z = (187500 - 7728*13.5)/7272 = 11.437293729372938.",
+    "bounding_box = [0,0,0]..[40,30,25].",
+    "topology: 6 outer walls + bottom + rim = 8 faces, 6 cavity walls + floor = 7, so 15; edges: bottom 6 + top outer 6 + 6 vertical, rim inner 6 + 6 cavity vertical + floor 6, so 36; 1 shell (the cavity opens through the top). A rounded shell adds the quarter tube and its 3 edges (16 / 39).",
+    "mesh (linear 0.1 mm / angular 0.1 rad, per-face vertices): 12 rectangles at 4 / 2 = 48 / 24, the bottom and the floor (L hexagons) at 6 / 4 = 12 / 8, the rim (an L with an L hole: 12 corners, n + 2h - 2 = 12 triangles) 12 / 12: 72 vertices / 44 triangles."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Planar geometry only, so GProp is exact up to float round-off; measured 2026-10-07 (build123d 0.11.1 / OCCT 7.9.3): volume +4.5e-12, surface_area -1.8e-12, centroid +3.6e-15 / -1.8e-15 / +3.6e-15, AABB exact. 1e-9 matches the other shell goldens.",
+  "properties": {
+    "volume": 7272.0,
+    "surface_area": 7552.0,
+    "centroid": {
+      "x": 15.37953795379538,
+      "y": 10.37953795379538,
+      "z": 11.437293729372938
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 40.0,
+        "y": 30.0,
+        "z": 25.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 15,
+    "edges": 36,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 72,
+    "triangles": 44
+  }
+}

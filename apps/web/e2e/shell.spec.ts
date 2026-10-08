@@ -19,6 +19,11 @@ import {
  *  - SEALED (no face picked): a fully-enclosed hollow — the cavity is inset on
  *    all six sides (16³ = 4,096 mm³ removed), so the body is 8,000 − 4,096 =
  *    3,904 mm³ (outer − inner), with no opening.
+ *  - SHARP BY DEFAULT (SHELL-SHARP-DEFAULT): an L-bracket (15,000 mm³), its top
+ *    opened at 2 mm. A new shell keeps the inside corner of the L sharp, as
+ *    SolidWorks, Onshape and Fusion do: the inset L (336 mm² x 23) leaves
+ *    7,272 mm³. Edited to Rounded, the corner is an r2 quarter tube and the
+ *    body reads 7,252 mm³ ((4 − π) x 23 less).
  */
 
 /** A 20×20 rectangle fixed at the origin on XY — a clean 20 mm cube extruded. */
@@ -99,6 +104,51 @@ async function seedCubePart(page: Page): Promise<string> {
       params: {
         profile: { kind: "feature", feature_id: sketch.feature.id },
         distance_mm: 20,
+        operation: "add",
+        direction: "normal",
+      },
+    },
+    expected_tree_version: sketch.tree_version,
+  });
+  return part.id;
+}
+
+/** The L-bracket profile: legs 40 x 10 and 10 x 30, open on +x / +y. */
+const L_PROFILE = {
+  plane: { kind: "datum_plane", plane: "XY" },
+  entities: [
+    [0, 0, 40, 0],
+    [40, 0, 40, 10],
+    [40, 10, 10, 10],
+    [10, 10, 10, 30],
+    [10, 30, 0, 30],
+    [0, 30, 0, 0],
+  ].map(([x0, y0, x1, y1], i) => ({
+    id: `e${i + 1}`,
+    kind: "line",
+    start: { x: x0, y: y0 },
+    end: { x: x1, y: y1 },
+  })),
+  constraints: [],
+};
+
+/** Seed a part whose body is the L-bracket extruded 25 mm (15,000 mm³). */
+async function seedLBracketPart(page: Page): Promise<string> {
+  const account = await seedSession(page);
+  const part = await createPartViaApi(page, account.token, "Shell L-bracket");
+  const sketch = await createFeature(page, account.token, part.id, {
+    name: "Sketch1",
+    feature: { type: "sketch", version: 1, params: L_PROFILE },
+    expected_tree_version: 0,
+  });
+  await createFeature(page, account.token, part.id, {
+    name: "Extrude1",
+    feature: {
+      type: "extrude",
+      version: 1,
+      params: {
+        profile: { kind: "feature", feature_id: sketch.feature.id },
+        distance_mm: 25,
         operation: "add",
         direction: "normal",
       },
@@ -274,6 +324,54 @@ test.describe("shell — hollow a body", () => {
     // A sealed hollow removes a fully-enclosed 16³ cavity: 8,000 − 4,096 =
     // 3,904 mm³ (outer − inner), with no opening.
     await expect(page.getByTestId("prop-volume")).toContainText("3,904", {
+      timeout: 30_000,
+    });
+  });
+
+  test("a new shell keeps inside corners sharp; edited to rounded, they round", async ({
+    page,
+  }) => {
+    const partId = await seedLBracketPart(page);
+    await page.goto(`/parts/${partId}`);
+    await expect(page.getByTestId("prop-volume")).toContainText("15,000", {
+      timeout: 30_000,
+    });
+
+    await page.getByTestId("new-shell").click();
+    await expect(page.getByTestId("shell-editor")).toBeVisible();
+    await expect(page.getByTestId("shell-corners-sharp")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await page.getByTestId("shell-thickness").fill("2");
+    await clickExtremeFace(page, "top");
+    await expect(page.getByTestId("shell-open-count")).toHaveText(
+      "1 face open",
+    );
+    await page.getByTestId("shell-submit").click();
+    await expect(page.getByTestId("feature-row")).toHaveCount(3);
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    // The sharp inset L: 15,000 − 336 × 23.
+    await expect(page.getByTestId("prop-volume")).toContainText("7,272", {
+      timeout: 30_000,
+    });
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/shell-sharp-l-bracket-desktop.png`,
+    });
+
+    // Edit: the stored choice shows, and Rounded rounds the inside corner.
+    await page.getByTestId("feature-select-2").click();
+    await expect(page.getByTestId("shell-editor")).toBeVisible();
+    await expect(page.getByTestId("shell-corners-sharp")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await page.getByTestId("shell-corners-rounded").click();
+    await page.getByTestId("shell-submit").click();
+    await expect(page.getByTestId("shell-editor")).toHaveCount(0);
+    await expect(page.getByTestId("prop-volume")).toContainText("7,252", {
       timeout: 30_000,
     });
   });
