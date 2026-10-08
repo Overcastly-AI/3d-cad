@@ -133,7 +133,7 @@ commits carry the ID (`git log --grep=<ID>`).
       Fusion keeps the edges that still resolve and warns about the rest.
       _Accept:_ the fillet builds on the resolved edges with a per-edge
       warning; nothing resolves to an unpicked edge.
-- [ ] **SKETCH-PROJECT-EDGES**: no Project/Include of body edges into a
+- [ ] **SKETCH-PROJECT-EDGES** (steps 1-3 landed: step 3 web, tool, ink, gate, warning and e2e, 050ff07/81a1260/b7d6719; step 4 is the SKETCH-PROJECT-SPLINE line): no Project/Include of body edges into a
       sketch, so a lip sketched on a face keeps its typed size after the body
       widens (QA rerun 2026-10-01). _Accept:_ projected edges follow the body
       on rebuild, as in Fusion.
@@ -489,3 +489,7 @@ One line each. The founder triages weekly; most are closed without work.
 - DESIGN-INTENT-BACKFILL: mates and drawing dimension anchors are not backfilled (no named tier to feed); a failed or stale run backs off (10 min, 1 h) and gives up after three; the on-open run costs one cold rebuild on the modeller's own geometry worker, and their next request may queue behind it; the QA dry run on real saved parts was not run in the sandbox (no QA database).
 - DESIGN-INTENT-BACKFILL: names lost after the write by undo/redo to a pre-backfill snapshot are never retried (a stale editor save keeps them: the PATCH carries stored names onto unchanged picks), since the part stays checked; only `--part` names them again.
 - DESIGN-INTENT-BACKFILL: an open triggers only on unnamed picks in the evaluated prefix, so unnamed picks past the rollback bar are left to the sweep.
+- CTXMENU-SELECT-STICKS: right-click with nothing selected adds the entity under the pointer to the selection, and it stays after the menu closes.
+- BREAK-LINK-ICON: Break link uses CloseIcon, the same as Delete.
+- UNDO-PROJECTION-STATUS: undo/redo doesn't restore `projections`, so a sick mark can be stale until the next solve.
+- SKETCH-FACE-REOPEN-ZOOM: reopening a sketch on a face parks the camera tighter than the face.
