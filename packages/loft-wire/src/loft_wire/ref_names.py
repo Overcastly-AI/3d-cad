@@ -367,3 +367,80 @@ def apply_ref_names(
                         face["topo_name"] = name
         results.append("applied")
     return out, results
+
+
+# --- a save from params read before the write ----------------------------------
+
+_NAME_FIELDS = ("topo_name", "end_a_topo_name")
+
+
+def _unnamed(signature: Mapping[str, Any]) -> str:
+    """Digest of *signature* with every name field cleared."""
+    bare: dict[str, Any] = {k: v for k, v in signature.items() if k not in _NAME_FIELDS}
+    faces = bare.get("adjacent_faces")
+    if isinstance(faces, list):
+        bare["adjacent_faces"] = [
+            {k: v for k, v in face.items() if k != "topo_name"}  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+            if isinstance(face, dict)
+            else face
+            for face in faces  # pyright: ignore[reportUnknownVariableType]
+        ]
+    return signature_digest(bare)
+
+
+def _signatures(node: Any) -> Iterator[dict[str, Any]]:
+    """Every stored pick's signature dict under a params JSON *node*."""
+    if isinstance(node, dict):
+        selector = node.get("selector")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        if node.get("kind") == "subshape" and isinstance(selector, dict):  # pyright: ignore[reportUnknownMemberType]
+            signature = selector.get("signature")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+            if isinstance(signature, dict):
+                yield signature  # pyright: ignore[reportReturnType]
+            return
+        for value in node.values():  # pyright: ignore[reportUnknownVariableType]
+            yield from _signatures(value)
+    elif isinstance(node, list):
+        for value in node:  # pyright: ignore[reportUnknownVariableType]
+            yield from _signatures(value)
+
+
+def carry_ref_names(
+    stored: Mapping[str, Any], incoming: Mapping[str, Any]
+) -> dict[str, Any]:
+    """*incoming* params with the stored names copied onto every pick whose
+    signature is the stored one but for its names. PURE.
+
+    The backfill writes names without bumping ``tree_version`` (it runs under
+    a user who is editing), so a client may save params it read before the
+    write. Such a save carries the same geometric signature with null names;
+    the name was computed for exactly that signature, so it still designates
+    the same subshape and is copied back. Only NULL fields are filled: a pick
+    the user re-made (a different signature) or one that already carries a
+    name is left exactly as sent."""
+    known: dict[str, dict[str, Any]] = {}
+    for signature in _signatures(stored):
+        if signature.get("topo_name") is not None:
+            known.setdefault(_unnamed(signature), signature)
+    out: dict[str, Any] = copy.deepcopy(dict(incoming))
+    if not known:
+        return out
+    for signature in _signatures(out):
+        if signature.get("topo_name") is not None:
+            continue
+        source = known.get(_unnamed(signature))
+        if source is None:
+            continue
+        for key in _NAME_FIELDS:
+            if signature.get(key) is None and source.get(key) is not None:
+                signature[key] = source[key]
+        mine, theirs = signature.get("adjacent_faces"), source.get("adjacent_faces")
+        if isinstance(mine, list) and isinstance(theirs, list):
+            for face, named in zip(mine, theirs, strict=False):  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+                if (
+                    isinstance(face, dict)
+                    and isinstance(named, dict)
+                    and face.get("topo_name") is None  # pyright: ignore[reportUnknownMemberType]
+                    and named.get("topo_name") is not None  # pyright: ignore[reportUnknownMemberType]
+                ):
+                    face["topo_name"] = named["topo_name"]
+    return out

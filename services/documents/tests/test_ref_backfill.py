@@ -315,7 +315,7 @@ def test_a_report_writes_only_null_names_as_metadata(
     result = _apply(client, ids["part"], report)
     assert result == {
         "result": "written",
-        "tree_version": 4,
+        "tree_version": 3,
         "refs_written": 1,
         "refs_signature_changed": 0,
         "refs_already_named": 0,
@@ -331,9 +331,10 @@ def test_a_report_writes_only_null_names_as_metadata(
     old = _signature(fillet_before)
     for key in ("curve", "end_a", "end_b", "midpoint", "length_mm"):
         assert sig[key] == old[key]
-    # Metadata, not an edit.
+    # Metadata, not an edit: not even a tree_version bump, so a user editing
+    # while it lands is never refused as stale.
     part = _get_part(client, ids["part"])
-    assert part["tree_version"] == part_before["tree_version"] + 1
+    assert part["tree_version"] == part_before["tree_version"]
     assert part["updated_at"] == part_before["updated_at"]
     assert fillet["updated_at"] == fillet_before["updated_at"]
     deps = _rows(
@@ -349,7 +350,7 @@ def test_a_report_writes_only_null_names_as_metadata(
             db.Part.id == uuid.UUID(ids["part"])
         ),
     )
-    assert checked[0][0] == 4
+    assert checked[0][0] == 3
 
 
 def test_the_write_amends_the_head_snapshot_without_an_undo_step(
@@ -378,7 +379,7 @@ def test_the_write_amends_the_head_snapshot_without_an_undo_step(
     )
     # Undo walks back to the tree before the fillet, verbatim; redo returns the
     # NAMED fillet (an un-amended head would silently drop the names here).
-    for step, version in (("undo", 4), ("redo", 5)):
+    for step, version in (("undo", 3), ("redo", 4)):
         response = client.post(
             f"/api/v1/parts/{ids['part']}/{step}",
             json={"expected_tree_version": version},
@@ -415,7 +416,7 @@ def test_the_write_is_journaled_and_revertible(client: TestClient, db_url: str) 
     )
     assert len(journal) == 1
     kind, v0, v1, before, after, stored_report, kernel, digest = journal[0]
-    assert (kind, v0, v1, kernel) == ("backfill", 3, 4, "test-kernel")
+    assert (kind, v0, v1, kernel) == ("backfill", 3, 3, "test-kernel")
     assert before == {
         ids["fillet"]: {"param_version": stored_before[1], "params": stored_before[0]}
     }
@@ -431,7 +432,7 @@ def test_the_write_is_journaled_and_revertible(client: TestClient, db_url: str) 
     assert reverted.status_code == 200, reverted.text
     assert reverted.json() == {
         "result": "reverted",
-        "tree_version": 5,
+        "tree_version": 3,
         "features_restored": 1,
         "features_skipped": 0,
         "detail": "",
@@ -451,7 +452,7 @@ def test_the_write_is_journaled_and_revertible(client: TestClient, db_url: str) 
         db_url,
         sa.select(db.RefNameBackfill.kind, db.RefNameBackfill.reverted_at)
         .where(db.RefNameBackfill.part_id == uuid.UUID(ids["part"]))
-        .order_by(db.RefNameBackfill.tree_version_after),
+        .order_by(db.RefNameBackfill.created_at),
     )
     assert [k for k, _at in kinds] == ["backfill", "revert"]
     assert kinds[0][1] is not None
@@ -516,14 +517,14 @@ def test_applying_twice_is_idempotent(client: TestClient) -> None:
     report = _report(client, ids)
     assert _apply(client, ids["part"], report)["result"] == "written"
     after_first = _feature(client, ids["part"], ids["fillet"])
-    # The same request again is stale; re-aimed at the new version, the
-    # stored signature now carries the name and is not written again.
-    assert _apply(client, ids["part"], report)["result"] == "stale"
-    again = _apply(client, ids["part"], report.model_copy(update={"tree_version": 4}))
+    # The same request again: the stored signature now carries the name (its
+    # digest moved), so nothing is written a second time.
+    again = _apply(client, ids["part"], report)
     assert again["result"] == "unchanged"
     assert again["refs_written"] == 0
+    assert again["refs_signature_changed"] == 1
     assert _feature(client, ids["part"], ids["fillet"]) == after_first
-    assert _get_part(client, ids["part"])["tree_version"] == 4
+    assert _get_part(client, ids["part"])["tree_version"] == 3
 
 
 def test_a_name_already_present_is_never_overwritten(client: TestClient) -> None:
@@ -572,7 +573,7 @@ def test_a_dry_run_writes_nothing(client: TestClient) -> None:
     assert _request(client, ids["part"])["needed"] is True
 
 
-def test_a_current_verdict_follows_the_bump(client: TestClient) -> None:
+def test_a_current_verdict_stays_current(client: TestClient) -> None:
     ids = _part(client)
     recorded = client.put(
         f"/api/v1/parts/{ids['part']}/last-evaluation",
@@ -582,7 +583,7 @@ def test_a_current_verdict_follows_the_bump(client: TestClient) -> None:
     assert recorded.status_code == 200, recorded.text
     _apply(client, ids["part"], _report(client, ids))
     part = _get_part(client, ids["part"])
-    assert part["tree_version"] == 4
+    assert part["tree_version"] == 3
     assert part["eval_state"] == "ok"
 
 
@@ -610,7 +611,7 @@ def test_the_sweep_lists_pending_parts_with_owners(client: TestClient) -> None:
     one = client.get(
         "/api/v1/ref-backfill/parts", params={"part_id": first["part"]}
     ).json()["parts"]
-    assert [p["ref_names_checked_version"] for p in one] == [4]
+    assert [p["ref_names_checked_version"] for p in one] == [3]
     assert (
         len(
             client.get("/api/v1/ref-backfill/parts", params={"limit": 1}).json()[
@@ -667,9 +668,13 @@ async def _race(url: str, ids: dict[str, str], report: RefNamesReport) -> list[s
         await engine.dispose()
 
 
-def test_a_concurrent_edit_and_backfill_serialise_and_one_wins(
+def test_a_concurrent_edit_always_lands_whichever_goes_first(
     pg_url: str,
 ) -> None:
+    """The engineer's edit must never fail because a background job ran. The
+    two serialise on the part-row lock: backfill first does not bump, so the
+    edit (expecting 3) lands after it; edit first makes the backfill stale.
+    Either way the re-pick is stored as sent (a new signature gets no name)."""
     with TestClient(build_app(DocumentsSettings(postgres_url=pg_url))) as client:
         ids = _part(client)
         report = _report(client, ids)
@@ -677,13 +682,12 @@ def test_a_concurrent_edit_and_backfill_serialise_and_one_wins(
         sig = _signature(_feature(client, ids["part"], ids["fillet"]))
         part = _get_part(client, ids["part"])
     assert part["tree_version"] == 4
-    if outcome == ["backfill:written", "edit:stale_tree_version"]:
-        assert sig["topo_name"] == "x:start|x:e2"
-        assert sig["end_a"]["x"] == 20.0
-    else:
-        assert outcome == ["backfill:stale", "edit:ok"]
-        assert sig.get("topo_name") is None
-        assert sig["end_a"]["x"] == 18.0
+    assert outcome in (
+        ["backfill:written", "edit:ok"],
+        ["backfill:stale", "edit:ok"],
+    )
+    assert sig.get("topo_name") is None
+    assert sig["end_a"]["x"] == 18.0
 
 
 def test_report_fields_survive_a_json_round_trip() -> None:
@@ -789,7 +793,7 @@ def test_a_revert_after_later_edits_is_refused_unless_forced(
     _apply(client, ids["part"], _report(client, ids))
     renamed = client.patch(
         f"/api/v1/parts/{ids['part']}/features/{ids['extrude']}",
-        json={"expected_tree_version": 4, "name": "Base"},
+        json={"expected_tree_version": 3, "name": "Base"},
         headers=_headers(),
     )
     assert renamed.status_code == 200, renamed.text
@@ -799,7 +803,7 @@ def test_a_revert_after_later_edits_is_refused_unless_forced(
     assert refused.status_code == 200, refused.text
     body = refused.json()
     assert body["result"] == "refused"
-    assert body["tree_version"] == 5
+    assert body["tree_version"] == 4
     assert "edited after the backfill" in body["detail"]
     assert _signature(_feature(client, ids["part"], ids["fillet"]))["topo_name"] == (
         "x:start|x:e2"
@@ -811,6 +815,56 @@ def test_a_revert_after_later_edits_is_refused_unless_forced(
     )
     assert forced.json()["result"] == "reverted"
     assert forced.json()["features_restored"] == 1
+    assert (
+        _signature(_feature(client, ids["part"], ids["fillet"])).get("topo_name")
+        is None
+    )
+
+
+# --- a save from a tree read before the write (e2e lane, 67c5dc4) -------------------
+
+
+def test_a_stale_client_save_keeps_the_names(client: TestClient) -> None:
+    """The editor read the fillet before the background write landed, and
+    saves it with a new radius and the OLD (unnamed) pick: the save lands (no
+    version bump to refuse it) and the names survive, because the pick's
+    signature is the one they were computed for."""
+    ids = _part(client)
+    stale_tree = client.get(
+        f"/api/v1/parts/{ids['part']}/features", headers=_headers()
+    ).json()
+    _apply(client, ids["part"], _report(client, ids))
+    old = next(f for f in stale_tree["features"] if f["id"] == ids["fillet"])
+    envelope = old["feature"]
+    envelope["params"]["radius_mm"] = 3.0
+    saved = client.patch(
+        f"/api/v1/parts/{ids['part']}/features/{ids['fillet']}",
+        json={"expected_tree_version": stale_tree["tree_version"], "feature": envelope},
+        headers=_headers(),
+    )
+    assert saved.status_code == 200, saved.text
+    fillet = _feature(client, ids["part"], ids["fillet"])
+    assert fillet["feature"]["params"]["radius_mm"] == 3.0
+    sig = _signature(fillet)
+    assert sig["topo_name"] == "x:start|x:e2"
+    assert sig["end_a_topo_name"] == "x:e1"
+    assert [f["topo_name"] for f in sig["adjacent_faces"]] == ["x:start", "x:e2"]
+    # Checked, so nothing re-runs: no loop either way.
+    assert _request(client, ids["part"])["needed"] is False
+
+
+def test_a_re_pick_in_a_save_gets_no_carried_name(client: TestClient) -> None:
+    ids = _part(client)
+    _apply(client, ids["part"], _report(client, ids))
+    repick = client.patch(
+        f"/api/v1/parts/{ids['part']}/features/{ids['fillet']}",
+        json={
+            "expected_tree_version": 3,
+            "feature": _fillet(ids["extrude"], _edge_signature(17.0)),
+        },
+        headers=_headers(),
+    )
+    assert repick.status_code == 200, repick.text
     assert (
         _signature(_feature(client, ids["part"], ids["fillet"])).get("topo_name")
         is None

@@ -807,6 +807,13 @@ rebuild has lost the bodies before the cached prefix). Documents writes under
 the part-row lock, only into null fields, only while the report's
 `tree_version` and each pick's signature digest still match, amends the head
 history snapshot instead of adding an undo step, and journals the write.
+It does NOT bump `tree_version`: the write lands in the background while the
+engineer edits, and a bump refused their next save as stale (e2e lane on
+67c5dc4). Names cannot change the body at the sizes they were computed at and
+every geometry cache keys on params, so no reader needs the bump; the one
+risk, an editor saving params it read before the write, is closed by the
+feature PATCH copying the stored names back onto any pick whose signature is
+unchanged (`carry_ref_names`).
 At unchanged sizes the exact tier answers before the name is read, so the
 named part rebuilds byte for byte (bracket, enclosure, impeller and lip in
 `tests/test_ref_backfill.py`); after the backfill the four hard-parts edits

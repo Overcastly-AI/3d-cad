@@ -187,7 +187,7 @@ def test_backup_upgrade_open_journal_revert_restore(
             pg_url,
             "SELECT kind || ':' || tree_version_before || '->' || tree_version_after "
             "FROM ref_name_backfills",
-        ) == ("backfill:3->4")
+        ) == ("backfill:3->3")
         named = _psql(
             bin_dir,
             pg_url,

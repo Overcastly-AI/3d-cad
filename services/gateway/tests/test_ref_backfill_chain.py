@@ -256,8 +256,10 @@ def test_opening_an_old_part_names_its_picks_and_the_edit_then_rebuilds(
             opened = await _evaluate(client, part_id)
             assert {f["status"] for f in opened["features"]} == {"ok"}
             part = (await client.get(f"/api/v1/parts/{part_id}")).json()
-            assert part["tree_version"] == len(fresh) + 1
-            assert part["eval_state"] == "ok"  # the verdict followed the bump
+            assert part["tree_version"] == len(
+                fresh
+            )  # metadata: no bump under the user
+            assert part["eval_state"] == "ok"  # the verdict is still current
             named = await _params(client, part_id)
             # Field for field what a fresh pick on the stored part captures.
             assert named == [_stored(item["feature"]) for item in picked]

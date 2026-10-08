@@ -22,11 +22,16 @@ lock every tree mutation takes):
   (asserted), ``updated_at`` does not move (part or feature), and no undo step
   is added: the head history snapshot is amended in place
   (:meth:`~documents.history_core.DocumentHistory.amend_head`).
-  ``tree_version`` IS bumped, because the stored params changed and every
-  cache and optimistic-concurrency check keys on it; a client holding the
-  old version soft-resyncs as after any other write. The last-evaluate verdict
-  follows the bump when it was current, because at unchanged sizes the names
-  cannot change the body (geometry proves this byte for byte).
+  ``tree_version`` is NOT bumped: the write runs in the background while the
+  user works, and a bump would refuse their next edit as stale (the e2e lane
+  caught exactly that) or resync their tree mid-drag. It needs no bump: at
+  the part's current sizes the names cannot change the body (geometry proves
+  it byte for byte), every geometry cache keys on params rather than on the
+  version, and the last-evaluate verdict stays true. The one thing a client
+  holding the pre-write params could do is save them back without the
+  names; :func:`loft_wire.ref_names.carry_ref_names` in the feature PATCH
+  copies a name back onto any pick whose signature is unchanged, so a stale
+  save cannot drop them (and, the part being checked, nothing loops).
 - **Journal.** Every write is a ``ref_name_backfills`` row holding the params
   before and after, the report and the geometry build, so an operator can see
   what changed and revert it (``POST .../ref-names/revert``).
@@ -341,11 +346,7 @@ async def apply_ref_names_route(
                 )
                 .execution_options(synchronize_session=False)
             )
-        after = before + 1
-        values["tree_version"] = after
-        values["ref_names_checked_version"] = after
-        if part.last_eval_tree_version == before:
-            values["last_eval_tree_version"] = after
+        after = before  # metadata: no bump (module docstring)
         session.add(
             db.RefNameBackfill(
                 part_id=part.id,
@@ -405,7 +406,7 @@ async def revert_ref_names(
     Restores each touched feature's row exactly as it was stored before the
     write (``param_version`` and params), but only where the feature still
     holds what the backfill wrote; a feature edited since is skipped and
-    counted. Like the write it is metadata: one ``tree_version`` bump, the
+    counted. Like the write it is metadata: no ``tree_version`` bump, the
     head snapshot amended, ``updated_at`` pinned, journaled. The part stays
     checked, so it is not named again on the next open (force a sweep with
     ``--part`` to redo it)."""
@@ -418,7 +419,7 @@ async def revert_ref_names(
                 db.RefNameBackfill.kind == "backfill",
                 db.RefNameBackfill.reverted_at.is_(None),
             )
-            .order_by(db.RefNameBackfill.tree_version_after.desc())
+            .order_by(db.RefNameBackfill.created_at.desc())
             .limit(1)
         )
     ).scalar_one_or_none()
@@ -473,11 +474,6 @@ async def revert_ref_names(
         )
     version = part.tree_version
     values: dict[str, Any] = {"updated_at": db.Part.updated_at}
-    if restored_after:
-        values["tree_version"] = version + 1
-        values["ref_names_checked_version"] = version + 1
-        if part.last_eval_tree_version == version:
-            values["last_eval_tree_version"] = version + 1
     await session.execute(
         update(db.Part)
         .where(db.Part.id == part.id)
@@ -491,7 +487,7 @@ async def revert_ref_names(
             kind="revert",
             trigger=None,
             tree_version_before=version,
-            tree_version_after=version + (1 if restored_after else 0),
+            tree_version_after=version,
             params_before=restored_before,
             params_after=restored_after,
         )

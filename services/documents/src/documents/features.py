@@ -45,6 +45,7 @@ from loft_wire.features import (
 )
 from loft_wire.materials import MaterialAssignment
 from loft_wire.parts import EVALUATE_BEFORE_DESCRIPTION
+from loft_wire.ref_names import carry_ref_names
 from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
 from py_kit.db import SessionDep
 from sqlalchemy import delete, select, update
@@ -482,8 +483,16 @@ async def update_feature(
         target_ids = validate_references(
             request.feature, feature.order_index, features_by_id
         )
+        stored = FEATURE_REGISTRY.load(
+            feature.type, feature.param_version, feature.params
+        ).params.model_dump(mode="json")
         feature.param_version = request.feature.version
-        feature.params = request.feature.params.model_dump(mode="json")
+        # A save from a tree read before a background history-name write
+        # (DESIGN-INTENT-BACKFILL, which does not bump tree_version) keeps the
+        # names of every pick it did not change.
+        feature.params = carry_ref_names(
+            stored, request.feature.params.model_dump(mode="json")
+        )
         # The envelope carries `suppressed`; a params replace persists it too so
         # an update never resets the flag (the dedicated toggle is the usual
         # path, but a full-envelope PATCH must round-trip it — feature-tree §4.3a).

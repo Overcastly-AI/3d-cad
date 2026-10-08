@@ -122,9 +122,10 @@ pre-upgrade backup with the old tag's images.
   after the user's own evaluate has answered), and documents writes a name
   only for a pick that still matches its stored geometry exactly at the part's
   current sizes. Nothing geometric changes: the part rebuilds byte for byte,
-  the edit history gains no step, and `updated_at` does not move.
-  `tree_version` goes up by one, so an editor open on an old tab re-syncs
-  once. A pick that no longer matches exactly (the part was edited after the
+  the edit history gains no step, and neither `updated_at` nor
+  `tree_version` moves, so the user's own edits are never refused because the
+  write landed; a save from an editor that read the tree before the write
+  keeps the names. A pick that no longer matches exactly (the part was edited after the
   pick) is left unnamed; re-pick it if a size edit loses it.
   - **Back up first** (as for every upgrade). The write is journaled in
     `ref_name_backfills` (params before and after, geometry's report and

@@ -25,6 +25,7 @@ from loft_wire.features import (
 from loft_wire.ref_names import (
     RefNameOutcome,
     apply_ref_names,
+    carry_ref_names,
     iter_subshape_ref_paths,
     resolve_pointer,
     signature_digest,
@@ -362,3 +363,43 @@ def test_digest_is_key_order_independent() -> None:
     shuffled = dict(reversed(list(sig.items())))
     assert signature_digest(sig) == signature_digest(shuffled)
     assert len(signature_digest(sig)) == 64
+
+
+# --- carry_ref_names: a save from params read before the write -----------------
+
+
+def test_a_stale_save_gets_the_stored_names_back() -> None:
+    stored = _fillet()
+    sig = stored["edges"]["refs"][1]["selector"]["signature"]
+    named, _ = apply_ref_names(
+        stored,
+        [
+            _named(
+                "/edges/refs/1",
+                sig,
+                topo_name="a|b",
+                end_a_topo_name="c",
+                adjacent_topo_names=["a", "b"],
+            )
+        ],
+    )
+    stale = _fillet()
+    stale["radius_mm"] = 3.0
+    carried = carry_ref_names(named, stale)
+    assert carried["radius_mm"] == 3.0
+    assert carried["edges"]["refs"][1] == named["edges"]["refs"][1]
+    # The unnamed sibling stays unnamed, and the input is untouched.
+    assert carried["edges"]["refs"][0] == stale["edges"]["refs"][0]
+    assert "topo_name" not in stale["edges"]["refs"][1]["selector"]["signature"]
+
+
+def test_a_re_pick_or_an_existing_name_is_left_as_sent() -> None:
+    stored = _fillet()
+    sig = stored["edges"]["refs"][0]["selector"]["signature"]
+    named, _ = apply_ref_names(stored, [_named("/edges/refs/0", sig, topo_name="x")])
+    moved = _fillet()
+    moved["edges"]["refs"][0]["selector"]["signature"]["length_mm"] = 11.0
+    assert carry_ref_names(named, moved) == moved
+    own = _fillet()
+    own["edges"]["refs"][0]["selector"]["signature"]["topo_name"] = "mine"
+    assert carry_ref_names(named, own) == own
