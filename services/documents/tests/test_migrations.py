@@ -503,3 +503,119 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
         "assembly_snapshots",
         "folders",
     }
+
+
+def test_0016_offline_sql_adds_the_pending_column_and_the_journal(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0015:0016")
+    # Nullable, no default: catalog-only, and every existing part is pending.
+    assert "ALTER TABLE parts ADD COLUMN ref_names_checked_version BIGINT" in sql
+    assert "UPDATE parts" not in sql
+    assert "CREATE TABLE ref_name_backfills" in sql
+    assert "REFERENCES parts (id) ON DELETE CASCADE" in sql
+    assert "params_before JSONB NOT NULL" in sql
+    assert "CREATE INDEX ix_ref_name_backfills_part_id" in sql
+
+
+def test_0016_offline_downgrade_drops_both(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0016:0015", downgrade=True)
+    assert "DROP TABLE ref_name_backfills" in sql
+    assert "ALTER TABLE parts DROP COLUMN ref_names_checked_version" in sql
+
+
+async def _scalar_rows(url: str, statement: str) -> list[tuple[object, ...]]:
+    engine = create_async_engine(async_dsn(url))
+    try:
+        async with engine.begin() as connection:
+            result = await connection.execute(sa.text(statement))
+            return [tuple(row) for row in result] if result.returns_rows else []
+    finally:
+        await engine.dispose()
+
+
+_PART = "6f3f6b64-0000-4000-8000-0000000160aa"
+_OWNER = "6f3f6b64-0000-4000-8000-0000000160bb"
+_FEATURE = "6f3f6b64-0000-4000-8000-0000000160cc"
+_PARAMS = (
+    '{"plane": {"kind": "datum_plane", "plane": "XY"}, '
+    '"entities": [], "constraints": []}'
+)
+
+
+def test_0016_up_and_down_on_a_populated_database(
+    pg_url: str, alembic_runner: Callable[..., None]
+) -> None:
+    """DESIGN-INTENT-BACKFILL: 0016 against real rows, both directions. The
+    part and its feature must come through byte-for-byte, the part must read
+    as pending after the upgrade, a journal row must cascade with its part,
+    and the downgrade must remove exactly what the upgrade added."""
+    alembic_runner(pg_url, "0015", downgrade=True)
+    run = asyncio.run
+    run(
+        _scalar_rows(
+            pg_url,
+            "INSERT INTO parts (id, owner_id, name, tree_version) "
+            f"VALUES ('{_PART}', '{_OWNER}', 'Old bracket', 7)",
+        )
+    )
+    run(
+        _scalar_rows(
+            pg_url,
+            "INSERT INTO features (id, part_id, order_index, name, type, "
+            "param_version, params) VALUES "
+            f"('{_FEATURE}', '{_PART}', 0, 'Sketch1', 'sketch', 1, '{_PARAMS}')",
+        )
+    )
+    snapshot = "SELECT id, owner_id, name, tree_version, updated_at FROM parts"
+    features = "SELECT id, params::text, param_version, updated_at FROM features"
+    parts_before = run(_scalar_rows(pg_url, snapshot))
+    features_before = run(_scalar_rows(pg_url, features))
+
+    alembic_runner(pg_url, "0016")
+    assert run(_scalar_rows(pg_url, snapshot)) == parts_before
+    assert run(_scalar_rows(pg_url, features)) == features_before
+    assert run(_scalar_rows(pg_url, "SELECT ref_names_checked_version FROM parts")) == [
+        (None,)
+    ]
+    run(
+        _scalar_rows(
+            pg_url,
+            "INSERT INTO ref_name_backfills (id, part_id, kind, trigger, "
+            "tree_version_before, tree_version_after, params_before, params_after) "
+            f"VALUES (gen_random_uuid(), '{_PART}', 'backfill', 'open', 7, 8, "
+            "'{}', '{}')",
+        )
+    )
+    assert run(_scalar_rows(pg_url, "SELECT count(*) FROM ref_name_backfills")) == [
+        (1,)
+    ]
+
+    alembic_runner(pg_url, "0015", downgrade=True)
+    assert "ref_name_backfills" not in run(_table_names(pg_url))
+    columns = run(
+        _scalar_rows(
+            pg_url,
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'parts'",
+        )
+    )
+    assert ("ref_names_checked_version",) not in columns
+    assert run(_scalar_rows(pg_url, snapshot)) == parts_before
+    assert run(_scalar_rows(pg_url, features)) == features_before
+
+    alembic_runner(pg_url, "head")
+    run(
+        _scalar_rows(
+            pg_url,
+            "INSERT INTO ref_name_backfills (id, part_id, kind, "
+            "tree_version_before, tree_version_after, params_before, params_after) "
+            f"VALUES (gen_random_uuid(), '{_PART}', 'backfill', 7, 8, '{{}}', '{{}}')",
+        )
+    )
+    run(_scalar_rows(pg_url, f"DELETE FROM parts WHERE id = '{_PART}'"))
+    assert run(_scalar_rows(pg_url, "SELECT count(*) FROM ref_name_backfills")) == [
+        (0,)
+    ]

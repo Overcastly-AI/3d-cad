@@ -287,6 +287,14 @@ class Part(Base):
     last_eval_scope: Mapped[PartEvalScope | None] = mapped_column(
         sa.String(16), nullable=True
     )
+    #: The ``tree_version`` the history-name backfill last ran at
+    #: (DESIGN-INTENT-BACKFILL, :mod:`documents.ref_backfill`). NULL means
+    #: PENDING: every row older than migration 0016, which is exactly the
+    #: population whose stored picks may lack names. Bookkeeping, not a document
+    #: edit: setting it alone moves neither ``tree_version`` nor ``updated_at``.
+    ref_names_checked_version: Mapped[int | None] = mapped_column(
+        sa.BigInteger(), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=False,
@@ -494,6 +502,54 @@ class PartSnapshot(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return f"PartSnapshot(part_id={self.part_id!r}, seq={self.seq!r})"
+
+
+class RefNameBackfill(Base):
+    """One write of the history-name backfill to a part, kept for audit and
+    revert (DESIGN-INTENT-BACKFILL, migration 0016).
+
+    ``params_before`` / ``params_after`` map each feature id the write touched
+    to ``{"param_version", "params"}``: the row exactly as stored before, and
+    as written. ``report`` is geometry's whole answer and ``kernel`` the
+    geometry build that computed it. A revert restores ``params_before`` for
+    every feature still holding ``params_after``, stamps ``reverted_at`` and
+    journals itself as a ``kind='revert'`` row. Deleted with its part.
+    """
+
+    __tablename__ = "ref_name_backfills"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    part_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("parts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    #: 'backfill' | 'revert'.
+    kind: Mapped[str] = mapped_column(sa.String(16), nullable=False)
+    #: 'open' | 'sweep' for a backfill; NULL for a revert.
+    trigger: Mapped[str | None] = mapped_column(sa.String(16), nullable=True)
+    tree_version_before: Mapped[int] = mapped_column(sa.BigInteger(), nullable=False)
+    tree_version_after: Mapped[int] = mapped_column(sa.BigInteger(), nullable=False)
+    params_before: Mapped[dict[str, Any]] = mapped_column(_JSON_VARIANT, nullable=False)
+    params_after: Mapped[dict[str, Any]] = mapped_column(_JSON_VARIANT, nullable=False)
+    report: Mapped[dict[str, Any] | None] = mapped_column(_JSON_VARIANT, nullable=True)
+    report_sha256: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+    kernel: Mapped[str | None] = mapped_column(sa.String(256), nullable=True)
+    reverted_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return f"RefNameBackfill(id={self.id!r}, part_id={self.part_id!r})"
 
 
 class Assembly(Base):

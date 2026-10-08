@@ -1154,6 +1154,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/ref-names": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply Ref Names Route
+         * @description Write a geometry report's names into the part, under the part-row lock
+         *     (module docstring for every guard). ``dry_run`` runs every guard and
+         *     reports what WOULD be written, writing nothing.
+         */
+        post: operations["apply_ref_names_route_api_v1_parts__part_id__ref_names_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/ref-names-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Ref Names Request
+         * @description Whether the part needs the backfill, and if so the tree geometry must
+         *     rebuild: EVERY feature (the rollback bar is ignored, so picks past it are
+         *     named too), params upcast, suppress flags kept (a suppressed feature
+         *     resolves nothing and is reported ``not_evaluated``).
+         */
+        get: operations["get_ref_names_request_api_v1_parts__part_id__ref_names_request_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/ref-names/revert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revert Ref Names
+         * @description Undo the part's latest un-reverted backfill write (operator tool).
+         *
+         *     Restores each touched feature's row exactly as it was stored before the
+         *     write (``param_version`` and params), but only where the feature still
+         *     holds what the backfill wrote; a feature edited since is skipped and
+         *     counted. Like the write it is metadata: one ``tree_version`` bump, the
+         *     head snapshot amended, ``updated_at`` pinned, journaled. The part stays
+         *     checked, so it is not named again on the next open (force a sweep with
+         *     ``--part`` to redo it).
+         */
+        post: operations["revert_ref_names_api_v1_parts__part_id__ref_names_revert_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/rollback": {
         parameters: {
             query?: never;
@@ -1191,6 +1264,26 @@ export interface paths {
          *     Clean no-op at the baseline; stale ``expected_tree_version`` → 422.
          */
         post: operations["undo_api_v1_parts__part_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ref-backfill/parts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Backfill Parts
+         * @description Parts for the operator sweep, oldest first, with their owners.
+         */
+        get: operations["list_backfill_parts_api_v1_ref_backfill_parts_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5602,6 +5695,179 @@ export interface components {
              */
             type: "radius";
         };
+        /** RefBackfillPart */
+        RefBackfillPart: {
+            /**
+             * Owner Id
+             * Format: uuid
+             */
+            owner_id: string;
+            /**
+             * Part Id
+             * Format: uuid
+             */
+            part_id: string;
+            /** Ref Names Checked Version */
+            ref_names_checked_version: number | null;
+            /** Tree Version */
+            tree_version: number;
+        };
+        /** RefBackfillPartList */
+        RefBackfillPartList: {
+            /** Parts */
+            parts: components["schemas"]["RefBackfillPart"][];
+        };
+        /**
+         * RefNameOutcome
+         * @description What the backfill found for ONE stored subshape reference.
+         */
+        RefNameOutcome: {
+            /**
+             * Adjacent Topo Names
+             * @description Edge only, when the stored signature carries adjacent_faces: each adjacent face's name, aligned with them.
+             */
+            adjacent_topo_names?: (string | null)[] | null;
+            /**
+             * End A Topo Name
+             * @description Edge only: the name of the one face the edge ends on at end_a, where the pick side would stamp one.
+             */
+            end_a_topo_name?: string | null;
+            /**
+             * Feature Id
+             * Format: uuid
+             */
+            feature_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "face" | "edge";
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "named" | "already_named" | "not_exact:durable" | "not_exact:adjacent" | "not_exact:named" | "unresolved" | "ambiguous" | "no_name" | "name_not_unique" | "not_evaluated";
+            /**
+             * Path
+             * @description JSON pointer (RFC 6901) to the reference inside the feature's params, e.g. `/edges/refs/0` or `/entities/3/projection/edge`.
+             */
+            path: string;
+            /**
+             * Signature Sha256
+             * @description signature_digest() of the stored signature the outcome was computed for. Documents writes a name only while the stored signature still has this digest.
+             */
+            signature_sha256: string;
+            /**
+             * Topo Name
+             * @description The subshape's history name (only on `named`).
+             */
+            topo_name?: string | null;
+        };
+        /**
+         * RefNamesApplyRequest
+         * @description Write a geometry report into the part (documents, part-row locked).
+         */
+        RefNamesApplyRequest: {
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
+            report: components["schemas"]["RefNamesReport"];
+            /**
+             * Tree Version
+             * @description The tree_version the report was computed from.
+             */
+            tree_version: number;
+            /**
+             * Trigger
+             * @default open
+             * @enum {string}
+             */
+            trigger: "open" | "sweep";
+        };
+        /** RefNamesApplyResult */
+        RefNamesApplyResult: {
+            /**
+             * Features Written
+             * @default 0
+             */
+            features_written: number;
+            /**
+             * Refs Already Named
+             * @default 0
+             */
+            refs_already_named: number;
+            /**
+             * Refs Signature Changed
+             * @default 0
+             */
+            refs_signature_changed: number;
+            /**
+             * Refs Written
+             * @default 0
+             */
+            refs_written: number;
+            /**
+             * Result
+             * @enum {string}
+             */
+            result: "written" | "unchanged" | "stale" | "dry_run";
+            /** Tree Version */
+            tree_version: number;
+        };
+        /**
+         * RefNamesReport
+         * @description Geometry's answer for one tree: one outcome per stored subshape ref.
+         */
+        RefNamesReport: {
+            /**
+             * Kernel
+             * @description The geometry build that computed the names (journaled).
+             */
+            kernel: string;
+            /** Outcomes */
+            outcomes: components["schemas"]["RefNameOutcome"][];
+            /** Tree Version */
+            tree_version: number;
+        };
+        /**
+         * RefNamesRequestResponse
+         * @description Documents' answer to "does this part need a backfill, and of what".
+         */
+        RefNamesRequestResponse: {
+            /**
+             * Needed
+             * @description True when the part has not been checked yet and some stored subshape reference has no topo_name.
+             */
+            needed: boolean;
+            /** Ref Names Checked Version */
+            ref_names_checked_version: number | null;
+            /** @description The FULL tree (rollback bar ignored, params upcast) for geometry's cold rebuild; null when not needed. */
+            request?: components["schemas"]["EvaluateTreeRequest"] | null;
+            /** Tree Version */
+            tree_version: number;
+        };
+        /** RefNamesRevertResult */
+        RefNamesRevertResult: {
+            /**
+             * Features Restored
+             * @default 0
+             */
+            features_restored: number;
+            /**
+             * Features Skipped
+             * @default 0
+             */
+            features_skipped: number;
+            /**
+             * Result
+             * @enum {string}
+             */
+            result: "reverted" | "nothing_to_revert";
+            /** Tree Version */
+            tree_version: number;
+        };
         /**
          * RevolveFeature
          * @description ``{"type": "revolve", "version": 1, "params": {...}}`` envelope.
@@ -9360,6 +9626,115 @@ export interface operations {
             };
         };
     };
+    apply_ref_names_route_api_v1_parts__part_id__ref_names_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefNamesApplyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefNamesApplyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ref_names_request_api_v1_parts__part_id__ref_names_request_get: {
+        parameters: {
+            query?: {
+                /** @description Build the request even if the part was checked. */
+                force?: boolean;
+            };
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefNamesRequestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revert_ref_names_api_v1_parts__part_id__ref_names_revert_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefNamesRevertResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     move_rollback_bar_api_v1_parts__part_id__rollback_put: {
         parameters: {
             query?: never;
@@ -9423,6 +9798,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeatureTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_backfill_parts_api_v1_ref_backfill_parts_get: {
+        parameters: {
+            query?: {
+                /** @description Only parts never checked (the default). */
+                pending?: boolean;
+                part_id?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefBackfillPartList"];
                 };
             };
             /** @description Validation Error */

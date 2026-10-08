@@ -173,6 +173,30 @@ class DocumentHistory[DocT: HistoryDocument]:
                 **{f"{self.kind}_id": str(document.id)},
             )
 
+    async def amend_head(self, session: AsyncSession, document: DocT) -> bool:
+        """Rewrite the snapshot AT the cursor with the current state; no new
+        undo step. False when history was never seeded (nothing to amend: the
+        next mutation's lazy baseline captures the current state anyway).
+
+        For a write that is not a user edit and must not become one (the
+        history-name backfill, :mod:`documents.ref_backfill`). It keeps the
+        ring's one invariant, "the snapshot at the cursor IS the current
+        document", which a write that skipped history would break: the
+        cursor's snapshot would still describe the tree before the write, so
+        an undo followed by a redo would silently drop it. Snapshots below and
+        above the cursor are untouched, so undo still walks back to the states
+        before the write, verbatim.
+        """
+        if document.history_cursor is None:
+            return False
+        state = await self.serialize(session, document)
+        await session.execute(
+            sa.update(self.snapshot_model)
+            .where(self.scope_id == document.id, self.seq == document.history_cursor)
+            .values({self.state: state})
+        )
+        return True
+
     async def restore_adjacent(
         self, session: AsyncSession, document: DocT, direction: Direction
     ) -> bool:
