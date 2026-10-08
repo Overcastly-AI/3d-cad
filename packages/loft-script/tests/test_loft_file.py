@@ -74,3 +74,30 @@ def test_a_bad_file_is_a_typed_refusal(stack: Stack, tmp_path: Path) -> None:
     with _session(stack) as session, pytest.raises(loft.InvalidRequest) as online:
         session.open(path)
     assert online.value.code == "loft_not_zip"
+
+
+def test_named_versions_save_list_restore_and_travel(
+    stack: Stack, tmp_path: Path
+) -> None:
+    with _session(stack) as session:
+        part = _bracket(session)
+        rev_a = part.save_version("Rev A", message="10 mm plate", author="Ada")
+        assert (rev_a.seq, rev_a.author) == (1, "Ada")
+        extrude = part.features()[1]
+        part.set_extrude_distance(extrude.id, 20.0)
+        assert part.save_version("Rev B").seq == 2
+        assert [v.name for v in part.versions()] == ["Rev B", "Rev A"]
+
+        restored = part.restore_version(1)
+        assert restored.can_undo
+        assert part.mass_properties().volume == pytest.approx(
+            EXPECTED_VOLUME_MM3, abs=VOLUME_TOLERANCE_MM3
+        )
+        assert [v.seq for v in part.versions()] == [2, 1]  # nothing deleted
+
+        opened = session.open(part.save(tmp_path / "bracket.loft"))
+        assert [(v.seq, v.name) for v in opened.versions()] == [
+            (2, "Rev B"),
+            (1, "Rev A"),
+        ]
+        assert [v.seq for v in loft.open(tmp_path / "bracket.loft").versions] == [1, 2]

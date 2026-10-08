@@ -47,6 +47,12 @@ from loft_wire.geometry import ExportFormat, ShapeProperties
 from loft_wire.loft_file import LOFT_SUFFIX, LoftWarning
 from loft_wire.parts import PartCreate, PartListResponse, PartResponse, PartUpdate
 from loft_wire.units import LengthUnit
+from loft_wire.versions import (
+    PartVersion,
+    PartVersionCreate,
+    PartVersionListResponse,
+    PartVersionRestore,
+)
 
 from loft import _operations as ops
 from loft.errors import FeatureFailed, NoBody, StaleDocument
@@ -653,6 +659,57 @@ class Part:
         target.write_bytes(self.export_bytes(resolved))
         return target
 
+    # -- named versions ------------------------------------------------------
+
+    def save_version(
+        self, name: str, *, message: str = "", author: str | None = None
+    ) -> PartVersion:
+        """Save the part's current tree as a named version, e.g. ``"Rev B"``.
+
+        Versions are never pruned and travel in the part's ``.loft``. *author*
+        is a display name only. The save names the tree this handle last saw
+        (``expected_tree_version``), refetching and retrying once if it moved.
+        Saving is not a tree edit: ``tree_version`` does not change.
+        """
+        return self._write(
+            lambda version: self.session.transport.call(
+                ops.POST_PARTS_PART_ID_VERSIONS,
+                PartVersion,
+                path_params={"part_id": self.id},
+                body=PartVersionCreate(
+                    name=name,
+                    message=message,
+                    author=author,
+                    expected_tree_version=version,
+                ),
+            ),
+            after=lambda _saved: self.tree_version,
+        )
+
+    def versions(self) -> list[PartVersion]:
+        """The part's named versions, newest first."""
+        listing = self.session.transport.call(
+            ops.GET_PARTS_PART_ID_VERSIONS,
+            PartVersionListResponse,
+            path_params={"part_id": self.id},
+        )
+        return listing.versions
+
+    def restore_version(self, seq: int) -> FeatureTreeResponse:
+        """Make version *seq* the part's tree, as ONE undoable edit.
+
+        Later versions are kept; the edit before the restore is one undo away.
+        """
+        return self._write(
+            lambda version: self.session.transport.call(
+                ops.POST_PARTS_PART_ID_VERSIONS_SEQ_RESTORE,
+                FeatureTreeResponse,
+                path_params={"part_id": self.id, "seq": seq},
+                body=PartVersionRestore(expected_tree_version=version),
+            ),
+            after=lambda tree: tree.tree_version,
+        )
+
     # -- .loft files ---------------------------------------------------------
 
     def loft_bytes(self) -> bytes:
@@ -666,9 +723,9 @@ class Part:
 
         ``part.save("bracket.loft")``. The file is the whole feature tree plus a
         cached STEP body; :meth:`loft.Session.open` turns it back into a part on
-        any Loft install. It is not a backup: undo history and other documents
-        are not in it. Same part, same Loft build: same bytes, so a ``.loft``
-        diffs cleanly in git.
+        any Loft install, with the part's named versions. It is not a backup:
+        undo history and other documents are not in it. Same part, same Loft
+        build: same bytes, so a ``.loft`` diffs cleanly in git.
         """
         target = Path(path)
         if target.suffix.lower() != LOFT_SUFFIX:
