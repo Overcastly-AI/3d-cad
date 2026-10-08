@@ -254,6 +254,13 @@ export function partVerbKey(id: PartVerbId): string | undefined {
 export const KEY_ISOLATE = "v";
 
 /**
+ * Save a named version (LOFT-VERSIONS): Fusion's "Save" chord, which there
+ * too asks for a description. The part workspace takes it, so the browser's
+ * "Save page" never opens over a model.
+ */
+export const CHORD_SAVE_VERSION = "Ctrl+S";
+
+/**
  * Move the SELECTED feature up or down the build order (REACH-ORDER). A chord
  * rather than a letter because it acts on a selection and every bare letter in
  * the workspace is a create verb; `Alt` is unclaimed — every other keydown
@@ -381,6 +388,7 @@ export function shortcutGroups(): ShortcutGroup[] {
           keys: `Shift+${KEY_ISOLATE.toUpperCase()}`,
           action: "Isolate it — or show everything again",
         },
+        { keys: CHORD_SAVE_VERSION, action: "Save a version" },
       ],
     },
     {

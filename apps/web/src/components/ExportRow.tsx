@@ -60,6 +60,16 @@ export interface ExportRowProps {
    * demo) and the row has no `.loft` cell.
    */
   loftExporter?: () => Promise<ExportedFile>;
+  /**
+   * Named versions (LOFT-VERSIONS): a "Versions" text link on the status line,
+   * like Save .loft, so the strip gains no height (CRAFT-10). The panel it
+   * opens leads with Save version; Ctrl+S opens that dialog directly. One
+   * link, not two: at the Inspector's width a second one pushed "Save .loft"
+   * off the line. Omit it (the box demo) and the row has none.
+   */
+  versionActions?: {
+    onShowVersions: () => void;
+  };
 }
 
 /**
@@ -89,6 +99,7 @@ export function ExportRow({
   notice = null,
   state,
   loftExporter,
+  versionActions,
 }: ExportRowProps) {
   // The band's state machine, not a copy of it: one download path and one
   // table of failure copy for both export surfaces (MESH-TOO-DENSE-COPY-1).
@@ -122,8 +133,24 @@ export function ExportRow({
         >
           {status}
         </span>
-        {loftExporter !== undefined ? (
-          <LoftLink exporter={loftExporter} testIdPrefix={testIdPrefix} />
+        {versionActions !== undefined || loftExporter !== undefined ? (
+          <span className="ml-auto flex shrink-0 items-baseline gap-3">
+            {versionActions !== undefined ? (
+              <button
+                type="button"
+                aria-haspopup="dialog"
+                aria-label="Versions (save, list and restore named versions)"
+                data-testid="part-versions"
+                onClick={versionActions.onShowVersions}
+                className={`${STATUS_LINK} text-brass`}
+              >
+                Versions
+              </button>
+            ) : null}
+            {loftExporter !== undefined ? (
+              <LoftLink exporter={loftExporter} testIdPrefix={testIdPrefix} />
+            ) : null}
+          </span>
         ) : null}
       </div>
       {/*
@@ -182,6 +209,10 @@ export function ExportRow({
   );
 }
 
+/** A text action on the status line: no box, so it adds no height. */
+const STATUS_LINK =
+  "shrink-0 font-display text-2xs uppercase tracking-[0.14em] hover:text-brass-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass";
+
 /**
  * The `.loft` action: a text link at the end of the status line, so it adds
  * NO height. The strip floats over the viewport, and a full-width row here
@@ -220,9 +251,7 @@ function LoftLink({
       data-testid={`${testIdPrefix}-loft`}
       data-failed={failed || undefined}
       onClick={() => void run()}
-      className={`ml-auto shrink-0 font-display text-2xs uppercase tracking-[0.14em] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass ${
-        failed ? "text-flag" : "text-brass"
-      }`}
+      className={`${STATUS_LINK} ${failed ? "text-flag" : "text-brass"}`}
     >
       {busy ? "Writing…" : failed ? ".loft failed" : "Save .loft"}
     </button>

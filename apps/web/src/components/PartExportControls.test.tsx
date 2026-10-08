@@ -67,6 +67,19 @@ describe("PartExportControls", () => {
     expect(downloadBlob.mock.calls[0]?.[1]).toBe("bracket.loft");
   });
 
+  it("offers Versions on the status line, body or not", () => {
+    const onShowVersions = vi.fn();
+    render(
+      <PartExportControls
+        partId="p1"
+        build={brokenBeforeAnyBody()}
+        versionActions={{ onShowVersions }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Versions/ }));
+    expect(onShowVersions).toHaveBeenCalledTimes(1);
+  });
+
   it("writes the server's own filename for a whole, current body", async () => {
     render(<PartExportControls partId="p1" build={cleanCube()} />);
     expect(screen.getByTestId("part-export-status")).toHaveTextContent("Ready");

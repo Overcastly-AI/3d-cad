@@ -15,6 +15,8 @@ import { SketchDro } from "../components/SketchDro";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
 import { TimelineStrip } from "../components/TimelineStrip";
 import { TopBar } from "../components/TopBar";
+import { SaveVersionDialog } from "../components/SaveVersionDialog";
+import { VersionsPanel } from "../components/VersionsPanel";
 import { TopToolbar } from "../components/TopToolbar";
 import { resolveSketchKey } from "../sketch/constraints";
 import { isTypingTarget } from "../lib/isTypingTarget";
@@ -67,6 +69,7 @@ import { useSketchEntry } from "./part/useSketchEntry";
 import { useDatumFacePicking } from "./part/useDatumFacePicking";
 import { useHolePicking } from "./part/useHolePicking";
 import { useTimelineHistory } from "./part/useTimelineHistory";
+import { usePartVersions } from "./part/usePartVersions";
 import { useRebuildNotices } from "./part/useRebuildNotices";
 import { useViewportState } from "./part/useViewportState";
 
@@ -711,6 +714,20 @@ export function PartPage() {
   });
   const { historyStep, triggerUndo, triggerRedo, moveRollback } =
     timelineHistory;
+  const partVersions = usePartVersions({
+    partId,
+    tree,
+    mode,
+    editor,
+    setSelectedFeatureId,
+    rollbackBusy,
+    freshTreeVersion,
+    refreshTreeAndBody,
+    beginTreeWrite,
+    endTreeWrite,
+    noteWrittenTreeVersion,
+    historyBusy: historyStep !== null,
+  });
   const rebuildNotices = useRebuildNotices({
     evaluation,
     editor,
@@ -1097,7 +1114,33 @@ export function PartPage() {
               partDocument={partDocument}
               partBody={partBody}
               materialPanel={materialPanel}
+              partVersions={partVersions}
             />
+            {/* Named versions (LOFT-VERSIONS): the list, and the save dialog
+                over it when it was opened from there. */}
+            {partVersions.panelOpen ? (
+              <VersionsPanel
+                partName={part.data?.name ?? "Part"}
+                versions={partVersions.versions}
+                loadError={partVersions.versionsError}
+                restoringSeq={partVersions.restoringSeq}
+                restoreError={partVersions.restoreError}
+                restoreBlockedReason={partVersions.restoreBlockedReason}
+                onRestore={partVersions.restore}
+                onSaveVersion={partVersions.openSave}
+                onClose={partVersions.closePanel}
+              />
+            ) : null}
+            {partVersions.saveOpen ? (
+              <SaveVersionDialog
+                partName={part.data?.name ?? "Part"}
+                defaultName={partVersions.defaultName}
+                pending={partVersions.saving}
+                error={partVersions.saveError}
+                onSave={partVersions.save}
+                onCancel={partVersions.closeSave}
+              />
+            ) : null}
             {/* What breaks if this feature goes — asked before it does (F3). */}
             {deleteIntent !== null ? (
               <FeatureDeleteConfirm

@@ -19,6 +19,7 @@ import type { EditorRepick } from "./useEditorRepick";
 import type { FeatureCatalog } from "./useFeatureCatalog";
 import type { PartBody } from "./usePartBody";
 import type { MaterialControls } from "./useMaterialControls";
+import type { PartVersions } from "./usePartVersions";
 
 /** The left rail: the feature tree and the bodies panel. */
 export function FeatureTreeRail({
@@ -122,6 +123,7 @@ export function InspectorRail({
   partDocument,
   partBody,
   materialPanel,
+  partVersions,
 }: {
   viewportState: Pick<
     ViewportState,
@@ -130,11 +132,13 @@ export function InspectorRail({
   partDocument: Pick<PartDocument, "partId">;
   partBody: Pick<PartBody, "bodyProperties">;
   materialPanel: Pick<MaterialControls, "materialControls">;
+  partVersions: Pick<PartVersions, "openPanel">;
 }) {
   const { showInspector, build, showExportOnly } = viewportState;
   const { partId } = partDocument;
   const { bodyProperties } = partBody;
   const { materialControls } = materialPanel;
+  const versionActions = { onShowVersions: partVersions.openPanel };
   return (
     <>
       <ChromeRail side="right">
@@ -152,7 +156,11 @@ export function InspectorRail({
             id="inspector"
             footer={
               <Panel className="border-t-0">
-                <PartExportControls partId={partId} build={build} />
+                <PartExportControls
+                  partId={partId}
+                  build={build}
+                  versionActions={versionActions}
+                />
               </Panel>
             }
           >
@@ -173,7 +181,11 @@ export function InspectorRail({
               data-testid="part-export-idle"
             >
               <Panel>
-                <PartExportControls partId={partId} build={build} />
+                <PartExportControls
+                  partId={partId}
+                  build={build}
+                  versionActions={versionActions}
+                />
               </Panel>
             </aside>
           </FloatingPanel>
