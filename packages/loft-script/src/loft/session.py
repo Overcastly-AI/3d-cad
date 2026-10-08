@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from collections.abc import Sequence
+from pathlib import Path
 from types import TracebackType
 from typing import Self
 
@@ -14,6 +16,7 @@ from loft_wire.auth import (
     RegisterRequest,
     UserResponse,
 )
+from loft_wire.loft_file import LoftImportResponse
 from loft_wire.units import LengthUnit
 from pydantic import SecretStr
 
@@ -116,6 +119,28 @@ class Session:
     def parts(self) -> Sequence[Part]:
         """The caller's parts, oldest first."""
         return list_parts(self)
+
+    def open(self, path: str | os.PathLike[str]) -> Part:
+        """Import a ``.loft`` file as a new part and return a handle to it.
+
+        ``part = session.open("bracket.loft")``. The server rebuilds the part
+        from the file's tree; anything it noticed without refusing (a
+        hand-edited tree, a volume that differs from the file's, features that
+        failed to rebuild) is on :attr:`Part.import_warnings`. A file from a
+        newer Loft is refused as :class:`~loft.errors.InvalidRequest` with code
+        ``loft_format_too_new`` or ``loft_feature_too_new``. Opening the same
+        file twice gives a copy ("Bracket copy").
+        """
+        return self.import_loft(Path(path).read_bytes())
+
+    def import_loft(self, data: bytes) -> Part:
+        """:meth:`open`, from bytes already in memory."""
+        response = self.transport.call(
+            ops.POST_PARTS_IMPORT, LoftImportResponse, content=data
+        )
+        part = Part(self, response.part.id, tree_version=response.part.tree_version)
+        part.import_warnings = tuple(response.warnings)
+        return part
 
 
 def _session_from_token(

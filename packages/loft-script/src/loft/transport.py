@@ -132,18 +132,30 @@ class Transport:
         path_params: dict[str, Any] | None = None,
         query: dict[str, Any] | None = None,
         body: BaseModel | None = None,
+        content: bytes | None = None,
     ) -> httpx.Response:
-        """Issue one request, or raise a typed error. Never returns a non-2xx."""
+        """Issue one request, or raise a typed error. Never returns a non-2xx.
+
+        ``content`` is a RAW file body (a STEP or ``.loft`` upload), for the
+        operations whose contract declares no JSON model; it cannot be combined
+        with ``body``.
+        """
         _check_request_model(operation, body)
         _check_required_query(operation, query)
+        if content is not None and body is not None:
+            raise ValueError("a request carries a JSON body or a file, not both")
         url = self.base_url + operation.url(**(path_params or {}))
+        headers = self._headers()
+        if content is not None:
+            headers["Content-Type"] = "application/octet-stream"
         try:
             response = self._client.request(
                 operation.method,
                 url,
                 params=query,
                 json=json_payload(body) if body is not None else None,
-                headers=self._headers(),
+                content=content,
+                headers=headers,
             )
         except httpx.HTTPError as exc:
             # A connection refused / DNS failure / read timeout is the same
@@ -166,6 +178,7 @@ class Transport:
         path_params: dict[str, Any] | None = None,
         query: dict[str, Any] | None = None,
         body: BaseModel | None = None,
+        content: bytes | None = None,
     ) -> ModelT:
         """Call an operation and parse its JSON body into ``model``.
 
@@ -176,7 +189,11 @@ class Transport:
         two agree for every call site.
         """
         response = self._send(
-            operation, path_params=path_params, query=query, body=body
+            operation,
+            path_params=path_params,
+            query=query,
+            body=body,
+            content=content,
         )
         return model.model_validate_json(response.content)
 

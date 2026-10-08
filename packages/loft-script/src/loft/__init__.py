@@ -10,6 +10,7 @@
         part.extrude(sk, 10)
         print(part.mass_properties().volume)   # 10000.0
         part.export("bracket.step")
+        part.save("bracket.loft")              # the parametric tree, as a file
 
 **This library is another client of the gateway, exactly like the web app.**
 That is the whole design and it is worth stating before anything else, because
@@ -68,6 +69,7 @@ from loft.errors import (
     StaleDocument,
     UpstreamError,
 )
+from loft.files import LoftArchive, LoftFileError, open
 from loft.part import Evaluation, Part
 from loft.session import Session, connect, register
 from loft.sketch import XY, XZ, YZ, Rect, Sketch
@@ -85,7 +87,9 @@ __all__ = [
     "ExportFormat",
     "FeatureFailed",
     "InvalidRequest",
+    "LoftArchive",
     "LoftError",
+    "LoftFileError",
     "NoBody",
     "NotFound",
     "Operation",
@@ -103,5 +107,6 @@ __all__ = [
     "UpstreamError",
     "__version__",
     "connect",
+    "open",
     "register",
 ]
