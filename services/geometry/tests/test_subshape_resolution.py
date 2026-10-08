@@ -490,6 +490,17 @@ _NOT_EXACT: dict[tuple[str, str], str] = {
     ("revise-hub-d44-blade-root-fillet", "fillet"): "named",
     # The QA blade (z 2..18): one root curve is cut by the hub's seam at 44.
     ("revise-hub-d44-qa-blade-root-fillet", "fillet"): "named",
+    # SKETCH-PROJECT-EDGES: the lips' picks (and the rim sketch's 16 projected
+    # edges) were taken at width 120; after the edit to 130 each is re-found
+    # by its name.
+    **{
+        (golden, kind): "named"
+        for golden in (
+            "revise-width-lip-projected-rim-130x80x35",
+            "revise-width-lip-inset-projected-rim-130x80x35",
+        )
+        for kind in ("fillet", "shell", "datum", "sketch")
+    },
 }
 
 #: holed-bracket drills two holes per face with ONE stored face signature each;
@@ -603,8 +614,21 @@ def test_every_schema_root_reports_one_tier_per_picked_reference() -> None:
     assert contributed.keys() == _schema_roots(), (
         f"a non-root type carried a subshape ref: {contributed}"
     )
-    silent = sorted(kind for kind, count in contributed.items() if count == 0)
+    silent = sorted(
+        kind
+        for kind, count in contributed.items()
+        if count == 0 and kind not in _NOT_RESOLVED_YET
+    )
     assert not silent, f"schema roots with NO reported reference: {silent}"
+    started = sorted(kind for kind in _NOT_RESOLVED_YET if contributed.get(kind))
+    assert not started, f"now reports its tiers; drop from _NOT_RESOLVED_YET: {started}"
+
+
+#: Roots whose reference the evaluator does not resolve YET, each with the step
+#: that will. Self-expiring: the census fails once one contributes a reference.
+#: Empty since SKETCH-PROJECT-EDGES step 2 re-projects a sketch's projected
+#: entities and its lip goldens report their tiers.
+_NOT_RESOLVED_YET: dict[str, str] = {}
 
 
 # --- the tally itself --------------------------------------------------------------

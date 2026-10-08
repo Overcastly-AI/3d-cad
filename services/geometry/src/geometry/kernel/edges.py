@@ -172,7 +172,7 @@ def _vec(vector: Vector) -> Vec3:
     return Vec3(x=float(vector.X), y=float(vector.Y), z=float(vector.Z))
 
 
-def _canonical_endpoints(edge: Edge) -> tuple[Vector, Vector]:
+def canonical_endpoints(edge: Edge) -> tuple[Vector, Vector]:
     """The edge's two endpoints in a canonical, orientation-independent order.
 
     Sorted lexicographically by (x, y, z), so the signature does not depend on
@@ -209,7 +209,7 @@ def edge_signature_dto(
     candidate's — see :func:`_adjacency_matches`). So the resolve-side
     :func:`enumerate_edges` deliberately stays cheap and passes nothing.
     """
-    end_a, end_b = _canonical_endpoints(edge)
+    end_a, end_b = canonical_endpoints(edge)
     return EdgeSignature(
         curve=_EDGE_CURVE_KIND.get(edge.geom_type, "other"),  # pyright: ignore[reportArgumentType]
         end_a=_vec(end_a),
@@ -937,6 +937,96 @@ def resolve_edge_durable(
         tally.note(tier)
     record = matches[0]
     return ResolvedEdge(edge=record.edge, signature=record.signature, tier=tier)
+
+
+def resolve_edges_each(
+    body: BodyShape,
+    targets: Sequence[EdgeSignature],
+    *,
+    tally: ResolutionTally | None = None,
+    face_names: Sequence[str | None] | None = None,
+    keep_name: bool = False,
+) -> list[ResolvedEdge | SubshapeUnresolvedError | SubshapeAmbiguousError]:
+    """:func:`resolve_edge_durable` for many references at once, NON-RAISING.
+
+    One answer per target, in target order: the resolved edge, or the typed
+    error :func:`resolve_edge_durable` would have raised for it. The consumer is
+    a sketch's projected entities (SKETCH-PROJECT-EDGES), where an edge that no
+    longer resolves makes ONE entity sick and must not fail the others or the
+    sketch, so a raise is the wrong shape. Each target needs exactly one edge,
+    as there: the pieces of a named run are ambiguous.
+
+    The body is enumerated ONCE for every target, and its edge names are worked
+    out at most once, only when some target misses the strict tier (the
+    records then carry them, which is exactly what :func:`_named_edges` would
+    compute per target). Only a resolved target is reported to *tally*, as a
+    raising resolver reports nothing for the reference it raised on.
+
+    *keep_name* refuses a GEOMETRIC re-find (the durable or adjacent tier) of a
+    named reference when the body names the edge it found differently: that is
+    another edge standing where the referenced one was, not the referenced edge
+    moved. The durable circle tier is invariant under a radius change, so when
+    a shell is deleted the rim's inner R3 arc would otherwise re-find the outer
+    R5 arc concentric with it. A projection opts in: re-anchoring it moves
+    sketch geometry with no error, and Fusion 360 marks such a projection sick
+    instead. An unnamed reference, or an edge the body cannot name, is matched
+    as before.
+    """
+    records = enumerate_edges(body)
+    named: list[EdgeRecord] | None = None
+    out: list[ResolvedEdge | SubshapeUnresolvedError | SubshapeAmbiguousError] = []
+    for target in targets:
+        pool = records
+        if face_names is not None and not any(
+            edge_signatures_match(r.signature, target) for r in records
+        ):
+            if named is None:
+                names = edge_names(body, face_names, runs=True)
+                named = (
+                    records
+                    if len(names) != len(records)
+                    else [
+                        EdgeRecord(r.index, r.signature, r.edge, name)
+                        for r, name in zip(records, names, strict=True)
+                    ]
+                )
+            pool = named
+        matches, tier = _match_edge_records(body, pool, target, face_names)
+        if not matches:
+            out.append(SubshapeUnresolvedError(_UNRESOLVED_MESSAGE))
+            continue
+        if len(matches) > 1:
+            out.append(_ambiguous(len(matches), tier=tier))
+            continue
+        record = matches[0]
+        if keep_name and _renamed(record, target, tier):
+            out.append(SubshapeUnresolvedError(_RENAMED_MESSAGE))
+            continue
+        if tally is not None:
+            tally.note(tier)
+        out.append(
+            ResolvedEdge(edge=record.edge, signature=record.signature, tier=tier)
+        )
+    return out
+
+
+#: Why a geometric re-find was refused by name (:func:`resolve_edges_each`).
+_RENAMED_MESSAGE = (
+    "The edge found where the stored edge was is a different edge of the body "
+    "(its name differs from the stored one), so the referenced edge no longer "
+    "exists after the rebuild. Re-pick the edge."
+)
+
+
+def _renamed(record: EdgeRecord, target: EdgeSignature, tier: EdgeMatchTier) -> bool:
+    """A durable/adjacent match whose edge the body names, differently from
+    the stored name (see *keep_name*)."""
+    return (
+        tier in ("durable", "adjacent")
+        and target.topo_name is not None
+        and record.name is not None
+        and record.name != target.topo_name
+    )
 
 
 def _resolve_picked_edges(

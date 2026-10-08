@@ -96,6 +96,20 @@ Rules the solver keeps:
   patch by editing the tree, regenerating the patch, and bumping the
   `+loft.N` version: uv rebuilds a path dependency only when its
   `pyproject.toml` changes.
+- **A projected entity is fixed solver geometry** (SKETCH-PROJECT-EDGES,
+  as FreeCAD treats external geometry). Every parameter of a projected line,
+  arc or circle is declared fixed, the radius included, so it adds 0 DOF and
+  the settle never pins it. Its fixed parameters sit among the free ones in
+  entity order; the patched planegcs orders by declaration, so that is still
+  deterministic, and a sketch without one declares exactly what it did. The
+  binding adds arc rules to every arc and offers no way not to; over
+  all-fixed parameters they are a constraint with no unknowns, which the
+  diagnosis reports redundant, so `geometry.sketch.projected` clears them by
+  tag (tags count from 1 and only arcs take one while entities are added).
+  *Rejected:* free parameters pinned by internal constraints (the solver
+  would still move them within its tolerance, so the body's geometry would
+  not come back bit for bit) and patching the binding (a vendored change for
+  one call).
 - **An under-constrained solve holds the author's geometry.** After the solve
   converges, it pins every free coordinate and radius back to the author's
   value and re-solves (the "settle"), so a dimension edit moves only what it
@@ -292,6 +306,21 @@ The correctness gates, run in CI and by `geometry-qa`:
   cutting many small features. That outcome depends on the machine's speed, as
   a fillet's `BLEND_CPU_SECONDS` does; a stored part that shells in time on one
   machine can time out on a much slower one.
+- **A multi-body shell gets one solid's time, not N times it.** Like Fusion's
+  Shell over several bodies, each lump is hollowed on its own, opening only its
+  own picked faces, so the lumps keep the single-solid path, routing included:
+  a lump of 500 faces or more goes to the child, a smaller one stays
+  in-process, and a lump's result does not depend on its neighbours. The time
+  is per feature: one 40 s Arc allowance for every lump, charged with the CPU
+  each child reports (counted from its fork) and the thread CPU of each
+  in-process offset, and refused with `ShellTimeout` once spent. Two 906-face
+  lids side by side took 163 s in-process and now stop at 45 s. The
+  Intersection builds share two builds' budgets (20 s), so one slow lump leaves
+  the others the 10 s each has alone. We did not route every lump of a large
+  body through the child: the BinTools round trip rebuilds location chains,
+  and the result's exported STEP and GLB bytes differ in signed zeros
+  (`-0.` vs `0.`), with identical geometry. Bodies whose lumps all have under
+  500 faces keep their bytes.
 - **STEP round-trip:** export, re-import and compare, within `ROUNDTRIP_TOL`
   (1e-7) unless a golden records a measured override. A body is made
   conformal before export, but only when `BRepCheck` rejects it, and never if
@@ -679,6 +708,40 @@ byte-identical GLBs: the draft frustum's GLB has four float32 zeros that
 became -0.0 (the BRep read rebuilds a plane's axes), the same number. The
 server starts at boot by default (`BLEND_SERVER_PREWARM`): lazily, the first
 fillet took 6.3 s; prewarmed (ready 4.9 s after boot), 69 ms.
+
+**Projected sketch entities follow their edges (SKETCH-PROJECT-EDGES step 2).**
+Fusion 360's Project and SolidWorks' Convert Entities. A projected line, arc
+or circle re-finds its edge on the body at the sketch's tree position (the
+active body, as `on_face` and fillet use) through the same picked-edge
+matcher, once per sketch (`resolve_edges_each`, non-raising), and is
+re-projected along the plane normal BEFORE the solve, so what is constrained
+to it follows. Only exact projections: a line (its two ends), and a circle or
+arc whose axis is parallel to the normal (CCW kept by swapping the ends when
+the axis is antiparallel). A tilted circle is an ellipse, and an ellipse or
+B-spline has no exact sketch entity: those are `unsupported_curve`, never a
+fit-point approximation (SKETCH-PROJECT-SPLINE). Rules:
+- *Sick, as in Fusion.* An edge that does not resolve, resolves to several,
+  has no body, projects to nothing (`degenerate`) or to another kind
+  (`kind_changed`) leaves the entity at its stored coordinates, which are its
+  last good projection, and the sketch stays `ok`; `SolvedSketchData.
+  projections` says why. Failing the sketch would take every feature after it
+  down for an edge the user may not need.
+- *A geometric re-find of a named edge must keep the name.* The durable circle
+  tier is invariant under a radius change, so with a shell deleted the rim's
+  inner R3 arc re-found the outer R5 arc concentric with it and the sketch
+  moved with no error. A projection (`keep_name=True`) refuses a durable or
+  adjacent match whose edge the body names differently from the stored name;
+  an unnamed ref, or an edge the body cannot name, matches as before. Fillet
+  and the other consumers keep the old rule (BACKLOG note).
+- *A line's ends keep their slot.* Signature ends are canonical
+  (lexicographic) and an edit can swap them, but a constraint names `start` or
+  `end`. An edge still on its stored line keeps its order; otherwise the end
+  touching the stored `end_a_topo_name` face is the stored `end_a`
+  (the partial-flange rule of 58f1fa3), and without one the assignment with the
+  least summed distance to the stored ends wins.
+Goldens `revise-width-lip-projected-rim-130x80x35` and the inset variant
+(`point_line_distance` off the projected rim) agree with closed forms to
+2e-10 mm^3.
 
 ## 15. Rebuild cost: one whole-body boolean per question
 

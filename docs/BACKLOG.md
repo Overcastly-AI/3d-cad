@@ -9,6 +9,19 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
+- [ ] **EDGE-REF-CONCENTRIC** (wrong geometry; found probing SKETCH-PROJECT-EDGES
+      step 2, 3203624): a picked fillet/chamfer edge whose own edge vanishes
+      re-anchors on the tier-2 `concentric_same_station_match` onto a
+      CONCENTRIC edge of another radius, status ok, tier `durable`, no error.
+      Case (a): box, R5 vertical fillets, 2 mm open-top shell, fillet picked on
+      the inner R3 rim arc, shell deleted: the fillet rounds the outer R5 rim
+      chain (volume -7.0 mm^3, not the R3 chain). Case (b): R5 bore-floor edge of a
+      counterbore, chamfered; hole retyped to a dia-18 blind pocket: the chamfer
+      lands on the R9 floor edge (+6.94 mm^3). Shell thickness 1/4 mm and a bore
+      resize (two circles remain) fail typed `subshape_ambiguous`. Edge flange
+      not probed (arcs are `edge_flange_bad_edge`). Fix: guard tier 2/3 with the
+      named tier (`keep_name`) as projections do. Strict xfails:
+      `services/geometry/tests/test_edge_ref_concentric.py`.
 - [x] **SKETCH-SOLVE-HEAP-ORDER** (determinism, pre-existing; review of
       1b8632f): planegcs orders a subsystem's free parameters by address
       (`std::deque` of 64-double chunks), so a sketch with more than 64 free
@@ -81,13 +94,13 @@ commits carry the ID (`git log --grep=<ID>`).
       shape. _Accept:_ a stored `shell_type` (sharp | rounded, legacy rows
       read as rounded); sharp is correct on a bored plate and an L-bracket,
       checked by a method that does not rely on Arc; goldens for both.
-- [ ] **BOOLEAN-COINCIDENT-TUBE** (wrong geometry, moto frame 2026-10-07):
+- [x] **BOOLEAN-COINCIDENT-TUBE** (wrong geometry, moto frame 2026-10-07):
       four Y cross tubes of the golden's OD 25.4 / wall 1.6 tube, 245.4 long so
       the ends sit at the rail's outer skin (y = +-122.7), union into the frame
       with every feature `ok`, one BRepCheck-valid lump, and STEP re-reading to
       the same number, but the volume reads 732801.9 mm^3 and 18 shells. A
-      union cannot exceed the sum of its members (725460.9); the truth is near
-      729620. No warning. The same tree ended on the rail centreline (220 long)
+      union cannot exceed the sum of its members (725460.9); the truth is 718211.506
+      (analytic; the 729620 first quoted came from a twin with the same fuse bug). No warning. The same tree ended on the rail centreline (220 long)
       is right (708479.158 against 708479.161 extrapolated from a smooth twin,
       STEP drift 1e-2), and 0.5 mm past the centreline is refused
       (`invalid_body`, strict prefix). _Accept:_ the skin case is refused or
@@ -97,7 +110,7 @@ commits carry the ID (`git log --grep=<ID>`).
       are singular or tangent; a post-fuse volume/shell sanity guard in
       `combine_body` would catch it.
 
-- [ ] **SHELL-MULTIBODY-HANG** (hang, pre-existing): a body of several
+- [x] **SHELL-MULTIBODY-HANG** (hang, pre-existing): a body of several
       separate solids is still hollowed in-process with no CPU budget
       (`isolate=False` in `shell.py`), so the 317 s class of shell hang that
       SHELL-INTERSECTION-SLOW bounded for single solids remains for multi-body
@@ -429,3 +442,17 @@ One line each. The founder triages weekly; most are closed without work.
 - Fillet/chamfer on sheet metal: one pick now spreads across the bend's tangent edges (chains of up to 5 edges), as Fusion does.
 - Removal probe (0375d30): the 120-tool agreement sweep in `test_removal_probe_cost.py` uses only convex boxes and cylinders; add a ring tool and a body with a void.
 - Boolean guard (BOOLEAN-COINCIDENT-TUBE): the sheet-metal edge flange and bend relief (`boolean_recording`, edge_flange.py) are not guarded; a retry there must keep the face-naming history, and thin plates do not hit the tube-on-bend case.
+- Fixed: BOOLEAN-COINCIDENT-TUBE (89edf74, 8665889). `kernel/boolean_guard.py` checks every boolean, merging add/cut, mirror and pattern against its operands (volume bounds, shell signs), retries once fuzzy, else `boolean_failed`; the skin case reads 718211.504 against 718211.506.
+- Boolean guard: the sheet-metal edge flange (`boolean_recording`) is not guarded; a retry must keep its naming history.
+- Boolean guard: at 1e-6 a spline-tool pattern trips the cheap bound every rebuild and confirmation integrates every copy (100 instances: 1.08 s -> 2.05 s); congruent copies could share one integration.
+- Boolean guard: tubes ending 0.5-12.6 mm past a bend centreline are refused `invalid_body`; the fuzzy retry would build them to 0.08 mm^3 but is limited to BRepCheck-valid results (decision deferred).
+- A tube ending 0.1 mm past the skin is refused `boolean_disjoint` ("the bodies do not touch"), which misleads.
+- The server enforces no sketch-frame immutability; it relies on the web's `fixed` pins on origin/axes, so a script-built sketch without them could move the frame.
+- SKETCH-PROJECT-EDGES step 1 (489582e): step 3 should refuse a coincident between two projected points; contracts and TS allow `projection` on point/spline though the server returns 422; `projected.py` clears arc rules by planegcs's tag numbering (test-pinned).
+- Sketch solver: dragging a free arc end 60 mm onto a fixed point collapses its start onto its end (a fixed-constraint control diverges).
+- CI: the e2e "planegcs build prerequisites" apt step has no timeout or retry; one hung 45 min on 0fbd6cf, and the orchestrator cannot re-run jobs (403).
+- Shell: a sealed cross-bored plate plus a box varies byte-wise across processes (Arc's sealed hollow face order follows memory addresses), related to SHELL-EDGE-DETERMINISM. A 500+-face solid offset in the child differs from in-process only in signed zeros.
+- Fixed: SHELL-MULTIBODY-HANG (92b85b0). One 40 s budget covers every lump of a shell; an in-process lump (<500 faces) can overshoot it by at most one lump (~10 s).
+- LIP-SEAM-UNIFY: a sketch-on-face lip flush with a wall keeps a seam face per wall (34 faces where a unified body has 19); the join's clean unifies 1 of 16 pairs, with or without projection (revise-width-lip-projected-rim-130x80x35).
+- The durable circle tier re-anchors a deleted arc onto a concentric arc of another radius for fillet, chamfer and edge-flange refs too; projections now refuse it by name (`keep_name`).
+- Suppressing the feature a projection is anchored on fails the sketch with `references_suppressed`; Fusion keeps the sketch and marks the projection sick.

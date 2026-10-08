@@ -10,6 +10,13 @@ sketcher UI reading the typed field) is the follow-up leg.
 """
 
 import pytest
+from loft_wire.features import (
+    BODY_AFFECTING_FEATURE_TYPES,
+    SketchFeature,
+    SketchProjectionStatus,
+    SolvedSketchData,
+    feature_references,
+)
 from loft_wire.sketch import (
     EntityPointRef,
     PointDistanceConstraint,
@@ -245,3 +252,140 @@ def test_malformed_point_dimensions_are_refused(
 ) -> None:
     with pytest.raises(ValidationError, match=message):
         SketchDefinition.model_validate({"entities": [], "constraints": [raw]})
+
+
+# --- SKETCH-PROJECT-EDGES: a projected entity's link ------------------------------
+
+_EDGE_ANCHOR = "00000000-0000-4000-8000-0000000000ed"
+
+
+def _projection() -> dict[str, object]:
+    point = {"x": 0.0, "y": 0.0, "z": 5.0}
+    return {
+        "edge": {
+            "kind": "subshape",
+            "feature_id": _EDGE_ANCHOR,
+            "subshape_type": "edge",
+            "selector": {
+                "selector_version": 1,
+                "signature": {
+                    "subshape_type": "edge",
+                    "curve": "line",
+                    "end_a": point,
+                    "end_b": {"x": 120.0, "y": 0.0, "z": 5.0},
+                    "midpoint": {"x": 60.0, "y": 0.0, "z": 5.0},
+                    "length_mm": 120.0,
+                    "adjacent_faces": None,
+                    "topo_name": None,
+                    "end_a_topo_name": None,
+                },
+            },
+        }
+    }
+
+
+def _projected_sketch() -> dict[str, object]:
+    origin, far = {"x": 0.0, "y": 0.0}, {"x": 120.0, "y": 0.0}
+    return {
+        "entities": [
+            {
+                "id": "p1",
+                "construction": False,
+                "projection": _projection(),
+                "kind": "line",
+                "start": origin,
+                "end": far,
+            },
+            {
+                "id": "p2",
+                "construction": False,
+                "projection": _projection(),
+                "kind": "arc",
+                "center": origin,
+                "start": far,
+                "end": {"x": 0.0, "y": 120.0},
+            },
+            {
+                "id": "p3",
+                "construction": True,
+                "projection": _projection(),
+                "kind": "circle",
+                "center": origin,
+                "radius": 3.0,
+            },
+        ],
+        "constraints": [],
+    }
+
+
+def test_a_projection_round_trips() -> None:
+    raw = _projected_sketch()
+    sketch = SketchDefinition.model_validate(raw)
+    assert sketch.model_dump(mode="json") == raw
+    assert SketchDefinition.model_validate_json(sketch.model_dump_json()) == sketch
+    line = sketch.entities[0]
+    assert line.projection is not None
+    assert str(line.projection.edge.feature_id) == _EDGE_ANCHOR
+
+
+def test_a_sketch_without_projections_dumps_byte_identically() -> None:
+    """The link is omitted when absent, so stored sketches and the rebuild cache
+    keys built from them do not change by a byte."""
+    stored = (
+        '{"entities":[{"id":"a","construction":false,"kind":"arc",'
+        '"center":{"x":0.0,"y":0.0},"start":{"x":1.0,"y":0.0},'
+        '"end":{"x":0.0,"y":1.0}},{"id":"c","construction":true,"kind":"circle",'
+        '"center":{"x":0.0,"y":0.0},"radius":2.0},{"id":"p","construction":false,'
+        '"kind":"point","position":{"x":3.0,"y":4.0}},{"id":"s",'
+        '"construction":false,"kind":"spline","points":[{"x":0.0,"y":0.0},'
+        '{"x":1.0,"y":1.0}]}],"constraints":[]}'
+    )
+    assert SketchDefinition.model_validate_json(stored).model_dump_json() == stored
+
+
+@pytest.mark.parametrize(
+    "entity",
+    [
+        {"id": "q", "kind": "point", "position": {"x": 0.0, "y": 0.0}},
+        {
+            "id": "s",
+            "kind": "spline",
+            "points": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}],
+        },
+    ],
+    ids=["point", "spline"],
+)
+def test_only_a_line_arc_or_circle_can_be_projected(entity: dict[str, object]) -> None:
+    linked = {**entity, "projection": _projection()}
+    with pytest.raises(ValidationError, match="line, an arc or a circle"):
+        SketchDefinition.model_validate({"entities": [linked], "constraints": []})
+
+
+def test_feature_references_lists_each_projection_slot() -> None:
+    """Each link is a dependency on the anchor body feature: deleting it is a
+    409, and a reorder re-checks that it is strictly backward."""
+    feature = SketchFeature.model_validate(
+        {
+            "type": "sketch",
+            "version": 1,
+            "params": {
+                **_projected_sketch(),
+                "plane": {"kind": "datum_plane", "plane": "XY"},
+            },
+        }
+    )
+    references = feature_references(feature)
+    assert [r.slot for r in references] == [
+        "projection:p1",
+        "projection:p2",
+        "projection:p3",
+    ]
+    assert {str(r.ref.feature_id) for r in references} == {_EDGE_ANCHOR}
+    assert all(r.allowed_types == BODY_AFFECTING_FEATURE_TYPES for r in references)
+
+
+def test_solved_sketch_data_projections_default_empty() -> None:
+    data = SolvedSketchData(status="converged", entities=[])
+    assert data.projections == []
+    status = SketchProjectionStatus(entity="p1", state="sick", reason="no_body")
+    assert status.tier is None

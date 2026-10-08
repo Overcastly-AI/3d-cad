@@ -25,6 +25,7 @@ import contextlib
 import ctypes
 import math
 import os
+import resource
 import select
 import signal
 import socket
@@ -110,6 +111,14 @@ def _draft(header: dict[str, Any], data: bytes) -> bytes:
     return encode_frame(reply, write_shapes(shapes))
 
 
+def _cpu_seconds() -> float:
+    """CPU seconds this child has used. A forked child's counts start at
+    zero, so this is the request's own cost, which a caller sharing one budget
+    across several children charges (``CpuMeter``, SHELL-MULTIBODY-HANG)."""
+    usage = resource.getrusage(resource.RUSAGE_SELF)
+    return usage.ru_utime + usage.ru_stime
+
+
 def _blend(header: dict[str, Any], data: bytes) -> bytes:
     """The reply frame for one request (runs in the forked child)."""
     if header["op"] == "draft":
@@ -121,7 +130,8 @@ def _blend(header: dict[str, Any], data: bytes) -> bytes:
         history = OpHistory() if header["history"] else None
         solids = _OPS[header["op"]](body, edges, float(header["size"]), history)
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
-        return encode_frame({"status": "failed", "error": type(exc).__name__})
+        failed = {"status": "failed", "error": type(exc).__name__}
+        return encode_frame({**failed, "cpu": _cpu_seconds()})
     index = {id(edge): i for i, edge in enumerate(edges)}
     generated = [] if history is None else history.generated
     shapes = [
@@ -130,11 +140,13 @@ def _blend(header: dict[str, Any], data: bytes) -> bytes:
         make_compound([solid.wrapped for solid in solids]),
         make_compound([face.wrapped for _source, face in generated]),
     ]
+    blob = write_shapes(shapes)
     reply = {
         "status": "ok",
         "generated": [index[id(source)] for source, _face in generated],
+        "cpu": _cpu_seconds(),
     }
-    return encode_frame(reply, write_shapes(shapes))
+    return encode_frame(reply, blob)
 
 
 def _child(data: socket.socket, server_pid: int) -> None:
@@ -144,8 +156,6 @@ def _child(data: socket.socket, server_pid: int) -> None:
         libc.prctl(_PR_SET_PDEATHSIG, signal.SIGKILL, 0, 0, 0)
     if os.getppid() != server_pid:  # the server died before prctl took
         return
-    import resource
-
     request = recv_frame(data, None)
     if request is None:
         return

@@ -69,7 +69,8 @@ class SketchEditError(ValueError):
     ``sketch_pick_not_on_target``, ``sketch_extend_no_target``,
     ``sketch_offset_zero_distance``, ``sketch_degenerate_result``,
     ``sketch_mirror_axis_not_line``, ``sketch_mirror_degenerate_axis``,
-    ``sketch_corner_not_found``, ``sketch_corner_too_large``.
+    ``sketch_corner_not_found``, ``sketch_corner_too_large``,
+    ``sketch_entity_linked``.
     """
 
     def __init__(self, message: str, *, code: str) -> None:
@@ -478,7 +479,7 @@ def trim_sketch(
     each side of the pick and the picked segment removed; the result replaces
     the target in place (see :class:`loft_wire.sketch.SketchEditResult`).
     """
-    target = _find_target(entities, target_id)
+    target = _refuse_linked(_find_target(entities, target_id), "trim")
     existing_ids = {e.id for e in entities}
     cutters: list[SketchEntity] = [
         e for e in entities if e.id != target_id and not isinstance(e, SketchPoint)
@@ -582,7 +583,7 @@ def extend_sketch(
     supporting line/circle until it reaches the closest entity in that
     direction. Circles and points have no free end and are rejected.
     """
-    target = _find_target(entities, target_id)
+    target = _refuse_linked(_find_target(entities, target_id), "extend")
     cutters: list[SketchEntity] = [
         e for e in entities if e.id != target_id and not isinstance(e, SketchPoint)
     ]
@@ -909,7 +910,7 @@ def _corner_lines(
         )
     lines: list[SketchLine] = []
     for ident in (a_id, b_id):
-        entity = _find_target(entities, ident)
+        entity = _refuse_linked(_find_target(entities, ident), "fillet or chamfer")
         if not isinstance(entity, SketchLine):
             raise SketchEditError(
                 f"corner fillet/chamfer v1 supports line-line corners only; "
@@ -1107,6 +1108,22 @@ def _find_target(entities: list[SketchEntity], target_id: str) -> SketchEntity:
         f"target entity {target_id!r} is not in the sketch",
         code="sketch_target_not_found",
     )
+
+
+def _refuse_linked(entity: SketchEntity, op: str) -> SketchEntity:
+    """``entity``, unless it is projected from a body edge (SKETCH-PROJECT-EDGES).
+
+    The body owns a projected entity's geometry and the next rebuild puts it
+    back, so an edit that reshapes it in place would be silently undone. Fusion
+    360 refuses the same edits on projected geometry until the link is broken.
+    Offset and mirror only ADD copies, and a copy is never linked.
+    """
+    if entity.projection is not None:
+        raise SketchEditError(
+            f"cannot {op} {entity.id!r}: it is linked to the body; Break link first",
+            code="sketch_entity_linked",
+        )
+    return entity
 
 
 def _splice(

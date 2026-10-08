@@ -8980,6 +8980,8 @@ export interface components {
              * @enum {string}
              */
             kind: "arc";
+            /** @description The body edge this entity is projected from (Project / Convert Entities). Set, the entity is fixed and follows the edge on a rebuild; its coordinates are the last good projection. Line, arc and circle only. Absent on unlinked entities. */
+            projection?: components["schemas"]["SketchProjection"] | null;
             start: components["schemas"]["Point2D"];
         };
         /**
@@ -9039,6 +9041,8 @@ export interface components {
              * @enum {string}
              */
             kind: "circle";
+            /** @description The body edge this entity is projected from (Project / Convert Entities). Set, the entity is fixed and follows the edge on a rebuild; its coordinates are the last good projection. Line, arc and circle only. Absent on unlinked entities. */
+            projection?: components["schemas"]["SketchProjection"] | null;
             /**
              * Radius
              * @description Radius (mm)
@@ -9263,6 +9267,8 @@ export interface components {
              * @enum {string}
              */
             kind: "line";
+            /** @description The body edge this entity is projected from (Project / Convert Entities). Set, the entity is fixed and follows the edge on a rebuild; its coordinates are the last good projection. Line, arc and circle only. Absent on unlinked entities. */
+            projection?: components["schemas"]["SketchProjection"] | null;
             start: components["schemas"]["Point2D"];
         };
         /**
@@ -9453,6 +9459,53 @@ export interface components {
              */
             kind: "point";
             position: components["schemas"]["Point2D"];
+            /** @description The body edge this entity is projected from (Project / Convert Entities). Set, the entity is fixed and follows the edge on a rebuild; its coordinates are the last good projection. Line, arc and circle only. Absent on unlinked entities. */
+            projection?: components["schemas"]["SketchProjection"] | null;
+        };
+        /**
+         * SketchProjection
+         * @description The body edge a projected entity is linked to (SKETCH-PROJECT-EDGES).
+         *
+         *     Fusion 360's Project and SolidWorks' Convert Entities: the entity is the
+         *     edge seen from the sketch plane, and it follows the edge when the body
+         *     changes. ``edge`` is the same stage-1 :class:`EdgeSubshapeRef` a picked
+         *     fillet edge stores; its ``feature_id`` is a feature dependency of the
+         *     sketch. The entity's own coordinates are the last good projection, so a
+         *     sketch whose edge no longer resolves keeps them, as Fusion does. The
+         *     solver holds a projected entity fixed (0 DOF).
+         */
+        SketchProjection: {
+            edge: components["schemas"]["EdgeSubshapeRef"];
+        };
+        /**
+         * SketchProjectionStatus
+         * @description How one projected entity re-projected on this rebuild.
+         *
+         *     ``sick`` is Fusion 360's sick projection: the sketch keeps the entity's
+         *     stored coordinates (the last good projection) and stays ``ok``; this says
+         *     why it could not follow its edge.
+         */
+        SketchProjectionStatus: {
+            /**
+             * Entity
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            entity: string;
+            /**
+             * Reason
+             * @description Why the entity is sick; None when ok.
+             */
+            reason?: ("unresolved" | "ambiguous" | "no_body" | "unsupported_curve" | "degenerate" | "kind_changed") | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ok" | "sick";
+            /**
+             * Tier
+             * @description The tier that re-found the edge; None if sick.
+             */
+            tier?: ("exact" | "named" | "durable" | "adjacent") | null;
         };
         /**
          * SketchSpline
@@ -9518,6 +9571,8 @@ export interface components {
              * @description Ordered fit points (mm) the curve interpolates through; at least two, at most MAX_SPLINE_POINTS (work bound, audit G2). Consecutive points must be distinct (a coincident pair is a degenerate spline, rejected at profile build).
              */
             points: components["schemas"]["Point2D"][];
+            /** @description The body edge this entity is projected from (Project / Convert Entities). Set, the entity is fixed and follows the edge on a rebuild; its coordinates are the last good projection. Line, arc and circle only. Absent on unlinked entities. */
+            projection?: components["schemas"]["SketchProjection"] | null;
         };
         /**
          * SolvedAngle
@@ -9635,6 +9690,11 @@ export interface components {
              * @constant
              */
             kind: "solved_sketch";
+            /**
+             * Projections
+             * @description One status per projected entity, in entity order: whether it followed its body edge on this rebuild, and why not when sick. Empty for a sketch with no projected entities.
+             */
+            projections?: components["schemas"]["SketchProjectionStatus"][];
             /**
              * Redundant Constraints
              * @description Indices into the input constraint list that are redundant.

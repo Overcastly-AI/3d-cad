@@ -19,7 +19,8 @@ polygon). Loft builds ``vendor/planegcs`` with ``vendor/planegcs-loft.patch``,
 which orders them by declaration (RESEARCH §2). Free parameters are still
 allocated first and contiguously (entities, then
 :func:`~geometry.sketch.virtual_sharp.allocate_sharps`, then
-:func:`~geometry.sketch.point_distance.allocate_aux`). Goldens are unchanged;
+:func:`~geometry.sketch.point_distance.allocate_aux`); a projected entity's
+FIXED parameters sit among them in entity order. Goldens are unchanged;
 an under-constrained sketch past 64 parameters may solve differently on upgrade.
 
 **An under-constrained solve HOLDS the input geometry** (SOLVE-1, RESEARCH §2).
@@ -162,6 +163,8 @@ from geometry.sketch.point_distance import (
     point_table_lookups,
     submitted_sides,
 )
+from geometry.sketch.projected import add_fixed_arc, add_fixed_point, projected_ids
+from geometry.sketch.projected import entity_point_names as _entity_point_names
 from geometry.sketch.readouts import angle_readouts, dimension_readouts
 from geometry.sketch.residual import (
     geometric_residuals,
@@ -475,37 +478,6 @@ def _directions(entities: list[SketchEntity]) -> dict[str, tuple[float, float]]:
     return senses
 
 
-def _entity_point_names(entity: SketchEntity) -> list[tuple[str, Point2D]]:
-    """``(point name, submitted coordinate)`` for every point an entity owns.
-
-    The one enumeration of "which points does this kind of entity have", in the
-    order the solver registers them, shared by the placement targets
-    (:meth:`_GcsBuild._input_points`) and the shape pins
-    (:meth:`_GcsBuild._shape_pins`) — the two must agree about the point set or
-    a settle would hold one view of the entity against another.
-
-    A circle contributes only its centre: its radius is a shape parameter, not
-    a point, and is pinned separately.
-    """
-    match entity:
-        case SketchPoint():
-            return [("position", entity.position)]
-        case SketchLine():
-            return [("start", entity.start), ("end", entity.end)]
-        case SketchCircle():
-            return [("center", entity.center)]
-        case SketchArc():
-            return [
-                ("center", entity.center),
-                ("start", entity.start),
-                ("end", entity.end),
-            ]
-        case SketchSpline():
-            return [(f"fit{index}", point) for index, point in enumerate(entity.points)]
-        case _:  # pragma: no cover — the entity union is closed
-            assert_never(entity)
-
-
 def plain_solve(
     sketch: SketchDefinition, driving_values: dict[int, float]
 ) -> "tuple[_GcsBuild, bool]":
@@ -704,6 +676,8 @@ class _GcsBuild:
         )
         #: planegcs constraint tag → index into ``sketch.constraints``.
         self.tag_to_index: dict[int, int] = {}
+        #: Entities linked to a body edge: built fixed, never settled.
+        self._projected = projected_ids(sketch.entities)
         # ``start`` is the STARTING GUESS and nothing else (ARC-BRANCH-1): the
         # same entities by id, kind and order, at different coordinates. DogLeg
         # walks from wherever the parameters begin, so this is the only seam a
@@ -764,7 +738,8 @@ class _GcsBuild:
         function of the sketch alone (RESEARCH §9) — see
         :data:`SETTLE_WORK_UNITS` for why that rules out a wall-clock deadline.
         """
-        return SETTLE_WORK_UNITS // max(1, len(self.sketch.entities) ** 2)
+        free = len(self.sketch.entities) - len(self._projected)
+        return SETTLE_WORK_UNITS // max(1, free**2)
 
     def _free_param_ids(self) -> tuple[int, ...]:
         """Ids of every free parameter planegcs allocated while building.
@@ -792,22 +767,26 @@ class _GcsBuild:
 
     # -- entities -----------------------------------------------------------
 
-    def _add_point(self, entity_id: str, name: str, point: Point2D) -> PointId:
-        pid = self.gcs.add_point(point.x, point.y)
+    def _add_point(
+        self, entity_id: str, name: str, point: Point2D, fixed: bool = False
+    ) -> PointId:
+        gcs = self.gcs
+        pid = add_fixed_point(gcs, point) if fixed else gcs.add_point(point.x, point.y)
         self._points[(entity_id, name)] = pid
         return pid
 
     def _add_entity(self, entity: SketchEntity) -> None:
+        fixed = entity.id in self._projected  # SKETCH-PROJECT-EDGES: 0 DOF
         match entity:
             case SketchPoint():
                 self._add_point(entity.id, "position", entity.position)
             case SketchLine():
-                p1 = self._add_point(entity.id, "start", entity.start)
-                p2 = self._add_point(entity.id, "end", entity.end)
+                p1 = self._add_point(entity.id, "start", entity.start, fixed)
+                p2 = self._add_point(entity.id, "end", entity.end, fixed)
                 self._lines[entity.id] = self.gcs.add_line(p1, p2)
             case SketchCircle():
-                center = self._add_point(entity.id, "center", entity.center)
-                radius = self.gcs.add_param(entity.radius, fixed=False)
+                center = self._add_point(entity.id, "center", entity.center, fixed)
+                radius = self.gcs.add_param(entity.radius, fixed=fixed)
                 self._circles[entity.id] = self.gcs.add_circle(center, radius)
             case SketchArc():
                 radius = math.hypot(
@@ -838,14 +817,24 @@ class _GcsBuild:
                 )
                 if end_angle <= start_angle:  # CCW convention (schemas)
                     end_angle += math.tau
-                center = self._add_point(entity.id, "center", entity.center)
-                start = self._add_point(entity.id, "start", entity.start)
-                end = self._add_point(entity.id, "end", entity.end)
+                center = self._add_point(entity.id, "center", entity.center, fixed)
+                start = self._add_point(entity.id, "start", entity.start, fixed)
+                end = self._add_point(entity.id, "end", entity.end, fixed)
                 # add_arc_cse -> add_arc auto-adds the arc-rules constraints
                 # tying start/end to center/radius/angles; do NOT add them
-                # again (that would be a redundant constraint).
-                self._arcs[entity.id] = self.gcs.add_arc_cse(
-                    center, start, end, radius, start_angle, end_angle
+                # again (that would be a redundant constraint). A projected arc
+                # gets none: its parameters are all fixed (geometry.sketch.projected).
+                self._arcs[entity.id] = (
+                    add_fixed_arc(
+                        self.gcs,
+                        (center, start, end),
+                        (radius, start_angle, end_angle),
+                        rules_tag=len(self._arcs) + 1,
+                    )
+                    if fixed
+                    else self.gcs.add_arc_cse(
+                        center, start, end, radius, start_angle, end_angle
+                    )
                 )
             case SketchSpline():
                 # Constrainable FIT POINTS (v1.1, SketchSpline docstring):
@@ -1363,6 +1352,8 @@ class _GcsBuild:
         """
         pins: list[GcsConstraintTag] = []
         for entity in entities:  # input order — deterministic (RESEARCH §9)
+            if entity.id in self._projected:  # fixed: nothing to hold
+                continue
             for name, point in _entity_point_names(entity):
                 point_id = self._points.get((entity.id, name))
                 if point_id is None:  # an unreferenced spline fit point
@@ -1483,6 +1474,8 @@ class _GcsBuild:
         gcs = self.gcs
         pins: list[GcsConstraintTag] = []
         for entity in entities:  # input order — deterministic (RESEARCH §9)
+            if entity.id in self._projected:  # fixed: nothing to hold
+                continue
             if isinstance(entity, SketchCircle):
                 pins.append(
                     gcs.set_circle_radius(self._circles[entity.id], entity.radius)
@@ -1528,7 +1521,7 @@ class _GcsBuild:
         """
         worst = 0.0
         for (owner, name), point_id in self._points.items():  # input order
-            if owner == entity_id:
+            if owner == entity_id or owner in self._projected:
                 continue
             target = targets.get((owner, name))
             if target is None:  # pragma: no cover - every registered point has one
@@ -1536,7 +1529,8 @@ class _GcsBuild:
             x, y = self.gcs.get_point(point_id)
             worst = max(worst, abs(x - target[0]), abs(y - target[1]))
         for entity in self.sketch.entities:
-            if entity.id == entity_id or not isinstance(entity, SketchCircle):
+            skip = entity.id == entity_id or entity.id in self._projected
+            if skip or not isinstance(entity, SketchCircle):
                 continue
             solved = self.gcs.get_circle(self._circles[entity.id])
             # The radius that would SHIP, not the raw solver parameter: this
@@ -1830,6 +1824,7 @@ class _GcsBuild:
                             id=entity.id,
                             kind="line",
                             construction=entity.construction,
+                            projection=entity.projection,
                             start=Point2D(x=info.p1[0], y=info.p1[1]),
                             end=Point2D(x=info.p2[0], y=info.p2[1]),
                         )
@@ -1841,6 +1836,7 @@ class _GcsBuild:
                             id=entity.id,
                             kind="circle",
                             construction=entity.construction,
+                            projection=entity.projection,
                             center=Point2D(x=circle.center[0], y=circle.center[1]),
                             # planegcs's radius is a SIGNED parameter and can be
                             # driven to nothing; the DTO's is a magnitude that
@@ -1862,6 +1858,7 @@ class _GcsBuild:
                             id=entity.id,
                             kind="arc",
                             construction=entity.construction,
+                            projection=entity.projection,
                             center=Point2D(x=arc.center[0], y=arc.center[1]),
                             start=arc_start,
                             end=arc_end,

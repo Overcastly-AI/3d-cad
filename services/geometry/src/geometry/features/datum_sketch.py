@@ -25,6 +25,7 @@ from loft_wire.features import (
 )
 from loft_wire.sketch import classify_overconstraint
 
+from geometry.features.sketch_projection import project_entities
 from geometry.features.state import (
     EvaluationState,
 )
@@ -246,6 +247,10 @@ def _evaluate_sketch(
     The sketch's plane reference (an origin datum or a ``datum`` feature) is
     resolved to a concrete plane through :func:`resolve_sketch_plane` FIRST — a
     bad plane reference is a ``reference_unresolved`` error before the solve.
+    Then every projected entity is re-projected from the body at this tree
+    position (:func:`~geometry.features.sketch_projection.project_entities`);
+    a sick one keeps its stored coordinates and is reported in the payload's
+    ``projections``, never as an error (Fusion 360's sick projection).
     """
     feature = item.feature
     assert isinstance(feature, SketchFeature), "registry dispatches on type='sketch'"
@@ -254,12 +259,16 @@ def _evaluate_sketch(
     if isinstance(plane, FeatureError):
         return plane
 
+    # Projected entities follow their body edges BEFORE the solve, so what
+    # hangs off them follows too; one that cannot is sick, never an error.
+    params, projections = project_entities(feature.params, plane, state)
+
     try:
         # SketchParamsV1 extends SketchDefinition (py-kit): the validated
         # params ARE the solver input — statically-malformed sketches never
         # reach this point, they are 422 request-validation failures (§4.3:
         # the envelope owns transport/validation failures of the call).
-        solved = _SOLVER.solve(feature.params)
+        solved = _SOLVER.solve(params)
     except SketchDefinitionError as exc:
         # Malformed definition (bad reference, wrong point name, degenerate
         # geometry) — same failure class as a validation error.
@@ -285,6 +294,8 @@ def _evaluate_sketch(
 
     state.solved_sketches[item.id] = solved
     state.sketch_planes[item.id] = plane
+    if projections:
+        state.sketch_projections[item.id] = projections
     return None
 
 
