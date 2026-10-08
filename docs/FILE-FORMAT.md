@@ -124,7 +124,9 @@ A blob whose sha256 does not match is refused (`loft_blob_corrupt`).
 | Compression ratio (members ≥ 1 MiB)    | 100:1                          | `loft_zip_bomb`         |
 | Features                               | 1000 (`MAX_TREE_FEATURES`)     | `loft_tree_invalid`     |
 
-The central directory the end record declares is capped at 128 KiB (512 bytes an entry), so a lying entry count cannot make the parse expensive (`loft_too_many_members`). Each blob may be named by one `import` feature only (`loft_blob_reused`), blobs are inlined only into an `import` feature's `params.data`, and the inlined text counts against the 256 MiB total. `tree.json` with a non-finite number or pathological nesting is `loft_tree_invalid`. Each member is read with `read(cap + 1)`, so a header that understates a size
+The central directory the end record declares is capped at 128 KiB (512 bytes an entry), so a lying entry count cannot make the parse expensive (`loft_too_many_members`). ZIP64 end records are refused outright
+(`loft_zip_invalid`): zipfile would trust their counts over the capped classic
+record, and a legal `.loft` never needs ZIP64. Each blob may be named by one `import` feature only (`loft_blob_reused`), blobs are inlined only into an `import` feature's `params.data`, and the inlined text counts against the 256 MiB total. `tree.json` with a non-finite number or pathological nesting is `loft_tree_invalid`. Each member is read with `read(cap + 1)`, so a header that understates a size
 cannot make the reader allocate past the cap. Also refused: `..`, absolute or
 drive paths, backslashes, duplicate names, directory entries, encrypted
 members, compression other than STORED or DEFLATE (`loft_member_unsafe`,

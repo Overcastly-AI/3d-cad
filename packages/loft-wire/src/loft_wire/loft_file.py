@@ -141,6 +141,7 @@ Sha256Hex = str
 LoftErrorCode = Literal[
     "loft_too_large",
     "loft_not_zip",
+    "loft_zip_invalid",
     "loft_too_many_members",
     "loft_member_unsafe",
     "loft_member_duplicate",
@@ -470,6 +471,20 @@ def _declared_entry_count(data: bytes) -> int:
     if eocd < 0 or eocd + 22 > len(data):
         raise LoftFileError(
             "This file is not a .loft (not a zip).", code="loft_not_zip"
+        )
+    # ZIP64: zipfile reads the locator 20 bytes before the classic end record
+    # and, if present, trusts the ZIP64 record's entry count and directory size
+    # over the classic one's, so a classic record claiming 1 entry / 100 bytes
+    # would sail past the cap below while zipfile parses 700k entries. A legal
+    # .loft never needs ZIP64 (the caps keep it far below 4 GiB / 65k entries),
+    # so the ZIP64 end structures are refused outright. Both signatures are
+    # looked for in the bytes just before the end record — where zipfile looks —
+    # rather than anywhere, because deflated STEP can contain any 4 bytes.
+    zip64_window = data[max(0, eocd - 20 - 56 - 1024) : eocd]
+    if b"PK\x06\x07" in zip64_window or b"PK\x06\x06" in zip64_window:
+        raise LoftFileError(
+            "The .loft uses ZIP64, which a .loft never needs.",
+            code="loft_zip_invalid",
         )
     (entries, directory_bytes) = struct.unpack_from("<HI", data, eocd + 10)
     if directory_bytes > MAX_LOFT_CENTRAL_DIRECTORY_BYTES:

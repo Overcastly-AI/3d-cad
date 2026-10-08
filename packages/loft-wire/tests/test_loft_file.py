@@ -528,3 +528,32 @@ def test_non_finite_numbers_and_deep_nesting_are_typed_refusals(tree: bytes) -> 
     entries = _golden_entries()
     entries[1] = (TREE_PATH, tree)
     assert _refused(_zip(entries)) == "loft_tree_invalid"
+
+
+def _zip64_probe(members: int) -> bytes:
+    """The reviewer's probe: a real ZIP64 directory of *members* entries, whose
+    classic end record claims 1 entry and 100 bytes."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for index in range(members):
+            archive.writestr(f"x{index}", b"")
+    data = bytearray(buffer.getvalue())
+    eocd = data.rfind(b"PK\x05\x06")
+    assert data[eocd - 20 : eocd - 16] == b"PK\x06\x07"  # zipfile wrote ZIP64
+    data[eocd + 8 : eocd + 12] = (1).to_bytes(2, "little") * 2
+    data[eocd + 12 : eocd + 16] = (100).to_bytes(4, "little")
+    return bytes(data)
+
+
+def test_a_zip64_directory_is_refused_before_it_is_parsed() -> None:
+    data = _zip64_probe(70_000)  # past 0xFFFF entries, so zipfile writes ZIP64
+    tracemalloc.start()
+    started = time.perf_counter()
+    try:
+        assert _refused(data) == "loft_zip_invalid"
+        elapsed = time.perf_counter() - started
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert elapsed < 1.0, elapsed
+    assert peak < 16 * 1024 * 1024, peak
