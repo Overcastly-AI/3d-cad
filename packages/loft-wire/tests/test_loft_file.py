@@ -18,6 +18,9 @@ from __future__ import annotations
 import io
 import json
 import os
+import random
+import time
+import tracemalloc
 import uuid
 import zipfile
 from collections.abc import Callable, Sequence
@@ -455,3 +458,73 @@ def test_newer_minor_still_refuses_an_unsafe_member() -> None:
 
     data = _zip([*_with_manifest(newer), ("../thumb.png", b"x")])
     assert _refused(data) == "loft_member_unsafe"
+
+
+# --- review 191eed8: amplification and parser limits ----------------------------
+
+
+def _blob_bomb(references: int) -> bytes:
+    """One 16 MiB blob (ratio-legal: random hex text) named by N import features."""
+    rng = random.Random(7)
+    chunk = "".join(rng.choice("0123456789abcdef") for _ in range(2 * 1024 * 1024))
+    data = (chunk * 8)[: loft_file.MAX_LOFT_BLOB_BYTES].encode()
+    digest = sha256_hex(data)
+    tree = _golden_tree().model_dump(mode="json")
+    template = tree["features"][0]
+    tree["features"] = [
+        {
+            **template,
+            "id": str(uuid.UUID(int=index + 1)),
+            "params": {**template["params"], "data": f"loft-blob:sha256:{digest}"},
+        }
+        for index in range(references)
+    ]
+    entries = [e for e in _golden_entries() if not e[0].startswith("blobs/")]
+    entries[1] = (TREE_PATH, canonical_json(tree))
+    entries.append((f"blobs/sha256-{digest}.step", data))
+    return _zip(entries, compression=zipfile.ZIP_DEFLATED)
+
+
+def test_a_blob_named_by_many_features_is_refused_before_it_is_copied() -> None:
+    data = _blob_bomb(1000)
+    tracemalloc.start()
+    try:
+        assert _refused(data) == "loft_blob_reused"
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    # One raw blob plus the reader's working set, not a thousand decoded
+    # copies (~16 GiB before the fix).
+    assert peak < 64 * 1024 * 1024, peak
+
+
+def test_a_blob_ref_outside_an_import_feature_is_not_inlined() -> None:
+    entries = _golden_entries()
+    tree = json.loads(entries[1][1])
+    ref = tree["features"][0]["params"]["data"]
+    tree["features"][1]["params"]["data"] = ref
+    entries[1] = (TREE_PATH, canonical_json(tree))
+    archive = read_loft(_zip(entries))
+    assert archive.tree.features[0].params["data"] == STEP_TEXT
+    assert archive.tree.features[1].params["data"] == ref
+
+
+def test_a_lying_entry_count_cannot_make_the_directory_parse_expensive() -> None:
+    """20k members declared as 1: refused from the directory SIZE, unparsed."""
+    data = bytearray(_zip([(f"x{index}", b"") for index in range(20_000)]))
+    eocd = data.rfind(b"PK\x05\x06")
+    data[eocd + 8 : eocd + 12] = (1).to_bytes(2, "little") * 2
+    started = time.perf_counter()
+    assert _refused(bytes(data)) == "loft_too_many_members"
+    assert time.perf_counter() - started < 0.5
+
+
+@pytest.mark.parametrize(
+    "tree",
+    [b'{"name": "x", "features": [], "w": 1e999}', b"[" * 100_000 + b"]" * 100_000],
+    ids=["non-finite", "deep-nesting"],
+)
+def test_non_finite_numbers_and_deep_nesting_are_typed_refusals(tree: bytes) -> None:
+    entries = _golden_entries()
+    entries[1] = (TREE_PATH, tree)
+    assert _refused(_zip(entries)) == "loft_tree_invalid"

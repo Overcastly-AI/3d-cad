@@ -106,6 +106,11 @@ MAX_LOFT_TOTAL_BYTES = 256 * _MIB
 #: Uncompressed : compressed above this is refused as a zip bomb. STEP text
 #: deflates about 5-10:1; a bomb is in the thousands.
 MAX_LOFT_COMPRESSION_RATIO = 100
+#: The central directory, as its end record declares it. ``zipfile`` parses
+#: exactly this many bytes, so capping it bounds the parse whatever the entry
+#: count claims. 512 bytes an entry is four times the longest whitelisted
+#: entry (46 + an 82-character blob path) and leaves room for extra fields.
+MAX_LOFT_CENTRAL_DIRECTORY_BYTES = MAX_LOFT_MEMBERS * 512
 #: Members smaller than this skip the ratio test: a few KiB of repetitive JSON
 #: can legitimately exceed 100:1 and cannot hurt anyone.
 LOFT_RATIO_FLOOR_BYTES = 1 * _MIB
@@ -152,6 +157,7 @@ LoftErrorCode = Literal[
     "loft_tree_invalid",
     "loft_blob_corrupt",
     "loft_blob_missing",
+    "loft_blob_reused",
 ]
 
 
@@ -465,7 +471,18 @@ def _declared_entry_count(data: bytes) -> int:
         raise LoftFileError(
             "This file is not a .loft (not a zip).", code="loft_not_zip"
         )
-    (entries,) = struct.unpack_from("<H", data, eocd + 10)
+    (entries, directory_bytes) = struct.unpack_from("<HI", data, eocd + 10)
+    if directory_bytes > MAX_LOFT_CENTRAL_DIRECTORY_BYTES:
+        # The entry count is the attacker's to write; the directory SIZE is what
+        # zipfile actually parses, so it is what must be bounded.
+        raise LoftFileError(
+            f"The .loft holds more than {MAX_LOFT_MEMBERS} members.",
+            code="loft_too_many_members",
+            details={
+                "max_members": MAX_LOFT_MEMBERS,
+                "central_directory_bytes": directory_bytes,
+            },
+        )
     return int(entries)
 
 
@@ -587,10 +604,21 @@ def _reject_constant(name: str) -> Any:
     raise ValueError(f"{name} is not allowed in a .loft")
 
 
+def _finite_float(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):  # 1e999 parses as inf
+        raise ValueError(f"{text} is not a finite number")
+    return value
+
+
 def _parse_json(data: bytes, *, member: str, code: LoftErrorCode) -> Any:
     try:
-        return json.loads(data.decode("utf-8"), parse_constant=_reject_constant)
-    except (UnicodeDecodeError, ValueError) as exc:
+        return json.loads(
+            data.decode("utf-8"),
+            parse_constant=_reject_constant,
+            parse_float=_finite_float,
+        )
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise LoftFileError(
             f"The .loft member {member} is not valid JSON.",
             code=code,
@@ -644,20 +672,54 @@ def _read_manifest(raw: Any) -> LoftManifest:
         ) from exc
 
 
-def _inline_blobs(tree: LoftTree, blobs: dict[str, bytes]) -> LoftTree:
-    """Put each referenced blob's STEP text back where the tree names it."""
+def _blob_reference(feature: LoftTreeFeature) -> str | None:
+    """The sha256 an ``import`` feature's ``params.data`` names, or None."""
+    if feature.type != "import":
+        return None
+    data = feature.params.get("data")
+    match = _BLOB_REF_RE.match(data) if isinstance(data, str) else None
+    return match.group(1) if match is not None else None
+
+
+def _inline_blobs(tree: LoftTree, blobs: dict[str, bytes], *, budget: int) -> LoftTree:
+    """Put each referenced blob's STEP text back where the tree names it.
+
+    Only into an ``import`` feature's ``params.data``, each blob at most ONCE,
+    and the inlined bytes count against *budget* (what is left of
+    :data:`MAX_LOFT_TOTAL_BYTES`). All three are checked BEFORE any text is
+    decoded: a 16 MiB blob named by a thousand features would otherwise
+    decode a thousand copies of itself and take the gateway down.
+    """
+    seen: set[str] = set()
+    inlined = 0
+    for feature in tree.features:
+        digest = _blob_reference(feature)
+        if digest is None:
+            continue
+        if digest in seen:
+            raise LoftFileError(
+                "Two features of the .loft name the same blob.",
+                code="loft_blob_reused",
+                details={"feature_id": str(feature.id), "sha256": digest},
+            )
+        seen.add(digest)
+        if digest not in blobs:
+            raise LoftFileError(
+                f"Feature {feature.name!r} names a blob the .loft does not hold.",
+                code="loft_blob_missing",
+                details={"feature_id": str(feature.id), "sha256": digest},
+            )
+        inlined += len(blobs[digest])
+        if inlined > budget:
+            raise LoftFileError(
+                f"The .loft unpacks to more than {MAX_LOFT_TOTAL_BYTES} bytes.",
+                code="loft_member_too_large",
+                details={"max_bytes": MAX_LOFT_TOTAL_BYTES},
+            )
     features: list[LoftTreeFeature] = []
     for feature in tree.features:
-        data = feature.params.get("data")
-        match = _BLOB_REF_RE.match(data) if isinstance(data, str) else None
-        if match is not None:
-            digest = match.group(1)
-            if digest not in blobs:
-                raise LoftFileError(
-                    f"Feature {feature.name!r} names a blob the .loft does not hold.",
-                    code="loft_blob_missing",
-                    details={"feature_id": str(feature.id), "sha256": digest},
-                )
+        digest = _blob_reference(feature)
+        if digest is not None:
             try:
                 text = blobs[digest].decode("utf-8")
             except UnicodeDecodeError as exc:
@@ -807,7 +869,11 @@ def _verify(manifest: LoftManifest, contents: dict[str, bytes]) -> LoftArchive:
         ) from exc
     return LoftArchive(
         manifest=manifest,
-        tree=_inline_blobs(tree, blobs),
+        tree=_inline_blobs(
+            tree,
+            blobs,
+            budget=MAX_LOFT_TOTAL_BYTES - sum(len(data) for data in contents.values()),
+        ),
         cache=cache,
         warnings=tuple(warnings),
     )

@@ -88,7 +88,11 @@ async def get_loft_tree(
     part_id: uuid.UUID, owner_id: Principal, session: SessionDep
 ) -> LoftTree:
     """The part's tree as ``tree.json`` holds it (uniform 404 for foreign parts)."""
-    part = await get_owned_part(session, owner_id, part_id)
+    # (A comment, not docstring text: the docstring is the OpenAPI description.)
+    # The part row is read FOR UPDATE: every tree write takes that lock, so the
+    # features read next are the ones the row's travel stop was written against —
+    # one consistent snapshot, never a rollback bar naming a deleted feature.
+    part = await get_owned_part(session, owner_id, part_id, for_update=True)
     rows = (
         await session.execute(
             select(db.Feature)
