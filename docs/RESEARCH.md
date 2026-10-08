@@ -738,8 +738,8 @@ fit-point approximation (SKETCH-PROJECT-SPLINE). Rules:
   body names differently is dropped, so the named tier (or a typed
   `subshape_unresolved`) decides. A named edge an edit resizes (shell 2 -> 1
   mm: inner R3 -> R4 rim) follows through the named tier. Cost: an UNNAMED
-  circle no longer follows a resize; Hole faces are unnamed today, so a
-  chamfered hole rim fails typed when the hole is resized (BACKLOG note).
+  circle no longer follows a resize; a Hole's rim now follows by name
+  (HOLE-NAMES, below), and an unnamed or imported one fails typed.
   For circles, tier 2 now differs from tier 1 only past the strict
   tolerances. Drawings dimension anchors keep their own radius-blind copy on
   purpose: a diameter dimension should re-measure a resized hole.
@@ -752,6 +752,32 @@ fit-point approximation (SKETCH-PROJECT-SPLINE). Rules:
 Goldens `revise-width-lip-projected-rim-130x80x35` and the inset variant
 (`point_line_distance` off the projected rim) agree with closed forms to
 2e-10 mm^3.
+
+**Hole names (HOLE-NAMES, 2026-10-08).** EDGE-REF-CONCENTRIC left a
+resized hole's chamfered rim with no tier that could follow it: the geometric
+tiers keep a circle's radius and Hole faces had no name. Fusion 360 keeps a
+chamfer on "Hole1's wall against the top face" through a diameter edit, so
+the Hole now names each face it cuts by its ROLE in the hole,
+`<hole id>:hole:<instance>:<role>`: the bore's `wall` and blind `floor`, the
+counterbore's `cbore_wall` and `cbore_floor`, the countersink's `csink_cone`.
+A role depends on the hole type, never on a size. The kernel labels the
+faces of the very tool it cut (`label_hole_tool`: the cylinder or cone is
+the lateral role, the planar cap deepest along the drill is the floor; caps
+outside the body and the cone's bore-sized end are left unlabelled so they
+claim no surface), and the faces of the result take the names by the usual
+surface rule. Faces the hole only re-bounds (the placement face) keep their
+names. The instance is the placement point's index; a Hole has one point
+today, so it is `0`. The recorded pattern/mirror tools are labelled the same
+way, so a `features`-scope copy is `<pattern>:i<k>:<hole face name>`.
+Results: a rim chamfer through dia 10 -> 12, a counterbore's bore-top edge
+chamfer through a bore resize, and a countersink rim fillet through a mouth
+resize each resolve by name and are byte-identical to a fresh pick
+(`tests/test_hole_names_revision.py`, golden
+`revise-hole-dia-10-to-12-rim-chamfer-40x25x10`). The radius guard is
+unchanged: the counterbore's outer floor edge is another role and so another
+name, a counterbore retyped to a pocket has no `cbore_floor` and refuses, and
+every unnamed control refuses. Names are metadata: all goldens' GLB and
+metadata are byte-identical.
 
 ## 15. Rebuild cost: one whole-body boolean per question
 

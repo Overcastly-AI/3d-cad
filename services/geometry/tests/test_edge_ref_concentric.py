@@ -339,15 +339,19 @@ def test_b_kernel_bore_floor_edge_is_unresolved_once_the_counterbore_goes() -> N
         resolve_edge_durable(_eval([*plate, _pocket(plate)]).body, picked)
 
 
-def test_b_chamfer_on_the_bore_floor_edge_fails_when_the_hole_becomes_a_pocket() -> (
-    None
-):
-    """A Hole's faces carry no history names yet, so this is the radius check
-    alone (the old tier landed on the R9 floor edge, +6.94 mm^3)."""
+@pytest.mark.parametrize("named", [True, False], ids=["named", "unnamed"])
+def test_b_chamfer_on_the_bore_floor_edge_fails_when_the_hole_becomes_a_pocket(
+    named: bool,
+) -> None:
+    """The old tier landed on the R9 floor edge (+6.94 mm^3). Named, the
+    edge is ``cbore_floor`` against ``wall``, a role the pocket does not have,
+    so the named tier finds nothing; unnamed, the radius check alone refuses."""
     plate = _plate()
     authored = [*plate, _counterbore(plate)]
     picked = _floor_edge(authored, 5.0)
-    assert picked.topo_name is None
+    assert picked.topo_name is not None
+    assert "hole:0:cbore_floor" in picked.topo_name
+    picked = picked if named else _unnamed(picked)
     assert _outcome(_eval([*authored, _on_edge("chamfer", HOLE, picked)])) == (
         "ok",
         None,

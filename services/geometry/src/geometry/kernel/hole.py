@@ -59,10 +59,11 @@ opaque to pyright; the directives scope that relaxation to this file only.
 
 import math
 
-from build123d import Compound, Plane, Solid, Vector
+from build123d import Compound, Face, GeomType, Plane, Solid, Vector
 from OCP.ShapeAnalysis import ShapeAnalysis_ShapeTolerance
 
 from geometry.kernel.extrude import combine_body_measured
+from geometry.kernel.naming import OpHistory
 from geometry.kernel.properties import volume_properties
 from geometry.kernel.types import BodyShape
 
@@ -241,6 +242,40 @@ def _drill_axis(
     return center, normal, span
 
 
+def label_hole_tool(
+    history: OpHistory,
+    tool: Solid,
+    face_plane: Plane,
+    lateral: str,
+    floor: str | None,
+) -> None:
+    """Label the faces of a hole TOOL by their ROLE in *history*
+    (:attr:`OpHistory.labelled`; DESIGN-INTENT-REFS, RESEARCH §14).
+
+    The roles are the bore's ``wall`` and blind ``floor``, the counterbore's
+    ``cbore_wall`` and ``cbore_floor`` and the countersink's ``csink_cone``;
+    the feature layer names each face ``hole:<instance>:<role>``.
+
+    The lateral face (the cylinder or cone) is *lateral*; the planar cap
+    deepest along the drill direction (``-face_plane.z_dir``) is *floor*, when
+    the hole has one there (a blind bore, a counterbore). Every other cap is
+    left unlabelled, so it claims no surface: the entry caps lie a
+    bounding-box span outside the body, and the cone's bore-sized end is a
+    face of the result only under a blind bore shallower than the cone, where
+    it stays unnamed rather than guessed. A pure function of the tool (its
+    explorer order and its own geometry), hence deterministic."""
+    into = -face_plane.z_dir
+    caps: list[tuple[float, Face]] = []
+    for face in tool.faces():
+        if face.geom_type in (GeomType.CYLINDER, GeomType.CONE):
+            history.labelled.append((lateral, face))
+        elif face.geom_type == GeomType.PLANE:
+            caps.append((face.center().dot(into), face))
+    if floor is not None and len(caps) == 2:
+        deepest = max(caps, key=lambda cap: cap[0])[1]
+        history.labelled.append((floor, deepest))
+
+
 def bore_tool(
     body: BodyShape,
     face_plane: Plane,
@@ -289,6 +324,7 @@ def bore_hole(
     through_all: bool,
     depth_mm: float | None,
     body_volume: float | None = None,
+    history: OpHistory | None = None,
 ) -> BodyShape:
     """Drill a cylindrical hole into *body* at *position* on *face_plane*.
 
@@ -300,6 +336,8 @@ def bore_hole(
     positive float when ``through_all`` is False — the feature layer's discriminated
     depth union guarantees it). *body_volume* is *body*'s volume when the caller
     knows it (the evaluation's per-body memo), so it is not integrated again.
+    *history*, when given, receives the bore's faces labelled by role
+    (:func:`label_hole_tool`: ``wall``, and ``floor`` for a blind hole).
 
     Returns the drilled body (lump-count-preserving, via ``combine_body``).
 
@@ -340,6 +378,10 @@ def bore_hole(
                 "break through), or the bore overhangs the face edge. Use a "
                 "through-all hole, reduce the depth, or move the hole inward."
             )
+    if history is not None:
+        label_hole_tool(
+            history, tool, face_plane, "wall", None if through_all else "floor"
+        )
     return result
 
 
@@ -384,6 +426,7 @@ def cut_counterbore(
     bore_diameter_mm: float,
     cbore_diameter_mm: float,
     cbore_depth_mm: float,
+    history: OpHistory | None = None,
 ) -> BodyShape:
     """Sink a coaxial CYLINDRICAL counterbore recess into an already-drilled body.
 
@@ -394,6 +437,8 @@ def cut_counterbore(
     fully-embedded recess the removed material is exactly
     ``pi * (R**2 - r**2) * cbore_depth`` (``R`` = counterbore radius, ``r`` = bore
     radius). Returns the recessed body (lump-count-preserving, via ``combine_body``).
+    *history*, when given, receives the recess's ``cbore_wall`` and
+    ``cbore_floor`` faces (:func:`label_hole_tool`).
 
     Raises:
         HoleRecessInvalidError: the counterbore diameter is not larger than the bore.
@@ -432,6 +477,8 @@ def cut_counterbore(
         )
     )
     _require_full_pocket(removed, tolerance, expected, area, too_deep)
+    if history is not None:
+        label_hole_tool(history, tool, face_plane, "cbore_wall", "cbore_floor")
     return result
 
 
@@ -482,6 +529,7 @@ def cut_countersink(
     bore_diameter_mm: float,
     csink_diameter_mm: float,
     csink_angle_deg: float,
+    history: OpHistory | None = None,
 ) -> BodyShape:
     """Sink a coaxial CONICAL countersink recess into an already-drilled body.
 
@@ -496,6 +544,8 @@ def cut_countersink(
     removed material is exactly ``pi * h / 3 * (R**2 + R*r - 2*r**2)`` (the frustum
     ``pi * h/3 * (R**2 + R*r + r**2)`` minus the already-bored ``pi * r**2 * h``).
     Returns the recessed body (lump-count-preserving, via ``combine_body``).
+    *history*, when given, receives the cone's ``csink_cone`` face
+    (:func:`label_hole_tool`).
 
     Raises:
         HoleRecessInvalidError: the countersink mouth is not larger than the bore.
@@ -539,4 +589,6 @@ def cut_countersink(
         - bore_radius * bore_radius
     )
     _require_full_pocket(removed, tolerance, expected, area, too_deep)
+    if history is not None:
+        label_hole_tool(history, tool, face_plane, "csink_cone", None)
     return result
