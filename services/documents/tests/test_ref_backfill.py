@@ -287,6 +287,7 @@ def test_the_request_is_the_whole_tree_and_needed_only_while_pending(
         "needed": False,
         "tree_version": 4,
         "ref_names_checked_version": 4,
+        "backoff_until": None,
         "request": None,
     }
     assert _request(client, ids["part"], force="true")["needed"] is True
@@ -433,6 +434,7 @@ def test_the_write_is_journaled_and_revertible(client: TestClient, db_url: str) 
         "tree_version": 5,
         "features_restored": 1,
         "features_skipped": 0,
+        "detail": "",
     }
     restored = _rows(
         db_url,
@@ -474,8 +476,13 @@ def test_a_stale_report_writes_nothing(client: TestClient) -> None:
         _signature(_feature(client, ids["part"], ids["fillet"])).get("topo_name")
         is None
     )
-    # Still pending: the next open retries.
-    assert _request(client, ids["part"])["needed"] is True
+    # Still pending, but the stale run cost a rebuild: an open backs off, the
+    # sweep (ignore_backoff) retries.
+    backing_off = _request(client, ids["part"])
+    assert backing_off["needed"] is False
+    assert backing_off["backoff_until"] is not None
+    assert backing_off["ref_names_checked_version"] is None
+    assert _request(client, ids["part"], ignore_backoff="true")["needed"] is True
 
 
 def test_a_re_picked_ref_is_left_alone(client: TestClient) -> None:
@@ -683,3 +690,128 @@ def test_report_fields_survive_a_json_round_trip() -> None:
     report = RefNamesReport(tree_version=1, kernel="k", outcomes=[])
     assert RefNamesReport.model_validate_json(report.model_dump_json()) == report
     assert copy.deepcopy(report) == report
+
+
+# --- retry backoff (review of 9d87478) ---------------------------------------------
+
+
+def _fail(client: TestClient, part_id: str, reason: str = "timeout") -> dict[str, Any]:
+    response = client.post(
+        f"/api/v1/parts/{part_id}/ref-names/failure",
+        json={"tree_version": 3, "reason": reason},
+        headers=_headers(),
+    )
+    assert response.status_code == 200, response.text
+    body: dict[str, Any] = response.json()
+    return body
+
+
+def test_failed_runs_back_off_then_give_up_journaled(
+    client: TestClient, db_url: str
+) -> None:
+    """A part whose cold rebuild keeps timing out must not start one on every
+    open: each failure backs off, and the third stamps it checked (journal
+    ``gave_up``, metric) so only a forced sweep tries again."""
+    ids = _part(client)
+    gave_up_before = _writes("gave_up")
+    first = _fail(client, ids["part"])
+    assert (first["result"], first["attempts"]) == ("backoff", 1)
+    assert _request(client, ids["part"])["needed"] is False
+    assert _request(client, ids["part"])["backoff_until"] is not None
+    assert _fail(client, ids["part"], "geometry_error")["result"] == "backoff"
+    third = _fail(client, ids["part"])
+    assert (third["result"], third["attempts"]) == ("gave_up", 3)
+    assert _writes("gave_up") - gave_up_before == 1
+    after = _request(client, ids["part"])
+    assert after["ref_names_checked_version"] == 3
+    assert after["needed"] is False
+    assert after["backoff_until"] is None
+    # The sweep does not see it any more; --part (force) still can.
+    listed = client.get("/api/v1/ref-backfill/parts").json()["parts"]
+    assert ids["part"] not in [p["part_id"] for p in listed]
+    assert _request(client, ids["part"], force="true")["needed"] is True
+    journal = _rows(
+        db_url,
+        sa.select(db.RefNameBackfill.kind, db.RefNameBackfill.trigger).where(
+            db.RefNameBackfill.part_id == uuid.UUID(ids["part"])
+        ),
+    )
+    assert [tuple(row) for row in journal] == [("gave_up", "timeout")]
+    # Not a document edit.
+    assert _get_part(client, ids["part"])["tree_version"] == 3
+    assert _fail(client, ids["part"])["result"] == "ignored"
+
+
+def test_a_success_clears_the_backoff(client: TestClient, db_url: str) -> None:
+    ids = _part(client)
+    _fail(client, ids["part"])
+    report = _report_ignoring_backoff(client, ids)
+    assert _apply(client, ids["part"], report)["result"] == "written"
+    row = _rows(
+        db_url,
+        sa.select(db.Part.ref_names_attempts, db.Part.ref_names_next_try_at).where(
+            db.Part.id == uuid.UUID(ids["part"])
+        ),
+    )[0]
+    assert tuple(row) == (0, None)
+
+
+def _report_ignoring_backoff(client: TestClient, ids: dict[str, str]) -> RefNamesReport:
+    body = _request(client, ids["part"], ignore_backoff="true")
+    fillet = next(f for f in body["request"]["features"] if f["id"] == ids["fillet"])
+    sig = fillet["feature"]["params"]["edges"]["refs"][0]["selector"]["signature"]
+    return RefNamesReport(
+        tree_version=body["tree_version"],
+        kernel="k",
+        outcomes=[
+            RefNameOutcome(
+                feature_id=uuid.UUID(ids["fillet"]),
+                path="/edges/refs/0",
+                kind="edge",
+                signature_sha256=signature_digest(sig),
+                outcome="named",
+                topo_name="n",
+            )
+        ],
+    )
+
+
+# --- revert after later edits (review of 9d87478) ----------------------------------
+
+
+def test_a_revert_after_later_edits_is_refused_unless_forced(
+    client: TestClient,
+) -> None:
+    """A later edit may resolve through the names (a fillet on the now-named
+    edge after a size change), so reverting them silently could move it. The
+    revert is refused once the part moved past the write; --force does it."""
+    ids = _part(client)
+    _apply(client, ids["part"], _report(client, ids))
+    renamed = client.patch(
+        f"/api/v1/parts/{ids['part']}/features/{ids['extrude']}",
+        json={"expected_tree_version": 4, "name": "Base"},
+        headers=_headers(),
+    )
+    assert renamed.status_code == 200, renamed.text
+    refused = client.post(
+        f"/api/v1/parts/{ids['part']}/ref-names/revert", headers=_headers()
+    )
+    assert refused.status_code == 200, refused.text
+    body = refused.json()
+    assert body["result"] == "refused"
+    assert body["tree_version"] == 5
+    assert "edited after the backfill" in body["detail"]
+    assert _signature(_feature(client, ids["part"], ids["fillet"]))["topo_name"] == (
+        "x:start|x:e2"
+    )
+    forced = client.post(
+        f"/api/v1/parts/{ids['part']}/ref-names/revert",
+        params={"force": "true"},
+        headers=_headers(),
+    )
+    assert forced.json()["result"] == "reverted"
+    assert forced.json()["features_restored"] == 1
+    assert (
+        _signature(_feature(client, ids["part"], ids["fillet"])).get("topo_name")
+        is None
+    )

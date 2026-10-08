@@ -1199,6 +1199,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/ref-names/failure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Ref Names Failure
+         * @description The gateway reports a run that wrote nothing (geometry error, timeout,
+         *     or a documents write that did not land): count it and back off.
+         */
+        post: operations["record_ref_names_failure_api_v1_parts__part_id__ref_names_failure_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/ref-names/revert": {
         parameters: {
             query?: never;
@@ -5817,6 +5838,36 @@ export interface components {
             tree_version: number;
         };
         /**
+         * RefNamesFailure
+         * @description The gateway reports a failed run, so documents can back off.
+         */
+        RefNamesFailure: {
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "geometry_error" | "timeout" | "documents_error";
+            /** Tree Version */
+            tree_version: number;
+        };
+        /**
+         * RefNamesFailureResult
+         * @description ``backoff``: retried on an open after ``next_try_at``; ``gave_up``:
+         *     marked checked after too many failures (only ``--part`` retries it);
+         *     ``ignored``: the part was already checked.
+         */
+        RefNamesFailureResult: {
+            /** Attempts */
+            attempts: number;
+            /** Next Try At */
+            next_try_at?: string | null;
+            /**
+             * Result
+             * @enum {string}
+             */
+            result: "backoff" | "gave_up" | "ignored";
+        };
+        /**
          * RefNamesReport
          * @description Geometry's answer for one tree: one outcome per stored subshape ref.
          */
@@ -5837,6 +5888,11 @@ export interface components {
          */
         RefNamesRequestResponse: {
             /**
+             * Backoff Until
+             * @description Set while a pending part is backing off after failed runs: an open does not retry it before then (the sweep does).
+             */
+            backoff_until?: string | null;
+            /**
              * Needed
              * @description True when the part has not been checked yet and some stored subshape reference has no topo_name.
              */
@@ -5851,6 +5907,12 @@ export interface components {
         /** RefNamesRevertResult */
         RefNamesRevertResult: {
             /**
+             * Detail
+             * @description Why a revert was refused: the part was edited after the write, so later features may already rely on its names.
+             * @default
+             */
+            detail: string;
+            /**
              * Features Restored
              * @default 0
              */
@@ -5864,7 +5926,7 @@ export interface components {
              * Result
              * @enum {string}
              */
-            result: "reverted" | "nothing_to_revert";
+            result: "reverted" | "nothing_to_revert" | "refused";
             /** Tree Version */
             tree_version: number;
         };
@@ -9669,6 +9731,8 @@ export interface operations {
             query?: {
                 /** @description Build the request even if the part was checked. */
                 force?: boolean;
+                /** @description Retry a pending part that is backing off (sweep). */
+                ignore_backoff?: boolean;
             };
             header?: {
                 /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
@@ -9701,9 +9765,50 @@ export interface operations {
             };
         };
     };
-    revert_ref_names_api_v1_parts__part_id__ref_names_revert_post: {
+    record_ref_names_failure_api_v1_parts__part_id__ref_names_failure_post: {
         parameters: {
             query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefNamesFailure"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefNamesFailureResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revert_ref_names_api_v1_parts__part_id__ref_names_revert_post: {
+        parameters: {
+            query?: {
+                /** @description Revert even though the part was edited after the write. Later features may rely on the names: a fillet or shell can silently move to another subshape on the next size edit. */
+                force?: boolean;
+            };
             header?: {
                 /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
                 "X-Loft-User"?: string | null;

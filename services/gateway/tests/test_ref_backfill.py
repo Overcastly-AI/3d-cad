@@ -9,8 +9,10 @@ reach the user's evaluate. The CLI is driven through the same mocks.
 """
 
 import asyncio
+import contextlib
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +33,8 @@ from loft_wire.ref_names import (
     RefBackfillPartList,
     RefNamesApplyRequest,
     RefNamesApplyResult,
+    RefNamesFailure,
+    RefNamesFailureResult,
     RefNamesReport,
     RefNamesRequestResponse,
     RefNamesRevertResult,
@@ -163,6 +167,7 @@ def _documents(
     *,
     request_status: int = 200,
     needed: bool = True,
+    backoff: bool = False,
 ) -> Handler:
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
@@ -173,12 +178,20 @@ def _documents(
             return httpx.Response(200, json={})
         if path.endswith("/ref-names-request"):
             body = RefNamesRequestResponse(
-                needed=needed,
+                needed=needed and not backoff,
                 tree_version=tree.tree_version,
                 ref_names_checked_version=None,
-                request=tree if needed else None,
+                backoff_until=datetime(2026, 10, 8, 12, tzinfo=UTC)
+                if backoff
+                else None,
+                request=tree if needed and not backoff else None,
             )
             return httpx.Response(request_status, content=body.model_dump_json())
+        if path.endswith("/ref-names/failure"):
+            failure = RefNamesFailure.model_validate_json(request.content)
+            result = RefNamesFailureResult(result="backoff", attempts=1)
+            assert failure.tree_version == tree.tree_version
+            return httpx.Response(200, content=result.model_dump_json())
         if path.endswith("/ref-names"):
             applied = RefNamesApplyRequest.model_validate_json(request.content)
             result = RefNamesApplyResult(
@@ -192,10 +205,14 @@ def _documents(
     return handler
 
 
-def _geometry(seen: list[httpx.Request], *, names_status: int = 200) -> Handler:
+def _geometry(
+    seen: list[httpx.Request], *, names_status: int = 200, timeout: bool = False
+) -> Handler:
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         if request.url.path == "/api/v1/ref-names":
+            if timeout:
+                raise httpx.ReadTimeout("cold rebuild too slow", request=request)
             if names_status != 200:
                 return httpx.Response(names_status, json={"error": {}})
             tree = EvaluateTreeRequest.model_validate_json(request.content)
@@ -234,6 +251,8 @@ def test_an_open_of_an_unnamed_tree_backfills_after_the_verdict(db_url: str) -> 
         "POST ref-names",
     ]
     assert _paths(geo) == ["POST evaluate", "POST ref-names"]
+    # An open never bypasses documents' backoff.
+    assert "ignore_backoff" not in docs[2].url.params
     applied = RefNamesApplyRequest.model_validate_json(docs[-1].content)
     assert applied.tree_version == 4
     assert applied.trigger == "open"
@@ -336,8 +355,14 @@ def _sweep_documents(
             )
         part_id = uuid.UUID(path.split("/")[4])
         if path.endswith("/revert"):
-            result = RefNamesRevertResult(
-                result="reverted", tree_version=9, features_restored=1
+            result = (
+                RefNamesRevertResult(
+                    result="reverted", tree_version=9, features_restored=1
+                )
+                if part_id != _P1.part_id or request.url.params.get("force")
+                else RefNamesRevertResult(
+                    result="refused", tree_version=9, detail="edited after"
+                )
             )
             return httpx.Response(200, content=result.model_dump_json())
         return _documents([], trees[part_id], needed=part_id in needed)(request)
@@ -436,3 +461,152 @@ def test_one_part_is_forced_and_reverted_as_its_owner() -> None:
         lines[-1] == f"part {_P2.part_id}: reverted restored=1 skipped=0 tree_version=9"
     )
     assert asyncio.run(revert(upstreams, uuid.UUID(int=99), out=lines.append)) == 1
+
+
+# --- retry storm (review of 9d87478) -------------------------------------------------
+
+
+def _failures(seen: list[httpx.Request]) -> list[str]:
+    return [
+        RefNamesFailure.model_validate_json(r.content).reason
+        for r in seen
+        if r.url.path.endswith("/ref-names/failure")
+    ]
+
+
+def test_a_geometry_error_is_reported_so_documents_backs_off(db_url: str) -> None:
+    docs: list[httpx.Request] = []
+    with _client(
+        db_url, _documents(docs, _tree()), _geometry([], names_status=500)
+    ) as client:
+        client.post(f"/api/v1/parts/{PART}/evaluate", headers=_bearer(client))
+    assert _failures(docs) == ["geometry_error"]
+
+
+def test_a_timeout_is_reported_and_the_evaluate_still_answers(db_url: str) -> None:
+    docs: list[httpx.Request] = []
+    before = _runs("open", "failed")
+    with _client(db_url, _documents(docs, _tree()), _geometry([], timeout=True)) as (
+        client
+    ):
+        response = client.post(
+            f"/api/v1/parts/{PART}/evaluate", headers=_bearer(client)
+        )
+    assert response.status_code == 200
+    assert _failures(docs) == ["timeout"]
+    assert "POST ref-names" not in _paths(docs)
+    assert _runs("open", "failed") - before == 1
+
+
+def test_a_part_backing_off_starts_no_rebuild(db_url: str) -> None:
+    docs: list[httpx.Request] = []
+    geo: list[httpx.Request] = []
+    before = _runs("open", "backing_off")
+    with _client(db_url, _documents(docs, _tree(), backoff=True), _geometry(geo)) as (
+        client
+    ):
+        response = client.post(
+            f"/api/v1/parts/{PART}/evaluate", headers=_bearer(client)
+        )
+    assert response.status_code == 200
+    assert _paths(geo) == ["POST evaluate"]
+    assert _paths(docs)[-1] == "GET ref-names-request"
+    assert _runs("open", "backing_off") - before == 1
+
+
+@contextlib.asynccontextmanager
+async def _async_gateway(tmp_path: Path, documents: Handler, geometry: Any):
+    url = f"sqlite:///{tmp_path}/gateway-async.db"
+    await _create_schema(url)
+    app = build_app(
+        GatewaySettings(
+            geometry_url="http://geometry.internal:8002",
+            documents_url="http://documents.internal:8001",
+            postgres_url=url,
+            loft_env="dev",
+            jwt_secret=TEST_JWT_SECRET,
+        ),
+        geometry_transport=httpx.MockTransport(geometry),
+        documents_transport=httpx.MockTransport(documents),
+    )
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://gateway.test"
+        ) as client,
+    ):
+        response = await client.post(
+            "/api/v1/auth/register",
+            json={"email": "bf2@example.com", "password": "hunter2-passphrase"},
+        )
+        assert response.status_code == 201, response.text
+        client.headers["Authorization"] = f"Bearer {response.json()['access_token']}"
+        yield client
+
+
+def test_evaluates_during_an_in_flight_backfill_start_one_rebuild(
+    tmp_path: Path,
+) -> None:
+    """Three evaluates of one pending part while its cold rebuild is still
+    running: exactly one rebuild, and the others are counted ``in_flight``."""
+    docs: list[httpx.Request] = []
+    rebuilds: list[httpx.Request] = []
+    release = asyncio.Event()
+    plain = _geometry([])
+
+    async def geometry(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/ref-names":
+            rebuilds.append(request)
+            await release.wait()
+        return plain(request)
+
+    before = _runs("open", "in_flight")
+
+    async def scenario() -> None:
+        async with _async_gateway(
+            tmp_path, _documents(docs, _tree()), geometry
+        ) as client:
+            first = asyncio.create_task(client.post(f"/api/v1/parts/{PART}/evaluate"))
+            while not rebuilds:
+                await asyncio.sleep(0.01)
+            others = await asyncio.gather(
+                client.post(f"/api/v1/parts/{PART}/evaluate"),
+                client.post(f"/api/v1/parts/{PART}/evaluate"),
+            )
+            assert [r.status_code for r in others] == [200, 200]
+            release.set()
+            assert (await first).status_code == 200
+
+    asyncio.run(scenario())
+    assert len(rebuilds) == 1
+    assert _runs("open", "in_flight") - before == 2
+    # Once it is done, the next open may run again (dedupe, not a latch).
+    assert [r.url.path.rsplit("/", 1)[-1] for r in docs].count("ref-names") == 1
+
+
+def test_the_sweep_ignores_the_backoff() -> None:
+    docs: list[httpx.Request] = []
+    upstreams = _upstreams(_sweep_documents(docs, [_P1], {_P1.part_id}), _geometry([]))
+    assert asyncio.run(sweep(upstreams, out=lambda _line: None)) == 0
+    asked = next(r for r in docs if r.url.path.endswith("/ref-names-request"))
+    assert asked.url.params.get("ignore_backoff") == "true"
+
+
+# --- unsafe revert (review of 9d87478) ----------------------------------------------
+
+
+def test_a_refused_revert_fails_and_force_warns_loudly() -> None:
+    docs: list[httpx.Request] = []
+    lines: list[str] = []
+    upstreams = _upstreams(_sweep_documents(docs, [_P1], set()), _geometry([]))
+    assert asyncio.run(revert(upstreams, _P1.part_id, out=lines.append)) == 1
+    assert lines[-1] == (
+        f"part {_P1.part_id}: revert refused: edited after (use --force)"
+    )
+    assert docs[-1].url.params.get("force") is None
+    assert (
+        asyncio.run(revert(upstreams, _P1.part_id, out=lines.append, force=True)) == 0
+    )
+    assert lines[-2].startswith(f"WARNING part {_P1.part_id}: forcing a revert")
+    assert docs[-1].url.params.get("force") == "true"
+    assert lines[-1].startswith(f"part {_P1.part_id}: reverted")

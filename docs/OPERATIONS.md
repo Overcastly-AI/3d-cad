@@ -141,12 +141,21 @@ pre-upgrade backup with the old tag's images.
     `not_needed` or `failed`, with counts per outcome) and exits non-zero if
     any part failed. `--part ID` forces one part, even one already checked.
     Each part costs one cold rebuild on a geometry worker, so run big sweeps
-    off-hours. A `stale` part was edited while it ran and is retried on the
-    next run or open.
+    off-hours. A `stale` part was edited while it ran and is retried later.
+  - **Failures back off.** A run that writes nothing (a geometry error, a
+    rebuild that outlives `GEOMETRY_TIMEOUT_S`, a stale write) is counted on
+    the part: an open retries it after 10 minutes, then after an hour, and the
+    third failure gives up (the part is marked checked and journaled
+    `gave_up`). Only one run per part is in flight per gateway. The sweep
+    ignores the backoff; a part that gave up is retried only with `--part`
+    (the sweep waits up to 10 minutes per part, so it can finish a rebuild an
+    open could not).
   - **Revert one part:**
     `docker compose run --rm gateway python -m gateway.ref_backfill --revert PART`
-    restores each feature the last write touched, if it has not been edited
-    since, and leaves the part marked checked.
+    restores each feature the last write touched and leaves the part marked
+    checked. It is refused once the part was edited after the write, because
+    later features may rely on the names; `--force` reverts anyway and warns
+    that a fillet, shell or hole may then move on the next size edit.
   - A downgrade below 0016 drops the journal and the pending marker, and
     keeps the names: they are valid params in every earlier version.
 
@@ -254,9 +263,11 @@ scrape_configs:
   limit was hit, not that the input was bad.
 - The history-name backfill (§5): `loft_ref_backfill_runs_total{trigger,result}`
   (gateway; `trigger` is `open` or `sweep`), `loft_ref_backfill_writes_total{result}`
-  (documents; `stale` means an edit won the race and the part is retried) and
+  (documents; `stale` means an edit won the race, `backoff` and `gave_up`
+  count failed runs) and
   `loft_ref_backfill_refs_total{outcome}` (geometry; only `named` writes
   anything, and `not_exact:*`, `unresolved` or `ambiguous` are picks a user
   may need to re-pick). Once the old parts are done, `written` stops moving;
   `not_needed` keeps counting opens of parts whose leftover picks cannot be
-  named (an imported body, a pick edited before the upgrade).
+  named (an imported body, a pick edited before the upgrade). `in_flight`
+  counts opens that found the part's backfill already running.

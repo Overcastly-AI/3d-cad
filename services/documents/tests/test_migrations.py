@@ -511,6 +511,15 @@ def test_0016_offline_sql_adds_the_pending_column_and_the_journal(
     sql = _offline_sql(alembic_ini, monkeypatch, "0015:0016")
     # Nullable, no default: catalog-only, and every existing part is pending.
     assert "ALTER TABLE parts ADD COLUMN ref_names_checked_version BIGINT" in sql
+    # The retry backoff: a constant default (catalog-only on Postgres 11+).
+    assert (
+        "ALTER TABLE parts ADD COLUMN ref_names_attempts INTEGER DEFAULT 0 NOT NULL"
+        in sql
+    )
+    assert (
+        "ALTER TABLE parts ADD COLUMN ref_names_next_try_at TIMESTAMP WITH TIME ZONE"
+        in sql
+    )
     assert "UPDATE parts" not in sql
     assert "CREATE TABLE ref_name_backfills" in sql
     assert "REFERENCES parts (id) ON DELETE CASCADE" in sql
@@ -524,6 +533,8 @@ def test_0016_offline_downgrade_drops_both(
     sql = _offline_sql(alembic_ini, monkeypatch, "0016:0015", downgrade=True)
     assert "DROP TABLE ref_name_backfills" in sql
     assert "ALTER TABLE parts DROP COLUMN ref_names_checked_version" in sql
+    assert "ALTER TABLE parts DROP COLUMN ref_names_attempts" in sql
+    assert "ALTER TABLE parts DROP COLUMN ref_names_next_try_at" in sql
 
 
 async def _scalar_rows(url: str, statement: str) -> list[tuple[object, ...]]:
@@ -577,6 +588,11 @@ def test_0016_up_and_down_on_a_populated_database(
     alembic_runner(pg_url, "0016")
     assert run(_scalar_rows(pg_url, snapshot)) == parts_before
     assert run(_scalar_rows(pg_url, features)) == features_before
+    assert run(
+        _scalar_rows(
+            pg_url, "SELECT ref_names_attempts, ref_names_next_try_at FROM parts"
+        )
+    ) == [(0, None)]
     assert run(_scalar_rows(pg_url, "SELECT ref_names_checked_version FROM parts")) == [
         (None,)
     ]
@@ -602,7 +618,12 @@ def test_0016_up_and_down_on_a_populated_database(
             "WHERE table_name = 'parts'",
         )
     )
-    assert ("ref_names_checked_version",) not in columns
+    for column in (
+        "ref_names_checked_version",
+        "ref_names_attempts",
+        "ref_names_next_try_at",
+    ):
+        assert (column,) not in columns
     assert run(_scalar_rows(pg_url, snapshot)) == parts_before
     assert run(_scalar_rows(pg_url, features)) == features_before
 

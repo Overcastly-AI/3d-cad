@@ -295,6 +295,16 @@ class Part(Base):
     ref_names_checked_version: Mapped[int | None] = mapped_column(
         sa.BigInteger(), nullable=True
     )
+    #: Failed backfill runs since the last success, and when an open may try
+    #: again (exponential backoff, :mod:`documents.ref_backfill`). After
+    #: ``MAX_ATTEMPTS`` failures the part is stamped checked (journal
+    #: ``kind='gave_up'``) and only a forced sweep retries it.
+    ref_names_attempts: Mapped[int] = mapped_column(
+        sa.Integer(), nullable=False, default=0, server_default=sa.text("0")
+    )
+    ref_names_next_try_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=False,
@@ -527,7 +537,7 @@ class RefNameBackfill(Base):
         nullable=False,
         index=True,
     )
-    #: 'backfill' | 'revert'.
+    #: 'backfill' | 'revert' | 'gave_up'.
     kind: Mapped[str] = mapped_column(sa.String(16), nullable=False)
     #: 'open' | 'sweep' for a backfill; NULL for a revert.
     trigger: Mapped[str | None] = mapped_column(sa.String(16), nullable=True)

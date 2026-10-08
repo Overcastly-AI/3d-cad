@@ -36,6 +36,7 @@ import hashlib
 import json
 import uuid
 from collections.abc import Iterator, Mapping, Sequence
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -134,6 +135,11 @@ class RefNamesRequestResponse(BaseModel):
     )
     tree_version: int = Field(ge=0)
     ref_names_checked_version: int | None
+    backoff_until: datetime | None = Field(
+        default=None,
+        description="Set while a pending part is backing off after failed "
+        "runs: an open does not retry it before then (the sweep does).",
+    )
     request: EvaluateTreeRequest | None = Field(
         default=None,
         description="The FULL tree (rollback bar ignored, params upcast) for "
@@ -165,10 +171,37 @@ class RefNamesApplyResult(BaseModel):
 
 
 class RefNamesRevertResult(BaseModel):
-    result: Literal["reverted", "nothing_to_revert"]
+    result: Literal["reverted", "nothing_to_revert", "refused"]
     tree_version: int
     features_restored: int = 0
     features_skipped: int = 0
+    detail: str = Field(
+        default="",
+        description="Why a revert was refused: the part was edited after the "
+        "write, so later features may already rely on its names.",
+    )
+
+
+#: Why a backfill run wrote nothing: geometry answered an error, the call
+#: timed out or could not be made, or documents' own write could not land.
+RefNamesFailureReason = Literal["geometry_error", "timeout", "documents_error"]
+
+
+class RefNamesFailure(BaseModel):
+    """The gateway reports a failed run, so documents can back off."""
+
+    tree_version: int = Field(ge=0)
+    reason: RefNamesFailureReason
+
+
+class RefNamesFailureResult(BaseModel):
+    """``backoff``: retried on an open after ``next_try_at``; ``gave_up``:
+    marked checked after too many failures (only ``--part`` retries it);
+    ``ignored``: the part was already checked."""
+
+    result: Literal["backoff", "gave_up", "ignored"]
+    attempts: int
+    next_try_at: datetime | None = None
 
 
 class RefBackfillPart(BaseModel):

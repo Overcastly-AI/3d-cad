@@ -36,7 +36,7 @@ import copy
 import hashlib
 import uuid
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Query
@@ -53,6 +53,8 @@ from loft_wire.ref_names import (
     RefNameOutcome,
     RefNamesApplyRequest,
     RefNamesApplyResult,
+    RefNamesFailure,
+    RefNamesFailureResult,
     RefNamesRequestResponse,
     RefNamesRevertResult,
     apply_ref_names,
@@ -96,6 +98,90 @@ def _load(feature: db.Feature) -> FeatureEnvelope:
     )
 
 
+#: Failed runs (a geometry error or timeout, a stale write) before an open
+#: stops retrying: the part is stamped checked, journaled ``kind='gave_up'``,
+#: and only ``python -m gateway.ref_backfill --part`` tries it again. Without
+#: this a part whose cold rebuild outlives the gateway timeout would start one
+#: on every open, forever, queued in front of the user's own requests.
+MAX_ATTEMPTS = 3
+
+#: Wait after the 1st and 2nd failure before an open may retry.
+BACKOFF: tuple[timedelta, ...] = (timedelta(minutes=10), timedelta(hours=1))
+
+
+def _aware(moment: datetime | None) -> datetime | None:
+    """SQLite hands timezone-aware columns back naive; they were written UTC."""
+    if moment is None or moment.tzinfo is not None:
+        return moment
+    return moment.replace(tzinfo=UTC)
+
+
+async def _record_failure(
+    session: AsyncSession, part: db.Part, reason: str
+) -> RefNamesFailureResult:
+    """Count one failed run on a pending part (the caller holds the row lock)
+    and back off, or give up after :data:`MAX_ATTEMPTS`. Commits."""
+    if part.ref_names_checked_version is not None:
+        return RefNamesFailureResult(result="ignored", attempts=part.ref_names_attempts)
+    attempts = part.ref_names_attempts + 1
+    values: dict[str, Any] = {
+        "ref_names_attempts": attempts,
+        "updated_at": db.Part.updated_at,
+    }
+    next_try: datetime | None = None
+    gave_up = attempts >= MAX_ATTEMPTS
+    if gave_up:
+        values["ref_names_checked_version"] = part.tree_version
+        values["ref_names_next_try_at"] = None
+        session.add(
+            db.RefNameBackfill(
+                part_id=part.id,
+                kind="gave_up",
+                trigger=reason,
+                tree_version_before=part.tree_version,
+                tree_version_after=part.tree_version,
+                params_before={},
+                params_after={},
+            )
+        )
+    else:
+        next_try = datetime.now(UTC) + BACKOFF[attempts - 1]
+        values["ref_names_next_try_at"] = next_try
+    await session.execute(
+        update(db.Part)
+        .where(db.Part.id == part.id)
+        .values(**values)
+        .execution_options(synchronize_session=False)
+    )
+    await session.commit()
+    record_ref_backfill_write("gave_up" if gave_up else "backoff")
+    _logger.warning(
+        "ref_backfill_failed",
+        part_id=str(part.id),
+        reason=reason,
+        attempts=attempts,
+        gave_up=gave_up,
+    )
+    return RefNamesFailureResult(
+        result="gave_up" if gave_up else "backoff",
+        attempts=attempts,
+        next_try_at=next_try,
+    )
+
+
+@router.post("/{part_id}/ref-names/failure")
+async def record_ref_names_failure(
+    part_id: uuid.UUID,
+    request: RefNamesFailure,
+    owner_id: Principal,
+    session: SessionDep,
+) -> RefNamesFailureResult:
+    """The gateway reports a run that wrote nothing (geometry error, timeout,
+    or a documents write that did not land): count it and back off."""
+    part = await get_owned_part(session, owner_id, part_id, for_update=True)
+    return await _record_failure(session, part, request.reason)
+
+
 @router.get("/{part_id}/ref-names-request")
 async def get_ref_names_request(
     part_id: uuid.UUID,
@@ -105,6 +191,10 @@ async def get_ref_names_request(
         bool,
         Query(description="Build the request even if the part was checked."),
     ] = False,
+    ignore_backoff: Annotated[
+        bool,
+        Query(description="Retry a pending part that is backing off (sweep)."),
+    ] = False,
 ) -> RefNamesRequestResponse:
     """Whether the part needs the backfill, and if so the tree geometry must
     rebuild: EVERY feature (the rollback bar is ignored, so picks past it are
@@ -112,11 +202,19 @@ async def get_ref_names_request(
     resolves nothing and is reported ``not_evaluated``)."""
     part = await get_owned_part(session, owner_id, part_id)
     pending = force or part.ref_names_checked_version is None
-    if not pending:
+    until = _aware(part.ref_names_next_try_at)
+    backing_off = (
+        not force
+        and not ignore_backoff
+        and until is not None
+        and until > datetime.now(UTC)
+    )
+    if not pending or backing_off:
         return RefNamesRequestResponse(
             needed=False,
             tree_version=part.tree_version,
             ref_names_checked_version=part.ref_names_checked_version,
+            backoff_until=until if backing_off else None,
         )
     features = [
         EvaluatedFeatureInput(id=row.id, feature=_load(row))
@@ -167,7 +265,11 @@ async def apply_ref_names_route(
             current=part.tree_version,
         )
         record_ref_backfill_write("stale")
-        return RefNamesApplyResult(result="stale", tree_version=part.tree_version)
+        current = part.tree_version
+        if not request.dry_run:
+            # A stale run still cost a cold rebuild: it counts toward the backoff.
+            await _record_failure(session, part, "stale")
+        return RefNamesApplyResult(result="stale", tree_version=current)
 
     rows = await _features(session, part.id)
     by_id = {row.id: row for row in rows}
@@ -215,6 +317,8 @@ async def apply_ref_names_route(
     before = part.tree_version
     values: dict[str, Any] = {
         "ref_names_checked_version": before,
+        "ref_names_attempts": 0,
+        "ref_names_next_try_at": None,
         # Pinned: present in the SET clause, so the onupdate default never fires.
         "updated_at": db.Part.updated_at,
     }
@@ -284,7 +388,17 @@ async def apply_ref_names_route(
 
 @router.post("/{part_id}/ref-names/revert")
 async def revert_ref_names(
-    part_id: uuid.UUID, owner_id: Principal, session: SessionDep
+    part_id: uuid.UUID,
+    owner_id: Principal,
+    session: SessionDep,
+    force: Annotated[
+        bool,
+        Query(
+            description="Revert even though the part was edited after the "
+            "write. Later features may rely on the names: a fillet or shell "
+            "can silently move to another subshape on the next size edit."
+        ),
+    ] = False,
 ) -> RefNamesRevertResult:
     """Undo the part's latest un-reverted backfill write (operator tool).
 
@@ -311,6 +425,25 @@ async def revert_ref_names(
     if journal is None:
         return RefNamesRevertResult(
             result="nothing_to_revert", tree_version=part.tree_version
+        )
+    if not force and part.tree_version != journal.tree_version_after:
+        # Edited since: an unchanged feature's names may now be what a later
+        # edit's fillet, shell or hole resolves through. Taking them away is a
+        # silent retarget waiting for the next size edit, so it takes --force.
+        _logger.warning(
+            "ref_backfill_revert_refused",
+            part_id=str(part.id),
+            written_at=journal.tree_version_after,
+            tree_version=part.tree_version,
+        )
+        return RefNamesRevertResult(
+            result="refused",
+            tree_version=part.tree_version,
+            detail=(
+                f"The part was edited after the backfill (tree version "
+                f"{journal.tree_version_after} -> {part.tree_version}); later "
+                "features may rely on the names. Pass force to revert anyway."
+            ),
         )
     by_id = {str(row.id): row for row in await _features(session, part.id)}
     restored_before: dict[str, Any] = {}

@@ -43,6 +43,8 @@ from loft_wire.ref_names import (
     RefBackfillPartList,
     RefNamesApplyRequest,
     RefNamesApplyResult,
+    RefNamesFailure,
+    RefNamesFailureReason,
     RefNamesReport,
     RefNamesRequestResponse,
     RefNamesRevertResult,
@@ -58,7 +60,16 @@ from gateway.parts import forward_documents
 _logger = get_logger("gateway.ref_backfill")
 
 Trigger = Literal["open", "sweep"]
-RunResult = Literal["written", "unchanged", "stale", "dry_run", "not_needed", "failed"]
+RunResult = Literal[
+    "written",
+    "unchanged",
+    "stale",
+    "dry_run",
+    "not_needed",
+    "backing_off",
+    "in_flight",
+    "failed",
+]
 
 #: ``(method, path, json body, query) -> response`` against documents, with the
 #: part owner's principal already attached.
@@ -122,12 +133,20 @@ async def _run(
     trigger: Trigger,
 ) -> RunSummary:
     base = f"/api/v1/parts/{part_id}"
-    upstream = await documents(
-        "GET", f"{base}/ref-names-request", None, {"force": "true"} if force else None
-    )
+    params: dict[str, str] = {}
+    if force:
+        params["force"] = "true"
+    if trigger == "sweep":
+        # The sweep is how a part that is backing off gets retried off-hours.
+        params["ignore_backoff"] = "true"
+    upstream = await documents("GET", f"{base}/ref-names-request", None, params or None)
     if upstream.status_code != status.HTTP_200_OK:
         return RunSummary(result="failed", detail=f"documents {upstream.status_code}")
     need = RefNamesRequestResponse.model_validate_json(upstream.content)
+    if need.backoff_until is not None:
+        return RunSummary(
+            result="backing_off", detail=f"until {need.backoff_until.isoformat()}"
+        )
     if not need.needed or need.request is None:
         if need.ref_names_checked_version is None and not dry_run:
             # Nothing unnamed: mark it checked so the sweep moves past it.
@@ -136,18 +155,47 @@ async def _run(
             )
             await _apply(documents, base, need.tree_version, empty, dry_run, trigger)
         return RunSummary(result="not_needed")
-    evaluated = await geometry("/api/v1/ref-names", need.request.model_dump_json())
+    try:
+        evaluated = await geometry("/api/v1/ref-names", need.request.model_dump_json())
+    except Exception as exc:
+        # The gateway's geometry budget ran out (or the worker is gone). The
+        # same rebuild would time out again on the next open: back off.
+        await _failed(documents, base, need.tree_version, "timeout", dry_run)
+        return RunSummary(result="failed", detail=f"geometry {type(exc).__name__}")
     if evaluated.status_code != status.HTTP_200_OK:
-        # Nothing is written, and the part stays pending: the next run retries.
+        # Nothing is written; documents counts the failure and backs off.
+        await _failed(documents, base, need.tree_version, "geometry_error", dry_run)
         return RunSummary(result="failed", detail=f"geometry {evaluated.status_code}")
     report = RefNamesReport.model_validate_json(evaluated.content)
     outcomes = Counter(outcome.outcome for outcome in report.outcomes)
     applied = await _apply(documents, base, need.tree_version, report, dry_run, trigger)
     if applied is None:
+        await _failed(documents, base, need.tree_version, "documents_error", dry_run)
         return RunSummary(result="failed", outcomes=outcomes, detail="documents write")
     return RunSummary(
         result=applied.result, outcomes=outcomes, refs_written=applied.refs_written
     )
+
+
+async def _failed(
+    documents: DocumentsCall,
+    base: str,
+    tree_version: int,
+    reason: RefNamesFailureReason,
+    dry_run: bool,
+) -> None:
+    """Tell documents a run wrote nothing, so it backs off (and, after
+    repeated failures, gives up). Best effort: a lost report only means one
+    more retry."""
+    if dry_run:
+        return
+    body = RefNamesFailure(tree_version=tree_version, reason=reason)
+    try:
+        await documents(
+            "POST", f"{base}/ref-names/failure", body.model_dump_json(), None
+        )
+    except Exception as exc:  # pragma: no cover - logged by run_backfill's caller
+        _logger.warning("ref_backfill_failure_unrecorded", reason=type(exc).__name__)
 
 
 async def _apply(
@@ -179,10 +227,32 @@ def needs_backfill(request: EvaluateTreeRequest) -> bool:
     return tree_needs_ref_names(request.features)
 
 
+#: Parts whose on-open backfill is running in THIS gateway process. A user
+#: re-evaluating while their part's cold rebuild runs must not start a second
+#: one (each would queue at the geometry worker's admission bound, in front of
+#: the user's own requests). Per process is enough: an open is pinned to one
+#: gateway, and documents' backoff bounds anything that slips past.
+_IN_FLIGHT: set[uuid.UUID] = set()
+
+
 async def backfill_on_open(
     http_request: Request, user: User, part_id: uuid.UUID
 ) -> None:
-    """The evaluate route's background task. Best effort, never raises."""
+    """The evaluate route's background task. Best effort, never raises; one
+    run per part at a time."""
+    if part_id in _IN_FLIGHT:
+        record_ref_backfill_run("open", "in_flight")
+        return
+    _IN_FLIGHT.add(part_id)
+    try:
+        await _backfill_on_open(http_request, user, part_id)
+    finally:
+        _IN_FLIGHT.discard(part_id)
+
+
+async def _backfill_on_open(
+    http_request: Request, user: User, part_id: uuid.UUID
+) -> None:
 
     async def documents(
         method: str, path: str, body: str | None, params: dict[str, str] | None
@@ -282,9 +352,14 @@ async def sweep(
 
 
 async def revert(
-    upstreams: Upstreams, part: uuid.UUID, out: Callable[[str], None] = print
+    upstreams: Upstreams,
+    part: uuid.UUID,
+    out: Callable[[str], None] = print,
+    *,
+    force: bool = False,
 ) -> int:
-    """Undo the part's latest backfill write (documents keeps the journal)."""
+    """Undo the part's latest backfill write (documents keeps the journal).
+    Refused when the part was edited after the write, unless *force*."""
     listed = await upstreams.documents.get(
         "/api/v1/ref-backfill/parts", params={"part_id": str(part)}
     )
@@ -293,13 +368,26 @@ async def revert(
     if not rows:
         out(f"part {part}: not found")
         return 1
+    if force:
+        out(
+            f"WARNING part {part}: forcing a revert after later edits. Features "
+            "added or edited since may rely on these names; a fillet, chamfer, "
+            "shell or hole can silently move to another face or edge on the "
+            "next size edit. Re-check the part."
+        )
     response = await upstreams.documents_as(rows[0].owner_id)(
-        "POST", f"/api/v1/parts/{part}/ref-names/revert", None, None
+        "POST",
+        f"/api/v1/parts/{part}/ref-names/revert",
+        None,
+        {"force": "true"} if force else None,
     )
     if response.status_code != status.HTTP_200_OK:
         out(f"part {part}: revert failed ({response.status_code})")
         return 1
     result = RefNamesRevertResult.model_validate_json(response.content)
+    if result.result == "refused":
+        out(f"part {part}: revert refused: {result.detail} (use --force)")
+        return 1
     out(
         f"part {part}: {result.result} restored={result.features_restored} "
         f"skipped={result.features_skipped} tree_version={result.tree_version}"
@@ -318,6 +406,11 @@ def _parse(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=1000, help="parts per run")
     parser.add_argument(
         "--revert", type=uuid.UUID, metavar="PART", help="undo PART's last write"
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="with --revert: revert even after later edits (may retarget picks)",
     )
     return parser.parse_args(argv)
 
@@ -344,7 +437,7 @@ async def _main(args: argparse.Namespace) -> int:
     ):
         upstreams = Upstreams(documents=documents, geometry=geometry)
         if args.revert is not None:
-            return await revert(upstreams, args.revert)
+            return await revert(upstreams, args.revert, force=args.force)
         return await sweep(
             upstreams, dry_run=args.dry_run, part=args.part, limit=args.limit
         )
