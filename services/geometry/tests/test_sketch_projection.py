@@ -541,7 +541,7 @@ def test_deleting_the_shell_leaves_the_sketch_ok_with_its_inner_loop_sick() -> N
     their stored place; the outer 8 still resolve, exactly, onto theirs. The
     inner arcs are NOT re-found on the concentric outer arcs, as the durable
     circle tier alone would: a geometric re-find the body names differently
-    is another edge (``resolve_edges_each(keep_name=True)``)."""
+    is another edge (the name guard of ``_match_edge_records``)."""
     tree = LIP.authored_tree(LIP.AUTHORED_W)
     gone = [i for i in tree if i["id"] != str(LIP.SHELL_ID)]
     evaluation = LIP.evaluate(gone)

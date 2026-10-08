@@ -213,7 +213,6 @@ def project_entities(
         targets,
         tally=state.subshape_tally,
         face_names=state.face_names(),
-        keep_name=True,
     )
     ends = _Ends(state)
     replaced: dict[str, SketchEntity] = {}

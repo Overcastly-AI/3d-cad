@@ -726,13 +726,23 @@ fit-point approximation (SKETCH-PROJECT-SPLINE). Rules:
   last good projection, and the sketch stays `ok`; `SolvedSketchData.
   projections` says why. Failing the sketch would take every feature after it
   down for an edge the user may not need.
-- *A geometric re-find of a named edge must keep the name.* The durable circle
-  tier is invariant under a radius change, so with a shell deleted the rim's
-  inner R3 arc re-found the outer R5 arc concentric with it and the sketch
-  moved with no error. A projection (`keep_name=True`) refuses a durable or
-  adjacent match whose edge the body names differently from the stored name;
-  an unnamed ref, or an edge the body cannot name, matches as before. Fillet
-  and the other consumers keep the old rule (BACKLOG note).
+- *A geometric re-find keeps the edge (EDGE-REF-CONCENTRIC, every consumer).*
+  The durable circle tier was invariant under a radius change, so with a
+  shell deleted the rim's inner R3 arc re-found the outer R5 arc concentric
+  with it, and a fillet, chamfer or projection moved there with no error.
+  Fusion 360 fails a reference whose edge is gone. Two rules in
+  `_match_edge_records`, shared by fillet, chamfer, edge flange, hem and
+  projections: (1) tiers 2 and 3 accept a circle only of the SAME radius
+  (edge point tolerance), names or not, so an imported or legacy unnamed ref
+  is held too; (2) a durable or adjacent match of a named ref whose edge the
+  body names differently is dropped, so the named tier (or a typed
+  `subshape_unresolved`) decides. A named edge an edit resizes (shell 2 -> 1
+  mm: inner R3 -> R4 rim) follows through the named tier. Cost: an UNNAMED
+  circle no longer follows a resize; Hole faces are unnamed today, so a
+  chamfered hole rim fails typed when the hole is resized (BACKLOG note).
+  For circles, tier 2 now differs from tier 1 only past the strict
+  tolerances. Drawings dimension anchors keep their own radius-blind copy on
+  purpose: a diameter dimension should re-measure a resized hole.
 - *A line's ends keep their slot.* Signature ends are canonical
   (lexicographic) and an edit can swap them, but a constraint names `start` or
   `end`. An edge still on its stored line keeps its order; otherwise the end
