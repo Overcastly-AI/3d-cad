@@ -9,6 +9,19 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
+- [ ] **EDGE-REF-CONCENTRIC** (wrong geometry; found probing SKETCH-PROJECT-EDGES
+      step 2, 3203624): a picked fillet/chamfer edge whose own edge vanishes
+      re-anchors on the tier-2 `concentric_same_station_match` onto a
+      CONCENTRIC edge of another radius, status ok, tier `durable`, no error.
+      Case (a): box, R5 vertical fillets, 2 mm open-top shell, fillet picked on
+      the inner R3 rim arc, shell deleted: the fillet rounds the outer R5 rim
+      chain (volume -7.0 mm^3, not the R3 chain). Case (b): R5 bore-floor edge of a
+      counterbore, chamfered; hole retyped to a dia-18 blind pocket: the chamfer
+      lands on the R9 floor edge (+6.94 mm^3). Shell thickness 1/4 mm and a bore
+      resize (two circles remain) fail typed `subshape_ambiguous`. Edge flange
+      not probed (arcs are `edge_flange_bad_edge`). Fix: guard tier 2/3 with the
+      named tier (`keep_name`) as projections do. Strict xfails:
+      `services/geometry/tests/test_edge_ref_concentric.py`.
 - [x] **SKETCH-SOLVE-HEAP-ORDER** (determinism, pre-existing; review of
       1b8632f): planegcs orders a subsystem's free parameters by address
       (`std::deque` of 64-double chunks), so a sketch with more than 64 free
