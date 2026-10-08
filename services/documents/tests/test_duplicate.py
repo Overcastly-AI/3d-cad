@@ -21,8 +21,10 @@ from typing import Any
 
 import pytest
 from documents.db import Base
+from documents.duplicate import remap_ids, remap_topo_name
 from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
+from loft_wire.features import EvaluateTreeRequest
 from loft_wire.parts import PRINCIPAL_HEADER
 from py_kit.db import async_dsn
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -483,3 +485,75 @@ def test_duplicate_drawing_with_no_sheets_is_an_empty_copy(
         f"/api/v1/drawings/{response.json()['id']}", headers=_headers()
     ).json()
     assert layout["sheets"] == []
+
+
+def test_duplicate_part_remaps_per_body_material_overrides(client: TestClient) -> None:
+    """The override is keyed by the body's base feature id; the copy's must follow.
+
+    Otherwise it matches nothing and the copy evaluates with the default
+    material, so the mass geometry reports for it differs from the source's.
+    """
+    part_id, _sketch_id, extrude_id = _seeded_part(client)
+    assignment = {
+        "default_material": "aluminium_6061",
+        "bodies": [{"base_feature_id": extrude_id, "material": "steel_1018"}],
+    }
+    patched = client.patch(
+        f"/api/v1/parts/{part_id}",
+        json={"expected_tree_version": 2, "materials": assignment},
+        headers=_headers(),
+    )
+    assert patched.status_code == 200, patched.text
+
+    copy = client.post(f"/api/v1/parts/{part_id}/duplicate", headers=_headers()).json()
+    copy_extrude = _tree(client, copy["id"])["features"][1]["id"]
+
+    assert copy_extrude != extrude_id
+    assert copy["materials"]["default_material"] == "aluminium_6061"
+    assert copy["materials"]["bodies"] == [
+        {"base_feature_id": copy_extrude, "material": "steel_1018"}
+    ]
+
+    def request_for(pid: str) -> EvaluateTreeRequest:
+        response = client.get(
+            f"/api/v1/parts/{pid}/evaluation-request", headers=_headers()
+        )
+        assert response.status_code == 200, response.text
+        return EvaluateTreeRequest.model_validate(response.json())
+
+    # What geometry derives mass from: the same material per body, by position.
+    source_mats = request_for(part_id).materials
+    copy_mats = request_for(copy["id"]).materials
+    assert source_mats is not None
+    assert copy_mats is not None
+    assert [e.material for e in copy_mats.bodies] == [
+        e.material for e in source_mats.bodies
+    ]
+    assert str(copy_mats.bodies[0].base_feature_id) == copy_extrude
+
+
+def test_remap_ids_rewrites_the_uuid_prefix_of_a_topo_name() -> None:
+    old, new = str(uuid.uuid4()), str(uuid.uuid4())
+    other = str(uuid.uuid4())
+    mapping = {old: new}
+
+    assert remap_topo_name(f"{old}:side:e2", mapping) == f"{new}:side:e2"
+    # An id outside the mapping (another document's feature) is left alone.
+    assert remap_topo_name(f"{other}:end", mapping) == f"{other}:end"
+    # Hashed names are dropped, so the geometric tiers take over.
+    assert remap_topo_name(f"{old}:#0123456789abcdef", mapping) is None
+    # An edge name is the sorted JSON pair of face names.
+    edge = f'["{old}:end","{other}:start"]'
+    assert remap_topo_name(edge, mapping) == (
+        '["' + '","'.join(sorted([f"{new}:end", f"{other}:start"])) + '"]'
+    )
+    assert remap_topo_name(f'["{old}:#abc","{other}:start"]', mapping) is None
+
+    params = {
+        "ref": {"feature_id": old, "topo_name": f"{old}:side:e2"},
+        "hashed": {"topo_name": f"{old}:#abc", "end_a_topo_name": f"{old}:end"},
+    }
+    assert remap_ids(params, mapping) == {
+        "ref": {"feature_id": new, "topo_name": f"{new}:side:e2"},
+        "hashed": {"topo_name": None, "end_a_topo_name": f"{new}:end"},
+    }

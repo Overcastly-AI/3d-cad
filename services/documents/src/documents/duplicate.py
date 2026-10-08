@@ -43,6 +43,8 @@ Routes live here rather than in ``documents.parts`` / ``.assemblies`` /
 naming rule, and splitting them across three modules would have duplicated both.
 """
 
+import json
+import re
 import uuid
 from collections.abc import Sequence
 from typing import Any, cast
@@ -85,6 +87,53 @@ assemblies_router = APIRouter(prefix="/api/v1/assemblies", tags=["assemblies"])
 drawings_router = APIRouter(prefix="/api/v1/drawings", tags=["drawings"])
 
 
+_TOPO_PLAIN = re.compile(
+    r"^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):(?!#)(.+)$",
+    re.DOTALL,
+)
+_TOPO_HASHED = re.compile(r"^[0-9a-f-]{36}:#")
+
+
+def _remap_face_name(name: str, mapping: dict[str, str]) -> str | None:
+    """One face name through *mapping*; ``None`` when it cannot be carried over."""
+    if _TOPO_HASHED.match(name):
+        return None  # digested labels are not rewritten, matching the .loft import
+    match = _TOPO_PLAIN.match(name)
+    if match is None:
+        return None
+    new = mapping.get(match.group(1))
+    return name if new is None else f"{new}:{match.group(2)}"
+
+
+def remap_topo_name(name: str, mapping: dict[str, str]) -> str | None:
+    """Rewrite a history-based ``topo_name`` onto the copy's feature ids.
+
+    A face name is ``"{feature_uuid}:label"``; an edge name is the JSON array of
+    its two face names, sorted. The uuid prefix goes through *mapping* so the
+    copy's picks keep the named resolution tier. A hashed name
+    (``"{uuid}:#digest"``), or an edge name holding one, becomes ``None`` (the
+    geometric tiers take over) rather than a guess.
+    """
+    if name.startswith("["):
+        try:
+            parsed: Any = json.loads(name)
+        except ValueError:
+            return None
+        if not isinstance(parsed, list) or not all(
+            isinstance(item, str) for item in cast(list[Any], parsed)
+        ):
+            return None
+        faces = [_remap_face_name(item, mapping) for item in cast(list[str], parsed)]
+        if any(face is None for face in faces):
+            return None
+        return json.dumps(sorted(cast(list[str], faces)), separators=(",", ":"))
+    return _remap_face_name(name, mapping)
+
+
+def _is_topo_key(key: Any) -> bool:
+    return isinstance(key, str) and (key == "topo_name" or key.endswith("_topo_name"))
+
+
 def remap_ids(value: Any, mapping: dict[str, str]) -> Any:
     """Rewrite every old id STRING inside a JSON params payload to its new id.
 
@@ -104,6 +153,9 @@ def remap_ids(value: Any, mapping: dict[str, str]) -> Any:
     worth trading correctness-by-default for.
 
     Keys are remapped as well as values — some payloads key maps by id.
+
+    ``topo_name`` values (and ``*_topo_name``) are NOT whole ids but
+    ``"{uuid}:label"``; they go through :func:`remap_topo_name`.
     """
     if isinstance(value, str):
         return mapping.get(value, value)
@@ -113,8 +165,10 @@ def remap_ids(value: Any, mapping: dict[str, str]) -> Any:
     if isinstance(value, dict):
         entries = cast(dict[Any, Any], value)
         return {
-            (mapping.get(key, key) if isinstance(key, str) else key): remap_ids(
-                item, mapping
+            (mapping.get(key, key) if isinstance(key, str) else key): (
+                (remap_topo_name(item, mapping) if isinstance(item, str) else item)
+                if _is_topo_key(key)
+                else remap_ids(item, mapping)
             )
             for key, item in entries.items()
         }
@@ -170,7 +224,6 @@ async def duplicate_part(
         folder_id=source.folder_id,
         name=copy_name(source.name, taken, max_length=PART_NAME_MAX_LENGTH),
         length_unit=source.length_unit,
-        materials=source.materials,
     )
     session.add(copy)
     await session.flush()
@@ -190,6 +243,10 @@ async def duplicate_part(
     # feature may reference any earlier feature in the tree.
     new_id = {feature.id: uuid.uuid4() for feature in features}
     mapping = {str(old): str(new) for old, new in new_id.items()}
+    # Per-body overrides are keyed by the id of the feature that CREATED the body
+    # (`bodies[].base_feature_id`), so they must follow the new ids or the copy
+    # silently falls back to the default material (and the wrong mass).
+    copy.materials = remap_ids(source.materials, mapping)
     for feature in features:
         session.add(
             Feature(
