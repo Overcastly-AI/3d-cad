@@ -112,8 +112,15 @@ DOCUMENTS_EXEMPTIONS: dict[Operation, str] = {
         "no user data, and the gateway's own /api/v1/materials proxy in front "
         "of it IS authenticated"
     ),
+    ("GET", "/api/v1/ref-backfill/parts"): (
+        "operator sweep listing (DESIGN-INTENT-BACKFILL): spans every owner by "
+        "design, so no single principal can scope it. Read-only ids and "
+        "versions, no part content; the gateway exposes no twin of it and its "
+        "only caller is `python -m gateway.ref_backfill` on the internal "
+        "network, which then acts on each part AS its owner"
+    ),
 }
-EXPECTED_DOCUMENTS_EXEMPTIONS = 4
+EXPECTED_DOCUMENTS_EXEMPTIONS = 5
 
 # Count floors. The number each service had when the sweep was written,
 # cross-checked against `docs/AUDIT-ENGINEERING.md` "Pass 7" M3. A floor, not
