@@ -156,7 +156,9 @@ pre-upgrade backup with the old tag's images.
     restores each feature the last write touched and leaves the part marked
     checked. It is refused once the part was edited after the write, because
     later features may rely on the names; `--force` reverts anyway and warns
-    that a fillet, shell or hole may then move on the next size edit.
+    that a fillet, shell or hole may then move on the next size edit. Unlike
+    the write, a revert bumps `tree_version`, so an editor still holding the
+    named tree is told to re-sync instead of saving the names back.
   - A downgrade below 0016 drops the journal and the pending marker, and
     keeps the names: they are valid params in every earlier version.
 

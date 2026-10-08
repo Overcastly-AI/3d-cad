@@ -483,15 +483,26 @@ async def update_feature(
         target_ids = validate_references(
             request.feature, feature.order_index, features_by_id
         )
-        stored = FEATURE_REGISTRY.load(
-            feature.type, feature.param_version, feature.params
-        ).params.model_dump(mode="json")
-        feature.param_version = request.feature.version
+        incoming = request.feature.params.model_dump(mode="json")
         # A save from a tree read before a background history-name write
         # (DESIGN-INTENT-BACKFILL, which does not bump tree_version) keeps the
-        # names of every pick it did not change.
-        feature.params = carry_ref_names(
-            stored, request.feature.params.model_dump(mode="json")
+        # names of every pick it did not change. A stored row that no longer
+        # loads has no names worth keeping, and this PATCH is what repairs it,
+        # so the carry is skipped rather than failing the save.
+        try:
+            stored = FEATURE_REGISTRY.load(
+                feature.type, feature.param_version, feature.params
+            ).params.model_dump(mode="json")
+        except Exception:
+            _logger.warning(
+                "feature_stored_params_unloadable",
+                part_id=str(part.id),
+                feature_id=str(feature.id),
+            )
+            stored = None
+        feature.param_version = request.feature.version
+        feature.params = (
+            incoming if stored is None else carry_ref_names(stored, incoming)
         )
         # The envelope carries `suppressed`; a params replace persists it too so
         # an update never resets the flag (the dedicated toggle is the usual

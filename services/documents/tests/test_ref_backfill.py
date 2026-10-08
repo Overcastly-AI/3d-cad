@@ -432,7 +432,7 @@ def test_the_write_is_journaled_and_revertible(client: TestClient, db_url: str) 
     assert reverted.status_code == 200, reverted.text
     assert reverted.json() == {
         "result": "reverted",
-        "tree_version": 3,
+        "tree_version": 4,
         "features_restored": 1,
         "features_skipped": 0,
         "detail": "",
@@ -869,3 +869,75 @@ def test_a_re_pick_in_a_save_gets_no_carried_name(client: TestClient) -> None:
         _signature(_feature(client, ids["part"], ids["fillet"])).get("topo_name")
         is None
     )
+
+
+def test_a_tab_open_across_a_revert_cannot_save_the_names_back(
+    client: TestClient,
+) -> None:
+    """Review of 9ffae44. Backfill at v3; a tab loads the NAMED tree; the
+    operator reverts; the tab saves the fillet expecting v3. The revert bumps,
+    so that save is refused as stale instead of silently restoring the names
+    (carry_ref_names finds none stored, but the tab's own params carry them)."""
+    ids = _part(client)
+    _apply(client, ids["part"], _report(client, ids))
+    tab = client.get(f"/api/v1/parts/{ids['part']}/features", headers=_headers())
+    tree = tab.json()
+    assert tree["tree_version"] == 3
+    reverted = client.post(
+        f"/api/v1/parts/{ids['part']}/ref-names/revert", headers=_headers()
+    )
+    assert reverted.json()["result"] == "reverted"
+    assert reverted.json()["tree_version"] == 4
+    envelope = next(f for f in tree["features"] if f["id"] == ids["fillet"])["feature"]
+    assert (
+        envelope["params"]["edges"]["refs"][0]["selector"]["signature"]["topo_name"]
+        == "x:start|x:e2"
+    )
+    saved = client.patch(
+        f"/api/v1/parts/{ids['part']}/features/{ids['fillet']}",
+        json={"expected_tree_version": 3, "feature": envelope},
+        headers=_headers(),
+    )
+    assert saved.status_code == 422, saved.text
+    assert saved.json()["error"]["code"] == "stale_tree_version"
+    assert (
+        _signature(_feature(client, ids["part"], ids["fillet"])).get("topo_name")
+        is None
+    )
+
+
+def test_a_save_repairs_a_stored_row_that_no_longer_loads(
+    client: TestClient, db_url: str
+) -> None:
+    """The carry reads the stored params; a row that fails to load must not
+    turn the PATCH that would repair it into a 500."""
+    ids = _part(client)
+
+    async def corrupt() -> None:
+        engine = create_async_engine(async_dsn(db_url))
+        try:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    sa.update(db.Feature)
+                    .where(db.Feature.id == uuid.UUID(ids["fillet"]))
+                    .values(params={"edges": "not a selector"})
+                )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(corrupt())
+    repaired = client.patch(
+        f"/api/v1/parts/{ids['part']}/features/{ids['fillet']}",
+        json={
+            "expected_tree_version": 3,
+            "feature": _fillet(ids["extrude"], _edge_signature()),
+        },
+        headers=_headers(),
+    )
+    assert repaired.status_code == 200, repaired.text
+    stored = _rows(
+        db_url,
+        sa.select(db.Feature.params).where(db.Feature.id == uuid.UUID(ids["fillet"])),
+    )[0][0]
+    assert stored["radius_mm"] == 2.0
+    assert stored["edges"]["kind"] == "edges"

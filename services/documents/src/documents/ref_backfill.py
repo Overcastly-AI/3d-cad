@@ -406,8 +406,9 @@ async def revert_ref_names(
     Restores each touched feature's row exactly as it was stored before the
     write (``param_version`` and params), but only where the feature still
     holds what the backfill wrote; a feature edited since is skipped and
-    counted. Like the write it is metadata: no ``tree_version`` bump, the
-    head snapshot amended, ``updated_at`` pinned, journaled. The part stays
+    counted. Unlike the write it bumps ``tree_version`` (so a tab holding the
+    named params cannot save them back unnoticed); the head snapshot is
+    amended, ``updated_at`` pinned, journaled. The part stays
     checked, so it is not named again on the next open (force a sweep with
     ``--part`` to redo it)."""
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
@@ -473,7 +474,17 @@ async def revert_ref_names(
             .execution_options(synchronize_session=False)
         )
     version = part.tree_version
+    # Unlike the background write, a revert BUMPS tree_version: it is a rare
+    # operator action, and without the bump a tab still holding the named
+    # params would save them straight back (its expected version would still
+    # match). With it, that save is refused as stale and the tab resyncs.
+    after = version + 1 if restored_after else version
     values: dict[str, Any] = {"updated_at": db.Part.updated_at}
+    if restored_after:
+        values["tree_version"] = after
+        values["ref_names_checked_version"] = after
+        if part.last_eval_tree_version == version:
+            values["last_eval_tree_version"] = after
     await session.execute(
         update(db.Part)
         .where(db.Part.id == part.id)
@@ -487,7 +498,7 @@ async def revert_ref_names(
             kind="revert",
             trigger=None,
             tree_version_before=version,
-            tree_version_after=version,
+            tree_version_after=after,
             params_before=restored_before,
             params_after=restored_after,
         )

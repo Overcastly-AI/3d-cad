@@ -12932,7 +12932,7 @@
     },
     "/api/v1/parts/{part_id}/ref-names/revert": {
       "post": {
-        "description": "Undo the part's latest un-reverted backfill write (operator tool).\n\nRestores each touched feature's row exactly as it was stored before the\nwrite (``param_version`` and params), but only where the feature still\nholds what the backfill wrote; a feature edited since is skipped and\ncounted. Like the write it is metadata: no ``tree_version`` bump, the\nhead snapshot amended, ``updated_at`` pinned, journaled. The part stays\nchecked, so it is not named again on the next open (force a sweep with\n``--part`` to redo it).",
+        "description": "Undo the part's latest un-reverted backfill write (operator tool).\n\nRestores each touched feature's row exactly as it was stored before the\nwrite (``param_version`` and params), but only where the feature still\nholds what the backfill wrote; a feature edited since is skipped and\ncounted. Unlike the write it bumps ``tree_version`` (so a tab holding the\nnamed params cannot save them back unnoticed); the head snapshot is\namended, ``updated_at`` pinned, journaled. The part stays\nchecked, so it is not named again on the next open (force a sweep with\n``--part`` to redo it).",
         "operationId": "revert_ref_names_api_v1_parts__part_id__ref_names_revert_post",
         "parameters": [
           {

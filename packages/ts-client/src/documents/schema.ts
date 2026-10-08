@@ -1236,8 +1236,9 @@ export interface paths {
          *     Restores each touched feature's row exactly as it was stored before the
          *     write (``param_version`` and params), but only where the feature still
          *     holds what the backfill wrote; a feature edited since is skipped and
-         *     counted. Like the write it is metadata: no ``tree_version`` bump, the
-         *     head snapshot amended, ``updated_at`` pinned, journaled. The part stays
+         *     counted. Unlike the write it bumps ``tree_version`` (so a tab holding the
+         *     named params cannot save them back unnoticed); the head snapshot is
+         *     amended, ``updated_at`` pinned, journaled. The part stays
          *     checked, so it is not named again on the next open (force a sweep with
          *     ``--part`` to redo it).
          */
