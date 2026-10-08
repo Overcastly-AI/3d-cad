@@ -3,7 +3,8 @@
 Each turns a kernel op's OCCT history (:class:`~geometry.kernel.naming.OpHistory`)
 into the ``(face, name)`` pairs the body funnels in :mod:`geometry.features.state`
 hand to :func:`~geometry.kernel.naming.carry_names`. Step 1 covers extrude,
-draft, fillet and chamfer; an op without a hook names the faces it creates
+draft, fillet and chamfer, later steps the rest (a hole by role,
+:func:`hole_names`); an op without a hook names the faces it creates
 ``None`` and the faces it keeps carry their names regardless.
 """
 
@@ -163,6 +164,26 @@ def labelled_names(feature_id: uuid.UUID, history: OpHistory) -> NameHook:
     (a sheet-metal fold: ``<feature id>:<role>``, :attr:`OpHistory.labelled`)."""
     return [
         (face, None if role is None else face_name(feature_id, role))
+        for role, face in history.labelled
+    ]
+
+
+def hole_names(
+    feature_id: uuid.UUID, history: OpHistory, instance: int = 0
+) -> NameHook:
+    """Names for the faces a Hole cut, by their role in the hole
+    (:func:`~geometry.kernel.hole.label_hole_tool`):
+    ``hole:<instance>:<role>``, e.g. ``hole:0:wall``, ``hole:0:cbore_floor``.
+
+    A role is a function of the hole's TYPE, never of its size, so a resize
+    keeps every name and the rim edge (the wall against the placement face,
+    whose name the hole leaves alone) keeps its pair. *instance* is the
+    hole's placement point in its point order (one point today: ``0``)."""
+    return [
+        (
+            face,
+            None if role is None else face_name(feature_id, f"hole:{instance}:{role}"),
+        )
         for role, face in history.labelled
     ]
 

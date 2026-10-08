@@ -121,7 +121,7 @@ def remap_ids(value: Any, mapping: dict[str, str]) -> Any:
     return value
 
 
-async def _taken_names(
+async def taken_names(
     session: AsyncSession,
     model: type[Part] | type[Assembly] | type[Drawing],
     owner_id: uuid.UUID,
@@ -161,7 +161,7 @@ async def duplicate_part(
     version, a branch or a link, and nothing about it stays tied to the source.
     """
     source = await get_owned_part(session, owner_id, part_id)
-    taken = await _taken_names(session, Part, owner_id, source.folder_id)
+    taken = await taken_names(session, Part, owner_id, source.folder_id)
     copy = Part(
         owner_id=owner_id,
         # A copy is filed WHERE ITS SOURCE IS (#WS2): you duplicate a part to
@@ -256,7 +256,7 @@ async def duplicate_assembly(
     docstring.
     """
     source = await get_owned_assembly(session, owner_id, assembly_id)
-    taken = await _taken_names(session, Assembly, owner_id, source.folder_id)
+    taken = await taken_names(session, Assembly, owner_id, source.folder_id)
     copy = Assembly(
         owner_id=owner_id,
         folder_id=source.folder_id,  # filed where its source is (see the part)
@@ -342,7 +342,7 @@ async def duplicate_drawing(
     like an instance. See the module docstring.
     """
     source = await get_owned_drawing(session, owner_id, drawing_id)
-    taken = await _taken_names(session, Drawing, owner_id, source.folder_id)
+    taken = await taken_names(session, Drawing, owner_id, source.folder_id)
     copy = Drawing(
         owner_id=owner_id,
         folder_id=source.folder_id,  # filed where its source is (see the part)

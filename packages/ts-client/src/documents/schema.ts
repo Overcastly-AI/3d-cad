@@ -789,6 +789,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parts/import-loft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Loft
+         * @description Create a part from a verified ``.loft`` tree, in one transaction (201).
+         */
+        post: operations["import_loft_api_v1_parts_import_loft_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}": {
         parameters: {
             query?: never;
@@ -1061,6 +1081,26 @@ export interface paths {
          *     two-feature prefix of a nine-feature part, and only documents can say so.
          */
         put: operations["record_last_evaluation_api_v1_parts__part_id__last_evaluation_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/loft-tree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Loft Tree
+         * @description The part's tree as ``tree.json`` holds it (uniform 404 for foreign parts).
+         */
+        get: operations["get_loft_tree_api_v1_parts__part_id__loft_tree_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -4385,6 +4425,19 @@ export interface components {
             version: 1;
         };
         /**
+         * LoftImportRequest
+         * @description Gateway -> documents: a read, blob-inlined tree to create a part from.
+         */
+        LoftImportRequest: {
+            /**
+             * Document Id
+             * Format: uuid
+             * @description The part id the file carries; kept unless it, or any feature id, already exists in this install
+             */
+            document_id: string;
+            tree: components["schemas"]["LoftTree"];
+        };
+        /**
          * LoftParamsV1
          * @description Blend a solid THROUGH two or more ordered section sketches (design §4.3).
          *
@@ -4445,6 +4498,59 @@ export interface components {
              * @description Ordered earlier sketch features (>= 2, bounded by MAX_LOFT_SECTIONS — work bound, audit G2) to blend through; each forms a single closed profile wire or a single apex point (design §2.2). Fewer than 2 is a request-validation 422.
              */
             profiles: components["schemas"]["FeatureRef"][];
+        };
+        /**
+         * LoftTree
+         * @description ``tree.json``: the part's whole parametric definition.
+         *
+         *     Everything an import builds from, and nothing derivable: no
+         *     ``order_index`` (the list order is the order), no dependency edges (an
+         *     import re-derives them), no timestamps, no undo history.
+         */
+        LoftTree: {
+            /** Features */
+            features: components["schemas"]["LoftTreeFeature"][];
+            /**
+             * Length Unit
+             * @default mm
+             * @enum {string}
+             */
+            length_unit: "mm" | "cm" | "m" | "in" | "ft";
+            materials?: components["schemas"]["MaterialAssignment"] | null;
+            /** Name */
+            name: string;
+            /** Rollback Feature Id */
+            rollback_feature_id?: string | null;
+        };
+        /**
+         * LoftTreeFeature
+         * @description One feature in ``tree.json``, in tree order.
+         *
+         *     ``params`` stays raw JSON here on purpose: the reader cannot upcast (that is
+         *     the registry's job, in documents), and a params blob from an OLDER
+         *     ``param_version`` would not validate against today's model.
+         */
+        LoftTreeFeature: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Param Version */
+            param_version: number;
+            /** Params */
+            params: {
+                [key: string]: unknown;
+            };
+            /**
+             * Suppressed
+             * @default false
+             */
+            suppressed: boolean;
+            /** Type */
+            type: string;
         };
         /**
          * MateAxisRef
@@ -8599,6 +8705,42 @@ export interface operations {
             };
         };
     };
+    import_loft_api_v1_parts_import_loft_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoftImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_part_api_v1_parts__part_id__get: {
         parameters: {
             query?: never;
@@ -9095,6 +9237,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_loft_tree_api_v1_parts__part_id__loft_tree_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoftTree"];
                 };
             };
             /** @description Validation Error */

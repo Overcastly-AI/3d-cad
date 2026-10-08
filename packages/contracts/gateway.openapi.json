@@ -6606,6 +6606,26 @@
         "title": "LoftFeature",
         "type": "object"
       },
+      "LoftImportResponse": {
+        "description": "``POST /api/v1/parts/import``: the created part and what was noticed.",
+        "properties": {
+          "part": {
+            "$ref": "#/components/schemas/PartResponse"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/LoftWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "part"
+        ],
+        "title": "LoftImportResponse",
+        "type": "object"
+      },
       "LoftParamsV1": {
         "description": "Blend a solid THROUGH two or more ordered section sketches (design \u00a74.3).\n\nThe loft sibling of :class:`SweepParamsV1` and the second non-prismatic\nbody-affecting feature: where sweep drives ONE profile along a path, a loft\nskins a solid through an ORDERED list of cross-section sketches (the\ntransitional-solid / cone / adapter primitive named in the Part-modeling\nscorecard notes). It shares the SAME ``add``/``cut`` boolean against the body\nchain as extrude/revolve/sweep; the new ingredient is ``profiles``, a list\nof ``FeatureRef``s (min 2) to earlier sketch features, blended in list order.\n\nSection representation (v1 DESIGN DECISION \u2014 docs/GEOMETRY-QA.md\n2026-07-12): each ``profiles`` entry is a whole earlier SKETCH feature\nreferenced by id \u2014 the same stable-feature-id mechanism the extrude/revolve\n``profile`` and sweep ``profile``/``path`` slots use. This is NOT topological\nnaming (#1): it references a whole feature's evaluated wire, never a picked\nsub-edge. A section's non-construction entities form either a single CLOSED\nprofile wire (built by the shared ``build_profile_face``) OR a single POINT,\ninterpreted as an APEX vertex (the standard loft-to-a-point tip); an apex may\nappear only as the FIRST or LAST section.\n\nWhy apex support in v1 (honest limit, not gold-plating): datum planes are\norigin-only and mutually perpendicular (never parallel), so two parallel\noffset circular sections \u2014 a cylinder/frustum \u2014 are not authorable until\noffset datum planes land. A closed section lofted to an apex point IS\nauthorable and gives an analytic solid (a pyramid/cone), which is the loft\ngolden's mass-property anchor.\n\nv1 limits (stated plainly \u2014 documented scope, not bugs):\n\n* a RULED (straight) loft through the sections in list order \u2014 NO guide\n  rails, NO tangency/normal end conditions, NO periodic (closed) loft, NO\n  per-section twist/alignment control (all later, additive params \u2014 no\n  ``param_version`` bump);\n* sections are coplanar-or-parallel profiles as authored (each sketch\n  carries its own plane); an open/non-closed section is a\n  ``profile_not_closed`` rebuild error, a multi-loop section is\n  ``profile_unsupported``, and a section ref that is not an earlier ok\n  sketch is ``reference_unresolved`` (exactly like extrude/sweep);\n* incompatible sections (crossed rails), an apex wedged between two wire\n  sections, or a skin OCCT cannot reduce to exactly one solid is a kernel\n  ``loft_failed`` rebuild error, never a silently bad body.",
         "properties": {
@@ -6639,6 +6659,32 @@
           "operation"
         ],
         "title": "LoftParamsV1",
+        "type": "object"
+      },
+      "LoftWarning": {
+        "description": "Something an import noticed and did NOT refuse over.",
+        "properties": {
+          "code": {
+            "enum": [
+              "loft_tree_edited",
+              "loft_cache_corrupt",
+              "loft_volume_mismatch",
+              "loft_rebuild_errors",
+              "loft_verify_unavailable"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "LoftWarning",
         "type": "object"
       },
       "LoginRequest": {
@@ -15677,6 +15723,45 @@
         ]
       }
     },
+    "/api/v1/parts/import": {
+      "post": {
+        "description": "Import a `.loft` file as a new part (201, with any warnings).\n\nThe file is the raw request body, capped at the upload limit while it\nstreams and read in memory only. Refusals are 422s with a `loft_*` code: a\ndamaged or hostile zip, a file from a newer Loft (`loft_format_too_new`,\nor `loft_feature_too_new` naming the feature), or a tree the feature\nroutes would refuse. The part keeps the file's ids unless they already\nexist here; importing the same file twice gives a copy named\n\"<name> copy\". The part is rebuilt from its tree; a hand-edited tree, a\nvolume that differs from the file's, or features that fail to rebuild are\nreported in `warnings`, not refused.",
+        "operationId": "import_part_loft_api_v1_parts_import_post",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "description": "The `.loft` file bytes (raw request body, at most 67108864 bytes).",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoftImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Import Part Loft",
+        "tags": [
+          "parts"
+        ]
+      }
+    },
     "/api/v1/parts/{part_id}": {
       "delete": {
         "description": "Delete one of the caller's parts (204; 404 for unknown/foreign ids).\n\n409 while an assembly still instances it or a drawing still projects it,\nwith the referencing documents NAMED in ``details.dependents`` \u2014 see\n:data:`DEPENDENCY_CONFLICT_RESPONSE`.",
@@ -16040,6 +16125,56 @@
         "summary": "Export Part",
         "tags": [
           "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/export.loft": {
+      "get": {
+        "description": "Export one of the caller's parts as a `.loft` file.\n\nThe file holds the parametric tree (what an import rebuilds from) plus the\nexported STEP body and its mass properties as an untrusted cache. A part\nwith no body exports without the cache. Not a backup: undo history and\nother documents are not in it.",
+        "operationId": "export_part_loft_api_v1_parts__part_id__export_loft_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.loft+zip": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The part as a `.loft` file (a data-only zip: manifest.json, tree.json, blobs/, cache/body.step; docs/FILE-FORMAT.md). Byte-identical for the same part on the same Loft build. `Content-Disposition` carries the suggested filename."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Part Loft",
+        "tags": [
+          "parts"
         ]
       }
     },

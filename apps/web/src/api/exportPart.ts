@@ -198,6 +198,39 @@ export async function exportPartFlatPatternDxf(
   return { blob, filename };
 }
 
+/**
+ * Export the current part as a `.loft` file
+ * (`GET /api/v1/parts/{id}/export.loft`, docs/FILE-FORMAT.md): the whole
+ * parametric tree plus a cached STEP body, which any Loft can import back into
+ * an editable part. Unlike {@link exportPartTree} it does not need a body — a
+ * sketch-only tree is still a file worth keeping.
+ */
+export async function exportPartLoft(
+  partId: string,
+  client: GatewayClient = gatewayClient,
+): Promise<ExportedFile> {
+  const { data, error, response } = await client.GET(
+    "/api/v1/parts/{part_id}/export.loft",
+    { params: { path: { part_id: partId } }, parseAs: "blob" },
+  );
+  if (error !== undefined) {
+    throw new ExportRefusedError(
+      "The .loft file could not be written",
+      envelopeCode(error),
+    );
+  }
+  if (data === undefined) {
+    throw new Error(".loft export returned no file");
+  }
+  // parseAs:"blob" makes the runtime payload a Blob (openapi-fetch pass-through).
+  const blob = data as unknown as Blob;
+  const filename = parseContentDispositionFilename(
+    response.headers.get("Content-Disposition"),
+    "part.loft",
+  );
+  return { blob, filename };
+}
+
 /** Hand a blob to the browser as a named file download (blob URL + anchor). */
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);

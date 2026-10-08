@@ -1452,6 +1452,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parts/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Part Loft
+         * @description Import a `.loft` file as a new part (201, with any warnings).
+         *
+         *     The file is the raw request body, capped at the upload limit while it
+         *     streams and read in memory only. Refusals are 422s with a `loft_*` code: a
+         *     damaged or hostile zip, a file from a newer Loft (`loft_format_too_new`,
+         *     or `loft_feature_too_new` naming the feature), or a tree the feature
+         *     routes would refuse. The part keeps the file's ids unless they already
+         *     exist here; importing the same file twice gives a copy named
+         *     "<name> copy". The part is rebuilt from its tree; a hand-edited tree, a
+         *     volume that differs from the file's, or features that fail to rebuild are
+         *     reported in `warnings`, not refused.
+         */
+        post: operations["import_part_loft_api_v1_parts_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}": {
         parameters: {
             query?: never;
@@ -1585,6 +1615,31 @@ export interface paths {
          *     envelope, re-surfaced verbatim.
          */
         post: operations["export_part_api_v1_parts__part_id__export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/export.loft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Part Loft
+         * @description Export one of the caller's parts as a `.loft` file.
+         *
+         *     The file holds the parametric tree (what an import rebuilds from) plus the
+         *     exported STEP body and its mass properties as an untrusted cache. A part
+         *     with no body exports without the cache. Not a backup: undo history and
+         *     other documents are not in it.
+         */
+        get: operations["export_part_loft_api_v1_parts__part_id__export_loft_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6623,6 +6678,15 @@ export interface components {
             version: 1;
         };
         /**
+         * LoftImportResponse
+         * @description ``POST /api/v1/parts/import``: the created part and what was noticed.
+         */
+        LoftImportResponse: {
+            part: components["schemas"]["PartResponse"];
+            /** Warnings */
+            warnings?: components["schemas"]["LoftWarning"][];
+        };
+        /**
          * LoftParamsV1
          * @description Blend a solid THROUGH two or more ordered section sketches (design §4.3).
          *
@@ -6683,6 +6747,19 @@ export interface components {
              * @description Ordered earlier sketch features (>= 2, bounded by MAX_LOFT_SECTIONS — work bound, audit G2) to blend through; each forms a single closed profile wire or a single apex point (design §2.2). Fewer than 2 is a request-validation 422.
              */
             profiles: components["schemas"]["FeatureRef"][];
+        };
+        /**
+         * LoftWarning
+         * @description Something an import noticed and did NOT refuse over.
+         */
+        LoftWarning: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "loft_tree_edited" | "loft_cache_corrupt" | "loft_volume_mismatch" | "loft_rebuild_errors" | "loft_verify_unavailable";
+            /** Message */
+            message: string;
         };
         /**
          * LoginRequest
@@ -12634,6 +12711,31 @@ export interface operations {
             };
         };
     };
+    import_part_loft_api_v1_parts_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The `.loft` file bytes (raw request body, at most 67108864 bytes). */
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoftImportResponse"];
+                };
+            };
+        };
+    };
     get_part_api_v1_parts__part_id__get: {
         parameters: {
             query?: never;
@@ -12829,6 +12931,37 @@ export interface operations {
                     "model/gltf-binary": string;
                     "model/step": string;
                     "model/stl": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_part_loft_api_v1_parts__part_id__export_loft_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The part as a `.loft` file (a data-only zip: manifest.json, tree.json, blobs/, cache/body.step; docs/FILE-FORMAT.md). Byte-identical for the same part on the same Loft build. `Content-Disposition` carries the suggested filename. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.loft+zip": string;
                 };
             };
             /** @description Validation Error */

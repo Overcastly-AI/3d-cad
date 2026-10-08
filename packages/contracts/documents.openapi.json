@@ -4364,6 +4364,26 @@
         "title": "LoftFeature",
         "type": "object"
       },
+      "LoftImportRequest": {
+        "description": "Gateway -> documents: a read, blob-inlined tree to create a part from.",
+        "properties": {
+          "document_id": {
+            "description": "The part id the file carries; kept unless it, or any feature id, already exists in this install",
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "tree": {
+            "$ref": "#/components/schemas/LoftTree"
+          }
+        },
+        "required": [
+          "document_id",
+          "tree"
+        ],
+        "title": "LoftImportRequest",
+        "type": "object"
+      },
       "LoftParamsV1": {
         "description": "Blend a solid THROUGH two or more ordered section sketches (design \u00a74.3).\n\nThe loft sibling of :class:`SweepParamsV1` and the second non-prismatic\nbody-affecting feature: where sweep drives ONE profile along a path, a loft\nskins a solid through an ORDERED list of cross-section sketches (the\ntransitional-solid / cone / adapter primitive named in the Part-modeling\nscorecard notes). It shares the SAME ``add``/``cut`` boolean against the body\nchain as extrude/revolve/sweep; the new ingredient is ``profiles``, a list\nof ``FeatureRef``s (min 2) to earlier sketch features, blended in list order.\n\nSection representation (v1 DESIGN DECISION \u2014 docs/GEOMETRY-QA.md\n2026-07-12): each ``profiles`` entry is a whole earlier SKETCH feature\nreferenced by id \u2014 the same stable-feature-id mechanism the extrude/revolve\n``profile`` and sweep ``profile``/``path`` slots use. This is NOT topological\nnaming (#1): it references a whole feature's evaluated wire, never a picked\nsub-edge. A section's non-construction entities form either a single CLOSED\nprofile wire (built by the shared ``build_profile_face``) OR a single POINT,\ninterpreted as an APEX vertex (the standard loft-to-a-point tip); an apex may\nappear only as the FIRST or LAST section.\n\nWhy apex support in v1 (honest limit, not gold-plating): datum planes are\norigin-only and mutually perpendicular (never parallel), so two parallel\noffset circular sections \u2014 a cylinder/frustum \u2014 are not authorable until\noffset datum planes land. A closed section lofted to an apex point IS\nauthorable and gives an analytic solid (a pyramid/cone), which is the loft\ngolden's mass-property anchor.\n\nv1 limits (stated plainly \u2014 documented scope, not bugs):\n\n* a RULED (straight) loft through the sections in list order \u2014 NO guide\n  rails, NO tangency/normal end conditions, NO periodic (closed) loft, NO\n  per-section twist/alignment control (all later, additive params \u2014 no\n  ``param_version`` bump);\n* sections are coplanar-or-parallel profiles as authored (each sketch\n  carries its own plane); an open/non-closed section is a\n  ``profile_not_closed`` rebuild error, a multi-loop section is\n  ``profile_unsupported``, and a section ref that is not an earlier ok\n  sketch is ``reference_unresolved`` (exactly like extrude/sweep);\n* incompatible sections (crossed rails), an apex wedged between two wire\n  sections, or a skin OCCT cannot reduce to exactly one solid is a kernel\n  ``loft_failed`` rebuild error, never a silently bad body.",
         "properties": {
@@ -4397,6 +4417,111 @@
           "operation"
         ],
         "title": "LoftParamsV1",
+        "type": "object"
+      },
+      "LoftTree": {
+        "description": "``tree.json``: the part's whole parametric definition.\n\nEverything an import builds from, and nothing derivable: no\n``order_index`` (the list order is the order), no dependency edges (an\nimport re-derives them), no timestamps, no undo history.",
+        "properties": {
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/LoftTreeFeature"
+            },
+            "maxItems": 1000,
+            "title": "Features",
+            "type": "array"
+          },
+          "length_unit": {
+            "default": "mm",
+            "enum": [
+              "mm",
+              "cm",
+              "m",
+              "in",
+              "ft"
+            ],
+            "title": "Length Unit",
+            "type": "string"
+          },
+          "materials": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaterialAssignment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "rollback_feature_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rollback Feature Id"
+          }
+        },
+        "required": [
+          "name",
+          "features"
+        ],
+        "title": "LoftTree",
+        "type": "object"
+      },
+      "LoftTreeFeature": {
+        "description": "One feature in ``tree.json``, in tree order.\n\n``params`` stays raw JSON here on purpose: the reader cannot upcast (that is\nthe registry's job, in documents), and a params blob from an OLDER\n``param_version`` would not validate against today's model.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "param_version": {
+            "minimum": 1.0,
+            "title": "Param Version",
+            "type": "integer"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "suppressed": {
+            "default": false,
+            "title": "Suppressed",
+            "type": "boolean"
+          },
+          "type": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type",
+          "param_version",
+          "params"
+        ],
+        "title": "LoftTreeFeature",
         "type": "object"
       },
       "MateAxisRef": {
@@ -10890,6 +11015,68 @@
         ]
       }
     },
+    "/api/v1/parts/import-loft": {
+      "post": {
+        "description": "Create a part from a verified ``.loft`` tree, in one transaction (201).",
+        "operationId": "import_loft_api_v1_parts_import_loft_post",
+        "parameters": [
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoftImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Loft",
+        "tags": [
+          "parts"
+        ]
+      }
+    },
     "/api/v1/parts/{part_id}": {
       "delete": {
         "description": "Delete an owned part (204; uniform 404 for unknown/foreign ids).\n\nDeletion removes the part's own feature tree unconditionally: the\nparts\u2192features CASCADE removes the tree, and the deferred target-side FK on\nfeature_dependencies makes that legal at commit time (docs/design/feature-\ntree.md \u00a72.3 \u2014 the intra-part 409-with-dependents pre-check applies to\ndeleting a single FEATURE, never the whole part).\n\nBut a part still INSTANCED by an assembly is a cross-document dependent\n(docs/design/assemblies.md \u00a71.2): deleting it is a friendly 409-with-\ndependents listing the referencing assemblies, mirroring the feature 409,\nso an assembly is never left with a dangling instance reference.",
@@ -11877,6 +12064,68 @@
           }
         },
         "summary": "Record Last Evaluation",
+        "tags": [
+          "parts"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/loft-tree": {
+      "get": {
+        "description": "The part's tree as ``tree.json`` holds it (uniform 404 for foreign parts).",
+        "operationId": "get_loft_tree_api_v1_parts__part_id__loft_tree_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoftTree"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Loft Tree",
         "tags": [
           "parts"
         ]

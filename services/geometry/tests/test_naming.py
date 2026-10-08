@@ -732,7 +732,8 @@ def test_bracket_names_are_identical_cold_and_resumed() -> None:
     del prefix  # releases the checkpoint for the next rebuild to resume
     resumed = BR.evaluate(tree, 54).face_names()
     assert cold == again == resumed
-    assert sum(n is not None for n in cold) == 34  # the hole's two bores: none
+    # The 34 sheet faces and the hole's bores, named by role (``hole:0:wall``).
+    assert sum(n is not None for n in cold) == 36
 
 
 def test_a_fold_cap_is_named_by_the_face_its_edge_ends_on() -> None:

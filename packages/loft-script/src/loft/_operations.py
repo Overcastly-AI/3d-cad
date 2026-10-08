@@ -697,6 +697,16 @@ POST_PARTS: Final = Operation(
     required_query=(),
 )
 
+POST_PARTS_IMPORT: Final = Operation(
+    operation_id="import_part_loft_api_v1_parts_import_post",
+    method="POST",
+    path="/api/v1/parts/import",
+    request_model=None,
+    response_model="LoftImportResponse",
+    path_params=(),
+    required_query=(),
+)
+
 GET_PARTS_PART_ID: Final = Operation(
     operation_id="get_part_api_v1_parts__part_id__get",
     method="GET",
@@ -755,6 +765,16 @@ POST_PARTS_PART_ID_EXPORT: Final = Operation(
     response_model=None,
     path_params=("part_id",),
     required_query=("format",),
+)
+
+GET_PARTS_PART_ID_EXPORT_LOFT: Final = Operation(
+    operation_id="export_part_loft_api_v1_parts__part_id__export_loft_get",
+    method="GET",
+    path="/api/v1/parts/{part_id}/export.loft",
+    request_model=None,
+    response_model=None,
+    path_params=("part_id",),
+    required_query=(),
 )
 
 GET_PARTS_PART_ID_FEATURES: Final = Operation(
@@ -970,12 +990,14 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "list_materials_api_v1_materials_get": GET_MATERIALS,
         "list_parts_api_v1_parts_get": GET_PARTS,
         "create_part_api_v1_parts_post": POST_PARTS,
+        "import_part_loft_api_v1_parts_import_post": POST_PARTS_IMPORT,
         "get_part_api_v1_parts__part_id__get": GET_PARTS_PART_ID,
         "delete_part_api_v1_parts__part_id__delete": DELETE_PARTS_PART_ID,
         "update_part_api_v1_parts__part_id__patch": PATCH_PARTS_PART_ID,
         "duplicate_part_api_v1_parts__part_id__duplicate_post": POST_PARTS_PART_ID_DUPLICATE,
         "evaluate_part_api_v1_parts__part_id__evaluate_post": POST_PARTS_PART_ID_EVALUATE,
         "export_part_api_v1_parts__part_id__export_post": POST_PARTS_PART_ID_EXPORT,
+        "export_part_loft_api_v1_parts__part_id__export_loft_get": GET_PARTS_PART_ID_EXPORT_LOFT,
         "get_feature_tree_api_v1_parts__part_id__features_get": GET_PARTS_PART_ID_FEATURES,
         "create_feature_api_v1_parts__part_id__features_post": POST_PARTS_PART_ID_FEATURES,
         "import_step_api_v1_parts__part_id__features_import_post": POST_PARTS_PART_ID_FEATURES_IMPORT,

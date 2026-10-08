@@ -87,6 +87,7 @@ from geometry.kernel.hole import (
     countersink_tool,
     cut_counterbore,
     cut_countersink,
+    label_hole_tool,
 )
 from geometry.kernel.imports import (
     ImportNoSolidError,
@@ -330,6 +331,7 @@ __all__ = [
     "glb_stats",
     "import_step_solid",
     "intersection_volume",
+    "label_hole_tool",
     "linear_pattern",
     "linear_pattern_cut",
     "linear_pattern_placements",

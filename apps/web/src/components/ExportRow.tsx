@@ -1,6 +1,11 @@
 import { PanelActionCell } from "@loft/design";
+import { useState } from "react";
 
-import { type ExportedFile, type ExportFormat } from "../api/exportPart";
+import {
+  downloadBlob,
+  type ExportedFile,
+  type ExportFormat,
+} from "../api/exportPart";
 import {
   EXPORT_FORMATS,
   type ExportFormatEntry,
@@ -48,6 +53,13 @@ export interface ExportRowProps {
    * than the sentence it produced.
    */
   state?: string;
+  /**
+   * Writes the part as a `.loft` file (docs/FILE-FORMAT.md) — the parametric
+   * tree, not a body, so the cell stays live when the formats above are
+   * blocked (a sketch-only tree is still worth saving). Omit it (the box
+   * demo) and the row has no `.loft` cell.
+   */
+  loftExporter?: () => Promise<ExportedFile>;
 }
 
 /**
@@ -76,6 +88,7 @@ export function ExportRow({
   statusLabel,
   notice = null,
   state,
+  loftExporter,
 }: ExportRowProps) {
   // The band's state machine, not a copy of it: one download path and one
   // table of failure copy for both export surfaces (MESH-TOO-DENSE-COPY-1).
@@ -109,6 +122,9 @@ export function ExportRow({
         >
           {status}
         </span>
+        {loftExporter !== undefined ? (
+          <LoftLink exporter={loftExporter} testIdPrefix={testIdPrefix} />
+        ) : null}
       </div>
       {/*
         One wrapper per PAIR rather than one grid with `divide-y`: Tailwind's
@@ -163,5 +179,52 @@ export function ExportRow({
         </p>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The `.loft` action: a text link at the end of the status line, so it adds
+ * NO height. The strip floats over the viewport, and a full-width row here
+ * grew it 40 px upward into the space the gauge drags travel through
+ * (CRAFT-10). Its own busy / failed state, because it is not a format of the
+ * evaluated body and must not share the formats' gate.
+ */
+function LoftLink({
+  exporter,
+  testIdPrefix,
+}: {
+  exporter: () => Promise<ExportedFile>;
+  testIdPrefix: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      const { blob, filename } = await exporter();
+      downloadBlob(blob, filename);
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      aria-label="Export .loft (the editable feature tree, for any Loft)"
+      aria-busy={busy}
+      disabled={busy}
+      title={failed ? "The .loft file could not be written; retry" : undefined}
+      data-testid={`${testIdPrefix}-loft`}
+      data-failed={failed || undefined}
+      onClick={() => void run()}
+      className={`ml-auto shrink-0 font-display text-2xs uppercase tracking-[0.14em] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass ${
+        failed ? "text-flag" : "text-brass"
+      }`}
+    >
+      {busy ? "Writing…" : failed ? ".loft failed" : "Save .loft"}
+    </button>
   );
 }

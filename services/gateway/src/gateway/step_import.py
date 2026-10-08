@@ -74,36 +74,50 @@ _STEP_MAGIC = "ISO-10303-21"
 router = APIRouter(prefix="/api/v1/parts", tags=["features"])
 
 
-def _too_large(*, content_length: int | None) -> ValidationApiError:
+def _too_large(
+    *, content_length: int | None, max_bytes: int, what: str, code: str
+) -> ValidationApiError:
     """The oversize-upload 422 (docs/design/step-import.md §6)."""
-    details: dict[str, Any] = {"max_bytes": MAX_STEP_UPLOAD_BYTES}
+    details: dict[str, Any] = {"max_bytes": max_bytes}
     if content_length is not None:
         details["content_length"] = content_length
     return ValidationApiError(
-        f"STEP upload exceeds the maximum inline size ({MAX_STEP_UPLOAD_BYTES} bytes).",
-        code="import_too_large",
+        f"{what} exceeds the maximum size ({max_bytes} bytes).",
+        code=code,
         details=details,
     )
 
 
-async def _read_capped_body(http_request: Request, *, max_bytes: int) -> bytes:
+async def read_capped_body(
+    http_request: Request,
+    *,
+    max_bytes: int,
+    what: str = "STEP upload",
+    code: str = "import_too_large",
+) -> bytes:
     """Stream the request body, rejecting once it exceeds *max_bytes*.
 
     Two guards, earliest-first (§6): a declared ``Content-Length`` over the
     ceiling is a 422 before a single body byte is read; then the stream itself
     is bounded chunk-by-chunk (a missing or lying header cannot slip past),
     aborting the moment the running total crosses the cap so memory stays
-    bounded to ``max_bytes`` plus one chunk regardless of what is sent.
+    bounded to ``max_bytes`` plus one chunk regardless of what is sent. Shared
+    by every raw-body upload (STEP here, ``.loft`` in :mod:`gateway.loft_file`);
+    *what* and *code* name the upload in the 422.
     """
     declared = http_request.headers.get("content-length")
     if declared is not None and declared.isdigit() and int(declared) > max_bytes:
-        raise _too_large(content_length=int(declared))
+        raise _too_large(
+            content_length=int(declared), max_bytes=max_bytes, what=what, code=code
+        )
     chunks: list[bytes] = []
     total = 0
     async for chunk in http_request.stream():
         total += len(chunk)
         if total > max_bytes:
-            raise _too_large(content_length=None)
+            raise _too_large(
+                content_length=None, max_bytes=max_bytes, what=what, code=code
+            )
         chunks.append(chunk)
     return b"".join(chunks)
 
@@ -163,7 +177,7 @@ async def import_step(
     upload or a file lacking the ISO-10303-21 header is a clean 422 here,
     before anything goes upstream.
     """
-    raw = await _read_capped_body(http_request, max_bytes=MAX_STEP_UPLOAD_BYTES)
+    raw = await read_capped_body(http_request, max_bytes=MAX_STEP_UPLOAD_BYTES)
     if not raw.strip():
         raise ValidationApiError("STEP upload was empty.", code="import_empty")
     try:
@@ -256,7 +270,7 @@ async def import_assembly_step(
     ``import_no_solid`` / ``import_parse_timeout`` / ``assembly_name_taken`` …)
     are re-surfaced verbatim.
     """
-    raw = await _read_capped_body(http_request, max_bytes=MAX_STEP_UPLOAD_BYTES)
+    raw = await read_capped_body(http_request, max_bytes=MAX_STEP_UPLOAD_BYTES)
     if not raw.strip():
         raise ValidationApiError("STEP upload was empty.", code="import_empty")
     try:

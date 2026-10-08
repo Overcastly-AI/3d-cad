@@ -44,6 +44,7 @@ from loft_wire.features import (
     SweepParamsV1,
 )
 from loft_wire.geometry import ExportFormat, ShapeProperties
+from loft_wire.loft_file import LOFT_SUFFIX, LoftWarning
 from loft_wire.parts import PartCreate, PartListResponse, PartResponse, PartUpdate
 from loft_wire.units import LengthUnit
 
@@ -161,6 +162,10 @@ class Part:
         self.session = session
         self.id = part_id
         self._tree_version = tree_version
+        #: What :meth:`loft.Session.open` noticed while importing this part (a
+        #: hand-edited tree, a volume that differs from the file's, features
+        #: that failed to rebuild). Empty for every other handle.
+        self.import_warnings: tuple[LoftWarning, ...] = ()
 
     def __repr__(self) -> str:
         return f"Part(id={self.id})"
@@ -646,6 +651,32 @@ class Part:
                 f"format= explicitly (one of {sorted(set(EXPORT_SUFFIXES.values()))})"
             )
         target.write_bytes(self.export_bytes(resolved))
+        return target
+
+    # -- .loft files ---------------------------------------------------------
+
+    def loft_bytes(self) -> bytes:
+        """The part as a ``.loft`` file, byte-exact as the browser downloads it."""
+        return self.session.transport.call_bytes(
+            ops.GET_PARTS_PART_ID_EXPORT_LOFT, path_params={"part_id": self.id}
+        )
+
+    def save(self, path: str | os.PathLike[str]) -> Path:
+        """Save the part's parametric tree as a ``.loft`` file (docs/FILE-FORMAT.md).
+
+        ``part.save("bracket.loft")``. The file is the whole feature tree plus a
+        cached STEP body; :meth:`loft.Session.open` turns it back into a part on
+        any Loft install. It is not a backup: undo history and other documents
+        are not in it. Same part, same Loft build: same bytes, so a ``.loft``
+        diffs cleanly in git.
+        """
+        target = Path(path)
+        if target.suffix.lower() != LOFT_SUFFIX:
+            raise ValueError(
+                f"a .loft file must end in {LOFT_SUFFIX!r}; got {target.suffix!r} "
+                "(use Part.export() for STEP / STL / 3MF / GLB)"
+            )
+        target.write_bytes(self.loft_bytes())
         return target
 
 

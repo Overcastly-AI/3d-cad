@@ -31,6 +31,7 @@ import {
 import { PartExportControls } from "./PartExportControls";
 
 const exportPartTree = vi.hoisted(() => vi.fn());
+const exportPartLoft = vi.hoisted(() => vi.fn());
 const downloadBlob = vi.hoisted(() => vi.fn());
 
 vi.mock("../api/exportPart", async () => {
@@ -39,7 +40,7 @@ vi.mock("../api/exportPart", async () => {
     await vi.importActual<typeof import("../api/exportPart")>(
       "../api/exportPart",
     );
-  return { ...actual, exportPartTree, downloadBlob };
+  return { ...actual, exportPartTree, exportPartLoft, downloadBlob };
 });
 
 beforeEach(() => {
@@ -52,6 +53,20 @@ beforeEach(() => {
 });
 
 describe("PartExportControls", () => {
+  it("writes a .loft even when no body exists — the tree is the file", async () => {
+    exportPartLoft.mockResolvedValue({
+      blob: new Blob(["PK"]),
+      filename: "bracket.loft",
+    });
+    render(<PartExportControls partId="p1" build={brokenBeforeAnyBody()} />);
+    const cell = screen.getByTestId("part-export-loft");
+    expect(cell).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(cell);
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
+    expect(exportPartLoft).toHaveBeenCalledWith("p1");
+    expect(downloadBlob.mock.calls[0]?.[1]).toBe("bracket.loft");
+  });
+
   it("writes the server's own filename for a whole, current body", async () => {
     render(<PartExportControls partId="p1" build={cleanCube()} />);
     expect(screen.getByTestId("part-export-status")).toHaveTextContent("Ready");

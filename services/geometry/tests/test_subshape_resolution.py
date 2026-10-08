@@ -523,6 +523,12 @@ _NAMED_BY_ID: dict[tuple[str, str], str] = {
         "named"
     )
     for i in (3, 5, 6, 7)
+} | {
+    # The rim chamfer follows the resized hole by the Hole's role names.
+    (
+        "revise-hole-dia-10-to-12-rim-chamfer-40x25x10",
+        "00000000-0000-0000-0000-000000a0e104",
+    ): "named"
 }
 
 

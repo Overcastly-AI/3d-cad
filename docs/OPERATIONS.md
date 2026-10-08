@@ -25,6 +25,7 @@ you trust any of it.
 | Postgres `loft_documents` | parts, feature trees, assemblies, drawings, undo snapshots, materials, inline STEP of imports | **yes**   |
 | MinIO / S3 bucket         | content-addressed meshes and drawing artifacts                                                | no        |
 | Redis                     | rate-limit counters, job queue                                                                | no        |
+| `.loft` files users export | one part's tree and cached body; no undo history, drawings, assemblies or accounts ([FILE-FORMAT.md](./FILE-FORMAT.md)) | **not a backup** |
 
 The object store holds only artifacts derived from Postgres. Evaluation is
 deterministic, so a restored part re-derives a bit-identical mesh with the same

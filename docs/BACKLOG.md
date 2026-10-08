@@ -88,7 +88,7 @@ commits carry the ID (`git log --grep=<ID>`).
       recreating the fillet (3 cycles on the enclosure). Fusion rolls back and
       lets you re-pick. _Accept:_ Edit on a fillet rolls back to its input
       body and a click adds or removes an edge; an e2e test re-picks one edge.
-- [ ] **SHELL-SHARP-DEFAULT**: new Shells leave a sharp cavity at concave
+- [x] **SHELL-SHARP-DEFAULT**: new Shells leave a sharp cavity at concave
       edges (OCCT Intersection join), as SolidWorks, Onshape and Fusion do
       by default; stored shells keep Arc (rounded) so no saved part changes
       shape. _Accept:_ a stored `shell_type` (sharp | rounded, legacy rows
@@ -117,6 +117,12 @@ commits carry the ID (`git log --grep=<ID>`).
       parts. _Accept:_ a multi-solid shell answers (a solid or a typed
       `ShellTimeout`) inside the gateway timeout, through the same child path.
 
+- [ ] **DESIGN-INTENT-BACKFILL** (now also refuses: since EDGE-REF-CONCENTRIC, a circular ref stored before DESIGN-INTENT-REFS refuses on any radius edit): parts saved before DESIGN-INTENT-REFS
+      keep picks without history names, so they still lose them on an early
+      size edit until re-picked. _Accept:_ a one-off pass names each stored
+      pick while it still resolves exactly at the part's current sizes; the
+      three hard-parts edits then rebuild on the QA's saved parts.
+
 ## Next
 
 - [ ] **FILLET-PARTIAL-RESOLVE**: when some of a fillet's picked edges no
@@ -134,11 +140,6 @@ commits carry the ID (`git log --grep=<ID>`).
 - [ ] **SHELL-HEAL-VOLUME-GUARD**: `conform_solid` measures volume after
       `split_pinched_faces`, so the split itself is never volume-checked
       (shell_heal.py claims it is). _Accept:_ volume measured before the split.
-- [ ] **DESIGN-INTENT-BACKFILL**: parts saved before DESIGN-INTENT-REFS
-      keep picks without history names, so they still lose them on an early
-      size edit until re-picked. _Accept:_ a one-off pass names each stored
-      pick while it still resolves exactly at the part's current sizes; the
-      three hard-parts edits then rebuild on the QA's saved parts.
 - [x] **SKETCH-FILLET-KEEP-DIMS**: a sketch fillet drops the typed W/H on
       the legs it trims (the sharp corner is gone), leaving 5 free DOF;
       Fusion keeps them to the virtual sharp. _Accept:_ a virtual-sharp
@@ -394,7 +395,7 @@ One line each. The founder triages weekly; most are closed without work.
 - During a fillet edit: tip-body face highlights paint over the preview body, the timeline is unheld until the preview lands, mass properties show the tip, a failed preview is silent, and extrude/flange/hem edits have no preview.
 - The sketch corner reconcile compares against the store when the result arrives, not when the fillet was asked for; a drag in between reads as a trim.
 - SHELL-ROUND-ASYM: an open 2 mm shell of a drafted, R5-rounded box leaves one of its four inner R3 rounds 5.2e-8 mm^2 off its mirror twins (edges fitted at 1e-6 mm), so the STEP round trip moves the volume 1.1e-6 mm^3; `offset_edges` tightens only spline walls. Golden `revise-width-drafted-fillet-shell-130x80x35` has its volume/area STEP round-trip check as a strict xfail (conftest `KNOWN_ROUNDTRIP_DEFECTS`) until it is fixed.
-- DESIGN-INTENT-REFS step 2 leaves no naming hook on sweep, twisted extrude/sweep, hole, a body-scope cut pattern or `mirror_cut` (their new faces are unnamed and picks there use the geometric tiers, as before).
+- DESIGN-INTENT-REFS step 2 leaves no naming hook on sweep, twisted extrude/sweep, a body-scope cut pattern or `mirror_cut` (their new faces are unnamed and picks there use the geometric tiers, as before).
 - DESIGN-INTENT-REFS step 3 leaves no naming hook on the corner-relief feature's notch or on a shell wall offset from anything but a plane or cylinder; merged-face history is read only for the sheet-metal folds (other ops' cleans keep the step 1-2 surface rule).
 - FILLET-BLEND-ROUNDTRIP: OCCT fits the R1 rolling-ball blends between a B-spline blade side and the hub cylinder at 3.2e-5 mm; a STEP round trip re-reads each blend 4.2e-6 mm^2 off, moving the impeller's volume 2.0e-5 mm^3 (the pure build123d cross-check moves 2.4e-5; centroid, bounds and topology hold at 1e-7). Goldens `revise-hub-d44-blade-root-fillet` and `revise-hub-d44-qa-blade-root-fillet` (2.5e-7 mm^3) have their volume/area STEP round-trip check as a strict xfail (conftest `KNOWN_ROUNDTRIP_DEFECTS`) until it is fixed.
 - Hard-parts re-run at 7916a63: EDGE-MARK-OVERLAP (lip outer corners 4/4, no stray), SKETCH-FILLET-UNTRIM (8 corners on a typed 118x78 lip), TYPED-POLYLINE-UNJOINED and HOLE-BLIND-FALSE-DEEP verified fixed in the app. PICK-ENTER-UNPICKS no longer reproduces: Enter on a focused fillet mark creates the feature.
@@ -454,5 +455,8 @@ One line each. The founder triages weekly; most are closed without work.
 - Shell: a sealed cross-bored plate plus a box varies byte-wise across processes (Arc's sealed hollow face order follows memory addresses), related to SHELL-EDGE-DETERMINISM. A 500+-face solid offset in the child differs from in-process only in signed zeros.
 - Fixed: SHELL-MULTIBODY-HANG (92b85b0). One 40 s budget covers every lump of a shell; an in-process lump (<500 faces) can overshoot it by at most one lump (~10 s).
 - LIP-SEAM-UNIFY: a sketch-on-face lip flush with a wall keeps a seam face per wall (34 faces where a unified body has 19); the join's clean unifies 1 of 16 pairs, with or without projection (revise-width-lip-projected-rim-130x80x35).
-- EDGE-REF-CONCENTRIC: Hole faces carry no history names, so a chamfer/fillet on a simple hole's rim now fails `subshape_unresolved` when the hole is resized (it used to follow through the radius-blind tier); naming Hole faces would let the named tier follow, as in Fusion.
+- Fixed: EDGE-REF-CONCENTRIC's hole-resize regression. Hole faces are named by role (`hole:0:wall`, `cbore_floor`...), so a rim chamfer/fillet follows a resize through the named tier (golden `revise-hole-dia-10-to-12-rim-chamfer-40x25x10`); an unnamed (pre-naming or imported) rim pick still fails typed.
 - Suppressing the feature a projection is anchored on fails the sketch with `references_suppressed`; Fusion keeps the sketch and marks the projection sick.
+- SHELL-SHARP-DEFAULT (433f521): add the reviewer's 4-process sharp-bytes run as test_shell_determinism cases; sharp skips canonical face ordering (stable by OCCT behaviour, not code); the concave-edge analysis runs in-process, off the budget (0.7 s on a 906-face lid); a failing sharp shell says only `shell_failed`, and should suggest Rounded.
+- EDGE-REF-CONCENTRIC (8e34dae) over-refusal (typed, tree kept): Hole rims on resize (Hole naming in progress); circles on unnamed ops (import, boolean tools, unnamed sweep/loft, patterned holes). The name guard keeps unnamed candidates, so one differently named plus one unnamed candidate now resolves to the unnamed one (was ambiguous; untested). `_same_radius` uses 1e-6 mm on a circumcentre radius.
+- SKETCH-PROJECT-EDGES step 2 (3203624): `_current_a` trusts canonical_endpoints' exact order (a near-tie on a rotated part could swap a line's ends); `_a_slot_is_start` could swap ends if the datum rotates more than 90 deg; projection uses active_body, not the ref's feature_id (multi-body parts). LIP-SEAM-UNIFY: a lip flush with shell walls leaves a seam (34 faces vs 19). Suppressing a projection's anchor fails the sketch `references_suppressed`; Fusion marks it sick.

@@ -14,6 +14,7 @@ import {
   DocumentRegister,
   type RegisterCopy,
 } from "../components/DocumentRegister";
+import { OpenLoftButton } from "../components/OpenLoftButton";
 import { ResumeBand } from "../components/ResumeBand";
 import { SheetGrid } from "../components/SheetGrid";
 import { TopBar } from "../components/TopBar";
@@ -69,6 +70,7 @@ export function PartsPage() {
     <div className="flex h-full flex-col">
       <TopBar>
         <Chip data-testid="status-chip">Parts</Chip>
+        <OpenLoftButton />
       </TopBar>
       <main className="relative min-h-0 grow overflow-y-auto bg-carbide">
         <SheetGrid />

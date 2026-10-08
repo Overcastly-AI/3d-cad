@@ -1,0 +1,27 @@
+{
+  "description": "HOLE HISTORY NAMES (DESIGN-INTENT-REFS, RESEARCH §14). A 40x25x10 plate with a through Hole at (20, 12.5) and a 0.5 mm chamfer on the hole's TOP RIM, picked when the hole was dia 10; then the hole diameter is retyped 10 -> 12 and nothing is re-picked. The chamfer's stored EdgeSignature is still the R5 circle, and since EDGE-REF-CONCENTRIC the geometric tiers keep a circle's radius, so only the history name can carry it: the Hole names its bore face <hole id>:hole:0:wall (a role, never a size), the rim is the edge between that face and the extrude's end cap, and that pair names exactly one edge at R6. The gate is that the chamfer lands on the R6 top rim, not the bottom rim (also wall against a cap) and not nothing: the volume, the area and centroid.z all witness it, and the GLB is byte-identical to a fresh pick at dia 12 (tests/test_hole_names_revision.py).",
+  "derivation": [
+    "HAND-DERIVED closed forms, cross-checked against the harness (geometry-gates: never recorded from the code's own output). R = 6 (the new bore), d = 0.5, plate 40 x 25 x 10, hole axis through the plate centre.",
+    "volume: plate 10000 - bore pi*R^2*h = 360*pi - chamfer ring. The ring's cross-section is the right triangle (rho, z) = (6, 10), (6.5, 10), (6, 9.5), area d^2/2 = 0.125 at centroid rho = R + d/3 = 37/6; Pappus: 0.125 * 2*pi * 37/6 = 37*pi/24. volume = 10000 - (360 + 37/24)*pi = 10000 - 8677*pi/24 = 8864.18335603339 mm^3 (measured deviation 0.0).",
+    "surface_area: plate 2*(40*25 + 40*10 + 25*10) = 3300; top and bottom each lose a disc pi*R^2 (-72*pi); bore wall 2*pi*R*h = 120*pi, less the 0.5 mm the chamfer takes off its top (-2*pi*6*0.5 = -6*pi); the top face loses the annulus R..R+d (-pi*(6.5^2 - 36) = -6.25*pi); the chamfer is a 45 deg frustum, pi*(6 + 6.5)*0.5*sqrt2 = 6.25*sqrt2*pi. area = 3300 + 35.75*pi + 6.25*sqrt2*pi = 3440.079955729325 mm^2 (measured deviation 9.1e-13).",
+    "centroid.x = 20 and centroid.y = 12.5: the plate and the hole share both mirror planes.",
+    "centroid.z: moment 10000*5 - 360*pi*5 - M_ring, with M_ring = 2*pi * integral(rho*z dA) over the triangle = 2*pi * A/12 * (sum(rho_i*z_i) + sum(rho_i)*sum(z_i)) = 2*pi * 0.125/12 * (182 + 18.5*29.5). z = (50000 - 1800*pi - M_ring) / volume = 4.9973585064967825 mm (measured deviation 8.9e-16). The chamfer at the TOP rim is what pulls it below 5; the same chamfer on the bottom rim would push it above 5 by the same amount.",
+    "bounding_box = [0,0,0]..[40,25,10]: the hole and the chamfer are interior to the plate's envelope.",
+    "topology: 6 plate faces + bore wall + chamfer cone = 8 faces; 12 plate edges + the bottom rim + the bore seam + the chamfer's upper circle, lower circle and seam = 17 edges; 1 shell.",
+    "mesh: 848 vertices / 898 triangles at linear 0.1, the counts of the fresh pick at dia 12 (tests/test_hole_names_revision.py asserts the two GLBs byte-identical, so the counts encode the R6 chamfer and not a resolution artifact).",
+    "Without the names (a selector stored before Hole naming, or an imported body), the same tree fails the chamfer subshape_unresolved: the radius guard of EDGE-REF-CONCENTRIC holds; that refusal is pinned by the revision tests, not by this golden."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Planes, a right cylinder and a cone: GProp integrates these quadrics exactly; measured deviations from the closed forms are <= 9.1e-13 (area), 0.0 (volume), 8.9e-16 (centroid). The documented 1e-9 ceiling of the hole and chamfer goldens; the named tier selects a kernel Edge and contributes no error.",
+  "properties": {
+    "volume": 8864.18335603339,
+    "surface_area": 3440.079955729325,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 4.9973585064967825 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 8, "edges": 17, "shells": 1 },
+  "mesh": { "vertices": 848, "triangles": 898 }
+}

@@ -21,6 +21,7 @@ from loft_wire.features import (
 from geometry.features.datum_sketch import (
     _resolve_face_datum_plane,
 )
+from geometry.features.naming_hooks import hole_names
 from geometry.features.state import (
     EvaluationState,
 )
@@ -39,8 +40,10 @@ from geometry.kernel import (
     countersink_tool,
     cut_counterbore,
     cut_countersink,
+    label_hole_tool,
     resolve_iso_metric_thread,
 )
+from geometry.kernel.naming import OpHistory
 
 
 def _check_hole_thread(params: HoleParamsV1) -> FeatureError | None:
@@ -139,6 +142,9 @@ def _evaluate_hole(
         params.depth.depth_mm if isinstance(params.depth, HoleBlindDepth) else None
     )
     point = (params.position.x, params.position.y, params.position.z)
+    # The faces the cuts make, by role (``hole:0:wall``...): a resize keeps
+    # every name, so a chamfered rim follows it (DESIGN-INTENT-REFS).
+    history = OpHistory()
     try:
         drilled = bore_hole(
             active,
@@ -148,6 +154,7 @@ def _evaluate_hole(
             through_all=not blind,
             depth_mm=depth_mm,
             body_volume=state.body_volume(active_id),
+            history=history,
         )
         # Slice 2: sink the optional coaxial recess (counterbore / countersink) at
         # the face, cut ALONGSIDE the bore (design: HoleType additive member).
@@ -160,6 +167,7 @@ def _evaluate_hole(
                 bore_diameter_mm=params.diameter_mm,
                 cbore_diameter_mm=hole_type.cbore_diameter_mm,
                 cbore_depth_mm=hole_type.cbore_depth_mm,
+                history=history,
             )
         elif isinstance(hole_type, HoleCountersink):
             drilled = cut_countersink(
@@ -169,6 +177,7 @@ def _evaluate_hole(
                 bore_diameter_mm=params.diameter_mm,
                 csink_diameter_mm=hole_type.csink_diameter_mm,
                 csink_angle_deg=hole_type.csink_angle_deg,
+                history=history,
             )
     except HoleInvalidDiameterError as exc:
         # Unreachable from the API (HoleParamsV1.diameter_mm is Field(gt=0)); the
@@ -188,7 +197,7 @@ def _evaluate_hole(
         return FeatureError(code="hole_too_deep", message=str(exc))
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
-    state.set_active_body(drilled)
+    state.set_active_body(drilled, hole_names(item.id, history))
     # Capture the removal tool(s) for a following pattern / mirror of this hole
     # (FINDINGS #1). Rebuilt from the SAME pre-cut ``active`` body the cuts used, so
     # every tool is byte-identical to what was removed; the recess builders reuse the
@@ -227,5 +236,15 @@ def _evaluate_hole(
             )
         )
     state.record_cut_tools(item.id, tools)
-    state.record_feature_tools(item.id, "cut", list(tools))
+    # The recorded tools are labelled the same way, so a features-scope pattern
+    # or mirror of this hole names each copy's faces after these.
+    labelled = OpHistory()
+    label_hole_tool(labelled, tools[0], plane, "wall", "floor" if blind else None)
+    if isinstance(hole_type, HoleCounterbore):
+        label_hole_tool(labelled, tools[1], plane, "cbore_wall", "cbore_floor")
+    elif isinstance(hole_type, HoleCountersink):
+        label_hole_tool(labelled, tools[1], plane, "csink_cone", None)
+    state.record_feature_tools(
+        item.id, "cut", list(tools), hole_names(item.id, labelled)
+    )
     return None

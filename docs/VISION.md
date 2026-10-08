@@ -161,7 +161,7 @@ reference-part run or a live-app check.
 | Scripting API               | ➖    | `loft-script` shipped.                                                                                                                                  |
 | Agent access (MCP)          | ❌    | Not started. It is the one gap no incumbent can answer.                                                                                                 |
 | Free and unlimited          | ✅    | Air-gap claim gated by `check-air-gap.py`.                                                                                                              |
-| Your data, your files       | ✅    | Backup and restore drill runs in CI.                                                                                                                    |
+| Your data, your files       | ✅    | Backup and restore drill runs in CI. A part exports and imports as a `.loft` file (tree + STEP cache, canonical bytes; docs/FILE-FORMAT.md).           |
 
 ## Not building (for now)
 
