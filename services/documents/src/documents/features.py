@@ -106,7 +106,7 @@ async def _get_feature(
     return feature
 
 
-def _reject_import_with_prior_body(
+def reject_import_with_prior_body(
     envelope: FeatureEnvelope,
     position: int,
     features: list[db.Feature],
@@ -144,7 +144,7 @@ def _reject_import_with_prior_body(
         )
 
 
-def _validate_references(
+def validate_references(
     envelope: FeatureEnvelope,
     order_index: int,
     features_by_id: dict[uuid.UUID, db.Feature],
@@ -416,8 +416,8 @@ async def create_feature(
     bar_index = _bar_index(part, features)
     position = len(features) if bar_index is None else bar_index + 1
 
-    _reject_import_with_prior_body(request.feature, position, features)
-    target_ids = _validate_references(request.feature, position, features_by_id)
+    reject_import_with_prior_body(request.feature, position, features)
+    target_ids = validate_references(request.feature, position, features_by_id)
 
     await _shift_indexes(session, part.id, position, +1)
     feature = db.Feature(
@@ -479,7 +479,7 @@ async def update_feature(
             )
         features = await _ordered_features(session, part.id)
         features_by_id = {row.id: row for row in features}
-        target_ids = _validate_references(
+        target_ids = validate_references(
             request.feature, feature.order_index, features_by_id
         )
         feature.param_version = request.feature.version

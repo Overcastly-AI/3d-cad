@@ -33,6 +33,7 @@ from documents.folders import assemblies_router as folder_assemblies_router
 from documents.folders import drawings_router as folder_drawings_router
 from documents.folders import parts_router as folder_parts_router
 from documents.folders import router as folders_router
+from documents.loft_file import router as loft_file_router
 from documents.materials import router as materials_router
 from documents.parts import router as parts_router
 from documents.step_import import router as step_import_router
@@ -94,6 +95,7 @@ def build_app(settings: DocumentsSettings | None = None) -> FastAPI:
     app.include_router(assemblies_router)
     app.include_router(drawings_router)
     app.include_router(step_import_router)
+    app.include_router(loft_file_router)
     # Workspace management (:mod:`documents.duplicate`) — one module, three
     # routers, so the id-remap and the copy-naming rule are written once.
     app.include_router(duplicate_parts_router)
