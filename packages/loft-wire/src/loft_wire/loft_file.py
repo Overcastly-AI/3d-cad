@@ -189,7 +189,6 @@ LoftErrorCode = Literal[
     "loft_tree_invalid",
     "loft_blob_corrupt",
     "loft_blob_missing",
-    "loft_blob_reused",
     "loft_too_many_versions",
     "loft_versions_invalid",
 ]
@@ -511,8 +510,16 @@ def encode_tree(tree: LoftTree) -> tuple[bytes, dict[str, bytes]]:
     return canonical_json(extracted.model_dump(mode="json")), blobs
 
 
-def _inlined_bytes(blobs: dict[str, bytes], tree_blobs: dict[str, bytes]) -> int:
-    return sum(len(blobs[digest]) for digest in tree_blobs)
+def _inlined_bytes(tree: LoftTree) -> int:
+    """The STEP bytes a reader inlines back into *tree*: every reference
+    counted, as :func:`_inline_blobs` counts them (one blob may be named by
+    several import features; the file stores it once)."""
+    total = 0
+    for feature in tree.features:
+        data = feature.params.get("data")
+        if feature.type == "import" and isinstance(data, str):
+            total += len(data.encode("utf-8"))
+    return total
 
 
 def _check_packable(
@@ -575,7 +582,7 @@ def pack_part(
         _check_packable([], inlined=0, versions=len(versions))
     tree_bytes, blobs = encode_tree(tree)
     tree_digest = sha256_hex(tree_bytes)
-    inlined = _inlined_bytes(blobs, blobs)
+    inlined = _inlined_bytes(tree)
 
     ordered = sorted(versions, key=lambda version: version.seq)
     if len({version.seq for version in ordered}) != len(ordered):
@@ -585,7 +592,7 @@ def pack_part(
     for version in ordered:
         version_bytes, version_blobs = encode_tree(version.tree)
         blobs.update(version_blobs)
-        inlined += _inlined_bytes(blobs, version_blobs)
+        inlined += _inlined_bytes(version.tree)
         version_members.append((version_tree_path(version.seq), version_bytes))
         entries.append(
             LoftVersionEntry(
@@ -891,27 +898,20 @@ def _inline_blobs(
 ) -> tuple[LoftTree, int]:
     """Put each referenced blob's STEP text back where the tree names it.
 
-    Only into an ``import`` feature's ``params.data``, each blob at most ONCE
-    per tree, and the inlined bytes count against *budget* (what is left of
-    :data:`MAX_LOFT_TOTAL_BYTES`). All three are checked BEFORE any text is
-    decoded: a 16 MiB blob named by a thousand features would otherwise
-    decode a thousand copies of itself and take the gateway down. Returns the
-    tree and the bytes it inlined, which the caller takes off the budget of
-    the next tree (each version's tree may name the same blob again).
+    Only into an ``import`` feature's ``params.data``. A blob may be named by
+    any number of features (two imports of the same STEP file share one), but
+    EVERY reference's bytes count against *budget* (what is left of
+    :data:`MAX_LOFT_TOTAL_BYTES`), and that is checked BEFORE any text is
+    decoded: a 16 MiB blob named by a thousand features is refused here rather
+    than decoded a thousand times. Each blob is decoded once and the one
+    string is shared. Returns the tree and the bytes it inlined, which the
+    caller takes off the budget of the next tree.
     """
-    seen: set[str] = set()
     inlined = 0
     for feature in tree.features:
         digest = _blob_reference(feature)
         if digest is None:
             continue
-        if digest in seen:
-            raise LoftFileError(
-                "Two features of the .loft name the same blob.",
-                code="loft_blob_reused",
-                details={"feature_id": str(feature.id), "sha256": digest},
-            )
-        seen.add(digest)
         if digest not in blobs:
             raise LoftFileError(
                 f"Feature {feature.name!r} names a blob the .loft does not hold.",
@@ -926,17 +926,20 @@ def _inline_blobs(
                 details={"max_bytes": MAX_LOFT_TOTAL_BYTES},
             )
     features: list[LoftTreeFeature] = []
+    decoded: dict[str, str] = {}
     for feature in tree.features:
         digest = _blob_reference(feature)
         if digest is not None:
-            try:
-                text = blobs[digest].decode("utf-8")
-            except UnicodeDecodeError as exc:
-                raise LoftFileError(
-                    "A .loft blob is not STEP text.",
-                    code="loft_blob_corrupt",
-                    details={"sha256": digest},
-                ) from exc
+            text = decoded.get(digest)
+            if text is None:
+                try:
+                    text = decoded[digest] = blobs[digest].decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise LoftFileError(
+                        "A .loft blob is not STEP text.",
+                        code="loft_blob_corrupt",
+                        details={"sha256": digest},
+                    ) from exc
             feature = feature.model_copy(
                 update={"params": {**feature.params, "data": text}}
             )

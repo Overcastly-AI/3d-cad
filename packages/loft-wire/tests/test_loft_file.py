@@ -584,10 +584,12 @@ def _blob_bomb(references: int) -> bytes:
 
 
 def test_a_blob_named_by_many_features_is_refused_before_it_is_copied() -> None:
+    """Fan-out is legal, but every reference counts against the total: a
+    16 MiB blob named 1000 times is refused before any copy is decoded."""
     data = _blob_bomb(1000)
     tracemalloc.start()
     try:
-        assert _refused(data) == "loft_blob_reused"
+        assert _refused(data) == "loft_member_too_large"
         _, peak = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
@@ -815,9 +817,108 @@ def test_an_invalid_version_tree_is_refused_naming_it() -> None:
     assert caught.value.details["member"] == "versions/1.tree.json"
 
 
-def test_a_blob_named_twice_in_one_version_is_still_refused() -> None:
+def test_a_blob_named_twice_in_one_version_reads() -> None:
     entries = _golden_v11_entries()
     tree = json.loads(dict(entries)["versions/1.tree.json"])
     tree["features"].append({**tree["features"][0], "id": str(uuid.uuid4())})
     data = _zip(_replace(entries, "versions/1.tree.json", canonical_json(tree)))
-    assert _refused(data) == "loft_blob_reused"
+    version = read_loft(data).versions[0]
+    assert [f.params["data"] for f in version.tree.features if f.type == "import"] == [
+        STEP_TEXT,
+        STEP_TEXT,
+    ]
+
+
+# --- one STEP file imported twice ------------------------------------------------
+
+SECOND_IMPORT_ID = uuid.UUID("4fad7142-ad4e-4e7d-9e80-91514db06e54")
+
+
+def _twin_import_tree() -> LoftTree:
+    """Two import features with identical STEP text (the same file, twice)."""
+    tree = _golden_tree()
+    twin = tree.features[0].model_copy(
+        update={"id": SECOND_IMPORT_ID, "name": "Imported STEP 2"}
+    )
+    return tree.model_copy(update={"features": [tree.features[0], twin]})
+
+
+def test_two_identical_imports_round_trip_byte_stable() -> None:
+    """The writer stores the shared STEP once; the reader puts it back in both
+    features; packing what was read gives the same bytes."""
+    original = pack_part(
+        document_id=PART_ID,
+        tree=_twin_import_tree(),
+        loft_version="t",
+        versions=[
+            LoftVersion(
+                seq=1,
+                name="Twins",
+                created_at=datetime(2026, 10, 8, tzinfo=UTC),
+                tree=_twin_import_tree(),
+            )
+        ],
+    )
+    members = _members(original)
+    digest = sha256_hex(STEP_TEXT.encode())
+    assert [name for name in members if name.startswith("blobs/")] == [
+        f"blobs/sha256-{digest}.step"
+    ]
+    tree = json.loads(members[TREE_PATH])
+    assert [f["params"]["data"] for f in tree["features"]] == [
+        f"loft-blob:sha256:{digest}"
+    ] * 2
+    archive = read_loft(original)
+    assert archive.warnings == ()
+    assert [f.params["data"] for f in archive.tree.features] == [STEP_TEXT] * 2
+    repacked = pack_part(
+        document_id=archive.manifest.document_id,
+        tree=archive.tree,
+        loft_version=archive.manifest.loft_version,
+        versions=archive.versions,
+    )
+    assert repacked == original
+
+
+def _big_import_tree(references: int) -> LoftTree:
+    """*references* import features sharing one 64 KiB STEP text, so a copy
+    is far larger than the manifest and the cap below can be placed exactly."""
+    text = "ISO-10303-21;\n" + "".join(
+        f"#{n}=CARTESIAN_POINT('',(0.,0.,{n}.));\n" for n in range(2000)
+    )
+    tree = _golden_tree()
+    first = tree.features[0].model_copy(
+        update={"params": {**tree.features[0].params, "data": text}}
+    )
+    features = [
+        first.model_copy(update={"id": uuid.UUID(int=n + 1), "name": f"Import {n}"})
+        for n in range(references)
+    ]
+    return tree.model_copy(update={"features": features, "materials": None})
+
+
+def test_a_fan_out_is_refused_at_the_reference_that_crosses_the_total(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every reference to a shared blob counts. With the cap set one byte short
+    of three inlined copies (and every stored member under it), two references
+    read, a crafted third is refused by the inlining budget, and the writer
+    refuses the three-reference tree rather than write it."""
+    twins = pack_part(document_id=PART_ID, tree=_big_import_tree(2), loft_version="t")
+    step = len(_big_import_tree(1).features[0].params["data"].encode())
+
+    entries = list(_members(twins).items())
+    tree = json.loads(entries[1][1])
+    tree["features"].append({**tree["features"][0], "id": str(uuid.uuid4())})
+    entries[1] = (TREE_PATH, canonical_json(tree))
+    stored = sum(len(data) for _, data in entries)
+    beside_manifest = stored - len(entries[0][1])
+    cap = beside_manifest + 3 * step - 1
+    assert stored <= cap  # the member-size screen passes: the budget decides
+    monkeypatch.setattr(loft_file, "MAX_LOFT_TOTAL_BYTES", cap)
+
+    assert len(read_loft(twins).tree.features) == 2
+    assert _refused(_zip(entries)) == "loft_member_too_large"
+    with pytest.raises(LoftFileError) as caught:
+        pack_part(document_id=PART_ID, tree=_big_import_tree(3), loft_version="t")
+    assert caught.value.code == "loft_member_too_large"

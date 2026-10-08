@@ -185,7 +185,7 @@ A blob whose sha256 does not match is refused (`loft_blob_corrupt`).
 
 The central directory the end record declares is capped at 128 KiB (512 bytes an entry), so a lying entry count cannot make the parse expensive (`loft_too_many_members`). ZIP64 end records are refused outright
 (`loft_zip_invalid`): zipfile would trust their counts over the capped classic
-record, and a legal `.loft` never needs ZIP64. Each blob may be named by one `import` feature only (`loft_blob_reused`), blobs are inlined only into an `import` feature's `params.data`, and the inlined text counts against the 256 MiB total. `tree.json` with a non-finite number or pathological nesting is `loft_tree_invalid`. Each member is read with `read(cap + 1)`, so a header that understates a size
+record, and a legal `.loft` never needs ZIP64. A blob may be named by any number of `import` features (the writer stores identical STEP text once), blobs are inlined only into an `import` feature's `params.data`, and every reference's inlined text counts against the 256 MiB total, checked before any text is decoded, so one blob fanned out past the total is refused (`loft_member_too_large`). `tree.json` with a non-finite number or pathological nesting is `loft_tree_invalid`. Each member is read with `read(cap + 1)`, so a header that understates a size
 cannot make the reader allocate past the cap. Also refused: `..`, absolute or
 drive paths, backslashes, duplicate names, directory entries, encrypted
 members, compression other than STORED or DEFLATE (`loft_member_unsafe`,
@@ -194,9 +194,8 @@ and members the format does not define (`loft_member_unknown`) unless the file
 is a newer minor version. Version members must match `versions/index.json`
 exactly: a tree it does not list, version trees with no index, or an index not in
 ascending `seq` is `loft_versions_invalid`, and an entry without its tree is
-`loft_member_missing`. A blob may be named once per tree, so each version may
-name the blobs the current tree does; every copy a tree inlines counts against
-the 256 MiB total. The export applies the same caps and refuses (`422`, same
+`loft_member_missing`. Each version may name the blobs the current tree does;
+every copy any tree inlines counts against the 256 MiB total. The export applies the same caps and refuses (`422`, same
 codes) rather than write a file no Loft could open. Both routes are
 authenticated and rate-limited (`COMPUTE_RATE_LIMIT`).
 
