@@ -70,7 +70,7 @@ export function PartCommandBand({
   >;
   workspaceActions: Pick<
     WorkspaceActions,
-    "handleImportStep" | "handleImportLoft" | "importingLoft" | "toggleMeasure"
+    "handleImportStep" | "toggleMeasure"
   >;
   featureOpeners: Pick<
     FeatureOpeners,
@@ -134,8 +134,7 @@ export function PartCommandBand({
     offsetPlaneBusy,
     offsetPlaneError,
   } = actionFlags;
-  const { handleImportStep, handleImportLoft, importingLoft, toggleMeasure } =
-    workspaceActions;
+  const { handleImportStep, toggleMeasure } = workspaceActions;
   const {
     openCreateDatum,
     openCreateExtrude,
@@ -180,8 +179,6 @@ export function PartCommandBand({
           canImportStep={bodyFeatureId === null}
           importingStep={importing}
           onImportStep={handleImportStep}
-          onImportLoft={handleImportLoft}
-          importingLoft={importingLoft}
           onNewDatum={openCreateDatum}
           canExtrude={hasSolvedSketch}
           onNewExtrude={openCreateExtrude}

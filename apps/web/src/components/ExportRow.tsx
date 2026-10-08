@@ -1,4 +1,4 @@
-import { PanelActionCell, StockIcon } from "@loft/design";
+import { PanelActionCell } from "@loft/design";
 import { useState } from "react";
 
 import {
@@ -122,6 +122,9 @@ export function ExportRow({
         >
           {status}
         </span>
+        {loftExporter !== undefined ? (
+          <LoftLink exporter={loftExporter} testIdPrefix={testIdPrefix} />
+        ) : null}
       </div>
       {/*
         One wrapper per PAIR rather than one grid with `divide-y`: Tailwind's
@@ -154,9 +157,6 @@ export function ExportRow({
           ))}
         </div>
       ))}
-      {loftExporter !== undefined ? (
-        <LoftCell exporter={loftExporter} testIdPrefix={testIdPrefix} />
-      ) : null}
       {failure !== null ? (
         <p
           role="alert"
@@ -183,11 +183,13 @@ export function ExportRow({
 }
 
 /**
- * The `.loft` cell: one full-width row under the format block. Its own busy /
- * failed state, because it is not a format of the evaluated body and must not
- * share the formats' gate.
+ * The `.loft` action: a text link at the end of the status line, so it adds
+ * NO height. The strip floats over the viewport, and a full-width row here
+ * grew it 40 px upward into the space the gauge drags travel through
+ * (CRAFT-10). Its own busy / failed state, because it is not a format of the
+ * evaluated body and must not share the formats' gate.
  */
-function LoftCell({
+function LoftLink({
   exporter,
   testIdPrefix,
 }: {
@@ -209,23 +211,20 @@ function LoftCell({
     }
   };
   return (
-    <div className="grid grid-cols-1 border-t border-hairline">
-      <PanelActionCell
-        icon={<StockIcon />}
-        label=".LOFT"
-        caption={
-          busy
-            ? "Writing…"
-            : failed
-              ? "Failed — check the gateway, then retry"
-              : "Parametric tree"
-        }
-        aria-label="Export .loft (the editable feature tree, for any Loft)"
-        aria-busy={busy}
-        disabled={busy}
-        data-testid={`${testIdPrefix}-loft`}
-        onClick={() => void run()}
-      />
-    </div>
+    <button
+      type="button"
+      aria-label="Export .loft (the editable feature tree, for any Loft)"
+      aria-busy={busy}
+      disabled={busy}
+      title={failed ? "The .loft file could not be written; retry" : undefined}
+      data-testid={`${testIdPrefix}-loft`}
+      data-failed={failed || undefined}
+      onClick={() => void run()}
+      className={`ml-auto shrink-0 font-display text-2xs uppercase tracking-[0.14em] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass ${
+        failed ? "text-flag" : "text-brass"
+      }`}
+    >
+      {busy ? "Writing…" : failed ? ".loft failed" : "Save .loft"}
+    </button>
   );
 }

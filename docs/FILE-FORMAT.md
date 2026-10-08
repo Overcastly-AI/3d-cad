@@ -14,7 +14,7 @@ Code: `packages/loft-wire/src/loft_wire/loft_file.py` (the format),
 | Where       | Export                                    | Import                                      |
 | ----------- | ----------------------------------------- | ------------------------------------------- |
 | Gateway     | `GET /api/v1/parts/{id}/export.loft`      | `POST /api/v1/parts/import` (raw body)      |
-| Web         | Export strip, `.LOFT` cell                | Create band, `Open .loft`                   |
+| Web         | Export strip, `Save .loft` link           | Parts register top bar, `Open .loft`        |
 | loft-script | `part.save("bracket.loft")`               | `session.open("bracket.loft")`              |
 | Offline     |                                           | `loft.open("bracket.loft")` (read only)     |
 

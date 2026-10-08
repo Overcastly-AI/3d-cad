@@ -8,7 +8,7 @@ import { createPartViaApi, seedSession } from "./support";
 
 /**
  * THE .LOFT ROUND TRIP, in the browser (docs/FILE-FORMAT.md): Export .loft from
- * the part's export strip, Open .loft from the Create band, and land on a NEW
+ * the part's export strip, Open .loft from the parts register, and land on a NEW
  * part whose tree.json is identical to the one that was written and whose
  * rebuilt volume matches the volume the file recorded.
  *
@@ -119,16 +119,20 @@ test.describe(".loft export and import", () => {
     const volume = manifest.cache.properties.volume_mm3;
     expect(volume).toBeCloseTo(8000, 6);
 
+    await page.goto("/");
+    await expect(page.getByTestId("import-loft-button")).toBeEnabled();
     await page.getByTestId("import-loft-input").setInputFiles({
       name: exported.name,
       mimeType: "application/octet-stream",
       buffer: exported.bytes,
     });
 
-    // A NEW part, opened in place of this one.
-    await page.waitForURL((url) => !url.pathname.endsWith(partId), {
-      timeout: 30_000,
-    });
+    // A NEW part, opened from the register.
+    await page.waitForURL(
+      (url) =>
+        /^\/parts\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith(partId),
+      { timeout: 30_000 },
+    );
     const copyId = new URL(page.url()).pathname.split("/").pop()!;
     expect(copyId).not.toBe(partId);
     await expect(page.getByTestId("feature-row")).toHaveCount(2, {

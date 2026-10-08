@@ -1,20 +1,13 @@
 /**
- * Entering a sketch, importing a STEP body or a `.loft` part, and toggling
- * Measure. Split out of `PartPage.tsx` (SPLIT-PARTPAGE).
+ * Entering a sketch, importing a STEP body and toggling Measure.
+ * Split out of `PartPage.tsx` (SPLIT-PARTPAGE); behaviour unchanged.
  */
 
-import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 
 import { useMeasureStore } from "../../measure/store";
-import { importLoftFile } from "../../api/importLoft";
 import { importStep } from "../../api/parts";
 import { precheckStepFile, stepFeatureName } from "../../features/import";
-import {
-  precheckLoftFile,
-  useLoftImportNotice,
-} from "../../features/loftImport";
 import type { PartDocument } from "./usePartDocument";
 import type { SketchPersistence } from "./useSketchPersistence";
 import type { EditorSeat } from "./useEditorSeat";
@@ -116,47 +109,6 @@ export function useWorkspaceActions({
     ],
   );
 
-  // .loft import: the file becomes a NEW part (docs/FILE-FORMAT.md), so on
-  // success the workspace moves to it; the server's warnings ride across in
-  // `useLoftImportNotice` and show on the page it lands on. A refusal is the
-  // server's own envelope message, in the same Import-failed card STEP uses.
-  const queryClient = useQueryClient();
-  const navigate = useNavigate();
-  const [importingLoft, setImportingLoft] = useState(false);
-  const handleImportLoft = useCallback(
-    (file: File) => {
-      setImportError(null);
-      const preError = precheckLoftFile(file);
-      if (preError !== null) {
-        setImportError(preError);
-        return;
-      }
-      setImportingLoft(true);
-      void (async () => {
-        try {
-          const response = await importLoftFile(await file.arrayBuffer());
-          useLoftImportNotice
-            .getState()
-            .show(response.part.id, response.warnings ?? []);
-          await queryClient.invalidateQueries({ queryKey: ["parts"] });
-          await navigate({
-            to: "/parts/$partId",
-            params: { partId: response.part.id },
-          });
-        } catch (error) {
-          setImportError(
-            error instanceof Error
-              ? error.message
-              : "The .loft file could not be imported.",
-          );
-        } finally {
-          setImportingLoft(false);
-        }
-      })();
-    },
-    [queryClient, navigate],
-  );
-
   /** Toggle the Measure tool; arming it drops any open feature editor. */
   const toggleMeasure = useCallback(() => {
     const store = useMeasureStore.getState();
@@ -168,13 +120,7 @@ export function useWorkspaceActions({
     setSelectedFeatureId(null);
     store.activate();
   }, []);
-  return {
-    handleNewSketch,
-    handleImportStep,
-    handleImportLoft,
-    importingLoft,
-    toggleMeasure,
-  };
+  return { handleNewSketch, handleImportStep, toggleMeasure };
 }
 
 export type WorkspaceActions = ReturnType<typeof useWorkspaceActions>;
