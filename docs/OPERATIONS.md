@@ -113,6 +113,43 @@ pre-upgrade backup with the old tag's images.
   Fully constrain these sketches, so the constraints alone fix the geometry.
   Re-check any downstream feature that depends on them.
 
+- **History names for old picks (DESIGN-INTENT-BACKFILL, migration 0016).**
+  Parts saved before 2026-10-01 (and Hole rim picks made before HOLE-NAMES,
+  and old `.loft` imports) store picked faces and edges without the history
+  names that let a size edit carry them along (docs/RESEARCH.md §14). After
+  the upgrade each such part is named **automatically, the first time it is
+  opened**: the gateway rebuilds it once in the background (a cold rebuild,
+  after the user's own evaluate has answered), and documents writes a name
+  only for a pick that still matches its stored geometry exactly at the part's
+  current sizes. Nothing geometric changes: the part rebuilds byte for byte,
+  the edit history gains no step, and `updated_at` does not move.
+  `tree_version` goes up by one, so an editor open on an old tab re-syncs
+  once. A pick that no longer matches exactly (the part was edited after the
+  pick) is left unnamed; re-pick it if a size edit loses it.
+  - **Back up first** (as for every upgrade). The write is journaled in
+    `ref_name_backfills` (params before and after, geometry's report and
+    build), so one part can be reverted, but a backup is the only undo for
+    everything.
+  - **Optional sweep** for parts nobody opens. Preview, then run:
+
+    ```bash
+    docker compose run --rm gateway python -m gateway.ref_backfill --dry-run
+    docker compose run --rm gateway python -m gateway.ref_backfill --limit 500
+    ```
+
+    It prints one line per part (`written`, `unchanged`, `stale`,
+    `not_needed` or `failed`, with counts per outcome) and exits non-zero if
+    any part failed. `--part ID` forces one part, even one already checked.
+    Each part costs one cold rebuild on a geometry worker, so run big sweeps
+    off-hours. A `stale` part was edited while it ran and is retried on the
+    next run or open.
+  - **Revert one part:**
+    `docker compose run --rm gateway python -m gateway.ref_backfill --revert PART`
+    restores each feature the last write touched, if it has not been edited
+    since, and leaves the part marked checked.
+  - A downgrade below 0016 drops the journal and the pending marker, and
+    keeps the names: they are valid params in every earlier version.
+
 ## 6. Sizing
 
 Three facts drive sizing:
@@ -215,3 +252,11 @@ scrape_configs:
 - `loft_step_import_duration_seconds{outcome}` and
   `loft_step_import_refusals_total{reason}`: a refusal means a resource
   limit was hit, not that the input was bad.
+- The history-name backfill (§5): `loft_ref_backfill_runs_total{trigger,result}`
+  (gateway; `trigger` is `open` or `sweep`), `loft_ref_backfill_writes_total{result}`
+  (documents; `stale` means an edit won the race and the part is retried) and
+  `loft_ref_backfill_refs_total{outcome}` (geometry; only `named` writes
+  anything, and `not_exact:*`, `unresolved` or `ambiguous` are picks a user
+  may need to re-pick). Once the old parts are done, `written` stops moving;
+  `not_needed` keeps counting opens of parts whose leftover picks cannot be
+  named (an imported body, a pick edited before the upgrade).
