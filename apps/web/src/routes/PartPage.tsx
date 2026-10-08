@@ -36,6 +36,7 @@ import {
   DraftRestoredNote,
   BodyNotices,
   ActionNotices,
+  LoftImportNotice,
 } from "./part/WorkspaceNotices";
 import { InspectorRail, FeatureTreeRail } from "./part/PartSidePanels";
 import { PartViewportLayers } from "./part/PartViewportLayers";
@@ -1052,6 +1053,7 @@ export function PartPage() {
                     actionFlags={actionFlags}
                     timelineHistory={timelineHistory}
                   />
+                  <LoftImportNotice partId={partId} />
                   {/* The regeneration / rebuild / partial-body notices take the
                     SAME seat the feature editors do, so they dock the same way
                     — otherwise FB-7 would have been fixed for one surface and

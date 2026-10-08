@@ -389,3 +389,29 @@ describe("CreateStrip — the next-step announcement", () => {
     expect(said()).toBe("true");
   });
 });
+
+describe("CreateStrip — open .loft", () => {
+  it("hands the chosen file to onImportLoft, whatever the body state", () => {
+    const onImportLoft = vi.fn();
+    renderStrip({ onImportLoft, canImportStep: false });
+    expect(screen.getByTestId("import-loft-button")).toBeEnabled();
+    const file = new File(["PK"], "bracket.loft");
+    fireEvent.change(screen.getByTestId("import-loft-input"), {
+      target: { files: [file] },
+    });
+    expect(onImportLoft).toHaveBeenCalledWith(file);
+  });
+
+  it("is inert while an import is in flight, and absent without a handler", () => {
+    renderStrip({ onImportLoft: vi.fn(), importingLoft: true });
+    expect(screen.getByTestId("import-loft-button")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
+  it("is not rendered without a handler", () => {
+    renderStrip();
+    expect(screen.queryByTestId("import-loft-button")).toBeNull();
+  });
+});

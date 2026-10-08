@@ -7,6 +7,7 @@ import { type FeatureResponse } from "../../api/parts";
 import { RailDock } from "../../components/ChromeRail";
 import { partialBodySentence } from "../../features/partBuild";
 import { HistoryErrorAlert } from "../../components/HistoryErrorAlert";
+import { useLoftImportNotice } from "../../features/loftImport";
 import { draftAge } from "../sketchDraft";
 import type { ActionFlags } from "./useActionFlags";
 import type { TimelineHistory } from "./useTimelineHistory";
@@ -331,5 +332,44 @@ export function TreeActionErrorNote({
         </div>
       ) : null}
     </>
+  );
+}
+
+/**
+ * What a `.loft` import noticed without refusing (docs/FILE-FORMAT.md): a
+ * hand-edited tree, a rebuilt volume that differs from the file's, features
+ * that failed to rebuild. Shown on the part the import CREATED — the store
+ * carries the warnings across the navigation — until dismissed.
+ */
+export function LoftImportNotice({ partId }: { partId: string }) {
+  const notice = useLoftImportNotice();
+  if (notice.partId !== partId || notice.warnings.length === 0) return null;
+  return (
+    <div
+      role="alert"
+      data-testid="loft-import-warnings"
+      className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+    >
+      <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+        Imported with warnings
+      </span>
+      {notice.warnings.map((warning) => (
+        <span
+          key={warning.code}
+          data-warning-code={warning.code}
+          className="mt-1 block font-body text-xs text-mist"
+        >
+          {warning.message}
+        </span>
+      ))}
+      <button
+        type="button"
+        onClick={notice.dismiss}
+        data-testid="loft-import-dismiss"
+        className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+      >
+        Dismiss
+      </button>
+    </div>
   );
 }

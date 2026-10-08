@@ -1,6 +1,11 @@
-import { PanelActionCell } from "@loft/design";
+import { PanelActionCell, StockIcon } from "@loft/design";
+import { useState } from "react";
 
-import { type ExportedFile, type ExportFormat } from "../api/exportPart";
+import {
+  downloadBlob,
+  type ExportedFile,
+  type ExportFormat,
+} from "../api/exportPart";
 import {
   EXPORT_FORMATS,
   type ExportFormatEntry,
@@ -48,6 +53,13 @@ export interface ExportRowProps {
    * than the sentence it produced.
    */
   state?: string;
+  /**
+   * Writes the part as a `.loft` file (docs/FILE-FORMAT.md) — the parametric
+   * tree, not a body, so the cell stays live when the formats above are
+   * blocked (a sketch-only tree is still worth saving). Omit it (the box
+   * demo) and the row has no `.loft` cell.
+   */
+  loftExporter?: () => Promise<ExportedFile>;
 }
 
 /**
@@ -76,6 +88,7 @@ export function ExportRow({
   statusLabel,
   notice = null,
   state,
+  loftExporter,
 }: ExportRowProps) {
   // The band's state machine, not a copy of it: one download path and one
   // table of failure copy for both export surfaces (MESH-TOO-DENSE-COPY-1).
@@ -141,6 +154,9 @@ export function ExportRow({
           ))}
         </div>
       ))}
+      {loftExporter !== undefined ? (
+        <LoftCell exporter={loftExporter} testIdPrefix={testIdPrefix} />
+      ) : null}
       {failure !== null ? (
         <p
           role="alert"
@@ -162,6 +178,54 @@ export function ExportRow({
           {notice.text}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The `.loft` cell: one full-width row under the format block. Its own busy /
+ * failed state, because it is not a format of the evaluated body and must not
+ * share the formats' gate.
+ */
+function LoftCell({
+  exporter,
+  testIdPrefix,
+}: {
+  exporter: () => Promise<ExportedFile>;
+  testIdPrefix: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      const { blob, filename } = await exporter();
+      downloadBlob(blob, filename);
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="grid grid-cols-1 border-t border-hairline">
+      <PanelActionCell
+        icon={<StockIcon />}
+        label=".LOFT"
+        caption={
+          busy
+            ? "Writing…"
+            : failed
+              ? "Failed — check the gateway, then retry"
+              : "Parametric tree"
+        }
+        aria-label="Export .loft (the editable feature tree, for any Loft)"
+        aria-busy={busy}
+        disabled={busy}
+        data-testid={`${testIdPrefix}-loft`}
+        onClick={() => void run()}
+      />
     </div>
   );
 }

@@ -103,6 +103,14 @@ export interface CreateStripProps {
   importingStep?: boolean;
   /** Bring an external solid in as the base body from a chosen `.step`/`.stp`. */
   onImportStep?: (file: File) => void;
+  /**
+   * Open a chosen `.loft` file as a NEW part (docs/FILE-FORMAT.md). Unlike a
+   * STEP import it never touches the current part, so it needs no body gate —
+   * only a loaded tree and no open command.
+   */
+  onImportLoft?: (file: File) => void;
+  /** A `.loft` import is in flight (button disabled, caption says so). */
+  importingLoft?: boolean;
   /** Author a standalone datum (construction) plane the tree can reuse. */
   onNewDatum?: () => void;
   /** True when a solved sketch exists to extrude. */
@@ -423,6 +431,8 @@ export function CreateStrip({
   canImportStep = false,
   importingStep = false,
   onImportStep,
+  onImportLoft,
+  importingLoft = false,
   onNewDatum,
   canExtrude,
   onNewExtrude,
@@ -471,6 +481,9 @@ export function CreateStrip({
   nextStep = null,
 }: CreateStripProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
+  const loftInputRef = useRef<HTMLInputElement>(null);
+  const loftReady =
+    treeReady && !importingStep && !importingLoft && onImportLoft !== undefined;
   const importReady =
     treeReady && canImportStep && !importingStep && onImportStep !== undefined;
   // The open editor publishes its submit gate here; the OK cell shows its true
@@ -687,6 +700,23 @@ export function CreateStrip({
         }}
       />
 
+      <input
+        ref={loftInputRef}
+        type="file"
+        accept=".loft"
+        data-testid="import-loft-input"
+        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file !== undefined && onImportLoft !== undefined) {
+            onImportLoft(file);
+          }
+        }}
+      />
+
       {/* In-command state: the band recedes to the active command + OK/Cancel.
           The tool groups below stay in the DOM (a11y tree + still locked) but
           fall out of the visual band, so it reads "you are inside <command>". */}
@@ -796,6 +826,20 @@ export function CreateStrip({
             disabled={locked || !importReady}
             onClick={() => importInputRef.current?.click()}
           />
+          {onImportLoft !== undefined ? (
+            <ToolButton
+              icon={<VerbGlyph verb="import_step" />}
+              label="Open .loft"
+              data-testid="import-loft-button"
+              aria-label="Open .loft — import a Loft file as a new part"
+              caption={captionFor(
+                loftReady,
+                importingLoft ? "Opening…" : "Import unavailable",
+              )}
+              disabled={locked || !loftReady}
+              onClick={() => loftInputRef.current?.click()}
+            />
+          ) : null}
           <ToolButton
             icon={<VerbGlyph verb="sketch" />}
             showLabel

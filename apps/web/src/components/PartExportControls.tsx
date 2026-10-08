@@ -1,3 +1,4 @@
+import { exportPartLoft } from "../api/exportPart";
 import { partExportBinding } from "../features/partExport";
 import type { PartBuild } from "../features/partBuild";
 import { ExportRow } from "./ExportRow";
@@ -50,6 +51,7 @@ export function PartExportControls({ partId, build }: PartExportControlsProps) {
             }
       }
       state={gate.state}
+      loftExporter={() => exportPartLoft(partId)}
     />
   );
 }
