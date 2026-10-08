@@ -485,7 +485,8 @@ rebuild-cache fork face for face.
 
 **Scope.** Step 1 hooks extrude, draft, fillet and chamfer. Revolve, loft,
 pattern, mirror, shell offsets, sheet metal and `clean_shape` history are
-steps 2-3 (BACKLOG DESIGN-INTENT-REFS). Old selectors are not backfilled.
+steps 2-3 (BACKLOG DESIGN-INTENT-REFS). Old selectors are backfilled once,
+exact matches only ("Backfill" below).
 
 **Step 2 (impeller, 2026-10-01).** Revolve and loft sides are named like an
 extrude's, from the profile edge's sketch entity (a loft's from its first
@@ -778,6 +779,47 @@ unchanged: the counterbore's outer floor edge is another role and so another
 name, a counterbore retyped to a pocket has no `cbore_floor` and refuses, and
 every unnamed control refuses. Names are metadata: all goldens' GLB and
 metadata are byte-identical.
+
+**Backfill (DESIGN-INTENT-BACKFILL, 2026-10-08).** Picks stored before names
+existed (parts saved before 2026-10-01, Hole rims picked before HOLE-NAMES,
+old `.loft` imports) still lost the QA edits. Fusion 360 and SolidWorks have
+no such pass because their references were always history-based; the closest
+practice is "rebuild, then repair references while the model still matches",
+and that is the rule here. Each unnamed pick gets the fields a pick made
+TODAY would store, computed by the pick side's own code (`face_names[i]`,
+`edge_names(runs=False)`, `EdgeEnds.at`), on a cold rebuild of the whole
+tree at the part's CURRENT sizes (`POST /api/v1/ref-names`,
+`geometry/features/ref_backfill.py`), and only when:
+- the strict tier alone matches exactly one subshape. A pick that resolves
+  only through the durable, adjacent or named tiers was made on another
+  version of the part; which subshape it meant is a guess, and a stored name
+  would turn that guess into the answer every later edit trusts. So it is
+  reported (`not_exact:<tier>`, `unresolved`, `ambiguous`) and left unnamed;
+- the round trip holds: the name alone pins the same subshape (`IsSame`,
+  aliases included), and the production resolver given the named signature
+  answers `exact` on it. Otherwise `name_not_unique`.
+
+Adjacent-face and `end_a` names ride along only where they too are unique.
+The pass runs from feature 0 with an observer called just before each
+feature is dispatched, so it sees exactly the body and names that feature's
+resolvers see; it neither reads nor writes the rebuild cache (a resumed
+rebuild has lost the bodies before the cached prefix). Documents writes under
+the part-row lock, only into null fields, only while the report's
+`tree_version` and each pick's signature digest still match, amends the head
+history snapshot instead of adding an undo step, and journals the write.
+It does NOT bump `tree_version`: the write lands in the background while the
+engineer edits, and a bump refused their next save as stale (e2e lane on
+67c5dc4). Names cannot change the body at the sizes they were computed at and
+every geometry cache keys on params, so no reader needs the bump; the one
+risk, an editor saving params it read before the write, is closed by the
+feature PATCH copying the names THE BACKFILL WROTE (read from its journal,
+never from the stored row) back onto any pick whose signature is unchanged
+(`carry_ref_names`). Any other name stays the client's to keep or drop.
+At unchanged sizes the exact tier answers before the name is read, so the
+named part rebuilds byte for byte (bracket, enclosure, impeller and lip in
+`tests/test_ref_backfill.py`); after the backfill the four hard-parts edits
+rebuild to the freshly picked part's bytes, and without it they still fail.
+Mates and drawing anchors have no named tier and are not backfilled.
 
 ## 15. Rebuild cost: one whole-body boolean per question
 

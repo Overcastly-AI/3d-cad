@@ -123,6 +123,9 @@ commits carry the ID (`git log --grep=<ID>`).
       pick while it still resolves exactly at the part's current sizes; the
       three hard-parts edits then rebuild on the QA's saved parts.
 
+- [ ] **LOFT-VERSIONS** (.loft step 2): named part versions (author display name, message, time) in a never-pruned `part_versions` table, restorable through history_core, and written into `.loft` `versions/`. Plan: scratchpad plan "loft-file-format" step 2 and docs/FILE-FORMAT.md. Migration number after DESIGN-INTENT-BACKFILL's 0016. _Accept:_ save, list and restore a named version in the app and loft-script; versions round-trip through `.loft`.
+- [ ] **DUPLICATE-MATERIALS** (wrong data): `duplicate_part` keeps per-body material overrides pointing at the source's feature ids, so a copy shows the default material and the wrong mass. Fix committed in a worktree (f328528, documents only) but not pushed: its rebase was refused by the session's permission check, awaiting the founder. _Accept:_ a copy's overrides point at its own features; the reported mass equals the source's.
+
 ## Next
 
 - [ ] **FILLET-PARTIAL-RESOLVE**: when some of a fillet's picked edges no
@@ -460,3 +463,11 @@ One line each. The founder triages weekly; most are closed without work.
 - SHELL-SHARP-DEFAULT (433f521): add the reviewer's 4-process sharp-bytes run as test_shell_determinism cases; sharp skips canonical face ordering (stable by OCCT behaviour, not code); the concave-edge analysis runs in-process, off the budget (0.7 s on a 906-face lid); a failing sharp shell says only `shell_failed`, and should suggest Rounded.
 - EDGE-REF-CONCENTRIC (8e34dae) over-refusal (typed, tree kept): Hole rims on resize (Hole naming in progress); circles on unnamed ops (import, boolean tools, unnamed sweep/loft, patterned holes). The name guard keeps unnamed candidates, so one differently named plus one unnamed candidate now resolves to the unnamed one (was ambiguous; untested). `_same_radius` uses 1e-6 mm on a circumcentre radius.
 - SKETCH-PROJECT-EDGES step 2 (3203624): `_current_a` trusts canonical_endpoints' exact order (a near-tie on a rotated part could swap a line's ends); `_a_slot_is_start` could swap ends if the datum rotates more than 90 deg; projection uses active_body, not the ref's feature_id (multi-body parts). LIP-SEAM-UNIFY: a lip flush with shell walls leaves a seam (34 faces vs 19). Suppressing a projection's anchor fails the sketch `references_suppressed`; Fusion marks it sick.
+- Fixed: HOLE-NAMES (4c40414). Hole faces are named `<hole>:hole:0:<role>`, so rim picks follow a diameter change. `hole_names`' instance parameter is dead until multi-point holes exist; whoever adds them must define a stable per-point index.
+- Shipped: `.loft` step 1 (493f411..ad9382f; spec docs/FILE-FORMAT.md). "Open .loft" is in the parts register, "Save .loft" on the export strip status line.
+- `.loft`: keeping ids gives a cross-tenant existence oracle (a re-mint reveals that a uuid exists); low risk, since uuid4 cannot be guessed.
+- `.loft`: the golden is byte-exact against zlib 1.3, so a zlib-ng build fails it (the test explains why). Export reads the tree and the evaluation request separately; a stale cache gives an import warning. The import error text is truncated (full text in the title attribute).
+- `assemblies.py:306`: assembly evaluation fetches a referenced part without an owner check; reachable only through a dangling reference (normally prevented by the delete-with-dependents 409). Add the check.
+- DESIGN-INTENT-BACKFILL: mates and drawing dimension anchors are not backfilled (no named tier to feed); a failed or stale run backs off (10 min, 1 h) and gives up after three; the on-open run costs one cold rebuild on the modeller's own geometry worker, and their next request may queue behind it; the QA dry run on real saved parts was not run in the sandbox (no QA database).
+- DESIGN-INTENT-BACKFILL: names lost after the write by undo/redo to a pre-backfill snapshot are never retried (a stale editor save keeps them: the PATCH carries stored names onto unchanged picks), since the part stays checked; only `--part` names them again.
+- DESIGN-INTENT-BACKFILL: an open triggers only on unnamed picks in the evaluated prefix, so unnamed picks past the rollback bar are left to the sweep.

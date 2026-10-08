@@ -549,6 +549,12 @@ def _climb_rung(
     )
 
 
+#: A READ-ONLY look at each feature and the state it is about to be dispatched
+#: on, i.e. the body its picks resolve against (DESIGN-INTENT-BACKFILL,
+#: :mod:`geometry.features.ref_backfill`).
+RefObserver = Callable[[EvaluatedFeatureInput, EvaluationState], None]
+
+
 def _dispatch_prefix(
     features: Sequence[EvaluatedFeatureInput],
     state: EvaluationState,
@@ -557,8 +563,9 @@ def _dispatch_prefix(
     last_good_feature_id: uuid.UUID | None,
     *,
     offset: int,
-    ladder: _Ladder,
+    ladder: _Ladder | None,
     stop: Callable[[], bool] | None = None,
+    observer: RefObserver | None = None,
 ) -> tuple[uuid.UUID | None, bool, int]:
     """The ordered dispatch pass (§4.2/§4.3), shared by evaluate and warm.
 
@@ -574,6 +581,9 @@ def _dispatch_prefix(
     *offset* is the absolute index of ``features[0]`` in the request, because the
     ladder rungs sit at ABSOLUTE positions (:func:`_climb_rung`): a pass that
     resumed at 37 must fork after feature 40 exactly as a cold pass does.
+    A ``None`` *ladder* climbs no rung: the pass neither reads nor writes the
+    rebuild cache (:func:`dispatch_cold`), and only such a pass passes an
+    *observer* (:func:`_dispatch_one`).
     """
     failed = False
     consumed = 0
@@ -584,14 +594,14 @@ def _dispatch_prefix(
         if failed:
             results.append(FeatureResult(feature_id=item.id, status="skipped"))
             continue
-        _dispatch_one(item, state, results, suppressed_ids)
+        _dispatch_one(item, state, results, suppressed_ids, observer)
         if results[-1].status == "error":
             failed = True
             continue
         if results[-1].status == "ok":
             last_good_feature_id = item.id
         position = offset + consumed
-        if position % _REBUILD_CACHE.rung_spacing == 0:
+        if ladder is not None and position % _REBUILD_CACHE.rung_spacing == 0:
             _climb_rung(
                 position, state, results, suppressed_ids, last_good_feature_id, ladder
             )
@@ -603,6 +613,7 @@ def _dispatch_one(
     state: EvaluationState,
     results: list[FeatureResult],
     suppressed_ids: set[uuid.UUID],
+    observer: RefObserver | None = None,
 ) -> None:
     """Evaluate ONE feature into *state*, appending exactly one result.
 
@@ -628,6 +639,11 @@ def _dispatch_one(
     # success — a feature that failed has no body built on its references, and its
     # error already says so.
     state.subshape_tally = ResolutionTally()
+    if observer is not None:
+        # The backfill's observer (DESIGN-INTENT-BACKFILL): it sees exactly the
+        # body and names this feature's resolvers are about to see, and writes
+        # nothing to the state.
+        observer(item, state)
     error = _dispatch(item, state)
     if error is None:
         results.append(
@@ -926,6 +942,39 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
     """
     with live_work().tracked():
         return _evaluate_tree(request)
+
+
+def dispatch_cold(
+    request: EvaluateTreeRequest, observer: RefObserver
+) -> list[FeatureResult]:
+    """Dispatch *request* from feature 0 with *observer* looking at each
+    feature, and return the per-feature results (DESIGN-INTENT-BACKFILL).
+
+    COLD AND CACHE-FREE on purpose: the rebuild cache hands a resumed rebuild
+    the state AFTER the cached prefix, so the body each earlier feature
+    resolved its picks against is gone; and a pass with an observer must
+    not seed the cache a real evaluate resumes from. The same dispatch
+    (:func:`_dispatch_prefix`, :func:`_dispatch_one`) as every evaluation,
+    so the strict-prefix and suppress rules are the evaluator's own. Nothing
+    is tessellated or published.
+    """
+    with live_work().tracked():
+        state = EvaluationState(
+            linear_deflection=request.linear_deflection,
+            tool_scope_ids=_tool_scope_ids(request),
+        )
+        results: list[FeatureResult] = []
+        _dispatch_prefix(
+            request.features,
+            state,
+            results,
+            set(),
+            None,
+            offset=0,
+            ladder=None,
+            observer=observer,
+        )
+        return results
 
 
 def _evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:

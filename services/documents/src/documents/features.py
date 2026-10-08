@@ -45,6 +45,7 @@ from loft_wire.features import (
 )
 from loft_wire.materials import MaterialAssignment
 from loft_wire.parts import EVALUATE_BEFORE_DESCRIPTION
+from loft_wire.ref_names import carry_ref_names
 from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
 from py_kit.db import SessionDep
 from sqlalchemy import delete, select, update
@@ -52,6 +53,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db, history
 from documents.parts import Principal, get_owned_part, section_view_feature_refs
+from documents.ref_backfill import backfill_written_params
 
 _logger = get_logger("documents.features")
 
@@ -482,8 +484,18 @@ async def update_feature(
         target_ids = validate_references(
             request.feature, feature.order_index, features_by_id
         )
+        incoming = request.feature.params.model_dump(mode="json")
+        # A save from a tree read before a background history-name write
+        # (DESIGN-INTENT-BACKFILL, which does not bump tree_version) keeps the
+        # names THAT WRITE gave every pick it did not change. The source is
+        # the backfill's own journal, never the stored row: a name that came
+        # from anywhere else (a fresh pick) is the client's to keep or drop,
+        # and a stored row that no longer loads is never read here.
+        written = await backfill_written_params(session, part.id, feature.id)
         feature.param_version = request.feature.version
-        feature.params = request.feature.params.model_dump(mode="json")
+        feature.params = (
+            incoming if written is None else carry_ref_names(written, incoming)
+        )
         # The envelope carries `suppressed`; a params replace persists it too so
         # an update never resets the flag (the dedicated toggle is the usual
         # path, but a full-envelope PATCH must round-trip it — feature-tree §4.3a).

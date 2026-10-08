@@ -517,6 +517,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ref-names": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ref Names
+         * @description History names for a tree's stored picks that lack them
+         *     (DESIGN-INTENT-BACKFILL; RESEARCH §14, "Backfill").
+         *
+         *     Rebuilds the WHOLE request cold, without reading or writing the rebuild
+         *     cache, and reports one outcome per stored face or edge reference. A name
+         *     is reported only for a reference the strict signature tier matches to
+         *     exactly one subshape whose name alone pins it back (the round trip);
+         *     never from the durable, adjacent or named tiers. Stateless and read-only:
+         *     documents decides whether to write, under its part-row lock.
+         */
+        post: operations["ref_names_api_v1_ref_names_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sketch/chamfer": {
         parameters: {
             query?: never;
@@ -5882,6 +5910,67 @@ export interface components {
             type: "radius";
         };
         /**
+         * RefNameOutcome
+         * @description What the backfill found for ONE stored subshape reference.
+         */
+        RefNameOutcome: {
+            /**
+             * Adjacent Topo Names
+             * @description Edge only, when the stored signature carries adjacent_faces: each adjacent face's name, aligned with them.
+             */
+            adjacent_topo_names?: (string | null)[] | null;
+            /**
+             * End A Topo Name
+             * @description Edge only: the name of the one face the edge ends on at end_a, where the pick side would stamp one.
+             */
+            end_a_topo_name?: string | null;
+            /**
+             * Feature Id
+             * Format: uuid
+             */
+            feature_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "face" | "edge";
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "named" | "already_named" | "not_exact:durable" | "not_exact:adjacent" | "not_exact:named" | "unresolved" | "ambiguous" | "no_name" | "name_not_unique" | "not_evaluated";
+            /**
+             * Path
+             * @description JSON pointer (RFC 6901) to the reference inside the feature's params, e.g. `/edges/refs/0` or `/entities/3/projection/edge`.
+             */
+            path: string;
+            /**
+             * Signature Sha256
+             * @description signature_digest() of the stored signature the outcome was computed for. Documents writes a name only while the stored signature still has this digest.
+             */
+            signature_sha256: string;
+            /**
+             * Topo Name
+             * @description The subshape's history name (only on `named`).
+             */
+            topo_name?: string | null;
+        };
+        /**
+         * RefNamesReport
+         * @description Geometry's answer for one tree: one outcome per stored subshape ref.
+         */
+        RefNamesReport: {
+            /**
+             * Kernel
+             * @description The geometry build that computed the names (journaled).
+             */
+            kernel: string;
+            /** Outcomes */
+            outcomes: components["schemas"]["RefNameOutcome"][];
+            /** Tree Version */
+            tree_version: number;
+        };
+        /**
          * RevolveFeature
          * @description ``{"type": "revolve", "version": 1, "params": {...}}`` envelope.
          */
@@ -8430,6 +8519,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OverlayResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ref_names_api_v1_ref_names_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluateTreeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefNamesReport"];
                 };
             };
             /** @description Validation Error */

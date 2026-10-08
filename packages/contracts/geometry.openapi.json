@@ -6518,6 +6518,143 @@
         "title": "RadiusDimensionParams",
         "type": "object"
       },
+      "RefNameOutcome": {
+        "description": "What the backfill found for ONE stored subshape reference.",
+        "properties": {
+          "adjacent_topo_names": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Edge only, when the stored signature carries adjacent_faces: each adjacent face's name, aligned with them.",
+            "title": "Adjacent Topo Names"
+          },
+          "end_a_topo_name": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Edge only: the name of the one face the edge ends on at end_a, where the pick side would stamp one.",
+            "title": "End A Topo Name"
+          },
+          "feature_id": {
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "face",
+              "edge"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "named",
+              "already_named",
+              "not_exact:durable",
+              "not_exact:adjacent",
+              "not_exact:named",
+              "unresolved",
+              "ambiguous",
+              "no_name",
+              "name_not_unique",
+              "not_evaluated"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "path": {
+            "description": "JSON pointer (RFC 6901) to the reference inside the feature's params, e.g. `/edges/refs/0` or `/entities/3/projection/edge`.",
+            "title": "Path",
+            "type": "string"
+          },
+          "signature_sha256": {
+            "description": "signature_digest() of the stored signature the outcome was computed for. Documents writes a name only while the stored signature still has this digest.",
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Signature Sha256",
+            "type": "string"
+          },
+          "topo_name": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The subshape's history name (only on `named`).",
+            "title": "Topo Name"
+          }
+        },
+        "required": [
+          "feature_id",
+          "path",
+          "kind",
+          "signature_sha256",
+          "outcome"
+        ],
+        "title": "RefNameOutcome",
+        "type": "object"
+      },
+      "RefNamesReport": {
+        "description": "Geometry's answer for one tree: one outcome per stored subshape ref.",
+        "properties": {
+          "kernel": {
+            "description": "The geometry build that computed the names (journaled).",
+            "maxLength": 256,
+            "title": "Kernel",
+            "type": "string"
+          },
+          "outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/RefNameOutcome"
+            },
+            "title": "Outcomes",
+            "type": "array"
+          },
+          "tree_version": {
+            "minimum": 0.0,
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tree_version",
+          "kernel",
+          "outcomes"
+        ],
+        "title": "RefNamesReport",
+        "type": "object"
+      },
       "RevolveFeature": {
         "description": "``{\"type\": \"revolve\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -10056,6 +10193,48 @@
         "summary": "Overlay",
         "tags": [
           "geometry",
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/ref-names": {
+      "post": {
+        "description": "History names for a tree's stored picks that lack them\n(DESIGN-INTENT-BACKFILL; RESEARCH \u00a714, \"Backfill\").\n\nRebuilds the WHOLE request cold, without reading or writing the rebuild\ncache, and reports one outcome per stored face or edge reference. A name\nis reported only for a reference the strict signature tier matches to\nexactly one subshape whose name alone pins it back (the round trip);\nnever from the durable, adjacent or named tiers. Stateless and read-only:\ndocuments decides whether to write, under its part-row lock.",
+        "operationId": "ref_names_api_v1_ref_names_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluateTreeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefNamesReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ref Names",
+        "tags": [
           "geometry"
         ]
       }

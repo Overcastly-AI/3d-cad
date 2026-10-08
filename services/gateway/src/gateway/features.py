@@ -67,6 +67,7 @@ from gateway.auth import CurrentUser
 from gateway.db import User
 from gateway.parts import forward_documents
 from gateway.ratelimit import COMPUTE_RATE_LIMIT
+from gateway.ref_backfill import backfill_on_open, needs_backfill
 from gateway.upstream import raise_upstream_error
 
 _logger = get_logger("gateway.features")
@@ -386,6 +387,12 @@ async def evaluate_part(
         background_tasks.add_task(
             record_last_evaluation, http_request, user, part_id, result
         )
+        # DESIGN-INTENT-BACKFILL: a tree with a pick stored before history
+        # names gets them once, at its current sizes, after the response and
+        # after the verdict is recorded (tasks run in order). Never on a
+        # preview: its truncated tree is not the part.
+        if needs_backfill(evaluation_request):
+            background_tasks.add_task(backfill_on_open, http_request, user, part_id)
     return result
 
 

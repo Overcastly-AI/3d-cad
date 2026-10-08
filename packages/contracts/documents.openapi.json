@@ -5918,6 +5918,431 @@
         "title": "RadiusDimensionParams",
         "type": "object"
       },
+      "RefBackfillPart": {
+        "properties": {
+          "owner_id": {
+            "format": "uuid",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "part_id": {
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "ref_names_checked_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref Names Checked Version"
+          },
+          "tree_version": {
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "owner_id",
+          "tree_version",
+          "ref_names_checked_version"
+        ],
+        "title": "RefBackfillPart",
+        "type": "object"
+      },
+      "RefBackfillPartList": {
+        "properties": {
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/RefBackfillPart"
+            },
+            "title": "Parts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "parts"
+        ],
+        "title": "RefBackfillPartList",
+        "type": "object"
+      },
+      "RefNameOutcome": {
+        "description": "What the backfill found for ONE stored subshape reference.",
+        "properties": {
+          "adjacent_topo_names": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Edge only, when the stored signature carries adjacent_faces: each adjacent face's name, aligned with them.",
+            "title": "Adjacent Topo Names"
+          },
+          "end_a_topo_name": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Edge only: the name of the one face the edge ends on at end_a, where the pick side would stamp one.",
+            "title": "End A Topo Name"
+          },
+          "feature_id": {
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "face",
+              "edge"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "named",
+              "already_named",
+              "not_exact:durable",
+              "not_exact:adjacent",
+              "not_exact:named",
+              "unresolved",
+              "ambiguous",
+              "no_name",
+              "name_not_unique",
+              "not_evaluated"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "path": {
+            "description": "JSON pointer (RFC 6901) to the reference inside the feature's params, e.g. `/edges/refs/0` or `/entities/3/projection/edge`.",
+            "title": "Path",
+            "type": "string"
+          },
+          "signature_sha256": {
+            "description": "signature_digest() of the stored signature the outcome was computed for. Documents writes a name only while the stored signature still has this digest.",
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Signature Sha256",
+            "type": "string"
+          },
+          "topo_name": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The subshape's history name (only on `named`).",
+            "title": "Topo Name"
+          }
+        },
+        "required": [
+          "feature_id",
+          "path",
+          "kind",
+          "signature_sha256",
+          "outcome"
+        ],
+        "title": "RefNameOutcome",
+        "type": "object"
+      },
+      "RefNamesApplyRequest": {
+        "description": "Write a geometry report into the part (documents, part-row locked).",
+        "properties": {
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "report": {
+            "$ref": "#/components/schemas/RefNamesReport"
+          },
+          "tree_version": {
+            "description": "The tree_version the report was computed from.",
+            "minimum": 0.0,
+            "title": "Tree Version",
+            "type": "integer"
+          },
+          "trigger": {
+            "default": "open",
+            "enum": [
+              "open",
+              "sweep"
+            ],
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tree_version",
+          "report"
+        ],
+        "title": "RefNamesApplyRequest",
+        "type": "object"
+      },
+      "RefNamesApplyResult": {
+        "properties": {
+          "features_written": {
+            "default": 0,
+            "title": "Features Written",
+            "type": "integer"
+          },
+          "refs_already_named": {
+            "default": 0,
+            "title": "Refs Already Named",
+            "type": "integer"
+          },
+          "refs_signature_changed": {
+            "default": 0,
+            "title": "Refs Signature Changed",
+            "type": "integer"
+          },
+          "refs_written": {
+            "default": 0,
+            "title": "Refs Written",
+            "type": "integer"
+          },
+          "result": {
+            "enum": [
+              "written",
+              "unchanged",
+              "stale",
+              "dry_run"
+            ],
+            "title": "Result",
+            "type": "string"
+          },
+          "tree_version": {
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "result",
+          "tree_version"
+        ],
+        "title": "RefNamesApplyResult",
+        "type": "object"
+      },
+      "RefNamesFailure": {
+        "description": "The gateway reports a failed run, so documents can back off.",
+        "properties": {
+          "reason": {
+            "enum": [
+              "geometry_error",
+              "timeout",
+              "documents_error"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "tree_version": {
+            "minimum": 0.0,
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tree_version",
+          "reason"
+        ],
+        "title": "RefNamesFailure",
+        "type": "object"
+      },
+      "RefNamesFailureResult": {
+        "description": "``backoff``: retried on an open after ``next_try_at``; ``gave_up``:\nmarked checked after too many failures (only ``--part`` retries it);\n``ignored``: the part was already checked.",
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "next_try_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Try At"
+          },
+          "result": {
+            "enum": [
+              "backoff",
+              "gave_up",
+              "ignored"
+            ],
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result",
+          "attempts"
+        ],
+        "title": "RefNamesFailureResult",
+        "type": "object"
+      },
+      "RefNamesReport": {
+        "description": "Geometry's answer for one tree: one outcome per stored subshape ref.",
+        "properties": {
+          "kernel": {
+            "description": "The geometry build that computed the names (journaled).",
+            "maxLength": 256,
+            "title": "Kernel",
+            "type": "string"
+          },
+          "outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/RefNameOutcome"
+            },
+            "title": "Outcomes",
+            "type": "array"
+          },
+          "tree_version": {
+            "minimum": 0.0,
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tree_version",
+          "kernel",
+          "outcomes"
+        ],
+        "title": "RefNamesReport",
+        "type": "object"
+      },
+      "RefNamesRequestResponse": {
+        "description": "Documents' answer to \"does this part need a backfill, and of what\".",
+        "properties": {
+          "backoff_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set while a pending part is backing off after failed runs: an open does not retry it before then (the sweep does).",
+            "title": "Backoff Until"
+          },
+          "needed": {
+            "description": "True when the part has not been checked yet and some stored subshape reference has no topo_name.",
+            "title": "Needed",
+            "type": "boolean"
+          },
+          "ref_names_checked_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref Names Checked Version"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvaluateTreeRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The FULL tree (rollback bar ignored, params upcast) for geometry's cold rebuild; null when not needed."
+          },
+          "tree_version": {
+            "minimum": 0.0,
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "needed",
+          "tree_version",
+          "ref_names_checked_version"
+        ],
+        "title": "RefNamesRequestResponse",
+        "type": "object"
+      },
+      "RefNamesRevertResult": {
+        "properties": {
+          "detail": {
+            "default": "",
+            "description": "Why a revert was refused: the part was edited after the write, so later features may already rely on its names.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "features_restored": {
+            "default": 0,
+            "title": "Features Restored",
+            "type": "integer"
+          },
+          "features_skipped": {
+            "default": 0,
+            "title": "Features Skipped",
+            "type": "integer"
+          },
+          "result": {
+            "enum": [
+              "reverted",
+              "nothing_to_revert",
+              "refused"
+            ],
+            "title": "Result",
+            "type": "string"
+          },
+          "tree_version": {
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "result",
+          "tree_version"
+        ],
+        "title": "RefNamesRevertResult",
+        "type": "object"
+      },
       "RevolveFeature": {
         "description": "``{\"type\": \"revolve\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -12275,6 +12700,310 @@
         ]
       }
     },
+    "/api/v1/parts/{part_id}/ref-names": {
+      "post": {
+        "description": "Write a geometry report's names into the part, under the part-row lock\n(module docstring for every guard). ``dry_run`` runs every guard and\nreports what WOULD be written, writing nothing.",
+        "operationId": "apply_ref_names_route_api_v1_parts__part_id__ref_names_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefNamesApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefNamesApplyResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Ref Names Route",
+        "tags": [
+          "ref-backfill"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/ref-names-request": {
+      "get": {
+        "description": "Whether the part needs the backfill, and if so the tree geometry must\nrebuild: EVERY feature (the rollback bar is ignored, so picks past it are\nnamed too), params upcast, suppress flags kept (a suppressed feature\nresolves nothing and is reported ``not_evaluated``).",
+        "operationId": "get_ref_names_request_api_v1_parts__part_id__ref_names_request_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Build the request even if the part was checked.",
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Build the request even if the part was checked.",
+              "title": "Force",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Retry a pending part that is backing off (sweep).",
+            "in": "query",
+            "name": "ignore_backoff",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Retry a pending part that is backing off (sweep).",
+              "title": "Ignore Backoff",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefNamesRequestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Ref Names Request",
+        "tags": [
+          "ref-backfill"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/ref-names/failure": {
+      "post": {
+        "description": "The gateway reports a run that wrote nothing (geometry error, timeout,\nor a documents write that did not land): count it and back off.",
+        "operationId": "record_ref_names_failure_api_v1_parts__part_id__ref_names_failure_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefNamesFailure"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefNamesFailureResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Ref Names Failure",
+        "tags": [
+          "ref-backfill"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/ref-names/revert": {
+      "post": {
+        "description": "Undo the part's latest un-reverted backfill write (operator tool).\n\nRestores each touched feature's row exactly as it was stored before the\nwrite (``param_version`` and params), but only where the feature still\nholds what the backfill wrote; a feature edited since is skipped and\ncounted. Unlike the write it bumps ``tree_version`` (so a tab holding the\nnamed params cannot save them back unnoticed); the head snapshot is\namended, ``updated_at`` pinned, journaled. The part stays\nchecked, so it is not named again on the next open (force a sweep with\n``--part`` to redo it).",
+        "operationId": "revert_ref_names_api_v1_parts__part_id__ref_names_revert_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Revert even though the part was edited after the write. Later features may rely on the names: a fillet or shell can silently move to another subshape on the next size edit.",
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Revert even though the part was edited after the write. Later features may rely on the names: a fillet or shell can silently move to another subshape on the next size edit.",
+              "title": "Force",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefNamesRevertResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revert Ref Names",
+        "tags": [
+          "ref-backfill"
+        ]
+      }
+    },
     "/api/v1/parts/{part_id}/rollback": {
       "put": {
         "description": "Move the rollback bar (design \u00a73). Nothing below the bar is deleted or\nmutated; features after it are only MARKED rolled back.",
@@ -12416,6 +13145,81 @@
         "summary": "Undo",
         "tags": [
           "features"
+        ]
+      }
+    },
+    "/api/v1/ref-backfill/parts": {
+      "get": {
+        "description": "Parts for the operator sweep, oldest first, with their owners.",
+        "operationId": "list_backfill_parts_api_v1_ref_backfill_parts_get",
+        "parameters": [
+          {
+            "description": "Only parts never checked (the default).",
+            "in": "query",
+            "name": "pending",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Only parts never checked (the default).",
+              "title": "Pending",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "part_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Part Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 1000,
+              "maximum": 10000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefBackfillPartList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Backfill Parts",
+        "tags": [
+          "ref-backfill"
         ]
       }
     },

@@ -79,6 +79,7 @@ from loft_wire.geometry import (
 )
 from loft_wire.measure import MeasureRequest, MeasureResult
 from loft_wire.overlay import OverlayRequest, OverlayResult
+from loft_wire.ref_names import RefNamesReport
 from loft_wire.sketch import (
     Point2D,
     SketchEditRequest,
@@ -130,6 +131,7 @@ from geometry.drawings import (
 from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error
 from geometry.features.evaluate import tree_has_twist
+from geometry.features.ref_backfill import ref_names_report
 from geometry.kernel import (
     ImportNoSolidError,
     ImportParseError,
@@ -230,6 +232,24 @@ def evaluate(request: EvaluateTreeRequest) -> EvaluateTreeResult:
     stays reserved for transport/validation failures of this call itself.
     """
     return evaluate_tree(request).result
+
+
+@router.post(
+    "/ref-names",
+    dependencies=[ADMISSION_CONTROL],
+)
+def ref_names(request: EvaluateTreeRequest) -> RefNamesReport:
+    """History names for a tree's stored picks that lack them
+    (DESIGN-INTENT-BACKFILL; RESEARCH §14, "Backfill").
+
+    Rebuilds the WHOLE request cold, without reading or writing the rebuild
+    cache, and reports one outcome per stored face or edge reference. A name
+    is reported only for a reference the strict signature tier matches to
+    exactly one subshape whose name alone pins it back (the round trip);
+    never from the durable, adjacent or named tiers. Stateless and read-only:
+    documents decides whether to write, under its part-row lock.
+    """
+    return ref_names_report(request)
 
 
 @router.post("/warm")
