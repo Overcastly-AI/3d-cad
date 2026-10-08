@@ -123,7 +123,7 @@ commits carry the ID (`git log --grep=<ID>`).
       pick while it still resolves exactly at the part's current sizes; the
       three hard-parts edits then rebuild on the QA's saved parts.
 
-- [ ] **LOFT-VERSIONS** (.loft step 2; backend DONE: routes, migration 0017, loft-script, .loft 1.1; web UI still open): named part versions (author display name, message, time) in a never-pruned `part_versions` table, restorable through history_core, and written into `.loft` `versions/`. Plan: scratchpad plan "loft-file-format" step 2 and docs/FILE-FORMAT.md. Migration number after DESIGN-INTENT-BACKFILL's 0016. _Accept:_ save, list and restore a named version in the app and loft-script; versions round-trip through `.loft`.
+- [x] **LOFT-VERSIONS** (.loft step 2; backend DONE: routes, migration 0017, loft-script, .loft 1.1; web UI DONE in e108333, e2e/part-versions.spec.ts): named part versions (author display name, message, time) in a never-pruned `part_versions` table, restorable through history_core, and written into `.loft` `versions/`. Plan: scratchpad plan "loft-file-format" step 2 and docs/FILE-FORMAT.md. Migration number after DESIGN-INTENT-BACKFILL's 0016. _Accept:_ save, list and restore a named version in the app and loft-script; versions round-trip through `.loft`.
 - [x] **DUPLICATE-MATERIALS** (wrong data; fixed by cherry-picked 2bfe3f7): `duplicate_part` keeps per-body material overrides pointing at the source's feature ids, so a copy shows the default material and the wrong mass. Fix committed in a worktree (f328528, documents only) but not pushed: its rebase was refused by the session's permission check, awaiting the founder. _Accept:_ a copy's overrides point at its own features; the reported mass equals the source's.
 
 ## Next
@@ -347,6 +347,8 @@ One line each. The founder triages weekly; most are closed without work.
 - On SQLite, racing version saves give a 500 (unique seq) because FOR UPDATE is ignored (LOFT-VERSIONS review).
 - Accounts have no display name, so a version's author is an optional, unverified name the client sends; add an account display name and record that instead (LOFT-VERSIONS).
 - Restoring a version brings back features and the rollback bar but not the part's materials, so the mass can differ from the version's; restore materials too, undoably (LOFT-VERSIONS).
+- VERSIONS-SAVE-NULL-VERSION: usePartVersions.ts:118 sends `expected_tree_version: null` when the tree hasn't loaded, so the server skips the version check.
+- CTRL-S-OTHER-MODALS: Ctrl+S inside other modals (delete confirm, shortcut sheet) still opens the browser's Save page.
 - An aligned `point_distance` between two points drawn coincident reads `conflicting`: planegcs P2PDistance has no gradient at zero, so the solve cannot pull them apart (review of 564aa68).
 - An impossible pair of a point-line and an aligned point distance reads `diverged` with no constraint named, so the sketcher cannot flag which one to remove (review of 564aa68).
 
