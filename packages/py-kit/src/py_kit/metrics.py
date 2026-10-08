@@ -330,6 +330,55 @@ STEP_IMPORT_REFUSALS: Final = Counter(
 )
 
 
+# --- history-name backfill (DESIGN-INTENT-BACKFILL) -------------------------
+#
+# Three counters, one per service that owns a step of the backfill: geometry
+# counts what it found per stored pick, documents what it wrote per part, the
+# gateway how each run went. Every label is a closed vocabulary (outcome,
+# result, trigger), never a part id.
+
+REF_BACKFILL_REFS: Final = Counter(
+    "loft_ref_backfill_refs",
+    "Stored subshape references the history-name backfill examined, by outcome "
+    "(named, already_named, not_exact:<tier>, unresolved, ambiguous, no_name, "
+    "name_not_unique, not_evaluated). Only `named` writes anything.",
+    ("outcome",),
+    registry=REGISTRY,
+)
+
+REF_BACKFILL_WRITES: Final = Counter(
+    "loft_ref_backfill_writes",
+    "Backfill reports documents applied to a part, by result: written, "
+    "unchanged (nothing to name), stale (the tree moved since geometry ran; "
+    "nothing written, retried on the next open), dry_run, reverted.",
+    ("result",),
+    registry=REGISTRY,
+)
+
+REF_BACKFILL_RUNS: Final = Counter(
+    "loft_ref_backfill_runs",
+    "Backfill runs the gateway started, by trigger (open, sweep) and result "
+    "(written, unchanged, stale, dry_run, not_needed, failed).",
+    ("trigger", "result"),
+    registry=REGISTRY,
+)
+
+
+def record_ref_backfill_ref(outcome: str) -> None:
+    """Count one stored pick a backfill report covered (geometry)."""
+    REF_BACKFILL_REFS.labels(outcome=outcome).inc()
+
+
+def record_ref_backfill_write(result: str) -> None:
+    """Count one backfill report applied to a part (documents)."""
+    REF_BACKFILL_WRITES.labels(result=result).inc()
+
+
+def record_ref_backfill_run(trigger: str, result: str) -> None:
+    """Count one backfill run (gateway)."""
+    REF_BACKFILL_RUNS.labels(trigger=trigger, result=result).inc()
+
+
 # --- admission control ------------------------------------------------------
 #
 # The queue in front of the OCCT routes (:mod:`py_kit.admission`, docs/PERF.md
