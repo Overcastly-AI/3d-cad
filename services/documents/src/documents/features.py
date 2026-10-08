@@ -63,7 +63,7 @@ router = APIRouter(prefix="/api/v1/parts", tags=["features"])
 # --- shared plumbing --------------------------------------------------------------
 
 
-def _ensure_fresh(part: db.Part, expected_tree_version: int) -> None:
+def ensure_fresh(part: db.Part, expected_tree_version: int) -> None:
     """Optimistic-concurrency gate: stale writes are 422 (design §1.2).
 
     422 — NOT 409 — so the two write-failure modes are distinguishable by
@@ -266,7 +266,7 @@ def _to_response(feature: db.Feature, bar_index: int | None) -> FeatureResponse:
     )
 
 
-async def _tree_response(session: AsyncSession, part: db.Part) -> FeatureTreeResponse:
+async def tree_response(session: AsyncSession, part: db.Part) -> FeatureTreeResponse:
     features = await _ordered_features(session, part.id)
     bar_index = _bar_index(part, features)
     can_undo, can_redo = await history.PART_HISTORY.availability(session, part)
@@ -289,7 +289,7 @@ async def get_feature_tree(
 ) -> FeatureTreeResponse:
     """The ordered feature tree (uniform 404 for unknown/foreign parts)."""
     part = await get_owned_part(session, owner_id, part_id)
-    return await _tree_response(session, part)
+    return await tree_response(session, part)
 
 
 async def evaluation_prefix(
@@ -399,7 +399,7 @@ async def create_feature(
     """Append a feature — or, while rolled back, insert it immediately after
     the bar and move the bar to it (design §3)."""
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
-    _ensure_fresh(part, request.expected_tree_version)
+    ensure_fresh(part, request.expected_tree_version)
     pre_op = await history.PART_HISTORY.baseline_state(session, part)
 
     features = await _ordered_features(session, part.id)
@@ -467,7 +467,7 @@ async def update_feature(
     """Rename and/or replace params. ANY mutation bumps ``tree_version``
     (uniform rule, design §1.2) — including a name-only change."""
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
-    _ensure_fresh(part, request.expected_tree_version)
+    ensure_fresh(part, request.expected_tree_version)
     pre_op = await history.PART_HISTORY.baseline_state(session, part)
     feature = await _get_feature(session, part, feature_id)
 
@@ -538,7 +538,7 @@ async def suppress_feature(
     so this changes what an evaluation of the part means.
     """
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
-    _ensure_fresh(part, request.expected_tree_version)
+    ensure_fresh(part, request.expected_tree_version)
     pre_op = await history.PART_HISTORY.baseline_state(session, part)
     feature = await _get_feature(session, part, feature_id)
 
@@ -655,7 +655,7 @@ async def delete_feature(
     Returns the renumbered tree (the client's new ``tree_version``).
     """
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
-    _ensure_fresh(part, expected_tree_version)
+    ensure_fresh(part, expected_tree_version)
     pre_op = await history.PART_HISTORY.baseline_state(session, part)
     feature = await _get_feature(session, part, feature_id)
 
@@ -695,7 +695,7 @@ async def delete_feature(
         feature_id=str(feature_id),
         tree_version=part.tree_version,
     )
-    return await _tree_response(session, part)
+    return await tree_response(session, part)
 
 
 @router.put("/{part_id}/features/order")
@@ -708,7 +708,7 @@ async def reorder_features(
     """Apply a full permutation of the tree, re-checking backward-only refs
     (§2.2 rule 2) under the new order before renumbering."""
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
-    _ensure_fresh(part, request.expected_tree_version)
+    ensure_fresh(part, request.expected_tree_version)
     pre_op = await history.PART_HISTORY.baseline_state(session, part)
 
     features = await _ordered_features(session, part.id)
@@ -771,7 +771,7 @@ async def reorder_features(
         part_id=str(part.id),
         tree_version=part.tree_version,
     )
-    return await _tree_response(session, part)
+    return await tree_response(session, part)
 
 
 @router.put("/{part_id}/rollback")
@@ -784,7 +784,7 @@ async def move_rollback_bar(
     """Move the rollback bar (design §3). Nothing below the bar is deleted or
     mutated; features after it are only MARKED rolled back."""
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
-    _ensure_fresh(part, request.expected_tree_version)
+    ensure_fresh(part, request.expected_tree_version)
 
     if request.rollback_feature_id is not None:
         bar_feature = await session.get(db.Feature, request.rollback_feature_id)
@@ -803,10 +803,10 @@ async def move_rollback_bar(
         rollback_feature_id=str(request.rollback_feature_id),
         tree_version=part.tree_version,
     )
-    return await _tree_response(session, part)
+    return await tree_response(session, part)
 
 
-async def _reject_restore_feature_orphans(
+async def reject_restore_feature_orphans(
     session: AsyncSession, owner_id: uuid.UUID, part: db.Part
 ) -> None:
     """Post-restore cross-document integrity pass (audit P2 #16).
@@ -873,13 +873,13 @@ async def _restore_history_step(
 
     Cross-document integrity (a drawing section view left pointing at a
     now-removed feature) is re-checked post-restore —
-    :func:`_reject_restore_feature_orphans` (409 ``part_restore_conflict``) —
+    :func:`reject_restore_feature_orphans` (409 ``part_restore_conflict``) —
     so undo honours the SAME protection as a direct feature delete (audit #16).
     """
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
-    _ensure_fresh(part, request.expected_tree_version)
+    ensure_fresh(part, request.expected_tree_version)
     if await history.PART_HISTORY.restore_adjacent(session, part, direction):
-        await _reject_restore_feature_orphans(session, owner_id, part)
+        await reject_restore_feature_orphans(session, owner_id, part)
         part.tree_version += 1
         await session.commit()
         _logger.info(
@@ -889,7 +889,7 @@ async def _restore_history_step(
             history_cursor=part.history_cursor,
             tree_version=part.tree_version,
         )
-    return await _tree_response(session, part)
+    return await tree_response(session, part)
 
 
 @router.post("/{part_id}/undo")

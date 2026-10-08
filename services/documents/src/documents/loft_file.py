@@ -49,10 +49,19 @@ from loft_wire.features import (
     JsonObject,
     UnknownFeatureVersionError,
 )
-from loft_wire.loft_file import LoftImportRequest, LoftTree, LoftTreeFeature
+from loft_wire.loft_file import (
+    LoftImportRequest,
+    LoftTree,
+    LoftTreeFeature,
+    LoftVersion,
+    canonical_json,
+    encode_tree,
+    sha256_hex,
+)
 from loft_wire.materials import MaterialAssignment
 from loft_wire.parts import PART_NAME_MAX_LENGTH, PartResponse
 from loft_wire.units import LengthUnit
+from loft_wire.versions import MAX_PART_VERSIONS_TOTAL_BYTES
 from loft_wire.workspace import copy_name
 from py_kit import ConflictError, ValidationApiError, get_logger
 from py_kit.db import SessionDep
@@ -93,6 +102,12 @@ async def get_loft_tree(
     # features read next are the ones the row's travel stop was written against —
     # one consistent snapshot, never a rollback bar naming a deleted feature.
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
+    return await build_loft_tree(session, part)
+
+
+async def build_loft_tree(session: AsyncSession, part: db.Part) -> LoftTree:
+    """The part's current tree as ``tree.json`` holds it (and a version stores
+    it). The caller holds the part row lock."""
     rows = (
         await session.execute(
             select(db.Feature)
@@ -269,12 +284,57 @@ async def _any_id_exists(
     return found.first() is not None
 
 
-@router.post("/import-loft", status_code=status.HTTP_201_CREATED)
-async def import_loft(
-    request: LoftImportRequest, owner_id: Principal, session: SessionDep
-) -> PartResponse:
-    """Create a part from a verified ``.loft`` tree, in one transaction (201)."""
-    tree = request.tree
+def validated_rows(
+    tree: LoftTree,
+    current: list[tuple[int, JsonObject]],
+    *,
+    part_id: uuid.UUID,
+    mapping: dict[str, str],
+) -> tuple[list[db.Feature], list[tuple[uuid.UUID, list[uuid.UUID]]]]:
+    """The tree as feature rows plus the edges each derives, or a 422 naming the
+    feature: the ``POST /features`` rules, feature by feature, in tree order,
+    against the rows built so far. *current* is each feature's params at the
+    current version (:func:`check_tree`); *mapping* re-mints ids (empty keeps
+    them). Nothing is written: an import and a version restore both validate
+    the WHOLE tree before they touch a row.
+    """
+    rows: list[db.Feature] = []
+    by_id: dict[uuid.UUID, db.Feature] = {}
+    edges: list[tuple[uuid.UUID, list[uuid.UUID]]] = []
+    for position, (feature, (version, params)) in enumerate(
+        zip(tree.features, current, strict=True)
+    ):
+        create = _feature_create(
+            feature, version, cast(JsonObject, remap_loft_params(params, mapping))
+        )
+        try:
+            reject_import_with_prior_body(create.feature, position, rows)
+            targets = validate_references(create.feature, position, by_id)
+        except ValidationApiError as exc:
+            _refuse(feature, exc.message, exc.code, reason=exc.details)
+        row = db.Feature(
+            id=uuid.UUID(mapping.get(str(feature.id), str(feature.id))),
+            part_id=part_id,
+            order_index=position,
+            name=create.name,
+            type=create.feature.type,
+            param_version=create.feature.version,
+            params=create.feature.params.model_dump(mode="json"),
+            suppressed=create.feature.suppressed,
+        )
+        rows.append(row)
+        by_id[row.id] = row
+        edges.append((row.id, targets))
+    return rows, edges
+
+
+def check_tree(tree: LoftTree) -> list[tuple[int, JsonObject]]:
+    """The tree-level checks, then every feature's params at the current version.
+
+    Duplicate feature ids and a travel stop naming a feature the tree does not
+    hold are refused; so is a feature this build cannot read (too new, unknown
+    type).
+    """
     file_ids = [feature.id for feature in tree.features]
     if len(set(file_ids)) != len(file_ids):
         raise ValidationApiError(
@@ -288,13 +348,125 @@ async def import_loft(
             "The .loft tree's rollback bar names a feature it does not hold.",
             code="loft_rollback_invalid",
         )
-    # Versions first: a too-new feature is refused before anything else is done.
-    current = [_current_params(feature) for feature in tree.features]
+    return [_current_params(feature) for feature in tree.features]
 
+
+def remap_tree(tree: LoftTree, mapping: dict[str, str]) -> LoftTree:
+    """*tree* with its ids re-minted: features, params (topo names included),
+    per-body materials and the travel stop. No mapping, no change."""
+    if not mapping:
+        return tree
+
+    def new(old: uuid.UUID) -> uuid.UUID:
+        return uuid.UUID(mapping.get(str(old), str(old)))
+
+    return tree.model_copy(
+        update={
+            "features": [
+                feature.model_copy(
+                    update={
+                        "id": new(feature.id),
+                        "params": remap_loft_params(feature.params, mapping),
+                    }
+                )
+                for feature in tree.features
+            ],
+            "materials": (
+                None
+                if tree.materials is None
+                else MaterialAssignment.model_validate(
+                    remap_ids(tree.materials.model_dump(mode="json"), mapping)
+                )
+            ),
+            "rollback_feature_id": (
+                None
+                if tree.rollback_feature_id is None
+                else new(tree.rollback_feature_id)
+            ),
+        }
+    )
+
+
+def _check_versions(request: LoftImportRequest) -> None:
+    """Every version must be one this install could restore, and together they
+    must fit the per-part cap: a 422 naming the version otherwise."""
+    seqs = [version.seq for version in request.versions]
+    if len(set(seqs)) != len(seqs):
+        raise ValidationApiError(
+            "The .loft lists a version number twice.", code="loft_versions_invalid"
+        )
+    total = 0
+    for version in request.versions:
+        try:
+            current = check_tree(version.tree)
+            validated_rows(version.tree, current, part_id=uuid.uuid4(), mapping={})
+        except ValidationApiError as exc:
+            raise ValidationApiError(
+                f"Version {version.seq} ({version.name!r}): {exc.message}",
+                code=exc.code,
+                details={**exc.details, "version_seq": version.seq},
+            ) from exc
+        total += tree_size(version.tree)
+    if total > MAX_PART_VERSIONS_TOTAL_BYTES:
+        raise ValidationApiError(
+            "The .loft's versions are larger than one part may hold.",
+            code="part_version_limit",
+            details={"max_bytes": MAX_PART_VERSIONS_TOTAL_BYTES, "size": total},
+        )
+
+
+def _imported_version(version: LoftVersion, mapping: dict[str, str]) -> LoftVersion:
+    return version.model_copy(update={"tree": remap_tree(version.tree, mapping)})
+
+
+def tree_size(tree: LoftTree) -> int:
+    """A stored version's size: its canonical JSON with STEP text inline."""
+    return len(canonical_json(tree.model_dump(mode="json")))
+
+
+def version_row(part_id: uuid.UUID, version: LoftVersion) -> db.PartVersion:
+    """The stored row of *version*; its sha256 over the canonical ``.loft`` bytes."""
+    tree_bytes, _ = encode_tree(version.tree)
+    return db.PartVersion(
+        part_id=part_id,
+        seq=version.seq,
+        name=version.name,
+        message=version.message,
+        author=version.author,
+        tree=version.tree.model_dump(mode="json"),
+        tree_sha256=sha256_hex(tree_bytes),
+        size_bytes=tree_size(version.tree),
+        feature_count=len(version.tree.features),
+        created_at=version.created_at,
+    )
+
+
+@router.post("/import-loft", status_code=status.HTTP_201_CREATED)
+async def import_loft(
+    request: LoftImportRequest, owner_id: Principal, session: SessionDep
+) -> PartResponse:
+    """Create a part from a verified ``.loft`` tree, in one transaction (201)."""
+    tree = request.tree
+    file_ids = [feature.id for feature in tree.features]
+    # Versions first: a too-new feature is refused before anything else is done.
+    current = check_tree(tree)
+    _check_versions(request)
+
+    # Every feature id the file holds, in the current tree AND in any version:
+    # a version restored later re-creates its features with these ids, so they
+    # must be as free here as the current tree's.
+    all_ids = list(
+        dict.fromkeys(
+            [
+                *file_ids,
+                *(f.id for version in request.versions for f in version.tree.features),
+            ]
+        )
+    )
     mapping: dict[str, str] = {}
-    if await _any_id_exists(session, request.document_id, file_ids):
+    if await _any_id_exists(session, request.document_id, all_ids):
         mapping = {
-            str(old): str(uuid.uuid4()) for old in [request.document_id, *file_ids]
+            str(old): str(uuid.uuid4()) for old in [request.document_id, *all_ids]
         }
     new_id = {old: uuid.UUID(mapping.get(str(old), str(old))) for old in file_ids}
     part_id = uuid.UUID(mapping.get(str(request.document_id), str(request.document_id)))
@@ -312,35 +484,10 @@ async def import_loft(
             remap_ids(tree.materials.model_dump(mode="json"), mapping)
         ).model_dump(mode="json")
     )
-    # Validate the WHOLE tree before writing anything, in tree order, against
-    # the rows built so far: the POST /features rules, feature by feature.
-    rows: list[db.Feature] = []
-    by_id: dict[uuid.UUID, db.Feature] = {}
-    edges: list[tuple[uuid.UUID, list[uuid.UUID]]] = []
-    for position, (feature, (version, params)) in enumerate(
-        zip(tree.features, current, strict=True)
-    ):
-        create = _feature_create(
-            feature, version, cast(JsonObject, remap_loft_params(params, mapping))
-        )
-        try:
-            reject_import_with_prior_body(create.feature, position, rows)
-            targets = validate_references(create.feature, position, by_id)
-        except ValidationApiError as exc:
-            _refuse(feature, exc.message, exc.code, reason=exc.details)
-        row = db.Feature(
-            id=new_id[feature.id],
-            part_id=part_id,
-            order_index=position,
-            name=create.name,
-            type=create.feature.type,
-            param_version=create.feature.version,
-            params=create.feature.params.model_dump(mode="json"),
-            suppressed=create.feature.suppressed,
-        )
-        rows.append(row)
-        by_id[row.id] = row
-        edges.append((row.id, targets))
+    # Validate the WHOLE tree before writing anything (the POST /features
+    # rules, feature by feature); the versions were validated above.
+    rows, edges = validated_rows(tree, current, part_id=part_id, mapping=mapping)
+    versions = [_imported_version(version, mapping) for version in request.versions]
 
     part = db.Part(
         id=part_id,
@@ -367,6 +514,8 @@ async def import_loft(
                 )
         if tree.rollback_feature_id is not None:
             part.rollback_feature_id = new_id[tree.rollback_feature_id]
+        for version in versions:
+            session.add(version_row(part.id, version))
         await session.commit()
     except IntegrityError:
         # A name or an id taken by a concurrent write since the checks above.
@@ -381,6 +530,7 @@ async def import_loft(
         part_id=str(part.id),
         owner_id=str(owner_id),
         features=len(rows),
+        versions=len(versions),
         reminted=bool(mapping),
     )
     return PartResponse.model_validate(part)

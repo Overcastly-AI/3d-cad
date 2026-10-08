@@ -47,6 +47,7 @@ from gateway.parts import create_documents_client
 from gateway.parts import router as parts_router
 from gateway.step_import import assembly_router as assembly_import_router
 from gateway.step_import import router as step_import_router
+from gateway.versions import router as versions_router
 
 TITLE = "Loft Gateway"
 VERSION = "0.1.0"
@@ -218,6 +219,7 @@ def build_app(
     app.include_router(auth_router)
     app.include_router(parts_router)
     app.include_router(loft_file_router)
+    app.include_router(versions_router)
     app.include_router(materials_router)
     app.include_router(features_router)
     app.include_router(assemblies_router)

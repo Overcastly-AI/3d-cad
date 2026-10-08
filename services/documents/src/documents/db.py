@@ -51,6 +51,11 @@ from loft_wire.parts import (
     derive_part_eval_scope,
     derive_part_eval_state,
 )
+from loft_wire.versions import (
+    VERSION_AUTHOR_MAX_LENGTH,
+    VERSION_MESSAGE_MAX_LENGTH,
+    VERSION_NAME_MAX_LENGTH,
+)
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -512,6 +517,65 @@ class PartSnapshot(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return f"PartSnapshot(part_id={self.part_id!r}, seq={self.seq!r})"
+
+
+class PartVersion(Base):
+    """A named version of a part: its tree, kept (LOFT-VERSIONS, migration 0017).
+
+    NEVER pruned, unlike :class:`PartSnapshot`: a version lives as long as its
+    part (and cascades with it). ``seq`` is per part and only grows — the next
+    is ``max + 1`` under the part's row lock — so "v3" means the same tree for
+    the part's whole life, and a ``.loft`` import keeps the file's numbers.
+
+    ``tree`` is the :class:`~loft_wire.loft_file.LoftTree` JSON exactly as the
+    export writes ``tree.json`` (params at the save-time ``param_version``,
+    import STEP text inline); ``tree_sha256`` is taken over its canonical
+    ``.loft`` bytes (:func:`~loft_wire.loft_file.encode_tree`) and ``size_bytes``
+    is its inline size, which the per-part cap sums. ``author`` is a display
+    name only: no user id or email is stored with a version.
+    """
+
+    __tablename__ = "part_versions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    part_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("parts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    seq: Mapped[int] = mapped_column(sa.BigInteger(), nullable=False)
+    name: Mapped[str] = mapped_column(
+        sa.String(VERSION_NAME_MAX_LENGTH), nullable=False
+    )
+    message: Mapped[str] = mapped_column(
+        sa.String(VERSION_MESSAGE_MAX_LENGTH),
+        nullable=False,
+        default="",
+        server_default=sa.text("''"),
+    )
+    author: Mapped[str | None] = mapped_column(
+        sa.String(VERSION_AUTHOR_MAX_LENGTH), nullable=True
+    )
+    tree: Mapped[dict[str, Any]] = mapped_column(_JSON_VARIANT, nullable=False)
+    tree_sha256: Mapped[str] = mapped_column(sa.String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(sa.BigInteger(), nullable=False)
+    feature_count: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    __table_args__ = (
+        # Also the index of the per-part list, newest first.
+        sa.UniqueConstraint("part_id", "seq", name="uq_part_versions_part_seq"),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return f"PartVersion(part_id={self.part_id!r}, seq={self.seq!r})"
 
 
 class RefNameBackfill(Base):

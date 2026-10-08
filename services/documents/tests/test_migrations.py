@@ -24,6 +24,7 @@ import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
 from py_kit.db import async_dsn
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 
@@ -465,6 +466,7 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
         "annotations",
         "part_snapshots",
         "assembly_snapshots",
+        "part_versions",
         "folders",
         "alembic_version",
     }
@@ -472,6 +474,7 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
     alembic_runner(pg_url, "base", downgrade=True)
     remaining = asyncio.run(_table_names(pg_url))
     assert "folders" not in remaining
+    assert "part_versions" not in remaining
     assert "assembly_snapshots" not in remaining
     assert "part_snapshots" not in remaining
     assert "features" not in remaining
@@ -501,6 +504,7 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
         "annotations",
         "part_snapshots",
         "assembly_snapshots",
+        "part_versions",
         "folders",
     }
 
@@ -640,3 +644,86 @@ def test_0016_up_and_down_on_a_populated_database(
     assert run(_scalar_rows(pg_url, "SELECT count(*) FROM ref_name_backfills")) == [
         (0,)
     ]
+
+
+def test_0017_offline_sql_creates_part_versions(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0016:0017")
+    assert "CREATE TABLE part_versions" in sql
+    assert "REFERENCES parts (id) ON DELETE CASCADE" in sql
+    assert "tree JSONB NOT NULL" in sql
+    assert "seq BIGINT NOT NULL" in sql
+    assert "message VARCHAR(2000) DEFAULT '' NOT NULL" in sql
+    assert "author VARCHAR(80)" in sql
+    assert "CONSTRAINT uq_part_versions_part_seq UNIQUE (part_id, seq)" in sql
+    # Additive only: no existing table is altered or rewritten.
+    assert "ALTER TABLE" not in sql
+    assert "UPDATE " not in sql.replace("UPDATE alembic_version", "")
+
+
+def test_0017_offline_downgrade_drops_part_versions(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0017:0016", downgrade=True)
+    assert "DROP TABLE part_versions" in sql
+    assert "ALTER TABLE" not in sql
+
+
+_VERSION_PART = "6f3f6b64-0000-4000-8000-0000000170aa"
+
+
+def test_0017_up_and_down_on_a_populated_database(
+    pg_url: str, alembic_runner: Callable[..., None]
+) -> None:
+    """LOFT-VERSIONS: 0017 against real rows, both directions. Existing parts and
+    features come through byte-for-byte; a version row stores, keeps its seq
+    unique per part and cascades with its part; the downgrade drops exactly the
+    table."""
+    alembic_runner(pg_url, "0016", downgrade=True)
+    run = asyncio.run
+    run(
+        _scalar_rows(
+            pg_url,
+            "INSERT INTO parts (id, owner_id, name, tree_version) "
+            f"VALUES ('{_VERSION_PART}', '{_OWNER}', 'Old bracket', 3)",
+        )
+    )
+    run(
+        _scalar_rows(
+            pg_url,
+            "INSERT INTO features (id, part_id, order_index, name, type, "
+            "param_version, params) VALUES "
+            f"('{_FEATURE}', '{_VERSION_PART}', 0, 'Sketch1', 'sketch', 1, "
+            f"'{_PARAMS}')",
+        )
+    )
+    snapshot = "SELECT id, owner_id, name, tree_version, updated_at FROM parts"
+    features = "SELECT id, params::text, param_version, updated_at FROM features"
+    parts_before = run(_scalar_rows(pg_url, snapshot))
+    features_before = run(_scalar_rows(pg_url, features))
+
+    alembic_runner(pg_url, "0017")
+    assert run(_scalar_rows(pg_url, snapshot)) == parts_before
+    assert run(_scalar_rows(pg_url, features)) == features_before
+    insert = (
+        "INSERT INTO part_versions (id, part_id, seq, name, tree, tree_sha256, "
+        "size_bytes, feature_count) VALUES (gen_random_uuid(), "
+        f"'{_VERSION_PART}', 1, 'Rev A', '{{}}', '{'0' * 64}', 2, 0)"
+    )
+    run(_scalar_rows(pg_url, insert))
+    assert run(
+        _scalar_rows(pg_url, "SELECT seq, message, author FROM part_versions")
+    ) == [(1, "", None)]
+    with pytest.raises(IntegrityError):
+        run(_scalar_rows(pg_url, insert))  # (part_id, seq) is unique
+
+    alembic_runner(pg_url, "0016", downgrade=True)
+    assert "part_versions" not in run(_table_names(pg_url))
+    assert run(_scalar_rows(pg_url, snapshot)) == parts_before
+    assert run(_scalar_rows(pg_url, features)) == features_before
+
+    alembic_runner(pg_url, "head")
+    run(_scalar_rows(pg_url, insert))
+    run(_scalar_rows(pg_url, f"DELETE FROM parts WHERE id = '{_VERSION_PART}'"))
+    assert run(_scalar_rows(pg_url, "SELECT count(*) FROM part_versions")) == [(0,)]

@@ -4375,6 +4375,15 @@
           },
           "tree": {
             "$ref": "#/components/schemas/LoftTree"
+          },
+          "versions": {
+            "description": "The file's named versions, ascending seq; kept with their seq",
+            "items": {
+              "$ref": "#/components/schemas/LoftVersion"
+            },
+            "maxItems": 100,
+            "title": "Versions",
+            "type": "array"
           }
         },
         "required": [
@@ -4522,6 +4531,76 @@
           "params"
         ],
         "title": "LoftTreeFeature",
+        "type": "object"
+      },
+      "LoftVersion": {
+        "description": "A named version with its tree: what documents stores and serves for an\nexport, what an import hands documents, and what :func:`read_loft` returns.\n\n``tree`` carries import STEP text inline, like every other in-memory tree.",
+        "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "message": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "seq": {
+            "maximum": 999999999.0,
+            "minimum": 1.0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "tree": {
+            "$ref": "#/components/schemas/LoftTree"
+          }
+        },
+        "required": [
+          "seq",
+          "name",
+          "created_at",
+          "tree"
+        ],
+        "title": "LoftVersion",
+        "type": "object"
+      },
+      "LoftVersionList": {
+        "description": "Documents -> gateway: a part's versions with their trees, ascending ``seq``.",
+        "properties": {
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/LoftVersion"
+            },
+            "maxItems": 100,
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "versions"
+        ],
+        "title": "LoftVersionList",
         "type": "object"
       },
       "MateAxisRef": {
@@ -5310,6 +5389,149 @@
           "expected_tree_version"
         ],
         "title": "PartUpdate",
+        "type": "object"
+      },
+      "PartVersion": {
+        "description": "One saved version, without its tree.",
+        "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Display name, or null when not given",
+            "title": "Author"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "feature_count": {
+            "minimum": 0.0,
+            "title": "Feature Count",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "seq": {
+            "description": "Per-part number, 1, 2, 3...; never reused",
+            "maximum": 999999999.0,
+            "minimum": 1.0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "tree_sha256": {
+            "description": "sha256 of the version's canonical tree.json bytes",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Tree Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "name",
+          "message",
+          "author",
+          "created_at",
+          "tree_sha256",
+          "feature_count"
+        ],
+        "title": "PartVersion",
+        "type": "object"
+      },
+      "PartVersionCreate": {
+        "additionalProperties": false,
+        "description": "``POST /api/v1/parts/{id}/versions``: name the part's current tree.\n\n``expected_tree_version``, when given, makes the save refuse\n(``stale_tree_version``) if the tree moved since the caller last saw it,\nso the version holds exactly what the user was looking at.",
+        "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Display name to record as the author. A name only: no email or account id is ever stored with a version.",
+            "title": "Author"
+          },
+          "expected_tree_version": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Tree Version"
+          },
+          "message": {
+            "default": "",
+            "description": "Optional longer note: what changed and why",
+            "maxLength": 2000,
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "description": "What the version is called, e.g. 'Rev B'",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "PartVersionCreate",
+        "type": "object"
+      },
+      "PartVersionListResponse": {
+        "description": "A part's versions, newest first.",
+        "properties": {
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/PartVersion"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "versions"
+        ],
+        "title": "PartVersionListResponse",
+        "type": "object"
+      },
+      "PartVersionRestore": {
+        "additionalProperties": false,
+        "description": "``POST /api/v1/parts/{id}/versions/{seq}/restore``: one undoable edit.",
+        "properties": {
+          "expected_tree_version": {
+            "minimum": 0.0,
+            "title": "Expected Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_tree_version"
+        ],
+        "title": "PartVersionRestore",
         "type": "object"
       },
       "PatternBodyScope": {
@@ -12556,6 +12778,68 @@
         ]
       }
     },
+    "/api/v1/parts/{part_id}/loft-versions": {
+      "get": {
+        "description": "Every version with its tree, ascending ``seq``: the ``.loft`` export's.",
+        "operationId": "get_loft_versions_api_v1_parts__part_id__loft_versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoftVersionList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Loft Versions",
+        "tags": [
+          "versions"
+        ]
+      }
+    },
     "/api/v1/parts/{part_id}/move": {
       "post": {
         "description": "File a part into a folder, or un-file it with ``folder_id: null`` (200).\n\nReturns the part AS STORED, so the register renders where the server put it\nrather than where the click assumed it went. 409 when the destination\nalready holds a part of that name (names are unique per folder).",
@@ -13145,6 +13429,221 @@
         "summary": "Undo",
         "tags": [
           "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/versions": {
+      "get": {
+        "description": "The part's named versions, newest first (no trees).",
+        "operationId": "list_versions_api_v1_parts__part_id__versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartVersionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Versions",
+        "tags": [
+          "versions"
+        ]
+      },
+      "post": {
+        "description": "Save the part's current tree as a named version (201).\n\nRefused with 409 ``part_version_limit`` once the part holds the most\nversions (or bytes of versions) one part may; versions are never pruned.",
+        "operationId": "save_version_api_v1_parts__part_id__versions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartVersionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartVersion"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Version",
+        "tags": [
+          "versions"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/versions/{seq}/restore": {
+      "post": {
+        "description": "Make a saved version the part's tree: one undoable edit.\n\nLater versions are kept. Stale ``expected_tree_version`` \u2192 422; a version\nwhose restore would break a drawing's section view \u2192 409\n``part_restore_conflict``.",
+        "operationId": "restore_version_api_v1_parts__part_id__versions__seq__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "seq",
+            "required": true,
+            "schema": {
+              "maximum": 999999999,
+              "minimum": 1,
+              "title": "Seq",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartVersionRestore"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureTreeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore Version",
+        "tags": [
+          "versions"
         ]
       }
     },

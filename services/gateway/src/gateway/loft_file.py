@@ -5,8 +5,9 @@ geometry at once, so the file is assembled and taken apart HERE, with the whole
 format in :mod:`loft_wire.loft_file`:
 
 * ``GET /api/v1/parts/{id}/export.loft`` — documents serves the tree
-  (``/loft-tree``) and the evaluation request; geometry evaluates it (mass
-  properties for the manifest) and exports the STEP body (``cache/body.step``);
+  (``/loft-tree``), the named versions with their trees (``/loft-versions``)
+  and the evaluation request; geometry evaluates it (mass properties for the
+  manifest) and exports the STEP body (``cache/body.step``);
   :func:`~loft_wire.loft_file.pack_part` writes the canonical bytes. A tree with
   no body still exports — it simply has no cache.
 * ``POST /api/v1/parts/import`` — the ``.loft`` is the raw request body, capped
@@ -44,6 +45,7 @@ from loft_wire.loft_file import (
     LoftImportRequest,
     LoftImportResponse,
     LoftTree,
+    LoftVersionList,
     LoftWarning,
     loft_filename,
     pack_part,
@@ -146,14 +148,20 @@ async def export_part_loft(
 ) -> Response:
     """Export one of the caller's parts as a `.loft` file.
 
-    The file holds the parametric tree (what an import rebuilds from) plus the
-    exported STEP body and its mass properties as an untrusted cache. A part
-    with no body exports without the cache. Not a backup: undo history and
-    other documents are not in it.
+    The file holds the parametric tree (what an import rebuilds from), the
+    part's named versions, and the exported STEP body and its mass properties
+    as an untrusted cache. A part with no body exports without the cache. Not a
+    backup: undo history and other documents are not in it. A part over a
+    `.loft` limit is refused with its `loft_*` code rather than written.
     """
     tree = LoftTree.model_validate_json(
         await _documents_json(http_request, user, f"/api/v1/parts/{part_id}/loft-tree")
     )
+    versions = LoftVersionList.model_validate_json(
+        await _documents_json(
+            http_request, user, f"/api/v1/parts/{part_id}/loft-versions"
+        )
+    ).versions
     evaluation, result = await _evaluate(http_request, user, part_id)
 
     body_step: bytes | None = None
@@ -180,13 +188,23 @@ async def export_part_loft(
         elif exported.status_code != status.HTTP_422_UNPROCESSABLE_ENTITY:
             raise_upstream_error(exported, service=_GEOMETRY)
 
-    data = pack_part(
-        document_id=part_id,
-        tree=tree,
-        loft_version=LOFT_VERSION,
-        body_step=body_step,
-        properties=properties,
-    )
+    try:
+        # Packing hashes and deflates up to the caps: off the event loop too.
+        data = await asyncio.to_thread(
+            pack_part,
+            document_id=part_id,
+            tree=tree,
+            loft_version=LOFT_VERSION,
+            body_step=body_step,
+            properties=properties,
+            versions=versions,
+        )
+    except LoftFileError as exc:
+        # The part is over a cap the reader enforces: refuse rather than write
+        # a file no Loft could open.
+        raise ValidationApiError(
+            exc.message, code=exc.code, details=exc.details
+        ) from exc
     filename = loft_filename(tree.name, part_id)
     return Response(
         content=data,
@@ -246,7 +264,8 @@ async def import_part_loft(
     or `loft_feature_too_new` naming the feature), or a tree the feature
     routes would refuse. The part keeps the file's ids unless they already
     exist here; importing the same file twice gives a copy named
-    "<name> copy". The part is rebuilt from its tree; a hand-edited tree, a
+    "<name> copy". The file's named versions are imported with their numbers.
+    The part is rebuilt from its tree; a hand-edited tree or version, a
     volume that differs from the file's, or features that fail to rebuild are
     reported in `warnings`, not refused.
     """
@@ -270,7 +289,9 @@ async def import_part_loft(
         "POST",
         "/api/v1/parts/import-loft",
         LoftImportRequest(
-            document_id=archive.manifest.document_id, tree=archive.tree
+            document_id=archive.manifest.document_id,
+            tree=archive.tree,
+            versions=list(archive.versions),
         ).model_dump_json(),
     )
     if created.status_code != status.HTTP_201_CREATED:

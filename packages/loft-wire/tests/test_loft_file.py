@@ -2,10 +2,13 @@
 
 Three claims, each pinned here:
 
-1. **Same part, same bytes.** The golden fixture is checked byte-for-byte, and a
-   file that is read and packed again comes back identical (the repack test).
-   Regenerate the golden ONLY for a deliberate format change:
+1. **Same part, same bytes.** The golden fixture (``golden-v1.1.loft``, with
+   named versions) is checked byte-for-byte, and a file that is read and packed
+   again comes back identical (the repack test). Regenerate the golden ONLY for
+   a deliberate format change:
    ``LOFT_REGEN_GOLDEN=1 uv run pytest packages/loft-wire/tests/test_loft_file.py``.
+   ``golden-v1.loft`` is the frozen format 1.0 file: never regenerated, it
+   proves an older file still reads, and the hostile-zip tests start from it.
 2. **The reader never trusts the zip.** Zip-slip paths, duplicates, directory
    entries, encryption, foreign compression, unknown members, every size cap and
    a zip bomb are each refused with their own code.
@@ -24,6 +27,7 @@ import tracemalloc
 import uuid
 import zipfile
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,16 +38,20 @@ from loft_wire.loft_file import (
     BODY_STEP_PATH,
     MANIFEST_PATH,
     TREE_PATH,
+    VERSIONS_INDEX_PATH,
     LoftCacheProperties,
     LoftFileError,
     LoftTree,
+    LoftVersion,
     canonical_json,
+    encode_tree,
     pack_part,
     read_loft,
     sha256_hex,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "golden-v1.loft"
+GOLDEN = Path(__file__).parent / "fixtures" / "golden-v1.1.loft"
 
 PART_ID = uuid.UUID("0b6f3d0e-6f0a-4a39-9a4c-5d1d0f7c2a10")
 SKETCH_ID = uuid.UUID("1c7a4e1f-7a1b-4b4a-8b5d-6e2e1a8d3b21")
@@ -114,6 +122,29 @@ GOLDEN_PROPERTIES = LoftCacheProperties(
 )
 
 
+def _golden_versions() -> list[LoftVersion]:
+    """Rev A (import + sketch) and Rev B (the whole golden tree)."""
+    whole = _golden_tree()
+    rev_a = whole.model_copy(update={"features": whole.features[:2], "materials": None})
+    return [
+        LoftVersion(
+            seq=2,
+            name="Rev B — Größe",
+            author=None,
+            created_at=datetime(2026, 10, 8, 12, 30, 0, 250000, tzinfo=UTC),
+            tree=whole,
+        ),
+        LoftVersion(
+            seq=1,
+            name="Rev A",
+            message="First article,\nsent to the shop",
+            author="Ada Lovelace",
+            created_at=datetime(2026, 10, 1, 9, 0, 0, tzinfo=UTC),
+            tree=rev_a,
+        ),
+    ]
+
+
 def _golden_bytes() -> bytes:
     return pack_part(
         document_id=PART_ID,
@@ -121,6 +152,7 @@ def _golden_bytes() -> bytes:
         loft_version="golden",
         body_step=BODY_STEP,
         properties=GOLDEN_PROPERTIES,
+        versions=_golden_versions(),
     )
 
 
@@ -136,15 +168,15 @@ def test_golden_fixture_byte_for_byte() -> None:
     """Pinned bytes. A diff here is a FORMAT change: bump the version or revert."""
     produced = _golden_bytes()
     if os.environ.get("LOFT_REGEN_GOLDEN") == "1":
-        FIXTURE.parent.mkdir(parents=True, exist_ok=True)
-        FIXTURE.write_bytes(produced)
-    expected = FIXTURE.read_bytes()
+        GOLDEN.parent.mkdir(parents=True, exist_ok=True)
+        GOLDEN.write_bytes(produced)
+    expected = GOLDEN.read_bytes()
     if produced != expected:
         # Say WHICH layer moved before failing: a member's content, or only the
         # deflate stream (a different zlib build), are different conversations.
         same_members = _members(produced) == _members(expected)
         pytest.fail(
-            "golden-v1.loft changed: "
+            "golden-v1.1.loft changed: "
             + (
                 "member contents are identical, only the zip bytes differ "
                 f"(zlib {__import__('zlib').ZLIB_RUNTIME_VERSION})"
@@ -163,6 +195,9 @@ def test_pack_is_deterministic_and_member_order_is_fixed() -> None:
     assert [info.filename for info in infos] == [
         MANIFEST_PATH,
         TREE_PATH,
+        VERSIONS_INDEX_PATH,
+        "versions/1.tree.json",
+        "versions/2.tree.json",
         f"blobs/sha256-{digest}.step",
         BODY_STEP_PATH,
     ]
@@ -211,7 +246,7 @@ def test_manifest_has_no_timestamp_and_hashes_every_member() -> None:
         "tree_sha256",
         "units",
     }
-    assert manifest["format_version"] == "1.0"
+    assert manifest["format_version"] == "1.1"
     assert manifest["units"] == {"storage": "mm"}
     for name, digest in manifest["members"].items():
         assert sha256_hex(members[name]) == digest
@@ -219,11 +254,16 @@ def test_manifest_has_no_timestamp_and_hashes_every_member() -> None:
 
 
 def test_repack_is_byte_identical() -> None:
-    """read -> pack gives the same bytes: nothing is lost or reordered on the way."""
-    original = FIXTURE.read_bytes()
+    """read -> pack gives the same bytes: nothing is lost or reordered on the
+    way, the versions included (seq, name, message, author, time and tree)."""
+    original = GOLDEN.read_bytes()
     archive = read_loft(original)
     assert archive.warnings == ()
     assert archive.tree.features[0].params["data"] == STEP_TEXT
+    assert [v.seq for v in archive.versions] == [1, 2]
+    assert archive.versions[0].author == "Ada Lovelace"
+    assert archive.versions[1].author is None
+    assert archive.versions[0].tree.features[0].params["data"] == STEP_TEXT
     members = _members(original)
     repacked = pack_part(
         document_id=archive.manifest.document_id,
@@ -231,8 +271,66 @@ def test_repack_is_byte_identical() -> None:
         loft_version=archive.manifest.loft_version,
         body_step=members[BODY_STEP_PATH],
         properties=archive.cache.properties if archive.cache else None,
+        versions=archive.versions,
     )
     assert repacked == original
+
+
+def test_a_format_1_0_file_without_versions_still_reads() -> None:
+    """The frozen 1.0 golden: read as before, no versions, nothing to warn."""
+    archive = read_loft(FIXTURE.read_bytes())
+    assert archive.manifest.format_version == "1.0"
+    assert archive.warnings == ()
+    assert archive.versions == ()
+    assert archive.tree == _golden_tree().model_copy(
+        update={"materials": archive.tree.materials}
+    )
+
+
+def test_version_index_and_trees_use_the_canonical_rules() -> None:
+    members = _members(_golden_bytes())
+    index = json.loads(members[VERSIONS_INDEX_PATH])
+    assert members[VERSIONS_INDEX_PATH] == canonical_json(index)
+    assert [entry["seq"] for entry in index["versions"]] == [1, 2]
+    assert index["versions"][0] == {
+        "author": "Ada Lovelace",
+        "created_at": "2026-10-01T09:00:00Z",
+        "message": "First article,\nsent to the shop",
+        "name": "Rev A",
+        "seq": 1,
+        "tree_sha256": sha256_hex(members["versions/1.tree.json"]),
+    }
+    # Rev B IS the current tree: same canonical bytes, one shared blob.
+    assert members["versions/2.tree.json"] == members[TREE_PATH]
+    assert members["versions/2.tree.json"] == encode_tree(_golden_tree())[0]
+    assert len([name for name in members if name.startswith("blobs/")]) == 1
+
+
+def test_a_part_without_versions_writes_no_versions_members() -> None:
+    data = pack_part(document_id=PART_ID, tree=_golden_tree(), loft_version="t")
+    assert not [name for name in _members(data) if name.startswith("versions/")]
+    assert read_loft(data).versions == ()
+
+
+def test_an_older_reader_skips_the_versions_it_does_not_know(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 1.0 reader (no ``versions/`` in its whitelist, minor 0) opens a 1.1
+    file: the new members are skipped unread and the part imports."""
+    import re
+
+    monkeypatch.setattr(loft_file, "LOFT_FORMAT_MINOR", 0)
+    monkeypatch.setattr(
+        loft_file,
+        "_KNOWN_MEMBER_RE",
+        re.compile(
+            r"^(?:manifest\.json|tree\.json|cache/body\.step"
+            r"|blobs/sha256-[0-9a-f]{64}\.step)$"
+        ),
+    )
+    archive = read_loft(GOLDEN.read_bytes())
+    assert archive.tree.name == _golden_tree().name
+    assert archive.warnings == ()
 
 
 def test_part_without_a_body_has_no_cache() -> None:
@@ -557,3 +655,169 @@ def test_a_zip64_directory_is_refused_before_it_is_parsed() -> None:
         tracemalloc.stop()
     assert elapsed < 1.0, elapsed
     assert peak < 16 * 1024 * 1024, peak
+
+
+# --- 4. named versions (format 1.1) ----------------------------------------------
+
+
+def _golden_v11_entries() -> list[tuple[str, bytes]]:
+    return list(_members(GOLDEN.read_bytes()).items())
+
+
+def _replace(
+    entries: list[tuple[str, bytes]], name: str, data: bytes | None
+) -> list[tuple[str, bytes]]:
+    """*entries* with member *name* replaced (or dropped, for None)."""
+    return [
+        (member, data if member == name and data is not None else content)
+        for member, content in entries
+        if not (member == name and data is None)
+    ]
+
+
+def test_too_many_versions_is_refused_on_read() -> None:
+    entries = _golden_v11_entries()
+    index = json.loads(dict(entries)[VERSIONS_INDEX_PATH])
+    template = index["versions"][0]
+    index["versions"] = [
+        {**template, "seq": seq} for seq in range(1, loft_file.MAX_LOFT_VERSIONS + 2)
+    ]
+    data = _zip(_replace(entries, VERSIONS_INDEX_PATH, canonical_json(index)))
+    assert _refused(data) == "loft_too_many_versions"
+
+
+def test_too_many_versions_is_refused_on_write() -> None:
+    version = _golden_versions()[1]
+    versions = [
+        version.model_copy(update={"seq": seq})
+        for seq in range(1, loft_file.MAX_LOFT_VERSIONS + 2)
+    ]
+    with pytest.raises(LoftFileError) as caught:
+        pack_part(
+            document_id=PART_ID,
+            tree=_golden_tree(),
+            loft_version="t",
+            versions=versions,
+        )
+    assert caught.value.code == "loft_too_many_versions"
+
+
+@pytest.mark.parametrize(
+    ("member", "cap"),
+    [
+        (VERSIONS_INDEX_PATH, "MAX_LOFT_VERSION_INDEX_BYTES"),
+        ("versions/1.tree.json", "MAX_LOFT_VERSION_TREE_BYTES"),
+    ],
+)
+def test_version_member_caps(
+    member: str, cap: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each cap refuses one byte over it, on read AND on write."""
+    size = len(dict(_golden_v11_entries())[member])
+    monkeypatch.setattr(loft_file, cap, size - 1)
+    assert _refused(GOLDEN.read_bytes()) == "loft_member_too_large"
+    with pytest.raises(LoftFileError) as caught:
+        _golden_bytes()
+    assert caught.value.code == "loft_member_too_large"
+
+
+def test_the_total_cap_counts_the_step_text_every_version_inlines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Three trees name one blob: it is stored once but inlined three times, and
+    the reader's budget (and so the writer's) counts every copy."""
+    entries = _golden_v11_entries()
+    stored = sum(len(data) for _, data in entries)
+    beside_manifest = sum(len(data) for name, data in entries if name != MANIFEST_PATH)
+    step = len(STEP_TEXT.encode())
+    # One byte short of three copies, even by the reader's (looser) measure.
+    monkeypatch.setattr(
+        loft_file, "MAX_LOFT_TOTAL_BYTES", beside_manifest + 3 * step - 1
+    )
+    assert _refused(GOLDEN.read_bytes()) == "loft_member_too_large"
+    with pytest.raises(LoftFileError) as caught:
+        _golden_bytes()
+    assert caught.value.code == "loft_member_too_large"
+    monkeypatch.setattr(loft_file, "MAX_LOFT_TOTAL_BYTES", stored + 3 * step)
+    assert read_loft(_golden_bytes()).versions
+
+
+def test_a_version_tree_the_index_does_not_list_is_refused() -> None:
+    entries = [*_golden_v11_entries(), ("versions/9.tree.json", b"{}")]
+    assert _refused(_zip(entries)) == "loft_versions_invalid"
+
+
+def test_an_index_entry_without_its_tree_is_refused() -> None:
+    entries = _replace(_golden_v11_entries(), "versions/2.tree.json", None)
+    assert _refused(_zip(entries)) == "loft_member_missing"
+
+
+def test_version_trees_without_an_index_are_refused() -> None:
+    entries = _replace(_golden_v11_entries(), VERSIONS_INDEX_PATH, None)
+    assert _refused(_zip(entries)) == "loft_versions_invalid"
+
+
+def _reverse(index: dict[str, Any]) -> None:
+    index["versions"].reverse()
+
+
+def _duplicate_seq(index: dict[str, Any]) -> None:
+    index["versions"][0]["seq"] = 2
+
+
+def _long_author(index: dict[str, Any]) -> None:
+    index["versions"][0]["author"] = "x" * 81
+
+
+def _naive_time(index: dict[str, Any]) -> None:
+    index["versions"][0]["created_at"] = "2026-10-01T09:00:00"
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [_reverse, _duplicate_seq, _long_author, _naive_time],
+    ids=["descending", "duplicate-seq", "author-too-long", "naive-time"],
+)
+def test_an_invalid_index_is_refused(edit: Callable[[dict[str, Any]], None]) -> None:
+    entries = _golden_v11_entries()
+    index = json.loads(dict(entries)[VERSIONS_INDEX_PATH])
+    edit(index)
+    data = _zip(_replace(entries, VERSIONS_INDEX_PATH, canonical_json(index)))
+    assert _refused(data) == "loft_versions_invalid"
+
+
+@pytest.mark.parametrize(
+    "name", ["versions/0.tree.json", "versions/01.tree.json", "versions/x.json"]
+)
+def test_a_version_member_outside_the_pattern_is_refused(name: str) -> None:
+    data = _zip([*_golden_v11_entries(), (name, b"{}")])
+    assert _refused(data) == "loft_member_unknown"
+
+
+def test_a_hand_edited_version_warns_and_imports_as_it_reads() -> None:
+    entries = _golden_v11_entries()
+    tree = json.loads(dict(entries)["versions/1.tree.json"])
+    tree["name"] = "Edited by hand"
+    data = _zip(_replace(entries, "versions/1.tree.json", canonical_json(tree)))
+    archive = read_loft(data)
+    assert [w.code for w in archive.warnings] == ["loft_version_edited"]
+    assert archive.versions[0].tree.name == "Edited by hand"
+    assert archive.cache is not None  # tree.json itself is untouched
+
+
+def test_an_invalid_version_tree_is_refused_naming_it() -> None:
+    entries = _replace(
+        _golden_v11_entries(), "versions/1.tree.json", b'{"name": "x", "features": 1}'
+    )
+    with pytest.raises(LoftFileError) as caught:
+        read_loft(_zip(entries))
+    assert caught.value.code == "loft_tree_invalid"
+    assert caught.value.details["member"] == "versions/1.tree.json"
+
+
+def test_a_blob_named_twice_in_one_version_is_still_refused() -> None:
+    entries = _golden_v11_entries()
+    tree = json.loads(dict(entries)["versions/1.tree.json"])
+    tree["features"].append({**tree["features"][0], "id": str(uuid.uuid4())})
+    data = _zip(_replace(entries, "versions/1.tree.json", canonical_json(tree)))
+    assert _refused(data) == "loft_blob_reused"

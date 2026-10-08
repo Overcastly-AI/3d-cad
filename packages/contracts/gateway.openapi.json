@@ -6670,7 +6670,8 @@
               "loft_cache_corrupt",
               "loft_volume_mismatch",
               "loft_rebuild_errors",
-              "loft_verify_unavailable"
+              "loft_verify_unavailable",
+              "loft_version_edited"
             ],
             "title": "Code",
             "type": "string"
@@ -7919,6 +7920,149 @@
           "expected_tree_version"
         ],
         "title": "PartUpdate",
+        "type": "object"
+      },
+      "PartVersion": {
+        "description": "One saved version, without its tree.",
+        "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Display name, or null when not given",
+            "title": "Author"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "feature_count": {
+            "minimum": 0.0,
+            "title": "Feature Count",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "seq": {
+            "description": "Per-part number, 1, 2, 3...; never reused",
+            "maximum": 999999999.0,
+            "minimum": 1.0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "tree_sha256": {
+            "description": "sha256 of the version's canonical tree.json bytes",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Tree Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "name",
+          "message",
+          "author",
+          "created_at",
+          "tree_sha256",
+          "feature_count"
+        ],
+        "title": "PartVersion",
+        "type": "object"
+      },
+      "PartVersionCreate": {
+        "additionalProperties": false,
+        "description": "``POST /api/v1/parts/{id}/versions``: name the part's current tree.\n\n``expected_tree_version``, when given, makes the save refuse\n(``stale_tree_version``) if the tree moved since the caller last saw it,\nso the version holds exactly what the user was looking at.",
+        "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Display name to record as the author. A name only: no email or account id is ever stored with a version.",
+            "title": "Author"
+          },
+          "expected_tree_version": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Tree Version"
+          },
+          "message": {
+            "default": "",
+            "description": "Optional longer note: what changed and why",
+            "maxLength": 2000,
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "description": "What the version is called, e.g. 'Rev B'",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "PartVersionCreate",
+        "type": "object"
+      },
+      "PartVersionListResponse": {
+        "description": "A part's versions, newest first.",
+        "properties": {
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/PartVersion"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "versions"
+        ],
+        "title": "PartVersionListResponse",
+        "type": "object"
+      },
+      "PartVersionRestore": {
+        "additionalProperties": false,
+        "description": "``POST /api/v1/parts/{id}/versions/{seq}/restore``: one undoable edit.",
+        "properties": {
+          "expected_tree_version": {
+            "minimum": 0.0,
+            "title": "Expected Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_tree_version"
+        ],
+        "title": "PartVersionRestore",
         "type": "object"
       },
       "PatternBodyScope": {
@@ -15725,7 +15869,7 @@
     },
     "/api/v1/parts/import": {
       "post": {
-        "description": "Import a `.loft` file as a new part (201, with any warnings).\n\nThe file is the raw request body, capped at the upload limit while it\nstreams and read in memory only. Refusals are 422s with a `loft_*` code: a\ndamaged or hostile zip, a file from a newer Loft (`loft_format_too_new`,\nor `loft_feature_too_new` naming the feature), or a tree the feature\nroutes would refuse. The part keeps the file's ids unless they already\nexist here; importing the same file twice gives a copy named\n\"<name> copy\". The part is rebuilt from its tree; a hand-edited tree, a\nvolume that differs from the file's, or features that fail to rebuild are\nreported in `warnings`, not refused.",
+        "description": "Import a `.loft` file as a new part (201, with any warnings).\n\nThe file is the raw request body, capped at the upload limit while it\nstreams and read in memory only. Refusals are 422s with a `loft_*` code: a\ndamaged or hostile zip, a file from a newer Loft (`loft_format_too_new`,\nor `loft_feature_too_new` naming the feature), or a tree the feature\nroutes would refuse. The part keeps the file's ids unless they already\nexist here; importing the same file twice gives a copy named\n\"<name> copy\". The file's named versions are imported with their numbers.\nThe part is rebuilt from its tree; a hand-edited tree or version, a\nvolume that differs from the file's, or features that fail to rebuild are\nreported in `warnings`, not refused.",
         "operationId": "import_part_loft_api_v1_parts_import_post",
         "requestBody": {
           "content": {
@@ -16130,7 +16274,7 @@
     },
     "/api/v1/parts/{part_id}/export.loft": {
       "get": {
-        "description": "Export one of the caller's parts as a `.loft` file.\n\nThe file holds the parametric tree (what an import rebuilds from) plus the\nexported STEP body and its mass properties as an untrusted cache. A part\nwith no body exports without the cache. Not a backup: undo history and\nother documents are not in it.",
+        "description": "Export one of the caller's parts as a `.loft` file.\n\nThe file holds the parametric tree (what an import rebuilds from), the\npart's named versions, and the exported STEP body and its mass properties\nas an untrusted cache. A part with no body exports without the cache. Not a\nbackup: undo history and other documents are not in it. A part over a\n`.loft` limit is refused with its `loft_*` code rather than written.",
         "operationId": "export_part_loft_api_v1_parts__part_id__export_loft_get",
         "parameters": [
           {
@@ -17046,6 +17190,182 @@
         "summary": "Undo Part",
         "tags": [
           "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/versions": {
+      "get": {
+        "description": "The part's named versions, newest first.",
+        "operationId": "list_part_versions_api_v1_parts__part_id__versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartVersionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Part Versions",
+        "tags": [
+          "versions"
+        ]
+      },
+      "post": {
+        "description": "Save the part's current tree as a named version (201).\n\nVersions are never pruned: past the per-part cap a save is refused with\n409 `part_version_limit`. A stale `expected_tree_version` is a 422.",
+        "operationId": "save_part_version_api_v1_parts__part_id__versions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartVersionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartVersion"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Save Part Version",
+        "tags": [
+          "versions"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/versions/{seq}/restore": {
+      "post": {
+        "description": "Make a saved version the part's tree, as one undoable edit.\n\nThe response is the restored tree with its new `tree_version`; undo walks\nback to the tree before the restore. Later versions are kept. A stale\n`expected_tree_version` is a 422; a restore that would break a drawing's\nsection view is a 409 `part_restore_conflict`.",
+        "operationId": "restore_part_version_api_v1_parts__part_id__versions__seq__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "seq",
+            "required": true,
+            "schema": {
+              "maximum": 999999999,
+              "minimum": 1,
+              "title": "Seq",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartVersionRestore"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureTreeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Restore Part Version",
+        "tags": [
+          "versions"
         ]
       }
     }

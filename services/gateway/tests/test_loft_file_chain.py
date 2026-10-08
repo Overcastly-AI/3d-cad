@@ -355,3 +355,145 @@ def test_refusals_create_nothing(tmp_path: Path) -> None:
             assert foreign.status_code == 401
 
     asyncio.run(scenario())
+
+
+async def _set_distance(client: httpx.AsyncClient, part_id: str, mm: float) -> None:
+    tree = (await client.get(f"/api/v1/parts/{part_id}/features")).json()
+    extrude = tree["features"][1]
+    response = await client.patch(
+        f"/api/v1/parts/{part_id}/features/{extrude['id']}",
+        json={
+            "feature": {
+                **extrude["feature"],
+                "params": {**extrude["feature"]["params"], "distance_mm": mm},
+            },
+            "expected_tree_version": tree["tree_version"],
+        },
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_named_versions_save_restore_and_travel_in_the_loft(tmp_path: Path) -> None:
+    """LOFT-VERSIONS end to end: save, list, restore (undoable, rebuilt to the
+    version's volume), owner-scoped, and carried through export -> import with
+    their numbers; a format 1.0 reader's view (no versions/) still imports."""
+
+    async def scenario() -> None:
+        async with _gateway(tmp_path) as client:
+            part_id = await _extruded_part(client, "Bracket")
+            base = f"/api/v1/parts/{part_id}"
+            saved = await client.post(
+                f"{base}/versions",
+                json={"name": "Rev A", "message": "10 mm", "author": "Ada"},
+            )
+            assert saved.status_code == 201, saved.text
+            assert saved.json()["seq"] == 1
+            await _set_distance(client, part_id, 20.0)
+            assert (
+                await client.post(f"{base}/versions", json={"name": "Rev B"})
+            ).json()["seq"] == 2
+            listed = (await client.get(f"{base}/versions")).json()["versions"]
+            assert [(v["seq"], v["author"]) for v in listed] == [(2, None), (1, "Ada")]
+            assert "loft@example.com" not in json.dumps(listed)
+            assert await _volume(client, part_id) == pytest.approx(
+                20_000.0, abs=ROUNDTRIP_TOL
+            )
+
+            tree = (await client.get(f"{base}/features")).json()
+            restored = await client.post(
+                f"{base}/versions/1/restore",
+                json={"expected_tree_version": tree["tree_version"]},
+            )
+            assert restored.status_code == 200, restored.text
+            assert restored.json()["can_undo"] is True
+            assert await _volume(client, part_id) == pytest.approx(
+                10_000.0, abs=ROUNDTRIP_TOL
+            )
+            undone = await client.post(
+                f"{base}/undo",
+                json={"expected_tree_version": restored.json()["tree_version"]},
+            )
+            assert undone.status_code == 200, undone.text
+            assert await _volume(client, part_id) == pytest.approx(
+                20_000.0, abs=ROUNDTRIP_TOL
+            )
+
+            data = await _export(client, part_id)
+            assert await _export(client, part_id) == data
+            members = _members(data)
+            assert list(members) == [
+                "manifest.json",
+                "tree.json",
+                "versions/index.json",
+                "versions/1.tree.json",
+                "versions/2.tree.json",
+                "cache/body.step",
+            ]
+            assert json.loads(members["manifest.json"])["format_version"] == "1.1"
+            index = json.loads(members["versions/index.json"])
+            assert "loft@example.com" not in members["versions/index.json"].decode()
+            assert [v["name"] for v in index["versions"]] == ["Rev A", "Rev B"]
+
+            response = await _import(client, data)
+            assert response.status_code == 201, response.text
+            assert response.json()["warnings"] == []
+            copy_id = response.json()["part"]["id"]
+            copied = (await client.get(f"/api/v1/parts/{copy_id}/versions")).json()
+            assert [(v["seq"], v["name"]) for v in copied["versions"]] == [
+                (2, "Rev B"),
+                (1, "Rev A"),
+            ]
+            copy_tree = (await client.get(f"/api/v1/parts/{copy_id}/features")).json()
+            restored = await client.post(
+                f"/api/v1/parts/{copy_id}/versions/1/restore",
+                json={"expected_tree_version": copy_tree["tree_version"]},
+            )
+            assert restored.status_code == 200, restored.text
+            assert await _volume(client, copy_id) == pytest.approx(
+                10_000.0, abs=ROUNDTRIP_TOL
+            )
+
+            # What a format 1.0 Loft sees: the same file without versions/.
+            older = {
+                name: content
+                for name, content in members.items()
+                if not name.startswith("versions/")
+            }
+            manifest = json.loads(older["manifest.json"])
+            manifest["format_version"] = "1.0"
+            manifest["members"] = {
+                name: digest
+                for name, digest in manifest["members"].items()
+                if not name.startswith("versions/")
+            }
+            older["manifest.json"] = canonical_json(manifest)
+            response = await _import(client, _rezip(older))
+            assert response.status_code == 201, response.text
+            old_id = response.json()["part"]["id"]
+            assert (await client.get(f"/api/v1/parts/{old_id}/versions")).json() == {
+                "versions": []
+            }
+
+            # Another account sees none of it.
+            other = await client.post(
+                "/api/v1/auth/register",
+                json={"email": "other@example.com", "password": "hunter2-passphrase"},
+            )
+            headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
+            for method, path, body in [
+                ("POST", f"{base}/versions", {"name": "Mine"}),
+                ("GET", f"{base}/versions", None),
+                ("POST", f"{base}/versions/1/restore", {"expected_tree_version": 0}),
+            ]:
+                foreign = await client.request(method, path, json=body, headers=headers)
+                assert foreign.status_code == 404, (path, foreign.text)
+            anonymous = await client.get(
+                f"{base}/versions", headers={"Authorization": ""}
+            )
+            assert anonymous.status_code == 401
+            bad_seq = await client.post(
+                f"{base}/versions/0/restore", json={"expected_tree_version": 0}
+            )
+            assert bad_seq.status_code == 422
+
+    asyncio.run(scenario())

@@ -1108,6 +1108,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/loft-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Loft Versions
+         * @description Every version with its tree, ascending ``seq``: the ``.loft`` export's.
+         */
+        get: operations["get_loft_versions_api_v1_parts__part_id__loft_versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/move": {
         parameters: {
             query?: never;
@@ -1286,6 +1306,57 @@ export interface paths {
          *     Clean no-op at the baseline; stale ``expected_tree_version`` → 422.
          */
         post: operations["undo_api_v1_parts__part_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Versions
+         * @description The part's named versions, newest first (no trees).
+         */
+        get: operations["list_versions_api_v1_parts__part_id__versions_get"];
+        put?: never;
+        /**
+         * Save Version
+         * @description Save the part's current tree as a named version (201).
+         *
+         *     Refused with 409 ``part_version_limit`` once the part holds the most
+         *     versions (or bytes of versions) one part may; versions are never pruned.
+         */
+        post: operations["save_version_api_v1_parts__part_id__versions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/versions/{seq}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Version
+         * @description Make a saved version the part's tree: one undoable edit.
+         *
+         *     Later versions are kept. Stale ``expected_tree_version`` → 422; a version
+         *     whose restore would break a drawing's section view → 409
+         *     ``part_restore_conflict``.
+         */
+        post: operations["restore_version_api_v1_parts__part_id__versions__seq__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4551,6 +4622,11 @@ export interface components {
              */
             document_id: string;
             tree: components["schemas"]["LoftTree"];
+            /**
+             * Versions
+             * @description The file's named versions, ascending seq; kept with their seq
+             */
+            versions?: components["schemas"]["LoftVersion"][];
         };
         /**
          * LoftParamsV1
@@ -4666,6 +4742,40 @@ export interface components {
             suppressed: boolean;
             /** Type */
             type: string;
+        };
+        /**
+         * LoftVersion
+         * @description A named version with its tree: what documents stores and serves for an
+         *     export, what an import hands documents, and what :func:`read_loft` returns.
+         *
+         *     ``tree`` carries import STEP text inline, like every other in-memory tree.
+         */
+        LoftVersion: {
+            /** Author */
+            author?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /** Name */
+            name: string;
+            /** Seq */
+            seq: number;
+            tree: components["schemas"]["LoftTree"];
+        };
+        /**
+         * LoftVersionList
+         * @description Documents -> gateway: a part's versions with their trees, ascending ``seq``.
+         */
+        LoftVersionList: {
+            /** Versions */
+            versions: components["schemas"]["LoftVersion"][];
         };
         /**
          * MateAxisRef
@@ -5254,6 +5364,82 @@ export interface components {
              * @description New part name
              */
             name?: string | null;
+        };
+        /**
+         * PartVersion
+         * @description One saved version, without its tree.
+         */
+        PartVersion: {
+            /**
+             * Author
+             * @description Display name, or null when not given
+             */
+            author: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Feature Count */
+            feature_count: number;
+            /** Message */
+            message: string;
+            /** Name */
+            name: string;
+            /**
+             * Seq
+             * @description Per-part number, 1, 2, 3...; never reused
+             */
+            seq: number;
+            /**
+             * Tree Sha256
+             * @description sha256 of the version's canonical tree.json bytes
+             */
+            tree_sha256: string;
+        };
+        /**
+         * PartVersionCreate
+         * @description ``POST /api/v1/parts/{id}/versions``: name the part's current tree.
+         *
+         *     ``expected_tree_version``, when given, makes the save refuse
+         *     (``stale_tree_version``) if the tree moved since the caller last saw it,
+         *     so the version holds exactly what the user was looking at.
+         */
+        PartVersionCreate: {
+            /**
+             * Author
+             * @description Display name to record as the author. A name only: no email or account id is ever stored with a version.
+             */
+            author?: string | null;
+            /** Expected Tree Version */
+            expected_tree_version?: number | null;
+            /**
+             * Message
+             * @description Optional longer note: what changed and why
+             * @default
+             */
+            message: string;
+            /**
+             * Name
+             * @description What the version is called, e.g. 'Rev B'
+             */
+            name: string;
+        };
+        /**
+         * PartVersionListResponse
+         * @description A part's versions, newest first.
+         */
+        PartVersionListResponse: {
+            /** Versions */
+            versions: components["schemas"]["PartVersion"][];
+        };
+        /**
+         * PartVersionRestore
+         * @description ``POST /api/v1/parts/{id}/versions/{seq}/restore``: one undoable edit.
+         */
+        PartVersionRestore: {
+            /** Expected Tree Version */
+            expected_tree_version: number;
         };
         /**
          * PatternBodyScope
@@ -9613,6 +9799,40 @@ export interface operations {
             };
         };
     };
+    get_loft_versions_api_v1_parts__part_id__loft_versions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoftVersionList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     move_part_api_v1_parts__part_id__move_post: {
         parameters: {
             query?: never;
@@ -9894,6 +10114,117 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["UndoRedoRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_versions_api_v1_parts__part_id__versions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartVersionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_version_api_v1_parts__part_id__versions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartVersionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartVersion"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_version_api_v1_parts__part_id__versions__seq__restore_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+                seq: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartVersionRestore"];
             };
         };
         responses: {

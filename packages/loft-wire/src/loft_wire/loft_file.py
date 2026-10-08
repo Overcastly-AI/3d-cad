@@ -2,10 +2,12 @@
 
 What a ``.loft`` is, in one paragraph: a zip holding ``manifest.json`` (what the
 file is and the sha256 of every other member), ``tree.json`` (the feature tree
-— the only thing an import ever builds from), ``blobs/sha256-<hex>.step`` (an
-``import`` feature's STEP text, moved out of the tree so the tree stays a
-readable diff) and an optional ``cache/body.step`` (the exported body, for tools
-that do not run Loft). The cache is UNTRUSTED: an import never sends it to the
+— the only thing an import ever builds from), the part's named versions
+(``versions/index.json`` plus one ``versions/<seq>.tree.json`` each, format 1.1),
+``blobs/sha256-<hex>.step`` (an ``import`` feature's STEP text, moved out of the
+tree so the tree stays a readable diff; shared by every tree that names it) and
+an optional ``cache/body.step`` (the exported body, for tools that do not run
+Loft). The cache is UNTRUSTED: an import never sends it to the
 kernel; it rebuilds from ``tree.json`` and only compares the volume.
 
 This module owns the whole format and nothing else: the models, the canonical
@@ -34,16 +36,26 @@ from __future__ import annotations
 
 import hashlib
 import io
+import itertools
 import json
 import math
 import re
 import struct
 import uuid
 import zipfile
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from datetime import UTC, datetime
+from typing import Annotated, Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+)
 
 from loft_wire.features import (
     MAX_INLINE_STEP_CHARS,
@@ -56,6 +68,13 @@ from loft_wire.geometry import BoundingBox
 from loft_wire.materials import MaterialAssignment
 from loft_wire.parts import PartName, PartResponse
 from loft_wire.units import LengthUnit
+from loft_wire.versions import (
+    MAX_PART_VERSIONS,
+    VersionAuthor,
+    VersionMessage,
+    VersionName,
+    VersionSeq,
+)
 
 # --- identity ---------------------------------------------------------------------
 
@@ -64,10 +83,11 @@ LOFT_FORMAT = "loft"
 
 #: The format version this build WRITES, ``major.minor``. A reader refuses a
 #: newer MAJOR (``loft_format_too_new``) and reads a newer MINOR, ignoring the
-#: keys and members it does not know.
-LOFT_FORMAT_VERSION = "1.0"
+#: keys and members it does not know. 1.1 added ``versions/``; a 1.0 reader
+#: skips it unread and imports the part without its versions.
+LOFT_FORMAT_VERSION = "1.1"
 LOFT_FORMAT_MAJOR = 1
-LOFT_FORMAT_MINOR = 0
+LOFT_FORMAT_MINOR = 1
 
 #: The file suffix and the media type the export route answers with.
 LOFT_SUFFIX = ".loft"
@@ -79,6 +99,7 @@ MANIFEST_PATH = "manifest.json"
 TREE_PATH = "tree.json"
 BODY_STEP_PATH = "cache/body.step"
 BLOB_DIR = "blobs/"
+VERSIONS_INDEX_PATH = "versions/index.json"
 
 #: How a tree names a blob in place of an import feature's inline STEP text.
 BLOB_REF_PREFIX = "loft-blob:sha256:"
@@ -101,6 +122,13 @@ MAX_LOFT_TREE_BYTES = 8 * _MIB
 MAX_LOFT_BLOB_BYTES = MAX_INLINE_STEP_CHARS
 #: ``cache/body.step``, uncompressed.
 MAX_LOFT_BODY_STEP_BYTES = 64 * _MIB
+#: Named versions in one file: the same cap a part has in the database.
+MAX_LOFT_VERSIONS = MAX_PART_VERSIONS
+#: ``versions/index.json``, uncompressed. A full index of 100 entries with
+#: 2000-character messages is about 250 KiB.
+MAX_LOFT_VERSION_INDEX_BYTES = 1 * _MIB
+#: One ``versions/<seq>.tree.json``: the same ceiling ``tree.json`` has.
+MAX_LOFT_VERSION_TREE_BYTES = MAX_LOFT_TREE_BYTES
 #: Every member together, uncompressed.
 MAX_LOFT_TOTAL_BYTES = 256 * _MIB
 #: Uncompressed : compressed above this is refused as a zip bomb. STEP text
@@ -126,8 +154,11 @@ _DEFLATE_LEVEL = 6
 
 _SHA256_RE = r"^[0-9a-f]{64}$"
 _BLOB_PATH_RE = re.compile(r"^blobs/sha256-([0-9a-f]{64})\.step$")
+_VERSION_TREE_RE = re.compile(r"^versions/([1-9][0-9]{0,8})\.tree\.json$")
 _KNOWN_MEMBER_RE = re.compile(
-    r"^(?:manifest\.json|tree\.json|cache/body\.step|blobs/sha256-[0-9a-f]{64}\.step)$"
+    r"^(?:manifest\.json|tree\.json|cache/body\.step"
+    r"|blobs/sha256-[0-9a-f]{64}\.step"
+    r"|versions/index\.json|versions/[1-9][0-9]{0,8}\.tree\.json)$"
 )
 #: A member a NEWER minor version may add: a plain relative path. Skipped
 #: unread, never refused, so a 1.1 file opens in a 1.0 Loft.
@@ -159,6 +190,8 @@ LoftErrorCode = Literal[
     "loft_blob_corrupt",
     "loft_blob_missing",
     "loft_blob_reused",
+    "loft_too_many_versions",
+    "loft_versions_invalid",
 ]
 
 
@@ -268,12 +301,68 @@ class LoftTree(BaseModel):
     features: list[LoftTreeFeature] = Field(max_length=MAX_TREE_FEATURES)
 
 
+def _utc(value: datetime) -> datetime:
+    """One spelling of a moment, so a re-pack writes the same bytes."""
+    return value.astimezone(UTC)
+
+
+#: A timezone-aware moment, held in UTC.
+UtcDatetime = Annotated[AwareDatetime, AfterValidator(_utc)]
+
+
+class LoftVersionEntry(BaseModel):
+    """One line of ``versions/index.json``: a named version, without its tree.
+
+    ``tree_sha256`` is the sha256 of ``versions/<seq>.tree.json`` as written.
+    The author is a display name only, never an account id or an email.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    seq: VersionSeq
+    name: VersionName
+    message: VersionMessage = ""
+    author: VersionAuthor | None = None
+    created_at: UtcDatetime
+    tree_sha256: Sha256Hex = Field(pattern=_SHA256_RE)
+
+
+class LoftVersionIndex(BaseModel):
+    """``versions/index.json``: every named version, in ascending ``seq``."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    versions: list[LoftVersionEntry] = Field(max_length=MAX_LOFT_VERSIONS)
+
+
+class LoftVersion(BaseModel):
+    """A named version with its tree: what documents stores and serves for an
+    export, what an import hands documents, and what :func:`read_loft` returns.
+
+    ``tree`` carries import STEP text inline, like every other in-memory tree.
+    """
+
+    seq: VersionSeq
+    name: VersionName
+    message: VersionMessage = ""
+    author: VersionAuthor | None = None
+    created_at: UtcDatetime
+    tree: LoftTree
+
+
+class LoftVersionList(BaseModel):
+    """Documents -> gateway: a part's versions with their trees, ascending ``seq``."""
+
+    versions: list[LoftVersion] = Field(max_length=MAX_LOFT_VERSIONS)
+
+
 LoftWarningCode = Literal[
     "loft_tree_edited",
     "loft_cache_corrupt",
     "loft_volume_mismatch",
     "loft_rebuild_errors",
     "loft_verify_unavailable",
+    "loft_version_edited",
 ]
 
 
@@ -292,6 +381,11 @@ class LoftImportRequest(BaseModel):
         "feature id, already exists in this install"
     )
     tree: LoftTree
+    versions: list[LoftVersion] = Field(
+        default_factory=list[LoftVersion],
+        max_length=MAX_LOFT_VERSIONS,
+        description="The file's named versions, ascending seq; kept with their seq",
+    )
 
 
 class LoftImportResponse(BaseModel):
@@ -314,6 +408,7 @@ class LoftArchive:
     tree: LoftTree
     cache: LoftCache | None
     warnings: tuple[LoftWarning, ...]
+    versions: tuple[LoftVersion, ...] = ()
 
 
 # --- canonical bytes ----------------------------------------------------------------
@@ -401,6 +496,63 @@ def _zip_member(name: str) -> zipfile.ZipInfo:
     return info
 
 
+def version_tree_path(seq: int) -> str:
+    """The member path of version *seq*'s tree."""
+    return f"versions/{seq}.tree.json"
+
+
+def encode_tree(tree: LoftTree) -> tuple[bytes, dict[str, bytes]]:
+    """A tree's canonical ``tree.json`` bytes, and the blobs moved out of it.
+
+    THE encoding of every tree in a ``.loft`` (the current one and each
+    version's), and the bytes a version's ``tree_sha256`` is taken over.
+    """
+    extracted, blobs = _extract_blobs(_canonical_tree(tree))
+    return canonical_json(extracted.model_dump(mode="json")), blobs
+
+
+def _inlined_bytes(blobs: dict[str, bytes], tree_blobs: dict[str, bytes]) -> int:
+    return sum(len(blobs[digest]) for digest in tree_blobs)
+
+
+def _check_packable(
+    members: list[tuple[str, bytes]], *, inlined: int, versions: int
+) -> None:
+    """Refuse to write a file :func:`read_loft` would refuse to read.
+
+    Same caps, measured the same way: member count, each member's cap, and the
+    total including the STEP text each tree inlines again on read.
+    """
+    if versions > MAX_LOFT_VERSIONS:
+        raise LoftFileError(
+            f"A .loft holds at most {MAX_LOFT_VERSIONS} versions.",
+            code="loft_too_many_versions",
+            details={"max_versions": MAX_LOFT_VERSIONS, "versions": versions},
+        )
+    if len(members) > MAX_LOFT_MEMBERS:
+        raise LoftFileError(
+            f"The part needs more than {MAX_LOFT_MEMBERS} .loft members.",
+            code="loft_too_many_members",
+            details={"max_members": MAX_LOFT_MEMBERS, "members": len(members)},
+        )
+    total = inlined
+    for name, data in members:
+        cap = _member_cap(name)
+        if len(data) > cap:
+            raise LoftFileError(
+                f"The .loft member {name} would be over its {cap}-byte limit.",
+                code="loft_member_too_large",
+                details={"member": name, "size": len(data), "max_bytes": cap},
+            )
+        total += len(data)
+    if total > MAX_LOFT_TOTAL_BYTES:
+        raise LoftFileError(
+            f"The part would unpack to more than {MAX_LOFT_TOTAL_BYTES} bytes.",
+            code="loft_member_too_large",
+            details={"max_bytes": MAX_LOFT_TOTAL_BYTES, "size": total},
+        )
+
+
 def pack_part(
     *,
     document_id: uuid.UUID,
@@ -408,19 +560,51 @@ def pack_part(
     loft_version: str,
     body_step: bytes | None = None,
     properties: LoftCacheProperties | None = None,
+    versions: Sequence[LoftVersion] = (),
 ) -> bytes:
     """Write a part ``.loft``. Deterministic: same inputs, same bytes.
 
     *tree* carries import STEP text inline (as documents serves it); it is moved
     into ``blobs/`` here. *body_step* is the geometry export of the same tree
     and *properties* its mass properties; both are optional (a tree with no
-    body has no cache).
+    body has no cache). *versions* are the part's named versions; each tree is
+    written with the same rules as ``tree.json`` and shares ``blobs/``. Raises
+    :class:`LoftFileError` rather than write a file over the reader's caps.
     """
-    tree, blobs = _extract_blobs(_canonical_tree(tree))
-    tree_bytes = canonical_json(tree.model_dump(mode="json"))
+    if len(versions) > MAX_LOFT_VERSIONS:
+        _check_packable([], inlined=0, versions=len(versions))
+    tree_bytes, blobs = encode_tree(tree)
     tree_digest = sha256_hex(tree_bytes)
+    inlined = _inlined_bytes(blobs, blobs)
+
+    ordered = sorted(versions, key=lambda version: version.seq)
+    if len({version.seq for version in ordered}) != len(ordered):
+        raise ValueError("two versions share a seq")
+    version_members: list[tuple[str, bytes]] = []
+    entries: list[LoftVersionEntry] = []
+    for version in ordered:
+        version_bytes, version_blobs = encode_tree(version.tree)
+        blobs.update(version_blobs)
+        inlined += _inlined_bytes(blobs, version_blobs)
+        version_members.append((version_tree_path(version.seq), version_bytes))
+        entries.append(
+            LoftVersionEntry(
+                seq=version.seq,
+                name=version.name,
+                message=version.message,
+                author=version.author,
+                created_at=version.created_at,
+                tree_sha256=sha256_hex(version_bytes),
+            )
+        )
 
     members: list[tuple[str, bytes]] = [(TREE_PATH, tree_bytes)]
+    if entries:
+        index = LoftVersionIndex(versions=entries)
+        members.append(
+            (VERSIONS_INDEX_PATH, canonical_json(index.model_dump(mode="json")))
+        )
+        members += version_members
     members += [(blob_path(digest), blobs[digest]) for digest in sorted(blobs)]
     cache: LoftCache | None = None
     if body_step is not None:
@@ -443,10 +627,12 @@ def pack_part(
         cache=cache,
     )
     manifest_bytes = canonical_json(manifest.model_dump(mode="json"))
+    all_members = [(MANIFEST_PATH, manifest_bytes), *members]
+    _check_packable(all_members, inlined=inlined, versions=len(ordered))
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        for name, data in [(MANIFEST_PATH, manifest_bytes), *members]:
+        for name, data in all_members:
             archive.writestr(_zip_member(name), data, compresslevel=_DEFLATE_LEVEL)
     return buffer.getvalue()
 
@@ -523,6 +709,10 @@ def _member_cap(name: str) -> int:
         return MAX_LOFT_MANIFEST_BYTES
     if name == TREE_PATH:
         return MAX_LOFT_TREE_BYTES
+    if name == VERSIONS_INDEX_PATH:
+        return MAX_LOFT_VERSION_INDEX_BYTES
+    if _VERSION_TREE_RE.match(name) is not None:
+        return MAX_LOFT_VERSION_TREE_BYTES
     if name == BODY_STEP_PATH:
         return MAX_LOFT_BODY_STEP_BYTES
     return MAX_LOFT_BLOB_BYTES
@@ -696,14 +886,18 @@ def _blob_reference(feature: LoftTreeFeature) -> str | None:
     return match.group(1) if match is not None else None
 
 
-def _inline_blobs(tree: LoftTree, blobs: dict[str, bytes], *, budget: int) -> LoftTree:
+def _inline_blobs(
+    tree: LoftTree, blobs: dict[str, bytes], *, budget: int
+) -> tuple[LoftTree, int]:
     """Put each referenced blob's STEP text back where the tree names it.
 
-    Only into an ``import`` feature's ``params.data``, each blob at most ONCE,
-    and the inlined bytes count against *budget* (what is left of
+    Only into an ``import`` feature's ``params.data``, each blob at most ONCE
+    per tree, and the inlined bytes count against *budget* (what is left of
     :data:`MAX_LOFT_TOTAL_BYTES`). All three are checked BEFORE any text is
     decoded: a 16 MiB blob named by a thousand features would otherwise
-    decode a thousand copies of itself and take the gateway down.
+    decode a thousand copies of itself and take the gateway down. Returns the
+    tree and the bytes it inlined, which the caller takes off the budget of
+    the next tree (each version's tree may name the same blob again).
     """
     seen: set[str] = set()
     inlined = 0
@@ -747,7 +941,7 @@ def _inline_blobs(tree: LoftTree, blobs: dict[str, bytes], *, budget: int) -> Lo
                 update={"params": {**feature.params, "data": text}}
             )
         features.append(feature)
-    return tree.model_copy(update={"features": features})
+    return tree.model_copy(update={"features": features}), inlined
 
 
 def read_loft(data: bytes) -> LoftArchive:
@@ -872,26 +1066,128 @@ def _verify(manifest: LoftManifest, contents: dict[str, bytes]) -> LoftArchive:
             )
             cache = None
 
+    tree = _parse_tree(tree_bytes, member=TREE_PATH)
+    budget = MAX_LOFT_TOTAL_BYTES - sum(len(data) for data in contents.values())
+    tree, used = _inline_blobs(tree, blobs, budget=budget)
+    budget -= used
+
+    versions: list[LoftVersion] = []
+    edited: list[int] = []
+    for entry, version_bytes in _version_members(contents):
+        if sha256_hex(version_bytes) != entry.tree_sha256:
+            edited.append(entry.seq)
+        version_tree, used = _inline_blobs(
+            _parse_tree(version_bytes, member=version_tree_path(entry.seq)),
+            blobs,
+            budget=budget,
+        )
+        budget -= used
+        versions.append(
+            LoftVersion(
+                seq=entry.seq,
+                name=entry.name,
+                message=entry.message,
+                author=entry.author,
+                created_at=entry.created_at,
+                tree=version_tree,
+            )
+        )
+    if edited:
+        warnings.append(
+            LoftWarning(
+                code="loft_version_edited",
+                message="The tree of version(s) "
+                + ", ".join(str(seq) for seq in edited)
+                + " was changed after this file was exported; it was imported "
+                "as it now reads.",
+            )
+        )
+    return LoftArchive(
+        manifest=manifest,
+        tree=tree,
+        cache=cache,
+        warnings=tuple(warnings),
+        versions=tuple(versions),
+    )
+
+
+def _parse_tree(data: bytes, *, member: str) -> LoftTree:
     try:
-        tree = LoftTree.model_validate(
-            _parse_json(tree_bytes, member=TREE_PATH, code="loft_tree_invalid")
+        return LoftTree.model_validate(
+            _parse_json(data, member=member, code="loft_tree_invalid")
         )
     except ValidationError as exc:
         raise LoftFileError(
-            "The .loft tree.json is invalid.",
+            f"The .loft {member} is invalid.",
             code="loft_tree_invalid",
+            details={"member": member, "errors": _validation_details(exc)},
+        ) from exc
+
+
+def _version_members(
+    contents: dict[str, bytes],
+) -> list[tuple[LoftVersionEntry, bytes]]:
+    """``versions/index.json`` and the tree member of each entry, checked.
+
+    The index and the ``versions/<seq>.tree.json`` members must agree exactly:
+    a tree the index does not list, or an entry without its tree, is refused,
+    as is an index that is not in strictly ascending ``seq``.
+    """
+    trees = {
+        int(match.group(1)): data
+        for name, data in contents.items()
+        if (match := _VERSION_TREE_RE.match(name)) is not None
+    }
+    index_bytes = contents.get(VERSIONS_INDEX_PATH)
+    if index_bytes is None:
+        if trees:
+            raise LoftFileError(
+                "The .loft holds version trees but no versions/index.json.",
+                code="loft_versions_invalid",
+                details={"member": VERSIONS_INDEX_PATH},
+            )
+        return []
+    raw = _parse_json(
+        index_bytes, member=VERSIONS_INDEX_PATH, code="loft_versions_invalid"
+    )
+    listed = (
+        cast(dict[str, Any], raw).get("versions") if isinstance(raw, dict) else None
+    )
+    if isinstance(listed, list) and len(cast(list[Any], listed)) > MAX_LOFT_VERSIONS:
+        raise LoftFileError(
+            f"The .loft holds more than {MAX_LOFT_VERSIONS} versions.",
+            code="loft_too_many_versions",
+            details={"max_versions": MAX_LOFT_VERSIONS},
+        )
+    try:
+        index = LoftVersionIndex.model_validate(raw)
+    except ValidationError as exc:
+        raise LoftFileError(
+            "The .loft versions/index.json is invalid.",
+            code="loft_versions_invalid",
             details={"errors": _validation_details(exc)},
         ) from exc
-    return LoftArchive(
-        manifest=manifest,
-        tree=_inline_blobs(
-            tree,
-            blobs,
-            budget=MAX_LOFT_TOTAL_BYTES - sum(len(data) for data in contents.values()),
-        ),
-        cache=cache,
-        warnings=tuple(warnings),
-    )
+    seqs = [entry.seq for entry in index.versions]
+    if any(later <= earlier for earlier, later in itertools.pairwise(seqs)):
+        raise LoftFileError(
+            "The .loft versions/index.json is not in ascending seq order.",
+            code="loft_versions_invalid",
+        )
+    unlisted = sorted(set(trees) - set(seqs))
+    if unlisted:
+        raise LoftFileError(
+            "The .loft holds a version tree its index does not list.",
+            code="loft_versions_invalid",
+            details={"member": version_tree_path(unlisted[0])},
+        )
+    missing = [seq for seq in seqs if seq not in trees]
+    if missing:
+        raise LoftFileError(
+            "The .loft lists a version whose tree it does not hold.",
+            code="loft_member_missing",
+            details={"member": version_tree_path(missing[0])},
+        )
+    return [(entry, trees[entry.seq]) for entry in index.versions]
 
 
 def loft_filename(name: str, document_id: uuid.UUID) -> str:
@@ -912,6 +1208,8 @@ __all__ = [
     "MAX_LOFT_TOTAL_BYTES",
     "MAX_LOFT_TREE_BYTES",
     "MAX_LOFT_UPLOAD_BYTES",
+    "MAX_LOFT_VERSIONS",
+    "VERSIONS_INDEX_PATH",
     "LoftArchive",
     "LoftCache",
     "LoftCacheProperties",
@@ -921,9 +1219,15 @@ __all__ = [
     "LoftManifest",
     "LoftTree",
     "LoftTreeFeature",
+    "LoftVersion",
+    "LoftVersionEntry",
+    "LoftVersionIndex",
+    "LoftVersionList",
     "LoftWarning",
     "canonical_json",
+    "encode_tree",
     "loft_filename",
     "pack_part",
     "read_loft",
+    "version_tree_path",
 ]
