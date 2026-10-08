@@ -941,3 +941,33 @@ def test_a_save_repairs_a_stored_row_that_no_longer_loads(
     )[0][0]
     assert stored["radius_mm"] == 2.0
     assert stored["edges"]["kind"] == "edges"
+
+
+def test_a_name_the_backfill_did_not_write_is_the_clients_to_drop(
+    client: TestClient,
+) -> None:
+    """The carry restores only names the background write put there (e2e
+    lane on f9c2019: edge-resolve-warn strips a FRESH pick's name through the
+    API to reproduce a legacy pick, and the carry had silently put it back).
+    A fresh pick's name, removed by a save, stays removed."""
+    ids = _part(client)
+    named = dict(_edge_signature(), topo_name="fresh")
+    first = client.patch(
+        f"/api/v1/parts/{ids['part']}/features/{ids['fillet']}",
+        json={"expected_tree_version": 3, "feature": _fillet(ids["extrude"], named)},
+        headers=_headers(),
+    )
+    assert first.status_code == 200, first.text
+    stripped = client.patch(
+        f"/api/v1/parts/{ids['part']}/features/{ids['fillet']}",
+        json={
+            "expected_tree_version": 4,
+            "feature": _fillet(ids["extrude"], _edge_signature()),
+        },
+        headers=_headers(),
+    )
+    assert stripped.status_code == 200, stripped.text
+    assert (
+        _signature(_feature(client, ids["part"], ids["fillet"])).get("topo_name")
+        is None
+    )

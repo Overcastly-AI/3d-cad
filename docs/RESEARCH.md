@@ -812,8 +812,9 @@ engineer edits, and a bump refused their next save as stale (e2e lane on
 67c5dc4). Names cannot change the body at the sizes they were computed at and
 every geometry cache keys on params, so no reader needs the bump; the one
 risk, an editor saving params it read before the write, is closed by the
-feature PATCH copying the stored names back onto any pick whose signature is
-unchanged (`carry_ref_names`).
+feature PATCH copying the names THE BACKFILL WROTE (read from its journal,
+never from the stored row) back onto any pick whose signature is unchanged
+(`carry_ref_names`). Any other name stays the client's to keep or drop.
 At unchanged sizes the exact tier answers before the name is read, so the
 named part rebuilds byte for byte (bracket, enclosure, impeller and lip in
 `tests/test_ref_backfill.py`); after the backfill the four hard-parts edits

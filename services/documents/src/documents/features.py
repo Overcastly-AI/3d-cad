@@ -53,6 +53,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db, history
 from documents.parts import Principal, get_owned_part, section_view_feature_refs
+from documents.ref_backfill import backfill_written_params
 
 _logger = get_logger("documents.features")
 
@@ -486,23 +487,14 @@ async def update_feature(
         incoming = request.feature.params.model_dump(mode="json")
         # A save from a tree read before a background history-name write
         # (DESIGN-INTENT-BACKFILL, which does not bump tree_version) keeps the
-        # names of every pick it did not change. A stored row that no longer
-        # loads has no names worth keeping, and this PATCH is what repairs it,
-        # so the carry is skipped rather than failing the save.
-        try:
-            stored = FEATURE_REGISTRY.load(
-                feature.type, feature.param_version, feature.params
-            ).params.model_dump(mode="json")
-        except Exception:
-            _logger.warning(
-                "feature_stored_params_unloadable",
-                part_id=str(part.id),
-                feature_id=str(feature.id),
-            )
-            stored = None
+        # names THAT WRITE gave every pick it did not change. The source is
+        # the backfill's own journal, never the stored row: a name that came
+        # from anywhere else (a fresh pick) is the client's to keep or drop,
+        # and a stored row that no longer loads is never read here.
+        written = await backfill_written_params(session, part.id, feature.id)
         feature.param_version = request.feature.version
         feature.params = (
-            incoming if stored is None else carry_ref_names(stored, incoming)
+            incoming if written is None else carry_ref_names(written, incoming)
         )
         # The envelope carries `suppressed`; a params replace persists it too so
         # an update never resets the flag (the dedicated toggle is the usual

@@ -42,7 +42,7 @@ import hashlib
 import uuid
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Query
 from loft_wire.features import (
@@ -172,6 +172,35 @@ async def _record_failure(
         attempts=attempts,
         next_try_at=next_try,
     )
+
+
+async def backfill_written_params(
+    session: AsyncSession, part_id: uuid.UUID, feature_id: uuid.UUID
+) -> dict[str, Any] | None:
+    """The params the latest un-reverted backfill write gave *feature_id*, or
+    ``None``: the only source :func:`loft_wire.ref_names.carry_ref_names` may
+    copy names from on a feature PATCH. Scoping the carry to names the
+    background write put there (the one write that does not bump
+    ``tree_version``) keeps every other name the client's to drop."""
+    rows = (
+        await session.execute(
+            select(db.RefNameBackfill.params_after)
+            .where(
+                db.RefNameBackfill.part_id == part_id,
+                db.RefNameBackfill.kind == "backfill",
+                db.RefNameBackfill.reverted_at.is_(None),
+            )
+            .order_by(db.RefNameBackfill.created_at.desc())
+        )
+    ).scalars()
+    for params_after in rows:
+        entry: Any = params_after.get(str(feature_id))
+        if not isinstance(entry, dict):
+            continue
+        params: Any = cast(dict[str, Any], entry).get("params")
+        if isinstance(params, dict):
+            return cast(dict[str, Any], params)
+    return None
 
 
 @router.post("/{part_id}/ref-names/failure")
