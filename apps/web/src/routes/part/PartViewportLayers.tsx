@@ -8,6 +8,7 @@ import { MeasureOverlay } from "../../viewport/MeasureOverlay";
 import { BendHighlightOverlay } from "../../viewport/BendHighlightOverlay";
 import { FlangeSpanOverlay } from "../../viewport/FlangeSpanOverlay";
 import { EdgePickOverlay } from "../../viewport/EdgePickOverlay";
+import { useEdgePickStore } from "../../features/edgePickStore";
 import { ShellFaceOverlay } from "../../viewport/ShellFaceOverlay";
 import { HolePointOverlay } from "../../viewport/HolePointOverlay";
 import { FacePickOverlay } from "../../viewport/FacePickOverlay";
@@ -173,6 +174,9 @@ export function PartViewportLayers({
   const { authorFacePlane } = sketchEntry;
   const { pickDatumFace } = datumFacePicking;
   const { pickHoleFace, pickHolePoint } = holePicking;
+  // The sketcher's Project tool picks body edges WHILE sketching
+  // (SKETCH-PROJECT-EDGES); every other edge pick is a model-mode command.
+  const projecting = useEdgePickStore((s) => s.purpose === "project");
   return (
     <>
       {/* ANCHOR D, pattern (CRAFT-11) — two mounts and a ghost. The
@@ -245,7 +249,9 @@ export function PartViewportLayers({
         />
       ) : null}
       <MeasureOverlay />
-      {mode === "off" && edgePicking ? <EdgePickOverlay /> : null}
+      {edgePicking && (mode === "off" || (mode === "draw" && projecting)) ? (
+        <EdgePickOverlay />
+      ) : null}
       {/* The fillet/chamfer gauges stand on the picked edges and draw
                   the RESULT at the live value — route (b) of direction §8.4,
                   line-work rather than a ghost: the rolling ball's tangency

@@ -62,6 +62,15 @@ import {
   type DimensionPickAction,
 } from "./dimensionPick";
 import { reconcileEditedConstraints } from "./reconcileEdit";
+import type { OverlayEdge } from "../api/measure";
+import { edgeSignatureKey } from "../features/edge";
+import {
+  breakLinks,
+  isProjected,
+  projectedSignatures,
+  type SketchProjectionStatus,
+} from "./project";
+import { projectOverlayEdge } from "./projectEdge";
 import { axisInferenceHint } from "./snap";
 import { toggleCornerPick, type CornerOp } from "./corner";
 import { keepSharps, reconcileCornerConstraints } from "./cornerConstraints";
@@ -88,7 +97,12 @@ import {
 import { mirrorAxisFor, toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import { originIdentity } from "./origin";
 import { typedJoin, withNamedPointAt } from "./pointEntry";
-import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
+import {
+  resolveSpecBasis,
+  type DatumPlaneName,
+  type Point2D,
+  type SketchPlaneSpec,
+} from "./plane";
 import {
   applyPick,
   toggleSelection,
@@ -373,6 +387,12 @@ export interface SketchState {
    * placeholder 30 while the model sat at 45.
    */
   solvedAngles: SolvedAngle[];
+  /**
+   * How each projected entity re-projected on the last solve
+   * (SKETCH-PROJECT-EDGES): `sick` ones keep their last good position and say
+   * why. Empty until the first solve, and for a sketch with nothing projected.
+   */
+  projections: SketchProjectionStatus[];
   /** Transient strip hint (invalid constraint action, duplicates, …). */
   hint: string | null;
   /**
@@ -626,6 +646,14 @@ export interface SketchState {
   undo: () => void;
   /** Redo the last undone sketch edit (cleared the moment you draw again). */
   redo: () => void;
+  /**
+   * PROJECT a picked body edge into the sketch (the Project tool, P): the
+   * linked entity is appended, or the strip says why the edge cannot be.
+   * `anchorFeatureId` is the body-affecting feature the edge belongs to.
+   */
+  projectEdge: (edge: OverlayEdge, anchorFeatureId: string) => void;
+  /** BREAK LINK on the selected projected entities: geometry kept, link gone. */
+  breakLink: () => void;
   /** Bind the session to its persisted feature (first save). */
   bind: (featureId: string) => void;
   /**
@@ -640,6 +668,7 @@ export interface SketchState {
     solve: SolveInfo | null,
     dimensions?: readonly SolvedDimension[],
     angles?: readonly SolvedAngle[],
+    projections?: readonly SketchProjectionStatus[],
   ) => void;
   /**
    * Escape cascade: editor → placement → tool → selection → and then STOP.
@@ -698,6 +727,7 @@ const INITIAL = {
   solve: null,
   solvedDimensions: [],
   solvedAngles: [],
+  projections: [],
   hint: null,
   edit: null,
   editBusy: false,
@@ -1180,7 +1210,7 @@ const createSketchState = (
     const { entities, revision } = get();
     let moved = false;
     const next = entities.map((entity) => {
-      if (entity.id !== target.entity) return entity;
+      if (entity.id !== target.entity || isProjected(entity)) return entity;
       const updated = withNamedPointAt(entity, target.point, at);
       if (updated === null) return entity;
       moved = true;
@@ -1911,9 +1941,60 @@ const createSketchState = (
     });
   },
 
+  projectEdge: (edge, anchorFeatureId) => {
+    const { plane, entities, nextIdIndex, revision } = get();
+    if (plane === null) return;
+    const key = edgeSignatureKey(edge.signature);
+    if (
+      projectedSignatures(entities).some(
+        (signature) => edgeSignatureKey(signature) === key,
+      )
+    ) {
+      set({ hint: "That edge is already projected into this sketch." });
+      return;
+    }
+    const result = projectOverlayEdge(
+      edge,
+      resolveSpecBasis(plane),
+      anchorFeatureId,
+      `e${nextIdIndex}`,
+    );
+    if (!("entity" in result)) {
+      set({ hint: result.hint });
+      return;
+    }
+    set({
+      entities: [...entities, result.entity],
+      nextIdIndex: nextIdIndex + 1,
+      revision: revision + 1,
+      hint: null,
+    });
+  },
+
+  breakLink: () => {
+    const { selection, entities, revision } = get();
+    const result = breakLinks(selection, entities);
+    if (result === null) {
+      set({ hint: "Select projected geometry to break its link." });
+      return;
+    }
+    const what = `${result.broken} ${result.broken === 1 ? "entity" : "entities"}`;
+    set({
+      entities: result.entities,
+      revision: revision + 1,
+      // The broken entities are no longer the solver's to report on.
+      projections: get().projections.filter((status) =>
+        isProjected(result.entities.find((e) => e.id === status.entity)),
+      ),
+      selection: [],
+      hint: null,
+      editNote: `Link broken on ${what}. It no longer follows the body.`,
+    });
+  },
+
   bind: (featureId) => set({ featureId }),
 
-  adoptSolved: (entities, solve, dimensions, angles) => {
+  adoptSolved: (entities, solve, dimensions, angles, projections) => {
     const dims = {
       ...(dimensions === undefined
         ? {}
@@ -1923,6 +2004,7 @@ const createSketchState = (
       // mistaken for "no report" — deleting the last angle would otherwise
       // leave its reading behind for the next one to inherit.
       ...(angles === undefined ? {} : { solvedAngles: [...angles] }),
+      ...(projections === undefined ? {} : { projections: [...projections] }),
     };
     // THE seam where the solve report becomes something the user is shown.
     // Sanitised once, here, rather than at each of the three readers (the DRO

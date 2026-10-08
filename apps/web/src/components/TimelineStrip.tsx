@@ -40,7 +40,14 @@
  * The slot math is shared with nothing to translate: `features/rollback.ts` was
  * written for the vertical bar and ported to this axis unchanged.
  */
-import { BandActionCell, cx, layout, Stamp, VerbGlyph } from "@loft/design";
+import {
+  BandActionCell,
+  cx,
+  HazardIcon,
+  layout,
+  Stamp,
+  VerbGlyph,
+} from "@loft/design";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 
@@ -52,6 +59,7 @@ import type {
 } from "../api/parts";
 import { featureTypeLabel } from "../features/featureLabels";
 import { usePrefetchIntent } from "../features/prefetch";
+import { projectionWarning } from "../features/subshapeResolution";
 import {
   barSlotIndex,
   nearestSlotIndex,
@@ -353,6 +361,12 @@ export function TimelineStrip({
         ) : (
           features.map((feature, index) => {
             const status = resultById.get(feature.id)?.status;
+            // The tree row's "Projection lost", as one mark on the chip
+            // (SKETCH-PROJECT-EDGES): same sentence, read on hover and aloud.
+            const lost =
+              index > slot
+                ? null
+                : projectionWarning(feature, resultById.get(feature.id));
             const rolledBack = index > slot;
             const suppressed =
               (feature.feature.suppressed ?? false) || status === "suppressed";
@@ -382,10 +396,10 @@ export function TimelineStrip({
                     feature.feature.type,
                   )}, step ${index + 1} of ${count}${state}${
                     scoped ? ", in scope for the open command" : ""
-                  }`}
+                  }${lost !== null ? `, ${lost.sentence}` : ""}`}
                   // Chip names truncate at 7.5rem; the pointer gets the full
                   // one back (the screen reader already had it, above).
-                  title={name}
+                  title={lost !== null ? `${name}: ${lost.sentence}` : name}
                   onClick={() => onSelectFeature(feature)}
                   onContextMenu={
                     onChipContextMenu
@@ -447,6 +461,15 @@ export function TimelineStrip({
                       indicators, and this is not one — it is transient, it
                       exists only while a command is open, and it is a word
                       rather than a mark on the way. */}
+                  {lost !== null ? (
+                    <span
+                      aria-hidden
+                      data-testid={`timeline-projection-${index}`}
+                      className="shrink-0 text-flag"
+                    >
+                      <HazardIcon size={12} />
+                    </span>
+                  ) : null}
                   {scoped ? (
                     <Stamp
                       tone="brass"

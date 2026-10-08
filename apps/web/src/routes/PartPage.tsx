@@ -44,7 +44,11 @@ import { InspectorRail, FeatureTreeRail } from "./part/PartSidePanels";
 import { PartViewportLayers } from "./part/PartViewportLayers";
 import { FeatureEditorSeat } from "./part/FeatureEditorSeat";
 import { PartCommandBand } from "./part/PartCommandBand";
-import { treeMenuSections, viewportMenuSections } from "./part/contextMenus";
+import {
+  sketchMenuSections,
+  treeMenuSections,
+  viewportMenuSections,
+} from "./part/contextMenus";
 import { usePartDocument } from "./part/usePartDocument";
 import { usePartBody } from "./part/usePartBody";
 import { usePickState } from "./part/usePickState";
@@ -72,6 +76,7 @@ import { useTimelineHistory } from "./part/useTimelineHistory";
 import { usePartVersions } from "./part/usePartVersions";
 import { useRebuildNotices } from "./part/useRebuildNotices";
 import { useViewportState } from "./part/useViewportState";
+import { useSketchProjectSession } from "./part/useSketchProjectSession";
 
 /**
  * The part workspace: feature tree left, viewport hero, sketch mode inside
@@ -340,10 +345,12 @@ export function PartPage() {
     proposalContext,
     proposedFace,
     pickAnchorFeatureId,
+    projectAnchorFeatureId,
     highlightFeatureIds,
     selectedFaceIndices,
     preselectedFaceIndices,
   } = pickOverlays;
+  useSketchProjectSession({ mode, anchorFeatureId: projectAnchorFeatureId });
   const treeWrites = useTreeWrites({ partId, queryClient, lengthUnit, tree });
   const {
     freshTreeVersion,
@@ -880,18 +887,20 @@ export function PartPage() {
 
   // Context-menu section builders (UI-REVIEW #10): `part/contextMenus`.
   const buildViewportSections = () =>
-    viewportMenuSections({
-      selectedFeatureId,
-      features,
-      hasBody,
-      measureActive,
-      deletingId,
-      startSketch,
-      startSketchOnFace,
-      toggleMeasure,
-      toggleSuppress,
-      requestDeleteFeature,
-    });
+    mode === "draw"
+      ? sketchMenuSections()
+      : viewportMenuSections({
+          selectedFeatureId,
+          features,
+          hasBody,
+          measureActive,
+          deletingId,
+          startSketch,
+          startSketchOnFace,
+          toggleMeasure,
+          toggleSuppress,
+          requestDeleteFeature,
+        });
 
   const buildTreeSections = (feature: FeatureResponse) =>
     treeMenuSections(feature, {

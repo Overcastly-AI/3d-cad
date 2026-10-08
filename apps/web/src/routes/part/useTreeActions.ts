@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { useMeasureStore } from "../../measure/store";
+import { useSketchStore } from "../../sketch/store";
 import {
   type BooleanParams,
   deleteFeature,
@@ -405,11 +406,20 @@ export function useTreeActions({
     ],
   );
 
-  // Viewport right-click: open the menu at the pointer, but only when the view
-  // rig owns the camera (mode off) — sketch/plane modes own their own gestures.
+  // Viewport right-click: open the menu at the pointer when the view rig owns
+  // the camera (mode off), or while sketching, where it is the SKETCH's menu
+  // (Break link, construction, delete), acting on the selection or, with
+  // nothing selected, on the entity under the pointer — Fusion's right-click.
+  // The plane-pick step owns its own gestures.
   const openViewportMenu = useCallback(
     (event: ReactMouseEvent) => {
-      if (mode !== "off") return;
+      if (mode !== "off" && mode !== "draw") return;
+      if (mode === "draw") {
+        const sketch = useSketchStore.getState();
+        if (sketch.selection.length === 0 && sketch.hoverPick !== null) {
+          sketch.togglePick(sketch.hoverPick);
+        }
+      }
       event.preventDefault();
       setTreeMenu(null);
       setViewportMenu({ x: event.clientX, y: event.clientY });

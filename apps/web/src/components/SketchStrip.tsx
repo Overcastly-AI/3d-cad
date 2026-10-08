@@ -59,6 +59,7 @@ import {
   PanelActionCell,
   ParallelIcon,
   PerpendicularIcon,
+  ProjectIcon,
   RadiusIcon,
   RectIcon,
   SegmentedControl,
@@ -107,6 +108,8 @@ import {
   type SketchPlaneSpec,
 } from "../sketch/plane";
 import { useSketchStore } from "../sketch/store";
+import { isProjected } from "../sketch/project";
+import { useEdgePickStore } from "../features/edgePickStore";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { SketchTool } from "../sketch/tools";
 
@@ -151,6 +154,16 @@ const TOOLS: ReadonlyArray<{
     keyHint: "S",
     name: "Spline tool (S) — click fit points, Enter or double-click to finish; each fit point constrains like any point (coincident / fixed / symmetric)",
     icon: <SplineIcon />,
+  },
+  {
+    // Fusion's Project / SolidWorks' Convert Entities (SKETCH-PROJECT-EDGES):
+    // it CREATES sketch geometry, so it sits with the draw tools as Fusion's
+    // Create menu has it, and it arms on P exactly as Spline arms on S.
+    tool: "project",
+    label: "Project",
+    keyHint: "P",
+    name: "Project tool (P) — click body edges to bring them into the sketch, linked: they follow the body on every rebuild",
+    icon: <ProjectIcon />,
   },
 ];
 
@@ -822,6 +835,49 @@ function CornerPrompt({
 }
 
 /**
+ * The Project tool's guide, hung from the band into the viewport: what to
+ * click, how many edges this sketch already follows, and the way out. Says
+ * "Loading the body's edges" until the overlay arrives, so an armed tool with
+ * nothing to click never looks broken.
+ */
+function ProjectPrompt({
+  count,
+  loading,
+  error,
+}: {
+  count: number;
+  loading: boolean;
+  error: string | null;
+}) {
+  return (
+    <div
+      role="status"
+      data-testid="project-prompt"
+      className="border border-hairline bg-anvil px-3 py-2 font-body text-xs text-gauge"
+    >
+      {error !== null ? (
+        <span className="text-flag">{error}</span>
+      ) : loading ? (
+        <span>Loading the body&rsquo;s edges…</span>
+      ) : (
+        <span>
+          Click body edges to project them
+          {count > 0 ? (
+            <>
+              {" · "}
+              <span className="text-mist" data-testid="project-count">
+                {count} projected
+              </span>
+            </>
+          ) : null}
+          {" · "}Esc to finish
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
  * The Spline tool's fit-point guide, hung from the band into the viewport. It
  * counts placed points and, once two are held, offers the keyboard-first finish
  * (Enter / double-click). Once committed, each fit point constrains like any
@@ -913,6 +969,15 @@ export function SketchStrip({
   const corner = useSketchStore((state) => state.corner);
   const pending = useSketchStore((state) => state.pending);
   const advanceMirror = useSketchStore((state) => state.advanceMirror);
+  const projectedCount = useSketchStore(
+    (state) => state.entities.filter(isProjected).length,
+  );
+  const edgeOverlayLoading = useEdgePickStore(
+    (state) => state.purpose === "project" && state.overlay === null,
+  );
+  const edgeOverlayError = useEdgePickStore((state) =>
+    state.purpose === "project" ? state.overlayError : null,
+  );
   const bound = useSketchStore((state) => state.featureId !== null);
   const exit = useSketchStore((state) => state.exit);
   // Sketch-local history. `canUndo` is the stack itself, not a claim about it.
@@ -1472,6 +1537,7 @@ export function SketchStrip({
       {mirror !== null ||
       corner !== null ||
       tool === "spline" ||
+      tool === "project" ||
       hint ||
       saveError ||
       editNote ? (
@@ -1481,6 +1547,13 @@ export function SketchStrip({
           ) : null}
           {corner !== null ? <CornerPrompt corner={corner} /> : null}
           {tool === "spline" ? <SplinePrompt count={pending.length} /> : null}
+          {tool === "project" ? (
+            <ProjectPrompt
+              count={projectedCount}
+              loading={edgeOverlayLoading}
+              error={edgeOverlayError}
+            />
+          ) : null}
           {editNote ? (
             <p
               role="status"

@@ -86,3 +86,53 @@ export function movedEdgeWarning(
   ].join("|");
   return { moved, total, sentence, key };
 }
+
+/**
+ * WHEN A PROJECTED EDGE IS GONE (SKETCH-PROJECT-EDGES).
+ *
+ * A sketch entity projected from a body edge re-finds that edge on every
+ * rebuild. When it cannot (the edge was cut away, the shell was closed), the
+ * entity is SICK, as Fusion calls it: the sketch keeps its last position and
+ * still builds, so its row reads OK and nothing downstream fails. That is the
+ * right behaviour and also a silent one, so the row says it.
+ */
+export interface ProjectionWarning {
+  /** Projected entities whose edge no longer resolves. */
+  readonly sick: number;
+  /** Every projected entity in the sketch. */
+  readonly total: number;
+  /** The notice's sentence: what happened, then what it means. */
+  readonly sentence: string;
+  /** What a dismissal is remembered against (this feature, as it is now). */
+  readonly key: string;
+}
+
+/** The notice's stamp. */
+export const PROJECTION_LOST_LABEL = "Projection lost";
+
+/**
+ * The warning for a sketch `result`, or null: not a solved sketch, nothing
+ * projected, or every projection followed its edge.
+ */
+export function projectionWarning(
+  feature: FeatureResponse,
+  result: FeatureResult | undefined,
+): ProjectionWarning | null {
+  if (result?.status !== "ok" || result.data?.kind !== "solved_sketch") {
+    return null;
+  }
+  const statuses = result.data.projections ?? [];
+  const sick = statuses.filter((status) => status.state === "sick");
+  if (sick.length === 0) return null;
+  const one = sick.length === 1;
+  const sentence =
+    `${sick.length} projected ${one ? "edge no longer exists" : "edges no longer exist"}; ` +
+    `the sketch keeps ${one ? "its" : "their"} last position.`;
+  const key = [
+    "projection",
+    feature.id,
+    feature.updated_at,
+    sick.map((status) => `${status.entity}:${status.reason ?? ""}`).join(","),
+  ].join("|");
+  return { sick: sick.length, total: statuses.length, sentence, key };
+}

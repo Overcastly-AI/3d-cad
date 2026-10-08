@@ -98,3 +98,54 @@ describe("repickMoved", () => {
     expect(useEdgePickStore.getState().picked).toEqual([A]);
   });
 });
+
+describe("edge-pick store purpose (SKETCH-PROJECT-EDGES)", () => {
+  beforeEach(() => useEdgePickStore.getState().close());
+
+  const overlayEdge = (signature: EdgeSignature) => ({
+    kind: signature.curve,
+    start: signature.end_a,
+    end: signature.end_b,
+    polyline: [signature.end_a, signature.end_b],
+    signature,
+  });
+
+  it("a fillet session's pick toggles the edge, as it always has", () => {
+    const store = useEdgePickStore.getState();
+    store.open([], true);
+    expect(useEdgePickStore.getState().purpose).toBe("edges");
+    store.pick(overlayEdge(A));
+    expect(useEdgePickStore.getState().picked).toEqual([A]);
+  });
+
+  it("a Project session hands the edge to the sketcher and keeps no pick of its own", () => {
+    const projected: string[] = [];
+    useEdgePickStore.getState().open([], true, {
+      purpose: "project",
+      onProject: (edge) => projected.push(edge.signature.curve),
+    });
+    useEdgePickStore.getState().pick(overlayEdge(B));
+    expect(projected).toEqual(["line"]);
+    expect(useEdgePickStore.getState().picked).toEqual([]);
+    // The taken set is the sketch's, mirrored in.
+    useEdgePickStore.getState().setPicked([B]);
+    expect(useEdgePickStore.getState().picked).toEqual([B]);
+  });
+
+  it("closing forgets the purpose and the handler", () => {
+    useEdgePickStore.getState().open([], true, {
+      purpose: "project",
+      onProject: () => undefined,
+    });
+    useEdgePickStore.getState().close();
+    expect(useEdgePickStore.getState().purpose).toBe("edges");
+    expect(useEdgePickStore.getState().onProject).toBeNull();
+  });
+
+  it("still takes the edge flange's boolean single-select form", () => {
+    const store = useEdgePickStore.getState();
+    store.open([], true, true);
+    expect(useEdgePickStore.getState().singleSelect).toBe(true);
+    expect(useEdgePickStore.getState().purpose).toBe("edges");
+  });
+});

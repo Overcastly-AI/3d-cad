@@ -27,7 +27,8 @@ export type SketchTool =
   | "offset"
   | "mirror"
   | "fillet"
-  | "chamfer";
+  | "chamfer"
+  | "project";
 
 /**
  * Keyboard tool switching — case-insensitive at the call site. Draw tools take
@@ -45,6 +46,9 @@ export type SketchTool =
  * own initial S — free as a TOOL key (nothing draws on S), reused as the
  * Symmetric constraint verb only once a selection exists, the same
  * one-keyboard-two-vocabularies split L (line ↔ perpendicular) already leans on.
+ * Project takes P on exactly the same terms (SKETCH-PROJECT-EDGES): with
+ * nothing selected P arms Project (Fusion's P), and with a selection it stays
+ * the Parallel verb.
  */
 export const TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
   l: "line",
@@ -58,6 +62,7 @@ export const TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
   i: "mirror",
   u: "fillet",
   b: "chamfer",
+  p: "project",
 };
 
 /**
@@ -82,6 +87,7 @@ export function placesPoints(tool: SketchTool): boolean {
     case "mirror":
     case "fillet":
     case "chamfer":
+    case "project":
       return false;
   }
 }
@@ -160,6 +166,7 @@ export function placePoint(
     case "mirror":
     case "fillet":
     case "chamfer":
+    case "project":
       return keep(pending, nextIdIndex);
     case "line": {
       const [start] = pending;
@@ -362,6 +369,7 @@ export function previewEntities(
     case "mirror":
     case "fillet":
     case "chamfer":
+    case "project":
       return [];
     case "line": {
       const [start] = pending;

@@ -12,6 +12,7 @@ import type { components } from "@loft/ts-client/gateway";
 
 import { isDatumId } from "./datum";
 import { namedPoints, type PointName, type SketchPick } from "./pick";
+import { isProjected } from "./project";
 import type { Point2D } from "./plane";
 import { snapCandidates, type SnapCandidate } from "./snap";
 import type { SketchEntity, SketchTool } from "./tools";
@@ -48,7 +49,7 @@ const PLACING_TOOLS: ReadonlySet<SketchTool> = new Set<SketchTool>([
  *    point is its SIZE, which the draw-time size cells own (FB-16), so it is
  *    not offered here.
  *  - MOVING: the Select tool holds exactly one point pick that is not the
- *    sketch's own frame. The cells open on that point.
+ *    sketch's own frame nor projected geometry. The cells open on that point.
  *
  * Nothing opens while another typed value owns the keyboard (the size cells
  * of a shape drawn with the pointer, a dimension editor).
@@ -80,6 +81,9 @@ export function pointEntryOpening(state: {
   if (isDatumId(pick.entity)) return null;
   const entity = state.entities.find((e) => e.id === pick.entity);
   if (entity === undefined) return null;
+  // A projected point is the body's, not the user's: it cannot be moved
+  // (SKETCH-PROJECT-EDGES). Break link first to make it free geometry.
+  if (isProjected(entity)) return null;
   const at = namedPoints(entity).find((p) => p.point === pick.point)?.at;
   if (at === undefined) return null;
   return { anchor: at, target: { entity: pick.entity, point: pick.point } };

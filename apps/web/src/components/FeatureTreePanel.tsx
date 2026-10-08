@@ -15,6 +15,7 @@ import {
   Button,
   EyeIcon,
   EyeOffIcon,
+  Notice,
   Panel,
   PanelSection,
   Stamp,
@@ -67,7 +68,11 @@ import {
   solveSummary,
 } from "../features/partBuild";
 import { barSlotIndex } from "../features/rollback";
-import { movedEdgeWarning } from "../features/subshapeResolution";
+import {
+  movedEdgeWarning,
+  PROJECTION_LOST_LABEL,
+  projectionWarning,
+} from "../features/subshapeResolution";
 import { MovedEdgeNotice } from "./MovedEdgeNotice";
 import {
   entityIsDrawn,
@@ -543,6 +548,13 @@ export function FeatureTreePanel({
                 const showMoved =
                   moved !== null &&
                   !(dismissedWarnings?.has(moved.key) ?? false);
+                // A projected edge that no longer resolves: the sketch built
+                // on its last position, so the row reads OK and says so here.
+                const lost = rolledBack
+                  ? null
+                  : projectionWarning(feature, result);
+                const showLost =
+                  lost !== null && !(dismissedWarnings?.has(lost.key) ?? false);
                 return (
                   <FeatureRowGroup key={feature.id}>
                     {/* THE SEAT. A 2px scribe line where the dragged row would
@@ -847,6 +859,24 @@ export function FeatureTreePanel({
                           repickTestId={`feature-repick-edges-${index}`}
                           dismissTestId={`feature-resolution-dismiss-${index}`}
                         />
+                      </li>
+                    ) : null}
+                    {showLost && lost !== null ? (
+                      <li className="py-1 pr-3 pl-[26px]">
+                        <Notice
+                          role="status"
+                          label={PROJECTION_LOST_LABEL}
+                          layout="stacked"
+                          data-testid={`feature-projection-${index}`}
+                          {...(onDismissWarning !== undefined
+                            ? {
+                                onDismiss: () => onDismissWarning(lost.key),
+                                dismissTestId: `feature-projection-dismiss-${index}`,
+                              }
+                            : {})}
+                        >
+                          {lost.sentence}
+                        </Notice>
                       </li>
                     ) : null}
                     {/* The casualty list, stated ONCE where the build stopped:

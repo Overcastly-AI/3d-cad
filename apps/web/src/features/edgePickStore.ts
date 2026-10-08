@@ -12,13 +12,33 @@
  */
 import { create } from "zustand";
 
-import type { OverlayResult } from "../api/measure";
+import type { OverlayEdge, OverlayResult } from "../api/measure";
 import type { EdgeSignature } from "../api/parts";
 import { edgeSignatureKey, isEdgePicked, toggleEdge } from "./edge";
+
+/**
+ * What the picked edges are FOR. `edges`: a feature's edge set (fillet,
+ * chamfer, edge flange, hem), which a click toggles. `project`: the sketcher's
+ * Project tool (SKETCH-PROJECT-EDGES), where a click brings that edge into the
+ * sketch at once, as Onshape's Use and Fusion's Project do, and `picked` is
+ * the set already projected (so a taken edge reads as taken).
+ */
+export type EdgePickPurpose = "edges" | "project";
+
+export interface EdgePickOptions {
+  singleSelect?: boolean;
+  purpose?: EdgePickPurpose;
+  /** `project` only: what a click on an edge does. */
+  onProject?: (edge: OverlayEdge) => void;
+}
 
 export interface EdgePickState {
   /** A fillet/chamfer editor is open (create or edit). */
   active: boolean;
+  /** What the session picks for (see {@link EdgePickPurpose}). */
+  purpose: EdgePickPurpose;
+  /** `project` only: the sketcher's handler for a picked edge. */
+  onProject: ((edge: OverlayEdge) => void) | null;
   /** "Pick edges" mode is armed — the overlay is shown + hittable. */
   picking: boolean;
   /**
@@ -43,12 +63,23 @@ export interface EdgePickState {
    */
   pruneOnOverlay: boolean;
 
-  /** Open a fresh pick session, seeding it (edit → persisted refs; create → []). */
+  /**
+   * Open a fresh pick session, seeding it (edit → persisted refs; create → []).
+   * The third argument is single-select (a boolean, the edge flange's form) or
+   * the full options.
+   */
   open: (
     picked: readonly EdgeSignature[],
     picking: boolean,
-    singleSelect?: boolean,
+    options?: boolean | EdgePickOptions,
   ) => void;
+  /**
+   * PICK ONE EDGE: what a click on an offered edge does. Toggles it into the
+   * picked set, or, for `project`, hands it to the sketcher.
+   */
+  pick: (edge: OverlayEdge) => void;
+  /** Replace the picked set (the Project session mirrors the sketch's own). */
+  setPicked: (picked: readonly EdgeSignature[]) => void;
   /** Close the session and drop the overlay + picks. */
   close: () => void;
   /** Switch between "By rule" and "Pick edges" (keeps the picks). */
@@ -69,8 +100,10 @@ export interface EdgePickState {
   setHoverEdge: (index: number | null) => void;
 }
 
-export const useEdgePickStore = create<EdgePickState>((set) => ({
+export const useEdgePickStore = create<EdgePickState>((set, get) => ({
   active: false,
+  purpose: "edges",
+  onProject: null,
   picking: false,
   singleSelect: false,
   overlay: null,
@@ -79,22 +112,29 @@ export const useEdgePickStore = create<EdgePickState>((set) => ({
   hoverEdge: null,
   pruneOnOverlay: false,
 
-  open: (picked, picking, singleSelect = false) =>
+  open: (picked, picking, options = false) => {
+    const opts: EdgePickOptions =
+      typeof options === "boolean" ? { singleSelect: options } : options;
     set({
       active: true,
       picking,
-      singleSelect,
+      singleSelect: opts.singleSelect ?? false,
+      purpose: opts.purpose ?? "edges",
+      onProject: opts.onProject ?? null,
       picked: [...picked],
       overlay: null,
       overlayError: null,
       hoverEdge: null,
       pruneOnOverlay: false,
-    }),
+    });
+  },
   close: () =>
     set({
       active: false,
       picking: false,
       singleSelect: false,
+      purpose: "edges",
+      onProject: null,
       overlay: null,
       overlayError: null,
       picked: [],
@@ -124,6 +164,15 @@ export const useEdgePickStore = create<EdgePickState>((set) => ({
           : [signature]
         : toggleEdge(state.picked, signature),
     })),
+  pick: (edge) => {
+    const { purpose, onProject, toggle } = get();
+    if (purpose === "project") {
+      onProject?.(edge);
+      return;
+    }
+    toggle(edge.signature);
+  },
+  setPicked: (picked) => set({ picked: [...picked] }),
   clearPicks: () => set({ picked: [] }),
   repickMoved: () =>
     set((state) =>

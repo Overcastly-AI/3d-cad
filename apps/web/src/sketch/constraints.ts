@@ -29,6 +29,7 @@ import {
   type PointDimensionSubject,
 } from "./pointDimension";
 import { dimensionSpan, lineAnnotationAnchor, sharpIds } from "./virtualSharp";
+import { allProjected, projectedRefusal } from "./project";
 
 export type SketchConstraint =
   components["schemas"]["SketchParamsV1"]["constraints"][number];
@@ -884,6 +885,39 @@ const targetOf = (
   ...(subject === undefined ? {} : { subject }),
 });
 
+/** Every entity a point dimension touches (a sharp's second line included). */
+function subjectEntities(subject: PointDimensionSubject): string[] {
+  const of = (ref: DimensionPointRef): string[] =>
+    ref.sharp === null || ref.sharp === undefined
+      ? [ref.entity]
+      : [ref.entity, ref.sharp];
+  return subject.kind === "point_distance"
+    ? [...of(subject.a), ...of(subject.b)]
+    : [...of(subject.point), subject.line];
+}
+
+/**
+ * A NEW dimension on geometry that is all projected (SKETCH-PROJECT-EDGES) is
+ * created DRIVEN: the body already decides that length, so a driving value
+ * could only fight the projection. It still reads the number, as Fusion's
+ * driven dimension on projected geometry does. An existing dimension keeps its
+ * own flag.
+ */
+function drivenWhenProjected(
+  result: ConstraintActionResult,
+  entities: readonly SketchEntity[],
+): ConstraintActionResult {
+  if (result.outcome !== "editor") return result;
+  const target = result.target;
+  if (target.constraintIndex !== null || target.subject !== undefined) {
+    return result;
+  }
+  const ids =
+    target.entityB === null ? [target.entity] : [target.entity, target.entityB];
+  if (!allProjected(ids, entities)) return result;
+  return { outcome: "editor", target: { ...target, initialDriving: false } };
+}
+
 /** The entity a point dimension's editor is keyed and anchored by. */
 const subjectEntity = (subject: PointDimensionSubject): string =>
   subject.kind === "point_distance" ? subject.a.entity : subject.point.entity;
@@ -910,7 +944,9 @@ export function pointDimensionEditor(
     value: measurePointDimension(subject, byId) ?? 0,
     expression: null,
     name: null,
-    driving: true,
+    // Between two FIXED things (projected points, the frame) the distance is
+    // the body's to decide: the new dimension measures it (driven).
+    driving: !allProjected(subjectEntities(subject), entities),
   };
   return targetOf(
     "distance",
@@ -1112,6 +1148,18 @@ export function applyConstraintAction(
   entities: readonly SketchEntity[],
   constraints: readonly SketchConstraint[],
 ): ConstraintActionResult {
+  return drivenWhenProjected(
+    constraintActionResult(action, selection, entities, constraints),
+    entities,
+  );
+}
+
+function constraintActionResult(
+  action: ConstraintAction,
+  selection: readonly SketchPick[],
+  entities: readonly SketchEntity[],
+  constraints: readonly SketchConstraint[],
+): ConstraintActionResult {
   const byId = new Map(entities.map((e) => [e.id, e]));
   // A point dimension may MEASURE FROM the frame (a point to the origin, to an
   // axis), which is the frame as a target; it is answered before the refusal
@@ -1134,6 +1182,14 @@ export function applyConstraintAction(
   if (DATUM_SUBJECT_REFUSED.has(action) && selectionTouchesDatum(selection)) {
     return hint(DATUM_SUBJECT_HINT);
   }
+  // PROJECTED GEOMETRY IS A TARGET TOO (SKETCH-PROJECT-EDGES). A projected
+  // entity is fixed by the body it follows, exactly as the frame is fixed by
+  // its pins, so the same gate answers for it: H / V / Fixed on it are refused,
+  // as is any relation whose every subject is already fixed (two projected
+  // points made coincident). Dimensions are not refused: on all-projected
+  // geometry they are created driven (`drivenWhenProjected`).
+  const projected = projectedRefusal(action, selection, entities);
+  if (projected !== null) return hint(projected);
   switch (action) {
     case "horizontal":
     case "vertical": {

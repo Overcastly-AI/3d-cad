@@ -102,7 +102,7 @@ describe("resolveSketchKey — one keyboard, two vocabularies", () => {
     // A DRAWING key must never turn into a dimension key.
     expect(resolveSketchKey("r", false)).toEqual({ type: "tool" });
     // Nothing else changes: the other verbs are still selection-first.
-    for (const key of ["h", "v", "x", "p", "t", "e", "o", "n"]) {
+    for (const key of ["h", "v", "x", "t", "e", "o", "n"]) {
       expect(resolveSketchKey(key, false)).toBeNull();
     }
   });
@@ -152,10 +152,16 @@ describe("resolveSketchKey — one keyboard, two vocabularies", () => {
     });
     // With an empty selection the letters arm draw tools: L is the line tool
     // and S is the spline tool (the same cross-vocabulary reuse — S is Spline
-    // with nothing selected, Symmetric with a selection). P/T/E/O aren't tools.
+    // with nothing selected, Symmetric with a selection). P follows S's
+    // precedent: Project with nothing selected, Parallel with a selection
+    // (SKETCH-PROJECT-EDGES). T/E/O aren't tools.
     expect(resolveSketchKey("l", false)).toEqual({ type: "tool" });
     expect(resolveSketchKey("s", false)).toEqual({ type: "tool" });
-    expect(resolveSketchKey("p", false)).toBeNull();
+    expect(resolveSketchKey("p", false)).toEqual({ type: "tool" });
+    expect(resolveSketchKey("p", true)).toEqual({
+      type: "constraint",
+      action: "parallel",
+    });
     expect(resolveSketchKey("t", false)).toBeNull();
     expect(resolveSketchKey("e", false)).toBeNull();
     expect(resolveSketchKey("o", false)).toBeNull();

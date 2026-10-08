@@ -204,10 +204,13 @@ export function usePickSessions({
 
   const edgePickedEdges = useEdgePickStore((s) => s.picked);
   const edgeSessionOpen = useEdgePickStore((s) => s.active);
+  const edgeSessionPurpose = useEdgePickStore((s) => s.purpose);
   useEffect(() => {
     if (!edgeSessionOpen || pickSessionIsEdit.current) return;
+    // Projected edges are the sketch's, not a selection to carry forward.
+    if (edgeSessionPurpose === "project") return;
     usePreselectStore.getState().rememberEdges(edgePickedEdges, bodyFeatureId);
-  }, [edgeSessionOpen, edgePickedEdges, bodyFeatureId]);
+  }, [edgeSessionOpen, edgeSessionPurpose, edgePickedEdges, bodyFeatureId]);
   return {
     onReliefBendsChange,
     reliefBendHighlights,

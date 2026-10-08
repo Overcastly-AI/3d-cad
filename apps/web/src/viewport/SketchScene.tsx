@@ -21,6 +21,7 @@ import {
   TangentIcon,
   HorizontalIcon,
   VerticalIcon,
+  HazardIcon,
   type IconProps,
 } from "@loft/design";
 import { sketch, viewport } from "@loft/design/tokens";
@@ -122,7 +123,17 @@ import {
 } from "../sketch/plane";
 import { axisLinePoints, reflectEntity } from "../sketch/mirror";
 import { isClick, type PointerGesture } from "../sketch/clickIntent";
-import { SNAP_LABELS, SNAP_TOLERANCE_PX, type SnapKind } from "../sketch/snap";
+import {
+  midpointOf,
+  SNAP_LABELS,
+  SNAP_TOLERANCE_PX,
+  type SnapKind,
+} from "../sketch/snap";
+import {
+  isProjected,
+  SICK_REASON_TEXT,
+  sickProjections,
+} from "../sketch/project";
 import {
   useSketchStore,
   type DrawDimensionDraft,
@@ -1641,6 +1652,55 @@ function OpenEndMarks({ basis }: { basis: PlaneBasis }) {
 }
 
 /**
+ * SICK PROJECTIONS (SKETCH-PROJECT-EDGES): a projected entity whose body edge
+ * no longer resolves keeps its last good position, as Fusion's does, and wears
+ * a hazard mark at its middle saying why (the tooltip and the accessible
+ * name). The mark is the only place this is said inside the sketch; the tree
+ * row says it outside (`projectionWarning`).
+ */
+function SickProjectionMarks({ basis }: { basis: PlaneBasis }) {
+  const entities = useSketchStore((state) => state.entities);
+  const statuses = useSketchStore((state) => state.projections);
+  const marks = useMemo(() => {
+    const sick = sickProjections(statuses);
+    return entities.flatMap((entity) => {
+      const reason = sick.get(entity.id);
+      if (reason === undefined || !isProjected(entity)) return [];
+      const at =
+        entity.kind === "circle"
+          ? { x: entity.center.x, y: entity.center.y + entity.radius }
+          : midpointOf(entity);
+      return at === null ? [] : [{ id: entity.id, at, reason }];
+    });
+  }, [entities, statuses]);
+  return (
+    <>
+      {marks.map((mark) => (
+        <Html
+          key={mark.id}
+          position={planeToWorld(basis, mark.at)}
+          center
+          zIndexRange={OPEN_END_Z_RANGE}
+        >
+          <span
+            role="img"
+            data-testid="projection-sick"
+            data-entity={mark.id}
+            data-reason={mark.reason}
+            aria-label={`Projection lost: ${SICK_REASON_TEXT[mark.reason]}`}
+            title={SICK_REASON_TEXT[mark.reason]}
+            className="block cursor-help"
+            style={{ color: sketch.projectedSickInk }}
+          >
+            <HazardIcon size={14} />
+          </span>
+        </Html>
+      ))}
+    </>
+  );
+}
+
+/**
  * The keys that open a typed coordinate: a digit, a sign, a decimal point.
  * NOT `0`: at rest that key is the sketcher's Fit (F-11) and stays so. A
  * coordinate that starts with zero is typed ".5" or "-0.5"; once the cells
@@ -2345,13 +2405,28 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
 
   // The idle buffer (not selected, not hovered) splits into profile ink
   // (solid scribe) and construction ink (muted, dashed) — selection/hover
-  // brass wins over both while a pick is live.
-  const buffer = useMemo(
-    () =>
-      partitionConstruction(
-        entities.filter((e) => !selectedIds.has(e.id) && e.id !== hoveredId),
-      ),
+  // brass wins over both while a pick is live. PROJECTED geometry
+  // (SKETCH-PROJECT-EDGES) takes its own purple ink, solid or dashed by the
+  // same construction flag, so "this follows the body" reads at a glance.
+  const idle = useMemo(
+    () => entities.filter((e) => !selectedIds.has(e.id) && e.id !== hoveredId),
     [entities, selectedIds, hoveredId],
+  );
+  const buffer = useMemo(
+    () => partitionConstruction(idle.filter((e) => !isProjected(e))),
+    [idle],
+  );
+  const projected = useMemo(
+    () => partitionConstruction(idle.filter(isProjected)),
+    [idle],
+  );
+  const projectedPositions = useMemo(
+    () => entitySegmentPositions(projected.profile, basis),
+    [projected, basis],
+  );
+  const projectedConstructionPositions = useMemo(
+    () => entitySegmentPositions(projected.construction, basis),
+    [projected, basis],
   );
   const bufferPositions = useMemo(
     () => entitySegmentPositions(buffer.profile, basis),
@@ -2425,6 +2500,19 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
         gapSize={sketch.constructionGapMm}
         onTop
       />
+      <InkSegments
+        positions={projectedPositions}
+        color={sketch.projectedInk}
+        onTop
+      />
+      <InkSegments
+        positions={projectedConstructionPositions}
+        color={sketch.projectedInk}
+        dashed
+        dashSize={sketch.constructionDashMm}
+        gapSize={sketch.constructionGapMm}
+        onTop
+      />
       <InkSegments positions={hoveredPositions} color={sketch.hoverInk} onTop />
       <InkSegments
         positions={selectedPositions}
@@ -2464,6 +2552,7 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
       <PointEntry basis={basis} />
       <ConstraintGlyphs basis={basis} />
       <OpenEndMarks basis={basis} />
+      <SickProjectionMarks basis={basis} />
     </group>
   );
 }
@@ -2522,8 +2611,18 @@ function SolvedLayer({ layer }: { layer: SolvedSketchLayer }) {
     () => partitionConstruction(withoutDatums(layer.entities)),
     [layer],
   );
+  // Projected profile geometry keeps its purple out here too, as Fusion's does.
   const profilePositions = useMemo(
-    () => entitySegmentPositions(parts.profile, layer.basis),
+    () =>
+      entitySegmentPositions(
+        parts.profile.filter((e) => !isProjected(e)),
+        layer.basis,
+      ),
+    [parts, layer.basis],
+  );
+  const projectedPositions = useMemo(
+    () =>
+      entitySegmentPositions(parts.profile.filter(isProjected), layer.basis),
     [parts, layer.basis],
   );
   const constructionPositions = useMemo(
@@ -2533,6 +2632,7 @@ function SolvedLayer({ layer }: { layer: SolvedSketchLayer }) {
   return (
     <>
       <InkSegments positions={profilePositions} color={sketch.scribeSolved} />
+      <InkSegments positions={projectedPositions} color={sketch.projectedInk} />
       <InkSegments
         positions={constructionPositions}
         color={sketch.constructionInk}
