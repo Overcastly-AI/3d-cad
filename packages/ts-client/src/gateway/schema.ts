@@ -1471,7 +1471,8 @@ export interface paths {
          *     or `loft_feature_too_new` naming the feature), or a tree the feature
          *     routes would refuse. The part keeps the file's ids unless they already
          *     exist here; importing the same file twice gives a copy named
-         *     "<name> copy". The part is rebuilt from its tree; a hand-edited tree, a
+         *     "<name> copy". The file's named versions are imported with their numbers.
+         *     The part is rebuilt from its tree; a hand-edited tree or version, a
          *     volume that differs from the file's, or features that fail to rebuild are
          *     reported in `warnings`, not refused.
          */
@@ -1632,10 +1633,13 @@ export interface paths {
          * Export Part Loft
          * @description Export one of the caller's parts as a `.loft` file.
          *
-         *     The file holds the parametric tree (what an import rebuilds from) plus the
-         *     exported STEP body and its mass properties as an untrusted cache. A part
-         *     with no body exports without the cache. Not a backup: undo history and
-         *     other documents are not in it.
+         *     The file holds the parametric tree (what an import rebuilds from), the
+         *     part's named versions, and the exported STEP body and its mass properties
+         *     as an untrusted cache. A part with no body exports without the cache. Not a
+         *     backup: undo history and other documents are not in it. If the cached body
+         *     would take the file over a `.loft` size limit it is left out (an import
+         *     rebuilds from the tree anyway); only trees over a limit are refused, with
+         *     their `loft_*` code.
          */
         get: operations["export_part_loft_api_v1_parts__part_id__export_loft_get"];
         put?: never;
@@ -1912,6 +1916,58 @@ export interface paths {
          *     unchanged). Stale ``expected_tree_version`` → 422, resurfaced verbatim.
          */
         post: operations["undo_part_api_v1_parts__part_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Part Versions
+         * @description The part's named versions, newest first.
+         */
+        get: operations["list_part_versions_api_v1_parts__part_id__versions_get"];
+        put?: never;
+        /**
+         * Save Part Version
+         * @description Save the part's current tree as a named version (201).
+         *
+         *     Versions are never pruned: past the per-part cap a save is refused with
+         *     409 `part_version_limit`. A stale `expected_tree_version` is a 422.
+         */
+        post: operations["save_part_version_api_v1_parts__part_id__versions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/versions/{seq}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Part Version
+         * @description Make a saved version the part's tree, as one undoable edit.
+         *
+         *     The response is the restored tree with its new `tree_version`; undo walks
+         *     back to the tree before the restore. Later versions are kept. A stale
+         *     `expected_tree_version` is a 422; a restore that would break a drawing's
+         *     section view is a 409 `part_restore_conflict`.
+         */
+        post: operations["restore_part_version_api_v1_parts__part_id__versions__seq__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6757,7 +6813,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "loft_tree_edited" | "loft_cache_corrupt" | "loft_volume_mismatch" | "loft_rebuild_errors" | "loft_verify_unavailable";
+            code: "loft_tree_edited" | "loft_cache_corrupt" | "loft_volume_mismatch" | "loft_rebuild_errors" | "loft_verify_unavailable" | "loft_version_edited";
             /** Message */
             message: string;
         };
@@ -7634,6 +7690,82 @@ export interface components {
              * @description New part name
              */
             name?: string | null;
+        };
+        /**
+         * PartVersion
+         * @description One saved version, without its tree.
+         */
+        PartVersion: {
+            /**
+             * Author
+             * @description Display name, or null when not given
+             */
+            author: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Feature Count */
+            feature_count: number;
+            /** Message */
+            message: string;
+            /** Name */
+            name: string;
+            /**
+             * Seq
+             * @description Per-part number, 1, 2, 3...; never reused
+             */
+            seq: number;
+            /**
+             * Tree Sha256
+             * @description sha256 of the version's canonical tree.json bytes
+             */
+            tree_sha256: string;
+        };
+        /**
+         * PartVersionCreate
+         * @description ``POST /api/v1/parts/{id}/versions``: name the part's current tree.
+         *
+         *     ``expected_tree_version``, when given, makes the save refuse
+         *     (``stale_tree_version``) if the tree moved since the caller last saw it,
+         *     so the version holds exactly what the user was looking at.
+         */
+        PartVersionCreate: {
+            /**
+             * Author
+             * @description Display name to record as the author. A name only: no email or account id is ever stored with a version.
+             */
+            author?: string | null;
+            /** Expected Tree Version */
+            expected_tree_version?: number | null;
+            /**
+             * Message
+             * @description Optional longer note: what changed and why
+             * @default
+             */
+            message: string;
+            /**
+             * Name
+             * @description What the version is called, e.g. 'Rev B'
+             */
+            name: string;
+        };
+        /**
+         * PartVersionListResponse
+         * @description A part's versions, newest first.
+         */
+        PartVersionListResponse: {
+            /** Versions */
+            versions: components["schemas"]["PartVersion"][];
+        };
+        /**
+         * PartVersionRestore
+         * @description ``POST /api/v1/parts/{id}/versions/{seq}/restore``: one undoable edit.
+         */
+        PartVersionRestore: {
+            /** Expected Tree Version */
+            expected_tree_version: number;
         };
         /**
          * PatternBodyScope
@@ -13445,6 +13577,108 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["UndoRedoRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_part_versions_api_v1_parts__part_id__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartVersionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_part_version_api_v1_parts__part_id__versions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartVersionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartVersion"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_part_version_api_v1_parts__part_id__versions__seq__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+                seq: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartVersionRestore"];
             };
         };
         responses: {

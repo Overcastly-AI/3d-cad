@@ -917,6 +917,36 @@ POST_PARTS_PART_ID_UNDO: Final = Operation(
     required_query=(),
 )
 
+GET_PARTS_PART_ID_VERSIONS: Final = Operation(
+    operation_id="list_part_versions_api_v1_parts__part_id__versions_get",
+    method="GET",
+    path="/api/v1/parts/{part_id}/versions",
+    request_model=None,
+    response_model="PartVersionListResponse",
+    path_params=("part_id",),
+    required_query=(),
+)
+
+POST_PARTS_PART_ID_VERSIONS: Final = Operation(
+    operation_id="save_part_version_api_v1_parts__part_id__versions_post",
+    method="POST",
+    path="/api/v1/parts/{part_id}/versions",
+    request_model="PartVersionCreate",
+    response_model="PartVersion",
+    path_params=("part_id",),
+    required_query=(),
+)
+
+POST_PARTS_PART_ID_VERSIONS_SEQ_RESTORE: Final = Operation(
+    operation_id="restore_part_version_api_v1_parts__part_id__versions__seq__restore_post",
+    method="POST",
+    path="/api/v1/parts/{part_id}/versions/{seq}/restore",
+    request_model="PartVersionRestore",
+    response_model="FeatureTreeResponse",
+    path_params=("part_id", "seq",),
+    required_query=(),
+)
+
 #: Every gateway operation, keyed by its OpenAPI ``operationId``. Lets a
 #: caller (and the contract-parity test) enumerate the whole surface
 #: without importing each constant by name.
@@ -1012,5 +1042,8 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "redo_part_api_v1_parts__part_id__redo_post": POST_PARTS_PART_ID_REDO,
         "move_rollback_bar_api_v1_parts__part_id__rollback_put": PUT_PARTS_PART_ID_ROLLBACK,
         "undo_part_api_v1_parts__part_id__undo_post": POST_PARTS_PART_ID_UNDO,
+        "list_part_versions_api_v1_parts__part_id__versions_get": GET_PARTS_PART_ID_VERSIONS,
+        "save_part_version_api_v1_parts__part_id__versions_post": POST_PARTS_PART_ID_VERSIONS,
+        "restore_part_version_api_v1_parts__part_id__versions__seq__restore_post": POST_PARTS_PART_ID_VERSIONS_SEQ_RESTORE,
     }
 )

@@ -2,12 +2,16 @@
 
 A `.loft` file is one Loft part as a file you own: the whole parametric feature
 tree, which any Loft can import back into an editable part, plus a cached STEP
-body that any CAD tool can open. Format version **1.0** (step 1: parts).
-Named versions (step 2) and assemblies (step 3) come later.
+body that any CAD tool can open, and the part's named versions. Format version
+**1.1** (step 1: parts; step 2: named versions). Assemblies (step 3) come
+later.
 
 Code: `packages/loft-wire/src/loft_wire/loft_file.py` (the format),
+`packages/loft-wire/src/loft_wire/versions.py` (the version API types),
 `services/documents/src/documents/loft_file.py` (tree read and import),
-`services/gateway/src/gateway/loft_file.py` (the two routes).
+`services/documents/src/documents/versions.py` (versions: save, list, restore),
+`services/gateway/src/gateway/loft_file.py` (the two file routes),
+`services/gateway/src/gateway/versions.py` (the version routes).
 
 ## Routes and clients
 
@@ -20,6 +24,40 @@ Code: `packages/loft-wire/src/loft_wire/loft_file.py` (the format),
 
 An import always creates a **new** part, and returns `201 {part, warnings}`.
 
+## Named versions
+
+A version is a named, kept copy of a part's tree ("Rev B, sent to the shop").
+They live in the `part_versions` table (migration 0017) and are **never
+pruned**: unlike the 50-step undo ring, a version lasts as long as its part.
+
+| Action  | Gateway                                          | loft-script                  |
+| ------- | ------------------------------------------------ | ---------------------------- |
+| Save    | `POST /api/v1/parts/{id}/versions` (201)         | `part.save_version("Rev B")` |
+| List    | `GET /api/v1/parts/{id}/versions`, newest first  | `part.versions()`            |
+| Restore | `POST /api/v1/parts/{id}/versions/{seq}/restore` | `part.restore_version(2)`    |
+
+A save sends `{name, message?, author?, expected_tree_version?}`; a restore
+sends `{expected_tree_version}` and answers with the restored tree.
+
+- `seq` is per part, starts at 1 and only grows; an import keeps the file's.
+- A version stores the tree exactly as `tree.json` holds it, and its
+  `tree_sha256` is the sha256 of those canonical bytes.
+- The **author** is a display name the caller gives, or null. No account id or
+  email is stored with a version or written to a file.
+- **Saving** is not an edit: `tree_version` and the undo ring do not move.
+- **Restoring** is one edit through the history ring: undo walks back to the
+  tree before it, and no version is deleted. It writes back the features (with
+  their ids), their order and suppression, and the rollback bar, which is the
+  state undo covers. The part's name, display unit and materials are left as
+  they are. The tree is validated with the import's `POST /features` rules first
+  (params are upcast), and a restore that would remove a drawing section view's
+  cutting plane is refused like an undo (`409 part_restore_conflict`).
+- Caps: 100 versions a part and 128 MiB of version trees (canonical JSON, STEP
+  inline) a part. Past either, a save is refused with `409 part_version_limit`;
+  nothing is ever dropped to make room. One version tree is capped at 8 MiB
+  (`422 part_version_too_large`).
+- Every route is authenticated and owner-scoped: another owner's part is `404`.
+
 ## Container
 
 A zip holding only data. Members, in this order:
@@ -28,10 +66,12 @@ A zip holding only data. Members, in this order:
 | -------------------------- | -------------------------------------------------------------------------- |
 | `manifest.json`            | what the file is, and the sha256 of every other member                     |
 | `tree.json`                | the feature tree: the only thing an import builds from                     |
-| `blobs/sha256-<hex>.step`  | an `import` feature's STEP text, moved out of the tree                     |
+| `versions/index.json`      | the named versions, ascending `seq` (1.1; absent when the part has none)   |
+| `versions/<seq>.tree.json` | one version's tree, same shape and rules as `tree.json` (1.1)              |
+| `blobs/sha256-<hex>.step`  | an `import` feature's STEP text, moved out of every tree that names it     |
 | `cache/body.step`          | the exported body, for tools that do not run Loft (absent with no body)    |
 
-`manifest.json`: `format` `"loft"`, `format_version` `"1.0"`, `loft_version`,
+`manifest.json`: `format` `"loft"`, `format_version` `"1.1"`, `loft_version`,
 `kind` `"part"`, `document_id`, `units` `{storage: "mm"}`, `tree_sha256`,
 `members` `{path: sha256}`, `cache` `{step_sha256, built_from_tree_sha256,
 properties {volume_mm3, area_mm2, bbox}}` or null, and `references` `[]`. There
@@ -45,6 +85,13 @@ the current `param_version`, through the feature registry. There is no
 import feature's `params.data` reads `"loft-blob:sha256:<hex>"`; the reader puts
 the STEP text back.
 
+`versions/index.json`: `{versions: [{seq, name, message, author, created_at,
+tree_sha256}]}` in strictly ascending `seq`. `created_at` is UTC ISO 8601 (`Z`);
+`author` is a display name or null; `tree_sha256` is the sha256 of
+`versions/<seq>.tree.json`. Each version tree is written exactly like
+`tree.json` (canonical JSON, blobs moved out), so a version identical to the
+current tree has identical bytes, and the trees share one copy of each blob.
+
 ## Canonical bytes
 
 The same part on the same Loft build writes the same bytes:
@@ -55,7 +102,10 @@ The same part on the same Loft build writes the same bytes:
 - Zip: fixed member order, every date 1980-01-01, mode 0644, no extra fields;
   JSON STORED, STEP DEFLATE level 6.
 
-`packages/loft-wire/tests/fixtures/golden-v1.loft` is checked byte for byte.
+`packages/loft-wire/tests/fixtures/golden-v1.1.loft` (with two versions) is
+checked byte for byte, and read-then-repacked to the same bytes.
+`golden-v1.loft` is the frozen format 1.0 file: it is never regenerated, and
+proves an older file still imports.
 
 ### Diffing `.loft` files in git
 
@@ -71,16 +121,17 @@ and to your git config:
 git config diff.loft.textconv "unzip -p"
 ```
 
-`unzip -p` prints `manifest.json` then `tree.json` (the STEP members are
-printed too; use `"sh -c 'unzip -p \"$0\" manifest.json tree.json'"` to skip
-them).
+`unzip -p` prints `manifest.json`, `tree.json` and then the versions (the STEP
+members are printed too; use `"sh -c 'unzip -p \"$0\" manifest.json tree.json'"`
+to skip them).
 
 ## Versioning
 
 - `format_version` is `major.minor`. A newer **major** is refused with
   `422 loft_format_too_new` ("Upgrade Loft"). A newer **minor** is read; keys
   it adds are ignored, and members it adds are skipped unread if their path is
-  safe.
+  safe. 1.1 added `versions/`: a 1.0 Loft opens a 1.1 file and imports the part
+  without its versions. A 1.0 file has no versions and imports as before.
 - `param_version`: an older version is upcast through the registry chain. A
   newer version (`loft_feature_too_new`) or an unknown type
   (`loft_feature_unknown_type`) is a 422 naming the feature.
@@ -98,13 +149,18 @@ them).
    names (their digest covers the old ids), and remaps per-body materials.
 4. **Name.** A taken name becomes "<name> copy" ("copy 2", ...), so importing
    the same file twice gives a copy.
-5. Writes the part, its features and edges in one transaction.
+5. Writes the part, its features and edges, and its versions (each `seq`
+   kept) in one transaction. Every version tree is validated like the current
+   one first, so any version can be restored; a version that fails is a 422
+   naming it (`details.version_seq`). The id check and a re-mint cover the
+   feature ids of every version as well as the current tree's.
 6. Rebuilds the part from `tree.json`. The cached body is never sent to the
    kernel. The rebuilt volume is compared with the manifest at the kernel's
    1e-7 relative tolerance.
 
 Warnings (`201`, never refusals): `loft_tree_edited` (tree.json does not match
-its sha256; the cache is ignored), `loft_cache_corrupt` (cached body does not
+its sha256; the cache is ignored), `loft_version_edited` (a version tree does not
+match its index sha256; it is imported as it reads), `loft_cache_corrupt` (cached body does not
 match; ignored), `loft_volume_mismatch`, `loft_rebuild_errors` (the part is
 imported with its errors), `loft_verify_unavailable`.
 
@@ -123,20 +179,31 @@ A blob whose sha256 does not match is refused (`loft_blob_corrupt`).
 | All members, uncompressed              | 256 MiB                        | `loft_member_too_large` |
 | Compression ratio (members ≥ 1 MiB)    | 100:1                          | `loft_zip_bomb`         |
 | Features                               | 1000 (`MAX_TREE_FEATURES`)     | `loft_tree_invalid`     |
+| Versions                               | 100 (`MAX_PART_VERSIONS`)      | `loft_too_many_versions` |
+| `versions/index.json`                  | 1 MiB                          | `loft_member_too_large` |
+| One `versions/<seq>.tree.json`         | 8 MiB                          | `loft_member_too_large` |
 
 The central directory the end record declares is capped at 128 KiB (512 bytes an entry), so a lying entry count cannot make the parse expensive (`loft_too_many_members`). ZIP64 end records are refused outright
 (`loft_zip_invalid`): zipfile would trust their counts over the capped classic
-record, and a legal `.loft` never needs ZIP64. Each blob may be named by one `import` feature only (`loft_blob_reused`), blobs are inlined only into an `import` feature's `params.data`, and the inlined text counts against the 256 MiB total. `tree.json` with a non-finite number or pathological nesting is `loft_tree_invalid`. Each member is read with `read(cap + 1)`, so a header that understates a size
+record, and a legal `.loft` never needs ZIP64. A blob may be named by any number of `import` features (the writer stores identical STEP text once), blobs are inlined only into an `import` feature's `params.data`, and every reference's inlined text counts against the 256 MiB total, checked before any text is decoded, so one blob fanned out past the total is refused (`loft_member_too_large`). `tree.json` with a non-finite number or pathological nesting is `loft_tree_invalid`. Each member is read with `read(cap + 1)`, so a header that understates a size
 cannot make the reader allocate past the cap. Also refused: `..`, absolute or
 drive paths, backslashes, duplicate names, directory entries, encrypted
 members, compression other than STORED or DEFLATE (`loft_member_unsafe`,
 `loft_member_duplicate`, `loft_member_encrypted`, `loft_member_compression`),
 and members the format does not define (`loft_member_unknown`) unless the file
-is a newer minor version. Both routes are authenticated and rate-limited
-(`COMPUTE_RATE_LIMIT`).
+is a newer minor version. Version members must match `versions/index.json`
+exactly: a tree it does not list, version trees with no index, or an index not in
+ascending `seq` is `loft_versions_invalid`, and an entry without its tree is
+`loft_member_missing`. Each version may name the blobs the current tree does;
+every copy any tree inlines counts against the 256 MiB total. The export applies the same caps rather than write a file no Loft
+could open. When the cached body is what takes a part over a cap, the file is
+written without `cache/body.step` (the cache is untrusted and an import rebuilds
+from the tree anyway), so a part never becomes unexportable; only trees over a
+cap are refused (`422`, same codes). Both routes are
+authenticated and rate-limited (`COMPUTE_RATE_LIMIT`).
 
 ## Not a backup
 
-A `.loft` holds one part. It has no undo history, no drawings or assemblies
-that reference the part, and no account data. Back up the stack with
+A `.loft` holds one part and its named versions. It has no undo history, no
+drawings or assemblies that reference the part, and no account data. Back up the stack with
 `just backup` ([OPERATIONS.md](./OPERATIONS.md)).

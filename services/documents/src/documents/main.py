@@ -39,6 +39,7 @@ from documents.parts import router as parts_router
 from documents.ref_backfill import router as ref_backfill_router
 from documents.ref_backfill import sweep_router as ref_backfill_sweep_router
 from documents.step_import import router as step_import_router
+from documents.versions import router as versions_router
 
 TITLE = "Loft Documents"
 VERSION = "0.1.0"
@@ -98,6 +99,7 @@ def build_app(settings: DocumentsSettings | None = None) -> FastAPI:
     app.include_router(drawings_router)
     app.include_router(step_import_router)
     app.include_router(loft_file_router)
+    app.include_router(versions_router)
     # DESIGN-INTENT-BACKFILL: serve the tree, write names back under the lock.
     app.include_router(ref_backfill_router)
     app.include_router(ref_backfill_sweep_router)
