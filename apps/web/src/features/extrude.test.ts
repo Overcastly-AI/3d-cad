@@ -161,6 +161,7 @@ describe("defaultExtrudeForm", () => {
       operation: "add",
       direction: "normal",
       directionTouched: false,
+      extent: "one_side",
       merge: true,
     });
   });
@@ -297,6 +298,8 @@ describe("formFromParams", () => {
       // Session-scoped: the stored direction shows as authored, but an
       // operation switch in this session re-defaults it (FB-4).
       directionTouched: false,
+      // Absent on the wire reads one side (EXTRUDE-SYMMETRIC).
+      extent: "one_side",
       merge: true,
       // The whole stored envelope rides along, for the fields the form does
       // not show (see `extrudeParamsFromForm`).
@@ -446,6 +449,7 @@ describe("extrudePreviewState", () => {
       profileFeatureId: "sk",
       distanceMm: 12,
       direction: "reverse",
+      extent: "one_side",
       operation: "add",
       twistDeg: 0,
       twistCentre: null,
@@ -560,5 +564,68 @@ describe("a stored LEGACY twist (TWIST-TO-SWEEP)", () => {
       twistDeg: 90,
       twistCentre: { x: 5, y: 5 },
     });
+  });
+});
+
+describe("the symmetric extent (EXTRUDE-SYMMETRIC)", () => {
+  const ONE_SIDED: ExtrudeParams = {
+    profile: { kind: "feature", feature_id: "sk" },
+    distance_mm: 208,
+    operation: "add",
+    direction: "normal",
+    merge: true,
+  };
+
+  it("a new extrude is one-sided, and a one-sided save sends no extent key", () => {
+    const form = defaultExtrudeForm("sk");
+    expect(form.extent).toBe("one_side");
+    // Byte-for-byte the keys a save carried before the extent existed.
+    expect(extrudeParamsFromForm(form, 10)).not.toHaveProperty("extent");
+  });
+
+  it("round-trips a stored one-sided extrude without adding the key", () => {
+    const form = formFromParams(ONE_SIDED, "mm");
+    expect(extrudeParamsFromForm(form, 208)).toEqual(ONE_SIDED);
+  });
+
+  it("writes symmetric, reads it back, and drops it when switched back", () => {
+    const symmetric = extrudeParamsFromForm(
+      { ...formFromParams(ONE_SIDED, "mm"), extent: "symmetric" },
+      208,
+    );
+    expect(symmetric).toEqual({ ...ONE_SIDED, extent: "symmetric" });
+    const reopened = formFromParams(symmetric, "mm");
+    expect(reopened.extent).toBe("symmetric");
+    expect(
+      extrudeParamsFromForm({ ...reopened, extent: "one_side" }, 208),
+    ).toEqual(ONE_SIDED);
+  });
+
+  it("keeps the user's direction while symmetric, for the way back", () => {
+    const form = {
+      ...withDirection(defaultExtrudeForm("sk"), "reverse"),
+      extent: "symmetric" as const,
+    };
+    expect(extrudeParamsFromForm(form, 10).direction).toBe("reverse");
+  });
+
+  it("projects the extent into the ghost's preview", () => {
+    const form = { ...defaultExtrudeForm("sk"), extent: "symmetric" as const };
+    expect(extrudePreviewState(form, "mm")?.extent).toBe("symmetric");
+  });
+
+  it("says where the material goes, whatever the seat and the operation", () => {
+    for (const provenance of ["face", "base"] as const) {
+      for (const operation of ["add", "cut"] as const) {
+        expect(
+          describeExtrudeDirection(
+            operation,
+            "normal",
+            provenance,
+            "symmetric",
+          ),
+        ).toBe("Half the distance each side of the plane.");
+      }
+    }
   });
 });

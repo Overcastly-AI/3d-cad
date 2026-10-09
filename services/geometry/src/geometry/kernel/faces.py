@@ -60,12 +60,15 @@ the boundary honest.
 # pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from functools import cached_property
 
 from build123d import CenterOf, Face, GeomType, Plane, Vector, Wire
 from loft_wire.features import PlanarFaceSignature, SubshapeResolutionTier
 from loft_wire.geometry import Vec3
+from OCP.BRepGProp import BRepGProp
+from OCP.GProp import GProp_GProps
 
 from geometry.kernel.resolution import ResolutionTally
 from geometry.kernel.types import BodyShape
@@ -112,13 +115,29 @@ class PlanarFaceRecord:
     field mirrors :class:`geometry.kernel.edges.EdgeRecord.edge` — a picked-face
     consumer like shell needs the Face, not just its plane). ``name`` is the
     face's history-based name (:mod:`geometry.kernel.naming`), when the caller
-    knows it."""
+    knows it.
+
+    :attr:`plane` is built on first read, not per record: a resolve enumerates
+    every planar face of the body (442 on the 200-feature tray) and reads the
+    plane of the one it matched, so building them all was 2.8 % of that rebuild
+    (RESEARCH §15). It is built from the signature's own normal and centroid,
+    the very floats the eager build used, so it is the same plane."""
 
     index: int
     signature: PlanarFaceSignature
-    plane: Plane
     face: Face
     name: str | None = None
+
+    @cached_property
+    def plane(self) -> Plane:
+        """The face's deterministic offset-0 sketch plane (:func:`_face_plane`)."""
+        normal = self.signature.normal
+        centroid = self.signature.centroid
+        return _face_plane(
+            Vector(normal.x, normal.y, normal.z),
+            Vector(centroid.x, centroid.y, centroid.z),
+            0.0,
+        )
 
 
 def deterministic_x_dir(normal: Vector) -> Vector:
@@ -161,9 +180,14 @@ def planar_face_signature(face: Face) -> tuple[Vector, Vector, float] | None:
     """
     if face.geom_type != GeomType.PLANE:
         return None
-    centroid = face.center(CenterOf.MASS)
+    # ONE surface integration for both: ``face.center(CenterOf.MASS)`` and
+    # ``face.area`` each run this same ``SurfaceProperties_s`` call and read one
+    # half of it, so a face used to be integrated twice (RESEARCH §15).
+    props = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(face.wrapped, props)
+    centroid = Vector(props.CentreOfMass())
     normal = face.normal_at(centroid)
-    return normal, centroid, float(face.area)
+    return normal, centroid, float(props.Mass())
 
 
 def _outer_region(face: Face) -> Face | None:
@@ -323,29 +347,79 @@ def planar_faces(
     ``named`` tier of :func:`match_face_records` reads it); a list of the wrong
     length is ignored rather than trusted.
     """
-    if names is not None and len(names) != len(body.faces()):
+    return [_record(planar) for planar in _planar_cores(body, names)]
+
+
+#: One planar face before its record is built: ``(index, face, (normal,
+#: centroid, area), name)``, everything but the outer-boundary invariants.
+_PlanarCore = tuple[int, Face, tuple[Vector, Vector, float], str | None]
+
+
+def _planar_cores(
+    body: BodyShape, names: Sequence[str | None] | None
+) -> list[_PlanarCore]:
+    """:func:`planar_faces`' enumeration, stopping short of the outer-boundary
+    invariants (a wire walk and, for a face with holes, a region per face)."""
+    faces = body.faces()
+    if names is not None and len(names) != len(faces):
         names = None
-    records: list[PlanarFaceRecord] = []
-    for index, face in enumerate(body.faces()):
+    cores: list[_PlanarCore] = []
+    for index, face in enumerate(faces):
         sig = planar_face_signature(face)
-        if sig is None:
-            continue
-        normal, centroid, area = sig
-        records.append(
-            PlanarFaceRecord(
-                index=index,
-                signature=_signature_dto(
-                    normal,
-                    centroid,
-                    area,
-                    outer_boundary_invariants(face, area=area, centroid=centroid),
-                ),
-                plane=_face_plane(normal, centroid, 0.0),
-                face=face,
-                name=None if names is None else names[index],
-            )
-        )
-    return records
+        if sig is not None:
+            cores.append((index, face, sig, None if names is None else names[index]))
+    return cores
+
+
+def _record(planar: _PlanarCore) -> PlanarFaceRecord:
+    """The :class:`PlanarFaceRecord` of one :func:`_planar_cores` entry."""
+    index, face, (normal, centroid, area), name = planar
+    return PlanarFaceRecord(
+        index=index,
+        signature=_signature_dto(
+            normal,
+            centroid,
+            area,
+            outer_boundary_invariants(face, area=area, centroid=centroid),
+        ),
+        face=face,
+        name=name,
+    )
+
+
+def _match_planar_faces(
+    body: BodyShape,
+    names: Sequence[str | None] | None,
+    target: PlanarFaceSignature,
+) -> tuple[list[PlanarFaceRecord], SubshapeResolutionTier]:
+    """``match_face_records_tiered(planar_faces(body, names), target)``, with
+    the outer-boundary invariants built only where they can be read.
+
+    Tiers 1-3 read a face's normal, centroid and area and nothing else, and on
+    a rebuild one of them answers (the strict tier when the face is unchanged,
+    the coplanar one once a pocket has changed its area). So they run on the
+    faces without their outer invariants (:func:`_tiered`), and a face is
+    completed into its record only when tier 4 reads it or it is returned: the
+    records returned are exactly :func:`planar_faces`' records of those faces.
+    What this saves is a wire list and, for a face with holes, a region, per
+    planar face of the body on every resolve (PERF-REBUILD-200, RESEARCH §15).
+    """
+    cores = _planar_cores(body, names)
+    built: dict[int, PlanarFaceRecord] = {}
+
+    def record(position: int) -> PlanarFaceRecord:
+        if position not in built:
+            built[position] = _record(cores[position])
+        return built[position]
+
+    positions, tier = _tiered(
+        [_signature_dto(*core[2], None) for core in cores],
+        [core[3] for core in cores],
+        [core[0] for core in cores],
+        record,
+        target,
+    )
+    return [record(p) for p in positions], tier
 
 
 def planar_signatures_match(
@@ -822,13 +896,40 @@ def match_face_records_tiered(
     So a signature without a name, or a body without names, resolves exactly as
     before this tier existed.
     """
-    strict = [r for r in records if planar_signatures_match(r.signature, target)]
+    positions, tier = _tiered(
+        [r.signature for r in records],
+        [r.name for r in records],
+        [r.index for r in records],
+        records.__getitem__,
+        target,
+    )
+    return [records[p] for p in positions], tier
+
+
+def _tiered(
+    signatures: Sequence[PlanarFaceSignature],
+    names: Sequence[str | None],
+    indices: Sequence[int],
+    record: Callable[[int], PlanarFaceRecord],
+    target: PlanarFaceSignature,
+) -> tuple[list[int], SubshapeResolutionTier]:
+    """:func:`match_face_records_tiered` over positions: the ONE copy of the
+    tier order, shared with the resolver's :func:`_match_planar_faces`.
+
+    *signatures*, *names* and *indices* are each candidate's signature, name
+    and face index. Tiers 1-3 read only a signature's normal, centroid and
+    area, so a signature without its outer-boundary fields serves them; tier 4
+    reads the whole record, which *record* builds for a position on demand.
+    """
+    strict = [
+        p for p, sig in enumerate(signatures) if planar_signatures_match(sig, target)
+    ]
     if strict:
         return strict, "exact"
-    geometric = _geometric_matches(records, target)
-    named = named_match(records, target.topo_name)
+    geometric = _geometric_matches(signatures, record, target)
+    named = _named_position(names, target.topo_name)
     if named is not None and (
-        not geometric or any(r.index == named.index for r in geometric)
+        not geometric or any(indices[p] == indices[named] for p in geometric)
     ):
         return [named], "named"
     return geometric, "durable"
@@ -840,9 +941,15 @@ def named_match(
     """The ONE record whose ``name`` is *name* or answers to it (a face a
     ``clean`` merged *name* into, :func:`_answers_to`),
     or ``None`` (no name, or not exactly one holder)."""
+    position = _named_position([r.name for r in records], name)
+    return None if position is None else records[position]
+
+
+def _named_position(names: Sequence[str | None], name: str | None) -> int | None:
+    """:func:`named_match` over positions in *names*."""
     if name is None:
         return None
-    held = [r for r in records if _answers_to(r.name, name)]
+    held = [p for p, held in enumerate(names) if _answers_to(held, name)]
     return held[0] if len(held) == 1 else None
 
 
@@ -857,19 +964,27 @@ def _answers_to(held: str | None, name: str) -> bool:
 
 
 def _geometric_matches(
-    records: list[PlanarFaceRecord], target: PlanarFaceSignature
-) -> list[PlanarFaceRecord]:
+    signatures: Sequence[PlanarFaceSignature],
+    record: Callable[[int], PlanarFaceRecord],
+    target: PlanarFaceSignature,
+) -> list[int]:
     """Tiers 2-4 of :func:`match_face_records`, each only on an empty result
-    from the one above."""
-    coplanar = [r for r in records if coplanar_signatures_match(r.signature, target)]
+    from the one above (positions, as :func:`_tiered`)."""
+    coplanar = [
+        p for p, sig in enumerate(signatures) if coplanar_signatures_match(sig, target)
+    ]
     if coplanar:
         return coplanar
     translated = [
-        r for r in records if translated_signatures_match(r.signature, target)
+        p
+        for p, sig in enumerate(signatures)
+        if translated_signatures_match(sig, target)
     ]
     if translated:
         return translated
-    return [r for r in records if enclosing_face_match(r, target)]
+    return [
+        p for p in range(len(signatures)) if enclosing_face_match(record(p), target)
+    ]
 
 
 def _anchored_plane(plane: Plane, target: PlanarFaceSignature) -> Plane:
@@ -945,7 +1060,7 @@ def resolve_face_plane(
     named match is re-anchored like a resilient one, because the named face
     may have moved.
     """
-    matches, tier = match_face_records_tiered(planar_faces(body, face_names), target)
+    matches, tier = _match_planar_faces(body, face_names, target)
     resilient = tier != "exact"
     if not matches:
         raise SubshapeUnresolvedError(

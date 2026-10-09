@@ -9,122 +9,40 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
-- [x] **EDGE-REF-CONCENTRIC** (wrong geometry; found probing SKETCH-PROJECT-EDGES
-      step 2, 3203624): a picked fillet/chamfer edge whose own edge vanishes
-      re-anchors on the tier-2 `concentric_same_station_match` onto a
-      CONCENTRIC edge of another radius, status ok, tier `durable`, no error.
-      Case (a): box, R5 vertical fillets, 2 mm open-top shell, fillet picked on
-      the inner R3 rim arc, shell deleted: the fillet rounds the outer R5 rim
-      chain (volume -7.0 mm^3, not the R3 chain). Case (b): R5 bore-floor edge of a
-      counterbore, chamfered; hole retyped to a dia-18 blind pocket: the chamfer
-      lands on the R9 floor edge (+6.94 mm^3). Shell thickness 1/4 mm and a bore
-      resize (two circles remain) fail typed `subshape_ambiguous`. Edge flange
-      not probed (arcs are `edge_flange_bad_edge`). Fix: guard tier 2/3 with the
-      named tier (`keep_name`) as projections do. Strict xfails:
-      `services/geometry/tests/test_edge_ref_concentric.py`.
-- [x] **SKETCH-SOLVE-HEAP-ORDER** (determinism, pre-existing; review of
-      1b8632f): planegcs orders a subsystem's free parameters by address
-      (`std::deque` of 64-double chunks), so a sketch with more than 64 free
-      parameters solves differently within one process under heap churn:
-      7e-15 apart fully constrained, 27.4 um apart on an under-constrained
-      24-line polygon. A long-running worker can rebuild a stored part
-      differently. Virtual sharps add 2 parameters each. _Accept:_ a patched
-      planegcs (order by index) or a canonical re-solve; the same sketch solves
-      bit-identically 20 times in one churned process and across processes.
-- [x] **SKETCH-FILLET-KEEP-DIMS** (1b8632f): W/H survive a fillet on the
-      virtual sharp; R edits keep the outline.
-- [x] **SKETCH-ENDPOINT-TANGENT** (wrong geometry, review of c6475cf):
-      after a sketch fillet the arc is held only by its end coincidents and
-      R (the whole-curve line-arc tangent reads redundant with them), so an
-      R edit leaves it off-tangent: a 40x25 rect R5 -> R10 puts the centre
-      9.114 from both legs, and the extrude has a kink, with no warning.
-      _Accept:_ an endpoint tangency (planegcs angle-via-point) on the wire,
-      the solver and the fillet reconcile, also used for a user tangent
-      between line and arc that share an end; R5 -> R10 / R3 and a leg drag
-      keep centre-to-leg = r; the sketch reads no redundancy.
-- [x] **SKETCH-FILLET-UNTRIM** (wrong geometry, HARD-PARTS 2026-10-01): on
-      a rectangle whose size was typed as it was drawn, a sketch fillet on a
-      second corner restores the first corner's trims. The leg that carries
-      the H dimension is solved back to full length, so the first arc dangles,
-      the sketch shows "open ends", and the extrude on it fails. On the
-      118x78 lip with r7, the right leg came back as (59,-32)-(59,39)
-      (`hard-parts-2026-10-01/sketch-fillet-second-corner-untrims-first.png`,
-      `enclosure-sketch-fillet-*.png`). _Accept:_
-      `e2e/sketch-fillet-rect-corners.spec.ts` passes with its `test.fail()`
-      removed.
-- [x] **SHELL-WRONG-SOLID** (P0, in progress): Shell (Arc) ships wrong solids
-      that the guards accept: a bored plate whose cavity is tangent to the
-      bore (5449.66 mm^3, true 4438.70) and a tube thinner than 2t (ships a
-      75 mm^3 sliver). _Accept:_ Shell builds the right walls or raises a
-      typed ShellError, checked by a method independent of the joins; the
-      170-case bore/tube sweep is a standing test; goldens unchanged.
-- [x] **EDGE-MARK-OVERLAP** (wrong geometry, REFERENCE-RUN 2026-09-30): on a
-      2 mm wall the 24 px midpoint marks of the outer and inner rim edges sit
-      6-11 px apart and the later one covers the earlier, so clicking the
-      outer back/left rim mark picks the INNER edge. The editor only says
-      "4 edges picked". The enclosure's first fillet went on 2 inner edges
-      (29 545.19 against 29 550.51 mm³); `reference-run-2026-09-30/enclosure-*`.
-      _Accept:_ every mark the user can see is the topmost element at its
-      own centre, or overlapping marks resolve to the nearer edge; an e2e
-      test on a shelled box checks all 8 rim marks with `elementFromPoint`.
-      Still reproduces at ab31825. On the enclosure lip, the 4 outer-corner
-      marks picked an inner-lip edge, a rim edge and two other wrong edges
-      (`hard-parts-2026-10-01/enclosure-lip-fillet-marks-pick-wrong-edges.png`).
-      On the impeller, one of 14 root-edge picks also lit an unrequested edge.
-- [x] **SHELL-INTERSECTION-SLOW** (hang, pre-existing): a sealed plate bored r2.991 with a cross bore r1.424 at t 2.39 spends 133 s in OCCT's Intersection hollow (`shell.py`), past the gateway's 90 s timeout, on every version. _Accept:_ Shell answers (a solid or a typed refusal) within the timeout on that body; the Intersection route is skipped when Arc alone decides.
-- [x] **SHELL-HEAL-NONDETERMINISM** (P1): a stored sealed Shell can fail to
-      rebuild at random. Rod with a cross-bore r6 at t=2 is refused on 31 of
-      60 rebuilds (3 processes), before and after 5fda139: the heal step
-      raises HealingError on OCCT's address-dependent Arc output. Non-strict
-      xfail in `tests/test_shell_walls_qa.py` (the outcome is per process). _Accept:_ the same body gives
-      the same outcome in several fresh processes, checked by a multi-process test that replaces the xfail.
-- [x] **PICK-ENTER-UNPICKS**: in Fillet and Draft pick mode, focus stays on
-      the last pick mark, so Enter (the panel's advertised Create key)
-      toggles that pick off (4 -> 3 edges, 4 -> 3 faces) instead of creating.
-      _Accept:_ Enter after a pick creates the feature with every pick; an
-      e2e test covers Fillet.
-- [x] **FILLET-EDIT-REPICK**: editing a fillet shows no pick marks and
-      ignores edge clicks, so a wrong edge can only be fixed by deleting and
-      recreating the fillet (3 cycles on the enclosure). Fusion rolls back and
-      lets you re-pick. _Accept:_ Edit on a fillet rolls back to its input
-      body and a click adds or removes an edge; an e2e test re-picks one edge.
-- [x] **SHELL-SHARP-DEFAULT**: new Shells leave a sharp cavity at concave
-      edges (OCCT Intersection join), as SolidWorks, Onshape and Fusion do
-      by default; stored shells keep Arc (rounded) so no saved part changes
-      shape. _Accept:_ a stored `shell_type` (sharp | rounded, legacy rows
-      read as rounded); sharp is correct on a bored plate and an L-bracket,
-      checked by a method that does not rely on Arc; goldens for both.
-- [x] **BOOLEAN-COINCIDENT-TUBE** (wrong geometry, moto frame 2026-10-07):
-      four Y cross tubes of the golden's OD 25.4 / wall 1.6 tube, 245.4 long so
-      the ends sit at the rail's outer skin (y = +-122.7), union into the frame
-      with every feature `ok`, one BRepCheck-valid lump, and STEP re-reading to
-      the same number, but the volume reads 732801.9 mm^3 and 18 shells. A
-      union cannot exceed the sum of its members (725460.9); the truth is 718211.506
-      (analytic; the 729620 first quoted came from a twin with the same fuse bug). No warning. The same tree ended on the rail centreline (220 long)
-      is right (708479.158 against 708479.161 extrapolated from a smooth twin,
-      STEP drift 1e-2), and 0.5 mm past the centreline is refused
-      (`invalid_body`, strict prefix). _Accept:_ the skin case is refused or
-      right (volume <= the member sum, shells = lumps + bores);
-      `tests/test_boolean_coincident_tube.py` XPASSes and loses its xfail. Cause
-      to chase: OCCT's fuse of equal-diameter tubes whose intersection curves
-      are singular or tangent; a post-fuse volume/shell sanity guard in
-      `combine_body` would catch it.
-
-- [x] **SHELL-MULTIBODY-HANG** (hang, pre-existing): a body of several
-      separate solids is still hollowed in-process with no CPU budget
-      (`isolate=False` in `shell.py`), so the 317 s class of shell hang that
-      SHELL-INTERSECTION-SLOW bounded for single solids remains for multi-body
-      parts. _Accept:_ a multi-solid shell answers (a solid or a typed
-      `ShellTimeout`) inside the gateway timeout, through the same child path.
-
-- [x] **DESIGN-INTENT-BACKFILL** (merged to main 60f7ed5; now also refuses: since EDGE-REF-CONCENTRIC, a circular ref stored before DESIGN-INTENT-REFS refuses on any radius edit): parts saved before DESIGN-INTENT-REFS
-      keep picks without history names, so they still lose them on an early
-      size edit until re-picked. _Accept:_ a one-off pass names each stored
-      pick while it still resolves exactly at the part's current sizes; the
-      three hard-parts edits then rebuild on the QA's saved parts.
-
-- [x] **LOFT-VERSIONS** (.loft step 2; backend DONE: routes, migration 0017, loft-script, .loft 1.1; web UI DONE in e108333, e2e/part-versions.spec.ts): named part versions (author display name, message, time) in a never-pruned `part_versions` table, restorable through history_core, and written into `.loft` `versions/`. Plan: scratchpad plan "loft-file-format" step 2 and docs/FILE-FORMAT.md. Migration number after DESIGN-INTENT-BACKFILL's 0016. _Accept:_ save, list and restore a named version in the app and loft-script; versions round-trip through `.loft`.
-- [x] **DUPLICATE-MATERIALS** (wrong data; fixed by cherry-picked 2bfe3f7): `duplicate_part` keeps per-body material overrides pointing at the source's feature ids, so a copy shows the default material and the wrong mass. Fix committed in a worktree (f328528, documents only) but not pushed: its rebase was refused by the session's permission check, awaiting the founder. _Accept:_ a copy's overrides point at its own features; the reported mass equals the source's.
+- [ ] **PERF-REBUILD-200** (the scorecard's ❌; replaces COLD-REBUILD-WALL,
+      whose measurement is RESEARCH §15): a 200-feature cold rebuild takes
+      about 29 s (7.6 s at 100), and an engineer feels it on every early edit.
+      Take our own costs first: the double face-merge (`clean_shape`
+      re-unifies what build123d's boolean already unified, plus the CM-6
+      guard's two volumes and deep copy, ~17 %), the eager per-face `Plane`
+      in `planar_faces` (~12 %), and the Hole's second identical common (6 %).
+      Measured by the scaling sweep (`LOFT_SCALING_BENCH=1`,
+      `test_scaling_benchmarks.py -m benchmark`, `housing_tree(200)` and its
+      per-type profile), before and after on the same idle host, median of 3.
+      _Accept:_ 200 features rebuild cold in under 10 s (stretch: 5 s) and
+      100 in under 3 s; every golden byte-identical, the determinism and
+      STEP round-trip tests green, no tolerance touched; if our own costs stop
+      short of 10 s, the measured number and a plan for the rest land in
+      RESEARCH §15.
+- [ ] **EXTRUDE-SYMMETRIC** (moto frame cross tubes; shaft cross hole; note
+      "no two-sided option"): Extrude has one side only, so a part
+      symmetric about a plane needs a datum at half the depth. SolidWorks
+      (End Condition "Mid Plane"), Onshape ("Symmetric") and Fusion
+      (Direction "Symmetric", Measurement "Whole length") extrude both ways
+      from the sketch plane, the typed depth being the whole length.
+      _Accept:_ Extrude has a Symmetric direction (wire field, `just gen`,
+      editor and loft-script) for add and cut; stored extrudes are unchanged;
+      the moto frame's cross tubes extruded symmetric from XZ give the
+      golden `frame-moto-cradle-tube-od25.4-t1.6` volume, and a new golden
+      covers a symmetric cut.
+- [x] **LINE-CHAIN** (done b3d1b92 + 398799f; every sketch; the hub's 12-segment section took 24
+      clicks): the Line tool does not chain. Fusion and SolidWorks chain
+      lines, each click ending one segment and starting the next at that
+      end. _Accept:_ the hub's 12-segment section takes 13 clicks (the last
+      on the start point closes it and ends the chain), every joint carries a
+      coincident constraint, and the profile revolves; Escape ends the chain
+      with the tool still armed, a second Escape leaves it; a typed point
+      continues the chain; an e2e test covers clicks and typing.
 
 ## Next
 
@@ -133,7 +51,7 @@ commits carry the ID (`git log --grep=<ID>`).
       Fusion keeps the edges that still resolve and warns about the rest.
       _Accept:_ the fillet builds on the resolved edges with a per-edge
       warning; nothing resolves to an unpicked edge.
-- [ ] **SKETCH-PROJECT-EDGES** (steps 1-3 landed: step 3 web, tool, ink, gate, warning and e2e, 050ff07/81a1260/b7d6719; step 4 is the SKETCH-PROJECT-SPLINE line): no Project/Include of body edges into a
+- [x] **SKETCH-PROJECT-EDGES** (done on main; steps 1-3 landed: step 3 web, tool, ink, gate, warning and e2e, 050ff07/81a1260/b7d6719; step 4 is the SKETCH-PROJECT-SPLINE line): no Project/Include of body edges into a
       sketch, so a lip sketched on a face keeps its typed size after the body
       widens (QA rerun 2026-10-01). _Accept:_ projected edges follow the body
       on rebuild, as in Fusion.
@@ -143,11 +61,7 @@ commits carry the ID (`git log --grep=<ID>`).
 - [ ] **SHELL-HEAL-VOLUME-GUARD**: `conform_solid` measures volume after
       `split_pinched_faces`, so the split itself is never volume-checked
       (shell_heal.py claims it is). _Accept:_ volume measured before the split.
-- [x] **SKETCH-FILLET-KEEP-DIMS**: a sketch fillet drops the typed W/H on
-      the legs it trims (the sharp corner is gone), leaving 5 free DOF;
-      Fusion keeps them to the virtual sharp. _Accept:_ a virtual-sharp
-      dimension survives the fillet and still drives the size.
-- [ ] **DESIGN-INTENT-REFS** (steps 1-2 landed and reviewed: enclosure 8566ec1, impeller 37b2de8 + 8dedc83/95a38e3; step 3 bracket 42b4482 is blocked on cap-name swap) (HARD-PARTS 2026-10-01, the top design-intent
+- [x] **DESIGN-INTENT-REFS** (done: the 2026-10-02 QA rerun passed all three edits, VISION; steps 1-2 landed and reviewed: enclosure 8566ec1, impeller 37b2de8 + 8dedc83/95a38e3; step 3 bracket 42b4482 is blocked on cap-name swap) (HARD-PARTS 2026-10-01, the top design-intent
       blocker): picked edges and faces are re-found by geometric signature,
       so changing an early size loses them. Enclosure width 120 -> 130:
       Fillet1 SUBSHAPE_UNRESOLVED and 23 later features skipped. Impeller hub
@@ -168,23 +82,6 @@ commits carry the ID (`git log --grep=<ID>`).
       rebuilds Hole1 and Edge flange1 by name (golden
       `goldens-sheet-metal/revise-base-70-hole-on-flange`). Left: a QA rerun
       of all three on fresh parts.
-- [x] **TYPED-POLYLINE-UNJOINED**: lines whose ends are typed onto an
-      existing endpoint are not joined (no coincident constraint, unlike a
-      pointer snap). The first dimension on the shaft's typed 18-line profile
-      (flange 30 -> 35) tore it open ("2 open ends"), Revolve1 failed
-      PROFILE_NOT_CLOSED, and all 11 later features were skipped
-      (`hard-parts-2026-10-01/shaft-dimension-tears-typed-profile.png`).
-      _Accept:_ a typed point on an existing endpoint adds a coincident
-      constraint; dimensioning that profile rebuilds the shaft.
-- [x] **HOLE-BLIND-FALSE-DEEP**: a Ø2.5 x 10 blind hole on the top of an
-      Ø8 x 31 boss is refused HOLE_TOO_DEEP (also at depth 25). The drill
-      removes 49.0779 mm³ against an analytic 49.0874, because volume noise on
-      a 50 000 mm³ body exceeds `_POCKET_REL_TOL` (1e-6 of the pocket) in
-      `kernel/hole.py`. This reproduces outside the app on the exported STEP.
-      Workaround: an extrude cut from an absolute datum. That cut later sealed
-      the holes under a 0.5 mm skin when the shell went 2 -> 2.5 mm.
-      _Accept:_ the hole builds on that body, and the tolerance scales with
-      the body's volume; a test uses that STEP.
 - [ ] **MULTI-PROFILE-EXTRUDE**: one sketch with 4 boss circles and 4 rib
       rectangles is refused PROFILE_UNSUPPORTED ("8 closed loops not enclosed
       by a single outer boundary"). Fusion extrudes every selected profile.
@@ -207,16 +104,11 @@ commits carry the ID (`git log --grep=<ID>`).
       deleting the datum (`hard-parts-2026-10-01/enclosure-new-sketch-reuses-stale-face.png`).
       _Accept:_ with nothing selected now, New Sketch opens the plane picker,
       and a pick in a cancelled command is not a pre-selection.
-- [x] **FILE-SIZE-RATCHET**: a `just lint` + CI check that no source file over 1,500 lines grows and no new file passes 1,500, with the current oversized files listed with their sizes and each split lowering its entry. _Accept:_ the check fails on a +1 line to `apps/web/src/routes/PartPage.tsx` and on a new 1,501-line file; the list only shrinks.
-- [x] **SPLIT-EVALUATE** (`services/geometry/src/geometry/features/evaluate.py`, 4,382 lines): one module per feature family behind the same dispatch, no behaviour change. _Accept:_ full geometry suite green, every golden byte-identical, determinism tests green, no file over 1,500 lines.
-- [x] **SPLIT-PARTPAGE** (`apps/web/src/routes/PartPage.tsx`, 6,502 lines; after FILLET-EDIT-REPICK lands): move per-feature edit logic, the edit-rollback/preview, pick and timeline wiring into their own modules and hooks; no behaviour change. _Accept:_ typecheck, vitest and the full e2e lane green; PartPage under 1,500 lines.
-- [x] **SPLIT-COMPOSE** (`services/geometry/src/geometry/drawings/compose.py`, 4,297 lines; after the drawings fix lands): layout, dimensioning, views and export emitters in separate modules. _Accept:_ drawing goldens byte-identical; no file over 1,500 lines.
-- [x] **SPLIT-DRAWINGPAGE** (`DrawingPage.tsx` 3,382 -> 680, 0ab6cf2).
-- [ ] **SPLIT-SKETCHSCENE** (`SketchScene.tsx` 2,944): same treatment. _Accept:_ typecheck, vitest, covering e2e green; each under 1,500.
+- [ ] **SPLIT-SKETCHSCENE** (`SketchScene.tsx` 2,944): split into modules and hooks, no behaviour change, as DrawingPage was (0ab6cf2). _Accept:_ typecheck, vitest, covering e2e green; each under 1,500.
 - [ ] **SPLIT-WIRE-FEATURES** (`packages/loft-wire/src/loft_wire/features.py`, 4,606): one module per feature family, re-exported from `loft_wire.features` so imports and the generated contracts do not change. _Accept:_ `just gen-verify` shows zero diff; `just test` green.
-- [ ] **ARC-BOUNDS-INFLATE-1** (from stale branch 11edf49, re-implement on the tip): `_edge_points` bounds every arc as its full circle, so arc-bearing views sit off-centre and can leave the sheet. _Accept:_ an arc's box is its swept extent; the canopy bracket's ink centres on its anchor.
-- [ ] **DRAWSHEET-AUTOPLACE-1** (eb113cb + c6ae762): a lone or adjacent-pair auto-placed view lands 12 mm off centre per axis, and pinned views skew auto-layout. _Accept:_ centring uses only auto-placed views; a border gate over each view's ink (geometry + caption) passes.
-- [ ] **LAYOUTISSUE-OFFSHEET-1** (11edf49): a view whose ink leaves the border exports with empty `layout_issues` and no banner. _Accept:_ an `off_sheet` error issue in loft-wire (`just gen`), stamped on the sheet.
+- [x] **ARC-BOUNDS-INFLATE-1** (done 5bc612d; from stale branch 11edf49, re-implement on the tip): `_edge_points` bounds every arc as its full circle, so arc-bearing views sit off-centre and can leave the sheet. _Accept:_ an arc's box is its swept extent; the canopy bracket's ink centres on its anchor.
+- [x] **DRAWSHEET-AUTOPLACE-1** (done bb61e23; eb113cb + c6ae762): a lone or adjacent-pair auto-placed view lands 12 mm off centre per axis, and pinned views skew auto-layout. _Accept:_ centring uses only auto-placed views; a border gate over each view's ink (geometry + caption) passes.
+- [x] **LAYOUTISSUE-OFFSHEET-1** (done d18d664; 11edf49): a view whose ink leaves the border exports with empty `layout_issues` and no banner. _Accept:_ an `off_sheet` error issue in loft-wire (`just gen`), stamped on the sheet.
 - [ ] **SKETCH-EXPR-TRIG**: dimension expressions accept `sin`/`cos`/`tan`
       (degrees). _Accept:_ `20*tan(15)` solves and round-trips through save
       and reload.
@@ -228,11 +120,6 @@ commits carry the ID (`git log --grep=<ID>`).
       landed on XY at z=0). Fusion sketches on the clicked face.
       _Accept:_ a click on a visible face in plane-pick sketches on that face
       without first choosing "Pick a face".
-- [ ] **LINE-CHAIN**: the Line tool does not chain; every segment is two
-      clicks and its own end snap. The hub's 12-segment section took 24 clicks
-      (`hub-line-no-chain.png`). _Accept:_ each click after the first starts
-      the next segment at the last end, and Escape or a click on the start
-      closes it, as in Fusion and SolidWorks.
 - [ ] **LOFT-SHELL** (seen at 9767a90, before 5fda139): Shell on a round-to-square loft fails
       (`StdFail_NotDone`) at 1 and 2 mm with one or both ends open; OCCT's
       offset fails the same way outside the app (build123d probe), and the
@@ -246,8 +133,6 @@ commits carry the ID (`git log --grep=<ID>`).
       viewport after it is created (`duct-datum-not-drawn.png`); it shows only
       as a tree row and a plane-pick chip. _Accept:_ a datum is drawn as a
       sized, selectable plane, as origin planes are.
-- [x] **SKETCH-POINT-DISTANCE**: point-to-point and point-to-line distance
-      dimensions. _Accept:_ both can be created, solved and edited in the UI.
 - [ ] **EDGE-LOOP-SELECT**: select a face's edges, a loop, or a tangent chain
       for fillet and chamfer. _Accept:_ one gesture selects all the edges of
       a face or loop; an e2e test covers it.
@@ -257,10 +142,6 @@ commits carry the ID (`git log --grep=<ID>`).
 - [ ] **BIG-PATTERN-COST**: a 50x mirror/rotate never finished; a 24x pattern
       of a loft cut takes 3.6-19 s. _Accept:_ the cost is measured and
       explained, then the fix that measurement points to.
-- [ ] **COLD-REBUILD-WALL**: a cold rebuild costs about 26 s at 200
-      features, and an edit near the start of the tree rebuilds everything.
-      _Accept:_ measure where the time goes, then propose a plan with
-      expected numbers.
 - [ ] **BIG-PART-MESH**: a real imported part's mesh payload is 142 MB.
       _Accept:_ quantised or compressed meshes, with the before/after size
       measured.
@@ -451,8 +332,6 @@ One line each. The founder triages weekly; most are closed without work.
 - Moto frame: after a mirror leaves 2 lumps, a merging `extrude` that bridges them fails `boolean_failed` ("produced 1 lumps from a 2-lump body"); Fusion and SolidWorks join them. The golden uses `merge: false` + a `boolean` union instead. Repro: `test_cross_tube_extrude_joins_the_mirrored_rails` (strict xfail).
 - Tube-frame gaps against SolidWorks Weldments / Fusion frames: no angled (tilted) datum plane (only offset, on-face, midplane bisector), so the 25 deg steering head is a revolve about a sketch axis; no symmetric (midplane) extrude, so the cross tubes extrude from a datum at y=+110; sweep paths are planar sketches anchored at the profile (no 3D sketch), so profiles sit on axis-aligned datums at tangent-axis-aligned points; no structural-member placement along edges, no mitre/cope/end-trim at joints, no cut list.
 - Moto frame round trip: the 704,000 mm^3 frame drifts 1.3e-5 mm^3 / 0.18 mm^2 through STEP (a pure-build123d twin drifts the same), above the absolute 1e-7 `ROUNDTRIP_TOL`, so its golden carries a reviewed `roundtrip_tolerance` 0.5; a relative bound would size this without per-golden overrides.
-- PERF: every in-chain boolean is unified twice (build123d's `_bool_op` cleans, then `clean_shape` cleans again under the CM-6 guard, which brackets only the second pass with two whole-body volumes and a deep copy): ~17 % of a 200-feature rebuild (RESEARCH §15).
-- PERF: `planar_faces` builds a full signature and a `Plane` for every planar face on each face-reference resolution (~107 ms per hole at 442 faces, ~12 % of a 200-feature rebuild); the `Plane` is about a third of that and only the matched face's is used.
 - Shell: the 906-face slotted lid is now a typed `ShellTimeout` in 54 s (was 317 s and a gateway timeout); a solid needs a faster offset of many-holed faces (OCCT's Arc alone takes 77-89 s CPU) or a larger budget and gateway timeout.
 - Shell: the `_arc` 60 s wall-clock backstop also raises `ShellTimeout`, so on a loaded host a body under its 40 s CPU budget can be refused; the outcome depends on load as well as speed (the comment says load does not move it).
 - Shell: a sealed shell on the Intersection route now builds it twice (in the child, then in-process) and needs the blend server; with the server cold or down, Arc's bytes ship instead.
@@ -493,3 +372,7 @@ One line each. The founder triages weekly; most are closed without work.
 - BREAK-LINK-ICON: Break link uses CloseIcon, the same as Delete.
 - UNDO-PROJECTION-STATUS: undo/redo doesn't restore `projections`, so a sick mark can be stale until the next solve.
 - SKETCH-FACE-REOPEN-ZOOM: reopening a sketch on a face parks the camera tighter than the face.
+- SKETCH-PROJECT-SPLINE: projecting a spline (or other free-form) body edge into a sketch is not supported (SKETCH-PROJECT-EDGES step 4).
+- CHAINSTART-NOT-CLEARED: `chainStart` is never cleared by setTool, Escape or undo; it is harmless today but fragile.
+- CHAIN-CLOSE-MOVED-START: closing compares against the stored chainStart, so if the solver moved the first vertex, a click there joins it but does not end the chain.
+- CHAIN-PRESS-DRAG: a press-drag mid-chain places only the press point.

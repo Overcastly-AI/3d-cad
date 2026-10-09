@@ -25,6 +25,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeVar
 
+from loft_wire.extrude_extent import ExtrudeExtent
 from loft_wire.features import (
     EvaluateTreeResult,
     ExtrudeFeature,
@@ -407,6 +408,7 @@ class Part:
         *,
         operation: Literal["add", "cut"] = "add",
         direction: Literal["normal", "reverse"] = "normal",
+        extent: ExtrudeExtent = "one_side",
         merge: bool = True,
         twist_angle_deg: float | None = None,
         twist_center: PointLike | None = None,
@@ -419,6 +421,12 @@ class Part:
         already — the workspace enables extrude only once the sketch solve
         round-trips back, so this reaches the same state by the same route), a
         ``FeatureRef``, or a bare feature id for the agent that holds only that.
+
+        ``extent="symmetric"`` extrudes ``distance_mm / 2`` each side of the
+        sketch plane, so ``distance_mm`` is the whole length (SolidWorks Mid
+        Plane, Onshape and Fusion Symmetric); ``direction`` then only names
+        which cap is ``start`` and which ``end``, as one-sided.
+        It works for add and cut and does not combine with a twist.
 
         ``twist_angle_deg`` / ``twist_center`` are the LEGACY extrude twist:
         twist now lives on :meth:`sweep` ("twist along path", as in Fusion 360
@@ -447,6 +455,7 @@ class Part:
                     distance_mm=distance_mm,
                     operation=operation,
                     direction=direction,
+                    extent=extent,
                     merge=merge,
                     twist_angle_deg=twist_angle_deg,
                     twist_center=(

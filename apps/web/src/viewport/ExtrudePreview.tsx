@@ -31,7 +31,11 @@ import {
   MeshMatcapMaterial,
 } from "three";
 
-import type { ExtrudeDirection, ExtrudeOperation } from "../features/extrude";
+import type {
+  ExtrudeDirection,
+  ExtrudeExtent,
+  ExtrudeOperation,
+} from "../features/extrude";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { SolvedSketchLayer } from "./SketchScene";
 import { ExtrudeDragHandle } from "./ExtrudeDragHandle";
@@ -50,6 +54,11 @@ export interface ExtrudePreviewProps {
   distanceMm: number;
   /** Sweep sense along the plane normal. */
   direction: ExtrudeDirection;
+  /**
+   * `"symmetric"` straddles the plane, half the distance each side; absent is
+   * one side. The gauge then stands on the far face, reading the whole length.
+   */
+  extent?: ExtrudeExtent;
   /**
    * What Save will do with the swept volume. `"add"` draws metal about to
    * exist; `"cut"` draws the void it will remove — never a solid.
@@ -109,6 +118,7 @@ export function ExtrudePreview({
   layer,
   distanceMm,
   direction,
+  extent = "one_side",
   operation,
   onDepthChange,
   twistDeg = 0,
@@ -136,16 +146,20 @@ export function ExtrudePreview({
     // The build (rings, a vertex budget, ink found on a one-step prism, the
     // twist) is the pure seam in `extrudeGhost`, so its cost is a node test.
     const built = regions.map((region) =>
-      buildGhostRegion(region, depth, direction, twist, {
-        x: centreX,
-        y: centreY,
-      }),
+      buildGhostRegion(
+        region,
+        depth,
+        direction,
+        twist,
+        { x: centreX, y: centreY },
+        extent,
+      ),
     );
     return {
       geometries: built.map((b) => b.mesh),
       edges: built.map((b) => b.edges),
     };
-  }, [regions, depth, direction, twist, centreX, centreY]);
+  }, [regions, depth, direction, twist, centreX, centreY, extent]);
 
   // How this operation is shaded — the pure seam below the renderer, so "a cut
   // never reads as added metal" is unit-testable without a GPU.
@@ -237,6 +251,7 @@ export function ExtrudePreview({
           regions={regions}
           depthMm={distanceMm}
           direction={direction}
+          extent={extent}
           unit={unit}
           onDepthChange={onDepthChange}
         />

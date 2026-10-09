@@ -561,6 +561,7 @@ test.describe("sketcher constraints", () => {
     await clickPlane(page, at, { x: 5, y: 8 });
     await clickPlane(page, at, { x: 35, y: 10 });
     await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape"); // and leave the Line tool
 
     await clickPlane(page, at, { x: 5, y: 8 });
     await expect(page.getByTestId("selection-readout")).toContainText("1 pt");
@@ -656,6 +657,7 @@ test.describe("sketcher relational constraints", () => {
     await clickPlane(page, at, { x: 0, y: 12 });
     await clickPlane(page, at, { x: 35, y: -3 });
     await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape"); // and leave the Line tool
 
     await clickPlane(page, at, { x: 20, y: 0 }); // e1 body
     await addPlane(page, at, { x: 17.5, y: 4.5 }); // + e2 body (midpoint)
@@ -705,6 +707,7 @@ test.describe("sketcher relational constraints", () => {
     await clickPlane(page, at, { x: 10, y: 5 });
     await clickPlane(page, at, { x: 35, y: 25 });
     await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape"); // and leave the Line tool
 
     await clickPlane(page, at, { x: 20, y: 0 }); // e1 body
     await addPlane(page, at, { x: 22.5, y: 15 }); // + e2 body (midpoint)
@@ -751,6 +754,7 @@ test.describe("sketcher relational constraints", () => {
     await clickPlane(page, at, { x: 20, y: -15 });
     await clickPlane(page, at, { x: 20, y: 15 });
     await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape"); // and leave the Line tool
 
     await clickPlane(page, at, { x: 20, y: 0 }); // e2 line body
     await addPlane(page, at, { x: 0, y: 10 }); // + e1 circle body (top)
@@ -810,6 +814,7 @@ test.describe("sketcher relational constraints small laptop (1280×800)", () => 
     await clickPlane(page, at, { x: 10, y: 5 });
     await clickPlane(page, at, { x: 35, y: 25 });
     await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape"); // and leave the Line tool
     await clickPlane(page, at, { x: 20, y: 0 });
     await addPlane(page, at, { x: 22.5, y: 15 });
     await page.keyboard.press("l");
@@ -823,6 +828,7 @@ test.describe("sketcher relational constraints small laptop (1280×800)", () => 
     await clickPlane(page, at, { x: 5, y: -30 });
     await clickPlane(page, at, { x: 45, y: -30 });
     await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape"); // and leave the Line tool
     await clickPlane(page, at, { x: 25, y: -30 }); // line body
     await addPlane(page, at, { x: 30, y: -12 }); // + circle body (top)
     await page.keyboard.press("t");
@@ -1029,6 +1035,7 @@ test.describe("sketcher size/shape constraints", () => {
     await clickPlane(page, at, { x: 15, y: -30 });
     await clickPlane(page, at, { x: 15, y: -5 });
     await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape"); // and leave the Line tool
 
     // Make the centerline construction (reference-only axis) — the clean way
     // to carry a mirror line, straight from the #2 construction vocabulary.
@@ -1112,6 +1119,7 @@ async function buildSizeShapeShowcase(
   await clickPlane(page, at, { x: 0, y: -40 });
   await clickPlane(page, at, { x: 0, y: -16 });
   await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape"); // and leave the Line tool
   await clickPlane(page, at, { x: 0, y: -33 }); // centerline body
   await page.keyboard.press("n"); // construction
   await clickPlane(page, at, { x: -20, y: -24 }); // e3 start

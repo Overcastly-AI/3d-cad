@@ -201,6 +201,7 @@ export function PartViewportLayers({
           layer={extrudeGhostLayer}
           distanceMm={extrudePreview.distanceMm}
           direction={extrudePreview.direction}
+          extent={extrudePreview.extent}
           operation={extrudePreview.operation}
           onDepthChange={handleExtrudeDrag}
           twistDeg={extrudePreview.twistDeg}

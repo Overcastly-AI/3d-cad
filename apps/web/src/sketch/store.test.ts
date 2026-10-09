@@ -1960,7 +1960,7 @@ describe("draw-time dimensions", () => {
     store().placeAt({ x: 0, y: 0 });
     store().placeAt({ x: 0, y: 7 });
     expect(store().drawDimension?.typed).toBe(false);
-
+    store().escape(); // ends the chain (LINE-CHAIN) and the cells with it
     store().openPointEntry({ x: 0, y: 0 }, null);
     store().commitPointEntry({ x: 10, y: 0 });
     store().openPointEntry({ x: 0, y: 0 }, null);

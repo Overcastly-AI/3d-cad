@@ -143,6 +143,7 @@ async function drawOutline(page: Page, map: PlaneMap, points: Plane2D[]) {
     // NEXT edge's first click on the canvas: the cells are drawn at the line's
     // end, which is exactly where the next edge starts.
     await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape"); // and leave the Line tool
     await expect(page.getByTestId("draw-dimensions")).toHaveCount(0);
   }
 }

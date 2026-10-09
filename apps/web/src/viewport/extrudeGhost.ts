@@ -32,7 +32,11 @@ import {
   type Side,
 } from "three";
 
-import type { ExtrudeDirection, ExtrudeOperation } from "../features/extrude";
+import type {
+  ExtrudeDirection,
+  ExtrudeExtent,
+  ExtrudeOperation,
+} from "../features/extrude";
 import type { PlaneBasis } from "../sketch/plane";
 import type { ProfileRegion } from "./profileLoops";
 
@@ -199,7 +203,8 @@ export interface GhostRegionGeometry {
 
 /**
  * Build one region's ghost, in local plane space (see {@link extrudeGhostPose}):
- * the prism swept `depthMm` along +z (or -z for a reverse extrude), cut into
+ * the prism swept `depthMm` along +z (or -z for a reverse extrude, or from
+ * -depth/2 to +depth/2 for a SYMMETRIC one, whatever the direction), cut into
  * rings and twisted when `twistDeg` is not 0.
  *
  * THE INK IS FOUND ON A ONE-STEP PRISM. Found on the ringed mesh, every ring's
@@ -214,8 +219,12 @@ export function buildGhostRegion(
   direction: ExtrudeDirection,
   twistDeg: number,
   centre: { x: number; y: number } | null,
+  extent: ExtrudeExtent = "one_side",
 ): GhostRegionGeometry {
-  const reverse = direction === "reverse";
+  // A symmetric extrude ignores the direction, as the kernel does. It never
+  // carries a twist (the wire refuses the pair), so the slide below is all.
+  const symmetric = extent === "symmetric";
+  const reverse = direction === "reverse" && !symmetric;
   const shape = new Shape(region.outer.map((p) => new Vector2(p.x, p.y)));
   shape.holes = region.holes.map(
     (hole) => new Path(hole.map((p) => new Vector2(p.x, p.y))),
@@ -233,6 +242,8 @@ export function buildGhostRegion(
     // ExtrudeGeometry sweeps toward local +Z (the plane normal). A reverse
     // extrude sweeps toward -normal, so slide the solid back by its depth.
     if (reverse) geometry.translate(0, 0, -depthMm);
+    // Symmetric straddles the plane: slide back by half the whole length.
+    if (symmetric) geometry.translate(0, 0, -depthMm / 2);
     return geometry;
   };
   const mesh = build(steps);

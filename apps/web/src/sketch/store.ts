@@ -92,6 +92,7 @@ import { mirrorAxisFor, toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import { originIdentity } from "./origin";
 import { typedJoin, withNamedPointAt } from "./pointEntry";
 import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
+import { chainAfterResize, chainStep } from "./lineChain";
 import {
   applyPick,
   toggleSelection,
@@ -207,6 +208,8 @@ export interface SketchState {
   tool: SketchTool;
   /** Points of the in-progress placement sequence (plane mm, snapped). */
   pending: Point2D[];
+  /** The first point of the open Line chain, which closes it (LINE-CHAIN). */
+  chainStart: Point2D | null;
   /**
    * The addressable snaps this placement sequence has spent so far (SNAP-3).
    * Accumulated per click and cashed in when the sequence emits geometry, then
@@ -498,8 +501,8 @@ export interface SketchState {
     toleranceMm: number,
     modifiers: { suppressed: boolean; axisLock: boolean },
   ) => Point2D;
-  /** Place the next point of the active tool's sequence. */
-  placeAt: (point: Point2D) => void;
+  /** Place the active tool's next point; `chain` false: a drag's single line. */
+  placeAt: (point: Point2D, chain?: boolean) => void;
   /**
    * Commit an open placement sequence (Enter / double-click) — the spline's
    * finish gesture. A no-op for tools that self-finish on a click.
@@ -677,6 +680,7 @@ const INITIAL = {
   plane: null,
   tool: "select" as SketchTool,
   pending: [],
+  chainStart: null,
   snapAnchors: [],
   entities: [],
   constraints: [],
@@ -958,10 +962,11 @@ const createSketchState = (
     return resolution.at;
   },
 
-  placeAt: (point) => {
+  placeAt: (point, chain) => {
     const {
       tool,
       pending,
+      chainStart,
       snapAnchors,
       nextIdIndex,
       entities,
@@ -977,22 +982,16 @@ const createSketchState = (
     const result = placePoint(tool, pending, point, nextIdIndex);
     const drawn = result.entities.length > 0;
 
-    // AUTOMATIC COINCIDENT ON SNAP (SNAP-3, and SNAP-2 with it).
-    //
-    // The aim that produced `point` is still on the store — `placeAt` is only
-    // ever called with `aim()`'s own return — so the address the click took its
-    // coordinate from is available HERE, at the one moment it is unambiguous.
-    // Recovering it later would mean guessing from a coordinate, which is the
-    // guess this closes.
-    //
-    // A REJECTED placement banks nothing. `placePoint` refuses a degenerate
-    // shape (zero-area rectangle, zero-length line, a spline's repeated fit
-    // point) by handing back the sequence untouched; treating that click as an
-    // anchor would leave a stale intent to be cashed in by whatever the user
-    // draws next.
+    // AUTOMATIC COINCIDENT ON SNAP (SNAP-3, SNAP-2). `placeAt` only ever takes
+    // `aim()`'s return, so the address the click took its coordinate from is
+    // still on the store HERE, the one moment it is unambiguous. A REJECTED
+    // (degenerate) placement banks nothing: `placePoint` hands the sequence
+    // back untouched, and an anchor from that click would be a stale intent
+    // cashed in by whatever the user draws next.
     const consumed = drawn || result.pending.length !== pending.length;
     const anchor = consumed ? snapAnchorOf(snapCandidate, point) : null;
     const anchors = anchor === null ? snapAnchors : [...snapAnchors, anchor];
+    const next = chainStep(tool, pending, result, anchors, chainStart, chain);
 
     const inferred = drawn
       ? inferredCoincidents(anchors, result.entities, constraints)
@@ -1053,9 +1052,8 @@ const createSketchState = (
     const authored =
       grounded === null ? [] : [...inferred, ...grounded.constraints];
     set({
-      pending: result.pending,
-      // Cashed in, or carried to the click that finishes the shape.
-      snapAnchors: drawn ? [] : anchors,
+      // Anchors cashed in, carried to the next click, or a chain's joint.
+      ...next,
       nextIdIndex: result.nextIdIndex,
       entities: grounded?.entities ?? placed,
       // THREE authors, ONE order, and it is deliberate: the shape's own
@@ -1102,7 +1100,8 @@ const createSketchState = (
   },
 
   commitDrawDimensions: (values) => {
-    const { drawDimension, entities, constraints, revision } = get();
+    const { drawDimension, entities, constraints, revision, tool, pending } =
+      get();
     if (drawDimension === null) return;
     const { shape, ids, from, to, fields } = drawDimension;
     // Only positive, finite values for cells this draft actually offers; a
@@ -1119,8 +1118,10 @@ const createSketchState = (
       set({ drawDimension: null, drawDimensionFocus: null });
       return;
     }
+    const resized = resizeDrawn(shape, ids, from, to, entities, typed);
     set({
-      entities: resizeDrawn(shape, ids, from, to, entities, typed),
+      ...chainAfterResize(tool, pending, drawDimension, resized),
+      entities: resized,
       constraints: [...constraints, ...added],
       // A typed size IS the user constraining the sketch.
       userConstrained: true,
@@ -1951,9 +1952,8 @@ const createSketchState = (
     // the typing and hands the canvas back with the tool still armed (handled
     // in the scene, which stops that key from ever reaching here).
     //
-    // Typed X / Y cells that are open but not yet focused (the keys that opened
-    // them are still being replayed) are the most local thing there is: this
-    // Escape abandons the typing and nothing else.
+    // Typed X / Y cells open but not yet focused (their keys still replaying)
+    // are the most local thing there is: Escape abandons just the typing.
     if (get().pointEntry !== null) {
       set({ pointEntry: null });
       return;

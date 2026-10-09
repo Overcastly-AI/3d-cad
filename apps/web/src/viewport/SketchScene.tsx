@@ -565,6 +565,8 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
     suppressed: e.nativeEvent.ctrlKey || e.nativeEvent.metaKey,
     axisLock: e.nativeEvent.shiftKey,
   });
+  const aimAt = (e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>) =>
+    aim(rawPlanePoint(e), snapToleranceMm(e), modifiers(e));
   /**
    * DID THE POINTER EVENT HAPPEN ON THE CANVAS? (helical-gear gap G4.)
    *
@@ -691,10 +693,11 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
         ) {
           return;
         }
-        store.placeAt(
-          store.aim(rawPlanePoint(e), snapToleranceMm(e), modifiers(e)),
-        );
-        strokeOpen.current = useSketchStore.getState().pending.length > 0;
+        // Mid-chain a press only places the next vertex (LINE-CHAIN).
+        const opens = store.pending.length === 0;
+        store.placeAt(aimAt(e));
+        strokeOpen.current =
+          opens && useSketchStore.getState().pending.length > 0;
         invalidate();
       }}
       onClick={(e) => {
@@ -721,9 +724,8 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
             !isClick(gestureOf(e)) &&
             useSketchStore.getState().pending.length > 0
           ) {
-            store.placeAt(
-              store.aim(rawPlanePoint(e), snapToleranceMm(e), modifiers(e)),
-            );
+            const at = aimAt(e);
+            store.placeAt(at, false); // a drag is ONE line: no chain
             invalidate();
           }
           return;
@@ -792,9 +794,7 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
             target !== null && target.kind === "entity" ? target.id : null,
           );
         } else {
-          placeAt(
-            store.aim(rawPlanePoint(e), snapToleranceMm(e), modifiers(e)),
-          );
+          placeAt(aimAt(e));
         }
         invalidate();
       }}

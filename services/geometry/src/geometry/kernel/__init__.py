@@ -64,6 +64,7 @@ from geometry.kernel.extrude import (
     combine_body,
     combine_body_measured,
     extrude_face,
+    symmetric_start,
 )
 from geometry.kernel.faces import (
     FaceResolutionError,
@@ -363,6 +364,7 @@ __all__ = [
     "solid_from_brep_bytes",
     "solid_to_brep_bytes",
     "sweep_profile",
+    "symmetric_start",
     "tessellate_glb",
     "twisted_extrude_face",
     "twisted_sweep_face",

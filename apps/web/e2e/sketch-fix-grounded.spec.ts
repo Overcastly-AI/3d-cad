@@ -151,6 +151,7 @@ test("SNAP-4: Fix on a point grounded on the origin is refused, not over-constra
   await clickPlane(page, at, { x: 0.3, y: -0.2 });
   await clickPlane(page, at, { x: 40.4, y: 30.4 });
   await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape"); // and leave the Line tool
   await expect(glyphsOf(page, "coincident")).toHaveCount(1);
 
   // Fix on that start point.

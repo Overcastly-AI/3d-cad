@@ -139,6 +139,7 @@ async function drawFixture(page: Page, at: Mapper) {
   await clickPlane(page, at, { x: -6, y: 8 });
   await clickPlane(page, at, { x: 46, y: 8 });
   await expect(page.getByTestId("sketch-save")).toContainText("5 entities");
+  await page.keyboard.press("Escape"); // end the line chain
   await page.keyboard.press("Escape"); // back to select
 }
 

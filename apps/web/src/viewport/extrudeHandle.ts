@@ -469,6 +469,7 @@ export function extrudeTrack(
   axis: HandleAxis,
   basis: PlaneBasis,
   unit: LengthUnit,
+  symmetric = false,
 ): GaugeTrack {
   return linearTrack(
     {
@@ -485,6 +486,10 @@ export function extrudeTrack(
       coarseFactor: COARSE_STEP_FACTOR,
       epsilon: DEPTH_EPSILON_MM,
       format: (mm, opts) => formatLength(mm, unit, opts ?? {}),
+      // SYMMETRIC (EXTRUDE-SYMMETRIC): the value is the whole length and the
+      // material reaches half of it each side, so one unit of value is half a
+      // millimetre along the axis and the tip sits on the far face.
+      ...(symmetric ? { unitsPerValue: 0.5 } : {}),
     },
   );
 }

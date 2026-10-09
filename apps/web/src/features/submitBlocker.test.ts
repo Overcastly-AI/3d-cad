@@ -162,6 +162,7 @@ const EXTRUDE: ExtrudeForm = {
   operation: "add",
   direction: "normal",
   directionTouched: false,
+  extent: "one_side",
   merge: true,
 };
 

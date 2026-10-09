@@ -532,6 +532,37 @@ def extrude_face(
     return solid
 
 
+def symmetric_start(
+    face: Face, plane: Plane, distance_mm: float, reverse: bool = False
+) -> tuple[Face, Plane]:
+    """Where a SYMMETRIC extrude starts: *face* and *plane* slid half the depth
+    BEHIND the sweep (EXTRUDE-SYMMETRIC, ``extent: "symmetric"``): against the
+    plane normal, or along it for a *reverse* row.
+
+    The caller then extrudes the WHOLE depth with the same *reverse*. Both
+    senses build the same solid; the sense decides which cap is ``start`` and
+    which is ``end``, and it must be the row's own: a one-sided reverse
+    extrude's ``end`` is its -normal cap, so a feature picked on that cap stays
+    on that side when the row is switched to symmetric (review of 3738c00).
+
+    A symmetric extrude is one prism of the whole *distance_mm*, from
+    ``-distance_mm / 2`` to ``+distance_mm / 2`` about the sketch plane
+    (SolidWorks Mid Plane, Onshape and Fusion Symmetric with the whole length
+    typed). Built as ONE prism from the slid face rather than two halves fused,
+    so it has the topology of a one-sided extrude (no seam across the sketch
+    plane) and the solid :func:`extrude_face` builds from the slid face along
+    the sweep. The slid *plane* is returned with it so the face-naming hook
+    rebuilds the sketch edges on the plane the face now lies on.
+
+    The face is regenerated (``transform=True``), not merely re-located, so the
+    prism carries no ``TopLoc_Location`` that a one-sided prism would not.
+    """
+    if distance_mm <= 0:
+        raise ValueError(f"distance_mm must be > 0, got {distance_mm}")
+    back = distance_mm / 2.0 if reverse else -distance_mm / 2.0
+    return face.translate(plane.z_dir * back, transform=True), plane.offset(back)
+
+
 def combine_body(
     body: BodyShape | None,
     tool: Solid,

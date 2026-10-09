@@ -121,6 +121,7 @@ async function drawWithConstructionDiagonal(
   await clickPlane(page, at, { x: 0, y: 0 });
   await clickPlane(page, at, { x: 40, y: 25 });
   await expect(page.getByTestId("sketch-save")).toContainText("5 entities");
+  await page.keyboard.press("Escape"); // end the line chain
   await page.keyboard.press("Escape"); // back to the select tool
 
   // Select the diagonal at its midpoint (clear of every rectangle edge).

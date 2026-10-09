@@ -1,0 +1,27 @@
+{
+  "description": "SYMMETRIC CUT GOLDEN (EXTRUDE-SYMMETRIC): a 40 x 40 x 20 block (XY rectangle x,y in [-20,20], extruded 20 along +Z) with a 10 x 5 pocket cut down from its top face by an extrude CUT with `extent: \"symmetric\"`, distance 30. The pocket's sketch is a 10 x 10 rectangle (sketch x in [-5,5], sketch y in [15,25], so it overhangs the top face by 5) on a DATUM plane XZ offset -4 mm, i.e. the plane y = +4 (XZ's normal is -Y, so offset -4 slides it to +Y). Symmetric means the whole 30 is split evenly about that plane: the pocket runs y in [4-15, 4+15] = [-11, 19], closed at both ends inside the 40-long block. Locks: the half-depth split about an OFFSET plane (not just the origin), that `direction` is ignored while symmetric (the row says `normal`; a one-sided cut along XZ's -Y normal would run y in [-26,4], clipped to 24 long, volume 30800; reversed y in [4,34], 16 long, 31200 -- tests/test_extrude_symmetric.py checks all four), and that the cut is ONE prism (no seam across the sketch plane: 11 faces, not 13).",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, then cross-checked against an independent plain-build123d build (tests/test_extrude_symmetric.py::_independent_pocket: Box(40,40,20) at z 10 minus Box(10,30,10) centred (0,4,20); volume, centroid and the two-way boolean difference).",
+    "Datum: Plane.XZ.offset(-4) has origin (0,0,0) + (0,-1,0) * -4 = (0,4,0), x_dir (1,0,0), y_dir = z_dir x x_dir = (0,0,1). Sketch (u,v) -> world (u, 4, v). The profile is x in [-5,5], z in [15,25] on y = 4.",
+    "Removed: the prism x in [-5,5], y in [-11,19], z in [15,25] meets the block (z <= 20) in x in [-5,5], y in [-11,19], z in [15,20]: 10 x 30 x 5 = 1500 mm^3.",
+    "volume = 40*40*20 - 1500 = 32000 - 1500 = 30500 mm^3",
+    "surface_area = block 2*1600 + 4*800 = 6400; the pocket removes its 10 x 30 = 300 mouth from the top and adds a 300 floor, two 30 x 5 side walls (300) and two 10 x 5 end walls (100): 6400 - 300 + 300 + 300 + 100 = 6800 mm^2",
+    "centroid: x = 0 (symmetric in x). y = (32000*0 - 1500*4) / 30500 = -6000/30500 = -0.19672131147540983. z = (32000*10 - 1500*17.5) / 30500 = (320000 - 26250) / 30500 = 293750/30500 = 9.631147540983607",
+    "bounding_box: the block's, [-20,-20,0]..[20,20,20] (the pocket is interior in x and y and opens down from z = 20)",
+    "topology: block 6 faces + pocket floor and 4 walls = 11 faces (the top face keeps one face, now with a rectangular inner wire); edges: block 12 + pocket rim 4 + floor 4 + 4 vertical = 24; 1 shell",
+    "mesh: 10 rectangular planar faces at 4 vertices / 2 triangles each (40 / 20, faceted normals so no sharing), plus the top face, a rectangle with one rectangular hole: 8 vertices, V + 2H - 2 = 8 + 2 - 2 = 8 triangles. Total 48 vertices, 28 triangles."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), 2026-10-09, build123d 0.11.1 / OCCT 7.9: volume +4e-12 mm^3, area -1e-12 mm^2, centroid <= 4e-15 mm, AABB exactly 0. All planar and the half-depth slide (15) is exact in double precision. 1e-9 is the planar-extrude goldens' bound, ~250x the worst observed.",
+  "properties": {
+    "volume": 30500.0,
+    "surface_area": 6800.0,
+    "centroid": { "x": 0.0, "y": -0.19672131147540983, "z": 9.631147540983607 },
+    "bounding_box": {
+      "min": { "x": -20.0, "y": -20.0, "z": 0.0 },
+      "max": { "x": 20.0, "y": 20.0, "z": 20.0 }
+    }
+  },
+  "topology": { "faces": 11, "edges": 24, "shells": 1 },
+  "mesh": { "vertices": 48, "triangles": 28 }
+}

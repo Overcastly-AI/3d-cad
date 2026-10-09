@@ -22,7 +22,7 @@
 import { type LengthUnit } from "@loft/design";
 import { useMemo } from "react";
 
-import type { ExtrudeDirection } from "../features/extrude";
+import type { ExtrudeDirection, ExtrudeExtent } from "../features/extrude";
 import type { PlaneBasis } from "../sketch/plane";
 import {
   extrudeTrack,
@@ -41,6 +41,12 @@ export interface ExtrudeDragHandleProps {
   /** The editor's current distance, canonical mm. */
   depthMm: number;
   direction: ExtrudeDirection;
+  /**
+   * `"symmetric"`: the gauge pulls along the normal and its tip rides the far
+   * face, HALF the whole length out, while it reads (and sets) the whole length
+   * — Fusion's symmetric arrow with Measurement "Whole length".
+   */
+  extent?: ExtrudeExtent;
   /** Document length unit — drives the snap increment and the readout. */
   unit: LengthUnit;
   /** Report a new distance in canonical mm (the editor owns the value). */
@@ -52,20 +58,22 @@ export function ExtrudeDragHandle({
   regions,
   depthMm,
   direction,
+  extent = "one_side",
   unit,
   onDepthChange,
 }: ExtrudeDragHandleProps) {
+  const symmetric = extent === "symmetric";
   const axis = useMemo(
-    () => handleAxis(basis, direction, regions),
-    [basis, direction, regions],
+    () => handleAxis(basis, symmetric ? "normal" : direction, regions),
+    [basis, direction, regions, symmetric],
   );
   // MEMOISED, and it is load-bearing rather than tidy: the gauge's stop set and
   // its drawn form are derived from the track, so a track rebuilt on every
   // render would rebuild both on every frame of a drag — which is the
   // allocation in the render loop the viewport rules forbid.
   const track = useMemo(
-    () => extrudeTrack(axis, basis, unit),
-    [axis, basis, unit],
+    () => extrudeTrack(axis, basis, unit, symmetric),
+    [axis, basis, unit, symmetric],
   );
 
   if (regions.length === 0 || depthMm <= 0) return null;

@@ -367,3 +367,40 @@ describe("ringEdgePositions", () => {
     expect(Array.from(out.slice(24))).toEqual([0, 0, 10, 5, 0, 10]);
   });
 });
+
+describe("buildGhostRegion — the symmetric extent (EXTRUDE-SYMMETRIC)", () => {
+  const square: ProfileRegion = {
+    outer: [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 20 },
+      { x: 0, y: 20 },
+    ],
+    holes: [],
+  };
+
+  function zRange(direction: "normal" | "reverse"): [number, number] {
+    const { mesh } = buildGhostRegion(
+      square,
+      30,
+      direction,
+      0,
+      null,
+      "symmetric",
+    );
+    mesh.computeBoundingBox();
+    const box = mesh.boundingBox;
+    if (box === null) throw new Error("no bounding box");
+    return [box.min.z, box.max.z];
+  }
+
+  it("straddles the plane, half the whole length each side", () => {
+    const [lo, hi] = zRange("normal");
+    expect(lo).toBeCloseTo(-15, 9);
+    expect(hi).toBeCloseTo(15, 9);
+  });
+
+  it("ignores the direction, as the kernel does", () => {
+    expect(zRange("reverse")).toEqual(zRange("normal"));
+  });
+});

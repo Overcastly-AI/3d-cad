@@ -167,6 +167,7 @@ test.describe("SAVE-CLICK — a click during the autosave is not discarded", () 
     await clickPlane(page, at, { x: 60, y: 0 });
     await clickPlane(page, at, { x: 60, y: 25 });
     await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape"); // and leave the Line tool
 
     // ---- Wait for the window to OPEN (not to close) ----
     await expect

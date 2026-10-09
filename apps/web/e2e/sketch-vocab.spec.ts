@@ -232,6 +232,7 @@ async function drawLine(
   await clickPlane(page, at, from);
   await clickPlane(page, at, to);
   await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape"); // and leave the Line tool
 }
 
 /** Every glyph of one constraint kind, addressed without counting slots. */

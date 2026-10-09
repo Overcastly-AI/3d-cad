@@ -134,6 +134,7 @@ test.describe("sketch mirror", () => {
     await page.keyboard.press("l");
     await clickPlane(page, at, { x: 0, y: -20 });
     await clickPlane(page, at, { x: 0, y: 20 });
+    await page.keyboard.press("Escape"); // end the line chain
     await page.keyboard.press("Escape"); // back to select
     await clickPlane(page, at, { x: 0, y: 0 }); // select the axis at its midpoint
     await expect(page.getByTestId("selection-readout")).toContainText("1 ent");
