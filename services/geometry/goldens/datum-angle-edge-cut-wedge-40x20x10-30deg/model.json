@@ -1,0 +1,286 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000fb",
+  "tree_version": 1,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          },
+          "entities": [
+            {
+              "id": "r0",
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 40.0,
+                "y": 0.0
+              }
+            },
+            {
+              "id": "r1",
+              "kind": "line",
+              "start": {
+                "x": 40.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 40.0,
+                "y": 20.0
+              }
+            },
+            {
+              "id": "r2",
+              "kind": "line",
+              "start": {
+                "x": 40.0,
+                "y": 20.0
+              },
+              "end": {
+                "x": 0.0,
+                "y": 20.0
+              }
+            },
+            {
+              "id": "r3",
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 20.0
+              },
+              "end": {
+                "x": 0.0,
+                "y": 0.0
+              }
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000000001"
+          },
+          "distance_mm": 10.0,
+          "operation": "add"
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "feature": {
+        "type": "datum",
+        "version": 1,
+        "params": {
+          "kind": "angle",
+          "line": {
+            "kind": "subshape",
+            "feature_id": "00000000-0000-0000-0000-000000000002",
+            "subshape_type": "edge",
+            "selector": {
+              "selector_version": 1,
+              "signature": {
+                "subshape_type": "edge",
+                "curve": "line",
+                "end_a": {
+                  "x": 40.0,
+                  "y": 0.0,
+                  "z": 10.0
+                },
+                "end_b": {
+                  "x": 40.0,
+                  "y": 20.0,
+                  "z": 10.0
+                },
+                "midpoint": {
+                  "x": 40.0,
+                  "y": 10.0,
+                  "z": 10.0
+                },
+                "length_mm": 20.0,
+                "adjacent_faces": [
+                  {
+                    "subshape_type": "face",
+                    "surface": "plane",
+                    "normal": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "z": 1.0
+                    },
+                    "centroid": {
+                      "x": 20.0,
+                      "y": 10.0,
+                      "z": 10.0
+                    },
+                    "area_mm2": 799.9999999999999,
+                    "outer_area_mm2": 799.9999999999999,
+                    "outer_centroid": {
+                      "x": 20.0,
+                      "y": 10.0,
+                      "z": 10.0
+                    },
+                    "outer_perimeter_mm": 120.0,
+                    "topo_name": "00000000-0000-0000-0000-000000000002:end"
+                  },
+                  {
+                    "subshape_type": "face",
+                    "surface": "plane",
+                    "normal": {
+                      "x": 1.0,
+                      "y": -0.0,
+                      "z": -0.0
+                    },
+                    "centroid": {
+                      "x": 40.0,
+                      "y": 10.0,
+                      "z": 5.0
+                    },
+                    "area_mm2": 199.99999999999997,
+                    "outer_area_mm2": 199.99999999999997,
+                    "outer_centroid": {
+                      "x": 40.0,
+                      "y": 10.0,
+                      "z": 5.0
+                    },
+                    "outer_perimeter_mm": 60.0,
+                    "topo_name": "00000000-0000-0000-0000-000000000002:side:r1"
+                  }
+                ],
+                "topo_name": "[\"00000000-0000-0000-0000-000000000002:end\",\"00000000-0000-0000-0000-000000000002:side:r1\"]",
+                "end_a_topo_name": "00000000-0000-0000-0000-000000000002:side:r0"
+              }
+            }
+          },
+          "reference": {
+            "kind": "subshape",
+            "feature_id": "00000000-0000-0000-0000-000000000002",
+            "subshape_type": "face",
+            "selector": {
+              "selector_version": 1,
+              "signature": {
+                "subshape_type": "face",
+                "surface": "plane",
+                "normal": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 1.0
+                },
+                "centroid": {
+                  "x": 20.0,
+                  "y": 10.0,
+                  "z": 10.0
+                },
+                "area_mm2": 799.9999999999999,
+                "outer_area_mm2": 799.9999999999999,
+                "outer_centroid": {
+                  "x": 20.0,
+                  "y": 10.0,
+                  "z": 10.0
+                },
+                "outer_perimeter_mm": 120.0,
+                "topo_name": "00000000-0000-0000-0000-000000000002:end"
+              }
+            }
+          },
+          "angle_deg": -30.0,
+          "flip": false
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000004",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000000003"
+          },
+          "entities": [
+            {
+              "id": "c0",
+              "kind": "line",
+              "start": {
+                "x": -5.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 25.0,
+                "y": 0.0
+              }
+            },
+            {
+              "id": "c1",
+              "kind": "line",
+              "start": {
+                "x": 25.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 25.0,
+                "y": 50.0
+              }
+            },
+            {
+              "id": "c2",
+              "kind": "line",
+              "start": {
+                "x": 25.0,
+                "y": 50.0
+              },
+              "end": {
+                "x": -5.0,
+                "y": 50.0
+              }
+            },
+            {
+              "id": "c3",
+              "kind": "line",
+              "start": {
+                "x": -5.0,
+                "y": 50.0
+              },
+              "end": {
+                "x": -5.0,
+                "y": 0.0
+              }
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000005",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000000004"
+          },
+          "distance_mm": 30.0,
+          "operation": "cut"
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

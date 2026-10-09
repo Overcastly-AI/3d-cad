@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from build123d import Plane, Solid, Vector
+from build123d import Face, Plane, Solid, Vector, Wire
 from geometry.features import evaluate_tree
 from geometry.harness import load_model_request
 from geometry.kernel import measure_shape
@@ -548,3 +548,115 @@ def test_head_golden_matches_an_independent_build123d_tube() -> None:
     assert expected["properties"]["volume"] == pytest.approx(theirs, abs=tolerance)
     assert float(evaluation.body.cut(tube).volume) <= tolerance
     assert float(tube.cut(evaluation.body).volume) <= tolerance
+
+
+# --- the edge's sense is the pick's, not the canonical order's -----------------
+
+
+def _tilted_box(y0: float, *extra: dict[str, Any]) -> EvaluateTreeRequest:
+    """A 10 x 6 x 4 box on a plane at -90 deg about a line along X at y = y0
+    (XY's +Z turned -90 deg about +X is +Y: the plane y = y0, u = +X, v = -Z),
+    so its vertical edges run along Z through coordinates whose last bits
+    come out of the plane math, then *extra*."""
+    corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 6.0), (0.0, 6.0)]
+    rect = [
+        {
+            "id": f"r{i}",
+            "kind": "line",
+            "start": {"x": a[0], "y": a[1]},
+            "end": {"x": b[0], "y": b[1]},
+        }
+        for i, (a, b) in enumerate(zip(corners, corners[1:] + corners[:1], strict=True))
+    ]
+    return EvaluateTreeRequest.model_validate(
+        {
+            "part_id": str(uuid.UUID(int=12)),
+            "tree_version": 1,
+            "features": [
+                _sketch(_fid(1), XY, [_line("l", (0.0, y0), (5.0, y0))]),
+                _angle(_fid(2), _sketch_line(_fid(1), "l"), XY, -90.0),
+                _sketch(_fid(3), _on(_fid(2)), rect),
+                _feature(
+                    _fid(4),
+                    "extrude",
+                    {"profile": _on(_fid(3)), "distance_mm": 4.0, "operation": "add"},
+                ),
+                *extra,
+            ],
+        }
+    )
+
+
+def _vertical_edge_pick(y0: float) -> dict[str, Any]:
+    """The box's edge along Z at x = 0, y = y0, as a click stores it."""
+    overlay = evaluate_overlay(
+        OverlayRequest.model_validate({"tree": _tilted_box(y0).model_dump(mode="json")})
+    )
+    edges = [
+        e.signature
+        for e in overlay.edges
+        if e.signature.curve == "line"
+        and abs(e.signature.end_a.x) < 1e-6
+        and abs(e.signature.end_b.x) < 1e-6
+        and abs(e.signature.end_a.y - y0) < 1e-6
+        and abs(e.signature.end_b.y - y0) < 1e-6
+    ]
+    assert len(edges) == 1
+    return {
+        "kind": "subshape",
+        "feature_id": _fid(4),
+        "subshape_type": "edge",
+        "selector": {
+            "selector_version": 1,
+            "signature": edges[0].model_dump(mode="json", exclude_none=True),
+        },
+    }
+
+
+def test_an_edge_line_keeps_its_picked_sense_when_noise_flips_the_order() -> None:
+    """The review's repro: 30 deg from YZ about the box's vertical edge. The
+    canonical end order of that edge follows ulp noise (it differs across these
+    y0, asserted first so this test cannot pass vacuously); the plane must
+    follow the PICK, so moving y0 leaves the normal where it was."""
+    yz = {"kind": "datum_plane", "plane": "YZ"}
+    heights = (0.0, 0.001, 2.5, 5.0)
+    senses = set()
+    for y0 in heights:
+        sig = _vertical_edge_pick(y0)["selector"]["signature"]
+        senses.add(sig["end_b"]["z"] > sig["end_a"]["z"])
+    assert senses == {True, False}, "the noise no longer flips the canonical order"
+
+    for picked_at in (0.0, 2.5):
+        pick = _vertical_edge_pick(picked_at)
+        sig = pick["selector"]["signature"]
+        up = sig["end_b"]["z"] > sig["end_a"]["z"]
+        # +X turned +30 deg about +Z is (cos30, sin30, 0); about -Z, the mirror.
+        s, c = math.sin(math.radians(30)), math.cos(math.radians(30))
+        expected = (c, s if up else -s, 0.0)
+        for y0 in heights:
+            plane = _plane(_tilted_box(y0, _angle(_fid(5), pick, yz, 30.0)), 5)
+            _close(plane.z_dir, expected)
+
+
+EDGE_GOLDEN = GOLDENS / "datum-angle-edge-cut-wedge-40x20x10-30deg"
+
+
+def test_edge_golden_matches_an_independent_wedge() -> None:
+    """The edge-form golden vs the triangle (40,10), (40,0), (40 - 10 sqrt3, 0)
+    in XZ extruded 20 along +Y in plain build123d (no datum, no boolean)."""
+    expected = _expected(EDGE_GOLDEN)
+    tolerance = expected["tolerance"]
+    evaluation = evaluate_tree(_request(EDGE_GOLDEN))
+    assert evaluation.body is not None
+    foot = 40.0 - 10.0 * math.sqrt(3.0)
+    triangle = Face(
+        Wire.make_polygon(
+            [Vector(40, 0, 10), Vector(40, 0, 0), Vector(foot, 0, 0)], close=True
+        )
+    )
+    wedge = Solid.extrude(triangle, Vector(0, 20, 0))
+    theirs = measure_shape(wedge).volume
+    assert theirs == pytest.approx(1000 * math.sqrt(3.0), abs=tolerance)
+    assert measure_shape(evaluation.body).volume == pytest.approx(theirs, abs=tolerance)
+    assert float(evaluation.body.cut(wedge).volume) <= tolerance
+    assert float(wedge.cut(evaluation.body).volume) <= tolerance

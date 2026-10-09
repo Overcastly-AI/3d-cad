@@ -1,0 +1,42 @@
+{
+  "description": "DATUM-PLANE-ANGLE, the EDGE form: a 40 x 20 x 10 box (x 0..40, y 0..20, z 0..10); a datum plane at -30 deg about its top +X edge (picked through the selection overlay, so it carries its history name and adjacency, end_a (40,0,10) -> end_b (40,20,10)) measured from its top face (a picked face reference); a 30 x 50 rectangle on that plane cut 30 along its normal. What survives is the triangular prism under the plane. Locks: an edge line resolved through resolve_edge_durable, the edge's sense taken from the pick (+Y; +Z turned -30 deg about +Y is (-sin30, 0, cos30), so the plane descends into the box towards -X), a face reference, and a cut from a tilted plane.",
+  "derivation": [
+    "Hand: the plane passes through the edge x = 40, z = 10 with normal (-1/2, 0, sqrt3/2); in XZ it falls 1 in sqrt3 towards -X and meets the bottom z = 0 at x = 40 - 10 sqrt3 = 22.679491924311229. The cut removes everything on the normal's side inside the box (the rectangle spans u -5..25 along +Y and v 0..50 down the slope, extruded 30, which covers the box's far corner (0,0,0) at v = 39.6, n = 11.3).",
+    "The remainder is the right prism on the triangle (40,10), (40,0), (40 - 10 sqrt3, 0), legs 10 and 10 sqrt3, 20 long in Y. Volume = 20 x 50 sqrt3 = 1000 sqrt3 = 1732.0508075688772 mm^3. Area = two triangles 100 sqrt3 + bottom 20 x 10 sqrt3 + back 20 x 10 + slope 20 x 20 = 600 + 300 sqrt3 = 1119.6152422706632 mm^2.",
+    "Centroid = the triangle's centroid, 20/2 in Y: x = 40 - 10 sqrt3 / 3 = 34.226497308103743, y = 10, z = 10/3. Bounding box x 40 - 10 sqrt3 .. 40, y 0..20, z 0..10.",
+    "Independent build123d twin (tests/test_datum_angle.py::test_edge_golden_matches_an_independent_wedge): the same triangle as a Polygon on Plane.XZ extruded 20 along +Y, no datum, no sketch, no boolean; the two-way boolean difference with the tree's body is empty.",
+    "Topology: 2 triangles + 3 rectangles = 5 faces, 9 edges, 1 shell. Mesh (linear_deflection 0.1): 18 vertices / 8 triangles, recorded from the harness."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "MEASURED, then set (geometry-gates skill). Worst observed deviation from the closed forms (2026-10-09, build123d 0.11.1 / OCCT 7.9): volume 2e-13 mm^3, bounding box 1.8e-15 mm (z_min -1.78e-15), centroid 2e-15 mm. Every quantity is analytic; 1e-9 is the sibling angle golden's bound and far above the residuals.",
+  "properties": {
+    "volume": 1732.0508075688772,
+    "surface_area": 1119.6152422706632,
+    "centroid": {
+      "x": 34.22649730810374,
+      "y": 10.0,
+      "z": 3.3333333333333335
+    },
+    "bounding_box": {
+      "min": {
+        "x": 22.67949192431123,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 40.0,
+        "y": 20.0,
+        "z": 10.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 5,
+    "edges": 9,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 18,
+    "triangles": 8
+  }
+}

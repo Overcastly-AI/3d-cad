@@ -1063,8 +1063,8 @@ additive: no stored datum changes shape or bytes.
 - **Math** (`kernel/datum_angle.py::plane_at_angle`, ported to the web's
   `angleBasis`): normal = the reference normal turned `angle_deg`
   right-handed about the line direction (start to end of a sketch line,
-  `end_a` to `end_b` of the edge's canonical signature, +X/+Y/+Z for an
-  axis); 0 is the plane through the line parallel to the reference. Basis:
+  `end_a` to `end_b` of the edge as picked, +X/+Y/+Z for an axis); 0 is
+  the plane through the line parallel to the reference. Basis:
   `x_dir` = the line direction, origin = the line's point nearest the world
   origin, `y_dir = z_dir x x_dir`. Pure and deterministic.
 - **The line must be parallel to the reference** (in it or off it), to the
@@ -1075,7 +1075,10 @@ additive: no stored datum changes shape or bytes.
   line from the SOLVED sketch of this pass through its resolved plane; the
   edge through `resolve_edge_durable` with the active body's face names
   (strict, named, durable tiers), so a resize with nothing re-picked follows
-  the edge by its history name; the reference through the midplane side's
+  the edge by its history name, and its SENSE is the stored pick's (the
+  canonical ends sort by raw coordinates, so ulp noise on an axis-aligned
+  edge would otherwise mirror the angle after an unrelated edit); the
+  reference through the midplane side's
   resolver. A lost reference makes the datum sick with a typed code
   (`reference_unresolved`, `subshape_unresolved`/`subshape_ambiguous`,
   `datum_line_invalid` for a curved or zero-length line); a sketch on it then

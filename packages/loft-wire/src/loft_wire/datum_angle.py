@@ -18,7 +18,7 @@ Conventions (docs/RESEARCH.md §18, implemented by
 * ``angle_deg = 0`` is the plane through the line parallel to the reference;
   a positive angle turns the reference normal RIGHT-HANDED about the line's
   direction (start to end for a sketch line, ``end_a`` to ``end_b`` of the
-  edge's canonical signature for an edge, +X/+Y/+Z for an origin axis);
+  edge AS PICKED for an edge, kept on rebuild, +X/+Y/+Z for an origin axis);
 * the plane's ``x_dir`` is the line direction, its origin the point of the
   line nearest the world origin, ``z_dir`` the turned normal (``flip``
   negates it, keeping ``x_dir``, the rule every datum kind shares).

@@ -136,8 +136,17 @@ def _edge_line(ref: EdgeSubshapeRef, state: EvaluationState) -> _Line | FeatureE
         )
     a, b = signature.end_a, signature.end_b
     start = Vector(a.x, a.y, a.z)
-    end = Vector(b.x, b.y, b.z)
-    return _Line(point=start, direction=end - start)
+    direction = Vector(b.x, b.y, b.z) - start
+    # The SENSE is the user's pick, never the current canonical order: the
+    # canonical ends are sorted by raw coordinates, so on an axis-aligned edge
+    # ulp noise decides which end is end_a, and an upstream edit that moves
+    # that noise across zero would mirror +30 deg into -30 deg. Turn the
+    # resolved direction to agree with the stored pick's end_a -> end_b.
+    pa, pb = ref.selector.signature.end_a, ref.selector.signature.end_b
+    picked = Vector(pb.x - pa.x, pb.y - pa.y, pb.z - pa.z)
+    if direction.dot(picked) < 0:
+        direction = -direction
+    return _Line(point=start, direction=direction)
 
 
 def _resolve_line(line: DatumAngleLine, state: EvaluationState) -> _Line | FeatureError:
