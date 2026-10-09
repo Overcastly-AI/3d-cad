@@ -15,13 +15,15 @@ import {
  * Before this, every pick session died with the editor that opened it: pick a
  * face for a hole, change your mind, and the next command opened with an empty
  * reference and demanded you ARM a pick mode and click the same face again.
- * The proofs here are the three halves of the fix:
+ * The proofs here:
  *
  *  1. the face pick is ARMED on open, so a click just takes it (no arming step);
- *  2. a pick SURVIVES the command that made it — reopening Hole finds the face
- *     already placed and Create immediately reachable;
- *  3. the selection crosses commands — the face picked for a hole seeds a DATUM
- *     as an on_face datum, which is what the modeller meant by selecting it.
+ *  2. a pick from a CANCELLED command is forgotten (SKETCH-PLANE-PICK, which
+ *     reverses UI-W3's "a pick survives its command" for the cancel case: a
+ *     cancelled Shell's face seated five later sketches on an inner wall).
+ *     Fusion clears the selection when a command is cancelled;
+ *  3. a SAVED pick crosses commands — the face a datum was placed on seeds the
+ *     next Hole, with Create immediately reachable.
  *
  * And the guard rail that keeps it honest: once the body has been rebuilt by a
  * feature, the old pick is NOT offered (its signature may no longer resolve).
@@ -104,8 +106,8 @@ async function pickTopFaceThenCancel(page: Page): Promise<void> {
   await expect(page.getByTestId("hole-editor")).toHaveCount(0);
 }
 
-test.describe("pre-selection — the cursor's pick outlives the command", () => {
-  test("a cancelled pick re-opens the hole already placed", async ({
+test.describe("pre-selection — a saved pick outlives its command", () => {
+  test("a cancelled pick is forgotten — Hole re-opens empty and armed", async ({
     page,
   }) => {
     const account = await seedSession(page);
@@ -115,17 +117,50 @@ test.describe("pre-selection — the cursor's pick outlives the command", () => 
 
     await pickTopFaceThenCancel(page);
 
-    // The selection is VISIBLE with no editor open — the picked face stays lit
-    // (a selection you cannot see would make the next prefill feel like magic).
-    await expect(page.getByTestId("viewport")).toHaveAttribute(
+    // Nothing is lit as a selection: the cancelled pick is not one.
+    await expect(page.getByTestId("viewport")).not.toHaveAttribute(
       "data-body-highlight",
       "feature",
-      { timeout: 15_000 },
     );
 
-    // Re-open Hole: the anchor block is FILLED from the pre-selection, the pick
-    // is NOT armed (arming is for CHANGING a reference now), and Create is
-    // reachable without touching the viewport again.
+    // Re-open Hole: no face carried over, and the pick is armed to take one.
+    await page.getByTestId("new-hole").click();
+    await expect(page.getByTestId("hole-face-empty")).toHaveText(
+      "Click a face",
+    );
+    await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  test("a SAVED pick crosses commands — a datum's face seeds the next hole", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Preselect datum");
+    await page.goto(`/parts/${part.id}`);
+    await buildBaseBox(page);
+
+    // Place an on_face datum on the top face and SAVE it.
+    await page.getByTestId("tool-datum").click();
+    await page.getByTestId("datum-kind").selectOption("on_face");
+    await page.getByTestId("datum-on-face-pick").click();
+    await clickTopFace(page);
+    await expect(page.getByTestId("datum-on-face")).toContainText("10");
+    await page.getByTestId("datum-submit").click();
+    await expect(
+      page.getByTestId("feature-row").filter({ hasText: "Plane1" }),
+    ).toBeVisible();
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    if ((await page.getByTestId("datum-editor").count()) > 0) {
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("datum-editor")).toHaveCount(0);
+    }
+
+    // Hole opens FILLED from that face, not armed, Create reachable.
     await page.getByTestId("new-hole").click();
     await expect(page.getByTestId("hole-face")).toContainText("10");
     await expect(page.getByTestId("hole-position")).toContainText(
@@ -137,8 +172,7 @@ test.describe("pre-selection — the cursor's pick outlives the command", () => 
     );
     await expect(page.getByTestId("hole-submit")).toBeEnabled();
 
-    // THE PROOF: the seeded reference is a real one — the kernel resolves it
-    // and drills. A prefilled-but-broken reference would be worse than none.
+    // THE PROOF: the seeded reference is a real one — the kernel drills it.
     const write = page.waitForResponse(
       (r) =>
         r.url().includes(`/parts/${part.id}/features`) &&
@@ -149,32 +183,7 @@ test.describe("pre-selection — the cursor's pick outlives the command", () => 
     await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
       timeout: 30_000,
     });
-    await expect(page.getByTestId("feature-error-2")).toHaveCount(0);
-  });
-
-  test("the selection crosses commands — a picked face seeds a datum ON it", async ({
-    page,
-  }) => {
-    const account = await seedSession(page);
-    const part = await createPartViaApi(page, account.token, "Preselect datum");
-    await page.goto(`/parts/${part.id}`);
-    await buildBaseBox(page);
-
-    await pickTopFaceThenCancel(page);
-
-    // Datum opens as an ON FACE datum seated on the selected face — no kind
-    // switch, no second pick of the same face.
-    await page.getByTestId("tool-datum").click();
-    await expect(page.getByTestId("datum-kind")).toHaveValue("on_face");
-    await expect(page.getByTestId("datum-on-face")).toContainText("10");
-    await page.getByTestId("datum-submit").click();
-    await expect(
-      page.getByTestId("feature-row").filter({ hasText: "Plane1" }),
-    ).toBeVisible();
-    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
-      timeout: 30_000,
-    });
-    await expect(page.getByTestId("feature-error-2")).toHaveCount(0);
+    await expect(page.getByTestId("feature-error-3")).toHaveCount(0);
   });
 
   test("a pick taken on a SUPERSEDED body is not offered", async ({ page }) => {

@@ -84,12 +84,14 @@ export function useDatumFacePicking({
       });
       // Remembered for the next command (UI-W3) against the body it was picked
       // FROM — always the tip's overlay — not the reference anchor above.
+      // Provisional until the datum saves (preselect rule 3).
       if (bodyFeatureId !== null) {
         usePreselectStore
           .getState()
-          .rememberFaces([
-            { signature: face.signature, anchorId: bodyFeatureId },
-          ]);
+          .rememberFaces(
+            [{ signature: face.signature, anchorId: bodyFeatureId }],
+            { provisional: true },
+          );
       }
       setDatumFacePick(null);
     },

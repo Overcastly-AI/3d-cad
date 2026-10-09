@@ -27,6 +27,12 @@
  *     version without touching the body, and a selection should survive that.)
  *  2. **It is a suggestion, never a commitment.** Seeding fills a form field
  *     the user can still re-pick, and nothing is written until they submit.
+ *  3. **A pick from a cancelled command is never a pre-selection**
+ *     (SKETCH-PLANE-PICK). A pick made inside an open command is PROVISIONAL:
+ *     no reader sees it, and it is dropped when the command ends without a
+ *     save. Only the save settles it. Before this rule a face picked in a
+ *     Shell that was then cancelled seated the next five New Sketches on an
+ *     inner wall. Fusion clears the selection when a command is cancelled.
  *
  * Pure helpers live here (unit-tested without a DOM); the store is the bridge
  * between the in-canvas overlays and PartPage, exactly as the edge/face pick
@@ -54,16 +60,34 @@ export interface PreselectSelection {
   edges: readonly EdgeSignature[];
   /** The body-affecting feature the edges were picked on, or null when none. */
   edgeAnchorId: string | null;
+  /** The faces were picked in a command that has not been saved (rule 3). */
+  facesProvisional: boolean;
+  /** The edges were picked in a command that has not been saved (rule 3). */
+  edgesProvisional: boolean;
+}
+
+/** How a pick was made: inside a still-open command, or as a settled one. */
+export interface RememberOptions {
+  /** Picked inside an open command: unseen until that command saves. */
+  provisional?: boolean;
 }
 
 export interface PreselectState extends PreselectSelection {
   /** Remember a face pick set (replaces — a pick session owns the selection). */
-  rememberFaces: (faces: readonly PreselectedFace[]) => void;
+  rememberFaces: (
+    faces: readonly PreselectedFace[],
+    options?: RememberOptions,
+  ) => void;
   /** Remember an edge pick set on one body anchor (replaces). */
   rememberEdges: (
     edges: readonly EdgeSignature[],
     anchorId: string | null,
+    options?: RememberOptions,
   ) => void;
+  /** The open command SAVED: its picks become a real pre-selection. */
+  settle: () => void;
+  /** The open command ended without a save: forget what it picked. */
+  dropProvisional: () => void;
   /** Drop everything. */
   clear: () => void;
 }
@@ -72,25 +96,48 @@ const EMPTY: PreselectSelection = {
   faces: [],
   edges: [],
   edgeAnchorId: null,
+  facesProvisional: false,
+  edgesProvisional: false,
 };
 
-export const usePreselectStore = create<PreselectState>((set) => ({
+export const usePreselectStore = create<PreselectState>((set, get) => ({
   ...EMPTY,
-  rememberFaces: (faces) => set({ faces: [...faces] }),
-  rememberEdges: (edges, anchorId) =>
-    set({ edges: [...edges], edgeAnchorId: anchorId }),
+  rememberFaces: (faces, options = {}) =>
+    set({ faces: [...faces], facesProvisional: options.provisional === true }),
+  rememberEdges: (edges, anchorId, options = {}) =>
+    set({
+      edges: [...edges],
+      edgeAnchorId: anchorId,
+      edgesProvisional: options.provisional === true,
+    }),
+  settle: () => set({ facesProvisional: false, edgesProvisional: false }),
+  dropProvisional: () => {
+    const state = get();
+    if (state.facesProvisional) set({ faces: [], facesProvisional: false });
+    if (state.edgesProvisional) {
+      set({ edges: [], edgeAnchorId: null, edgesProvisional: false });
+    }
+  },
   clear: () => set({ ...EMPTY }),
 }));
+
+/** What the face readers look at; an absent flag reads as settled. */
+type FaceReading = Pick<PreselectSelection, "faces"> &
+  Partial<Pick<PreselectSelection, "facesProvisional">>;
+
+/** What the edge reader looks at; an absent flag reads as settled. */
+type EdgeReading = Pick<PreselectSelection, "edges" | "edgeAnchorId"> &
+  Partial<Pick<PreselectSelection, "edgesProvisional">>;
 
 /**
  * The faces a command may seed from — only those picked on the body that is
  * still the tip of the chain (rule 1 above).
  */
 export function preselectedFaces(
-  state: Pick<PreselectSelection, "faces">,
+  state: FaceReading,
   bodyFeatureId: string | null,
 ): readonly PreselectedFace[] {
-  if (bodyFeatureId === null) return [];
+  if (bodyFeatureId === null || state.facesProvisional === true) return [];
   return state.faces.filter((face) => face.anchorId === bodyFeatureId);
 }
 
@@ -102,7 +149,7 @@ export function preselectedFaces(
  * user's last word on what they meant.
  */
 export function preselectedFace(
-  state: Pick<PreselectSelection, "faces">,
+  state: FaceReading,
   bodyFeatureId: string | null,
 ): PreselectedFace | null {
   const faces = preselectedFaces(state, bodyFeatureId);
@@ -115,10 +162,11 @@ export function preselectedFace(
  * rather than an arbitrary member of a set their form cannot hold.
  */
 export function preselectedEdges(
-  state: Pick<PreselectSelection, "edges" | "edgeAnchorId">,
+  state: EdgeReading,
   bodyFeatureId: string | null,
   limit?: number,
 ): readonly EdgeSignature[] {
+  if (state.edgesProvisional === true) return [];
   if (bodyFeatureId === null || state.edgeAnchorId !== bodyFeatureId) return [];
   const edges = state.edges;
   if (limit === undefined || edges.length <= limit) return edges;

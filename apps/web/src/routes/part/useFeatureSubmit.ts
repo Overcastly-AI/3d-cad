@@ -62,6 +62,7 @@ import {
   sweepFeatureUpdate,
   updateFeature,
 } from "../../api/parts";
+import { usePreselectStore } from "../../features/preselect";
 import type { PartDocument } from "./usePartDocument";
 import type { PartBody } from "./usePartBody";
 import type { FeatureCatalog } from "./useFeatureCatalog";
@@ -145,6 +146,9 @@ export function useFeatureSubmit({
           setSelectedFeatureId(response.feature.id);
           setLastSavedFeatureId(response.feature.id);
           setRebuildNoticeDismissed(false);
+          // The command saved: its picks are a real selection now (preselect
+          // rule 3), so the close below must not drop them.
+          usePreselectStore.getState().settle();
           setEditor(null);
           await refreshTreeAndBody();
         } catch (error) {

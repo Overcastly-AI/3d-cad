@@ -314,11 +314,17 @@ export function PartViewportLayers({
           onChange={datumOffsetGauge.set}
         />
       ) : null}
-      {mode === "plane" && facePicking ? (
+      {/* Mounted for the whole plane-pick step (SKETCH-PLANE-PICK): the faces
+          are pickable beside the origin sheets, which yield to the body
+          (`sheetYield.ts`). `pickableFaces` is null when there is none. */}
+      {mode === "plane" ? (
         <FacePickOverlay
           faces={pickableFaces}
           onPick={authorFacePlane}
           pendingIndex={pendingFaceIndex}
+          // Marks only once "Pick a face" is armed: unarmed, the surface
+          // still takes the click, and the view cube stays a control.
+          marks={facePicking}
         />
       ) : null}
       {mode === "off" && editor?.kind === "datum" && datumFacePick !== null ? (

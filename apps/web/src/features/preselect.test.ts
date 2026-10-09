@@ -136,3 +136,50 @@ describe("the store", () => {
     expect(preselectedEdges(state, "extrude-1")).toEqual([]);
   });
 });
+
+describe("a pick from a cancelled command (SKETCH-PLANE-PICK)", () => {
+  beforeEach(() => usePreselectStore.getState().clear());
+
+  it("is invisible to every reader while its command is open", () => {
+    const store = usePreselectStore.getState();
+    store.rememberFaces([picked(10, "extrude-1")], { provisional: true });
+    store.rememberEdges([edge(0)], "extrude-1", { provisional: true });
+    const state = usePreselectStore.getState();
+    expect(preselectedFace(state, "extrude-1")).toBeNull();
+    expect(preselectedFaces(state, "extrude-1")).toEqual([]);
+    expect(preselectedEdges(state, "extrude-1")).toEqual([]);
+  });
+
+  it("is forgotten when the command ends without a save", () => {
+    const store = usePreselectStore.getState();
+    store.rememberFaces([picked(10, "extrude-1")], { provisional: true });
+    store.rememberEdges([edge(0)], "extrude-1", { provisional: true });
+    store.dropProvisional();
+    // A later settle (the NEXT command saving) must not resurrect it.
+    usePreselectStore.getState().settle();
+    const state = usePreselectStore.getState();
+    expect(state.faces).toEqual([]);
+    expect(state.edges).toEqual([]);
+    expect(preselectedFace(state, "extrude-1")).toBeNull();
+  });
+
+  it("becomes a selection once its command saves", () => {
+    const store = usePreselectStore.getState();
+    store.rememberFaces([picked(10, "extrude-1")], { provisional: true });
+    store.settle();
+    store.dropProvisional();
+    expect(
+      preselectedFace(usePreselectStore.getState(), "extrude-1"),
+    ).not.toBeNull();
+  });
+
+  it("leaves a settled selection alone when a later command is cancelled", () => {
+    const store = usePreselectStore.getState();
+    store.rememberEdges([edge(0)], "extrude-1");
+    store.rememberFaces([picked(10, "extrude-1")], { provisional: true });
+    store.dropProvisional();
+    const state = usePreselectStore.getState();
+    expect(preselectedFace(state, "extrude-1")).toBeNull();
+    expect(preselectedEdges(state, "extrude-1")).toHaveLength(1);
+  });
+});

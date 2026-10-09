@@ -12,6 +12,7 @@ import { type HoleGaugeState } from "../../components/HoleEditor";
 import { type RevolveGaugeState } from "../../components/RevolveEditor";
 import { type ExtrudePreviewState } from "../../features/extrude";
 import { scopeSeed } from "../../features/patternScope";
+import { usePreselectStore } from "../../features/preselect";
 import { useCommandActionStore } from "../../features/commandActions";
 import { useEdgeGaugeAnchors } from "../../viewport/edgeAnchorSource";
 import { type DatumGaugeSeed } from "../../viewport/faceAnchor";
@@ -213,6 +214,9 @@ export function useEditorSeat({ setEditorState, features }: EditorSeatParams) {
   const setEditor = useCallback(
     (next: OpenEditor | null) => {
       endGaugeSession();
+      // SKETCH-PLANE-PICK: whatever the closing command picked and did not
+      // save is not a selection. The save path settles its picks first.
+      usePreselectStore.getState().dropProvisional();
       setEditorState(next);
     },
     [endGaugeSession],

@@ -64,20 +64,6 @@ export function usePickOverlays({
   selectedFeatureId,
   scopedFeatureIds,
 }: PickOverlaysParams) {
-  // The pickable face overlay for the current evaluated body — fetched exactly
-  // as measurement fetches its overlay (same request/key: one cache entry, and
-  // the faces line up with the body the viewport renders). Only while arming a
-  // face pick and a body exists.
-  const facesQuery = useQuery({
-    queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
-    enabled: facePicking && tree.data !== undefined && meshGlbId !== null,
-    staleTime: Infinity,
-    retry: false,
-  });
-  const pickableFaces = facePicking ? (facesQuery.data?.faces ?? null) : null;
-
   // The pickable face overlay while the datum editor is armed for a slot —
   // same request/key (one cache entry, faces line up with the rendered body).
   const datumFacesQuery = useQuery({
@@ -167,6 +153,28 @@ export function usePickOverlays({
     pickTargetState,
     "Add a feature that creates a body before sketching on a face.",
   );
+
+  // The pickable face overlay for the current evaluated body — fetched exactly
+  // as measurement fetches its overlay (same request/key: one cache entry, and
+  // the faces line up with the body the viewport renders).
+  //
+  // Live for the WHOLE plane-pick step once a body can offer faces, not only
+  // while "Pick a face" is armed (SKETCH-PLANE-PICK): Fusion's Create Sketch
+  // takes a click on an origin plane OR a planar face, and a click on a body
+  // face used to fall through to the origin sheet behind it.
+  const planeFacesLive =
+    mode === "plane" && (facePicking || facePickRefusal === null);
+  const facesQuery = useQuery({
+    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryFn: () =>
+      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    enabled: planeFacesLive && tree.data !== undefined && meshGlbId !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const pickableFaces = planeFacesLive
+    ? (facesQuery.data?.faces ?? null)
+    : null;
 
   // --- Hover-to-sketch (FLOW-1, founder report 2026-08-14) --------------------
   //
@@ -412,9 +420,14 @@ export function usePickOverlays({
   // A tree selection wins while one is active: one highlight, one meaning.
   // ---------------------------------------------------------------------
   const preselectedFaceSet = usePreselectStore((s) => s.faces);
+  const facesProvisional = usePreselectStore((s) => s.facesProvisional);
   const livePreselectedFaces = useMemo(
-    () => preselectedFaces({ faces: preselectedFaceSet }, bodyFeatureId),
-    [preselectedFaceSet, bodyFeatureId],
+    () =>
+      preselectedFaces(
+        { faces: preselectedFaceSet, facesProvisional },
+        bodyFeatureId,
+      ),
+    [preselectedFaceSet, facesProvisional, bodyFeatureId],
   );
   const preselectHighlightActive =
     mode === "off" &&

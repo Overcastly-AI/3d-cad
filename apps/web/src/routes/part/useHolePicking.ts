@@ -87,15 +87,16 @@ export function useHolePicking({
         nonce: holePickNonce.current,
         face: { signature: face.signature, anchorId },
       });
-      // The pick outlives this editor (UI-W3): cancel the hole and invoke
-      // Datum, or Sketch, and the face is already chosen. Remembered against the
-      // body it was picked FROM (the tip's overlay), not the reference anchor.
+      // Remembered against the body it was picked FROM (the tip's overlay),
+      // not the reference anchor, and PROVISIONAL: it becomes a selection only
+      // if this hole saves (preselect rule 3; a cancelled pick is forgotten).
       if (bodyFeatureId !== null) {
         usePreselectStore
           .getState()
-          .rememberFaces([
-            { signature: face.signature, anchorId: bodyFeatureId },
-          ]);
+          .rememberFaces(
+            [{ signature: face.signature, anchorId: bodyFeatureId }],
+            { provisional: true },
+          );
       }
       // A face chosen → disarm (the editor seeds the point to the centre); the
       // user arms the POINT pick next to refine the placement.

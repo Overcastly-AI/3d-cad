@@ -128,9 +128,10 @@ wrong-geometry finding.
 4. Commercial, 100+ features: guide-rail grip, parametric heat sink, edited imported STEP, gearbox housing.
 5. Hardest: ISO 4762 design-table family, area-law pump volute, four-runner intake manifold.
 
-**Status (2026-10-01):** level 1 is built 5/5 but has not passed
-(EDGE-MARK-OVERLAP and SHELL-WRONG-SOLID are open, and the gear edit is
-unchecked).
+**Status (2026-10-09):** level 1 is built 5/5 but has not passed. Its two
+wrong-geometry findings (EDGE-MARK-OVERLAP, SHELL-WRONG-SOLID) are fixed, but
+no rerun has checked the five edits since, and the gear cannot be edited from
+one value until PARAMETERS lands.
 
 Reference assemblies (`docs/reference-parts/assemblies.md`) pass the same
 way and are attempted in order. Loft follows Fusion and Onshape here: joints
@@ -144,24 +145,25 @@ pick a joint origin on each part, plus a motion type (ASM-JOINTS).
 
 Graded against SolidWorks, Fusion 360 and Onshape: ✅ better, ➖ parity,
 ❌ behind. Grades are from 2026-09-16. Re-grade a row only from a
-reference-part run or a live-app check.
+reference-part run or a live-app check. The "Why" text was checked against
+main `01e49e2` on 2026-10-09 (commits and tests; no grade changed).
 
-| Area                        | Grade | Why                                                                                                                                                     |
-| --------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sketching and constraints   | ➖    | Solid solver. Missing: trig in expressions, point-to-point dimensions, named parameters.                                                                |
-| Part modelling              | ➖    | Core features compose on real parts, and twist is on Sweep. Shell fails on a round-to-square loft (2026-09-30 run).                                     |
-| Selection and picking       | ❌    | On a 2 mm wall, overlapping edge marks pick the wrong edge unseen, and a fillet edit cannot re-pick (2026-09-30 run). No loop selection.                |
-| Assemblies                  | ➖    | Five mate types, interference, BOM, assembly STEP. No move handle, drag, limits, motion or component patterns (code read 2026-10-01; re-grade from A1). |
-| Interop (import and export) | ➖    | STEP round-trips on foreign parts. No IGES, and no recovery for a zero-solid import.                                                                    |
-| Drawings                    | ➖    | Views, sections, dimensions, PDF/DXF. No detail views.                                                                                                  |
-| Sheet metal                 | ➖    | Flanges, hems, flat-pattern DXF.                                                                                                                        |
-| Workspace and documents     | ➖    | Parts, assemblies and drawings register. No versioning.                                                                                                 |
-| Performance on real parts   | ❌    | A cold rebuild grows about N^1.9: 29 s at 200 features, 7.6 s at 100 (2026-10-07, loaded 4-core). OCCT booleans dominate; the double face-merge is ours. |
-| Collaboration and versions  | ❌    | No document versions, no realtime presence.                                                                                                             |
-| Scripting API               | ➖    | `loft-script` shipped.                                                                                                                                  |
-| Agent access (MCP)          | ❌    | Not started. It is the one gap no incumbent can answer.                                                                                                 |
-| Free and unlimited          | ✅    | Air-gap claim gated by `check-air-gap.py`.                                                                                                              |
-| Your data, your files       | ✅    | Backup and restore drill runs in CI. A part exports and imports as a `.loft` file (tree + STEP cache, canonical bytes; docs/FILE-FORMAT.md).           |
+| Area | Grade | Why |
+| --- | --- | --- |
+| Sketching and constraints | ➖ | Solid solver. Lines chain, points dimension to points and lines, and body edges project into a sketch (not splines). Missing: trig in expressions, named parameters. |
+| Part modelling | ➖ | Core features compose on real parts, twist is on Sweep, and Extrude is one-sided or symmetric. Shell fails on a round-to-square loft; no plane at an angle, closed-path sweep or Through All extrude. |
+| Selection and picking | ❌ | Overlapping edge marks fixed (2026-10-01 rerun) and one pick rounds its tangent chain. No face or loop selection, and a fillet edit could not re-pick (2026-09-30 run, not rechecked). |
+| Assemblies | ➖ | Five mate types, interference, BOM, assembly STEP. No move handle, drag, limits, motion or component patterns (code read 2026-10-01; re-grade from A1). |
+| Interop (import and export) | ➖ | STEP round-trips on foreign parts. No IGES, and no recovery for a zero-solid import. |
+| Drawings | ➖ | Views, sections, dimensions, PDF/DXF. No detail views. |
+| Sheet metal | ➖ | Flanges, hems, flat-pattern DXF. The hard-parts bracket's flat pattern is refused. |
+| Workspace and documents | ➖ | Parts, assemblies and drawings register; duplicates keep their materials. Parts keep named, restorable versions (Ctrl+S); assemblies and drawings have none. |
+| Performance on real parts | ❌ | A cold rebuild grows about N^2: 25.3 s at 200 features, 6.3 s at 100 (2026-10-09, loaded host; was 29.4 and 7.0). OCCT booleans dominate; RESEARCH §15a plans the rest. |
+| Collaboration and versions | ❌ | Named part versions only: no automatic history, branches or compare (Onshape, Fusion), no version-pinned references, no realtime presence. |
+| Scripting API | ➖ | `loft-script` shipped, versions included. |
+| Agent access (MCP) | ❌ | Not started. It is the one gap no incumbent can answer. |
+| Free and unlimited | ✅ | Air-gap claim gated by `check-air-gap.py`. |
+| Your data, your files | ✅ | Backup and restore drill runs in CI. A part and its named versions export and import as a `.loft` file (format 1.1; docs/FILE-FORMAT.md). |
 
 ## Not building (for now)
 

@@ -24,7 +24,7 @@ import {
   type IconProps,
 } from "@loft/design";
 import { sketch, viewport } from "@loft/design/tokens";
-import { Html, useCursor } from "@react-three/drei";
+import { Html } from "@react-three/drei";
 import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import {
   useCallback,
@@ -146,6 +146,7 @@ import { cameraEaseStep } from "./cameraEase";
 import { ConstraintGlyphs } from "./ConstraintGlyphs";
 import { ANNOTATION_LAYER } from "./instruments";
 import { sketchIsDrawn, usePartViewStore } from "./partView";
+import { bodyTakesRay, useSheetHover } from "./sheetYield";
 import { SolveProposalAnchor } from "./SolveProposalAnchor";
 import {
   apparentSizeMm,
@@ -412,11 +413,9 @@ function DatumSheet({
   sizeMm: number;
 }) {
   const hoveredPlane = useSketchStore((state) => state.hoveredPlane);
-  const setHoveredPlane = useSketchStore((state) => state.setHoveredPlane);
   const choosePlane = useSketchStore((state) => state.choosePlane);
   const invalidate = useThree((state) => state.invalidate);
-  const [pointerOver, setPointerOver] = useState(false);
-  useCursor(pointerOver);
+  const hover = useSheetHover(plane);
   const hovered = hoveredPlane === plane;
 
   const basis = useMemo(() => sceneOriginBasis(plane), [plane]);
@@ -441,17 +440,12 @@ function DatumSheet({
     <group name={`datum-sheet-${plane}`}>
       <mesh
         quaternion={quaternion}
-        onPointerOver={(e) => {
-          e.stopPropagation();
-          setPointerOver(true);
-          setHoveredPlane(plane);
-        }}
-        onPointerOut={() => {
-          setPointerOver(false);
-          setHoveredPlane(null);
-        }}
+        onPointerMove={(e) => hover(bodyTakesRay(e) ? null : e)}
+        onPointerOut={() => hover(null)}
         onPointerDown={notePressStart}
         onClick={(e) => {
+          // A body seen through the sheet takes the click (`sheetYield.ts`).
+          if (bodyTakesRay(e)) return;
           e.stopPropagation();
           // Same discriminator as the drawing surface below — the two used to
           // carry the same inline magic number and could drift apart.
