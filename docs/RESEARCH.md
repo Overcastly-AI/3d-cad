@@ -1137,10 +1137,16 @@ is unchanged, byte for byte. No wire field was needed.
   section is that frame times the profile, so the solid does not depend on
   where the loop's first entity begins (pinned by reordering and reversing the
   rounded-rectangle loop).
-- **Refused rather than self-intersecting:** a bend tighter than the section
-  reaches across the path (arcs exact, splines sampled) and a section lying
-  along the path are `sweep_failed` with the reason; a twist on a closed path
-  stays `twist_path_unsupported`.
+- **Refused rather than self-intersecting:** every sweep, open or closed, is
+  run through `BRepAlgoAPI_Check(shape, true, true)` (self-interference) before
+  it is cleaned (`kernel/sweep_check.py`); a path that crosses or comes back
+  on itself is `sweep_self_intersecting`. `BRepCheck_Analyzer` passes those
+  solids (a G1 figure eight swept r3 reads pi r^2 L, the crossing counted
+  twice). The check does not see a spindle torus, so a closed sweep also
+  refuses a bend tighter than the section reaches towards the INSIDE of that
+  bend (one-sided; arcs and splines sampled) as `sweep_failed`, and a section
+  lying along the path likewise; a twist on a closed path stays
+  `twist_path_unsupported`.
 - Truth: `sweep-closed-torus-ring-R50-r5` (2 pi^2 R r^2, against
   `Solid.make_torus`) and `sweep-closed-rounded-rect-loop-140x100-rc20-rect10x6`
   (the prism sum, against an extruded 2D ring), each with an empty two-way

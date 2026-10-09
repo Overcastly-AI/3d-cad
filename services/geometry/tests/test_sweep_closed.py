@@ -32,7 +32,8 @@ from geometry.features import evaluate_tree
 from geometry.harness import load_model_request
 from geometry.kernel import measure_shape
 from geometry.kernel.lumps import lump_count
-from geometry.kernel.sweep import build_path_wire
+from geometry.kernel.sweep import build_path_wire, sweep_profile
+from geometry.kernel.sweep_check import SweepSelfIntersectingError
 from geometry.kernel.sweep_closed import (
     PathCornerError,
     check_closed_path_tangent,
@@ -242,7 +243,7 @@ def test_a_bend_tighter_than_the_section_is_refused() -> None:
     [(code, message)] = _errors(model)
     assert code == "sweep_failed"
     assert "bends at radius 4 mm" in message
-    assert "reaches 5 mm" in message
+    assert "reaches 5 mm towards the inside" in message
 
 
 def test_a_section_lying_along_the_path_is_refused() -> None:
@@ -309,4 +310,85 @@ def test_a_closed_sweep_cuts_a_groove_ring() -> None:
     groove = 2 * math.pi * (big_r - 4 * r / (3 * math.pi)) * (math.pi * r**2 / 2)
     assert measure_shape(body).volume == pytest.approx(
         math.pi * big_r**2 * 20 - groove, rel=1e-9
+    )
+
+
+# --- self-intersection (review blocker) ------------------------------------------
+
+_ROOT3 = math.sqrt(3)
+
+
+def _figure_eight_entities() -> list[dict[str, Any]]:
+    """A G1 figure eight: R20 lobes centred at (+-40, 0) joined by two lines
+    crossing at the origin, each tangent to both lobes at (+-30, +-10 sqrt 3)."""
+    t = 10 * _ROOT3
+
+    def point(x: float, y: float) -> dict[str, float]:
+        return {"x": x, "y": y}
+
+    return [
+        {"id": "up", "kind": "line", "start": point(-30, -t), "end": point(30, t)},
+        {
+            "id": "east",
+            "kind": "arc",
+            "center": point(40, 0),
+            "start": point(30, -t),
+            "end": point(30, t),
+        },
+        {"id": "down", "kind": "line", "start": point(30, -t), "end": point(-30, t)},
+        {
+            "id": "west",
+            "kind": "arc",
+            "center": point(-40, 0),
+            "start": point(-30, t),
+            "end": point(-30, -t),
+        },
+    ]
+
+
+def test_a_self_crossing_closed_path_is_refused() -> None:
+    """The r3 tube around a figure eight would count its crossing twice
+    (volume exactly pi r^2 L); BRepCheck passes it, the self-check does not."""
+    model = copy.deepcopy(_model(TORUS))
+    profile = model["features"][0]["feature"]["params"]
+    profile["entities"][0]["center"]["x"] = 60.0  # the east lobe's tip
+    profile["entities"][0]["radius"] = 3.0
+    profile["constraints"][1]["value_mm"] = 3.0
+    path = model["features"][1]["feature"]["params"]
+    path["entities"] = _figure_eight_entities()
+    path["constraints"] = []
+    [(code, message)] = _errors(model)
+    assert code == "sweep_self_intersecting"
+    assert "passes through itself" in message
+
+
+def test_a_self_crossing_open_path_is_refused() -> None:
+    """The same crossing on an OPEN path (one line, the east lobe, the other
+    line): the open sweep runs the same self-check."""
+    t = 10 * _ROOT3
+    path = Wire(
+        [
+            Edge.make_line((-30, -t, 0), (30, t, 0)),
+            Edge.make_three_point_arc((30, t, 0), (60, 0, 0), (30, -t, 0)),
+            Edge.make_line((30, -t, 0), (-30, t, 0)),
+        ]
+    )
+    start = path.position_at(0)
+    section = Face(Wire.make_circle(3, Plane(start, z_dir=path.tangent_at(0))))
+    with pytest.raises(SweepSelfIntersectingError):
+        sweep_profile(section, path, Plane.XY)
+
+
+def test_an_outward_offset_section_is_not_refused_as_too_tight() -> None:
+    """The bend check is one-sided: an r5 section centred 7 mm OUTSIDE an R10
+    path (reaching 2..12 mm outward) only bends away from itself: a ring."""
+    model = copy.deepcopy(_model(TORUS))
+    path = model["features"][1]["feature"]["params"]
+    path["entities"][0]["radius"] = 10.0
+    path["constraints"][1]["value_mm"] = 10.0
+    profile = model["features"][0]["feature"]["params"]
+    profile["entities"][0]["center"]["x"] = 17.0
+    ring = _body(model)
+    assert measure_shape(ring).volume == pytest.approx(
+        2 * math.pi**2 * 17 * 25, rel=1e-9
     )

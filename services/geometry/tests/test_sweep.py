@@ -181,9 +181,39 @@ def test_evaluate_response_with_body_is_byte_deterministic() -> None:
 
 
 def test_bent_path_sweeps_a_valid_single_solid() -> None:
-    """A two-segment (L-shaped) path sweeps a circle around a bend into ONE
-    connected solid — the non-prismatic capability the feature exists for."""
-    # Path: up +Z 20, then over +X 15 (on XZ, sketch (x,y)->world (x,0,y)).
+    """A filleted (G1) L-shaped path sweeps a circle around a bend into ONE
+    valid solid of Pappus volume — the capability the feature exists for."""
+    # On XZ, sketch (x,y)->world (x,0,y): up 15, an R5 quarter bend, over 10.
+    bend = {
+        "id": "b1",
+        "kind": "arc",
+        "center": {"x": 5.0, "y": 15.0},
+        "start": {"x": 5.0, "y": 20.0},
+        "end": {"x": 0.0, "y": 15.0},
+    }
+    path = _sketch(
+        PATH_ID,
+        "XZ",
+        [
+            _line("p1", (0.0, 0.0), (0.0, 15.0)),
+            bend,
+            _line("p2", (5.0, 20.0), (15.0, 20.0)),
+        ],
+    )
+    result = _post(_request([profile_sketch(r=3.0), path, sweep_input()]))
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(
+        math.pi * 9.0 * (15.0 + 2.5 * math.pi + 10.0), rel=1e-9
+    )
+
+
+def test_a_sharp_cornered_open_path_is_sweep_self_intersecting() -> None:
+    """A SHARP 90 deg corner: OCCT's pipe shell (transformed transition) folds
+    the second leg back through the first — 565.5 mm^3 where a mitred elbow is
+    pi r^2 (20 + 15) = 989.6 — a solid BRepCheck passes. The self-check refuses
+    it rather than shipping it (review of SWEEP-CLOSED-PATH)."""
     path = _sketch(
         PATH_ID,
         "XZ",
@@ -191,9 +221,9 @@ def test_bent_path_sweeps_a_valid_single_solid() -> None:
     )
     result = _post(_request([profile_sketch(r=3.0), path, sweep_input()]))
 
-    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
-    assert result.properties is not None
-    assert result.properties.volume > 0.0
+    error = result.features[2].error
+    assert error is not None
+    assert error.code == "sweep_self_intersecting"
 
 
 def test_sweep_cut_removes_a_swept_channel() -> None:

@@ -58,6 +58,7 @@ from OCP.TopoDS import TopoDS, TopoDS_Edge
 
 from geometry.kernel.extrude import PROFILE_WIRE_TOLERANCE, entity_edges
 from geometry.kernel.healing import clean_shape
+from geometry.kernel.sweep_check import check_not_self_intersecting
 
 #: The largest turn (radians) a closed path may make at a joint and still count
 #: as tangent-continuous: 1e-6 rad. A solved tangent constraint closes to
@@ -235,38 +236,71 @@ def _parameter_of_hit(extrema: BRepExtrema_DistShapeShape, edge: TopoDS_Edge) ->
     return BRep_Tool.Parameter_s(vertex, edge)
 
 
-def _min_bend_radius(path: Wire) -> float:
-    """The tightest radius of curvature anywhere on *path* (inf if all straight).
+def _tightest_bends(path: Wire, normal: Vector) -> tuple[float, float]:
+    """The tightest bend radius turning LEFT and turning RIGHT along *path*.
 
-    Arcs are exact; any other curve (a spline) is sampled at
-    :data:`_CURVATURE_SAMPLES` points per edge, ends included.
+    Left is ``normal x travel`` (the binormal frame's lateral). A bend only
+    folds the section on its INSIDE, so a left turn is limited by how far the
+    section reaches to the left, and a right turn by its reach to the right.
+    Every curved edge (arc or spline) is sampled at :data:`_CURVATURE_SAMPLES`
+    points, ends included; a circle's curvature is exact at every sample.
     """
-    tightest = math.inf
+    left = right = math.inf
     explorer = BRepTools_WireExplorer(path.wrapped)
     while explorer.More():
-        curve = BRepAdaptor_Curve(explorer.Current())
-        kind = curve.GetType()
-        if kind == GeomAbs_CurveType.GeomAbs_Circle:
-            tightest = min(tightest, curve.Circle().Radius())
-        elif kind != GeomAbs_CurveType.GeomAbs_Line:
+        edge = explorer.Current()
+        curve = BRepAdaptor_Curve(edge)
+        if curve.GetType() != GeomAbs_CurveType.GeomAbs_Line:
             first, last = curve.FirstParameter(), curve.LastParameter()
             for i in range(_CURVATURE_SAMPLES + 1):
                 parameter = first + (last - first) * i / _CURVATURE_SAMPLES
                 props = BRepLProp_CLProps(curve, parameter, 2, 1e-9)
                 curvature = props.Curvature()
-                if curvature > 0:
-                    tightest = min(tightest, 1.0 / curvature)
+                if curvature <= 1e-12:
+                    continue
+                towards = gp_Dir()
+                props.Normal(towards)
+                centre = Vector(towards.X(), towards.Y(), towards.Z())
+                lateral = normal.cross(_oriented_tangent(edge, parameter))
+                if centre.dot(lateral) > 0:
+                    left = min(left, 1.0 / curvature)
+                else:
+                    right = min(right, 1.0 / curvature)
         explorer.Next()
-    return tightest
+    return left, right
 
 
-def _lateral_reach(face: Face, seat: Vector, lateral: Vector) -> float:
-    """How far the profile reaches from the path, across it in the path plane."""
+def _lateral_reach(face: Face, seat: Vector, lateral: Vector) -> tuple[float, float]:
+    """How far the profile reaches from the path to its left and to its right."""
     outer = face.outer_wire()
-    return max(
-        abs((outer.position_at(i / _REACH_SAMPLES) - seat).dot(lateral))
+    offsets = [
+        (outer.position_at(i / _REACH_SAMPLES) - seat).dot(lateral)
         for i in range(_REACH_SAMPLES)
-    )
+    ]
+    return max(0.0, *offsets), max(0.0, *(-o for o in offsets))
+
+
+def _check_bends(
+    face: Face, path: Wire, normal: Vector, seat: Vector, lateral: Vector
+) -> None:
+    """Refuse a bend tighter than the section reaches towards its inside."""
+    reach_left, reach_right = _lateral_reach(face, seat, lateral)
+    bend_left, bend_right = _tightest_bends(path, normal)
+    for reach, bend in ((reach_left, bend_left), (reach_right, bend_right)):
+        if reach < bend:
+            continue
+        away = (face.center() - seat).length
+        where = (
+            f" (its centre sits {away:.4g} mm off the path; draw it on the path)"
+            if away > 1e-6
+            else ""
+        )
+        raise PathTooTightError(
+            f"The path bends at radius {bend:.4g} mm, but the profile reaches "
+            f"{reach:.4g} mm towards the inside of that bend{where}, so the "
+            "sweep would pass through itself. Enlarge the bend or shrink the "
+            "profile."
+        )
 
 
 def _in_plane(direction: Vector, normal: Vector) -> Vector:
@@ -288,14 +322,7 @@ def _seat_profile(face: Face, path: Wire, normal: Vector) -> Face:
             "on a plane that crosses the path."
         )
     lateral = normal.cross(_in_plane(seat_tangent, normal))
-    reach = _lateral_reach(face, seat, lateral)
-    tightest = _min_bend_radius(path)
-    if reach >= tightest:
-        raise PathTooTightError(
-            f"The path bends at radius {tightest:.4g} mm, but the profile reaches "
-            f"{reach:.4g} mm across it, so the sweep would pass through itself. "
-            "Enlarge the path's tightest bend or shrink the profile."
-        )
+    _check_bends(face, path, normal, seat, lateral)
     if (seat - start).length <= PROFILE_WIRE_TOLERANCE and (
         seat_tangent - start_tangent
     ).length <= G1_ANGLE_TOLERANCE_RAD:
@@ -327,6 +354,7 @@ def sweep_closed_profile(face: Face, path: Wire, normal: Vector) -> Solid:
     Raises:
         ClosedSweepError: the profile lies along the path, the pipe shell fails,
             or the result is not one valid solid with positive volume.
+        SweepSelfIntersectingError: the swept solid passes through itself.
     """
     unit = normal.normalized()
     try:
@@ -353,4 +381,5 @@ def sweep_closed_profile(face: Face, path: Wire, normal: Vector) -> Solid:
             "Closed sweep produced an invalid solid; the path may turn tighter "
             "than the profile can follow, or cross itself."
         )
+    check_not_self_intersecting(solid)
     return clean_shape(solid)

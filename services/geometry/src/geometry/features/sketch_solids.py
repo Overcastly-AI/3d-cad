@@ -68,6 +68,7 @@ from geometry.kernel import (
     twisted_sweep_face,
 )
 from geometry.kernel.naming import NameHook, OpHistory
+from geometry.kernel.sweep_check import SweepSelfIntersectingError
 
 
 def _evaluate_extrude(
@@ -424,6 +425,8 @@ def _sweep_tool(
     if not params.is_twisted:
         try:
             return sweep_profile(face, path, path_plane)
+        except SweepSelfIntersectingError as exc:
+            return FeatureError(code="sweep_self_intersecting", message=str(exc))
         except SweepError as exc:
             return FeatureError(code="sweep_failed", message=str(exc))
     assert params.twist_angle_deg is not None  # is_twisted implies a value

@@ -46,6 +46,7 @@ from geometry.kernel.extrude import (
     entity_edges,
 )
 from geometry.kernel.healing import clean_shape
+from geometry.kernel.sweep_check import check_not_self_intersecting
 from geometry.kernel.sweep_closed import (
     ClosedSweepError,
     check_closed_path_tangent,
@@ -123,6 +124,9 @@ def sweep_profile(face: Face, path: Wire, path_plane: Plane) -> Solid:
         SweepError: the OCCT sweep failed or left other than exactly one solid
             (single body chain per part in v1, design §7.6) — e.g. a path corner
             tighter than the profile, sweeping material through itself.
+        SweepSelfIntersectingError: the swept solid passes through itself (a
+            path that crosses itself); the feature layer's
+            ``sweep_self_intersecting``.
     """
     if path.is_closed:
         try:
@@ -143,4 +147,5 @@ def sweep_profile(face: Face, path: Wire, path_plane: Plane) -> Solid:
             f"Sweep produced {len(solids)} solids; parts are a single body in "
             "v1 (design §7.6)."
         )
+    check_not_self_intersecting(solids[0])
     return clean_shape(solids[0])
