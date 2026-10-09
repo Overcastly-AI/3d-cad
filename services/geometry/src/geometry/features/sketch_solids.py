@@ -84,10 +84,11 @@ def _evaluate_extrude(
     feature = item.feature
     assert isinstance(feature, ExtrudeFeature), "registry dispatches on type='extrude'"
     params = feature.params
-    # A symmetric extrude starts half its depth behind the plane and runs along
-    # the normal (`symmetric_start`), whichever `direction` the row carries.
+    # A symmetric extrude starts half its depth behind the sweep and runs the
+    # whole depth in the row's own sense (`symmetric_start`): the same solid
+    # either way, with `start`/`end` on the sides `direction` names.
     symmetric = params.extent == "symmetric"
-    reverse = params.direction == "reverse" and not symmetric
+    reverse = params.direction == "reverse"
 
     if params.operation == "cut":
         return _evaluate_extrude_cut(item.id, params, state, reverse)
@@ -101,7 +102,7 @@ def _evaluate_extrude(
         return resolved
     face, plane, solved = resolved
     if symmetric:
-        face, plane = symmetric_start(face, plane, params.distance_mm)
+        face, plane = symmetric_start(face, plane, params.distance_mm, reverse)
 
     history = OpHistory()
     tool = _extrude_tool(face, plane, params, reverse, history)
@@ -176,8 +177,11 @@ def _evaluate_extrude_cut(
     solved = state.solved_sketches[params.profile.feature_id]
     if params.extent == "symmetric":
         # Every region slides by the same half depth; `plane` slides once, last.
-        faces = [symmetric_start(f, plane, params.distance_mm)[0] for f in faces]
-        plane = plane.offset(-params.distance_mm / 2.0)
+        faces = [
+            symmetric_start(f, plane, params.distance_mm, reverse)[0] for f in faces
+        ]
+        half = params.distance_mm / 2.0
+        plane = plane.offset(half if reverse else -half)
 
     body = state.active_body
     if body is None:

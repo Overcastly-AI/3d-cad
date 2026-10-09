@@ -906,11 +906,14 @@ rebuild-cache key. A future `two_sides` joins the same Literal.
 
 - The kernel slides the profile face and its plane back by half the depth
   (`kernel/extrude.py::symmetric_start`, the face regenerated, not
-  re-located) and builds ONE prism of the whole depth along the normal. Two
+  re-located) and builds ONE prism of the whole depth in the row's sense. Two
   half prisms fused would leave a seam face across the sketch plane; one prism
   has a one-sided extrude's topology, and its faces are named the same way
   (the naming hook is handed the slid plane).
-- `direction` is ignored while symmetric and kept, so switching back to one
+- `direction` changes no geometry while symmetric, but the prism runs in its
+  sense from half the depth behind it, so `start` and `end` name the same sides
+  as one-sided (a fillet on a reverse extrude's `end` cap survives the
+  toggle). It is kept, so switching back to one
   side restores the user's side. The legacy extrude twist is refused with a
   symmetric extent (422): twist belongs on Sweep, and nothing stored combines
   them.

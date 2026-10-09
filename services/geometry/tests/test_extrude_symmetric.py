@@ -11,8 +11,9 @@ outside the code under test:
   acceptance), where the golden itself reaches them from an offset datum at
   y = +104 extruded one-sided;
 * the symmetric cut golden against an independent build123d build;
-* a symmetric extrude ignores ``direction``, its faces are named like a
-  one-sided extrude's, and the default leaves a stored extrude's dump alone.
+* a symmetric extrude builds one solid whichever ``direction``; its faces are
+  named like a one-sided extrude's, and the default leaves a stored
+  extrude's dump alone (the caps' sides: test_extrude_symmetric_caps.py).
 """
 
 import json
@@ -72,7 +73,7 @@ def _symmetric_frame() -> EvaluateTreeRequest:
             assert params["profile"]["feature_id"] in sketches
             assert params["distance_mm"] == 208.0
             params["extent"] = "symmetric"
-            # Ignored while symmetric: the golden's own `normal` would also do.
+            # No geometry change while symmetric: `normal` would build the same.
             params["direction"] = "reverse"
             extrudes += 1
     assert extrudes == 4 and len(sketches) == 4
@@ -145,7 +146,7 @@ def test_symmetric_cut_golden_matches_an_independent_build() -> None:
         ("symmetric", "reverse", 32000.0 - 10 * 5 * 30),
     ],
 )
-def test_symmetric_ignores_direction_and_differs_from_one_side(
+def test_symmetric_volume_is_direction_free_and_differs_from_one_side(
     extent: str, direction: str, volume: float
 ) -> None:
     data = _request(POCKET).model_dump(mode="json")

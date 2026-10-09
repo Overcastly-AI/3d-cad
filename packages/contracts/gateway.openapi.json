@@ -4636,7 +4636,7 @@
             "type": "number"
           },
           "extent": {
-            "description": "How far the extrude reaches on each side of the sketch plane. `one_side` (absent; every extrude stored before the field existed) sweeps `distance_mm` along `direction`. `symmetric` sweeps `distance_mm / 2` each way, so the distance is the WHOLE length (SolidWorks Mid Plane, Onshape and Fusion Symmetric); `direction` is ignored while symmetric. Applies to add and cut. Not combinable with the legacy twist (422). `one_side` is not serialized, so stored rows stay byte-identical.",
+            "description": "How far the extrude reaches on each side of the sketch plane. `one_side` (absent; every extrude stored before the field existed) sweeps `distance_mm` along `direction`. `symmetric` sweeps `distance_mm / 2` each way, so the distance is the WHOLE length (SolidWorks Mid Plane, Onshape and Fusion Symmetric); `direction` then changes no geometry, only which cap is `start` and which `end` (as one-sided). Applies to add and cut. Not combinable with the legacy twist (422). `one_side` is not serialized, so stored rows stay byte-identical.",
             "enum": [
               "one_side",
               "symmetric"

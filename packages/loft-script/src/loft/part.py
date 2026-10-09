@@ -424,7 +424,8 @@ class Part:
 
         ``extent="symmetric"`` extrudes ``distance_mm / 2`` each side of the
         sketch plane, so ``distance_mm`` is the whole length (SolidWorks Mid
-        Plane, Onshape and Fusion Symmetric); ``direction`` is then ignored.
+        Plane, Onshape and Fusion Symmetric); ``direction`` then only names
+        which cap is ``start`` and which ``end``, as one-sided.
         It works for add and cut and does not combine with a twist.
 
         ``twist_angle_deg`` / ``twist_center`` are the LEGACY extrude twist:
