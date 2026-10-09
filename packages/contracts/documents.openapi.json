@@ -2719,6 +2719,7 @@
                 "coincident": "#/components/schemas/CoincidentMate",
                 "concentric": "#/components/schemas/ConcentricMate",
                 "distance": "#/components/schemas/DistanceMate",
+                "joint": "#/components/schemas/JointMate",
                 "lock": "#/components/schemas/LockMate"
               },
               "propertyName": "type"
@@ -2738,6 +2739,9 @@
               },
               {
                 "$ref": "#/components/schemas/LockMate"
+              },
+              {
+                "$ref": "#/components/schemas/JointMate"
               }
             ],
             "title": "Mate"
@@ -4428,6 +4432,245 @@
         "title": "IsoMetricThread",
         "type": "object"
       },
+      "JointLimits": {
+        "description": "Optional travel limits. Each bound is optional; a min may not exceed\nits max. Which bounds apply depends on the motion (see :class:`JointMate`).",
+        "properties": {
+          "lin_max_mm": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": -100000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Highest offset",
+            "title": "Lin Max Mm"
+          },
+          "lin_min_mm": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": -100000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lowest offset",
+            "title": "Lin Min Mm"
+          },
+          "rot_max_deg": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": -3600.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Highest angle",
+            "title": "Rot Max Deg"
+          },
+          "rot_min_deg": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": -3600.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lowest angle",
+            "title": "Rot Min Deg"
+          }
+        },
+        "title": "JointLimits",
+        "type": "object"
+      },
+      "JointMate": {
+        "description": "A joint between two instance frames (``type=\"joint\"``).\n\n``offset_mm`` / ``angle_deg`` are the fixed relation between the two frames\n(B's frame sits ``offset_mm`` along A's Z and turned ``angle_deg`` about\nit) at a zero ``value``. Limits and value fields must suit the motion:\nrotation for revolute / cylindrical / planar, translation for slider /\ncylindrical; rigid and ball take neither. A value outside its limits is\nrefused by the documents service (``joint_value_out_of_limits``), not here,\nso a stored row always parses.",
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/JointOrigin",
+            "description": "Frame on the first (anchor) instance"
+          },
+          "angle_deg": {
+            "default": 0.0,
+            "description": "Fixed turn of B's frame about A's Z axis (deg)",
+            "maximum": 3600.0,
+            "minimum": -3600.0,
+            "title": "Angle Deg",
+            "type": "number"
+          },
+          "b": {
+            "$ref": "#/components/schemas/JointOrigin",
+            "description": "Frame on the second (moving) instance"
+          },
+          "limits": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JointLimits"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional travel limits; null = unlimited"
+          },
+          "motion": {
+            "description": "The motion left free between A and B",
+            "enum": [
+              "rigid",
+              "revolute",
+              "slider",
+              "cylindrical",
+              "planar",
+              "ball"
+            ],
+            "title": "Motion",
+            "type": "string"
+          },
+          "offset_mm": {
+            "default": 0.0,
+            "description": "Fixed offset of B's frame along A's Z axis (mm)",
+            "maximum": 100000.0,
+            "minimum": -100000.0,
+            "title": "Offset Mm",
+            "type": "number"
+          },
+          "type": {
+            "const": "joint",
+            "default": "joint",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/JointValue",
+            "description": "Current position along the free axes (the persisted truth)"
+          }
+        },
+        "required": [
+          "motion",
+          "a",
+          "b"
+        ],
+        "title": "JointMate",
+        "type": "object"
+      },
+      "JointOrigin": {
+        "description": "One side of a joint: a frame on an instance's part body.\n\nThe origin is a point on picked geometry; the frame's Z axis is the face\nnormal (``face_centre``), the circle's axis (``circle_centre``) or the edge\ndirection (``edge_point``). ``flip`` reverses Z, and ``quarter_turns``\nrotates the frame about Z in 90 degree steps (Onshape's \"reorient\").",
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "enum": [
+                  "start",
+                  "mid",
+                  "end"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which point of the edge, for `edge_point` only (required there, rejected on the other kinds)",
+            "title": "At"
+          },
+          "flip": {
+            "default": false,
+            "description": "Reverse the frame's Z axis",
+            "title": "Flip",
+            "type": "boolean"
+          },
+          "instance_id": {
+            "description": "The instance whose part body carries this origin",
+            "format": "uuid",
+            "title": "Instance Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`face_centre` (a planar face, `signature` is a face signature), `circle_centre` (a circular edge) or `edge_point` (any edge, at `at`)",
+            "enum": [
+              "face_centre",
+              "circle_centre",
+              "edge_point"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "quarter_turns": {
+            "default": 0,
+            "description": "Rotate the frame about its Z axis by 90 degree steps (0-3)",
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Quarter Turns",
+            "type": "integer"
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanarFaceSignature"
+              },
+              {
+                "$ref": "#/components/schemas/EdgeSignature"
+              }
+            ],
+            "description": "Stage-1 signature of the picked face or edge (reused from features)",
+            "title": "Signature"
+          }
+        },
+        "required": [
+          "instance_id",
+          "kind",
+          "signature"
+        ],
+        "title": "JointOrigin",
+        "type": "object"
+      },
+      "JointValue": {
+        "description": "A joint's current position along its free axes (the persisted truth).",
+        "properties": {
+          "lin_mm": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": -100000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Translation along the joint Z axis (mm)",
+            "title": "Lin Mm"
+          },
+          "rot_deg": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": -3600.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rotation about the joint Z axis (degrees)",
+            "title": "Rot Deg"
+          }
+        },
+        "title": "JointValue",
+        "type": "object"
+      },
       "LinearDimensionParams": {
         "description": "A linear dimension \u2014 an edge length, a point-to-point or an edge-to-edge\nperpendicular distance (\u00a73.1).",
         "properties": {
@@ -4854,6 +5097,7 @@
                 "coincident": "#/components/schemas/CoincidentMate",
                 "concentric": "#/components/schemas/ConcentricMate",
                 "distance": "#/components/schemas/DistanceMate",
+                "joint": "#/components/schemas/JointMate",
                 "lock": "#/components/schemas/LockMate"
               },
               "propertyName": "type"
@@ -4873,6 +5117,9 @@
               },
               {
                 "$ref": "#/components/schemas/LockMate"
+              },
+              {
+                "$ref": "#/components/schemas/JointMate"
               }
             ],
             "title": "Mate"
@@ -4950,6 +5197,7 @@
                 "coincident": "#/components/schemas/CoincidentMate",
                 "concentric": "#/components/schemas/ConcentricMate",
                 "distance": "#/components/schemas/DistanceMate",
+                "joint": "#/components/schemas/JointMate",
                 "lock": "#/components/schemas/LockMate"
               },
               "propertyName": "type"
@@ -4969,6 +5217,9 @@
               },
               {
                 "$ref": "#/components/schemas/LockMate"
+              },
+              {
+                "$ref": "#/components/schemas/JointMate"
               }
             ],
             "title": "Mate"

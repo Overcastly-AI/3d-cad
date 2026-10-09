@@ -68,6 +68,7 @@ from loft_wire.assemblies import (
     mate_instance_ids,
 )
 from loft_wire.geometry import Vec3
+from loft_wire.joints import JointMate
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 
 from geometry.assembly.protocol import (
@@ -227,6 +228,10 @@ def _resolve_mate_pair(
                     f"lock mate references unknown instance {instance_id}"
                 )
         return None
+    if isinstance(mate, JointMate):
+        # Joints are stored and edited before the solver understands them;
+        # refuse one cleanly (evaluate drops it as `mate_unsupported`).
+        raise AssemblyDefinitionError("joint mates are not solved yet")
     return (
         resolve_mate_geometry(_body_for(mate.a, body_of), mate.a),
         resolve_mate_geometry(_body_for(mate.b, body_of), mate.b),
