@@ -36,7 +36,7 @@ byte-identical; RESEARCH §15a).
         delegates (sketch trig). _Accept:_ existing sketch-expression tests
         unchanged; `20*tan(15)` solves in a sketch dimension and round-trips;
         all goldens byte-identical.
-  - [ ] 2. `input_error` wire field; geometry fails such a feature.
+  - [x] 2. `input_error` wire field; geometry fails such a feature.
         _Accept:_ unit test, later features build; goldens unchanged.
   - [ ] 3. Parameter table: wire, migration 0018, documents GET/PUT,
         gateway, history, versions, `just gen`. _Accept:_ migration

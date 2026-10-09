@@ -1241,7 +1241,13 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   resolved value that fails its field's validation, or an unresolved import,
   makes that feature sick with `input_error` (`parameter_value_invalid` /
   `parameter_unresolved`), keeps the last good value, and answers 200 with
-  per-feature errors.
+  per-feature errors. Geometry (step 2, `features/tree.py::_dispatch_one`)
+  builds nothing for such a feature and reports the error verbatim; it is NOT
+  a strict-prefix stop: the body carries forward exactly as past a suppressed
+  feature, so later features build, as Fusion and Onshape keep regenerating
+  past a red feature. A later feature that references its output fails with
+  the existing `reference_unresolved` (upstream id pinned), which does stop
+  the prefix. Only those two codes are accepted on the wire.
 - **UI, script, file.** A Parameters panel on the command band; one
   `<ValueField>` with `parseFieldEntry` (`units/length.ts`) in every numeric
   editor, with an fx mark and autocomplete. `loft-script`: `parameters()`,
