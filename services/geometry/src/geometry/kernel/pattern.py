@@ -62,7 +62,7 @@ from collections.abc import Sequence
 from build123d import Axis, Solid, Vector
 from loft_wire.features import MAX_PATTERN_COUNT
 
-from geometry.kernel.boolean_guard import guarded_variadic
+from geometry.kernel.boolean_guard import ChainVolume, guarded_variadic
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.types import BodyShape
@@ -158,7 +158,10 @@ def check_pattern_count(count: int) -> None:
 
 
 def _fuse_and_finalize(
-    body: BodyShape, copies: Sequence[BodyShape], count: int
+    body: BodyShape,
+    copies: Sequence[BodyShape],
+    count: int,
+    chain: ChainVolume | None = None,
 ) -> BodyShape:
     """Boolean-union every *copy* onto *body*; require the LUMP COUNT unchanged.
 
@@ -202,11 +205,15 @@ def _fuse_and_finalize(
             "instance may self-intersect the body."
         ),
         refusal=PatternError,
+        chain=chain,
     )
 
 
 def _cut_and_finalize(
-    body: BodyShape, tools: Sequence[BodyShape], count: int
+    body: BodyShape,
+    tools: Sequence[BodyShape],
+    count: int,
+    chain: ChainVolume | None = None,
 ) -> BodyShape:
     """Boolean-CUT every *tool* copy from *body*; require the LUMP COUNT unchanged.
 
@@ -254,6 +261,7 @@ def _cut_and_finalize(
             "copy may graze or self-intersect the body."
         ),
         refusal=PatternError,
+        chain=chain,
     )
 
 
@@ -357,6 +365,7 @@ def linear_pattern(
     count: int,
     *,
     copies: list[BodyShape] | None = None,
+    chain: ChainVolume | None = None,
 ) -> BodyShape:
     """Array *body* into a row of *count* along the world *direction* (ADD).
 
@@ -365,7 +374,9 @@ def linear_pattern(
     returns *body* unchanged (a no-op pattern).
 
     *copies*, when given, receives the placed instances ``1..count-1`` in order
-    (the faces a naming hook names, :mod:`geometry.kernel.naming`).
+    (the faces a naming hook names, :mod:`geometry.kernel.naming`). *chain*
+    carries the body's volume in and the result's out
+    (:class:`~geometry.kernel.boolean_guard.ChainVolume`).
 
     Raises:
         PatternCountError: ``count < 1``.
@@ -380,7 +391,7 @@ def linear_pattern(
     placed = linear_pattern_placements([body], direction, spacing_mm, count)
     if copies is not None:
         copies.extend(placed)
-    return _fuse_and_finalize(body, placed, count)
+    return _fuse_and_finalize(body, placed, count, chain)
 
 
 def circular_pattern(
@@ -391,6 +402,7 @@ def circular_pattern(
     count: int,
     *,
     copies: list[BodyShape] | None = None,
+    chain: ChainVolume | None = None,
 ) -> BodyShape:
     """Array *body* into a ring of *count* about the world axis (ADD).
 
@@ -400,7 +412,9 @@ def circular_pattern(
     360° sweep is a clean full ring. ``count == 1`` returns *body* unchanged.
 
     *copies*, when given, receives the placed instances ``1..count-1`` in order
-    (the faces a naming hook names, :mod:`geometry.kernel.naming`).
+    (the faces a naming hook names, :mod:`geometry.kernel.naming`). *chain*
+    carries the body's volume in and the result's out
+    (:class:`~geometry.kernel.boolean_guard.ChainVolume`).
 
     Raises:
         PatternCountError: ``count < 1``.
@@ -417,7 +431,7 @@ def circular_pattern(
     )
     if copies is not None:
         copies.extend(placed)
-    return _fuse_and_finalize(body, placed, count)
+    return _fuse_and_finalize(body, placed, count, chain)
 
 
 def linear_pattern_cut(
@@ -426,6 +440,8 @@ def linear_pattern_cut(
     direction: tuple[float, float, float],
     spacing_mm: float,
     count: int,
+    *,
+    chain: ChainVolume | None = None,
 ) -> BodyShape:
     """Array the cut *tools* into a row of *count* and remove them from *body*.
 
@@ -454,8 +470,8 @@ def linear_pattern_cut(
         return body
     copies = linear_pattern_placements(tools, direction, spacing_mm, count)
     if not removal_reaches_body(body, copies):
-        return linear_pattern(body, direction, spacing_mm, count)
-    return _cut_and_finalize(body, copies, count)
+        return linear_pattern(body, direction, spacing_mm, count, chain=chain)
+    return _cut_and_finalize(body, copies, count, chain)
 
 
 def circular_pattern_cut(
@@ -465,6 +481,8 @@ def circular_pattern_cut(
     axis_direction: tuple[float, float, float],
     angle_deg: float,
     count: int,
+    *,
+    chain: ChainVolume | None = None,
 ) -> BodyShape:
     """Array the cut *tools* into a ring of *count* and remove them from *body*.
 
@@ -496,12 +514,18 @@ def circular_pattern_cut(
         tools, axis_point, axis_direction, angle_deg, count
     )
     if not removal_reaches_body(body, copies):
-        return circular_pattern(body, axis_point, axis_direction, angle_deg, count)
-    return _cut_and_finalize(body, copies, count)
+        return circular_pattern(
+            body, axis_point, axis_direction, angle_deg, count, chain=chain
+        )
+    return _cut_and_finalize(body, copies, count, chain)
 
 
 def cut_placed_tools(
-    body: BodyShape, placed: Sequence[BodyShape], count: int
+    body: BodyShape,
+    placed: Sequence[BodyShape],
+    count: int,
+    *,
+    chain: ChainVolume | None = None,
 ) -> BodyShape:
     """Subtract already-placed tool copies from *body*, with NO fallback.
 
@@ -527,11 +551,15 @@ def cut_placed_tools(
             "The repeated removal lands entirely outside the body, so patterning "
             "it would remove nothing. Check the spacing/angle and the selection."
         )
-    return _cut_and_finalize(body, placed, count)
+    return _cut_and_finalize(body, placed, count, chain)
 
 
 def fuse_placed_tools(
-    body: BodyShape, placed: Sequence[BodyShape], count: int
+    body: BodyShape,
+    placed: Sequence[BodyShape],
+    count: int,
+    *,
+    chain: ChainVolume | None = None,
 ) -> BodyShape:
     """Fuse already-placed ADDITIVE tool copies into *body*.
 
@@ -548,4 +576,4 @@ def fuse_placed_tools(
         PatternDisjointError: the instances do not merge into the body's lump count.
         PatternError: the OCCT union failed.
     """
-    return _fuse_and_finalize(body, placed, count)
+    return _fuse_and_finalize(body, placed, count, chain)

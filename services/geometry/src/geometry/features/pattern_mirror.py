@@ -60,6 +60,7 @@ from geometry.kernel import (
     reflect_tools,
     removal_reaches_body,
 )
+from geometry.kernel.boolean_guard import ChainVolume
 from geometry.kernel.naming import NameHook, copied_names
 from geometry.kernel.types import BodyShape
 
@@ -67,6 +68,17 @@ from geometry.kernel.types import BodyShape
 def _names(hook: NameHook) -> list[str | None] | None:
     """A copy's face names in its own face order (its hook's order), or ``None``."""
     return [name for _face, name in hook] if hook else None
+
+
+def _active_chain(state: EvaluationState) -> ChainVolume:
+    """The active body's memoised volume, to thread through a mirror or pattern.
+
+    Its booleans read it instead of integrating the body again and leave the
+    result's volume in it, which the feature records when it installs the
+    result (PERF-REBUILD-200 pass 2, RESEARCH §15a step 5).
+    """
+    body_id = state.active_body_id
+    return ChainVolume(None if body_id is None else state.body_volumes.get(body_id))
 
 
 def _recorded_cut_tools(state: EvaluationState) -> list[Solid] | None:
@@ -132,6 +144,7 @@ def _apply_pattern(
     geometry: PatternGeometry,
     tools: list[Solid] | None,
     copies: list[BodyShape] | None = None,
+    chain: ChainVolume | None = None,
 ) -> BodyShape:
     """Dispatch one pattern to its kernel op (linear/circular x union/cut).
 
@@ -144,10 +157,15 @@ def _apply_pattern(
         direction = (geometry.direction.x, geometry.direction.y, geometry.direction.z)
         if tools is not None:
             return linear_pattern_cut(
-                body, tools, direction, geometry.spacing_mm, geometry.count
+                body, tools, direction, geometry.spacing_mm, geometry.count, chain=chain
             )
         return linear_pattern(
-            body, direction, geometry.spacing_mm, geometry.count, copies=copies
+            body,
+            direction,
+            geometry.spacing_mm,
+            geometry.count,
+            copies=copies,
+            chain=chain,
         )
 
     assert isinstance(geometry, CircularPatternParamsV1)  # closed union
@@ -159,7 +177,13 @@ def _apply_pattern(
     )
     if tools is not None:
         return circular_pattern_cut(
-            body, tools, axis_point, axis_direction, geometry.angle_deg, geometry.count
+            body,
+            tools,
+            axis_point,
+            axis_direction,
+            geometry.angle_deg,
+            geometry.count,
+            chain=chain,
         )
     return circular_pattern(
         body,
@@ -168,6 +192,7 @@ def _apply_pattern(
         geometry.angle_deg,
         geometry.count,
         copies=copies,
+        chain=chain,
     )
 
 
@@ -295,6 +320,7 @@ def _evaluate_pattern_features(
     applied: list[RecordedToolGroup] = []
     generated: list[tuple[Face, str | None]] = []
     body = active
+    chain = _active_chain(state)
     for feature_id in _selection_in_tree_order(scope.features, state):
         record = state.feature_tools.get(feature_id)
         if record is None:
@@ -328,9 +354,9 @@ def _evaluate_pattern_features(
                 continue  # count == 1 — the documented no-op, not a refusal
             try:
                 if group.op == "cut":
-                    body = cut_placed_tools(body, placed, count)
+                    body = cut_placed_tools(body, placed, count, chain=chain)
                 else:
-                    body = fuse_placed_tools(body, placed, count)
+                    body = fuse_placed_tools(body, placed, count, chain=chain)
             except PatternUnreachableError as exc:
                 return FeatureError(
                     code="pattern_feature_unreachable",
@@ -371,7 +397,7 @@ def _evaluate_pattern_features(
         )
 
     if applied:
-        state.set_active_body(body, generated)
+        state.set_active_body(body, generated, volume=chain.volume)
     return applied
 
 
@@ -442,7 +468,8 @@ def _evaluate_pattern(
             state.record_feature_tool_groups(item.id, applied)
             return None
         copies: list[BodyShape] = []
-        patterned = _apply_pattern(active, feature.params.pattern, tools, copies)
+        chain = _active_chain(state)
+        patterned = _apply_pattern(active, feature.params.pattern, tools, copies, chain)
     except PatternCountError as exc:
         return FeatureError(code="pattern_bad_count", message=str(exc))
     except PatternSpacingError as exc:
@@ -466,10 +493,10 @@ def _evaluate_pattern(
     )
     if item.id in state.tool_scope_ids:
         contribution = _pattern_contribution(active, feature.params.pattern, tools)
-        state.set_active_body(patterned, generated)
+        state.set_active_body(patterned, generated, volume=chain.volume)
         state.record_feature_tool_groups(item.id, [contribution])
         return None
-    state.set_active_body(patterned, generated)
+    state.set_active_body(patterned, generated, volume=chain.volume)
     return None
 
 
@@ -574,6 +601,7 @@ def _evaluate_mirror_features(
     applied: list[RecordedToolGroup] = []
     generated: list[tuple[Face, str | None]] = []
     body = active
+    chain = _active_chain(state)
     for feature_id in _selection_in_tree_order(scope.features, state):
         record = state.feature_tools.get(feature_id)
         if record is None:
@@ -605,9 +633,9 @@ def _evaluate_mirror_features(
             try:
                 reflected = reflect_tools(group.tools, plane)
                 if group.op == "cut":
-                    body = cut_reflected_tools(body, reflected)
+                    body = cut_reflected_tools(body, reflected, chain=chain)
                 else:
-                    body = fuse_reflected_tools(body, reflected)
+                    body = fuse_reflected_tools(body, reflected, chain=chain)
             except MirrorUnreachableError as exc:
                 return FeatureError(
                     code="mirror_feature_unreachable",
@@ -647,7 +675,7 @@ def _evaluate_mirror_features(
             ),
         )
 
-    state.set_active_body(body, generated)
+    state.set_active_body(body, generated, volume=chain.volume)
     return applied
 
 
@@ -728,14 +756,16 @@ def _evaluate_mirror(
         return None
 
     tools = _mirror_cut_tools(state)
+    chain = _active_chain(state)
     try:
         if tools is not None:
-            state.set_active_body(mirror_cut(active, tools, plane))
+            mirrored = mirror_cut(active, tools, plane, chain=chain)
+            state.set_active_body(mirrored, volume=chain.volume)
         else:
             images: list[BodyShape] = []
-            mirrored = mirror_union(active, plane, images=images)
+            mirrored = mirror_union(active, plane, images=images, chain=chain)
             generated = body_copy_names(item.id, ["m"], state, active, images)
-            state.set_active_body(mirrored, generated)
+            state.set_active_body(mirrored, generated, volume=chain.volume)
     except MirrorError as exc:
         return FeatureError(code="mirror_failed", message=str(exc))
     return None
