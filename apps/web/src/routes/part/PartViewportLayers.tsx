@@ -102,10 +102,7 @@ export function PartViewportLayers({
   >;
   pickState: Pick<
     PickState,
-    | "pendingFaceIndex"
-    | "datumFacePick"
-    | "holePick"
-    | "holePreview"
+    "pendingFaceIndex" | "datumFacePick" | "holePick" | "holePreview"
   >;
   sketchEntry: Pick<SketchEntry, "authorFacePlane">;
   datumFacePicking: Pick<DatumFacePicking, "pickDatumFace">;
@@ -163,12 +160,7 @@ export function PartViewportLayers({
     datumGaugeAnchor,
     holeGaugeAnchor,
   } = pickSessions;
-  const {
-    pendingFaceIndex,
-    datumFacePick,
-    holePick,
-    holePreview,
-  } = pickState;
+  const { pendingFaceIndex, datumFacePick, holePick, holePreview } = pickState;
   const { authorFacePlane } = sketchEntry;
   const { pickDatumFace } = datumFacePicking;
   const { pickHoleFace, pickHolePoint } = holePicking;
