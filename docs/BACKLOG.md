@@ -9,145 +9,106 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
-- [ ] **PERF-REBUILD-200** (the scorecard's ❌; replaces COLD-REBUILD-WALL,
-      whose measurement is RESEARCH §15): a 200-feature cold rebuild takes
-      about 29 s (7.6 s at 100), and an engineer feels it on every early edit.
-      Take our own costs first: the double face-merge (`clean_shape`
-      re-unifies what build123d's boolean already unified, plus the CM-6
-      guard's two volumes and deep copy, ~17 %), the eager per-face `Plane`
-      in `planar_faces` (~12 %), and the Hole's second identical common (6 %).
-      Measured by the scaling sweep (`LOFT_SCALING_BENCH=1`,
-      `test_scaling_benchmarks.py -m benchmark`, `housing_tree(200)` and its
-      per-type profile), before and after on the same idle host, median of 3.
-      _Accept:_ 200 features rebuild cold in under 10 s (stretch: 5 s) and
-      100 in under 3 s; every golden byte-identical, the determinism and
-      STEP round-trip tests green, no tolerance touched; if our own costs stop
-      short of 10 s, the measured number and a plan for the rest land in
-      RESEARCH §15.
-- [ ] **EXTRUDE-SYMMETRIC** (moto frame cross tubes; shaft cross hole; note
-      "no two-sided option"): Extrude has one side only, so a part
-      symmetric about a plane needs a datum at half the depth. SolidWorks
-      (End Condition "Mid Plane"), Onshape ("Symmetric") and Fusion
-      (Direction "Symmetric", Measurement "Whole length") extrude both ways
-      from the sketch plane, the typed depth being the whole length.
-      _Accept:_ Extrude has a Symmetric direction (wire field, `just gen`,
-      editor and loft-script) for add and cut; stored extrudes are unchanged;
-      the moto frame's cross tubes extruded symmetric from XZ give the
-      golden `frame-moto-cradle-tube-od25.4-t1.6` volume, and a new golden
-      covers a symmetric cut.
-- [x] **LINE-CHAIN** (done b3d1b92 + 398799f; every sketch; the hub's 12-segment section took 24
-      clicks): the Line tool does not chain. Fusion and SolidWorks chain
-      lines, each click ending one segment and starting the next at that
-      end. _Accept:_ the hub's 12-segment section takes 13 clicks (the last
-      on the start point closes it and ends the chain), every joint carries a
-      coincident constraint, and the profile revolves; Escape ends the chain
-      with the tool still armed, a second Escape leaves it; a typed point
-      continues the chain; an e2e test covers clicks and typing.
+Done 2026-10-09: **EXTRUDE-SYMMETRIC** (204a575, 61377c0, e6aeebb; golden
+`extrude-cut-symmetric-pocket-offset-xz-40x40x20`), **LINE-CHAIN** (b3d1b92,
+398799f) and **PERF-REBUILD-200 pass 1** (505a361, 55c6150, 6cb2ebf: 200
+features 29.4 -> 25.3 s, 100 features 7.0 -> 6.3 s, every golden
+byte-identical; RESEARCH §15a).
+
+- [ ] **PERF-REBUILD-200 pass 2** (the scorecard's ❌; RESEARCH §15a steps 2,
+      3 and 5, none of which needs a founder decision): admission `BRepCheck`
+      by changed wire, reusing the verdict of every unchanged wire and edge
+      (~8 %); body volumes summed from per-face GProp cached by TShape (~6 %);
+      pattern and mirror record their result's volume (~0.5 %). _Accept:_ the
+      wire-level check is proven equal to `BRepCheck_Analyzer` over the whole
+      golden suite before it replaces it; every golden byte-identical, no
+      tolerance touched; the `housing_tree(200)` cold rebuild, median of 3
+      against 01e49e2 on the same idle host, is at or under 22 s, recorded in
+      RESEARCH §15a.
+- [ ] **DATUM-PLANE-ANGLE** (moto frame steering head, tube-frame gap): there
+      is no tilted datum plane (only offset, on-face, offset-from and
+      midplane), so the 25° steering head is a revolve about a sketch axis.
+      Fusion (Plane at Angle), SolidWorks (Plane, "At angle" about an edge or
+      axis) and Onshape (Plane, "Line angle") rotate a plane about a line by a
+      typed angle. _Accept:_ a Plane at Angle (a linear edge, sketch line or
+      axis plus an angle; wire field, `just gen`, editor and loft-script)
+      follows its line and angle on rebuild; the moto frame's steering-head
+      tube, sketched on a 25° plane and extruded symmetric, gives the frame
+      golden's volume (empty two-way difference); a new golden covers an
+      angled plane.
+- [ ] **SKETCH-PLANE-PICK** (enclosure: 5 sketches landed on a stale face;
+      bracket: a face click sketched on XY): New Sketch reuses a face
+      remembered from a cancelled Shell or Draft pick, and in plane-pick a
+      click on a body face picks the origin plane behind it. In Fusion, Create
+      Sketch uses the face selected now, else waits for a click on a plane or
+      planar face. _Accept:_ with nothing selected, New Sketch opens the plane
+      picker; a pick from a cancelled command is never a pre-selection; a
+      click on a visible planar face sketches on that face with no "Pick a
+      face" step; an e2e covers all three.
 
 ## Next
 
+- [ ] **SWEEP-CLOSED-PATH** (moto frame rail loop, tube-frame gap): a sweep
+      along a closed, tangent-continuous path is refused `sweep_path_closed`,
+      so the golden sweeps two open halves. SolidWorks, Fusion and Onshape
+      sweep a closed path in one feature. _Accept:_
+      `test_closed_loop_rail_sweeps_in_one_piece` passes with its xfail
+      removed, and the one-piece rail matches the two-halves rail (empty
+      two-way difference); a golden covers a closed sweep.
+- [ ] **PERF-REBUILD-LOCAL** (RESEARCH §15a step 4, after pass 2; takes over
+      BIG-PATTERN-COST): holes as `BRepFeat_MakeCylindricalHole` and pockets
+      as `BRepFeat_MakePrism`, costing the faces they touch rather than the
+      whole body; also explain why a 50x mirror/rotate never finished and a
+      24x loft-cut pattern takes 3.6-19 s. _Accept:_ 200 features rebuild
+      cold in under 10 s and 100 in under 3 s; face splits change, so each
+      re-recorded golden gets a reviewed volume and STEP check, no tolerance
+      loosened.
 - [ ] **FILLET-PARTIAL-RESOLVE**: when some of a fillet's picked edges no
       longer exist (an impeller going 7 -> 6 blades), the whole fillet fails.
       Fusion keeps the edges that still resolve and warns about the rest.
       _Accept:_ the fillet builds on the resolved edges with a per-edge
       warning; nothing resolves to an unpicked edge.
-- [x] **SKETCH-PROJECT-EDGES** (done on main; steps 1-3 landed: step 3 web, tool, ink, gate, warning and e2e, 050ff07/81a1260/b7d6719; step 4 is the SKETCH-PROJECT-SPLINE line): no Project/Include of body edges into a
-      sketch, so a lip sketched on a face keeps its typed size after the body
-      widens (QA rerun 2026-10-01). _Accept:_ projected edges follow the body
-      on rebuild, as in Fusion.
-- [ ] **SHELL-EDGE-DETERMINISM**: the sealed cross-bored rod rebuilds with
-      21 or 20 edges depending on OCCT's address order (46c075f); volume and
-      faces agree. _Accept:_ one edge count in every process.
-- [ ] **SHELL-HEAL-VOLUME-GUARD**: `conform_solid` measures volume after
-      `split_pinched_faces`, so the split itself is never volume-checked
-      (shell_heal.py claims it is). _Accept:_ volume measured before the split.
-- [x] **DESIGN-INTENT-REFS** (done: the 2026-10-02 QA rerun passed all three edits, VISION; steps 1-2 landed and reviewed: enclosure 8566ec1, impeller 37b2de8 + 8dedc83/95a38e3; step 3 bracket 42b4482 is blocked on cap-name swap) (HARD-PARTS 2026-10-01, the top design-intent
-      blocker): picked edges and faces are re-found by geometric signature,
-      so changing an early size loses them. Enclosure width 120 -> 130:
-      Fillet1 SUBSHAPE_UNRESOLVED and 23 later features skipped. Impeller hub
-      Ø40 -> Ø44: the 14-edge root fillet was unresolved. Bracket base 60 ->
-      70: Hole1 SUBSHAPE_AMBIGUOUS. Fusion and SolidWorks carry the picks
-      through. Two edits did hold: the duct's flange on its swept end, and the
-      shaft's PCD. _Accept:_ those three edits rebuild with every pick on the
-      corresponding edge or face; a golden covers the enclosure width edit.
-      _Step 1 done 2026-10-01_ (history names, RESEARCH §14): the enclosure
-      width edit rebuilds (golden
-      `revise-width-drafted-fillet-shell-130x80x35`). _Step 2 done
-      2026-10-01_: loft, revolve, pattern and mirror hooks, split-face pieces
-      named by their neighbours; the impeller hub 40 -> 44 rebuilds its 14
-      root fillets (golden `revise-hub-d44-blade-root-fillet`). _Step 3
-      done 2026-10-01_: base flange, edge flange, hem and bend-relief faces
-      named by role, shell inner walls by the face they offset, faces a
-      clean merges carry every merged name; the bracket base 60 -> 70
-      rebuilds Hole1 and Edge flange1 by name (golden
-      `goldens-sheet-metal/revise-base-70-hole-on-flange`). Left: a QA rerun
-      of all three on fresh parts.
+- [ ] **PARAMETERS** (takes over SKETCH-EXPR-TRIG; the gear is not
+      parametric): named user parameters shared across sketches and features
+      (Fusion's Change Parameters, SolidWorks Global Variables), and
+      `sin`/`cos`/`tan` in degrees in expressions. _Accept:_ changing the
+      gear's helix angle or tooth count in one place rebuilds the whole part,
+      and `20*tan(15)` solves and round-trips through save and reload.
 - [ ] **MULTI-PROFILE-EXTRUDE**: one sketch with 4 boss circles and 4 rib
       rectangles is refused PROFILE_UNSUPPORTED ("8 closed loops not enclosed
       by a single outer boundary"). Fusion extrudes every selected profile.
-      Workaround: one boss sketch, then two Mirrors.
       _Accept:_ disjoint closed regions extrude in one feature and fuse into
       the body.
-- [ ] **FLAT-PATTERN-PARTIAL**: the bracket's flat pattern is refused. With
-      the 50 mm centred 45° flange, the message is "Neither flanking face of a
-      bend matches the stored base-flange face signature", which does not
-      name the flange. With that flange made full width, it is refused for
-      the Ø5 hole ("relieved tray, partial-width flange ... cannot yet place
-      them") (`hard-parts-2026-10-01/bracket-flat-pattern-refused.png`).
-      _Accept:_ the bracket (two 90° flanges, a relieved centred 45° flange,
-      a hem and a hole) unfolds with its hole, matching a hand-calculated
-      flat length.
-- [ ] **SKETCH-STALE-FACE**: New Sketch silently reuses the last face
-      remembered from a Shell or Draft pick, even one made minutes earlier in
-      a cancelled command, instead of opening the plane picker. Five sketches
-      landed on an inner wall or a boss top, and each needed Exit plus
-      deleting the datum (`hard-parts-2026-10-01/enclosure-new-sketch-reuses-stale-face.png`).
-      _Accept:_ with nothing selected now, New Sketch opens the plane picker,
-      and a pick in a cancelled command is not a pre-selection.
-- [ ] **SPLIT-SKETCHSCENE** (`SketchScene.tsx` 2,944): split into modules and hooks, no behaviour change, as DrawingPage was (0ab6cf2). _Accept:_ typecheck, vitest, covering e2e green; each under 1,500.
-- [ ] **SPLIT-WIRE-FEATURES** (`packages/loft-wire/src/loft_wire/features.py`, 4,606): one module per feature family, re-exported from `loft_wire.features` so imports and the generated contracts do not change. _Accept:_ `just gen-verify` shows zero diff; `just test` green.
-- [x] **ARC-BOUNDS-INFLATE-1** (done 5bc612d; from stale branch 11edf49, re-implement on the tip): `_edge_points` bounds every arc as its full circle, so arc-bearing views sit off-centre and can leave the sheet. _Accept:_ an arc's box is its swept extent; the canopy bracket's ink centres on its anchor.
-- [x] **DRAWSHEET-AUTOPLACE-1** (done bb61e23; eb113cb + c6ae762): a lone or adjacent-pair auto-placed view lands 12 mm off centre per axis, and pinned views skew auto-layout. _Accept:_ centring uses only auto-placed views; a border gate over each view's ink (geometry + caption) passes.
-- [x] **LAYOUTISSUE-OFFSHEET-1** (done d18d664; 11edf49): a view whose ink leaves the border exports with empty `layout_issues` and no banner. _Accept:_ an `off_sheet` error issue in loft-wire (`just gen`), stamped on the sheet.
-- [ ] **SKETCH-EXPR-TRIG**: dimension expressions accept `sin`/`cos`/`tan`
-      (degrees). _Accept:_ `20*tan(15)` solves and round-trips through save
-      and reload.
-- [ ] **PARAMETERS**: named user parameters shared across sketches and
-      features (Fusion's "Change Parameters"). _Accept:_ changing the gear's
-      helix angle or tooth count in one place rebuilds the whole part.
-- [ ] **SKETCH-ON-FACE-CLICK**: in the sketch plane-pick step a click on a
-      body face picks the origin plane behind it (the bracket's boss sketch
-      landed on XY at z=0). Fusion sketches on the clicked face.
-      _Accept:_ a click on a visible face in plane-pick sketches on that face
-      without first choosing "Pick a face".
-- [ ] **LOFT-SHELL** (seen at 9767a90, before 5fda139): Shell on a round-to-square loft fails
-      (`StdFail_NotDone`) at 1 and 2 mm with one or both ends open; OCCT's
-      offset fails the same way outside the app (build123d probe), and the
-      message blames the thickness. Workaround: loft-cut an inner loft.
-      Still fails at ab31825 on the hard-parts duct (loft + swept bend, 2 mm,
-      both ends open), and the message still blames B-spline faces from
-      imports (`hard-parts-2026-10-01/duct-shell-fails.png`).
-      _Accept:_ the duct shells at 2 mm with both ends open, or the refusal
-      names the loft faces rather than the thickness; a golden either way.
+- [ ] **EDGE-LOOP-SELECT**: select a face's edges or a loop for fillet and
+      chamfer (one pick already rounds its tangent chain). _Accept:_ one
+      gesture selects all the edges of a face or loop; an e2e test covers it.
+- [ ] **FLAT-PATTERN-PARTIAL**: the bracket's flat pattern is refused, first
+      for the centred 45° flange (the message does not name it), then for the
+      Ø5 hole near a bend
+      (`hard-parts-2026-10-01/bracket-flat-pattern-refused.png`). _Accept:_
+      the bracket (two 90° flanges, a relieved centred 45° flange, a hem and a
+      hole) unfolds with its hole, matching a hand-calculated flat length.
+- [ ] **LOFT-SHELL**: Shell on a round-to-square loft fails (`StdFail_NotDone`)
+      at 1 and 2 mm, as OCCT's offset does outside the app, and the message
+      blames the thickness. Workaround: loft-cut an inner loft. _Accept:_ the
+      hard-parts duct shells at 2 mm with both ends open, or the refusal names
+      the loft faces rather than the thickness; a golden either way.
 - [ ] **DATUM-PLANE-VISIBLE**: an offset datum plane is not drawn in the
-      viewport after it is created (`duct-datum-not-drawn.png`); it shows only
-      as a tree row and a plane-pick chip. _Accept:_ a datum is drawn as a
-      sized, selectable plane, as origin planes are.
-- [ ] **EDGE-LOOP-SELECT**: select a face's edges, a loop, or a tangent chain
-      for fillet and chamfer. _Accept:_ one gesture selects all the edges of
-      a face or loop; an e2e test covers it.
+      viewport (`duct-datum-not-drawn.png`), only a tree row and a plane-pick
+      chip. _Accept:_ a datum is drawn as a sized, selectable plane, as origin
+      planes are.
 - [ ] **HOLE-ANY-BODY**: Hole drills only the active body, although the face
       pick offers every body. _Accept:_ a hole on body 1 of a two-body part
       drills body 1 (checked by the change in volume).
-- [ ] **BIG-PATTERN-COST**: a 50x mirror/rotate never finished; a 24x pattern
-      of a loft cut takes 3.6-19 s. _Accept:_ the cost is measured and
-      explained, then the fix that measurement points to.
-- [ ] **BIG-PART-MESH**: a real imported part's mesh payload is 142 MB.
-      _Accept:_ quantised or compressed meshes, with the before/after size
-      measured.
+- [ ] **SHELL-EDGE-DETERMINISM**: the sealed cross-bored rod rebuilds with 21
+      or 20 edges depending on OCCT's address order (46c075f); volume and
+      faces agree. _Accept:_ one edge count in every process.
 - [ ] **EMPTY-SKETCH-SAVE**: undoing the last entity of a saved sketch shows
       an empty sheet while the server keeps the old geometry. _Accept:_ an
       empty bound sketch saves as empty.
+- [ ] **BIG-PART-MESH**: a real imported part's mesh payload is 142 MB.
+      _Accept:_ quantised or compressed meshes, with the before/after size
+      measured.
 - [ ] **STEP-ZERO-SOLIDS**: a STEP import that yields no solids has no
       recovery path. _Accept:_ heal or partial import with an honest report,
       on a golden fixture.
@@ -182,19 +143,13 @@ commits carry the ID (`git log --grep=<ID>`).
       clash among the real ones. SolidWorks lists fasteners in a separate
       folder. _Accept:_ at o = 0, 40 and 80, A2 lists exactly 5 threaded
       engagements apart from the real clashes, and there are none of those.
-- [ ] **ASM-SUBASM-BOM** (A3): the Add panel inserts parts only, although
-      the API takes sub-assemblies, and the BOM is flat. _Accept:_ the A3
-      carriage is inserted from the panel. The parts-only BOM reads 16
-      lines and 73 instances, and the top level reads 11 lines and 45.
-- [ ] **ASM-PATTERN** (A3): there is no component pattern. SolidWorks has
-      pattern-driven patterns, Onshape has Replicate, and Fusion patterns
-      components. _Accept:_ A3's 28 rail screws are one pattern that follows
-      the rail's holes, and changing the rail's hole count changes the
-      screw count.
-- [ ] **ASM-IN-CONTEXT** (A3): a part cannot reference another instance's
-      geometry (Fusion Edit in Place, SolidWorks Edit Part). _Accept:_ the
-      A3 carriage plate's holes are sketched from the blocks' holes, and
-      moving the rails from ±40 to ±45 moves those holes.
+- [ ] **ASM-A3** (after A2; split it when it is next): sub-assemblies from
+      the Add panel with an indented BOM, a component pattern that follows a
+      part's holes (Fusion pattern, Onshape Replicate, SolidWorks
+      pattern-driven), and in-context edits (Fusion Edit in Place).
+      _Accept:_ A3's BOM reads 16 lines and 73 instances (top level 11 and
+      45), its 28 rail screws follow the rail's hole count, and moving the
+      rails from ±40 to ±45 moves the carriage plate's holes.
 
 ## Founder decisions
 
@@ -207,6 +162,11 @@ commits carry the ID (`git log --grep=<ID>`).
       fallback loses the arcs.
 - [ ] **Shelled revolve at a shallow angle**: a true offset, or OCCT's
       extension behaviour?
+- [ ] **One face-merge per boolean** (RESEARCH §15a step 1, ~15 % of a
+      200-feature rebuild): accept a new `mesh_glb_id` for the moto frame
+      (same counts and properties, no tolerance touched) and the CM-6
+      later-pocket chain building the right body instead of `invalid_body`?
+      Not scheduled until decided.
 
 ## Notes
 
@@ -232,7 +192,6 @@ One line each. The founder triages weekly; most are closed without work.
 - CTRL-S-OTHER-MODALS: Ctrl+S inside other modals (delete confirm, shortcut sheet) still opens the browser's Save page.
 - An aligned `point_distance` between two points drawn coincident reads `conflicting`: planegcs P2PDistance has no gradient at zero, so the solve cannot pull them apart (review of 564aa68).
 - An impossible pair of a point-line and an aligned point distance reads `diverged` with no constraint named, so the sketcher cannot flag which one to remove (review of 564aa68).
-
 - MinIO is built from RELEASE.2024-12-18 with Go 1.23.4 and has no image scan; a weekly trivy scan of the shipped images (plus `pnpm audit` / pip-audit) would catch advisories without reddening unrelated commits.
 - `scripts/e2e.sh` does not derive `GATEWAY_ORIGIN` from `GATEWAY_PORT`, so specs on non-default ports fail with a register 500 (local only; CI uses the defaults).
 - `scripts/e2e-teardown.sh --self-test` flakes under load (a polite process takes over 5 s to exit), turning `just lint` red locally.
@@ -277,14 +236,12 @@ One line each. The founder triages weekly; most are closed without work.
 - Circular pattern shows no preview; the body changes only on Create (`hub-circular-no-preview.png`).
 - There is no centre-point rectangle; the duct's centred squares needed their corners aimed by the DRO.
 - An empty dark panel covers the sketch viewport under the tree header (`sketch-empty-panel.png`).
-- Sweep Twist takes the total angle, so a helical gear needs 20·tan β / r in degrees worked out by hand (see PARAMETERS, SKETCH-EXPR-TRIG).
 - A typed coordinate cannot start with `0` (it is Fit); `-0` works but nothing says so.
-- PICK-ENTER-UNPICKS did not reproduce at ab31825: Enter on a focused edge mark created the impeller's 14-edge fillet.
 - An unresolved fillet edge reads "The referenced face can no longer be found" in the tree row, although the banner says edge.
 - A 2 mm annular end face (the duct's swept end) is about 4 px wide and its plane-pick mark is buried; a click did nothing, and only Tab plus Enter on the hidden mark picked it (`duct-end-annulus-face-hard-to-pick.png`).
 - Clicking the hole gauge's floating "D 10" depth cell does not focus it, and the next typed "25" became the Diameter (stored Ø25).
 - An XZ offset of +20 puts the plane at y = -20 (the XZ normal is -Y), so the cross-hole cut missed; the sign is only discoverable after the cut fails.
-- Extrude has no Through All and no two-sided option; the shaft's cross hole needed an offset datum and a 40 mm cut.
+- Extrude has no Through All (Symmetric shipped); the shaft's cross hole needs a sized cut.
 - There is no Rib command; ribs were drawn as rectangles on the floor and extruded to height.
 - Reverting a dimension edit in a finished sketch took two part-level Undos; the first changed nothing visible.
 - Double-clicking a failed row whose error card is expanded opened the datum two rows above (the shaft's Extrude3 opened Plane2).
@@ -300,15 +257,7 @@ One line each. The founder triages weekly; most are closed without work.
 - DESIGN-INTENT-REFS step 2 leaves no naming hook on sweep, twisted extrude/sweep, a body-scope cut pattern or `mirror_cut` (their new faces are unnamed and picks there use the geometric tiers, as before).
 - DESIGN-INTENT-REFS step 3 leaves no naming hook on the corner-relief feature's notch or on a shell wall offset from anything but a plane or cylinder; merged-face history is read only for the sheet-metal folds (other ops' cleans keep the step 1-2 surface rule).
 - FILLET-BLEND-ROUNDTRIP: OCCT fits the R1 rolling-ball blends between a B-spline blade side and the hub cylinder at 3.2e-5 mm; a STEP round trip re-reads each blend 4.2e-6 mm^2 off, moving the impeller's volume 2.0e-5 mm^3 (the pure build123d cross-check moves 2.4e-5; centroid, bounds and topology hold at 1e-7). Goldens `revise-hub-d44-blade-root-fillet` and `revise-hub-d44-qa-blade-root-fillet` (2.5e-7 mm^3) have their volume/area STEP round-trip check as a strict xfail (conftest `KNOWN_ROUNDTRIP_DEFECTS`) until it is fixed.
-- Hard-parts re-run at 7916a63: EDGE-MARK-OVERLAP (lip outer corners 4/4, no stray), SKETCH-FILLET-UNTRIM (8 corners on a typed 118x78 lip), TYPED-POLYLINE-UNJOINED and HOLE-BLIND-FALSE-DEEP verified fixed in the app. PICK-ENTER-UNPICKS no longer reproduces: Enter on a focused fillet mark creates the feature.
-- The sketcher has no Project/Include edges, so the enclosure lip cannot follow the rim. After width 120 -> 130, the lip keeps its typed 118 mm and bridges the cavity at the X ends. Fusion projects the rim.
-- A new Fillet after deleting one pre-selects the deleted fillet's edges, including off-screen ones (4 pre-picked, 2 of them not wanted). This is the edge-pick sibling of SKETCH-STALE-FACE.
-- New Sketch's plane picker resets the camera to iso and hides the view bar, so a Top view set first is lost and a click "on the floor" sketches on the front wall. Only an orbit inside the picker reaches the floor.
 - The rib-root edges (2.2 mm floor segments beside a 1.5 mm rib) were buried in nearly every view at 1280x800, so the rib-root fillet was dropped. Root edges on a Shell floor also carry no topo_name (step 3).
-- With 1280x800 and Sketch Fit, a 118x78 face sketch runs under the feature tree and the DRO panel. A sketch-fillet pick that lands there is lost without a message.
-- SKETCH-FILLET-KEEP-DIMS confirmed: after 8 corner fillets the lip sketch went from DOF 0 to DOF 24, so the 118/116 sizes cannot be edited to follow a width change.
-- Fixed after 1942b0f (golden `revise-hub-d44-qa-blade-root-fillet`: the hub seam cut one root curve in two, and OCCT's fillet failed at the seam): DESIGN-INTENT-REFS step 2 did not hold on the QA impeller at 1942b0f. On a fresh UI-built part, all 14 root picks carry names, but hub R20 -> R22 still leaves Fillet1 SUBSHAPE_UNRESOLVED. The golden's blade spans the full hub height (z 0..20) and splits the hub side. The QA blade is z 2..18 (sections on XY+2 and XY+18), so it pierces the hub side without splitting it and the root edges end on the loft caps (`hard-parts-rerun-2026-10-01/impeller-step2-after-hub44.png`).
-- Fixed: FILLET-TORUS-SEGFAULT. A non-analytic fillet/chamfer now runs in a forked child of a warm blend server (RESEARCH "Blend isolation"), so the torus case is a typed `FilletError` and the service survives (`test_fillet_isolation.py`).
 - Hole: a countersink overhanging a boss rim by 0.05 mm is accepted (volume cannot see a thin crescent); the drill starts a bbox diagonal outside the face, so material above the plane on a C-shaped body is cut and counted.
 - Edge marks: a back edge whose hidden run lies under the pointer can beat the front edge (seen only as an x-ray hover); a picked edge resolved again is silently un-picked; `CORNER_ROOM_PENALTY_PX` is 6 px, its comment says 12.
 - Naming: a merged coplanar face's name flips with dimensions (3 samples), so stored names go stale more often; `_containing` checks only 3 interior points.
@@ -316,21 +265,16 @@ One line each. The founder triages weekly; most are closed without work.
 - A new Fillet pre-selects a deleted fillet's edges, off-screen ones included; New Sketch's plane picker resets the camera and hides the view bar; at 1280x800 a fitted face sketch runs under the side panels and picks there are lost.
 - `scripts/e2e.sh`, `vite.config.ts` and `playwright.config.ts` hard-code web :5173, so parallel e2e needs a throwaway config.
 - BLEND-SERVER-COLD: the blend server now starts at boot by default (every fillet, chamfer and draft runs there, and so do a sealed analytic Shell's Intersection build and a 500+-face Shell's offset); with `BLEND_SERVER_PREWARM=false` the first of them waits 5-9 s (6.3 s measured, against 69 ms prewarmed).
-- Fixed: DRAFT-IN-PLACE. A successful draft (123 of 128) or sealed shell cleared the `Checked` flag of 1-2 input TShapes (nothing else moved; later cuts matched). Both now run on a working copy (RESEARCH "Ops that write to their input"; `test_input_untouched.py`).
 - BOOLEAN-INPUT-PCURVES: the booleans behind pattern, circular cut pattern, mirror and a failed severing subtract add pcurves and locations to the input body's edges (no geometry or tolerance change; later cuts match). Left as is: the rebuild ladder forks for it (CM-6b).
-- Fixed: DRAFT-SEGFAULT. Every draft now runs in the blend server (~30 ms warm), so the 30 deg hub draft (seam 180) and the wedge-touched box wall are typed `DraftError`s and the process survives (`test_draft_isolation.py`).
-- Fixed: BLEND-ROUTE-VERTEX-NEIGHBOUR. An all-planar fillet/chamfer ending where a boss corner sits on a box corner segfaulted on the analytic in-process route; every fillet, chamfer and draft now runs in the blend server (`test_blend_route_vertex.py`).
 - Upstream the planegcs address-order fix (`vendor/planegcs-loft.patch`) to spookylukey/planegcs (FreeCAD's PlaneGCS has the same ordering); a released wheel would drop the source build and its Eigen/Boost CI step.
 - `scripts/check-build-context.py` checks workspace members against the Dockerfile COPYs but not non-workspace `path` sources such as `vendor/planegcs`, so a second one could be missed until `deploy-path`.
-- Fixed: FILLET-TANGENT-CHAIN. One picked edge rounds (or bevels) its whole tangent chain, read from OCCT's own contours (`fillet_guard.tangent_chain`); one enclosure rim edge equals all 8 (`test_fillet_tangent_chain.py`, golden `fillet-tangent-chain-one-pick-rounded-box-40x25x10-r5-r1`). The impeller blade-top chain that runs tangent into the hub's concave arc is still refused, now with "turns from convex to concave".
 - Fillet preview: the rolling-ball band and edge highlight show only the clicked edges, not the chain that will round. Needs the chain per overlay edge (a loft-wire field, `just gen`, `FilletGauge`/`ChamferGauge`).
 - Naming: a fillet's source edge that is one boundary run cut by a seam (impeller blade 0's r3 root at hub 44) gets no name, because `edge_names` for a subset demands exactly one common edge and ignores `_one_run`, which the whole-body path honours. Its fillet face is then unnamed, and so is the blade-top blend edge on it (no `topo_name`).
 - Fillet: faces rounded from propagated chain edges are unnamed (the feature names sources from the clicked edges only, `features/modify.py`).
 - Edge flange CENTERED is saved as OFFSET 5 from end_a, so after bracket base 60 -> 70 the 50 mm flange sits 5/15 mm from the edge ends and its editor reads OFFSET (`bracket-centred-flange-saved-as-offset.png`). Fusion keeps Symmetric extents.
 - After the 8-edge rim R1 on the enclosure, the app's Volume reads 45 398.31 while its STEP reads 45 397.08 (script 45 397.18, empty difference): a 2.7e-5 gap, against 2e-6 before that fillet.
-- Moto frame (2026-10-07): a sweep along a CLOSED tangent-continuous path (the filleted rail loop) is refused with `sweep_path_closed`, so the golden sweeps two open halves butted end to end. Repro: `test_closed_loop_rail_sweeps_in_one_piece` (strict xfail).
 - Moto frame: after a mirror leaves 2 lumps, a merging `extrude` that bridges them fails `boolean_failed` ("produced 1 lumps from a 2-lump body"); Fusion and SolidWorks join them. The golden uses `merge: false` + a `boolean` union instead. Repro: `test_cross_tube_extrude_joins_the_mirrored_rails` (strict xfail).
-- Tube-frame gaps against SolidWorks Weldments / Fusion frames: no angled (tilted) datum plane (only offset, on-face, midplane bisector), so the 25 deg steering head is a revolve about a sketch axis; no symmetric (midplane) extrude, so the cross tubes extrude from a datum at y=+110; sweep paths are planar sketches anchored at the profile (no 3D sketch), so profiles sit on axis-aligned datums at tangent-axis-aligned points; no structural-member placement along edges, no mitre/cope/end-trim at joints, no cut list.
+- Tube-frame gaps against SolidWorks Weldments / Fusion frames, beyond DATUM-PLANE-ANGLE and SWEEP-CLOSED-PATH: sweep paths are planar sketches anchored at the profile (no 3D sketch); no structural-member placement along edges, no mitre/cope/end-trim at joints, no cut list.
 - Moto frame round trip: the 704,000 mm^3 frame drifts 1.3e-5 mm^3 / 0.18 mm^2 through STEP (a pure-build123d twin drifts the same), above the absolute 1e-7 `ROUNDTRIP_TOL`, so its golden carries a reviewed `roundtrip_tolerance` 0.5; a relative bound would size this without per-golden overrides.
 - Shell: the 906-face slotted lid is now a typed `ShellTimeout` in 54 s (was 317 s and a gateway timeout); a solid needs a faster offset of many-holed faces (OCCT's Arc alone takes 77-89 s CPU) or a larger budget and gateway timeout.
 - Shell: the `_arc` 60 s wall-clock backstop also raises `ShellTimeout`, so on a loaded host a body under its 40 s CPU budget can be refused; the outcome depends on load as well as speed (the comment says load does not move it).
@@ -343,8 +287,6 @@ One line each. The founder triages weekly; most are closed without work.
 - Fillet/chamfer on sheet metal: one pick now spreads across the bend's tangent edges (chains of up to 5 edges), as Fusion does.
 - Removal probe (0375d30): the 120-tool agreement sweep in `test_removal_probe_cost.py` uses only convex boxes and cylinders; add a ring tool and a body with a void.
 - Boolean guard (BOOLEAN-COINCIDENT-TUBE): the sheet-metal edge flange and bend relief (`boolean_recording`, edge_flange.py) are not guarded; a retry there must keep the face-naming history, and thin plates do not hit the tube-on-bend case.
-- Fixed: BOOLEAN-COINCIDENT-TUBE (89edf74, 8665889). `kernel/boolean_guard.py` checks every boolean, merging add/cut, mirror and pattern against its operands (volume bounds, shell signs), retries once fuzzy, else `boolean_failed`; the skin case reads 718211.504 against 718211.506.
-- Boolean guard: the sheet-metal edge flange (`boolean_recording`) is not guarded; a retry must keep its naming history.
 - Boolean guard: at 1e-6 a spline-tool pattern trips the cheap bound every rebuild and confirmation integrates every copy (100 instances: 1.08 s -> 2.05 s); congruent copies could share one integration.
 - Boolean guard: tubes ending 0.5-12.6 mm past a bend centreline are refused `invalid_body`; the fuzzy retry would build them to 0.08 mm^3 but is limited to BRepCheck-valid results (decision deferred).
 - A tube ending 0.1 mm past the skin is refused `boolean_disjoint` ("the bodies do not touch"), which misleads.
@@ -353,15 +295,11 @@ One line each. The founder triages weekly; most are closed without work.
 - Sketch solver: dragging a free arc end 60 mm onto a fixed point collapses its start onto its end (a fixed-constraint control diverges).
 - CI: the e2e "planegcs build prerequisites" apt step has no timeout or retry; one hung 45 min on 0fbd6cf, and the orchestrator cannot re-run jobs (403).
 - Shell: a sealed cross-bored plate plus a box varies byte-wise across processes (Arc's sealed hollow face order follows memory addresses), related to SHELL-EDGE-DETERMINISM. A 500+-face solid offset in the child differs from in-process only in signed zeros.
-- Fixed: SHELL-MULTIBODY-HANG (92b85b0). One 40 s budget covers every lump of a shell; an in-process lump (<500 faces) can overshoot it by at most one lump (~10 s).
 - LIP-SEAM-UNIFY: a sketch-on-face lip flush with a wall keeps a seam face per wall (34 faces where a unified body has 19); the join's clean unifies 1 of 16 pairs, with or without projection (revise-width-lip-projected-rim-130x80x35).
-- Fixed: EDGE-REF-CONCENTRIC's hole-resize regression. Hole faces are named by role (`hole:0:wall`, `cbore_floor`...), so a rim chamfer/fillet follows a resize through the named tier (golden `revise-hole-dia-10-to-12-rim-chamfer-40x25x10`); an unnamed (pre-naming or imported) rim pick still fails typed.
 - Suppressing the feature a projection is anchored on fails the sketch with `references_suppressed`; Fusion keeps the sketch and marks the projection sick.
 - SHELL-SHARP-DEFAULT (433f521): add the reviewer's 4-process sharp-bytes run as test_shell_determinism cases; sharp skips canonical face ordering (stable by OCCT behaviour, not code); the concave-edge analysis runs in-process, off the budget (0.7 s on a 906-face lid); a failing sharp shell says only `shell_failed`, and should suggest Rounded.
 - EDGE-REF-CONCENTRIC (8e34dae) over-refusal (typed, tree kept): Hole rims on resize (Hole naming in progress); circles on unnamed ops (import, boolean tools, unnamed sweep/loft, patterned holes). The name guard keeps unnamed candidates, so one differently named plus one unnamed candidate now resolves to the unnamed one (was ambiguous; untested). `_same_radius` uses 1e-6 mm on a circumcentre radius.
-- SKETCH-PROJECT-EDGES step 2 (3203624): `_current_a` trusts canonical_endpoints' exact order (a near-tie on a rotated part could swap a line's ends); `_a_slot_is_start` could swap ends if the datum rotates more than 90 deg; projection uses active_body, not the ref's feature_id (multi-body parts). LIP-SEAM-UNIFY: a lip flush with shell walls leaves a seam (34 faces vs 19). Suppressing a projection's anchor fails the sketch `references_suppressed`; Fusion marks it sick.
-- Fixed: HOLE-NAMES (4c40414). Hole faces are named `<hole>:hole:0:<role>`, so rim picks follow a diameter change. `hole_names`' instance parameter is dead until multi-point holes exist; whoever adds them must define a stable per-point index.
-- Shipped: `.loft` step 1 (493f411..ad9382f; spec docs/FILE-FORMAT.md). "Open .loft" is in the parts register, "Save .loft" on the export strip status line.
+- SKETCH-PROJECT-EDGES step 2 (3203624): `_current_a` trusts canonical_endpoints' exact order (a near-tie on a rotated part could swap a line's ends); `_a_slot_is_start` could swap ends if the datum rotates more than 90 deg; projection uses active_body, not the ref's feature_id (multi-body parts).
 - `.loft`: keeping ids gives a cross-tenant existence oracle (a re-mint reveals that a uuid exists); low risk, since uuid4 cannot be guessed.
 - `.loft`: the golden is byte-exact against zlib 1.3, so a zlib-ng build fails it (the test explains why). Export reads the tree and the evaluation request separately; a stale cache gives an import warning. The import error text is truncated (full text in the title attribute).
 - `assemblies.py:306`: assembly evaluation fetches a referenced part without an owner check; reachable only through a dangling reference (normally prevented by the delete-with-dependents 409). Add the check.
@@ -376,3 +314,6 @@ One line each. The founder triages weekly; most are closed without work.
 - CHAINSTART-NOT-CLEARED: `chainStart` is never cleared by setTool, Escape or undo; it is harmless today but fragile.
 - CHAIN-CLOSE-MOVED-START: closing compares against the stored chainStart, so if the solver moved the first vertex, a click there joins it but does not end the chain.
 - CHAIN-PRESS-DRAG: a press-drag mid-chain places only the press point.
+- SHELL-HEAL-VOLUME-GUARD (was a Next item): `conform_solid` measures volume after `split_pinched_faces`, so the split itself is never volume-checked (shell_heal.py claims it is).
+- SPLIT-SKETCHSCENE (was a Next item): `SketchScene.tsx` is 2,847 lines; split into modules and hooks with no behaviour change when it next blocks work.
+- SPLIT-WIRE-FEATURES (was a Next item): `loft_wire/features.py` is 4,419 lines; one module per family, re-exported, `just gen-verify` zero diff.
