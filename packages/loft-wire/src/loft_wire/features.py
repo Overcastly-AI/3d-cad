@@ -30,6 +30,10 @@ from pydantic import (
     model_validator,
 )
 
+from loft_wire.datum_angle import DatumAngleLine as DatumAngleLine
+from loft_wire.datum_angle import DatumAngleParams as DatumAngleParams
+from loft_wire.datum_angle import DatumOriginAxisRef as DatumOriginAxisRef
+from loft_wire.datum_angle import DatumSketchLineRef as DatumSketchLineRef
 from loft_wire.extrude_extent import EXTRUDE_EXTENT_FIELD, ExtrudeExtent
 from loft_wire.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
@@ -44,6 +48,13 @@ from loft_wire.geometry import (
 )
 from loft_wire.instrument import notify_feature_error
 from loft_wire.materials import MaterialAssignment, MaterialKey
+from loft_wire.refs import DatumPlaneRef as DatumPlaneRef
+from loft_wire.refs import FeatureRef as FeatureRef
+from loft_wire.refs import GeomRef as GeomRef
+from loft_wire.refs import MidplaneSide as MidplaneSide
+from loft_wire.refs import Selector as Selector
+from loft_wire.refs import SelectorV1 as SelectorV1
+from loft_wire.refs import SubshapeRef as SubshapeRef
 from loft_wire.shell import SHELL_TYPE_FIELD, ShellType
 from loft_wire.signatures import EdgeSelectorV1 as EdgeSelectorV1
 from loft_wire.signatures import EdgeSignature as EdgeSignature
@@ -161,52 +172,6 @@ def _drop_schema_default(schema: dict[str, Any]) -> None:
     schema.pop("default", None)
 
 
-# --- §2.1 GeomRef — the reference vocabulary -----------------------------------
-
-
-class DatumPlaneRef(BaseModel):
-    """One of the three origin datum planes."""
-
-    kind: Literal["datum_plane"]
-    plane: Literal["XY", "XZ", "YZ"]
-
-
-class FeatureRef(BaseModel):
-    """A whole earlier feature of the same part (e.g. a sketch)."""
-
-    kind: Literal["feature"]
-    feature_id: uuid.UUID
-
-
-#: Discriminated reference union. A ``subshape`` variant remains reserved here
-#: for a future DIRECT sketch-on-subshape reference; the shipped sketch-on-a-face
-#: path does NOT need it — a sketch sits on an ``on_face`` datum by the existing
-#: ``FeatureRef`` variant (datum-planes §7), and the :class:`SubshapeRef` lives
-#: inside that datum's params, not in this union.
-GeomRef = Annotated[DatumPlaneRef | FeatureRef, Field(discriminator="kind")]
-
-
-# --- Stage-1 topological naming: SubshapeRef (docs/design/topological-naming.md) --
-#
-# A SubshapeRef names ONE planar face of an earlier body-affecting feature's
-# result by a geometric SIGNATURE (§2b), NOT an enumeration index (§1.3 rejects
-# indices — they silently retarget). v1 scope is PLANAR FACES only (the
-# sketch-on-a-face / datum-from-face foundation); edge/vertex signatures and the
-# stage-2 provenance half are future additive members (§3, §10). The signature is
-# pure pydantic — no kernel type crosses the boundary (§7.4): the geometry
-# service computes it from the recomputed body and resolves it back to a face,
-# entirely service-internal.
-#
-# HONEST STABILITY LIMIT (§7.3 — stated plainly, NOT oversold): a stage-1
-# signature is BEST-EFFORT, not a provably-stable structural reference. It
-# resolves the same face across the common edits (parametric changes that do not
-# move the face; upstream inserts that do not touch it) and FAILS HONESTLY
-# (``subshape_unresolved`` / ``subshape_ambiguous``) for most others — but under
-# a drastic model change it CAN retarget to a coincidentally-congruent face (same
-# normal/centroid/area) without erroring. It does NOT "never silently retarget";
-# only the stage-2 provenance half (coordinate-blind) makes that structural.
-
-
 class CylindricalFaceSignature(BaseModel):
     """§5 stage-1 geometric fingerprint of a CYLINDRICAL face — typed, kernel-free.
 
@@ -253,46 +218,6 @@ class CylindricalFaceSignature(BaseModel):
     centroid: Vec3 = Field(
         description="Area centroid of the cylindrical face, world mm (full precision)"
     )
-
-
-class SelectorV1(BaseModel):
-    """Stage-1 selector payload: the geometric signature alone (§3, §4).
-
-    ``selector_version`` is the discriminator of the (currently single-member)
-    ``Selector`` union — decoupled from feature ``param_version`` (§4). Stage 2
-    adds a ``SelectorV2`` member (signature + provenance) additively, at which
-    point ``Selector`` becomes ``Annotated[SelectorV1 | SelectorV2,
-    Field(discriminator="selector_version")]`` with no change to persisted v1
-    rows. pydantic forbids a discriminated single-member union, so ``Selector``
-    is a plain alias until then (same idiom as :data:`FeatureData`).
-    """
-
-    selector_version: Literal[1] = 1
-    signature: PlanarFaceSignature
-
-
-#: Version-discriminated selector union (§4). One member (stage 1) today, so a
-#: plain alias; stage 2 promotes it to a ``selector_version``-discriminated union.
-Selector = SelectorV1
-
-
-class SubshapeRef(BaseModel):
-    """Stage-1 reference to ONE planar face of a body-affecting feature's result.
-
-    (docs/design/topological-naming.md §4.) ``feature_id`` is the stage-1 anchor
-    — "the prior body-affecting feature whose body I signature-match against"
-    (§4), NOT necessarily the originating feature (stage 2 shifts it to the true
-    originating feature). It materializes into ``feature_dependencies`` like a
-    :class:`FeatureRef` (via the widened :func:`iter_feature_refs` /
-    :func:`feature_references`), so deleting that feature is a write-time
-    409-with-dependents. ``subshape_type`` is ``"face"`` only in v1 (edge/vertex
-    reserved — §10).
-    """
-
-    kind: Literal["subshape"]
-    feature_id: uuid.UUID
-    subshape_type: Literal["face"]
-    selector: Selector
 
 
 # --- §2.4 EdgeSelector — deterministic edge selection (predicate + picked) ---
@@ -526,17 +451,6 @@ class DatumOffsetFromParams(BaseModel):
     )
 
 
-#: One side of a midplane: an origin datum plane name, an EARLIER ``datum``
-#: feature, or a picked PLANAR model face (the stage-1 signature the ``on_face``
-#: datum resolves — topological-naming.md §4, reused not reinvented).
-#: Discriminated on ``kind`` (``datum_plane`` | ``feature`` | ``subshape``);
-#: only FACE subshape refs validate (an edge ref has ``subshape_type: "edge"``
-#: and is a request-validation 422).
-MidplaneSide = Annotated[
-    DatumPlaneRef | FeatureRef | SubshapeRef, Field(discriminator="kind")
-]
-
-
 class DatumMidplaneParams(BaseModel):
     """A plane midway between two references (``kind: "midplane"``).
 
@@ -582,13 +496,18 @@ class DatumMidplaneParams(BaseModel):
 
 
 #: Datum params: an offset-from-origin plane, an on-a-face plane, an
-#: offset-from-another-datum plane (chaining), or a midplane between two
-#: references — discriminated on ``kind``. LEGACY persisted params carry no
+#: offset-from-another-datum plane (chaining), a midplane between two
+#: references, or a plane at an angle about a line (:mod:`loft_wire.datum_angle`)
+#: — discriminated on ``kind``. LEGACY persisted params carry no
 #: ``kind`` (they predate on_face) — :class:`DatumFeature`'s before-validator
 #: injects ``kind: "offset"`` so old rows validate unchanged (additive, NO
 #: ``param_version`` bump — datum-planes §4/§7).
 DatumParams = Annotated[
-    DatumOffsetParams | DatumOnFaceParams | DatumOffsetFromParams | DatumMidplaneParams,
+    DatumOffsetParams
+    | DatumOnFaceParams
+    | DatumOffsetFromParams
+    | DatumMidplaneParams
+    | DatumAngleParams,
     Field(discriminator="kind"),
 ]
 
@@ -2700,7 +2619,8 @@ class DatumFeature(FeatureEnvelopeBase):
     A non-body-affecting feature that produces a plane a later sketch sits on
     (docs/design/datum-planes.md §2b). ``params`` is the discriminated
     :data:`DatumParams` union — an ``offset`` plane (§3), an ``on_face`` plane
-    (§7), an ``offset_from`` chained plane, or a ``midplane`` (§7a). Every
+    (§7), an ``offset_from`` chained plane, a ``midplane`` (§7a), or a plane
+    at an ``angle`` about a line (:mod:`loft_wire.datum_angle`). Every
     variant after ``offset`` is ADDITIVE with NO ``param_version`` bump: legacy
     offset params (persisted before ``on_face`` existed) carry no ``kind``
     discriminator, so :meth:`_legacy_offset_kind` injects ``"offset"`` before
@@ -3353,6 +3273,31 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                                     slot, side, BODY_AFFECTING_FEATURE_TYPES
                                 )
                             )
+                case DatumAngleParams():
+                    # A plane at an angle: its LINE is a sketch line (the
+                    # sketch's FeatureRef -> {sketch}), a picked edge
+                    # (body-affecting) or an origin axis (no ref); its
+                    # REFERENCE takes the midplane side's forms and rules.
+                    line = feature.params.line
+                    if isinstance(line, DatumSketchLineRef):
+                        references.append(
+                            FeatureReference("line", line.sketch, frozenset({"sketch"}))
+                        )
+                    elif isinstance(line, EdgeSubshapeRef):
+                        references.append(
+                            FeatureReference("line", line, BODY_AFFECTING_FEATURE_TYPES)
+                        )
+                    side = feature.params.reference
+                    if isinstance(side, FeatureRef):
+                        references.append(
+                            FeatureReference("reference", side, frozenset({"datum"}))
+                        )
+                    elif isinstance(side, SubshapeRef):
+                        references.append(
+                            FeatureReference(
+                                "reference", side, BODY_AFFECTING_FEATURE_TYPES
+                            )
+                        )
                 case DatumOffsetParams():
                     pass
         case SketchFeature():

@@ -1828,12 +1828,90 @@
         "title": "CylinderParams",
         "type": "object"
       },
+      "DatumAngleParams": {
+        "description": "A plane through a line, turned about it from a reference (``kind: \"angle\"``).\n\nSee the module docstring for the conventions. Failures are all typed and\nleave the datum sick rather than crash the rebuild: a missing sketch or\nentity is ``reference_unresolved``, a curved entity or edge (or a line of\nzero length) is ``datum_line_invalid``, an edge or face that no longer\nresolves is ``subshape_unresolved`` / ``subshape_ambiguous``, and a line\nthat is not parallel to the reference is ``datum_line_not_parallel``.",
+        "properties": {
+          "angle_deg": {
+            "description": "Angle from the reference plane (degrees). 0 is parallel to the reference; positive turns the reference normal right-handed about the line direction.",
+            "maximum": 360.0,
+            "minimum": -360.0,
+            "title": "Angle Deg",
+            "type": "number"
+          },
+          "flip": {
+            "default": false,
+            "description": "Reverse the plane normal (negate z_dir, keeping x_dir so sketch +u is unchanged and +v flips) \u2014 the same rule as `offset`.",
+            "title": "Flip",
+            "type": "boolean"
+          },
+          "kind": {
+            "const": "angle",
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "description": "The line the plane passes through and turns about: a sketch line, a straight model edge, or an origin axis.",
+            "discriminator": {
+              "mapping": {
+                "origin_axis": "#/components/schemas/DatumOriginAxisRef",
+                "sketch_line": "#/components/schemas/DatumSketchLineRef",
+                "subshape": "#/components/schemas/EdgeSubshapeRef"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DatumSketchLineRef"
+              },
+              {
+                "$ref": "#/components/schemas/DatumOriginAxisRef"
+              },
+              {
+                "$ref": "#/components/schemas/EdgeSubshapeRef"
+              }
+            ],
+            "title": "Line"
+          },
+          "reference": {
+            "description": "The plane the angle is measured from: an origin datum, an earlier `datum` feature, or a picked planar face. The line must be parallel to it.",
+            "discriminator": {
+              "mapping": {
+                "datum_plane": "#/components/schemas/DatumPlaneRef",
+                "feature": "#/components/schemas/FeatureRef",
+                "subshape": "#/components/schemas/SubshapeRef"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DatumPlaneRef"
+              },
+              {
+                "$ref": "#/components/schemas/FeatureRef"
+              },
+              {
+                "$ref": "#/components/schemas/SubshapeRef"
+              }
+            ],
+            "title": "Reference"
+          }
+        },
+        "required": [
+          "kind",
+          "line",
+          "reference",
+          "angle_deg"
+        ],
+        "title": "DatumAngleParams",
+        "type": "object"
+      },
       "DatumFeature": {
-        "description": "``{\"type\": \"datum\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA non-body-affecting feature that produces a plane a later sketch sits on\n(docs/design/datum-planes.md \u00a72b). ``params`` is the discriminated\n:data:`DatumParams` union \u2014 an ``offset`` plane (\u00a73), an ``on_face`` plane\n(\u00a77), an ``offset_from`` chained plane, or a ``midplane`` (\u00a77a). Every\nvariant after ``offset`` is ADDITIVE with NO ``param_version`` bump: legacy\noffset params (persisted before ``on_face`` existed) carry no ``kind``\ndiscriminator, so :meth:`_legacy_offset_kind` injects ``\"offset\"`` before\nvalidation and every existing datum row/golden validates unchanged\n(datum-planes \u00a74/\u00a77).",
+        "description": "``{\"type\": \"datum\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA non-body-affecting feature that produces a plane a later sketch sits on\n(docs/design/datum-planes.md \u00a72b). ``params`` is the discriminated\n:data:`DatumParams` union \u2014 an ``offset`` plane (\u00a73), an ``on_face`` plane\n(\u00a77), an ``offset_from`` chained plane, a ``midplane`` (\u00a77a), or a plane\nat an ``angle`` about a line (:mod:`loft_wire.datum_angle`). Every\nvariant after ``offset`` is ADDITIVE with NO ``param_version`` bump: legacy\noffset params (persisted before ``on_face`` existed) carry no ``kind``\ndiscriminator, so :meth:`_legacy_offset_kind` injects ``\"offset\"`` before\nvalidation and every existing datum row/golden validates unchanged\n(datum-planes \u00a74/\u00a77).",
         "properties": {
           "params": {
             "discriminator": {
               "mapping": {
+                "angle": "#/components/schemas/DatumAngleParams",
                 "midplane": "#/components/schemas/DatumMidplaneParams",
                 "offset": "#/components/schemas/DatumOffsetParams",
                 "offset_from": "#/components/schemas/DatumOffsetFromParams",
@@ -1853,6 +1931,9 @@
               },
               {
                 "$ref": "#/components/schemas/DatumMidplaneParams"
+              },
+              {
+                "$ref": "#/components/schemas/DatumAngleParams"
               }
             ],
             "title": "Params"
@@ -2046,6 +2127,32 @@
         "title": "DatumOnFaceParams",
         "type": "object"
       },
+      "DatumOriginAxisRef": {
+        "description": "``kind: \"origin_axis\"`` \u2014 one of the world axes through the origin.",
+        "properties": {
+          "axis": {
+            "description": "World origin axis the plane passes through and turns about.",
+            "enum": [
+              "X",
+              "Y",
+              "Z"
+            ],
+            "title": "Axis",
+            "type": "string"
+          },
+          "kind": {
+            "const": "origin_axis",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "axis"
+        ],
+        "title": "DatumOriginAxisRef",
+        "type": "object"
+      },
       "DatumPlaneRef": {
         "description": "One of the three origin datum planes.",
         "properties": {
@@ -2069,6 +2176,33 @@
           "plane"
         ],
         "title": "DatumPlaneRef",
+        "type": "object"
+      },
+      "DatumSketchLineRef": {
+        "description": "``kind: \"sketch_line\"`` \u2014 a LINE entity of an EARLIER sketch feature.\n\n``sketch`` is a whole-feature :class:`FeatureRef` (it materialises into\n``feature_dependencies`` like an extrude's profile); ``entity`` is the\nsketch-local id of a line in it, a construction line being the natural\nchoice. The line is read from the SOLVED sketch at rebuild, so dragging or\nre-dimensioning it moves the plane. A missing sketch or entity, or an\nentity that is not a line, is a typed rebuild error on the datum.",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local id of a LINE entity of that sketch (a construction line is ideal).",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "kind": {
+            "const": "sketch_line",
+            "title": "Kind",
+            "type": "string"
+          },
+          "sketch": {
+            "$ref": "#/components/schemas/FeatureRef",
+            "description": "The EARLIER sketch feature that owns the line."
+          }
+        },
+        "required": [
+          "kind",
+          "sketch",
+          "entity"
+        ],
+        "title": "DatumSketchLineRef",
         "type": "object"
       },
       "DiameterConstraint": {
