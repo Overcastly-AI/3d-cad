@@ -182,3 +182,20 @@ def test_a_stored_legacy_twist_loads_keeps_and_cannot_change(
     )
     assert straight.status_code == 200, straight.text
     assert "twist_angle_deg" not in straight.json()["feature"]["feature"]["params"]
+
+
+def test_a_legacy_twist_about_the_origin_saved_without_its_axis_is_unchanged(
+    client: TestClient, any_db_url: str
+) -> None:
+    """An explicit (0, 0) axis and an absent one are the same axis."""
+    part_id, sketch_id, extrude_id = _part_with_extrude(client)
+    origin = {"x": 0.0, "y": 0.0}
+    legacy = _extrude(sketch_id, twist_angle_deg=30.0, twist_center=origin)
+    _seed_legacy_twist(any_db_url, extrude_id, legacy["params"])
+
+    absent = _extrude(sketch_id, twist_angle_deg=30.0)
+    response = _patch(
+        client, part_id, extrude_id, {"expected_tree_version": 2, "feature": absent}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["feature"]["feature"]["params"]["twist_angle_deg"] == 30.0

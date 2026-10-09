@@ -33,16 +33,25 @@ EXTRUDE_TWIST_DEPRECATED_MESSAGE = (
 )
 
 
-def _stored_twist(stored_params: Mapping[str, Any] | None) -> tuple[object, object]:
-    """The stored row's (twist, axis), normalised as the wire model does; no
-    twist for a row that is absent or does not parse as an extrude."""
+def _twist_of(params: ExtrudeParamsV1) -> tuple[float | None, tuple[float, float]]:
+    """(twist, axis point) with the axis normalised: absent IS the sketch
+    origin, so ``None`` and ``(0, 0)`` compare equal."""
+    centre = params.twist_center
+    point = (0.0, 0.0) if centre is None else (centre.x + 0.0, centre.y + 0.0)
+    return (params.twist_angle_deg, point)
+
+
+def _stored_twist(
+    stored_params: Mapping[str, Any] | None,
+) -> tuple[float | None, tuple[float, float]] | None:
+    """The stored row's normalised (twist, axis); ``None`` for a row that is
+    absent or does not parse as an extrude (so any twist is new)."""
     if stored_params is None:
-        return (None, None)
+        return None
     try:
-        stored = ExtrudeParamsV1.model_validate(stored_params)
+        return _twist_of(ExtrudeParamsV1.model_validate(stored_params))
     except ValidationError:
-        return (None, None)
-    return (stored.twist_angle_deg, stored.twist_center)
+        return None
 
 
 def authors_extrude_twist(
@@ -52,9 +61,9 @@ def authors_extrude_twist(
 
     *stored_params* is the row being replaced (``None`` on create). False for
     every non-extrude, for an untwisted extrude, and for a twisted one whose
-    twist and axis equal the stored row's (the legacy data carried through).
+    twist and axis equal the stored row's (the legacy data carried through;
+    an absent axis and ``(0, 0)`` are the same axis, the sketch origin).
     """
     if not isinstance(feature, ExtrudeFeature) or not feature.params.is_twisted:
         return False
-    incoming = (feature.params.twist_angle_deg, feature.params.twist_center)
-    return incoming != _stored_twist(stored_params)
+    return _twist_of(feature.params) != _stored_twist(stored_params)

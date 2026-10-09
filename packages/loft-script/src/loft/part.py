@@ -23,7 +23,7 @@ import os
 import uuid
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypeVar
+from typing import TYPE_CHECKING, Literal, NoReturn, TypeVar
 
 from loft_wire.extrude_extent import ExtrudeExtent
 from loft_wire.features import (
@@ -45,6 +45,10 @@ from loft_wire.features import (
     SweepParamsV1,
 )
 from loft_wire.geometry import ExportFormat, ShapeProperties
+from loft_wire.legacy_twist import (
+    EXTRUDE_TWIST_DEPRECATED_CODE,
+    EXTRUDE_TWIST_DEPRECATED_MESSAGE,
+)
 from loft_wire.loft_file import LOFT_SUFFIX, LoftWarning
 from loft_wire.parts import PartCreate, PartListResponse, PartResponse, PartUpdate
 from loft_wire.units import LengthUnit
@@ -57,7 +61,7 @@ from loft_wire.versions import (
 
 from loft import _operations as ops
 from loft.datum import LineLike, ReferenceLike, plane_at_angle_feature
-from loft.errors import FeatureFailed, NoBody, StaleDocument
+from loft.errors import FeatureFailed, InvalidRequest, NoBody, StaleDocument
 from loft.sketch import Sketch, resolve_plane
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -148,6 +152,14 @@ class Evaluation:
             raise _feature_error(entry)
         if entry is not None and entry.status == "skipped":
             self.raise_for_features()
+
+
+def _refuse_extrude_twist() -> NoReturn:
+    """The extrude twist is deprecated (loft_wire.legacy_twist): say so, and
+    point to Sweep, with the server's own code and message."""
+    raise InvalidRequest(
+        EXTRUDE_TWIST_DEPRECATED_MESSAGE, code=EXTRUDE_TWIST_DEPRECATED_CODE
+    )
 
 
 def _feature_error(entry: FeatureResult) -> FeatureFailed:
@@ -412,6 +424,8 @@ class Part:
         extent: ExtrudeExtent = "one_side",
         merge: bool = True,
         name: str = "Extrude",
+        twist_angle_deg: float | None = None,
+        twist_center: object = None,
     ) -> FeatureResponse:
         """Extrude an earlier sketch's profile.
 
@@ -431,7 +445,9 @@ class Part:
         (:mod:`loft_wire.legacy_twist`). A twisted prism is :meth:`sweep` with
         ``twist_angle_deg`` along a straight path. A stored twisted extrude
         still rebuilds unchanged, and :meth:`set_extrude_distance` carries its
-        twist through.
+        twist through. Passing ``twist_angle_deg`` or ``twist_center`` raises
+        :class:`~loft.errors.InvalidRequest` (``extrude_twist_deprecated``)
+        before anything is sent.
 
         A non-positive ``distance_mm`` or a non-finite value is refused
         CLIENT-side by the shared DTO (a ``ValueError``, the same validator the
@@ -439,6 +455,8 @@ class Part:
         open profile is a ``profile_not_closed`` feature error, raised by
         :meth:`evaluate`.
         """
+        if twist_angle_deg is not None or twist_center is not None:
+            _refuse_extrude_twist()
         created = self.create_feature(
             name,
             ExtrudeFeature(
@@ -559,6 +577,18 @@ class Part:
         dropped a stored legacy twist would straighten the part).
         """
         return self._update_extrude(feature_id, distance_mm=distance_mm)
+
+    def set_extrude_twist(
+        self, feature_id: uuid.UUID, twist_angle_deg: float | None
+    ) -> FeatureResponse:
+        """Removed: the extrude twist is deprecated, read-only legacy.
+
+        Always raises :class:`~loft.errors.InvalidRequest`
+        (``extrude_twist_deprecated``), pointing to :meth:`sweep` with
+        ``twist_angle_deg``; nothing is sent.
+        """
+        del feature_id, twist_angle_deg
+        _refuse_extrude_twist()
 
     def _update_extrude(
         self, feature_id: uuid.UUID, **changes: object

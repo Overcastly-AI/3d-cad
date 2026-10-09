@@ -63,3 +63,17 @@ def test_a_sweep_twist_is_base_tooling() -> None:
         }
     )
     assert not authors_extrude_twist(sweep)
+
+
+def test_an_absent_axis_and_the_origin_are_the_same_axis() -> None:
+    origin = {"x": 0.0, "y": 0.0}
+    stored_at_origin = _params(twist_angle_deg=30.0, twist_center=origin)
+    stored_absent = _params(twist_angle_deg=30.0)
+    assert not authors_extrude_twist(_extrude(twist_angle_deg=30.0), stored_at_origin)
+    assert not authors_extrude_twist(
+        _extrude(twist_angle_deg=30.0, twist_center=origin), stored_absent
+    )
+    assert not authors_extrude_twist(
+        _extrude(twist_angle_deg=30.0, twist_center={"x": -0.0, "y": 0.0}),
+        stored_absent,
+    )

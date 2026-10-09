@@ -193,17 +193,24 @@ def test_extrude_twist_is_deprecated_and_refused_with_a_pointer_to_sweep(
 ) -> None:
     """The extrude twist is read-only legacy (loft_wire.legacy_twist).
 
-    The typed verb no longer takes a twist at all, and the escape hatch that
-    builds the envelope by hand is refused by the server with the typed code
-    and the one message that points to Sweep. Nothing is written.
+    The typed verbs (``extrude(twist_angle_deg=/twist_center=)``,
+    ``set_extrude_twist``) refuse client-side, and the escape hatch that builds
+    the envelope by hand is refused by the server, all with the same typed code
+    and the one message that points to Sweep. No twist is written.
     """
     with _session(stack) as session:
         part = session.new_part("No extrude twist")
         sketch = part.sketch(on="XY")
         sketch.rect(WIDTH_MM, HEIGHT_MM)
         sketch.solve()
-        with pytest.raises(TypeError, match="twist_angle_deg"):
-            part.extrude(sketch, DEPTH_MM, twist_angle_deg=30.0)  # pyright: ignore[reportCallIssue]
+        with pytest.raises(loft.InvalidRequest) as by_angle:
+            part.extrude(sketch, DEPTH_MM, twist_angle_deg=30.0)
+        with pytest.raises(loft.InvalidRequest) as by_axis:
+            part.extrude(sketch, DEPTH_MM, twist_center=(1.0, 2.0))
+        straight = part.extrude(sketch, DEPTH_MM)
+        with pytest.raises(loft.InvalidRequest) as by_setter:
+            part.set_extrude_twist(straight.id, 30.0)
+        kept = part.feature(straight.id).feature
         twisted = ExtrudeFeature.model_validate(
             {
                 "type": "extrude",
@@ -223,9 +230,13 @@ def test_extrude_twist_is_deprecated_and_refused_with_a_pointer_to_sweep(
             part.create_feature("Twisted", twisted)
         kinds = [record.feature.type for record in part.features()]
 
-    assert refused.value.code == EXTRUDE_TWIST_DEPRECATED_CODE
-    assert refused.value.message == EXTRUDE_TWIST_DEPRECATED_MESSAGE
-    assert kinds == ["sketch"]
+    for raised in (by_angle, by_axis, by_setter, refused):
+        assert raised.value.code == EXTRUDE_TWIST_DEPRECATED_CODE
+        assert raised.value.message == EXTRUDE_TWIST_DEPRECATED_MESSAGE
+        assert "Sweep" in raised.value.message
+    assert isinstance(kept, ExtrudeFeature)
+    assert kept.params.twist_angle_deg is None
+    assert kinds == ["sketch", "extrude"]
 
 
 def test_a_twisted_sweep_is_the_twisted_extrude_and_can_be_untwisted(
