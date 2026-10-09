@@ -56,6 +56,7 @@ from loft_wire.versions import (
 )
 
 from loft import _operations as ops
+from loft.datum import LineLike, ReferenceLike, plane_at_angle_feature
 from loft.errors import FeatureFailed, NoBody, StaleDocument
 from loft.sketch import PointLike, Sketch, as_point, resolve_plane
 
@@ -465,6 +466,31 @@ class Part:
             ),
         )
         return created.feature
+
+    def plane_at_angle(
+        self,
+        line: LineLike,
+        angle_deg: float,
+        *,
+        reference: ReferenceLike | None = None,
+        flip: bool = False,
+        name: str = "Plane",
+    ) -> FeatureRef:
+        """A datum plane through *line*, turned *angle_deg* from *reference*.
+
+        Fusion 360's Plane at Angle, SolidWorks' Plane "At angle". *line* is
+        ``"X"``/``"Y"``/``"Z"``, ``(sketch, entity_id)`` for a sketch line, or
+        a picked edge's ref; *reference* is ``"XY"``/``"XZ"``/``"YZ"``, a
+        datum's ref or a face ref, and defaults to a sketch line's own sketch
+        plane. The line must be parallel to the reference. Returns the datum's
+        ref, ready for ``part.sketch(on=...)``. The plane follows both inputs
+        on every rebuild (:mod:`loft.datum`; RESEARCH §18).
+        """
+        created = self.create_feature(
+            name,
+            plane_at_angle_feature(line, angle_deg, reference=reference, flip=flip),
+        )
+        return FeatureRef(kind="feature", feature_id=created.feature.id)
 
     def sweep(
         self,
