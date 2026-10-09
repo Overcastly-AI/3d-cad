@@ -364,6 +364,9 @@ One line each. The founder triages weekly; most are closed without work.
 - Sweep self-check (`BRepAlgoAPI_Check`, SWEEP-CLOSED-PATH review): costs 0.8 s of the moto frame's 5.7 s rebuild (0.30 s + 0.51 s on its two rail sweeps); 0.5-28 ms on the other sweep goldens.
 - Sketcher: `0` is a view shortcut, so a typed coordinate cannot start with 0 (`OPENS_A_COORDINATE` is `[1-9.-]`); a centre at x = 0 must be clicked or typed as `-0`.
 - ASM-COPY: Move ships without Fusion's Copy; copying a component needs `POST /assemblies/{id}/instances/{instance_id}/copy` in documents (none exists today; `duplicate.py` copies whole assemblies only).
+- JOINT-VALUE-MERGE (joints review): PATCH `value` replaces both axes, so `{rot_deg}` on a cylindrical joint nulls `lin_mm`; the joint dialog (S5b) must send both axes, or merge per axis.
+- JOINT-PATCH-NOOP: a PATCH that changes nothing still bumps doc_version and records an undo step.
+- JOINT-LABEL-ORDER: "Revolute 2" in errors is by mate order, so it renumbers when an earlier joint is deleted (no name column).
 - INPUT-ERROR-NO-BODY (step 2 review): `tree_no_body_error` and the assembly/drawings `_part_no_body_error` report the first `error`, which may be a parameter `input_error` rather than the build failure that left no body.
 - INPUT-ERROR-REF-CODE (step 2 review): a face/edge reference on a feature skipped for `input_error` fails as `subshape_unresolved`, not `reference_unresolved` naming the sick feature.
 - ASM-MOVE-PREVIEW (Move build): each triad drag step re-renders the assembly page (~1.2 s per step under software GL); a scene-only preview store is the fix.
