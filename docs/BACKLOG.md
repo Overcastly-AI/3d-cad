@@ -31,7 +31,7 @@ byte-identical; RESEARCH §15a).
 - [ ] **PART-PARAMETERS** (was PARAMETERS; absorbs SKETCH-EXPR-TRIG; the
       gear is not parametric): named part parameters shared by sketches and
       features, as Fusion's Change Parameters and Onshape's Variables.
-      Decisions: RESEARCH §19. Each step merges alone:
+      Decisions: RESEARCH §20. Each step merges alone:
   - [x] 1. Expression library in `loft_wire/expr.py`; the sketch evaluator
         delegates (sketch trig). _Accept:_ existing sketch-expression tests
         unchanged; `20*tan(15)` solves in a sketch dimension and round-trips;

@@ -68,14 +68,18 @@ class SketchExpression:
             raise SketchExpressionError(str(exc)) from exc
 
 
-def parse_expression(text: str) -> SketchExpression:
+def parse_expression(
+    text: str, names: frozenset[str] = frozenset()
+) -> SketchExpression:
     """Parse a dimension expression (raises :class:`SketchExpressionError`).
 
-    Exposed for unit testing; callers normally use
-    :func:`evaluate_driving_dimensions`.
+    ``names`` are the sketch's dimension names, which win over reserved words
+    in reference position. Text is read as sketch text always was (see
+    :func:`loft_wire.expr.parse`, ``legacy_text``). Exposed for unit testing;
+    callers normally use :func:`evaluate_driving_dimensions`.
     """
     try:
-        return SketchExpression(expr.parse(text))
+        return SketchExpression(expr.parse(text, names=names, legacy_text=True))
     except expr.ExpressionError as exc:
         raise SketchExpressionError(str(exc)) from exc
 

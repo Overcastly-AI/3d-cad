@@ -38,6 +38,7 @@ from loft_wire.sketch import (
     AngleConstraint,
     DistanceConstraint,
     HorizontalConstraint,
+    RadiusConstraint,
     SketchConstraint,
 )
 
@@ -498,11 +499,6 @@ def test_sketch_references_read_numbers_as_before_units() -> None:
             "driven dimension 'meas'",
         ),
         (
-            [_dist("e1", 3.0, name="pi"), _dist("e2", 1.0, expression="2*pi")],
-            ExpressionNameError,
-            "'pi' is reserved",
-        ),
-        (
             [
                 _dist("e1", 1.0, name="a", expression="b"),
                 _dist("e2", 1, name="b", expression="a"),
@@ -521,12 +517,58 @@ def test_sketch_dimension_errors(
         evaluate_driving_dimensions(constraints)
 
 
-def test_a_dimension_named_like_a_unit_is_fine_until_referenced() -> None:
-    assert evaluate_driving_dimensions([_dist("e1", 5.0, name="mm")]) == {0: 5.0}
-    with pytest.raises(ExpressionNameError, match="'m' is reserved"):
-        evaluate_driving_dimensions(
-            [_dist("e1", 5.0, name="m"), _dist("e2", 1.0, expression="m/2")]
-        )
+@pytest.mark.parametrize(
+    ("name", "expression", "expected"),
+    [
+        ("rad", "rad*2", 10.0),  # the reviewer's repro: was {0: 5, 1: 10}
+        ("pi", "2*pi", 10.0),  # the dimension wins over the constant
+        ("m", "m+1", 6.0),
+        ("in", "in/5", 1.0),
+        ("deg", "(deg)", 5.0),
+        ("min", "min*min", 25.0),
+        ("max", "-max+10", 5.0),
+        ("abs", "abs", 5.0),
+    ],
+)
+def test_a_dimension_named_like_a_reserved_word_keeps_its_meaning(
+    name: str, expression: str, expected: float
+) -> None:
+    """Stored sketches named dimensions freely before reserved words existed;
+    in reference position the dimension wins, so they evaluate as before."""
+    radius = RadiusConstraint.model_validate(
+        {"kind": "radius", "entity": "c1", "value_mm": 5.0, "name": name}
+    )
+    values = evaluate_driving_dimensions(
+        [radius, _dist("e1", 1.0, expression=expression)]
+    )
+    assert values == {0: 5.0, 1: expected}
+
+
+def test_reserved_words_keep_their_meaning_when_no_dimension_takes_them() -> None:
+    values = evaluate_driving_dimensions(
+        [_dist("e1", 5.0, name="w"), _dist("e2", 1.0, expression="w*pi + 1 in")]
+    )
+    assert values == {0: 5.0, 1: 5.0 * math.pi + 25.4}
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("\u0663", 3.0),  # ARABIC-INDIC DIGIT THREE: float() reads it
+        ("\uff11\uff12/4", 3.0),  # fullwidth 12 / 4
+        ("1\u00a0+\u00a01", 2.0),  # internal no-break spaces
+        ("\f2*3\v", 6.0),
+        ("2\u2003*\u30003", 6.0),
+    ],
+)
+def test_sketch_text_tokenizes_as_it_always_did(
+    expression: str, expected: float
+) -> None:
+    assert evaluate_driving_dimensions([_dist("e1", 1.0, expression=expression)]) == {
+        0: expected
+    }
+    with pytest.raises(ExpressionSyntaxError):
+        parse(expression)  # new parameter text stays ASCII
 
 
 def test_a_driven_dimension_with_a_bad_expression_is_never_parsed() -> None:

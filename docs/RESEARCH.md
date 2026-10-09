@@ -1105,7 +1105,7 @@ additive: no stored datum changes shape or bytes.
   `datum-angle-head-tube-od50-id32-l160-25deg` is derived by hand and against
   a plain `Solid.make_cylinder` tube.
 
-## 19. Part parameters and the one expression language
+## 20. Part parameters and the one expression language
 
 **What mainstream CAD does.** Fusion 360 (Modify > Change Parameters),
 SolidWorks (Global Variables in the Equations dialog) and Onshape (Variable
@@ -1142,12 +1142,17 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   parameters per part, finite results only. Names match
   `^[A-Za-z_][A-Za-z0-9_]{0,63}$` and are not a function, unit or constant
   word.
-- **Sketch compatibility.** A sketch dimension referenced by another reads
-  its NUMBER, unitless (`angle = half*2` over a 20 mm `half` is still 40
-  degrees), so every stored sketch evaluates as before. Dimension names keep
-  their old pattern; a dimension named after a reserved word errors only when
-  an expression uses that word (a dimension `pi` would otherwise silently read
-  3.14159).
+- **Sketch compatibility: every stored sketch evaluates as before.** A
+  sketch dimension referenced by another reads its NUMBER, unitless
+  (`angle = half*2` over a 20 mm `half` is still 40 degrees). Dimension names
+  keep their old pattern, and a dimension's name wins over a reserved word in
+  reference position (not after a number, not before `(`), where older valid
+  text could only ever have put it: a dimension `rad` makes `rad*2` read it,
+  and a dimension `pi` beats the constant. Sketch text keeps the old
+  tokenizer (Unicode digits and whitespace, `\f`, no-break spaces) and the
+  wire field's 256 cap; new parameter text is ASCII. Proven by a differential
+  fuzz against the fcf0590 evaluator: 120k trials, every input it accepted
+  gives the same value bit for bit, 0 crashes.
 - **Where it is evaluated.** In documents, once per evaluation-request build
   (`documents/features.py`, shared by part and assembly) and on every write,
   with the resolved numbers stored back in `params`. Geometry receives

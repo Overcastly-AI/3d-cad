@@ -9,7 +9,7 @@ malformed string can only ever be a typed :class:`ExpressionError`.
 
 It is standard-library only (``re``, ``math``, ``dataclasses``, ``typing``)
 so documents, geometry, the gateway and ``loft-script`` all evaluate the same
-string to the same float. Decision record: RESEARCH §19.
+string to the same float. Decision record: RESEARCH §20.
 
 Grammar (EBNF)::
 
@@ -254,6 +254,21 @@ _TOKEN_RE = re.compile(
     re.VERBOSE | re.ASCII,
 )
 
+#: The tokenizer sketch dimensions shipped with before this module existed:
+#: Unicode ``\s`` and ``\d`` (``float()`` reads any Unicode decimal digit).
+#: Sketch text uses it so every stored expression tokenizes exactly as it did.
+_LEGACY_TOKEN_RE = re.compile(
+    r"""
+    \s*
+    (?:
+        (?P<num>\d+\.\d*|\.\d+|\d+)
+      | (?P<ident>[A-Za-z_][A-Za-z0-9_]*)
+      | (?P<op>[-+*/(),])
+    )
+    """,
+    re.VERBOSE,
+)
+
 
 @dataclass(frozen=True)
 class _Token:
@@ -261,13 +276,14 @@ class _Token:
     value: str
 
 
-def _tokenize(text: str) -> list[_Token]:
+def _tokenize(text: str, legacy_text: bool = False) -> list[_Token]:
+    pattern = _LEGACY_TOKEN_RE if legacy_text else _TOKEN_RE
     tokens: list[_Token] = []
     pos = 0
     while pos < len(text):
-        match = _TOKEN_RE.match(text, pos)
+        match = pattern.match(text, pos)
         if match is None:
-            rest = text[pos:].lstrip(" \t\r\n")
+            rest = text[pos:].lstrip() if legacy_text else text[pos:].lstrip(" \t\r\n")
             if not rest:
                 break
             raise ExpressionSyntaxError(
@@ -396,43 +412,49 @@ def _call(name: str, args: list[Quantity]) -> Quantity:
     return Quantity(math.degrees(first.value), ANGLE)
 
 
-def _evaluate(node: _Node, resolve: Resolver, depth: int) -> Quantity:
+def _guard_depth(depth: int) -> None:
+    # Interior nodes only, exactly where the pre-library evaluator guarded: a
+    # leaf one level past the limit was always fine and must stay fine.
     if depth > MAX_DEPTH:
         raise ExpressionLimitError(f"expression nests deeper than {MAX_DEPTH}")
+
+
+def _evaluate(node: _Node, resolve: Resolver, depth: int) -> Quantity:
     match node:
         case _Num():
             return node.quantity
         case _Ref():
-            q = resolve(node.name)
-            _finite(q.value)
-            return q
+            return resolve(node.name)
         case _Unary():
+            _guard_depth(depth)
             q = _evaluate(node.operand, resolve, depth + 1)
             return Quantity(-q.value, q.kind) if node.op == "-" else q
         case _Binary():
+            _guard_depth(depth)
             a = _evaluate(node.left, resolve, depth + 1)
             b = _evaluate(node.right, resolve, depth + 1)
             if node.op == "+":
                 return Quantity(
-                    _finite(a.value + b.value), _additive_kind(a.kind, b.kind, "add")
+                    a.value + b.value, _additive_kind(a.kind, b.kind, "add")
                 )
             if node.op == "-":
                 return Quantity(
-                    _finite(a.value - b.value),
+                    a.value - b.value,
                     _additive_kind(a.kind, b.kind, "subtract"),
                 )
             if node.op == "*":
-                return Quantity(
-                    _finite(a.value * b.value), _multiply_kind(a.kind, b.kind)
-                )
+                return Quantity(a.value * b.value, _multiply_kind(a.kind, b.kind))
             kind = _divide_kind(a.kind, b.kind)
             if b.value == 0.0:
                 raise ExpressionDomainError("division by zero in expression")
-            return Quantity(_finite(a.value / b.value), kind)
+            return Quantity(a.value / b.value, kind)
         case _Call():
+            _guard_depth(depth)
             args = [_evaluate(arg, resolve, depth + 1) for arg in node.args]
-            q = _call(node.name, args)
-            return Quantity(_finite(q.value), q.kind)
+            for arg in args:
+                # math.sin(inf) raises ValueError, math.floor(inf) OverflowError.
+                _finite(arg.value)
+            return _call(node.name, args)
 
 
 def _references(node: _Node, into: set[str]) -> None:
@@ -459,9 +481,10 @@ def _references(node: _Node, into: set[str]) -> None:
 
 
 class _Parser:
-    def __init__(self, tokens: list[_Token], text: str) -> None:
+    def __init__(self, tokens: list[_Token], text: str, names: frozenset[str]) -> None:
         self._tokens = tokens
         self._text = text
+        self._names = names
         self._pos = 0
         self._depth = 0
 
@@ -540,6 +563,12 @@ class _Parser:
     def _parse_word(self, word: str) -> _Node:
         following = self._peek()
         calls = following is not None and following.value == "("
+        if word in self._names and not calls:
+            # A name in scope wins over a reserved word in reference position:
+            # a stored sketch with a dimension called ``rad`` or ``pi`` keeps
+            # meaning what it meant. A unit suffix (after a number) or a call
+            # (before ``(``) never sat in that position in valid older text.
+            return _Ref(name=word)
         if word in FUNCTIONS:
             if not calls:
                 raise self._error(f"{word!r} is a function; write {word}(...)")
@@ -583,8 +612,7 @@ class Expression:
 
     text: str
     _root: _Node
-    #: Every identifier token in the text, reserved words included (used to
-    #: spot a dimension that shadows ``pi`` or a unit).
+    #: Every identifier token in the text, reserved words included.
     words: frozenset[str]
 
     def references(self) -> frozenset[str]:
@@ -594,26 +622,44 @@ class Expression:
         return frozenset(names)
 
     def evaluate(self, resolve: Resolver) -> Quantity:
-        """Evaluate with typed references. Raises :class:`ExpressionError`."""
-        return _evaluate(self._root, resolve, 0)
+        """Evaluate with typed references; the result is finite. Raises
+        :class:`ExpressionError`."""
+        q = _evaluate(self._root, resolve, 0)
+        _finite(q.value)
+        return q
 
     def evaluate_number(self, resolve: Callable[[str], float]) -> float:
         """Evaluate with each reference read as a plain (unitless) number and
-        return the bare value, in mm or degrees if the text carries units."""
-        return self.evaluate(lambda name: Quantity(resolve(name), UNITLESS)).value
+        return the bare value, in mm or degrees if the text carries units.
+
+        Like the pre-library sketch evaluator it does NOT check the result is
+        finite; the caller does (a sketch dimension must be finite and > 0).
+        """
+        return _evaluate(
+            self._root, lambda name: Quantity(resolve(name), UNITLESS), 0
+        ).value
 
 
-def parse(text: str) -> Expression:
-    """Parse ``text`` (raises :class:`ExpressionError`, never executes it)."""
-    if len(text) > MAX_EXPRESSION_LENGTH:
+def parse(
+    text: str, *, names: frozenset[str] = frozenset(), legacy_text: bool = False
+) -> Expression:
+    """Parse ``text`` (raises :class:`ExpressionError`, never executes it).
+
+    ``names`` are the names in scope: in reference position (not after a
+    number, not before ``(``) such a name is a reference even if it is also a
+    unit, function or ``pi``. ``legacy_text`` is for sketch dimensions: it
+    accepts exactly the text the pre-library tokenizer did (Unicode digits and
+    whitespace) and leaves the 256-character cap to the wire field, as before.
+    """
+    if not legacy_text and len(text) > MAX_EXPRESSION_LENGTH:
         raise ExpressionLimitError(
             f"expression is {len(text)} characters; the limit is "
             f"{MAX_EXPRESSION_LENGTH}"
         )
-    tokens = _tokenize(text)
+    tokens = _tokenize(text, legacy_text)
     if not tokens:
         raise ExpressionSyntaxError(f"empty expression {text!r}")
-    root = _Parser(tokens, text).parse()
+    root = _Parser(tokens, text, names).parse()
     words = frozenset(t.value for t in tokens if t.kind == "ident")
     return Expression(text=text, _root=root, words=words)
 
@@ -819,9 +865,11 @@ def evaluate_driving_dimensions(constraints: Sequence[object]) -> dict[int, floa
     ``angle = "half*2"`` over a 20 mm ``half`` is 40 degrees, as it was before
     units existed, so every stored sketch evaluates as it did. Unit suffixes
     and functions are typed: ``30 deg`` in a distance is a unit error, and
-    ``tan()`` reads degrees. Unknown names, references to driven dimensions
-    (known only after the solve), cycles, and a dimension named after a
-    reserved word that an expression uses are all :class:`ExpressionError`.
+    ``tan()`` reads degrees. A dimension's name wins over a reserved word in
+    reference position (a dimension ``rad`` makes ``rad*2`` read it), and the
+    text is tokenized as before (Unicode digits and whitespace). Unknown names,
+    references to driven dimensions (known only after the solve) and cycles
+    are :class:`ExpressionError`.
     """
     dims = [(i, c) for i, c in enumerate(constraints) if _is_dimension(c)]
 
@@ -830,7 +878,7 @@ def evaluate_driving_dimensions(constraints: Sequence[object]) -> dict[int, floa
         return dim.name if dim.name is not None else f"#{index}"
 
     by_key = {key(i, c): (i, c) for i, c in dims}
-    shadowing = {name for name in by_key if name in RESERVED_WORDS}
+    names = frozenset(c.name for _, c in dims if c.name is not None)
     parsed: dict[str, Expression | None] = {}
 
     def deps(name: str) -> frozenset[str]:
@@ -845,7 +893,11 @@ def evaluate_driving_dimensions(constraints: Sequence[object]) -> dict[int, floa
                 "dimensions can be referenced"
             )
         if name not in parsed:
-            parsed[name] = _parse_dimension(dim, shadowing)
+            parsed[name] = (
+                None
+                if dim.expression is None
+                else parse(dim.expression, names=names, legacy_text=True)
+            )
         node = parsed[name]
         return node.references() if node is not None else frozenset()
 
@@ -863,20 +915,3 @@ def evaluate_driving_dimensions(constraints: Sequence[object]) -> dict[int, floa
             value = coerce(q, ANGLE if is_angle else LENGTH, f"dimension {who}")
         values[name] = _check_dimension(value, who, is_angle)
     return {i: values[key(i, c)] for i, c in dims if c.is_driving}
-
-
-def _parse_dimension(dim: DimensionLike, shadowing: set[str]) -> Expression | None:
-    if dim.expression is None:
-        return None
-    # Before parsing: a dimension named ``m`` or ``sin`` would otherwise
-    # surface as a puzzling syntax error, and one named ``pi`` would silently
-    # read 3.14159.
-    if len(dim.expression) <= MAX_EXPRESSION_LENGTH:
-        words = {t.value for t in _tokenize(dim.expression) if t.kind == "ident"}
-        clash = sorted(words & shadowing)
-        if clash:
-            raise ExpressionNameError(
-                f"dimension name {clash[0]!r} is reserved (a function, unit or "
-                "constant); rename the dimension to reference it"
-            )
-    return parse(dim.expression)
