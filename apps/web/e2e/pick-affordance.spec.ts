@@ -3,6 +3,7 @@ import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "./fixtures";
 
 import { setupTwoInstances } from "./assemblyFlow";
+import { ORACLE_TIMEOUT_MS, settledStamp, stampSettles } from "./hoverStamp";
 import { installSceneProbe, waitForCameraRest } from "./invariants";
 import {
   labelIsWall,
@@ -169,12 +170,13 @@ async function edgeMarks(page: Page): Promise<EdgeMark[]> {
  * the reach.
  *
  * THIS IS A FILTER, NOT AN ORACLE — the same posture the hole scan takes. It
- * reads the hover stamp with no settle, ~330 times per call; every value an
+ * reads the hover stamp with no settle by default (`settle` opts a caller in,
+ * as the mate sweep does), ~330 times per call; every value an
  * ASSERTION consumes is re-checked afterwards through {@link reachHolds} (for a
  * reach) or {@link releasesEntity} / {@link settledStampAt} (for a point-local
  * claim), so a survivor of the previous probe cannot masquerade as a fresh one.
  * See the ORACLE block below for the measurements that set that boundary,
- * including why the sweep itself is NOT converted: parking every probe costs
+ * including why the default sweep is NOT converted: parking every probe costs
  * 20x AND changes what is being measured.
  */
 async function measureReach(
@@ -184,6 +186,12 @@ async function measureReach(
   attribute = "data-edge-pick-hover",
   /** The stamp value that counts as "this edge" (mates stamp `instance:index`). */
   wanted = String(mark.index),
+  /**
+   * Settle every probe through {@link settledStamp} instead of reading bare.
+   * About a frame per probe, but a direction can then neither end on the
+   * previous position's stamp nor run on past its corridor by carry-over.
+   */
+  settle = false,
 ): Promise<EdgeReach> {
   const profile: number[] = [];
   const crossTalk = new Map<string, Point>();
@@ -192,7 +200,9 @@ async function measureReach(
     for (const radius of RADII) {
       const point = radialPoint(mark.centre, d, radius);
       await page.mouse.move(point.x, point.y);
-      const stamped = await viewport.getAttribute(attribute);
+      const stamped = settle
+        ? await settledStamp(page, viewport, attribute)
+        : await viewport.getAttribute(attribute);
       if (stamped === wanted) {
         reach = radius;
         continue;
@@ -314,11 +324,10 @@ const OFF_BODY: Point = { x: 5, y: 5 };
  *   assertion CLAIMS rather than to the sweep's maximum, and then settles.
  *
  * AND THE RE-WALK EARNED ITS KEEP IMMEDIATELY: it found that the mate-axis gate
- * at the foot of this describe has been passing on a one-ring carry-over, and
- * that on the UNMODIFIED file that gate is already a ~29 % flake. NO THRESHOLD
- * IN THIS FILE WAS MOVED — the mate measurement is not stable enough to
- * re-baseline against (20/28/40/90 px across 15 runs), so it is written down at
- * its call site and handed on rather than tuned into green.
+ * at the foot of this describe was passing on a one-ring carry-over, and was a
+ * ~29 % flake. The cause was this same stale read (the mate stamp DOES lag
+ * under load, unlike the edge stamp measured above), so that sweep now settles
+ * every probe and is stable; see its call site. NO THRESHOLD WAS MOVED.
  *
  * WHERE EITHER IS SPENT — on thin margins and strict claims, not uniformly:
  *   · `reachable.length >= 3` is met by EXACTLY 3 of 8 sampled edges. Zero
@@ -337,50 +346,6 @@ const OFF_BODY: Point = { x: 5, y: 5 };
  * ======================================================================= */
 
 /** What a parked oracle is waiting for the stamp to become. */
-type StampGoal =
-  | { kind: "absent" }
-  | { kind: "present" }
-  | { kind: "is"; value: string }
-  | { kind: "not"; value: string };
-
-/**
- * How long a parked oracle waits for the transition it parked for.
- *
- * Not a frame budget — a settle-tolerant ceiling, so a slower runner cannot
- * re-break it. Measured transition time with rAF polling on this build: p50
- * 206 ms, p90 229 ms, max 279 ms (the floor is the ~5 fps software-GL frame,
- * not React). 5 s is ~18x the p90 and matches the timeout every other wait in
- * this file already uses. It is only ever SPENT when a claim is about to fail.
- */
-const ORACLE_TIMEOUT_MS = 5_000;
-
-/** Wait, polling on animation frames, for the viewport stamp to reach `goal`. */
-async function stampSettles(
-  page: Page,
-  attribute: string,
-  goal: StampGoal,
-  timeout = ORACLE_TIMEOUT_MS,
-): Promise<boolean> {
-  return page
-    .waitForFunction(
-      (input: { attribute: string; goal: StampGoal }) => {
-        const value =
-          document
-            .querySelector('[data-testid="viewport"]')
-            ?.getAttribute(input.attribute) ?? null;
-        if (input.goal.kind === "absent") return value === null;
-        if (input.goal.kind === "present") return value !== null;
-        if (input.goal.kind === "is") return value === input.goal.value;
-        return value !== input.goal.value;
-      },
-      { attribute, goal },
-      { timeout, polling: "raf" },
-    )
-    .then(
-      () => true,
-      () => false,
-    );
-}
 
 /** Park off every pick surface and prove the stamp is gone. */
 async function parkOffBody(page: Page, attribute: string): Promise<void> {
@@ -444,14 +409,7 @@ async function reachHolds(
     const step = radialPoint(centre, direction, ring);
     await page.mouse.move(step.x, step.y);
   }
-  let last = await viewport.getAttribute(attribute);
-  for (let round = 0; round < 5; round += 1) {
-    await waitForFrames(page, 1);
-    const next = await viewport.getAttribute(attribute);
-    if (next === last) return next === wanted;
-    last = next;
-  }
-  return last === wanted;
+  return (await settledStamp(page, viewport, attribute)) === wanted;
 }
 
 /**
@@ -1845,44 +1803,57 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
           },
           "data-mate-pick-hover",
           `${idA}:${index}`,
+          true,
         ),
       );
     }
     const report = sampled
       .map((r) => `#${r.mark.index} ${r.along}px`)
       .join(" ");
-    // THE ONE READER IN THIS FILE LEFT UNCONFIRMED, deliberately, and this
-    // comment is the handover rather than an excuse. Every other reach gate
-    // above now re-walks its claimed radius through `reachHolds`; this one does
-    // not, because doing so turns it RED — and the red is real. Measured at
-    // load average 13 on 4 cores:
+    // THIS SWEEP SETTLES EVERY PROBE (`settle`), and that is the whole fix for
+    // the ~30 % red it used to be under load (CI-4, CI full lane on 2fab0ab).
+    // ROOT CAUSE, measured at 3 workers plus 2 CPU spinners: the failing run's
+    // profile for `#14` was `[0,28,20,…]` where every green run read
+    // `[60,28,20,…]`. Its direction 0, ring 13, read `null`; the SAME point,
+    // re-read 250 ms later without moving, read `${idA}:14`. That read is the
+    // first probe after `#13`'s sweep ends off the band, and the stamp is set by
+    // a passive effect a commit after the r3f handler — so under load a bare
+    // read still held the previous position's `null` and ended the direction
+    // at 0. Nothing in the app was wrong: the click resolves through the band's
+    // own synchronous `resolveAt`, and the hover landed on the next frame. The
+    // same race the other way is the one-ring carry-over CI-4 described, which
+    // could pass this gate on a 28 px corridor.
     //
-    //   · On the UNMODIFIED file (only a `console.log` added, so none of this is
-    //     the CI-4 diff) the sweep reported `#14 40px` in 5 runs of 7 and
-    //     `#14 28px` in the other 2. The 28s FAILED. This gate is therefore
-    //     ALREADY a ~29 % flake in CI, and has been.
-    //   · Every 40 px reading is refused by the settled re-walk — 5 of 5 across
-    //     two protocols. So on the runs where it passes, it passes on a one-ring
-    //     carry-over from 28 px, which is exactly the defect class CI-4 exists
-    //     to remove.
-    //   · The measurement is not stable enough to re-baseline against, which is
-    //     why no threshold here was moved: across 15 runs `#14` came back 20,
-    //     28, 40 and 90 px. `setupTwoInstances` never pins the camera the way
-    //     `openDensePlate` does ("only comparable between runs if the part is
-    //     the same size in frame"), and adding that pin here did NOT close it
-    //     either — pinned, the sweep still read 28/40/40/40/90. So the cause is
-    //     upstream of the framing and upstream of this file.
-    //
-    // What it SHOULD assert, when the fixture can support it: a reach CONFIRMED
-    // by `reachHolds`, against a floor derived from the mark it discriminates
-    // against — a 24 px `PickNode` scores 13 px on this sweep (the header's own
-    // mutation run), and 20 px is the smallest RADII ring whose diagonal
-    // (14.1, 14.1) falls outside a 12 px half-extent, so `>= 20` confirmed is
-    // the honest statement of "a band, not a diamond". Gating that needs a
-    // stable assembly fixture first, which is `assemblyFlow.ts`, not here.
+    // Settled, the profile is IDENTICAL in 6 runs of 6 under that load, and the
+    // framing with it (the mark centres never moved), so this is no longer a
+    // measurement too noisy to gate. It is then re-walked at the floor through
+    // `reachHolds`, like every other reach gate in this file.
+    const confirmed: EdgeReach[] = [];
+    const refused: string[] = [];
+    for (const reach of sampled) {
+      if (reach.along < ALONG_MIN_PX) continue;
+      if (
+        await reachHolds(
+          page,
+          viewport,
+          "data-mate-pick-hover",
+          reach.mark.centre,
+          reach.bestDirection,
+          ALONG_MIN_PX,
+          `${idA}:${reach.mark.index}`,
+        )
+      ) {
+        confirmed.push(reach);
+      } else {
+        refused.push(`#${reach.mark.index}@${ALONG_MIN_PX}px`);
+      }
+    }
     expect(
-      sampled.filter((r) => r.along >= ALONG_MIN_PX).length,
-      `mate axes addressable >= ${ALONG_MIN_PX}px along: ${report}`,
+      confirmed.length,
+      `mate axes addressable >= ${ALONG_MIN_PX}px along: ${report}` +
+        (refused.length > 0
+          ? `; refused on re-walk: ${refused.join(" ")}`
+          : ""),
     ).toBeGreaterThanOrEqual(1);
   });
 });
