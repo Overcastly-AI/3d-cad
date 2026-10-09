@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 
-import { createFeature, SQUARE_20 } from "./partSeed";
+import { createFeature, rectangleSketch } from "./partSeed";
 import { createPartViaApi, seedSession } from "./support";
 
 /**
@@ -18,29 +18,56 @@ const TOO_DENSE =
   "This twisted body is too dense to write as 3MF in reasonable time. " +
   "Export STL or STEP instead, or reduce the twist.";
 
-/** Two full turns over 30 mm: the geometry suite's refused 3MF case. */
+/**
+ * Two full turns over 30 mm: the geometry suite's refused 3MF case, built the
+ * base-tooling way (a Sweep with twist along a straight path; the extrude
+ * twist is deprecated). A 20 mm square centred on the origin, swept 30 mm up
+ * the Z axis.
+ */
 async function seedDenseTwist(page: Page, token: string): Promise<string> {
   const part = await createPartViaApi(page, token, "Twisted column");
   const sketch = await createFeature(page, token, part.id, {
     name: "Sketch1",
-    feature: { type: "sketch", version: 1, params: SQUARE_20 },
+    feature: {
+      type: "sketch",
+      version: 1,
+      params: rectangleSketch(-10, -10, 20, 20),
+    },
     expected_tree_version: 0,
   });
-  await createFeature(page, token, part.id, {
-    name: "Extrude1",
+  const path = await createFeature(page, token, part.id, {
+    name: "Sketch2",
     feature: {
-      type: "extrude",
+      type: "sketch",
       version: 1,
       params: {
-        profile: { kind: "feature", feature_id: sketch.feature.id },
-        distance_mm: 30,
-        operation: "add",
-        direction: "normal",
-        twist_angle_deg: 720,
-        twist_center: { x: 10, y: 10 },
+        plane: { kind: "datum_plane", plane: "XZ" },
+        entities: [
+          {
+            id: "p1",
+            kind: "line",
+            start: { x: 0, y: 0 },
+            end: { x: 0, y: 30 },
+          },
+        ],
+        constraints: [],
       },
     },
     expected_tree_version: sketch.tree_version,
+  });
+  await createFeature(page, token, part.id, {
+    name: "Sweep1",
+    feature: {
+      type: "sweep",
+      version: 1,
+      params: {
+        profile: { kind: "feature", feature_id: sketch.feature.id },
+        path: { kind: "feature", feature_id: path.feature.id },
+        operation: "add",
+        twist_angle_deg: 720,
+      },
+    },
+    expected_tree_version: path.tree_version,
   });
   return part.id;
 }

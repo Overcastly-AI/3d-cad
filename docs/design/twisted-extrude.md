@@ -10,8 +10,11 @@ kernel side of helical-gear gap #1 (G1 of the 2026-09-24 reference-part run,
 `git show 5b6fd28:docs/qa/helical-gear-2026-09-24.md`). **TWIST-TO-SWEEP
 (2026-09-25):** twist now lives on Sweep; the kernel and API half has landed
 (§8), and the extrude twist is kept only so stored rows and scripts rebuild.
-This note is deleted once the web half (the Sweep field, and no Twist field
-on Extrude) ships.
+**DEPRECATED (2026-10-09, founder):** the extrude twist cannot be authored
+any more (a create or update that sets or changes it is a 422
+`extrude_twist_deprecated`); stored rows still load and rebuild unchanged
+(RESEARCH §1). The golden named below is now
+`sweep-twist-square20-hole-r3-h30-30deg`, the same body built as a Sweep.
 
 Related: RESEARCH §1 (OCCT via OCP + build123d; no new dependency) and §9
 (goldens, determinism, STEP round trip); `feature-tree.md` §1.4 (an additive

@@ -156,6 +156,18 @@ byte-identical; RESEARCH §15a).
       45), its 28 rail screws follow the rail's hole count, and moving the
       rails from ±40 to ±45 moves the carriage plate's holes.
 
+## Later
+
+- [ ] **PLUGINS-PACKAGE**: niche and legacy features move out of base
+      tooling into a separate plugins package. Founder, 2026-10-09: "Old
+      features such as twist should be depreciated. We shouldn't invest
+      functions for our base tooling. If a part relies on it then rebuild the
+      part correctly. In the future we will add plugins as another package
+      that will handle this stuff." The extrude twist is deprecated now
+      (read-only legacy, `loft_wire.legacy_twist`). _Accept:_ a plugin package
+      can register a feature without touching base tooling, and the extrude
+      twist moves there with every stored part still rebuilding unchanged.
+
 ## Founder decisions
 
 - [ ] **Object store**: MinIO (AGPL, now unmaintained and source-only) or
@@ -177,6 +189,11 @@ byte-identical; RESEARCH §15a).
 
 One line each. The founder triages weekly; most are closed without work.
 
+- APEX-BUTTONS: Extrude and Revolve enable with only an apex (point-only) sketch present; clicking does nothing.
+- APEX-SWEEP-PATH: `defaultSweepPathId` and the sweep path picker still offer apex sketches (the kernel refuses with a typed `PathEmptyError`).
+- APEX-OTHER-LISTS: the BaseFlange editor and the revolve axis map still list apex sketches (typed kernel refusal, no crash).
+- ZERO-MID-DRAG: with a draw tool armed but no typed point open (rect mid-drag), `0` is neither Fit nor a digit.
+- LOFT-IMPORT-TWIST: a crafted `.loft` can still import a NEW twisted extrude; the import skips the `extrude_twist_deprecated` check by design, so legacy files keep loading.
 - BACKFILL-GIVEUP-ACTIVE: an actively editing user can stale three backfill runs and give the part up; unnamed picks then wait for a `--part` sweep.
 - BACKFILL-JOURNAL-TRIGGER: the `gave_up` journal row stores the reason in `trigger` (elsewhere open/sweep); give it its own column.
 - BACKFILL-FAILURE-VERSION: `POST /ref-names/failure` ignores the body's `tree_version`, so a late report counts against the current version.

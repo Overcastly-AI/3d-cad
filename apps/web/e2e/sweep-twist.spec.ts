@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { expect, test, type Page } from "./fixtures";
 
 import { createFeature, evaluateViaApi, rectangleSketch } from "./partSeed";
@@ -12,9 +14,11 @@ import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
  *     Twist field, lands in the stored row and builds the twisted solid;
  *  2. the same twist along an ARC path is refused (`twist_path_unsupported`)
  *     and the refusal reads in the Sweep editor, in its error slot;
- *  3. DATA SAFETY: a stored legacy twisted extrude (a twist and its axis
- *     point) keeps both, byte for byte, when its distance is edited in the
- *     Extrude editor, which shows the twist as a read-only legacy note.
+ *  3. DATA SAFETY: a legacy twisted extrude (a twist and its axis point)
+ *     keeps both, byte for byte, when its distance is edited in the Extrude
+ *     editor, which shows the twist as a read-only legacy note. The extrude
+ *     twist is deprecated, so the API refuses to author one; the row arrives
+ *     the way old data does, in a `.loft` written before the deprecation.
  *
  * The profile is the golden's 20 mm square centred on the origin; the paths
  * are the goldens' (a 30 mm line up +Z, and the r40 quarter arc on XZ).
@@ -75,6 +79,34 @@ async function paramsOf(
     (f) => f.feature.type === type,
   );
   return row?.feature.params ?? null;
+}
+
+/**
+ * fixtures/legacy-twisted-extrude.loft: a 20 mm square centred on the origin
+ * (Sketch1) and Extrude1 = 30 mm, twist_angle_deg 30 about (1.25, -2.5),
+ * packed by loft_wire.loft_file.pack_part. Imported through the gateway, the
+ * path a stored pre-deprecation part comes back by.
+ */
+async function importLegacyTwist(
+  page: Page,
+  token: string,
+): Promise<{ id: string }> {
+  const file = await readFile(
+    new URL("./fixtures/legacy-twisted-extrude.loft", import.meta.url),
+  );
+  const response = await page.request.post("/api/v1/parts/import", {
+    data: file,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/octet-stream",
+    },
+  });
+  if (!response.ok()) {
+    throw new Error(
+      `e2e .loft import failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  return ((await response.json()) as { part: { id: string } }).part;
 }
 
 /** The first number in an inspector cell (it carries its label and unit). */
@@ -231,25 +263,11 @@ test.describe("twist along path (TWIST-TO-SWEEP)", () => {
   }) => {
     test.setTimeout(120_000);
     const account = await seedSession(page);
-    const part = await createPartViaApi(page, account.token, "Legacy twist");
-    const profile = await createFeature(page, account.token, part.id, {
-      name: "Sketch1",
-      feature: { type: "sketch", version: 1, params: SQUARE_20_CENTRED },
-      expected_tree_version: 0,
-    });
-    const legacy = {
-      profile: { kind: "feature", feature_id: profile.feature.id },
-      distance_mm: 30,
-      operation: "add",
-      direction: "normal",
-      merge: true,
+    const part = await importLegacyTwist(page, account.token);
+    const legacy = await paramsOf(page, account.token, part.id, "extrude");
+    expect(legacy).toMatchObject({
       twist_angle_deg: 30,
       twist_center: { x: 1.25, y: -2.5 },
-    };
-    await createFeature(page, account.token, part.id, {
-      name: "Extrude1",
-      feature: { type: "extrude", version: 1, params: legacy },
-      expected_tree_version: profile.tree_version,
     });
     await page.goto(`/parts/${part.id}`);
     await page.getByTestId("feature-select-1").click({ timeout: 30_000 });

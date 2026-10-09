@@ -26,8 +26,23 @@ exact screw motion. It is checked against the Cavalieri identity
 (volume = area x distance), because OCCT can return an inverted solid that
 `BRepCheck` accepts. The flanks are meshed with surface-deflection refinement
 off, and a twist whose estimated cost exceeds 4.5 s is refused
-(`twist_failed`). See `docs/design/twisted-extrude.md`. Twist moves to Sweep
-next (BACKLOG TWIST-TO-SWEEP).
+(`twist_failed`). See `docs/design/twisted-extrude.md`. Twist lives on Sweep
+(TWIST-TO-SWEEP), through the same kernel call.
+
+**Extrude twist deprecated (2026-10-09, founder; VISION "Base tooling and
+plugins").** No mainstream CAD twists an extrude, so the extrude's
+`twist_angle_deg` / `twist_center` are read-only legacy
+(`loft_wire.legacy_twist`): a feature create or update that sets or changes
+one is a 422 `extrude_twist_deprecated` pointing to Sweep, while a stored row
+loads and rebuilds exactly as before, and a write that carries it through
+unchanged (or removes it) is allowed. A `.loft` import, a version restore and
+a duplicate copy stored data and are not refused. The kernel's twisted-extrude
+path stays: stored rows and the sweep twist both need it. The golden was
+rebuilt as `sweep-twist-square20-hole-r3-h30-30deg` with the old expected
+values. A twisted sweep along a straight path through the origin builds the
+SAME body as the extrude: the two-way boolean difference is empty, the GLB is
+byte-identical and the metadata identical; the same row at 29 deg leaves a
+nonzero difference (`test_twisted_extrude.py`).
 
 ## 2. Sketch solver: planegcs
 

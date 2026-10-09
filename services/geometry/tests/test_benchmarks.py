@@ -351,15 +351,15 @@ CASES: list[BenchCase] = [
     BenchCase(
         "tree", "fillet-top-edge", _L, _tree_eval_factory("fillet-top-edge-40x25x10-r5")
     ),
-    # Twisted extrude (docs/design/twisted-extrude.md): two pipe-shell sweeps
+    # Twisted sweep (docs/design/twisted-extrude.md): two pipe-shell sweeps
     # (outer + hole), the hole cut, the Cavalieri guard's two adaptive
     # integrals, then B-spline tessellation. Measured ~0.16-0.2 s whole-tree,
     # so the HEAVY bucket.
     BenchCase(
         "tree",
-        "twisted-extrude-holed",
+        "twisted-sweep-holed",
         _H,
-        _tree_eval_factory("extrude-twist-square20-hole-r3-h30-30deg"),
+        _tree_eval_factory("sweep-twist-square20-hole-r3-h30-30deg"),
     ),
     # The v2 `features`-scope mirror: k selected features cost k exact reflections
     # + k booleans (docs/design/mirror-semantics.md §9 asks for a rebuild-time
@@ -405,8 +405,8 @@ CASES: list[BenchCase] = [
         _H,
         _overlay_factory("pattern-cut-6hole-boltcircle-60x60x10"),
     ),
-    # Tessellation (GLB): a primitive, a curved primitive, and a dense body.
-    BenchCase("tessellate", "box-primitive", _L, _tessellate_factory("box-10x20x30")),
+    # Tessellation (GLB): a box, a cylinder (curved), and a dense body.
+    BenchCase("tessellate", "box", _L, _tessellate_factory("box-10x20x30")),
     BenchCase(
         "tessellate", "cylinder-curved", _L, _tessellate_factory("cylinder-r10-h25")
     ),

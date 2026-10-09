@@ -28,7 +28,8 @@ def build_cylinder(radius: float, height: float) -> Solid:
     """Build a right circular cylinder: base disc centred at the origin in
     the XY plane, axis along +Z (dimensions in mm).
 
-    First curved primitive — its golden (``goldens/cylinder-r10-h25``) locks
+    First curved primitive. The golden ``goldens/cylinder-r10-h25`` (now the same
+    body as a sketch + extrude tree; tests/test_primitive_goldens.py) locks
     GProp integration over an analytic quadric surface, curved-face
     tessellation deflection, and STEP re-approximation of curved geometry.
     OCCT models the closed cylinder as 3 faces (lateral + 2 caps), 3 edges

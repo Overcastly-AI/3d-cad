@@ -18,13 +18,17 @@ finding, see the BACKLOG notes of 2026-10-07):
   is two open sweeps, split where the path tangent is parallel to a datum
   normal, because a sweep is anchored at its profile and the profile sits on an
   axis-aligned datum;
-* there is no tilted datum plane, so the head is a REVOLVE of its radial
-  section about a tilted sketch axis;
-* there is no symmetric (midplane) extrude, so the cross tubes extrude from a
-  datum at y = +104 by 208;
 * a merging extrude cannot bridge the two lumps a mirror leaves
   (``boolean_failed``), so each cross tube and the head are their own body
   (``merge=False``) joined by a ``boolean`` union.
+
+Two workarounds of 2026-10-07 are no longer needed, but the script keeps them
+so that it builds the golden's tree feature for feature: the head is a REVOLVE
+of its radial section about a tilted sketch axis, where today a datum plane at
+an angle (``Part.plane_at_angle``, DATUM-PLANE-ANGLE) would carry the head's
+section for a plain extrude; and the cross tubes extrude 208 from a datum at
+y = +104, where today a symmetric extrude (``extent="symmetric"``,
+EXTRUDE-SYMMETRIC) would run them 208 about the XZ plane.
 
 The cross tubes stop 6 mm short of the rail centrelines: ending ON the
 centreline makes OCCT's fuse of equal-diameter crossing tubes unreliable.

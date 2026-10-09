@@ -38,6 +38,19 @@ if modelling does not cost them time. So:
 - **The viewport is the hero.** The chrome stays quiet and keyboard-first, and
   the tool should feel like Fusion or Plasticity.
 
+## Base tooling and plugins
+
+Base tooling is the core that Fusion 360, SolidWorks and Onshape share:
+sketch, extrude, revolve, sweep, loft, hole, fillet, chamfer, shell, draft,
+pattern, mirror, datums and assemblies. Loft does not build niche or legacy
+features into it. A feature outside that core is deprecated and will live in
+a future plugins package (PLUGINS-PACKAGE in `docs/BACKLOG.md`). A deprecated
+feature keeps loading and rebuilding every stored part unchanged (read-only
+legacy), but it cannot be authored again. If a part relies on one, rebuild
+the part with base tooling. The first is the extrude twist: a twisted prism
+is a Sweep with twist along a straight path, as in Fusion and SolidWorks
+(founder, 2026-10-09).
+
 ## Reference parts
 
 These drive priority. `qa-tester` models them end to end in the real app

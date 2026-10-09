@@ -23,7 +23,7 @@ import os
 import uuid
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypeVar
+from typing import TYPE_CHECKING, Literal, NoReturn, TypeVar
 
 from loft_wire.extrude_extent import ExtrudeExtent
 from loft_wire.features import (
@@ -45,6 +45,10 @@ from loft_wire.features import (
     SweepParamsV1,
 )
 from loft_wire.geometry import ExportFormat, ShapeProperties
+from loft_wire.legacy_twist import (
+    EXTRUDE_TWIST_DEPRECATED_CODE,
+    EXTRUDE_TWIST_DEPRECATED_MESSAGE,
+)
 from loft_wire.loft_file import LOFT_SUFFIX, LoftWarning
 from loft_wire.parts import PartCreate, PartListResponse, PartResponse, PartUpdate
 from loft_wire.units import LengthUnit
@@ -57,8 +61,8 @@ from loft_wire.versions import (
 
 from loft import _operations as ops
 from loft.datum import LineLike, ReferenceLike, plane_at_angle_feature
-from loft.errors import FeatureFailed, NoBody, StaleDocument
-from loft.sketch import PointLike, Sketch, as_point, resolve_plane
+from loft.errors import FeatureFailed, InvalidRequest, NoBody, StaleDocument
+from loft.sketch import Sketch, resolve_plane
 
 if TYPE_CHECKING:  # pragma: no cover
     from loft.session import Session
@@ -148,6 +152,14 @@ class Evaluation:
             raise _feature_error(entry)
         if entry is not None and entry.status == "skipped":
             self.raise_for_features()
+
+
+def _refuse_extrude_twist() -> NoReturn:
+    """The extrude twist is deprecated (loft_wire.legacy_twist): say so, and
+    point to Sweep, with the server's own code and message."""
+    raise InvalidRequest(
+        EXTRUDE_TWIST_DEPRECATED_MESSAGE, code=EXTRUDE_TWIST_DEPRECATED_CODE
+    )
 
 
 def _feature_error(entry: FeatureResult) -> FeatureFailed:
@@ -411,9 +423,9 @@ class Part:
         direction: Literal["normal", "reverse"] = "normal",
         extent: ExtrudeExtent = "one_side",
         merge: bool = True,
-        twist_angle_deg: float | None = None,
-        twist_center: PointLike | None = None,
         name: str = "Extrude",
+        twist_angle_deg: float | None = None,
+        twist_center: object = None,
     ) -> FeatureResponse:
         """Extrude an earlier sketch's profile.
 
@@ -427,25 +439,24 @@ class Part:
         sketch plane, so ``distance_mm`` is the whole length (SolidWorks Mid
         Plane, Onshape and Fusion Symmetric); ``direction`` then only names
         which cap is ``start`` and which ``end``, as one-sided.
-        It works for add and cut and does not combine with a twist.
+        It works for add and cut.
 
-        ``twist_angle_deg`` / ``twist_center`` are the LEGACY extrude twist:
-        twist now lives on :meth:`sweep` ("twist along path", as in Fusion 360
-        and SolidWorks), which builds the same solid along a straight path.
-        They still work, and a stored twisted extrude rebuilds unchanged: the
-        profile turns uniformly by that many degrees over the whole distance,
-        right-handed about the extrusion direction, about an axis parallel to
-        it through ``twist_center`` (sketch-local mm, default the sketch
-        origin). ``None`` or ``0`` is the plain prism.
+        Extrude has no twist: the extrude twist is deprecated, read-only legacy
+        (:mod:`loft_wire.legacy_twist`). A twisted prism is :meth:`sweep` with
+        ``twist_angle_deg`` along a straight path. A stored twisted extrude
+        still rebuilds unchanged, and :meth:`set_extrude_distance` carries its
+        twist through. Passing ``twist_angle_deg`` or ``twist_center`` raises
+        :class:`~loft.errors.InvalidRequest` (``extrude_twist_deprecated``)
+        before anything is sent.
 
-        A non-positive ``distance_mm``, a non-finite value, or a twist beyond
-        ten turns is refused CLIENT-side by the shared DTO (a ``ValueError``,
-        the same validator the server runs), so no payload the server would
-        reject is ever sent. An open profile is a ``profile_not_closed`` and a
-        twist too tight for the profile, or with too many turns for it to build
-        in reasonable time, a ``twist_failed`` feature error, raised by
+        A non-positive ``distance_mm`` or a non-finite value is refused
+        CLIENT-side by the shared DTO (a ``ValueError``, the same validator the
+        server runs), so no payload the server would reject is ever sent. An
+        open profile is a ``profile_not_closed`` feature error, raised by
         :meth:`evaluate`.
         """
+        if twist_angle_deg is not None or twist_center is not None:
+            _refuse_extrude_twist()
         created = self.create_feature(
             name,
             ExtrudeFeature(
@@ -458,10 +469,6 @@ class Part:
                     direction=direction,
                     extent=extent,
                     merge=merge,
-                    twist_angle_deg=twist_angle_deg,
-                    twist_center=(
-                        None if twist_center is None else as_point(twist_center)
-                    ),
                 ),
             ),
         )
@@ -543,7 +550,7 @@ class Part:
         """Change an existing sweep's twist (``None``/``0`` removes it).
 
         The same whole-envelope replacement, re-validated client-side, as
-        :meth:`set_extrude_twist`: profile, path, operation and merge stay as
+        :meth:`set_extrude_distance`: profile, path, operation and merge stay as
         stored, and a NaN or infinite twist is a pydantic ``ValidationError``
         naming the field before anything is sent.
         """
@@ -566,26 +573,22 @@ class Part:
 
         Replaces the whole param envelope, like the workspace's distance field,
         keeping every other parameter as stored (a PATCH that dropped
-        ``operation`` would silently turn a cut into an add).
+        ``operation`` would silently turn a cut into an add, and one that
+        dropped a stored legacy twist would straighten the part).
         """
         return self._update_extrude(feature_id, distance_mm=distance_mm)
 
     def set_extrude_twist(
         self, feature_id: uuid.UUID, twist_angle_deg: float | None
     ) -> FeatureResponse:
-        """Change an existing extrude's LEGACY twist (``None``/``0`` straightens it).
+        """Removed: the extrude twist is deprecated, read-only legacy.
 
-        For stored twisted extrudes; a new twist belongs on :meth:`sweep`
-        (:meth:`set_sweep_twist`).
-
-        Same whole-envelope replacement as :meth:`set_extrude_distance`, so the
-        operation, direction and twist axis stay as stored — except that
-        straightening also drops the stored axis, exactly as the wire model
-        normalises a twist-less extrude. A NaN or infinite twist is a
-        pydantic ``ValidationError`` (a ``ValueError``) naming the field, before
-        anything is sent.
+        Always raises :class:`~loft.errors.InvalidRequest`
+        (``extrude_twist_deprecated``), pointing to :meth:`sweep` with
+        ``twist_angle_deg``; nothing is sent.
         """
-        return self._update_extrude(feature_id, twist_angle_deg=twist_angle_deg)
+        del feature_id, twist_angle_deg
+        _refuse_extrude_twist()
 
     def _update_extrude(
         self, feature_id: uuid.UUID, **changes: object
@@ -598,12 +601,9 @@ class Part:
             )
         # Re-VALIDATE the merged envelope; model_copy(update=...) does not. That
         # is the same client-side refusal `extrude` gets from constructing the
-        # DTO, and it runs the wire model's twist normalisation. Without it
-        # (measured, review of d823af9) a NaN twist is carried by the unvalidated
-        # copy into the request and dies in the HTTP client's JSON encoder with
-        # an opaque "Out of range float values" error, while any path that
-        # serialises the model with model_dump_json would write it as null and
-        # silently straighten the extrude.
+        # DTO. Without it (measured, review of d823af9) a NaN is carried by the
+        # unvalidated copy into the request and dies in the HTTP client's JSON
+        # encoder with an opaque "Out of range float values" error.
         params = type(stored.params).model_validate(
             {**stored.params.model_dump(), **changes}
         )

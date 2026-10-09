@@ -607,7 +607,6 @@ test.describe("a long feature name @1440x900", () => {
           operation: "add",
           direction: "normal",
           merge: true,
-          twist_angle_deg: 30,
         },
       },
       expected_tree_version: sketch.tree_version,

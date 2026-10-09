@@ -406,7 +406,7 @@ UNCHANGED = (
     "revolve-vbelt-pulley-od100-bore16",
     "loft-spline-sections-nurbs-h30",
     "sweep-circle-r8-h30",
-    "extrude-twist-square20-hole-r3-h30-30deg",
+    "sweep-twist-square20-hole-r3-h30-30deg",
     "shell-open-top-box-40x25x10-t2",
     "fillet-top-edge-40x25x10-r5",
 )

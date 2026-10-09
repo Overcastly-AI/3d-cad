@@ -3907,12 +3907,12 @@ export interface components {
          *     travels, so every point of it traces a true helix and the far-end section is
          *     the profile rotated by the full twist (docs/design/twisted-extrude.md).
          *
-         *     **The extrude twist is LEGACY (TWIST-TO-SWEEP).** Twist is authored on
-         *     :class:`SweepParamsV1` (``twist_angle_deg``, "twist along path" as in
-         *     Fusion 360 and SolidWorks). These two fields stay, read-compatibly, so that
-         *     every stored twisted extrude and every script that passes them opens and
-         *     rebuilds exactly as before; a twisted extrude and a twisted sweep along the
-         *     matching straight path build the SAME solid through the same kernel call.
+         *     **The extrude twist is DEPRECATED (read-only legacy).** Twist is authored
+         *     on :class:`SweepParamsV1` (``twist_angle_deg``, "twist along path" as in
+         *     Fusion 360 and SolidWorks). These two fields stay so that every stored
+         *     twisted extrude loads and rebuilds exactly as before, but a write that
+         *     sets or changes one is refused (:mod:`loft_wire.legacy_twist`); a twisted
+         *     sweep along the matching straight path builds the SAME solid.
          *     Both fields are additive-optional, null by default and OMITTED from a dump
          *     while null, so an extrude with no twist serializes byte-for-byte as it did
          *     before they existed (stored row, response, rebuild-cache key) and rebuilds
@@ -3952,10 +3952,10 @@ export interface components {
             profile: components["schemas"]["FeatureRef"];
             /**
              * Twist Angle Deg
-             * @description LEGACY: new twists belong on the sweep's `twist_angle_deg` (twist along a straight path); this field is kept so stored extrudes and scripts rebuild unchanged. Twist over the whole extrusion distance (degrees). The profile rotates uniformly about the twist axis as it travels, a true helical sweep. Positive is RIGHT-HANDED about the extrusion direction (a right-hand helix whichever way `direction` points); negative is left-handed. None (the default), 0, or any |twist| below 1e-9 deg is NO twist: it is normalised to absent, and the extrude is a plain prism, byte-identical to one with no twist. A twist too tight for the profile, or with too many turns for it to build in reasonable time, is a `twist_failed` rebuild error.
+             * @description DEPRECATED, read-only legacy: kept so stored extrudes load and rebuild unchanged; creating or changing it is refused with `extrude_twist_deprecated` (use a Sweep's `twist_angle_deg`). Twist over the whole extrusion distance (degrees). The profile rotates uniformly about the twist axis as it travels, a true helical sweep. Positive is RIGHT-HANDED about the extrusion direction (a right-hand helix whichever way `direction` points); negative is left-handed. None (the default), 0, or any |twist| below 1e-9 deg is NO twist: it is normalised to absent, and the extrude is a plain prism, byte-identical to one with no twist. A twist too tight for the profile, or with too many turns for it to build in reasonable time, is a `twist_failed` rebuild error.
              */
             twist_angle_deg?: number | null;
-            /** @description Where the twist axis pierces the sketch plane, in the profile sketch's own (x, y) mm. The axis runs parallel to the extrusion direction through this point. None (the default) is the sketch origin. Dropped (normalised to absent) when there is no twist. */
+            /** @description DEPRECATED with `twist_angle_deg` (read-only legacy). Where the twist axis pierces the sketch plane, in the profile sketch's own (x, y) mm; the axis runs parallel to the extrusion direction. None is the sketch origin; dropped when there is no twist. */
             twist_center?: components["schemas"]["Point2D"] | null;
         };
         /**
