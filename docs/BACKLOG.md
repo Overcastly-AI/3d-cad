@@ -36,7 +36,7 @@ byte-identical; RESEARCH §15a).
       tube, sketched on a 25° plane and extruded symmetric, gives the frame
       golden's volume (empty two-way difference); a new golden covers an
       angled plane.
-- [ ] **SKETCH-PLANE-PICK** (enclosure: 5 sketches landed on a stale face;
+- [x] **SKETCH-PLANE-PICK** (done bdefa48, 8aa421e; e2e `sketch-plane-pick.spec.ts`; enclosure: 5 sketches landed on a stale face;
       bracket: a face click sketched on XY): New Sketch reuses a face
       remembered from a cancelled Shell or Draft pick, and in plane-pick a
       click on a body face picks the origin plane behind it. In Fusion, Create
@@ -44,7 +44,9 @@ byte-identical; RESEARCH §15a).
       planar face. _Accept:_ with nothing selected, New Sketch opens the plane
       picker; a pick from a cancelled command is never a pre-selection; a
       click on a visible planar face sketches on that face with no "Pick a
-      face" step; an e2e covers all three.
+      face" step; an e2e covers all three. This reverses UI-W3 for the
+      cancel case: a cancelled command's pick is forgotten (Fusion), and only
+      a saved pick seeds the next command.
 
 ## Next
 
@@ -262,7 +264,7 @@ One line each. The founder triages weekly; most are closed without work.
 - Edge marks: a back edge whose hidden run lies under the pointer can beat the front edge (seen only as an x-ray hover); a picked edge resolved again is silently un-picked; `CORNER_ROOM_PENALTY_PX` is 6 px, its comment says 12.
 - Naming: a merged coplanar face's name flips with dimensions (3 samples), so stored names go stale more often; `_containing` checks only 3 interior points.
 - Sketch: applying a user Tangent at a sharp corner silently makes a cusp; endpoint-tangent glyphs sit at the leg midpoint and overlap; old fillet sketches with plain coincident joins are not backfilled.
-- A new Fillet pre-selects a deleted fillet's edges, off-screen ones included; New Sketch's plane picker resets the camera and hides the view bar; at 1280x800 a fitted face sketch runs under the side panels and picks there are lost.
+- A new Fillet pre-selects a deleted fillet's edges, off-screen ones included (also a saved Shell's faces: a saved pick is anchored to the body before it, so deleting or undoing the feature makes it live again and it seeds the next command or New Sketch); New Sketch's plane picker resets the camera and hides the view bar; at 1280x800 a fitted face sketch runs under the side panels and picks there are lost.
 - `scripts/e2e.sh`, `vite.config.ts` and `playwright.config.ts` hard-code web :5173, so parallel e2e needs a throwaway config.
 - BLEND-SERVER-COLD: the blend server now starts at boot by default (every fillet, chamfer and draft runs there, and so do a sealed analytic Shell's Intersection build and a 500+-face Shell's offset); with `BLEND_SERVER_PREWARM=false` the first of them waits 5-9 s (6.3 s measured, against 69 ms prewarmed).
 - BOOLEAN-INPUT-PCURVES: the booleans behind pattern, circular cut pattern, mirror and a failed severing subtract add pcurves and locations to the input body's edges (no geometry or tolerance change; later cuts match). Left as is: the rebuild ladder forks for it (CM-6b).
