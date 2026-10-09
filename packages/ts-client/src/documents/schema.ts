@@ -3431,6 +3431,8 @@ export interface components {
              * @description Feature identity for refs + result keying
              */
             id: string;
+            /** @description Set by documents when this feature's inputs could not be resolved (`parameter_value_invalid`, `parameter_unresolved`). Geometry does not build the feature: its result is this error, and later features build against the body before it. Null (omitted) for a buildable feature. */
+            input_error?: components["schemas"]["FeatureError"] | null;
         };
         /**
          * EvaluatedInstance
@@ -3705,6 +3707,29 @@ export interface components {
              * @description Everything referencing this feature; EMPTY when nothing does
              */
             dependents: components["schemas"]["FeatureDependent"][];
+        };
+        /**
+         * FeatureError
+         * @description Why one feature failed to evaluate (§4.3).
+         */
+        FeatureError: {
+            /**
+             * Code
+             * @description Machine-readable: "profile_not_closed", "boolean_failed", "reference_unresolved", ...
+             */
+            code: string;
+            /**
+             * Message
+             * @description Human-readable, kernel detail sanitized
+             */
+            message: string;
+            /** @description Typed over-constraint classification for the "sketch_conflicting" code: which constraints conflict vs. are redundant, so the sketcher reads the diagnosis by field instead of parsing ``message`` (BACKLOG #6). None for non-sketch-conflict errors. */
+            sketch_diagnosis?: components["schemas"]["SketchConstraintDiagnosis"] | null;
+            /**
+             * Upstream Feature Id
+             * @description Set when the root cause is an earlier feature's output
+             */
+            upstream_feature_id?: string | null;
         };
         /**
          * FeatureMutationResponse
@@ -7017,6 +7042,54 @@ export interface components {
              * @description Radius (mm)
              */
             radius: number;
+        };
+        /**
+         * SketchConstraintDiagnosis
+         * @description Typed classification of an over-constrained sketch (BACKLOG #6).
+         *
+         *     Exposes the solver's already-computed redundant/conflicting constraint sets
+         *     (:class:`SolvedSketch`) as a STRUCTURED diagnosis a caller reads by field —
+         *     never a message string the frontend has to parse. It distinguishes the two
+         *     over-constraint kinds a working engineer must tell apart (VISION.md
+         *     Sketching row): a REDUNDANT constraint is removable and the sketch still
+         *     solves, whereas a CONFLICTING constraint makes the sketch unsolvable until
+         *     one is relaxed. Built by :func:`classify_overconstraint`; carried on the
+         *     :class:`loft_wire.features.FeatureError` (the ``sketch_conflicting``
+         *     error path) and on the solved-sketch feature payload (the redundant-but-
+         *     solvable path), so BOTH cases surface the same typed shape.
+         */
+        SketchConstraintDiagnosis: {
+            /**
+             * Classification
+             * @description Over-constraint kind: 'redundant' (removable, still solves) or 'conflicting' (contradictory, unsolvable until relaxed).
+             * @enum {string}
+             */
+            classification: "redundant" | "conflicting";
+            /**
+             * Conflicting Constraints
+             * @description Indices (into the sketch's input constraint list) of the CONTRADICTORY constraints — empty for a purely redundant over-constraint.
+             */
+            conflicting_constraints?: number[];
+            /**
+             * Message
+             * @description Human-readable diagnosis (kernel/solver detail sanitized).
+             */
+            message: string;
+            /**
+             * Redundant Constraints
+             * @description Indices (into the sketch's input constraint list) of the REDUNDANT (consistent-but-superfluous, removable) constraints.
+             */
+            redundant_constraints?: number[];
+            /**
+             * Removable
+             * @description True when the sketch still solves after removing the named constraints (the redundant case); False when a genuine conflict remains (the sketch is unsolvable). Mirrors `classification` for callers that prefer a boolean over the enum.
+             */
+            removable: boolean;
+            /**
+             * Suggested Fix
+             * @description Actionable hint naming a constraint to remove/relax, e.g. 'Remove constraint 3'. None when no single-constraint fix is offered.
+             */
+            suggested_fix?: string | null;
         };
         /**
          * SketchFeature

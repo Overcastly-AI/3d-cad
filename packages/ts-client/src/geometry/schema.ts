@@ -3619,6 +3619,8 @@ export interface components {
              * @description Feature identity for refs + result keying
              */
             id: string;
+            /** @description Set by documents when this feature's inputs could not be resolved (`parameter_value_invalid`, `parameter_unresolved`). Geometry does not build the feature: its result is this error, and later features build against the body before it. Null (omitted) for a buildable feature. */
+            input_error?: components["schemas"]["FeatureError"] | null;
         };
         /**
          * EvaluatedInstance
@@ -4030,11 +4032,11 @@ export interface components {
         };
         /**
          * FeatureResult
-         * @description Per-feature evaluation status. Strict-prefix rule (§4.3): the first
-         *     failure is ``error``, every subsequent feature ``skipped``. A feature marked
-         *     ``suppressed`` (§4.3a) is neither: it is deliberately skipped from the
-         *     rebuild — distinct from a downstream ``skipped`` (which means an earlier
-         *     feature failed) — so the tree UI can show it dimmed rather than red.
+         * @description Per-feature evaluation status. Strict-prefix rule (§4.3): the first build
+         *     failure is ``error``, every later feature ``skipped``; a feature sent with an
+         *     ``input_error`` is ``error`` and the later ones still build. ``suppressed``
+         *     (§4.3a) is a deliberate skip, distinct from a downstream ``skipped``, so the
+         *     tree UI can show it dimmed rather than red.
          */
         FeatureResult: {
             /** @description Typed per-feature payload for ok features that produce one (§7.10): solved sketch geometry today; future feature types add kind-tagged variants additively. */

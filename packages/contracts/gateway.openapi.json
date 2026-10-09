@@ -4439,6 +4439,17 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "input_error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeatureError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set by documents when this feature's inputs could not be resolved (`parameter_value_invalid`, `parameter_unresolved`). Geometry does not build the feature: its result is this error, and later features build against the body before it. Null (omitted) for a buildable feature."
           }
         },
         "required": [
@@ -5312,7 +5323,7 @@
         "type": "object"
       },
       "FeatureResult": {
-        "description": "Per-feature evaluation status. Strict-prefix rule (\u00a74.3): the first\nfailure is ``error``, every subsequent feature ``skipped``. A feature marked\n``suppressed`` (\u00a74.3a) is neither: it is deliberately skipped from the\nrebuild \u2014 distinct from a downstream ``skipped`` (which means an earlier\nfeature failed) \u2014 so the tree UI can show it dimmed rather than red.",
+        "description": "Per-feature evaluation status. Strict-prefix rule (\u00a74.3): the first build\nfailure is ``error``, every later feature ``skipped``; a feature sent with an\n``input_error`` is ``error`` and the later ones still build. ``suppressed``\n(\u00a74.3a) is a deliberate skip, distinct from a downstream ``skipped``, so the\ntree UI can show it dimmed rather than red.",
         "properties": {
           "data": {
             "anyOf": [
