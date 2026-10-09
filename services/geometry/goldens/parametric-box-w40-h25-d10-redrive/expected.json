@@ -1,0 +1,26 @@
+{
+  "description": "FIRST PARAMETRIC GOLDEN (PART-PARAMETERS step 4): a 40 x 25 x 10 box whose sketch dimensions read the part parameters W and H (= W - 15) and whose extrude depth reads D, as documents sends it to geometry for the table W = 40, D = 10 -- numbers only, every formula resolved and stripped. parametric.json beside it holds the stored tree (formulas kept), the table and three cumulative re-drives with their own hand values; test_parametric_goldens.py proves this model.json IS that tree resolved, and rebuilds every re-drive. This file locks the starting state through the ordinary golden gates.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill).",
+    "parameters: W = 40 mm, H = W - 15 = 25 mm, D = 10 mm; sketch e1 = W, e2 = H, extrude distance = D",
+    "profile: a fully constrained rectangle (4 coincident corners, e1 start fixed at the origin, e1/e3 horizontal, e2/e4 vertical, two distances) spanning x in [0,40], y in [0,25]; the entities are drawn there, so the solve starts at zero residual",
+    "volume = 40 * 25 * 10 = 10000 mm^3",
+    "surface_area = 2*(40*25) + 2*(40*10) + 2*(25*10) = 2000 + 800 + 500 = 3300 mm^2",
+    "centroid = (20, 12.5, 5) by symmetry; bounding_box = [0,0,0]..[40,25,10], the prism runs +Z from the XY datum",
+    "topology: a box is 6 planar faces, 12 straight edges, 1 closed shell; mesh: 6 rectangles * 2 triangles = 12, faceted normals share no vertices, 6 * 4 = 24 vertices. Every re-drive in parametric.json is a box too and is held to these same counts.",
+    "no material is assigned, so mass and centre of mass must be reported ABSENT (null), never 0 g"
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill). Measured deviations vs the analytic values (2026-10-09, build123d 0.11.1 / OCCT 7.9 / planegcs 0.8.0): this model -- volume 1.8e-12 mm^3, centroid <= 1.8e-15 mm, area and AABB exactly 0.0; the three re-drives, each re-solved from the stored 40 x 25 drawing -- worst volume 1.5e-11 mm^3 at 67500 mm^3 (one-ulp scale), area <= 9.1e-13 mm^2, centroid <= 3.6e-15 mm, AABB exactly 0.0, so the solver lands on the new rectangle exactly. 1e-9 is the sibling sketch-extrude-40x25x10 ceiling, ~70x the worst re-drive. The parameter path contributes no error of its own: W, H and D resolve to exact doubles (2 in + 9.2 = 60.0). Loosening this bound requires a reviewed kernel-level justification.",
+  "properties": {
+    "volume": 10000.0,
+    "surface_area": 3300.0,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 6, "edges": 12, "shells": 1 },
+  "mesh": { "vertices": 24, "triangles": 12 }
+}
