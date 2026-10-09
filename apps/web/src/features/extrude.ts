@@ -7,6 +7,7 @@
 import type { LengthUnit } from "@loft/design";
 
 import type { DatumParams, ExtrudeParams, FeatureResponse } from "../api/parts";
+import { isApexSketch } from "../sketch/pointEntity";
 import { parsePositiveLengthMm } from "../units/length";
 import { storedLengthInput, storedLengthMm } from "./storedNumber";
 import { fieldBlocker } from "./submitBlocker";
@@ -109,6 +110,8 @@ export interface ProfileOption {
   name: string;
   /** Where this sketch's plane is seated — decides the cut default (FB-4). */
   provenance: PlaneProvenance;
+  /** The sketch is one lone point: a loft apex, not a profile. */
+  apex?: true;
 }
 
 /**
@@ -427,13 +430,18 @@ export function profileOptions(
   features: readonly FeatureResponse[],
 ): ProfileOption[] {
   const provenance = planeProvenanceById(features);
-  return features
-    .filter((f) => f.feature.type === "sketch")
-    .map((f) => ({
-      id: f.id,
-      name: f.name,
-      provenance: provenance.get(f.id) ?? "base",
-    }));
+  return features.flatMap((f) =>
+    f.feature.type === "sketch"
+      ? [
+          {
+            id: f.id,
+            name: f.name,
+            provenance: provenance.get(f.id) ?? "base",
+            ...(isApexSketch(f.feature.params) ? { apex: true as const } : {}),
+          },
+        ]
+      : [],
+  );
 }
 
 /** The seat of the sketch `profileFeatureId` names, from offered options. */
@@ -476,8 +484,20 @@ export function seededProfileId(
   return seed;
 }
 
+/**
+ * The sketches a PROFILE picker offers (extrude, revolve, sweep): every sketch
+ * except a lone-point apex, which has no closed profile to consume. The SAME
+ * `apex` rule the loft section list labels, so the two lists cannot disagree
+ * about what a one-point sketch is.
+ */
+export function closedProfileOptions(
+  features: readonly FeatureResponse[],
+): ProfileOption[] {
+  return profileOptions(features).filter((option) => option.apex !== true);
+}
+
 /** Default profile for a NEW extrude: the last sketch in the tree, or "". */
 export function defaultProfileId(features: readonly FeatureResponse[]): string {
-  const sketches = profileOptions(features);
+  const sketches = closedProfileOptions(features);
   return sketches.length > 0 ? (sketches[sketches.length - 1]?.id ?? "") : "";
 }

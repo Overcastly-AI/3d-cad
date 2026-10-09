@@ -57,6 +57,7 @@ export function FeatureEditorSeat({
   featureCatalog: Pick<
     FeatureCatalog,
     | "sketchProfiles"
+    | "closedProfiles"
     | "axesByProfile"
     | "pathsByProfile"
     | "smDefaults"
@@ -143,6 +144,7 @@ export function FeatureEditorSeat({
   const { editor, hasBody } = partBody;
   const {
     sketchProfiles,
+    closedProfiles,
     axesByProfile,
     pathsByProfile,
     smDefaults,
@@ -223,7 +225,7 @@ export function FeatureEditorSeat({
         editor.kind === "extrude" ? (
           <ExtrudeEditor
             mode={editor.mode}
-            profiles={sketchProfiles}
+            profiles={closedProfiles}
             initial={editor.initial}
             onSubmit={submitExtrude}
             onCancel={closeEditor}
@@ -235,7 +237,7 @@ export function FeatureEditorSeat({
         ) : editor.kind === "revolve" ? (
           <RevolveEditor
             mode={editor.mode}
-            profiles={sketchProfiles}
+            profiles={closedProfiles}
             axesByProfile={axesByProfile}
             initial={editor.initial}
             onSubmit={submitRevolve}
@@ -248,7 +250,7 @@ export function FeatureEditorSeat({
         ) : editor.kind === "sweep" ? (
           <SweepEditor
             mode={editor.mode}
-            profiles={sketchProfiles}
+            profiles={closedProfiles}
             pathsByProfile={pathsByProfile}
             initial={editor.initial}
             onSubmit={submitSweep}

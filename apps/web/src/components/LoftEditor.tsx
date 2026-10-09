@@ -331,7 +331,11 @@ function sectionSelectOptions(
   sections: readonly ProfileOption[],
   currentValue: string,
 ): { value: string; label: string }[] {
-  const options = sections.map((s) => ({ value: s.id, label: s.name }));
+  // A one-point sketch is offered by what it IS here: the loft's apex.
+  const options = sections.map((s) => ({
+    value: s.id,
+    label: s.apex ? `${s.name} (apex)` : s.name,
+  }));
   if (currentValue === "") {
     return [{ value: "", label: "Choose a section…" }, ...options];
   }

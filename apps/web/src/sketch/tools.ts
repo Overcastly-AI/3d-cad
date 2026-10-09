@@ -17,6 +17,7 @@ export type SketchEntity =
 
 export type SketchTool =
   | "select"
+  | "point"
   | "line"
   | "rect"
   | "circle"
@@ -49,6 +50,13 @@ export type SketchTool =
  * Project takes P on exactly the same terms (SKETCH-PROJECT-EDGES): with
  * nothing selected P arms Project (Fusion's P), and with a selection it stays
  * the Parallel verb.
+ *
+ * Point has no initial to take: P is Project/Parallel, O concentric, I mirror,
+ * N construction, T tangent. Fusion, SolidWorks and Onshape ship Point with no
+ * default key at all, so it takes W: the one letter that is not a tool, a
+ * constraint verb, a modelling or global key, nor a chord's letter (Y and Z
+ * are redo/undo under Ctrl, and Q is what the suites press as "an undeclared
+ * key").
  */
 export const TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
   l: "line",
@@ -63,6 +71,7 @@ export const TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
   u: "fillet",
   b: "chamfer",
   p: "project",
+  w: "point",
 };
 
 /**
@@ -74,6 +83,7 @@ export const TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
  */
 export function placesPoints(tool: SketchTool): boolean {
   switch (tool) {
+    case "point":
     case "line":
     case "rect":
     case "circle":
@@ -168,6 +178,20 @@ export function placePoint(
     case "chamfer":
     case "project":
       return keep(pending, nextIdIndex);
+    case "point":
+      // One click, one entity: a point never holds a pending sequence.
+      return {
+        pending: [],
+        entities: [
+          {
+            id: entityId(nextIdIndex),
+            kind: "point",
+            position: point,
+            construction: false,
+          },
+        ],
+        nextIdIndex: nextIdIndex + 1,
+      };
     case "line": {
       const [start] = pending;
       if (start === undefined) return keep([point], nextIdIndex);
@@ -370,6 +394,8 @@ export function previewEntities(
     case "fillet":
     case "chamfer":
     case "project":
+    case "point":
+      // No rubber band: the snap mark under the cursor is where it lands.
       return [];
     case "line": {
       const [start] = pending;

@@ -178,6 +178,7 @@
     "sketch-origin.spec.ts": 56.3,
     "sketch-pick-marker.spec.ts": 61.5,
     "sketch-plane-pick.spec.ts": 36.7,
+    "sketch-point-apex.spec.ts": 20.5,
     "sketch-point-distance.spec.ts": 36.8,
     "sketch-project-lip.spec.ts": 39.8,
     "sketch-reopen.spec.ts": 15.1,

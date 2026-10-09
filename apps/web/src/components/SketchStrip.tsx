@@ -59,6 +59,7 @@ import {
   PanelActionCell,
   ParallelIcon,
   PerpendicularIcon,
+  PointIcon,
   ProjectIcon,
   RadiusIcon,
   RectIcon,
@@ -153,6 +154,13 @@ const TOOLS: ReadonlyArray<{
     keyHint: "S",
     name: "Spline tool (S) — click fit points, Enter or double-click to finish; each fit point constrains like any point (coincident / fixed / symmetric)",
     icon: <SplineIcon />,
+  },
+  {
+    tool: "point",
+    label: "Point",
+    keyHint: "W",
+    name: "Point tool (W) — click, or type X and Y, to place a point; a sketch of one point is a loft apex",
+    icon: <PointIcon />,
   },
   {
     // Fusion's Project / SolidWorks' Convert Entities (SKETCH-PROJECT-EDGES):

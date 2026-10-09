@@ -113,6 +113,19 @@ export const SplineIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Point = one punch node, ringed and quartered by four short register ticks
+ * that stop clear of it: a single located position and nothing else, the
+ * drafting mark for a station (and a loft apex). Same node as the other draw
+ * tools, so it reads as one of them.
+ */
+export const PointIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx={12} cy={12} r={2.6} fill="currentColor" stroke="none" />
+    <path d="M12 4 V8 M12 16 V20 M4 12 H8 M16 12 H20" />
+  </Icon>
+);
+
 // --- Modify sketch (clean-up) -----------------------------------------------
 
 /**

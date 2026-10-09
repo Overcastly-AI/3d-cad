@@ -278,7 +278,8 @@ export function PartPage() {
     evaluation,
     datumById,
   });
-  const { features, sketchProfiles, bodies, specFromPlaneRef } = featureCatalog;
+  const { features, sketchProfiles, closedProfiles, bodies, specFromPlaneRef } =
+    featureCatalog;
   const editorSeat = useEditorSeat({ setEditorState, features });
   const {
     selectedFeatureId,
@@ -1028,7 +1029,7 @@ export function PartPage() {
                     extrudeEnabled={
                       mode === "off" && editor === null && !measureActive
                     }
-                    profiles={sketchProfiles}
+                    profiles={closedProfiles}
                     onAcceptExtrude={acceptExtrudeProposal}
                   />
                   {/* Inert DOM signal that the live extrude ghost is on screen

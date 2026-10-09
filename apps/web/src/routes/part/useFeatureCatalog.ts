@@ -48,6 +48,11 @@ export function useFeatureCatalog({
   // ---------------------------------------------------------------------
   const features = tree.data?.features ?? [];
   const sketchProfiles = useMemo(() => profileOptions(features), [features]);
+  // What the extrude / revolve / sweep PROFILE pickers offer: no apex sketch.
+  const closedProfiles = useMemo(
+    () => sketchProfiles.filter((option) => option.apex !== true),
+    [sketchProfiles],
+  );
   /**
    * FLOW-B3 — what the band proposes now that a feature has landed, or null.
    *
@@ -181,6 +186,7 @@ export function useFeatureCatalog({
   return {
     features,
     sketchProfiles,
+    closedProfiles,
     nextStep,
     bodies,
     lumpsByFeature,
