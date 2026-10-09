@@ -26,6 +26,10 @@ from loft._operation import Operation
 from loft.sketch import SOLVED_STATUSES
 from loft.transport import Transport
 from loft_wire.features import ExtrudeFeature, SketchFeature, SweepFeature
+from loft_wire.legacy_twist import (
+    EXTRUDE_TWIST_DEPRECATED_CODE,
+    EXTRUDE_TWIST_DEPRECATED_MESSAGE,
+)
 from loft_wire.sketch import SketchArc, SketchCircle, SketchLine
 from pydantic import BaseModel, ValidationError
 
@@ -184,97 +188,44 @@ TWIST_VOLUME_TOLERANCE_MM3 = 5e-6
 TWIST_CENTROID_TOLERANCE_MM = 1e-8
 
 
-def test_a_twisted_extrude_reaches_the_kernel_and_can_be_straightened(
+def test_extrude_twist_is_deprecated_and_refused_with_a_pointer_to_sweep(
     stack: Stack,
 ) -> None:
-    """``twist_angle_deg`` through the script path, asserted on the GEOMETRY.
+    """The extrude twist is read-only legacy (loft_wire.legacy_twist).
 
-    A misspelled or dropped field would validate and silently extrude straight
-    (params models ignore extras), so the assertion is the centroid: the
-    40 x 25 rectangle turns 30 deg about the sketch origin over 10 mm, so its
-    centre (20, 12.5) sweeps an arc and the solid's centroid is that centre
-    turned by the MEAN angle — counter-clockwise, because a positive twist is
-    right-handed about +Z. Every slice is congruent, so the volume stays
-    10 000 mm^3 (Cavalieri). Straightening it restores the box exactly.
+    The typed verb no longer takes a twist at all, and the escape hatch that
+    builds the envelope by hand is refused by the server with the typed code
+    and the one message that points to Sweep. Nothing is written.
     """
-    theta = math.radians(30.0)
-    cos_mean = math.sin(theta) / theta
-    sin_mean = (1.0 - math.cos(theta)) / theta
     with _session(stack) as session:
-        part = session.new_part("Twisted")
+        part = session.new_part("No extrude twist")
         sketch = part.sketch(on="XY")
         sketch.rect(WIDTH_MM, HEIGHT_MM)
         sketch.solve()
-        feature = part.extrude(sketch, DEPTH_MM, twist_angle_deg=30.0)
-        twisted = part.mass_properties()
-        part.set_extrude_twist(feature.id, None)
-        straight = part.mass_properties()
-
-    cx, cy = WIDTH_MM / 2, HEIGHT_MM / 2
-    assert twisted.volume == pytest.approx(
-        EXPECTED_VOLUME_MM3, abs=TWIST_VOLUME_TOLERANCE_MM3
-    )
-    assert twisted.centroid.x == pytest.approx(
-        cx * cos_mean - cy * sin_mean, abs=TWIST_CENTROID_TOLERANCE_MM
-    )
-    assert twisted.centroid.y == pytest.approx(
-        cx * sin_mean + cy * cos_mean, abs=TWIST_CENTROID_TOLERANCE_MM
-    )
-    assert straight.volume == pytest.approx(
-        EXPECTED_VOLUME_MM3, abs=VOLUME_TOLERANCE_MM3
-    )
-    assert straight.centroid.x == pytest.approx(cx, abs=VOLUME_TOLERANCE_MM3)
-    assert straight.centroid.y == pytest.approx(cy, abs=VOLUME_TOLERANCE_MM3)
-
-
-def test_twist_center_reaches_the_kernel_and_a_bad_twist_never_leaves(
-    stack: Stack,
-) -> None:
-    """``twist_center`` through the stack, and the setter's refusals.
-
-    About the rectangle's OWN centre (20, 12.5) the section spins in place, so
-    the centroid stays on that axis at (20, 12.5, 5); about the default origin
-    it would swing about 6 mm away (the test above), so a dropped centre cannot
-    pass. Then: a NaN twist is refused by VALIDATION, client-side, and the
-    stored extrude is untouched. The assertion is the pydantic error type:
-    without re-validation the NaN reached the HTTP client's JSON encoder and
-    failed there with a bare ValueError that names no field. Straightening
-    with ``None`` drops the stored centre too, so the row reads exactly like
-    an extrude that never had a twist.
-    """
-    with _session(stack) as session:
-        part = session.new_part("Twisted about its centre")
-        sketch = part.sketch(on="XY")
-        sketch.rect(WIDTH_MM, HEIGHT_MM)
-        sketch.solve()
-        feature = part.extrude(
-            sketch,
-            DEPTH_MM,
-            twist_angle_deg=30.0,
-            twist_center=(WIDTH_MM / 2, HEIGHT_MM / 2),
+        with pytest.raises(TypeError, match="twist_angle_deg"):
+            part.extrude(sketch, DEPTH_MM, twist_angle_deg=30.0)  # pyright: ignore[reportCallIssue]
+        twisted = ExtrudeFeature.model_validate(
+            {
+                "type": "extrude",
+                "version": 1,
+                "params": {
+                    "profile": {
+                        "kind": "feature",
+                        "feature_id": str(sketch.feature_id),
+                    },
+                    "distance_mm": DEPTH_MM,
+                    "operation": "add",
+                    "twist_angle_deg": 30.0,
+                },
+            }
         )
-        spun = part.mass_properties()
-        with pytest.raises(ValidationError, match="twist_angle_deg"):
-            part.set_extrude_twist(feature.id, math.nan)
-        kept = part.feature(feature.id).feature
-        part.set_extrude_twist(feature.id, None)
-        straightened = part.feature(feature.id).feature
+        with pytest.raises(loft.InvalidRequest) as refused:
+            part.create_feature("Twisted", twisted)
+        kinds = [record.feature.type for record in part.features()]
 
-    assert spun.volume == pytest.approx(
-        EXPECTED_VOLUME_MM3, abs=TWIST_VOLUME_TOLERANCE_MM3
-    )
-    assert spun.centroid.x == pytest.approx(
-        WIDTH_MM / 2, abs=TWIST_CENTROID_TOLERANCE_MM
-    )
-    assert spun.centroid.y == pytest.approx(
-        HEIGHT_MM / 2, abs=TWIST_CENTROID_TOLERANCE_MM
-    )
-    assert isinstance(kept, ExtrudeFeature)
-    assert kept.params.twist_angle_deg == 30.0
-    assert isinstance(straightened, ExtrudeFeature)
-    dumped = straightened.params.model_dump(mode="json")
-    assert "twist_angle_deg" not in dumped
-    assert "twist_center" not in dumped
+    assert refused.value.code == EXTRUDE_TWIST_DEPRECATED_CODE
+    assert refused.value.message == EXTRUDE_TWIST_DEPRECATED_MESSAGE
+    assert kinds == ["sketch"]
 
 
 def test_a_twisted_sweep_is_the_twisted_extrude_and_can_be_untwisted(
@@ -282,11 +233,13 @@ def test_a_twisted_sweep_is_the_twisted_extrude_and_can_be_untwisted(
 ) -> None:
     """``sweep(..., twist_angle_deg=)`` through the script path (TWIST-TO-SWEEP).
 
-    The same 40 x 25 rectangle and 30 deg over 10 mm as the extrude test above,
-    but swept along a 10 mm line up the Z axis, drawn on XZ from its FAR end
-    down to the profile: the twist axis is the path, and travel runs from the
-    profile along it whichever way the line was drawn, so the centroid is the
-    extrude's, counter-clockwise. Then the sweep verbs' own contract: a curved
+    The 40 x 25 rectangle twisted 30 deg over 10 mm, swept along a 10 mm line
+    up the Z axis, drawn on XZ from its FAR end down to the profile: the twist
+    axis is the path, and travel runs from the profile along it whichever way
+    the line was drawn, so the rectangle's centre (20, 12.5) sweeps an arc
+    about Z and the solid's centroid is that centre turned by the MEAN angle,
+    counter-clockwise (right-handed about +Z). Every slice is congruent, so the
+    volume stays 10 000 mm^3 (Cavalieri). Then the sweep verbs' own contract: a curved
     path with a twist is the typed ``twist_path_unsupported``, a NaN twist is
     refused client-side, and removing the twist leaves the plain box.
     """

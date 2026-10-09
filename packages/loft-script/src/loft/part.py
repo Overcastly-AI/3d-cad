@@ -58,7 +58,7 @@ from loft_wire.versions import (
 from loft import _operations as ops
 from loft.datum import LineLike, ReferenceLike, plane_at_angle_feature
 from loft.errors import FeatureFailed, NoBody, StaleDocument
-from loft.sketch import PointLike, Sketch, as_point, resolve_plane
+from loft.sketch import Sketch, resolve_plane
 
 if TYPE_CHECKING:  # pragma: no cover
     from loft.session import Session
@@ -411,8 +411,6 @@ class Part:
         direction: Literal["normal", "reverse"] = "normal",
         extent: ExtrudeExtent = "one_side",
         merge: bool = True,
-        twist_angle_deg: float | None = None,
-        twist_center: PointLike | None = None,
         name: str = "Extrude",
     ) -> FeatureResponse:
         """Extrude an earlier sketch's profile.
@@ -427,23 +425,18 @@ class Part:
         sketch plane, so ``distance_mm`` is the whole length (SolidWorks Mid
         Plane, Onshape and Fusion Symmetric); ``direction`` then only names
         which cap is ``start`` and which ``end``, as one-sided.
-        It works for add and cut and does not combine with a twist.
+        It works for add and cut.
 
-        ``twist_angle_deg`` / ``twist_center`` are the LEGACY extrude twist:
-        twist now lives on :meth:`sweep` ("twist along path", as in Fusion 360
-        and SolidWorks), which builds the same solid along a straight path.
-        They still work, and a stored twisted extrude rebuilds unchanged: the
-        profile turns uniformly by that many degrees over the whole distance,
-        right-handed about the extrusion direction, about an axis parallel to
-        it through ``twist_center`` (sketch-local mm, default the sketch
-        origin). ``None`` or ``0`` is the plain prism.
+        Extrude has no twist: the extrude twist is deprecated, read-only legacy
+        (:mod:`loft_wire.legacy_twist`). A twisted prism is :meth:`sweep` with
+        ``twist_angle_deg`` along a straight path. A stored twisted extrude
+        still rebuilds unchanged, and :meth:`set_extrude_distance` carries its
+        twist through.
 
-        A non-positive ``distance_mm``, a non-finite value, or a twist beyond
-        ten turns is refused CLIENT-side by the shared DTO (a ``ValueError``,
-        the same validator the server runs), so no payload the server would
-        reject is ever sent. An open profile is a ``profile_not_closed`` and a
-        twist too tight for the profile, or with too many turns for it to build
-        in reasonable time, a ``twist_failed`` feature error, raised by
+        A non-positive ``distance_mm`` or a non-finite value is refused
+        CLIENT-side by the shared DTO (a ``ValueError``, the same validator the
+        server runs), so no payload the server would reject is ever sent. An
+        open profile is a ``profile_not_closed`` feature error, raised by
         :meth:`evaluate`.
         """
         created = self.create_feature(
@@ -458,10 +451,6 @@ class Part:
                     direction=direction,
                     extent=extent,
                     merge=merge,
-                    twist_angle_deg=twist_angle_deg,
-                    twist_center=(
-                        None if twist_center is None else as_point(twist_center)
-                    ),
                 ),
             ),
         )
@@ -543,7 +532,7 @@ class Part:
         """Change an existing sweep's twist (``None``/``0`` removes it).
 
         The same whole-envelope replacement, re-validated client-side, as
-        :meth:`set_extrude_twist`: profile, path, operation and merge stay as
+        :meth:`set_extrude_distance`: profile, path, operation and merge stay as
         stored, and a NaN or infinite twist is a pydantic ``ValidationError``
         naming the field before anything is sent.
         """
@@ -566,26 +555,10 @@ class Part:
 
         Replaces the whole param envelope, like the workspace's distance field,
         keeping every other parameter as stored (a PATCH that dropped
-        ``operation`` would silently turn a cut into an add).
+        ``operation`` would silently turn a cut into an add, and one that
+        dropped a stored legacy twist would straighten the part).
         """
         return self._update_extrude(feature_id, distance_mm=distance_mm)
-
-    def set_extrude_twist(
-        self, feature_id: uuid.UUID, twist_angle_deg: float | None
-    ) -> FeatureResponse:
-        """Change an existing extrude's LEGACY twist (``None``/``0`` straightens it).
-
-        For stored twisted extrudes; a new twist belongs on :meth:`sweep`
-        (:meth:`set_sweep_twist`).
-
-        Same whole-envelope replacement as :meth:`set_extrude_distance`, so the
-        operation, direction and twist axis stay as stored — except that
-        straightening also drops the stored axis, exactly as the wire model
-        normalises a twist-less extrude. A NaN or infinite twist is a
-        pydantic ``ValidationError`` (a ``ValueError``) naming the field, before
-        anything is sent.
-        """
-        return self._update_extrude(feature_id, twist_angle_deg=twist_angle_deg)
 
     def _update_extrude(
         self, feature_id: uuid.UUID, **changes: object
@@ -598,12 +571,9 @@ class Part:
             )
         # Re-VALIDATE the merged envelope; model_copy(update=...) does not. That
         # is the same client-side refusal `extrude` gets from constructing the
-        # DTO, and it runs the wire model's twist normalisation. Without it
-        # (measured, review of d823af9) a NaN twist is carried by the unvalidated
-        # copy into the request and dies in the HTTP client's JSON encoder with
-        # an opaque "Out of range float values" error, while any path that
-        # serialises the model with model_dump_json would write it as null and
-        # silently straighten the extrude.
+        # DTO. Without it (measured, review of d823af9) a NaN is carried by the
+        # unvalidated copy into the request and dies in the HTTP client's JSON
+        # encoder with an opaque "Out of range float values" error.
         params = type(stored.params).model_validate(
             {**stored.params.model_dump(), **changes}
         )

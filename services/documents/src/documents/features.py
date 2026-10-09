@@ -43,6 +43,11 @@ from loft_wire.features import (
     UndoRedoRequest,
     feature_references,
 )
+from loft_wire.legacy_twist import (
+    EXTRUDE_TWIST_DEPRECATED_CODE,
+    EXTRUDE_TWIST_DEPRECATED_MESSAGE,
+    authors_extrude_twist,
+)
 from loft_wire.materials import MaterialAssignment
 from loft_wire.parts import EVALUATE_BEFORE_DESCRIPTION
 from loft_wire.ref_names import carry_ref_names
@@ -143,6 +148,23 @@ def reject_import_with_prior_body(
                 "prior_feature_id": str(prior_body.id),
                 "prior_feature_type": prior_body.type,
             },
+        )
+
+
+def reject_new_extrude_twist(
+    envelope: FeatureEnvelope, stored: db.Feature | None = None
+) -> None:
+    """Refuse authoring a deprecated extrude twist (:mod:`loft_wire.legacy_twist`).
+
+    *stored* is the row a PATCH replaces. A stored legacy twist carried
+    through unchanged, or removed, passes; setting or changing one is a 422
+    pointing to Sweep with twist.
+    """
+    if authors_extrude_twist(envelope, None if stored is None else stored.params):
+        raise ValidationApiError(
+            EXTRUDE_TWIST_DEPRECATED_MESSAGE,
+            code=EXTRUDE_TWIST_DEPRECATED_CODE,
+            details={"field": "twist_angle_deg", "use": "sweep"},
         )
 
 
@@ -419,6 +441,7 @@ async def create_feature(
     position = len(features) if bar_index is None else bar_index + 1
 
     reject_import_with_prior_body(request.feature, position, features)
+    reject_new_extrude_twist(request.feature)
     target_ids = validate_references(request.feature, position, features_by_id)
 
     await _shift_indexes(session, part.id, position, +1)
@@ -479,6 +502,7 @@ async def update_feature(
                 code="feature_type_immutable",
                 details={"current": feature.type, "provided": request.feature.type},
             )
+        reject_new_extrude_twist(request.feature, feature)
         features = await _ordered_features(session, part.id)
         features_by_id = {row.id: row for row in features}
         target_ids = validate_references(
