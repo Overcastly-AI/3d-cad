@@ -33,15 +33,17 @@ from geometry.kernel import (
     HoleTooDeepError,
     ThreadBoreMismatchError,
     ThreadUnsupportedError,
-    bore_hole,
     bore_tool,
     check_tap_drill_bore,
     counterbore_tool,
     countersink_tool,
-    cut_counterbore,
-    cut_countersink,
     label_hole_tool,
     resolve_iso_metric_thread,
+)
+from geometry.kernel.hole import (
+    bore_hole_measured,
+    cut_counterbore_measured,
+    cut_countersink_measured,
 )
 from geometry.kernel.naming import OpHistory
 
@@ -146,7 +148,7 @@ def _evaluate_hole(
     # every name, so a chamfered rim follows it (DESIGN-INTENT-REFS).
     history = OpHistory()
     try:
-        drilled = bore_hole(
+        drilled = bore_hole_measured(
             active,
             plane,
             point,
@@ -160,24 +162,26 @@ def _evaluate_hole(
         # the face, cut ALONGSIDE the bore (design: HoleType additive member).
         hole_type = params.type
         if isinstance(hole_type, HoleCounterbore):
-            drilled = cut_counterbore(
-                drilled,
+            drilled = cut_counterbore_measured(
+                drilled.shape,
                 plane,
                 point,
                 bore_diameter_mm=params.diameter_mm,
                 cbore_diameter_mm=hole_type.cbore_diameter_mm,
                 cbore_depth_mm=hole_type.cbore_depth_mm,
                 history=history,
+                body_volume=drilled.volume,
             )
         elif isinstance(hole_type, HoleCountersink):
-            drilled = cut_countersink(
-                drilled,
+            drilled = cut_countersink_measured(
+                drilled.shape,
                 plane,
                 point,
                 bore_diameter_mm=params.diameter_mm,
                 csink_diameter_mm=hole_type.csink_diameter_mm,
                 csink_angle_deg=hole_type.csink_angle_deg,
                 history=history,
+                body_volume=drilled.volume,
             )
     except HoleInvalidDiameterError as exc:
         # Unreachable from the API (HoleParamsV1.diameter_mm is Field(gt=0)); the
@@ -197,7 +201,9 @@ def _evaluate_hole(
         return FeatureError(code="hole_too_deep", message=str(exc))
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
-    state.set_active_body(drilled, hole_names(item.id, history))
+    state.set_active_body(
+        drilled.shape, hole_names(item.id, history), volume=drilled.volume
+    )
     # Capture the removal tool(s) for a following pattern / mirror of this hole
     # (FINDINGS #1). Rebuilt from the SAME pre-cut ``active`` body the cuts used, so
     # every tool is byte-identical to what was removed; the recess builders reuse the

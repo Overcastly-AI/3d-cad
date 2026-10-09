@@ -62,6 +62,7 @@ import math
 from build123d import Compound, Face, GeomType, Plane, Solid, Vector
 from OCP.ShapeAnalysis import ShapeAnalysis_ShapeTolerance
 
+from geometry.kernel.boolean_guard import MeasuredBody
 from geometry.kernel.extrude import combine_body_measured
 from geometry.kernel.naming import OpHistory
 from geometry.kernel.properties import volume_properties
@@ -131,8 +132,9 @@ def _cut_drill(
     off_body: HoleError,
     *,
     body_volume: float | None = None,
-) -> tuple[BodyShape, float, float]:
-    """Cut a drill/recess *tool* from *body*: ``(drilled body, removed, tolerance)``.
+) -> tuple[MeasuredBody, float, float]:
+    """Cut a drill/recess *tool* from *body*: ``(drilled body and its volume,
+    removed, tolerance)``.
 
     *removed* and *tolerance* are :func:`_pocket` of ``(body, tool)``,
     the pocket the cut takes out, measured BEFORE the cut from the same common
@@ -167,7 +169,7 @@ def _cut_drill(
         raise off_body
     result = combine_body_measured(
         body, tool, "cut", reaches=True, body_volume=body_volume
-    ).shape
+    )
     if not measured:
         pocket = _pocket(body, tool)
     removed, tolerance = (0.0, 0.0) if pocket is None else pocket
@@ -326,6 +328,30 @@ def bore_hole(
     body_volume: float | None = None,
     history: OpHistory | None = None,
 ) -> BodyShape:
+    """:func:`bore_hole_measured`'s drilled body."""
+    return bore_hole_measured(
+        body,
+        face_plane,
+        position,
+        diameter_mm,
+        through_all=through_all,
+        depth_mm=depth_mm,
+        body_volume=body_volume,
+        history=history,
+    ).shape
+
+
+def bore_hole_measured(
+    body: BodyShape,
+    face_plane: Plane,
+    position: tuple[float, float, float],
+    diameter_mm: float,
+    *,
+    through_all: bool,
+    depth_mm: float | None,
+    body_volume: float | None = None,
+    history: OpHistory | None = None,
+) -> MeasuredBody:
     """Drill a cylindrical hole into *body* at *position* on *face_plane*.
 
     *face_plane* is the resolved placement face's plane (origin at the face
@@ -339,7 +365,8 @@ def bore_hole(
     *history*, when given, receives the bore's faces labelled by role
     (:func:`label_hole_tool`: ``wall``, and ``floor`` for a blind hole).
 
-    Returns the drilled body (lump-count-preserving, via ``combine_body``).
+    Returns the drilled body (lump-count-preserving, via ``combine_body``) and
+    its volume, which the feature records for the next boolean on the body.
 
     Raises:
         HoleOffBodyError: the drill removed no material (off face / bad direction).
@@ -428,6 +455,29 @@ def cut_counterbore(
     cbore_depth_mm: float,
     history: OpHistory | None = None,
 ) -> BodyShape:
+    """:func:`cut_counterbore_measured`'s recessed body."""
+    return cut_counterbore_measured(
+        body,
+        face_plane,
+        position,
+        bore_diameter_mm=bore_diameter_mm,
+        cbore_diameter_mm=cbore_diameter_mm,
+        cbore_depth_mm=cbore_depth_mm,
+        history=history,
+    ).shape
+
+
+def cut_counterbore_measured(
+    body: BodyShape,
+    face_plane: Plane,
+    position: tuple[float, float, float],
+    *,
+    bore_diameter_mm: float,
+    cbore_diameter_mm: float,
+    cbore_depth_mm: float,
+    history: OpHistory | None = None,
+    body_volume: float | None = None,
+) -> MeasuredBody:
     """Sink a coaxial CYLINDRICAL counterbore recess into an already-drilled body.
 
     Cuts a flat-bottomed cylinder of ``cbore_diameter_mm`` to ``cbore_depth_mm``
@@ -436,7 +486,8 @@ def cut_counterbore(
     recess removes only the ANNULAR difference beyond the bore radius: for a
     fully-embedded recess the removed material is exactly
     ``pi * (R**2 - r**2) * cbore_depth`` (``R`` = counterbore radius, ``r`` = bore
-    radius). Returns the recessed body (lump-count-preserving, via ``combine_body``).
+    radius). Returns the recessed body (lump-count-preserving, via ``combine_body``)
+    and its volume; *body_volume* is *body*'s, when known.
     *history*, when given, receives the recess's ``cbore_wall`` and
     ``cbore_floor`` faces (:func:`label_hole_tool`).
 
@@ -464,7 +515,9 @@ def cut_counterbore(
         "(the recess would break through), or it overhangs the face edge. "
         "Reduce the counterbore depth or diameter, or move the hole inward."
     )
-    result, removed, tolerance = _cut_drill(body, tool, too_deep)
+    result, removed, tolerance = _cut_drill(
+        body, tool, too_deep, body_volume=body_volume
+    )
     expected = math.pi * (radius * radius - bore_radius * bore_radius) * cbore_depth_mm
     # Outer and inner walls plus the floor and the face-plane cap.
     area = (
@@ -531,6 +584,29 @@ def cut_countersink(
     csink_angle_deg: float,
     history: OpHistory | None = None,
 ) -> BodyShape:
+    """:func:`cut_countersink_measured`'s recessed body."""
+    return cut_countersink_measured(
+        body,
+        face_plane,
+        position,
+        bore_diameter_mm=bore_diameter_mm,
+        csink_diameter_mm=csink_diameter_mm,
+        csink_angle_deg=csink_angle_deg,
+        history=history,
+    ).shape
+
+
+def cut_countersink_measured(
+    body: BodyShape,
+    face_plane: Plane,
+    position: tuple[float, float, float],
+    *,
+    bore_diameter_mm: float,
+    csink_diameter_mm: float,
+    csink_angle_deg: float,
+    history: OpHistory | None = None,
+    body_volume: float | None = None,
+) -> MeasuredBody:
     """Sink a coaxial CONICAL countersink recess into an already-drilled body.
 
     Cuts a truncated cone coaxial with the bore: ``csink_diameter_mm`` wide at the
@@ -543,7 +619,8 @@ def cut_countersink(
     only the annular difference beyond the bore: for a fully-embedded recess the
     removed material is exactly ``pi * h / 3 * (R**2 + R*r - 2*r**2)`` (the frustum
     ``pi * h/3 * (R**2 + R*r + r**2)`` minus the already-bored ``pi * r**2 * h``).
-    Returns the recessed body (lump-count-preserving, via ``combine_body``).
+    Returns the recessed body (lump-count-preserving, via ``combine_body``)
+    and its volume; *body_volume* is *body*'s, when known.
     *history*, when given, receives the cone's ``csink_cone`` face
     (:func:`label_hole_tool`).
 
@@ -573,7 +650,9 @@ def cut_countersink(
         "available material (it would break through), or it overhangs the face "
         "edge. Reduce the countersink diameter/angle, or move the hole inward."
     )
-    result, removed, tolerance = _cut_drill(body, tool, too_deep)
+    result, removed, tolerance = _cut_drill(
+        body, tool, too_deep, body_volume=body_volume
+    )
     expected = (
         math.pi
         * cone_depth
