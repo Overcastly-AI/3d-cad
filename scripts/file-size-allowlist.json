@@ -1,7 +1,7 @@
 {
   "about": "FILE-SIZE-RATCHET (scripts/check-file-size.py): hand-written source files already over 1,500 lines, at their measured size. An entry may only go DOWN: a split lowers or removes its entry in the same commit (python3 scripts/check-file-size.py --tighten). Raising one is a decision for review, not a fix for a red gate.",
   "files": {
-    "apps/web/e2e/pick-affordance.spec.ts": 1947,
+    "apps/web/e2e/pick-affordance.spec.ts": 1918,
     "apps/web/e2e/qa-reach-batch.spec.ts": 1937,
     "apps/web/src/components/DocumentRegister.tsx": 1593,
     "apps/web/src/components/DrawingSheet.tsx": 2397,
