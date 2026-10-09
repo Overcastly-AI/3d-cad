@@ -126,10 +126,7 @@ export function useSketchEntry({
   // the signature (origin + deterministic x-axis), matching the kernel's
   // `resolve_sketch_plane` exactly, so the ink lands on the rendered face.
   const authorFacePlane = useCallback(
-    (
-      face: { signature: PlanarFaceSignature; index?: number },
-      options: { remember?: boolean } = {},
-    ) => {
+    (face: { signature: PlanarFaceSignature; index?: number }) => {
       const featureList = tree.data?.features ?? [];
       const anchorId = lastBodyFeatureId(featureList);
       if (anchorId === null) {
@@ -138,12 +135,10 @@ export function useSketchEntry({
         );
         return;
       }
+      // Not remembered as a pre-selection (SKETCH-PLANE-PICK): the sketch
+      // consumed the face, and a remembered one seated every later New Sketch
+      // on it. Fusion clears the selection once a sketch is created.
       const { signature } = face;
-      // A face clicked in the viewport is remembered for the next command
-      // (UI-W3); a face that CAME from the pre-selection is not re-remembered.
-      if (options.remember !== false) {
-        usePreselectStore.getState().rememberFaces([{ signature, anchorId }]);
-      }
       const nextIndex =
         featureList.filter((f) => f.feature.type === "datum").length + 1;
       setFacePlaneBusy(true);
@@ -211,12 +206,16 @@ export function useSketchEntry({
    * making the user re-pick the face they just picked is exactly the friction
    * the founder reported. With nothing selected this is the plane picker as
    * before; the picker is the fallback, not the toll booth.
+   *
+   * "Selected" means a settled pick on the current body (SKETCH-PLANE-PICK):
+   * a pick left over from a cancelled Shell or Draft is not one
+   * (`preselectedFace` refuses provisional picks).
    */
   const startSketch = useCallback(() => {
     const seed = preselectedFace(usePreselectStore.getState(), bodyFeatureId);
     handleNewSketch();
     if (seed !== null) {
-      authorFacePlane({ signature: seed.signature }, { remember: false });
+      authorFacePlane({ signature: seed.signature });
     }
   }, [bodyFeatureId, handleNewSketch, authorFacePlane]);
 
@@ -228,9 +227,7 @@ export function useSketchEntry({
    * then `authorFacePlane(face)` with the overlay face the user addressed. A
    * second way to compute a sketch plane would be a second thing to keep
    * correct, and the two would drift silently: nothing would fail, the planes
-   * would just stop agreeing. `remember` is left at its default, exactly as a
-   * clicked face in the pick overlay is (UI-W3), because this IS a face clicked
-   * in the viewport.
+   * would just stop agreeing.
    */
   const acceptSketchProposal = useCallback(
     (face: OverlayFace & { signature: PlanarFaceSignature }) => {

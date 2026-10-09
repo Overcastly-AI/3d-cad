@@ -199,6 +199,7 @@ export function usePickSessions({
         signature,
         anchorId: bodyFeatureId,
       })),
+      { provisional: true },
     );
   }, [shellSessionOpen, shellPickedFaces, bodyFeatureId]);
 
@@ -209,7 +210,9 @@ export function usePickSessions({
     if (!edgeSessionOpen || pickSessionIsEdit.current) return;
     // Projected edges are the sketch's, not a selection to carry forward.
     if (edgeSessionPurpose === "project") return;
-    usePreselectStore.getState().rememberEdges(edgePickedEdges, bodyFeatureId);
+    usePreselectStore
+      .getState()
+      .rememberEdges(edgePickedEdges, bodyFeatureId, { provisional: true });
   }, [edgeSessionOpen, edgeSessionPurpose, edgePickedEdges, bodyFeatureId]);
   return {
     onReliefBendsChange,

@@ -412,9 +412,14 @@ export function usePickOverlays({
   // A tree selection wins while one is active: one highlight, one meaning.
   // ---------------------------------------------------------------------
   const preselectedFaceSet = usePreselectStore((s) => s.faces);
+  const facesProvisional = usePreselectStore((s) => s.facesProvisional);
   const livePreselectedFaces = useMemo(
-    () => preselectedFaces({ faces: preselectedFaceSet }, bodyFeatureId),
-    [preselectedFaceSet, bodyFeatureId],
+    () =>
+      preselectedFaces(
+        { faces: preselectedFaceSet, facesProvisional },
+        bodyFeatureId,
+      ),
+    [preselectedFaceSet, facesProvisional, bodyFeatureId],
   );
   const preselectHighlightActive =
     mode === "off" &&
