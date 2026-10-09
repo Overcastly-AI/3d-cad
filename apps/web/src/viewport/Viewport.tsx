@@ -27,6 +27,7 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { useGlobalKeys } from "../lib/modalGate";
 import { useReducedMotion } from "../lib/useReducedMotion";
 import { resolveSpecBasis } from "../sketch/plane";
+import { zeroStartsAValue } from "../sketch/pointEntry";
 import { useSketchStore } from "../sketch/store";
 import { navigationControls, usePreferences } from "../settings/preferences";
 import { NavCue } from "../components/NavCue";
@@ -1128,12 +1129,11 @@ const FIT_KEY: string | null =
  * itself is not (`useViewHotkeys` stands down with `viewNav`, and the named
  * snaps it carries must: they would turn the view off the plane).
  *
- * YIELDS TO A SIZE BEING TYPED. From the instant a shape is placed, a digit
- * typed anywhere goes into its size cell (FLOW-A1, `drawDimensionKeys`), and
- * `0` is a digit — "100", "0.5". So while the store holds a live draw
- * dimension the key is the size's, read LIVE from the store for the same
- * reason FLOW-A1 does: the draft is set inside the pointer handler, a render
- * before anything React could tell this listener.
+ * YIELDS TO A VALUE BEING TYPED. `0` is a digit — "100", "0.5", "0 Tab 25" —
+ * so whenever one may start (`zeroStartsAValue`: a draw tool armed, a size,
+ * coordinate or dimension cell open or mounting) the key is the value's, read
+ * LIVE from the store: FLOW-A1's draft is set inside the pointer handler, a
+ * render before anything React could tell this listener.
  */
 function useSketchFitHotkey(onFit: (() => void) | null): void {
   useGlobalKeys(
@@ -1144,11 +1144,7 @@ function useSketchFitHotkey(onFit: (() => void) | null): void {
             return;
           if (event.key !== FIT_KEY) return;
           // A digit being TYPED (a size, or a coordinate, G2) is not a Fit.
-          const typing = useSketchStore.getState();
-          // A typed shape's size cells do not take keys (TYPED-COORD-HIJACK).
-          const sizing =
-            typing.drawDimension !== null && !typing.drawDimension.typed;
-          if (sizing || typing.pointEntry !== null) return;
+          if (zeroStartsAValue(useSketchStore.getState())) return;
           event.preventDefault();
           onFit();
         }
