@@ -417,6 +417,12 @@ export const sketch = {
   pointSizePx: 5,
   /** Selected/hovered defining points render larger — the finer target. */
   pickedPointSizePx: 8,
+  /**
+   * A POINT entity's station mark (px): drawn under its own defining dot, so
+   * it reads as a brass punch inside a scribe rim, not as any line's endpoint.
+   * One step larger than a picked dot, so the rim survives selection.
+   */
+  stationPointSizePx: 10,
   /** Snap-cursor crosshair arm length (world mm). */
   cursorArmMm: 2.5,
   /** Rubber-band dash pattern (world mm). */
