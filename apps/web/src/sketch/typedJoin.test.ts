@@ -75,8 +75,9 @@ describe("typed placement joins what it lands on", () => {
       { x: -10, y: 20 },
       { x: -10, y: 5 },
     ];
-    // The line tool does not chain: each line's start is typed onto the
-    // previous line's end, and the last line closes onto the first's start.
+    // Typed as if the line tool did not chain: each line's start is retyped
+    // onto the previous line's end (a no-op on the open chain, LINE-CHAIN),
+    // and the last line closes onto the first's start.
     corners.forEach((from, i) => {
       typePoint(from);
       typePoint(corners[(i + 1) % corners.length] as Point2D);
@@ -135,6 +136,7 @@ describe("typed placement joins what it lands on", () => {
   it("a typed point off every drawn point stays free, exactly where typed", () => {
     typePoint({ x: 10, y: 0 });
     typePoint({ x: 10, y: 20 });
+    store().escape(); // end the chain, so the next line is not joined to it
     typePoint({ x: 10.5, y: 20 });
     typePoint({ x: -10, y: 20 });
     expect(coincidents()).toEqual([]);

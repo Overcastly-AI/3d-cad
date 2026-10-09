@@ -162,6 +162,7 @@ async function buildLineAndSpline(
   await page.keyboard.press("l");
   await clickPlane(page, at, { x: 30, y: 25 });
   await clickPlane(page, at, { x: 30, y: -10 });
+  await page.keyboard.press("Escape"); // end the line chain
   await page.keyboard.press("Escape"); // back to select
 
   // Fix the lower endpoint — the first constraint persists the sketch (POST)

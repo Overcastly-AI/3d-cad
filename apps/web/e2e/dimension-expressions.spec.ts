@@ -278,6 +278,7 @@ test.describe("sketch dimension expressions (desktop 1440)", () => {
     await clickPlane(page, at, { x: 0, y: -30 });
     await clickPlane(page, at, { x: 25, y: -30 });
     await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape"); // and leave the Line tool
 
     // Horizontal on e1 — the first constraint persists the sketch (POST).
     await clickPlane(page, at, { x: 10, y: 0 });
@@ -447,6 +448,7 @@ test.describe("sketch dimension expressions (laptop 1280×800)", () => {
     await clickPlane(page, at, { x: 0, y: -15 });
     await clickPlane(page, at, { x: 30, y: -15 });
     await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape"); // and leave the Line tool
 
     await clickPlane(page, at, { x: 10, y: 0 });
     // Already stated by the draw (SNAP-5) — the verb binds the sketch and adds

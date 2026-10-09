@@ -766,8 +766,7 @@ async function calibratePlane(
 }
 
 async function clickPlane(page: Page, at: At, pt: { x: number; y: number }) {
-  const px = at(pt);
-  await page.mouse.click(px.x, px.y);
+  await page.mouse.click(at(pt).x, at(pt).y);
 }
 
 async function addPlane(page: Page, at: At, pt: { x: number; y: number }) {
@@ -785,6 +784,7 @@ async function drawLine(
   await page.keyboard.press("l");
   await clickPlane(page, at, from);
   await clickPlane(page, at, to);
+  await page.keyboard.press("Escape"); // end the chain, then the tool:
   await page.keyboard.press("Escape");
 }
 

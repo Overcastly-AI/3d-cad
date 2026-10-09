@@ -902,5 +902,5 @@ export const axisInferenceHint = (
         ? "Horizontal"
         : "Vertical"
       : "Horizontal and vertical";
-  return `${named} inferred from the line you drew — press Esc for Select, click the glyph and press Delete to drop it, or hold Ctrl/Cmd while drawing to place freehand.`;
+  return `${named} inferred from the line you drew — Esc ends the line (twice for Select), click the glyph and press Delete to drop it, or hold Ctrl/Cmd while drawing to place freehand.`;
 };

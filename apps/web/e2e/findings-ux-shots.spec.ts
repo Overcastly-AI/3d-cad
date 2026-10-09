@@ -43,6 +43,7 @@ for (const { tag, width, height } of WIDTHS) {
       await page.keyboard.press("l");
       await page.mouse.click(a.x, a.y);
       await page.mouse.click(b.x, b.y);
+      await page.keyboard.press("Escape"); // end the line chain
       await page.keyboard.press("Escape"); // back to select
       // Select the line at its screen midpoint.
       await page.mouse.click(Math.round((a.x + b.x) / 2), a.y);

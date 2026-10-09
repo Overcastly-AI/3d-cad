@@ -499,6 +499,7 @@ test.describe("SNAP-3 — a snap records the intent, not just the coordinate", (
     await clickPlane(page, at, { x: 50.7, y: 12.6 }); // snapped to e1's end
     await clickPlane(page, at, { x: 50.4, y: 44.4 });
     await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape"); // and leave the Line tool
 
     // The ordinary next moves: square the two edges up and size them.
     await clickPlane(page, at, { x: 30.4, y: 12.4 });
@@ -565,6 +566,8 @@ test.describe("SNAP-3 — a snap records the intent, not just the coordinate", (
     await page.keyboard.press("l");
     await clickPlane(page, at, { x: 10.4, y: 12.4 });
     await clickPlane(page, at, { x: 50.4, y: 12.4 });
+    // End the chain (LINE-CHAIN), or the next line would start joined to e1.
+    await page.keyboard.press("Escape");
     await clickFreehand(page, at, { x: 50.4, y: 12.4 }); // same point, no snap
     await clickFreehand(page, at, { x: 50.4, y: 44.4 });
     await page.keyboard.press("Escape");

@@ -9,8 +9,9 @@ import { createPartViaApi, seedSession } from "./support";
  *
  * TYPED-COORD-HIJACK: with the Line tool live, `10 Tab 0 Enter`,
  * `10 Tab 20 Enter` draws the line (10,0)-(10,20) exactly (G2 typed
- * placement). The line tool does not chain, so the engineer types the next
- * line's first point, `-10 Tab 20 Enter`. The finished line had armed its
+ * placement). The engineer types on, `-10 Tab 20 Enter` (then the line tool
+ * did not chain, so this was the next line's first point; since LINE-CHAIN it
+ * is the next segment's end). The finished line had armed its
  * draw-time length cell (FB-16), and a digit focused that cell: the keystrokes
  * meant for the next point became the previous line's LENGTH. Measured on
  * 9767a90: the stored line was (10,0)-(10,1020) and the next line was never
@@ -159,12 +160,15 @@ test("typed coordinates for the next line never resize the line before", async (
   const entities = await saveAndRead(page, token, partId);
   const lines = entities.filter((e) => e.kind === "line");
 
-  // The first line is exactly what was typed, and the second line exists.
+  // The first line is exactly what was typed, and the chain went on from its
+  // end through every typed point (LINE-CHAIN).
   expect(lines[0]?.start, JSON.stringify(lines)).toEqual({ x: 10, y: 0 });
   expect(lines[0]?.end, JSON.stringify(lines)).toEqual({ x: 10, y: 20 });
-  expect(lines, JSON.stringify(lines)).toHaveLength(2);
-  expect(lines[1]?.start).toEqual({ x: -10, y: 20 });
-  expect(lines[1]?.end).toEqual({ x: -10, y: 0 });
+  expect(lines, JSON.stringify(lines)).toHaveLength(3);
+  expect(lines[1]?.start).toEqual({ x: 10, y: 20 });
+  expect(lines[1]?.end).toEqual({ x: -10, y: 20 });
+  expect(lines[2]?.start).toEqual({ x: -10, y: 20 });
+  expect(lines[2]?.end).toEqual({ x: -10, y: 0 });
 });
 
 for (const gapMs of [0, 20, 75]) {
@@ -230,12 +234,17 @@ test("lines and an arc typed with no waits land exactly as typed", async ({
 
   const entities = await saveAndRead(page, token, partId);
   const lines = entities.filter((e) => e.kind === "line");
-  expect(lines, JSON.stringify(entities)).toHaveLength(2);
+  // Four typed points are one chain of three segments (LINE-CHAIN).
+  expect(lines, JSON.stringify(entities)).toHaveLength(3);
   expect(lines[0]).toMatchObject({
     start: { x: 10, y: 0 },
     end: { x: 10, y: 20 },
   });
   expect(lines[1]).toMatchObject({
+    start: { x: 10, y: 20 },
+    end: { x: -10, y: 20 },
+  });
+  expect(lines[2]).toMatchObject({
     start: { x: -10, y: 20 },
     end: { x: -10, y: 0 },
   });
@@ -254,19 +263,16 @@ test("a closed profile typed point by point is joined at every corner (TYPED-POL
   const { token, partId } = await openSketch(page, "Typed closed profile");
   await page.keyboard.press("l");
   await page.mouse.move(1000, 250);
-  // The line tool does not chain: each start is typed onto the last end, and
-  // the fourth line closes onto the first line's start.
+  // The line tool chains (LINE-CHAIN): five typed points, the last the first
+  // corner again, which closes the loop onto the first line's start.
   const corners = [
     ["10", "0"],
     ["10", "20"],
     ["-10", "20"],
     ["-10", "0"],
+    ["10", "0"],
   ] as const;
-  for (const [i, [x, y]] of corners.entries()) {
-    const [nx, ny] = corners[(i + 1) % corners.length] ?? corners[0];
-    await typePoint(page, x, y);
-    await typePoint(page, nx, ny);
-  }
+  for (const [x, y] of corners) await typePoint(page, x, y);
   await expect(page.getByTestId("point-entry")).toHaveCount(0);
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
