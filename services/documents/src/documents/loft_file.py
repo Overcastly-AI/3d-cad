@@ -77,6 +77,7 @@ from documents.features import (
     reject_import_with_prior_body,
     validate_references,
 )
+from documents.parameters import resolved_rows, stored_parameters
 from documents.parts import Principal, get_owned_part
 
 _logger = get_logger("documents.loft_file")
@@ -136,6 +137,7 @@ async def build_loft_tree(session: AsyncSession, part: db.Part) -> LoftTree:
         materials=part_materials(part),
         rollback_feature_id=part.rollback_feature_id,
         features=features,
+        parameters=stored_parameters(part),
     )
 
 
@@ -406,6 +408,14 @@ def _check_versions(request: LoftImportRequest) -> None:
                 code=exc.code,
                 details={**exc.details, "version_seq": version.seq},
             ) from exc
+        try:
+            resolved_rows(list(version.tree.parameters))
+        except ValidationApiError as exc:
+            raise ValidationApiError(
+                f"Version {version.seq} ({version.name!r}): {exc.message}",
+                code=exc.code,
+                details={**exc.details, "version_seq": version.seq},
+            ) from exc
         total += tree_size(version.tree)
     if total > MAX_PART_VERSIONS_TOTAL_BYTES:
         raise ValidationApiError(
@@ -487,6 +497,7 @@ async def import_loft(
     # Validate the WHOLE tree before writing anything (the POST /features
     # rules, feature by feature); the versions were validated above.
     rows, edges = validated_rows(tree, current, part_id=part_id, mapping=mapping)
+    parameters = resolved_rows(list(tree.parameters))
     versions = [_imported_version(version, mapping) for version in request.versions]
 
     part = db.Part(
@@ -496,6 +507,7 @@ async def import_loft(
         folder_id=None,
         length_unit=tree.length_unit,
         materials=materials,
+        parameters=parameters,
         tree_version=1,
     )
     try:

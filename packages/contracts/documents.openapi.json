@@ -4666,6 +4666,14 @@
             "title": "Name",
             "type": "string"
           },
+          "parameters": {
+            "items": {
+              "$ref": "#/components/schemas/PartParameter"
+            },
+            "maxItems": 200,
+            "title": "Parameters",
+            "type": "array"
+          },
           "rollback_feature_id": {
             "anyOf": [
               {
@@ -5379,6 +5387,161 @@
           "parts"
         ],
         "title": "PartListResponse",
+        "type": "object"
+      },
+      "PartParameter": {
+        "description": "One stored row with its resolved value. Unknown keys are ignored, as\neverywhere in a ``.loft`` tree, so an older reader takes a newer file.",
+        "properties": {
+          "comment": {
+            "default": "",
+            "description": "Free note",
+            "maxLength": 500,
+            "title": "Comment",
+            "type": "string"
+          },
+          "expression": {
+            "description": "A number or formula, e.g. '40', '0.5 in', 'width/2 + 3'",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Expression",
+            "type": "string"
+          },
+          "id": {
+            "description": "Stable identity of the row; a rename keeps it. A new row carries a fresh UUID minted by the client.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "What formulas call it: a letter or _, then up to 63 letters, digits or _; not a function, unit or constant word",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "unit": {
+            "description": "What the value measures: length (mm), angle (degrees) or unitless",
+            "enum": [
+              "length",
+              "angle",
+              "unitless"
+            ],
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "description": "The evaluated expression: mm for a length, degrees for an angle, a plain number for unitless. Computed by the server.",
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "expression",
+          "unit",
+          "value"
+        ],
+        "title": "PartParameter",
+        "type": "object"
+      },
+      "PartParameterInput": {
+        "additionalProperties": false,
+        "description": "One row as a client writes it: everything but the resolved value.",
+        "properties": {
+          "comment": {
+            "default": "",
+            "description": "Free note",
+            "maxLength": 500,
+            "title": "Comment",
+            "type": "string"
+          },
+          "expression": {
+            "description": "A number or formula, e.g. '40', '0.5 in', 'width/2 + 3'",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Expression",
+            "type": "string"
+          },
+          "id": {
+            "description": "Stable identity of the row; a rename keeps it. A new row carries a fresh UUID minted by the client.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "What formulas call it: a letter or _, then up to 63 letters, digits or _; not a function, unit or constant word",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "unit": {
+            "description": "What the value measures: length (mm), angle (degrees) or unitless",
+            "enum": [
+              "length",
+              "angle",
+              "unitless"
+            ],
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "expression",
+          "unit"
+        ],
+        "title": "PartParameterInput",
+        "type": "object"
+      },
+      "PartParametersResponse": {
+        "description": "A part's parameter table, in its stored order, with the tree version.",
+        "properties": {
+          "parameters": {
+            "items": {
+              "$ref": "#/components/schemas/PartParameter"
+            },
+            "title": "Parameters",
+            "type": "array"
+          },
+          "tree_version": {
+            "minimum": 0.0,
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tree_version",
+          "parameters"
+        ],
+        "title": "PartParametersResponse",
+        "type": "object"
+      },
+      "PartParametersUpdate": {
+        "additionalProperties": false,
+        "description": "``PUT /api/v1/parts/{id}/parameters``: replace the whole table.",
+        "properties": {
+          "expected_tree_version": {
+            "minimum": 0.0,
+            "title": "Expected Tree Version",
+            "type": "integer"
+          },
+          "parameters": {
+            "items": {
+              "$ref": "#/components/schemas/PartParameterInput"
+            },
+            "maxItems": 200,
+            "title": "Parameters",
+            "type": "array"
+          }
+        },
+        "required": [
+          "expected_tree_version",
+          "parameters"
+        ],
+        "title": "PartParametersUpdate",
         "type": "object"
       },
       "PartResponse": {
@@ -13167,6 +13330,138 @@
         "summary": "Move Part",
         "tags": [
           "parts"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/parameters": {
+      "get": {
+        "description": "The part's parameter table, in its stored order.",
+        "operationId": "get_parameters_api_v1_parts__part_id__parameters_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartParametersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Parameters",
+        "tags": [
+          "parameters"
+        ]
+      },
+      "put": {
+        "description": "Replace the whole parameter table: one undoable tree edit.\n\nStale ``expected_tree_version`` \u2192 422 ``stale_tree_version``. A table that\ndoes not evaluate (bad or repeated name, syntax, unknown name, cycle, unit\nclash, non-finite value) \u2192 422 with the expression error's code.",
+        "operationId": "put_parameters_api_v1_parts__part_id__parameters_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartParametersUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartParametersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Parameters",
+        "tags": [
+          "parameters"
         ]
       }
     },

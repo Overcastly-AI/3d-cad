@@ -727,3 +727,104 @@ def test_0017_up_and_down_on_a_populated_database(
     run(_scalar_rows(pg_url, insert))
     run(_scalar_rows(pg_url, f"DELETE FROM parts WHERE id = '{_VERSION_PART}'"))
     assert run(_scalar_rows(pg_url, "SELECT count(*) FROM part_versions")) == [(0,)]
+
+
+def test_0018_offline_sql_adds_parameters_and_expressions(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0017:0018")
+    # A constant default: catalog-only on Postgres 11+, every part reads [].
+    assert "ALTER TABLE parts ADD COLUMN parameters JSONB DEFAULT '[]' NOT NULL" in sql
+    assert "ALTER TABLE features ADD COLUMN expressions JSONB" in sql
+    assert "expressions JSONB NOT NULL" not in sql
+    assert "UPDATE " not in sql.replace("UPDATE alembic_version", "")
+
+
+def test_0018_offline_downgrade_drops_both_columns(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0018:0017", downgrade=True)
+    assert "ALTER TABLE features DROP COLUMN expressions" in sql
+    assert "ALTER TABLE parts DROP COLUMN parameters" in sql
+
+
+_PARAMETER_PART = "6f3f6b64-0000-4000-8000-0000000180aa"
+_PARAMETER_FEATURE = "6f3f6b64-0000-4000-8000-0000000180cc"
+
+
+def test_0018_up_down_up_on_a_populated_database(
+    pg_url: str, alembic_runner: Callable[..., None]
+) -> None:
+    """PART-PARAMETERS: 0018 against real rows. Existing parts and features
+    come through byte-for-byte and read an empty table and no expressions; a
+    stored table round-trips as JSONB; the downgrade drops exactly the two
+    columns; and the upgrade applies again."""
+    alembic_runner(pg_url, "0017", downgrade=True)
+    run = asyncio.run
+    run(
+        _scalar_rows(
+            pg_url,
+            "INSERT INTO parts (id, owner_id, name, tree_version) "
+            f"VALUES ('{_PARAMETER_PART}', '{_OWNER}', 'Old plate', 4)",
+        )
+    )
+    run(
+        _scalar_rows(
+            pg_url,
+            "INSERT INTO features (id, part_id, order_index, name, type, "
+            "param_version, params) VALUES "
+            f"('{_PARAMETER_FEATURE}', '{_PARAMETER_PART}', 0, 'Sketch1', "
+            f"'sketch', 1, '{_PARAMS}')",
+        )
+    )
+    parts = "SELECT id, owner_id, name, tree_version, updated_at FROM parts"
+    features = "SELECT id, params::text, param_version, updated_at FROM features"
+    parts_before = run(_scalar_rows(pg_url, parts))
+    features_before = run(_scalar_rows(pg_url, features))
+
+    alembic_runner(pg_url, "0018")
+    assert run(_scalar_rows(pg_url, parts)) == parts_before
+    assert run(_scalar_rows(pg_url, features)) == features_before
+    assert run(_scalar_rows(pg_url, "SELECT parameters::text FROM parts")) == [("[]",)]
+    assert run(_scalar_rows(pg_url, "SELECT expressions FROM features")) == [(None,)]
+    table = (
+        '[{"id": "6f3f6b64-0000-4000-8000-0000000180dd", "name": "w", '
+        '"expression": "40", "unit": "length", "comment": "", "value": 40.0}]'
+    )
+    run(
+        _scalar_rows(
+            pg_url,
+            f"UPDATE parts SET parameters = '{table}'::jsonb "
+            f"WHERE id = '{_PARAMETER_PART}'",
+        )
+    )
+    run(
+        _scalar_rows(
+            pg_url,
+            'UPDATE features SET expressions = \'{"/distance_mm": "w"}\'::jsonb',
+        )
+    )
+    assert run(
+        _scalar_rows(pg_url, "SELECT parameters -> 0 ->> 'expression' FROM parts")
+    ) == [("40",)]
+    with pytest.raises(IntegrityError):  # NOT NULL
+        run(_scalar_rows(pg_url, "UPDATE parts SET parameters = NULL"))
+
+    alembic_runner(pg_url, "0017", downgrade=True)
+    columns = (
+        "SELECT table_name, column_name FROM information_schema.columns "
+        "WHERE (table_name = 'parts' AND column_name = 'parameters') "
+        "OR (table_name = 'features' AND column_name = 'expressions')"
+    )
+    assert run(_scalar_rows(pg_url, columns)) == []
+    assert run(_scalar_rows(pg_url, features)) == features_before
+    assert run(
+        _scalar_rows(pg_url, "SELECT id, owner_id, name, tree_version FROM parts")
+    ) == [(row[0], row[1], row[2], row[3]) for row in parts_before]
+
+    alembic_runner(pg_url, "head")
+    assert sorted(run(_scalar_rows(pg_url, columns))) == [
+        ("features", "expressions"),
+        ("parts", "parameters"),
+    ]
+    assert run(_scalar_rows(pg_url, "SELECT parameters::text FROM parts")) == [("[]",)]

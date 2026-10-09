@@ -1152,6 +1152,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/parameters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Parameters
+         * @description The part's parameter table, in its stored order.
+         */
+        get: operations["get_parameters_api_v1_parts__part_id__parameters_get"];
+        /**
+         * Put Parameters
+         * @description Replace the whole parameter table: one undoable tree edit.
+         *
+         *     Stale ``expected_tree_version`` → 422 ``stale_tree_version``. A table that
+         *     does not evaluate (bad or repeated name, syntax, unknown name, cycle, unit
+         *     clash, non-finite value) → 422 with the expression error's code.
+         */
+        put: operations["put_parameters_api_v1_parts__part_id__parameters_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/redo": {
         parameters: {
             query?: never;
@@ -4823,6 +4851,8 @@ export interface components {
             materials?: components["schemas"]["MaterialAssignment"] | null;
             /** Name */
             name: string;
+            /** Parameters */
+            parameters?: components["schemas"]["PartParameter"][];
             /** Rollback Feature Id */
             rollback_feature_id?: string | null;
         };
@@ -5367,6 +5397,100 @@ export interface components {
         PartListResponse: {
             /** Parts */
             parts: components["schemas"]["PartResponse"][];
+        };
+        /**
+         * PartParameter
+         * @description One stored row with its resolved value. Unknown keys are ignored, as
+         *     everywhere in a ``.loft`` tree, so an older reader takes a newer file.
+         */
+        PartParameter: {
+            /**
+             * Comment
+             * @description Free note
+             * @default
+             */
+            comment: string;
+            /**
+             * Expression
+             * @description A number or formula, e.g. '40', '0.5 in', 'width/2 + 3'
+             */
+            expression: string;
+            /**
+             * Id
+             * Format: uuid
+             * @description Stable identity of the row; a rename keeps it. A new row carries a fresh UUID minted by the client.
+             */
+            id: string;
+            /**
+             * Name
+             * @description What formulas call it: a letter or _, then up to 63 letters, digits or _; not a function, unit or constant word
+             */
+            name: string;
+            /**
+             * Unit
+             * @description What the value measures: length (mm), angle (degrees) or unitless
+             * @enum {string}
+             */
+            unit: "length" | "angle" | "unitless";
+            /**
+             * Value
+             * @description The evaluated expression: mm for a length, degrees for an angle, a plain number for unitless. Computed by the server.
+             */
+            value: number;
+        };
+        /**
+         * PartParameterInput
+         * @description One row as a client writes it: everything but the resolved value.
+         */
+        PartParameterInput: {
+            /**
+             * Comment
+             * @description Free note
+             * @default
+             */
+            comment: string;
+            /**
+             * Expression
+             * @description A number or formula, e.g. '40', '0.5 in', 'width/2 + 3'
+             */
+            expression: string;
+            /**
+             * Id
+             * Format: uuid
+             * @description Stable identity of the row; a rename keeps it. A new row carries a fresh UUID minted by the client.
+             */
+            id: string;
+            /**
+             * Name
+             * @description What formulas call it: a letter or _, then up to 63 letters, digits or _; not a function, unit or constant word
+             */
+            name: string;
+            /**
+             * Unit
+             * @description What the value measures: length (mm), angle (degrees) or unitless
+             * @enum {string}
+             */
+            unit: "length" | "angle" | "unitless";
+        };
+        /**
+         * PartParametersResponse
+         * @description A part's parameter table, in its stored order, with the tree version.
+         */
+        PartParametersResponse: {
+            /** Parameters */
+            parameters: components["schemas"]["PartParameter"][];
+            /** Tree Version */
+            tree_version: number;
+        };
+        /**
+         * PartParametersUpdate
+         * @description ``PUT /api/v1/parts/{id}/parameters``: replace the whole table.
+         */
+        PartParametersUpdate: {
+            /** Expected Tree Version */
+            expected_tree_version: number;
+            /** Parameters */
+            parameters: components["schemas"]["PartParameterInput"][];
         };
         /**
          * PartResponse
@@ -10019,6 +10143,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_parameters_api_v1_parts__part_id__parameters_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartParametersResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_parameters_api_v1_parts__part_id__parameters_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartParametersUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartParametersResponse"];
                 };
             };
             /** @description Validation Error */

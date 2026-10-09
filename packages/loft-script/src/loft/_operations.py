@@ -887,6 +887,26 @@ POST_PARTS_PART_ID_MOVE: Final = Operation(
     required_query=(),
 )
 
+GET_PARTS_PART_ID_PARAMETERS: Final = Operation(
+    operation_id="get_part_parameters_api_v1_parts__part_id__parameters_get",
+    method="GET",
+    path="/api/v1/parts/{part_id}/parameters",
+    request_model=None,
+    response_model="PartParametersResponse",
+    path_params=("part_id",),
+    required_query=(),
+)
+
+PUT_PARTS_PART_ID_PARAMETERS: Final = Operation(
+    operation_id="put_part_parameters_api_v1_parts__part_id__parameters_put",
+    method="PUT",
+    path="/api/v1/parts/{part_id}/parameters",
+    request_model="PartParametersUpdate",
+    response_model="PartParametersResponse",
+    path_params=("part_id",),
+    required_query=(),
+)
+
 POST_PARTS_PART_ID_REDO: Final = Operation(
     operation_id="redo_part_api_v1_parts__part_id__redo_post",
     method="POST",
@@ -1039,6 +1059,8 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch": PATCH_PARTS_PART_ID_FEATURES_FEATURE_ID_SUPPRESS,
         "export_part_flat_pattern_api_v1_parts__part_id__flat_pattern_dxf_post": POST_PARTS_PART_ID_FLAT_PATTERN_DXF,
         "move_part_api_v1_parts__part_id__move_post": POST_PARTS_PART_ID_MOVE,
+        "get_part_parameters_api_v1_parts__part_id__parameters_get": GET_PARTS_PART_ID_PARAMETERS,
+        "put_part_parameters_api_v1_parts__part_id__parameters_put": PUT_PARTS_PART_ID_PARAMETERS,
         "redo_part_api_v1_parts__part_id__redo_post": POST_PARTS_PART_ID_REDO,
         "move_rollback_bar_api_v1_parts__part_id__rollback_put": PUT_PARTS_PART_ID_ROLLBACK,
         "undo_part_api_v1_parts__part_id__undo_post": POST_PARTS_PART_ID_UNDO,

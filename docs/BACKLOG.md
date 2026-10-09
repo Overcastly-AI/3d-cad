@@ -38,7 +38,7 @@ byte-identical; RESEARCH §15a).
         all goldens byte-identical.
   - [x] 2. `input_error` wire field; geometry fails such a feature.
         _Accept:_ unit test, later features build; goldens unchanged.
-  - [ ] 3. Parameter table: wire, migration 0018, documents GET/PUT,
+  - [x] 3. Parameter table: wire, migration 0018, documents GET/PUT,
         gateway, history, versions, `just gen`. _Accept:_ migration
         up/down/up; cycle/unknown 422; PUT+undo restores byte-for-byte.
   - [ ] 4. Feature-field and sketch-dimension expressions: resolve on write
