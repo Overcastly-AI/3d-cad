@@ -1,0 +1,65 @@
+{
+  "description": "SLIDER JOINT GOLDEN (S4a, RESEARCH §21): two instances of the SAME 40 x 25 x 10 mm plate (two r5 through-holes) on ONE slider joint, a carriage riding A's top front edge. Plate A is grounded at the origin; the joint pairs the START of A's top front edge (y = 0, z = 10) with the START of B's bottom front edge (y = 0, z = 0), origin B flipped, and is driven to value lin_mm = 80. B is seeded displaced (5, 3, 17) and spun ~-5.7 deg about Z. Locks: edge_point origins (canonical start, tangent Z), flip (a half turn about the frame's X), translation along A's joint Z with rotation locked, DOF = 1 for a driven slider, and the reported joint state.",
+  "derivation": [
+    "Expectations are HAND-DERIVED, not recorded pipeline output. The plate's own mass properties are the sketch-extrude-plate-2holes golden's: volume 8429.203673205104 mm^3, surface_area 3614.159265358979 mm^2, centroid (20, 12.5, 5), AABB [0,0,0]..[40,25,10], 8 faces / 18 edges / 1 shell.",
+    "Frame A (edge_point start of the edge (0,0,10)-(40,0,10)): start = the endpoint with the smaller (x, y, z) = (0, 0, 10); Z = the unit tangent from start to end = +X; X = reference_x(+X): the least-aligned axes Y and Z tie, Y wins = +Y; Y = Z x X = X x Y = +Z.",
+    "Frame B before flip (edge (0,0,0)-(40,0,0), B-local): origin (0, 0, 0), Z = +X, X = +Y, Y = +Z. flip is a half turn about the frame's X: Z -> -X, X stays +Y, Y = Z x X = (-X) x Y = -Z.",
+    "Joint relation: F_B = F_A o T with T = Trans(0, 0, offset + lin) o RotZ(angle) o RotX(180 deg), offset 0, angle 0, lin = 80. World B frame: origin (0, 0, 10) + 80 * (+X) = (80, 0, 10); x = +Y, y = -(+Z) = -Z, z = -(+X) = -X.",
+    "B's body rotation maps its (flipped) local frame x = +Y, y = -Z, z = -X onto world x = +Y, y = -Z, z = -X: the identity. Its translation puts the local origin (0, 0, 0) at (80, 0, 10): B position (80, 0, 10), orientation (0, 0, 0, 1).",
+    "Value 80 moves B exactly 80.000 along A's joint Z (+X) from its value-0 placement (0, 0, 10) (test_assembly_joints pins the difference). B's bottom face stays on A's top plane z = 10: a carriage on a rail.",
+    "Joint state: lin_mm = (p_B - p_A) . z_A - offset = ((80, 0, 10) - (0, 0, 10)) . (1, 0, 0) = 80; rot_deg null (a slider has no rotation value); axis_world = A's joint Z = (1, 0, 0).",
+    "remaining_dof = 1: six hard rows of rank 5 (lateral position 2 + orientation 3); the driving row places B but removes no DOF, so status is under_constrained.",
+    "Probe: B-local origin (0, 0, 0), the start of B's bottom front edge, sits at world (80, 0, 10).",
+    "combined volume = 2 x 8429.203673205104 = 16858.407346410208 mm^3; surface_area = 2 x 3614.159265358979 = 7228.318530717958 mm^2.",
+    "combined centroid: A (20, 12.5, 5), B (100, 12.5, 15); mean (60, 12.5, 10).",
+    "combined bounding_box: A [0,0,0]..[40,25,10] union B [80,0,10]..[120,25,20] = [0,0,0]..[120,25,20].",
+    "combined topology 16 / 36 / 2 (summed); distinct_mesh_count 1."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "CLOSED-FORM tolerance: a driven joint on a grounded parent is placed by the closed-form snap (no iteration). Measured first (2026-10-09, build123d 0.11.1 / OCCT 7.9, numpy BLAS pinned to 1 thread): B position and rotation exact (0.0 deviation), combined volume within 1.9e-12 mm^3 (summation order). 1e-9 is ~500x the worst observation and 1000x tighter than the numeric goldens' 1e-6. Loosening it requires a reviewed justification here and in docs/GEOMETRY-QA.md.",
+  "status": "under_constrained",
+  "remaining_dof": 1,
+  "distinct_mesh_count": 1,
+  "instances": [
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000001",
+      "placement": {
+        "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000002",
+      "placement": {
+        "position": { "x": 80.0, "y": 0.0, "z": 10.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    }
+  ],
+  "joint_states": [
+    {
+      "mate_id": "00000000-0000-0000-0000-0000000003e9",
+      "rot_deg": null,
+      "lin_mm": 80.0,
+      "axis_world": { "x": 1.0, "y": 0.0, "z": 0.0 }
+    }
+  ],
+  "probes": [
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000002",
+      "local": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "world": { "x": 80.0, "y": 0.0, "z": 10.0 },
+      "note": "start of B's bottom front edge, 80 along A's top front edge"
+    }
+  ],
+  "properties": {
+    "volume": 16858.407346410208,
+    "surface_area": 7228.318530717958,
+    "centroid": { "x": 60.0, "y": 12.5, "z": 10.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 120.0, "y": 25.0, "z": 20.0 }
+    }
+  },
+  "topology": { "faces": 16, "edges": 36, "shells": 2 }
+}
