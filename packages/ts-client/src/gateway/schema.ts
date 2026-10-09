@@ -278,7 +278,17 @@ export interface paths {
         delete: operations["delete_mate_api_v1_assemblies__assembly_id__mates__mate_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Mate
+         * @description Edit a joint's value / limits / offsets / B orientation (bumps
+         *     ``doc_version``, one undo step). Documents refuses a value outside the
+         *     limits with 422 ``joint_value_out_of_limits``, resurfaced verbatim.
+         *
+         *     Forwarded with ``exclude_unset``: an explicit ``limits: null`` removes the
+         *     limits while an absent ``limits`` keeps them, and a full dump would turn
+         *     every absent field into an explicit null.
+         */
+        patch: operations["update_mate_api_v1_assemblies__assembly_id__mates__mate_id__patch"];
         trace?: never;
     };
     "/api/v1/assemblies/{assembly_id}/move": {
@@ -7249,6 +7259,48 @@ export interface components {
             order_index: number;
         };
         /**
+         * MateUpdate
+         * @description Edit a joint in place: its value, limits, B-side orientation or offsets.
+         *
+         *     Every field but ``expected_version`` is optional and at least one must be
+         *     given. ``limits`` distinguishes absent (unchanged) from an explicit null
+         *     (remove the limits). ``flip`` / ``quarter_turns`` set origin B's, the
+         *     Onshape "flip primary axis" / "reorient" on an existing joint. Bumps
+         *     ``doc_version`` and records one undo step. Legacy mates are not editable
+         *     here (delete and recreate).
+         */
+        MateUpdate: {
+            /**
+             * Angle Deg
+             * @description New fixed angle
+             */
+            angle_deg?: number | null;
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §1.2)
+             */
+            expected_version: number;
+            /**
+             * Flip
+             * @description New flip of origin B
+             */
+            flip?: boolean | null;
+            /** @description New limits; an explicit null removes them, absent keeps them */
+            limits?: components["schemas"]["JointLimits"] | null;
+            /**
+             * Offset Mm
+             * @description New fixed offset
+             */
+            offset_mm?: number | null;
+            /**
+             * Quarter Turns
+             * @description New quarter turns of origin B
+             */
+            quarter_turns?: number | null;
+            /** @description New joint value */
+            value?: components["schemas"]["JointValue"] | null;
+        };
+        /**
          * Material
          * @description One library material: its key, display name, and density.
          *
@@ -11432,6 +11484,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssemblyGraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_mate_api_v1_assemblies__assembly_id__mates__mate_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+                mate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MateUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MateMutationResponse"];
                 };
             };
             /** @description Validation Error */

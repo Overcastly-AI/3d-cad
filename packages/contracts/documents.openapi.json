@@ -5239,6 +5239,98 @@
         "title": "MateResponse",
         "type": "object"
       },
+      "MateUpdate": {
+        "description": "Edit a joint in place: its value, limits, B-side orientation or offsets.\n\nEvery field but ``expected_version`` is optional and at least one must be\ngiven. ``limits`` distinguishes absent (unchanged) from an explicit null\n(remove the limits). ``flip`` / ``quarter_turns`` set origin B's, the\nOnshape \"flip primary axis\" / \"reorient\" on an existing joint. Bumps\n``doc_version`` and records one undo step. Legacy mates are not editable\nhere (delete and recreate).",
+        "properties": {
+          "angle_deg": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": -3600.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New fixed angle",
+            "title": "Angle Deg"
+          },
+          "expected_version": {
+            "description": "Optimistic-concurrency guard (design \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "flip": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New flip of origin B",
+            "title": "Flip"
+          },
+          "limits": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JointLimits"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New limits; an explicit null removes them, absent keeps them"
+          },
+          "offset_mm": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": -100000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New fixed offset",
+            "title": "Offset Mm"
+          },
+          "quarter_turns": {
+            "anyOf": [
+              {
+                "maximum": 3.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New quarter turns of origin B",
+            "title": "Quarter Turns"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JointValue"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New joint value"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "title": "MateUpdate",
+        "type": "object"
+      },
       "Material": {
         "description": "One library material: its key, display name, and density.\n\nDensity is the ONLY physical property v1 models, because mass is the only\nthing we claim to report. Thermal/elastic properties would be an unbacked\npromise until something computes with them (design \u00a71).",
         "properties": {
@@ -10328,6 +10420,86 @@
           }
         },
         "summary": "Delete Mate",
+        "tags": [
+          "assemblies"
+        ]
+      },
+      "patch": {
+        "description": "Edit a joint's value, limits, offsets or B-side orientation.\n\nBumps ``doc_version`` and records one history step. Refusals: an empty\nupdate (``empty_mate_update``), a legacy mate (``mate_not_joint``; delete\nand recreate it), a value outside the limits\n(``joint_value_out_of_limits``, naming the limit), a stale version\n(``stale_assembly_version``), all 422; another user's assembly or an\nunknown mate is a uniform 404.",
+        "operationId": "update_mate_api_v1_assemblies__assembly_id__mates__mate_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "mate_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Mate Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MateUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MateMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Mate",
         "tags": [
           "assemblies"
         ]

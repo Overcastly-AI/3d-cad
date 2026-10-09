@@ -157,6 +157,16 @@ DELETE_ASSEMBLIES_ASSEMBLY_ID_MATES_MATE_ID: Final = Operation(
     required_query=("expected_version",),
 )
 
+PATCH_ASSEMBLIES_ASSEMBLY_ID_MATES_MATE_ID: Final = Operation(
+    operation_id="update_mate_api_v1_assemblies__assembly_id__mates__mate_id__patch",
+    method="PATCH",
+    path="/api/v1/assemblies/{assembly_id}/mates/{mate_id}",
+    request_model="MateUpdate",
+    response_model="MateMutationResponse",
+    path_params=("assembly_id", "mate_id",),
+    required_query=(),
+)
+
 POST_ASSEMBLIES_ASSEMBLY_ID_MOVE: Final = Operation(
     operation_id="move_assembly_api_v1_assemblies__assembly_id__move_post",
     method="POST",
@@ -986,6 +996,7 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "update_instance_api_v1_assemblies__assembly_id__instances__instance_id__patch": PATCH_ASSEMBLIES_ASSEMBLY_ID_INSTANCES_INSTANCE_ID,
         "create_mate_api_v1_assemblies__assembly_id__mates_post": POST_ASSEMBLIES_ASSEMBLY_ID_MATES,
         "delete_mate_api_v1_assemblies__assembly_id__mates__mate_id__delete": DELETE_ASSEMBLIES_ASSEMBLY_ID_MATES_MATE_ID,
+        "update_mate_api_v1_assemblies__assembly_id__mates__mate_id__patch": PATCH_ASSEMBLIES_ASSEMBLY_ID_MATES_MATE_ID,
         "move_assembly_api_v1_assemblies__assembly_id__move_post": POST_ASSEMBLIES_ASSEMBLY_ID_MOVE,
         "redo_assembly_api_v1_assemblies__assembly_id__redo_post": POST_ASSEMBLIES_ASSEMBLY_ID_REDO,
         "undo_assembly_api_v1_assemblies__assembly_id__undo_post": POST_ASSEMBLIES_ASSEMBLY_ID_UNDO,
