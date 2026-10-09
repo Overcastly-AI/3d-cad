@@ -29,6 +29,7 @@ export interface PointEntryOpening {
 
 /** The tools whose every point is a POINT (not a size): typed at any step. */
 const SEQUENCE_TOOLS: ReadonlySet<SketchTool> = new Set<SketchTool>([
+  "point",
   "line",
   "arc",
   "spline",

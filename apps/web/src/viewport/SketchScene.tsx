@@ -127,6 +127,7 @@ import {
   InkPoints,
   InkSegments,
   partitionConstruction,
+  PointEntityInk,
   usePositionsGeometry,
 } from "./sketchInk";
 import {
@@ -2289,9 +2290,7 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
   return (
     <group>
       {/* Every layer here is the sketch you are AUTHORING, so every layer is
-          `onTop` — a rule with no exceptions is one nobody has to remember.
-          The one thing that would break is a mark you want occluded, and this
-          group contains none. */}
+          `onTop`: no exception to remember, and no mark here wants occluding. */}
       <InkSegments positions={bufferPositions} color={sketch.scribe} onTop />
       <InkSegments
         positions={constructionPositions}
@@ -2308,6 +2307,7 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
         color={sketch.selectedInk}
         onTop
       />
+      <PointEntityInk entities={entities} basis={basis} />
       <InkPoints positions={pointPositions} color={sketch.point} onTop />
       <InkPoints
         positions={hoveredPointPositions}
@@ -2392,10 +2392,9 @@ function DatumHintSheet({ basis }: { basis: PlaneBasis }) {
 
 /** Persisted sketches, rendered from the SOLVED evaluate payload. */
 function SolvedLayer({ layer }: { layer: SolvedSketchLayer }) {
-  // A saved sketch carries its frame as construction entities once anything was
-  // grounded to it (`sketch/datum.ts`). They are the plane's own datum, not ink
-  // the user drew, so a solved layer never paints them — the world origin triad
-  // already says where zero is out here.
+  // A saved sketch carries its frame as construction entities once something is
+  // grounded to it (`sketch/datum.ts`): the plane's datum, not the user's ink,
+  // so a solved layer never paints it; the world origin triad says where zero is.
   const parts = useMemo(
     () => partitionConstruction(withoutDatums(layer.entities)),
     [layer],
@@ -2429,6 +2428,7 @@ function SolvedLayer({ layer }: { layer: SolvedSketchLayer }) {
         dashSize={sketch.constructionDashMm}
         gapSize={sketch.constructionGapMm}
       />
+      <PointEntityInk entities={layer.entities} basis={layer.basis} solved />
     </>
   );
 }

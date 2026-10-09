@@ -12,6 +12,8 @@ import {
   type LineSegments,
 } from "three";
 
+import type { PlaneBasis } from "../sketch/plane";
+import { pointEntityStations, stationPositions } from "../sketch/pointEntity";
 import type { SketchEntity } from "../sketch/tools";
 
 /** The active sketch's ink draws over the solid (SketchScene policy note). */
@@ -110,12 +112,15 @@ export function InkPoints({
   color,
   sizePx = sketch.pointSizePx,
   onTop = false,
+  renderOrder,
 }: {
   positions: Float32Array;
   color: string;
   sizePx?: number;
   /** Active-sketch handles draw over the solid (policy note above). */
   onTop?: boolean;
+  /** Overrides the layer's order (a mark that must sit UNDER the dots). */
+  renderOrder?: number;
 }) {
   const geometry = usePositionsGeometry(positions);
   if (positions.length === 0) return null;
@@ -123,7 +128,7 @@ export function InkPoints({
     <points
       geometry={geometry}
       frustumCulled={false}
-      renderOrder={onTop ? ACTIVE_POINT_RENDER_ORDER : 0}
+      renderOrder={renderOrder ?? (onTop ? ACTIVE_POINT_RENDER_ORDER : 0)}
     >
       <pointsMaterial
         color={color}
@@ -135,5 +140,55 @@ export function InkPoints({
           : {})}
       />
     </points>
+  );
+}
+
+/**
+ * Station marks for sketch POINT entities, live and solved. Every other layer
+ * draws curves, so a point entity would otherwise be a bare defining dot (no
+ * different from an endpoint) while authoring, and invisible once the sketch
+ * is finished, which is exactly when a loft apex has to be found and checked.
+ *
+ * Live: a scribe-ink square one render step UNDER the point's own brass dot,
+ * so it reads as a ringed punch mark; picks and hovers still land on top.
+ * Solved: the settled scribe, depth tested like the rest of a solved sketch.
+ */
+export function PointEntityInk({
+  entities,
+  basis,
+  solved = false,
+}: {
+  entities: readonly SketchEntity[];
+  basis: PlaneBasis;
+  /** A finished sketch out in the model, not the one being authored. */
+  solved?: boolean;
+}) {
+  const stations = useMemo(() => pointEntityStations(entities), [entities]);
+  const profile = useMemo(
+    () => stationPositions(stations.profile, basis),
+    [stations, basis],
+  );
+  const construction = useMemo(
+    () => stationPositions(stations.construction, basis),
+    [stations, basis],
+  );
+  const live = solved
+    ? {}
+    : { onTop: true, renderOrder: ACTIVE_INK_RENDER_ORDER };
+  return (
+    <>
+      <InkPoints
+        positions={profile}
+        color={solved ? sketch.scribeSolved : sketch.scribe}
+        sizePx={sketch.stationPointSizePx}
+        {...live}
+      />
+      <InkPoints
+        positions={construction}
+        color={sketch.constructionInk}
+        sizePx={sketch.stationPointSizePx}
+        {...live}
+      />
+    </>
   );
 }
