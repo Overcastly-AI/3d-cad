@@ -1,0 +1,43 @@
+{
+  "description": "DATUM-PLANE-ANGLE: the moto frame's 50/32 x 160 steering-head tube, raked 25 deg back, built the way an engineer builds it in Fusion 360 (Plane at Angle) or SolidWorks (Plane, At angle): an XY datum at the front-apex height z = 495.467..., a sketch on it holding one construction line along -Y through the apex x = -32.384..., a datum plane at 25 deg about that sketch line measured from the XY datum (a FeatureRef reference, not the origin plane), the 50/32 annulus sketched at the angled plane's origin, extruded symmetric 160. Locks: the angle datum's line (a sketch line, read from the SOLVED sketch and mapped through its datum), its reference (an earlier datum), the right-handed angle sense (+Z turned +25 deg about -Y leans to -X: raked back), the origin convention (the line's point nearest the world origin, here the apex itself, so the circles sit at sketch (0, 0)), and a symmetric extrude from a tilted plane.",
+  "derivation": [
+    "Hand: the plane normal is +Z turned 25 deg right-handed about d = -Y: n cos25 + (d x n) sin25 = (0,0,cos25) + (-X) sin25 = (-sin25, 0, cos25), the frame golden's head axis (test_moto_frame.py: axis = (-sin(rake), 0, cos(rake))). Origin = the point of the line x = -32.38409359864937, z = 495.46749033400226 nearest the world origin = (-32.38409359864937, 0, 495.46749033400226), the front apex P4 (test_moto_frame.py::_front_apex_xz derives it from the rail corners).",
+    "Volume = pi (25^2 - 16^2) x 160 = 59040 pi = 185479.6302679414 mm^3. Surface area = outer wall 2 pi 25 x 160 + inner wall 2 pi 16 x 160 + two annular caps 2 x 369 pi = 13858 pi = 43536.19099344735 mm^2.",
+    "Centroid = the apex (the extrude is symmetric about the plane through it): (-32.38409359864937, 0, 495.46749033400226).",
+    "Bounding box of a cylinder of radius R = 25, half-length h = 80 on unit axis a: half-extent along world axis i is h |a_i| + R sqrt(1 - a_i^2). x: 80 sin25 + 25 cos25 = 56.4671556151722, so x in [-88.85124921382157, 24.08306201652283] (24.083... is the frame golden's x_max, the head's lower rim); y: 25; z: 80 cos25 + 25 sin25 = 83.07007950644947, so z in [412.3974108275528, 578.5375698404517].",
+    "Independent build123d twin (tests/test_datum_angle.py::test_head_golden_matches_an_independent_build123d_tube): Solid.make_cylinder(25) minus Solid.make_cylinder(16), 160 long, on a Plane whose z_dir is the raked axis, no datum/sketch/extrude: volume 185479.6302679414, area 43536.19099344735, the same box; the two-way boolean difference with the tree's body is empty.",
+    "Topology: outer and inner cylindrical walls (each one face with a seam edge) and two annular planar caps = 4 faces; 4 circles + 2 seams = 6 edges; 1 shell. Mesh (linear_deflection 0.1): 1012 vertices / 1008 triangles, recorded from the harness (not hand-derivable)."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "MEASURED, then set (geometry-gates skill). Worst observed deviation of the tree from the closed forms above (2026-10-09, build123d 0.11.1 / OCCT 7.9): volume 4e-11 mm^3 (185479.63026794136 against 185479.6302679414), centroid 4e-14 mm, area and bounding box equal to the printed digits. 1e-9 is 25x the volume residual; every quantity is analytic, so nothing larger is needed.",
+  "properties": {
+    "volume": 185479.6302679414,
+    "surface_area": 43536.19099344735,
+    "centroid": {
+      "x": -32.38409359864937,
+      "y": 0.0,
+      "z": 495.46749033400226
+    },
+    "bounding_box": {
+      "min": {
+        "x": -88.85124921382157,
+        "y": -25.0,
+        "z": 412.3974108275528
+      },
+      "max": {
+        "x": 24.08306201652283,
+        "y": 25.0,
+        "z": 578.5375698404517
+      }
+    }
+  },
+  "topology": {
+    "faces": 4,
+    "edges": 6,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 1012,
+    "triangles": 1008
+  }
+}

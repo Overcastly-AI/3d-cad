@@ -82,19 +82,13 @@ import {
   type Projection,
 } from "./viewCommands";
 
-/** The studio iso direction — every "home" has always opened here. */
-const ISO_DIR = new Vector3(...VIEW_DIRECTIONS.iso).normalize();
-/** Fit margin: orbit radius = bounds diagonal × this (the historic framing). */
-const FIT_FACTOR = 1.75;
-/** Default orbit radius when the scene is empty (the resting bench view). */
-const EMPTY_RADIUS = 200 * FIT_FACTOR;
-/**
- * The scene camera's vertical field of view. Declared here rather than only in
- * the `<Canvas camera>` prop because the projection swap has to reproduce this
- * exact framing when it converts a zoom back into a distance — two copies of
- * the number would be two framings that drift apart.
- */
-const CAMERA_FOV_DEG = 40;
+import {
+  BOOT_CAMERA_POSITION,
+  CAMERA_FOV_DEG,
+  EMPTY_RADIUS,
+  FIT_FACTOR,
+  ISO_DIR,
+} from "./cameraFraming";
 
 interface CameraGoal {
   position: Vector3;
@@ -872,6 +866,9 @@ function CameraRig({
         zooming.zoom = g.zoom;
         zooming.updateProjectionMatrix();
       }
+      // Land the TARGET too: left at its last lerp it misses by a timing-
+      // dependent amount that every later Fit inherits (SEL-7, 175..184 px).
+      controls?.target.copy(g.target);
       controls?.update();
       goal.current = null;
       easing.current = false;
@@ -1711,7 +1708,7 @@ export function Viewport({
         frameloop="demand"
         dpr={[1, 2]}
         gl={{ antialias: true, preserveDrawingBuffer: true, alpha: true }}
-        camera={{ fov: CAMERA_FOV_DEG, position: [45, 32, 60] }}
+        camera={{ fov: CAMERA_FOV_DEG, position: BOOT_CAMERA_POSITION }}
       >
         <RenderProbe />
         {groundGrid ? (

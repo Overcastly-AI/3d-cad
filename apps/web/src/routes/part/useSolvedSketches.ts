@@ -11,6 +11,7 @@ import {
   sceneOriginBasis,
   type PlaneBasis,
   resolveDatumSceneBasis,
+  sketchLineSources,
 } from "../../sketch/plane";
 import { type SolvedSketchLayer } from "../../viewport/SketchScene";
 import type { PartDocument } from "./usePartDocument";
@@ -45,13 +46,14 @@ export function useSolvedSketches({
    * absent here and simply not offered as a reusable preview plane.
    */
   const datumBasisById = useMemo(() => {
+    const sketches = sketchLineSources(tree.data?.features ?? []);
     const map = new Map<string, PlaneBasis>();
     for (const id of datumById.keys()) {
-      const basis = resolveDatumSceneBasis(id, datumById);
+      const basis = resolveDatumSceneBasis(id, datumById, sketches);
       if (basis !== null) map.set(id, basis);
     }
     return map;
-  }, [datumById]);
+  }, [datumById, tree.data]);
 
   /** Solved sketch layers: tree feature (plane) × evaluate result (geometry). */
   const solved = useMemo<SolvedSketchLayer[]>(() => {

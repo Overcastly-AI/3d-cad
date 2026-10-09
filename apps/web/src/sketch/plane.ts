@@ -50,6 +50,14 @@
 import { formatLength } from "@loft/design";
 import type { components } from "@loft/ts-client/gateway";
 
+import {
+  type AngleLine,
+  angleBasis,
+  type DatumAngleLine,
+  edgeLine,
+  originAxisLine,
+} from "./angleBasis";
+
 export type DatumPlaneName = components["schemas"]["DatumPlaneRef"]["plane"];
 export type Point2D = components["schemas"]["Point2D"];
 /** The sketch `plane` slot on the wire: an origin datum OR a datum FeatureRef. */
@@ -71,7 +79,8 @@ export type AnyDatumParams =
   | components["schemas"]["DatumOffsetParams"]
   | components["schemas"]["DatumOnFaceParams"]
   | components["schemas"]["DatumOffsetFromParams"]
-  | components["schemas"]["DatumMidplaneParams"];
+  | components["schemas"]["DatumMidplaneParams"]
+  | components["schemas"]["DatumAngleParams"];
 /** The stage-1 planar-face fingerprint an on-face datum resolves against. */
 export type PlanarFaceSignature = components["schemas"]["PlanarFaceSignature"];
 
@@ -293,6 +302,7 @@ export function resolveDatumBasis(
   datumFeatureId: string,
   byId: ReadonlyMap<string, AnyDatumParams>,
   seen: ReadonlySet<string> = new Set(),
+  sketches: ReadonlyMap<string, SketchLineSource> = NO_SKETCHES,
 ): PlaneBasis | null {
   if (seen.has(datumFeatureId)) return null;
   const params = byId.get(datumFeatureId);
@@ -302,15 +312,27 @@ export function resolveDatumBasis(
     case "offset":
       return offsetBasis(params.base, params.offset_mm, params.flip);
     case "offset_from": {
-      const parent = resolveDatumBasis(params.base.feature_id, byId, next);
+      const parent = resolveDatumBasis(
+        params.base.feature_id,
+        byId,
+        next,
+        sketches,
+      );
       return parent === null
         ? null
         : offsetFromBasis(parent, params.offset_mm, params.flip);
     }
     case "midplane": {
-      const a = resolveMidplaneSide(params.a, byId, next);
-      const b = resolveMidplaneSide(params.b, byId, next);
+      const a = resolveMidplaneSide(params.a, byId, next, sketches);
+      const b = resolveMidplaneSide(params.b, byId, next, sketches);
       return a === null || b === null ? null : midplaneBasis(a, b, params.flip);
+    }
+    case "angle": {
+      const line = resolveAngleLine(params.line, byId, next, sketches);
+      const normal = referenceNormal(params.reference, byId, next, sketches);
+      return line === null || normal === null
+        ? null
+        : angleBasis(line, normal, params.angle_deg, params.flip);
     }
     case "on_face":
       // The on_face basis is a scene-frame faceBasis owned by the
@@ -329,8 +351,9 @@ export function resolveDatumBasis(
 export function resolveDatumSceneBasis(
   datumFeatureId: string,
   byId: ReadonlyMap<string, AnyDatumParams>,
+  sketches: ReadonlyMap<string, SketchLineSource> = NO_SKETCHES,
 ): PlaneBasis | null {
-  const basis = resolveDatumBasis(datumFeatureId, byId);
+  const basis = resolveDatumBasis(datumFeatureId, byId, new Set(), sketches);
   return basis === null ? null : occtToSceneBasis(basis);
 }
 
@@ -342,16 +365,93 @@ function resolveMidplaneSide(
   side: MidplaneSide,
   byId: ReadonlyMap<string, AnyDatumParams>,
   seen: ReadonlySet<string>,
+  sketches: ReadonlyMap<string, SketchLineSource>,
 ): PlaneBasis | null {
   switch (side.kind) {
     case "datum_plane":
       return originBasis(side.plane);
     case "feature":
-      return resolveDatumBasis(side.feature_id, byId, seen);
+      return resolveDatumBasis(side.feature_id, byId, seen, sketches);
     case "subshape":
       // A face-picked side — deferred (needs the scene-frame faceBasis).
       return null;
   }
+}
+
+/**
+ * A sketch as a plane-at-an-angle's LINE reads it: its plane ref and its stored
+ * entities (the solved coordinates the sketcher writes back on close).
+ */
+export interface SketchLineSource {
+  plane: SketchPlaneRef;
+  entities: readonly components["schemas"]["SketchParamsV1"]["entities"][number][];
+}
+
+const NO_SKETCHES: ReadonlyMap<string, SketchLineSource> = new Map();
+
+/**
+ * The reference normal of a plane at an angle, KERNEL frame. A picked face
+ * gives its stored signature normal (the angle needs only the normal, so the
+ * scene-frame `faceBasis` is not involved).
+ */
+function referenceNormal(
+  side: MidplaneSide,
+  byId: ReadonlyMap<string, AnyDatumParams>,
+  seen: ReadonlySet<string>,
+  sketches: ReadonlyMap<string, SketchLineSource>,
+): Vec3Tuple | null {
+  if (side.kind === "subshape") {
+    const { normal } = side.selector.signature;
+    return [normal.x, normal.y, normal.z];
+  }
+  return resolveMidplaneSide(side, byId, seen, sketches)?.normal ?? null;
+}
+
+/**
+ * The LINE of a plane at an angle, KERNEL frame: an origin axis, a picked
+ * edge's stored ends, or a sketch line mapped through its sketch's plane
+ * (start → end, the kernel's sense). Null when the sketch, its plane or the
+ * line cannot be resolved here.
+ */
+function resolveAngleLine(
+  line: DatumAngleLine,
+  byId: ReadonlyMap<string, AnyDatumParams>,
+  seen: ReadonlySet<string>,
+  sketches: ReadonlyMap<string, SketchLineSource>,
+): AngleLine | null {
+  if (line.kind === "origin_axis") return originAxisLine(line.axis);
+  if (line.kind === "subshape") return edgeLine(line);
+  const sketch = sketches.get(line.sketch.feature_id);
+  if (sketch === undefined) return null;
+  const entity = sketch.entities.find((e) => e.id === line.entity);
+  if (entity === undefined || entity.kind !== "line") return null;
+  const basis =
+    sketch.plane.kind === "datum_plane"
+      ? originBasis(sketch.plane.plane)
+      : resolveDatumBasis(sketch.plane.feature_id, byId, seen, sketches);
+  if (basis === null) return null;
+  const start = planeToWorld(basis, entity.start);
+  const end = planeToWorld(basis, entity.end);
+  return {
+    point: start,
+    direction: [end[0] - start[0], end[1] - start[1], end[2] - start[2]],
+  };
+}
+
+/** The sketch line sources of a feature tree (for {@link resolveDatumBasis}). */
+export function sketchLineSources(
+  features: readonly DatumFeatureNode[],
+): Map<string, SketchLineSource> {
+  const map = new Map<string, SketchLineSource>();
+  for (const feature of features) {
+    if (feature.feature.type === "sketch") {
+      map.set(feature.id, {
+        plane: feature.feature.params.plane,
+        entities: feature.feature.params.entities,
+      });
+    }
+  }
+  return map;
 }
 
 // --- On-face plane math (stage-1 topological naming) -----------------------
@@ -621,6 +721,7 @@ export function resolveDatumPlaneOptions(
       byId.set(feature.id, feature.feature.params);
     }
   }
+  const sketches = sketchLineSources(features);
   const options: DatumPlaneOption[] = [];
   for (const feature of features) {
     if (feature.feature.type !== "datum") continue;
@@ -635,7 +736,7 @@ export function resolveDatumPlaneOptions(
     }
     // Scene frame: the spec's `basis` is carried straight to the sketcher and
     // the section author, both of which draw with it.
-    const basis = resolveDatumSceneBasis(feature.id, byId);
+    const basis = resolveDatumSceneBasis(feature.id, byId, sketches);
     if (basis === null) continue;
     options.push({
       id: feature.id,
@@ -649,6 +750,26 @@ export function resolveDatumPlaneOptions(
     });
   }
   return options;
+}
+
+/**
+ * The SCENE-frame basis of a datum the editor has not saved yet (the angle
+ * preview), resolved against the tree's datums and sketches exactly as a saved
+ * one would be. Null when the form cannot be placed client-side.
+ */
+export function previewDatumSceneBasis(
+  params: AnyDatumParams,
+  features: readonly DatumFeatureNode[],
+): PlaneBasis | null {
+  const byId = new Map<string, AnyDatumParams>();
+  for (const feature of features) {
+    if (feature.feature.type === "datum") {
+      byId.set(feature.id, feature.feature.params);
+    }
+  }
+  const previewId = "\u0000preview";
+  byId.set(previewId, params);
+  return resolveDatumSceneBasis(previewId, byId, sketchLineSources(features));
 }
 
 /** Sketch-plane (u,v) mm → world xyz mm (`origin + u·x + v·y`). */

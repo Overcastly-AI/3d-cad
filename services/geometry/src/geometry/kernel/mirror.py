@@ -67,7 +67,7 @@ from collections.abc import Sequence
 
 from build123d import Plane, Solid
 
-from geometry.kernel.boolean_guard import guarded_variadic
+from geometry.kernel.boolean_guard import ChainVolume, guarded_variadic
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.types import BodyShape
@@ -97,7 +97,11 @@ class MirrorUnreachableError(MirrorError):
 
 
 def mirror_union(
-    body: BodyShape, plane: Plane, *, images: list[BodyShape] | None = None
+    body: BodyShape,
+    plane: Plane,
+    *,
+    images: list[BodyShape] | None = None,
+    chain: ChainVolume | None = None,
 ) -> BodyShape:
     """Reflect *body* about *plane* and boolean-union the reflection into it.
 
@@ -112,7 +116,8 @@ def mirror_union(
     * a symmetric body → the body itself, unchanged (``V``).
 
     *images*, when given, receives the reflected body (the faces a naming hook
-    names, :mod:`geometry.kernel.naming`).
+    names, :mod:`geometry.kernel.naming`). *chain* carries the body's volume in
+    and the result's out (:class:`~geometry.kernel.boolean_guard.ChainVolume`).
 
     Raises:
         MirrorError: the OCCT reflection/union failed, or the union produced no
@@ -147,10 +152,17 @@ def mirror_union(
             "reflection may graze or self-intersect the body."
         ),
         refusal=MirrorError,
+        chain=chain,
     )
 
 
-def mirror_cut(body: BodyShape, tools: Sequence[Solid], plane: Plane) -> BodyShape:
+def mirror_cut(
+    body: BodyShape,
+    tools: Sequence[Solid],
+    plane: Plane,
+    *,
+    chain: ChainVolume | None = None,
+) -> BodyShape:
     """Reflect the cut *tools* about *plane* and subtract them from *body*.
 
     The CUT-AWARE mirror (the reflective sibling of
@@ -202,11 +214,11 @@ def mirror_cut(body: BodyShape, tools: Sequence[Solid], plane: Plane) -> BodySha
     """
     reflected = reflect_tools(tools, plane)
     try:
-        return cut_reflected_tools(body, reflected)
+        return cut_reflected_tools(body, reflected, chain=chain)
     except MirrorUnreachableError:
         # The mirrored removal cannot touch the body — cutting would be a no-op.
         # The user is completing/duplicating the body, not mirroring the cut.
-        return mirror_union(body, plane)
+        return mirror_union(body, plane, chain=chain)
 
 
 def reflect_tools(tools: Sequence[BodyShape], plane: Plane) -> list[BodyShape]:
@@ -232,7 +244,12 @@ def reflect_tools(tools: Sequence[BodyShape], plane: Plane) -> list[BodyShape]:
         ) from exc
 
 
-def cut_reflected_tools(body: BodyShape, reflected: Sequence[BodyShape]) -> BodyShape:
+def cut_reflected_tools(
+    body: BodyShape,
+    reflected: Sequence[BodyShape],
+    *,
+    chain: ChainVolume | None = None,
+) -> BodyShape:
     """Subtract already-:func:`reflect_tools`-ed solids from *body*, no fallback.
 
     The shared cut half of both mirror scopes, and the ONE difference between them
@@ -288,10 +305,16 @@ def cut_reflected_tools(body: BodyShape, reflected: Sequence[BodyShape]) -> Body
             "tool may graze or self-intersect the body."
         ),
         refusal=MirrorError,
+        chain=chain,
     )
 
 
-def fuse_reflected_tools(body: BodyShape, reflected: Sequence[BodyShape]) -> BodyShape:
+def fuse_reflected_tools(
+    body: BodyShape,
+    reflected: Sequence[BodyShape],
+    *,
+    chain: ChainVolume | None = None,
+) -> BodyShape:
     """Fuse already-:func:`reflect_tools`-ed ADDITIVE solids into *body*.
 
     The additive half of the ``features`` scope (docs/design/mirror-semantics.md
@@ -328,4 +351,5 @@ def fuse_reflected_tools(body: BodyShape, reflected: Sequence[BodyShape]) -> Bod
             "self-intersect the body."
         ),
         refusal=MirrorError,
+        chain=chain,
     )

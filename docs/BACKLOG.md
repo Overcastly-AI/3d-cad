@@ -24,7 +24,10 @@ byte-identical; RESEARCH §15a).
       golden suite before it replaces it; every golden byte-identical, no
       tolerance touched; the `housing_tree(200)` cold rebuild, median of 3
       against 01e49e2 on the same idle host, is at or under 22 s, recorded in
-      RESEARCH §15a.
+      RESEARCH §15a. _Status 2026-10-09:_ step 5 taken (25.98 s against
+      26.16 s); step 3 refused, because a cache keyed on TShape misses
+      OCCT's in-place rewrites (§15a); step 2 waits on the founder: may we
+      fetch the OCCT `BRepCheck` source?
 - [ ] **DATUM-PLANE-ANGLE** (moto frame steering head, tube-frame gap): there
       is no tilted datum plane (only offset, on-face, offset-from and
       midplane), so the 25° steering head is a revolve about a sketch axis.

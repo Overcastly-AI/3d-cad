@@ -2265,13 +2265,53 @@ export interface components {
             radius: number;
         };
         /**
+         * DatumAngleParams
+         * @description A plane through a line, turned about it from a reference (``kind: "angle"``).
+         *
+         *     See the module docstring for the conventions. Failures are all typed and
+         *     leave the datum sick rather than crash the rebuild: a missing sketch or
+         *     entity is ``reference_unresolved``, a curved entity or edge (or a line of
+         *     zero length) is ``datum_line_invalid``, an edge or face that no longer
+         *     resolves is ``subshape_unresolved`` / ``subshape_ambiguous``, and a line
+         *     that is not parallel to the reference is ``datum_line_not_parallel``.
+         */
+        DatumAngleParams: {
+            /**
+             * Angle Deg
+             * @description Angle from the reference plane (degrees). 0 is parallel to the reference; positive turns the reference normal right-handed about the line direction.
+             */
+            angle_deg: number;
+            /**
+             * Flip
+             * @description Reverse the plane normal (negate z_dir, keeping x_dir so sketch +u is unchanged and +v flips) — the same rule as `offset`.
+             * @default false
+             */
+            flip: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "angle";
+            /**
+             * Line
+             * @description The line the plane passes through and turns about: a sketch line, a straight model edge, or an origin axis.
+             */
+            line: components["schemas"]["DatumSketchLineRef"] | components["schemas"]["DatumOriginAxisRef"] | components["schemas"]["EdgeSubshapeRef"];
+            /**
+             * Reference
+             * @description The plane the angle is measured from: an origin datum, an earlier `datum` feature, or a picked planar face. The line must be parallel to it.
+             */
+            reference: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"] | components["schemas"]["SubshapeRef"];
+        };
+        /**
          * DatumFeature
          * @description ``{"type": "datum", "version": 1, "params": {...}}`` envelope.
          *
          *     A non-body-affecting feature that produces a plane a later sketch sits on
          *     (docs/design/datum-planes.md §2b). ``params`` is the discriminated
          *     :data:`DatumParams` union — an ``offset`` plane (§3), an ``on_face`` plane
-         *     (§7), an ``offset_from`` chained plane, or a ``midplane`` (§7a). Every
+         *     (§7), an ``offset_from`` chained plane, a ``midplane`` (§7a), or a plane
+         *     at an ``angle`` about a line (:mod:`loft_wire.datum_angle`). Every
          *     variant after ``offset`` is ADDITIVE with NO ``param_version`` bump: legacy
          *     offset params (persisted before ``on_face`` existed) carry no ``kind``
          *     discriminator, so :meth:`_legacy_offset_kind` injects ``"offset"`` before
@@ -2280,7 +2320,7 @@ export interface components {
          */
         DatumFeature: {
             /** Params */
-            params: components["schemas"]["DatumOffsetParams"] | components["schemas"]["DatumOnFaceParams"] | components["schemas"]["DatumOffsetFromParams"] | components["schemas"]["DatumMidplaneParams"];
+            params: components["schemas"]["DatumOffsetParams"] | components["schemas"]["DatumOnFaceParams"] | components["schemas"]["DatumOffsetFromParams"] | components["schemas"]["DatumMidplaneParams"] | components["schemas"]["DatumAngleParams"];
             /**
              * Suppressed
              * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
@@ -2479,6 +2519,23 @@ export interface components {
             offset_mm: number;
         };
         /**
+         * DatumOriginAxisRef
+         * @description ``kind: "origin_axis"`` — one of the world axes through the origin.
+         */
+        DatumOriginAxisRef: {
+            /**
+             * Axis
+             * @description World origin axis the plane passes through and turns about.
+             * @enum {string}
+             */
+            axis: "X" | "Y" | "Z";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "origin_axis";
+        };
+        /**
          * DatumPlaneRef
          * @description One of the three origin datum planes.
          */
@@ -2493,6 +2550,31 @@ export interface components {
              * @enum {string}
              */
             plane: "XY" | "XZ" | "YZ";
+        };
+        /**
+         * DatumSketchLineRef
+         * @description ``kind: "sketch_line"`` — a LINE entity of an EARLIER sketch feature.
+         *
+         *     ``sketch`` is a whole-feature :class:`FeatureRef` (it materialises into
+         *     ``feature_dependencies`` like an extrude's profile); ``entity`` is the
+         *     sketch-local id of a line in it, a construction line being the natural
+         *     choice. The line is read from the SOLVED sketch at rebuild, so dragging or
+         *     re-dimensioning it moves the plane. A missing sketch or entity, or an
+         *     entity that is not a line, is a typed rebuild error on the datum.
+         */
+        DatumSketchLineRef: {
+            /**
+             * Entity
+             * @description Sketch-local id of a LINE entity of that sketch (a construction line is ideal).
+             */
+            entity: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "sketch_line";
+            /** @description The EARLIER sketch feature that owns the line. */
+            sketch: components["schemas"]["FeatureRef"];
         };
         /**
          * DiameterConstraint
@@ -3072,8 +3154,8 @@ export interface components {
              */
             feature_id: string;
             /**
-             * Kind
-             * @constant
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
              */
             kind: "subshape";
             selector: components["schemas"]["EdgeSelectorV1"];

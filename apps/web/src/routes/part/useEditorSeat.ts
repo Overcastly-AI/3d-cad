@@ -15,6 +15,7 @@ import { scopeSeed } from "../../features/patternScope";
 import { usePreselectStore } from "../../features/preselect";
 import { useCommandActionStore } from "../../features/commandActions";
 import { useEdgeGaugeAnchors } from "../../viewport/edgeAnchorSource";
+import type { DatumAngleParams } from "../../api/parts";
 import { type DatumGaugeSeed } from "../../viewport/faceAnchor";
 import type { PatternPreviewState } from "../../viewport/patternGhost";
 import { useGaugeOverride } from "../../viewport/useGaugeOverride";
@@ -118,6 +119,9 @@ export function useEditorSeat({ setEditorState, features }: EditorSeatParams) {
   const [datumGaugeSeed, setDatumGaugeSeed] = useState<DatumGaugeSeed | null>(
     null,
   );
+  // The plane-at-an-angle form, projected up so the viewport can draw it.
+  const [datumAnglePreview, setDatumAnglePreview] =
+    useState<DatumAngleParams | null>(null);
 
   // ANCHOR A (CRAFT-10) — the two ANGULAR gauges. Same contract as the depth
   // gauge above and the same three insertions: this hook, one prop on the
@@ -258,6 +262,8 @@ export function useEditorSeat({ setEditorState, features }: EditorSeatParams) {
     datumOffsetGauge,
     datumGaugeSeed,
     setDatumGaugeSeed,
+    datumAnglePreview,
+    setDatumAnglePreview,
     revolveAngleOverride,
     handleRevolveDrag,
     draftAngleOverride,

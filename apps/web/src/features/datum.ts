@@ -20,6 +20,7 @@
 import type { LengthUnit } from "@loft/design";
 
 import type {
+  DatumAngleParams,
   DatumMidplaneParams,
   DatumOffsetFromParams,
   DatumOffsetParams,
@@ -28,6 +29,15 @@ import type {
   MidplaneSide,
   PlanarFaceSignature,
 } from "../api/parts";
+import {
+  type AngleLineForm,
+  angleLineForm,
+  buildAngleLine,
+  DEFAULT_DATUM_ANGLE,
+  type DatumEdge,
+  EMPTY_ANGLE_LINE,
+  parseDatumAngleDeg,
+} from "./datumAngle";
 import { faceSubshapeRef, onFaceDatumParams } from "./face";
 import { fieldBlocker } from "./submitBlocker";
 import { parseSignedLengthMm } from "../units/length";
@@ -64,7 +74,8 @@ export interface DatumFace {
  * base, or either midplane side. The DatumEditor arms a pick for one slot; the
  * clicked face is folded into that slot.
  */
-export type DatumFaceSlot = "on_face" | "midplane-a" | "midplane-b";
+export type DatumFaceSlot =
+  "on_face" | "midplane-a" | "midplane-b" | "angle-reference";
 
 /**
  * A face delivered from the viewport pick into the editor, tagged with its
@@ -263,7 +274,8 @@ export function faceReadout(face: DatumFace): string {
 // --- The editor's discriminated form over the authorable datum kinds ----------
 
 /** The datum kinds the editor authors. */
-export type DatumKind = "offset" | "offset_from" | "midplane" | "on_face";
+export type DatumKind =
+  "offset" | "offset_from" | "midplane" | "on_face" | "angle";
 
 /** The editable datum form — a discriminated union over {@link DatumKind}. */
 export type DatumForm = (
@@ -289,6 +301,16 @@ export type DatumForm = (
       face: DatumFace | null;
       /** Signed offset along the face normal (mm), as typed. 0 sits on it. */
       offsetInput: string;
+    }
+  | {
+      kind: "angle";
+      /** The line the plane passes through and turns about. */
+      line: AngleLineForm;
+      /** The plane the angle is measured from (a midplane side's forms). */
+      reference: MidplaneSideForm;
+      /** Degrees from the reference, as typed (signed). */
+      angleInput: string;
+      flip: boolean;
     }
 ) & {
   /** The params as STORED, when editing (a no-op Save sends them back). */
@@ -316,7 +338,22 @@ function storedOffsetMm(form: DatumForm): number | undefined {
  * so the form opens as an `on_face` datum sitting on it (offset 0), which is
  * what the user would have built by hand in four more clicks.
  */
-export function defaultDatumForm(seed?: DatumFace | null): DatumForm {
+export function defaultDatumForm(
+  seed?: DatumFace | null,
+  edgeSeed?: DatumEdge | null,
+): DatumForm {
+  // A selected straight EDGE means "a plane at an angle about THIS" (Fusion's
+  // Plane at Angle takes the edge first); a face selected with it is the
+  // reference the angle is measured from.
+  if (edgeSeed != null) {
+    return {
+      kind: "angle",
+      line: { source: "edge", edge: edgeSeed },
+      reference: seed != null ? faceMidplaneSide(seed) : EMPTY_MIDPLANE_SIDE,
+      angleInput: DEFAULT_DATUM_ANGLE,
+      flip: false,
+    };
+  }
   if (seed != null) {
     return { kind: "on_face", face: seed, offsetInput: "0" };
   }
@@ -344,6 +381,14 @@ export function defaultFormForKind(kind: DatumKind, flip: boolean): DatumForm {
       };
     case "on_face":
       return { kind: "on_face", face: null, offsetInput: "0" };
+    case "angle":
+      return {
+        kind: "angle",
+        line: EMPTY_ANGLE_LINE,
+        reference: refMidplaneSide(encodeOriginSide("XY")),
+        angleInput: DEFAULT_DATUM_ANGLE,
+        flip,
+      };
   }
 }
 
@@ -365,6 +410,9 @@ export function applyFacePick(
   }
   if (slot === "midplane-b" && form.kind === "midplane") {
     return { ...form, b: faceMidplaneSide(face) };
+  }
+  if (slot === "angle-reference" && form.kind === "angle") {
+    return { ...form, reference: faceMidplaneSide(face) };
   }
   return form;
 }
@@ -407,6 +455,15 @@ export function formFromDatumParams(
           anchorId: params.face.feature_id,
         },
         offsetInput: storedLengthInput(params.offset_mm, unit),
+        stored: params,
+      };
+    case "angle":
+      return {
+        kind: "angle",
+        line: angleLineForm(params.line),
+        reference: midplaneSideForm(params.reference),
+        angleInput: String(params.angle_deg),
+        flip: params.flip,
         stored: params,
       };
   }
@@ -482,6 +539,20 @@ export function buildDatumParams(
       );
       return params;
     }
+    case "angle": {
+      const line = buildAngleLine(form.line);
+      const reference = buildMidplaneSide(form.reference);
+      const angle = parseDatumAngleDeg(form.angleInput);
+      if (line === null || reference === null || angle === null) return null;
+      const params: DatumAngleParams = {
+        kind: "angle",
+        line,
+        reference,
+        angle_deg: angle,
+        flip: form.flip,
+      };
+      return params;
+    }
   }
 }
 
@@ -516,6 +587,16 @@ export function datumSubmitBlocker(
     case "on_face":
       if (form.face === null) return "Pick a planar face in the view.";
       return offset(form.offsetInput);
+    case "angle":
+      if (buildAngleLine(form.line) === null) return "Choose the line.";
+      if (buildMidplaneSide(form.reference) === null) {
+        return "Choose the reference plane.";
+      }
+      return fieldBlocker(
+        form.angleInput,
+        parseDatumAngleDeg(form.angleInput),
+        "angle",
+      );
   }
 }
 

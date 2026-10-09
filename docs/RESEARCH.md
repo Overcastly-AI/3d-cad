@@ -447,8 +447,9 @@ normal (off `XZ` by +5 lands at y = -5); `flip` negates the normal and keeps
 `x_dir`. An on-face datum sits at the face's area centroid with the outward
 normal, and `x_dir = deterministic_x_dir(normal)`, which is the world axis
 least aligned with the normal. A midplane between parallel sides takes side
-A's normal. Scripts should read the resolved plane back rather than guess a
-sign.
+A's normal. A plane at an angle has `x_dir` along its line and its origin at
+the line's point nearest the world origin (§18). Scripts should read the
+resolved plane back rather than guess a sign.
 
 ## 13. Sessions and tokens
 
@@ -934,6 +935,48 @@ of the top face every pocket borders. A feature costs 63 ms at N=100 and
 5. Smaller, ours, safe: pattern and mirror do not record their result's volume
    yet (`guarded_variadic`, ~0.5 %).
 
+**Pass 2 (2026-10-09).** Step 5 was taken, step 3 was not, and step 2 is still
+open. Its source is not vendored, and we will not write a wire-level
+`BRepCheck` from memory. Whether fetching OCCT 7.9.3's `BRepCheck_*.cxx` is
+allowed is the founder's decision.
+
+- Step 5, taken. `guarded_variadic` takes a `ChainVolume`. The feature seeds
+  it with the active body's memoised volume and every guarded boolean in a
+  mirror or pattern (both scopes, every group) reads its target's volume from
+  it. Each one writes back the volume its guard measured on the result, and
+  the feature records that volume when it installs the body. A path with no
+  boolean (count 1) keeps the seed, which still describes the body it returns.
+  `tests/test_body_volume_memo.py` wraps the three body funnels and checks the
+  memo against a fresh integration after every install. It covers all 20
+  mirror and pattern goldens and `housing_tree(29)`, and requires each of them
+  to record a volume. GLB and metadata are byte-identical to 01e49e2 for 100
+  goldens (`goldens/`, and the sheet-metal goldens that are tree requests),
+  `housing_tree` 29/100/200 and `heat_sink_tree` 32/128.
+- Step 3, refused: a volume cached by face TShape is not sound here. OCCT
+  rewrites shared TShapes in place, which is the CM-6 finding. On the CM-6
+  later-pocket chain, three faces keep their TShape and Location while their
+  `SurfaceProperties` area goes from +201.06 to -201.06 mm^2. A cache keyed on
+  the face would hand the guard the volume from before the rewrite, which is
+  exactly the weld the guard exists to see. Adding the edges to the key
+  (2028 face-edge uses at N=200) costs 6.4 ms of Python per walk against
+  11.4 ms for the whole `VolumeProperties`. A pcurve swapped inside an
+  unchanged edge would still slip past that key. Integrating about a fixed
+  point would also move the floats of the 1e-9 clean guard, whose decisions
+  set the goldens' bytes.
+- Measured: `housing_tree(N)` cold, one fresh interpreter per sample,
+  interleaved against 01e49e2 on the same host (load 1.3 to 3, from another
+  agent's pytest), median of 3:
+
+| N   | 01e49e2 | pass 2  |
+| --- | ------- | ------- |
+| 100 | 9.23 s  | 9.34 s  |
+| 200 | 26.16 s | 25.98 s |
+
+On the tray, patterns and mirrors are 2 of the 21 features in each
+eight-site cycle, so step 5 sits inside the noise, as its ~0.5 % estimate
+said it would. The target of 22 s at N=200 is not met. What is left is step 1 (founder), step 2 (founder: the source) and
+step 4 (new goldens).
+
 ## 16. Shell corners: sharp by default, rounded where stored
 
 **What mainstream CAD does.** SolidWorks, Onshape and Fusion 360 shell with
@@ -998,3 +1041,51 @@ rebuild-cache key. A future `two_sides` joins the same Literal.
   datum at y = +104), and `extrude-cut-symmetric-pocket-offset-xz-40x40x20`
   is derived by hand and against a plain build123d box-minus-box
   (`tests/test_extrude_symmetric.py`).
+
+## 18. Plane at an angle: through a line, turned from a reference
+
+**What mainstream CAD does.** Fusion 360 (Construct > Plane at Angle: a
+linear edge, sketch line or axis plus an angle), SolidWorks (Plane, "At
+angle": a plane or face plus an edge or axis) and Onshape (Plane, "Line
+angle") all build the plane that contains a line and makes a typed angle with
+a reference plane. Fusion takes the reference implicitly (the sketch's plane,
+or a face next to the edge); SolidWorks names it. Loft names it, as
+SolidWorks does, so the angle never depends on which neighbour a heuristic
+chose.
+
+**Decision (DATUM-PLANE-ANGLE).** A `datum` of `kind: "angle"`
+(`loft_wire.datum_angle`): `line` is a sketch line (`{sketch, entity}`), a
+picked edge (the fillet's `EdgeSubshapeRef`) or an origin axis; `reference`
+takes the midplane side's three forms (origin plane, earlier datum, picked
+planar face); `angle_deg` is in [-360, 360]; `flip` as for every datum. It is
+additive: no stored datum changes shape or bytes.
+
+- **Math** (`kernel/datum_angle.py::plane_at_angle`, ported to the web's
+  `angleBasis`): normal = the reference normal turned `angle_deg`
+  right-handed about the line direction (start to end of a sketch line,
+  `end_a` to `end_b` of the edge as picked, +X/+Y/+Z for an axis); 0 is
+  the plane through the line parallel to the reference. Basis:
+  `x_dir` = the line direction, origin = the line's point nearest the world
+  origin, `y_dir = z_dir x x_dir`. Pure and deterministic.
+- **The line must be parallel to the reference** (in it or off it), to the
+  midplane's documented bound (`|d . n| <= 1e-9`). A line that pierces the
+  reference has no plane at a defined angle from it; that is the typed
+  `datum_line_not_parallel`, never a guessed plane.
+- **References follow on rebuild** through the existing funnels: the sketch
+  line from the SOLVED sketch of this pass through its resolved plane; the
+  edge through `resolve_edge_durable` with the active body's face names
+  (strict, named, durable tiers), so a resize with nothing re-picked follows
+  the edge by its history name, and its SENSE is the stored pick's (the
+  canonical ends sort by raw coordinates, so ulp noise on an axis-aligned
+  edge would otherwise mirror the angle after an unrelated edit); the
+  reference through the midplane side's
+  resolver. A lost reference makes the datum sick with a typed code
+  (`reference_unresolved`, `subshape_unresolved`/`subshape_ambiguous`,
+  `datum_line_invalid` for a curved or zero-length line); a sketch on it then
+  fails, nothing crashes.
+- Truth: the moto frame's steering head, sketched on a 25 deg plane about a
+  construction line and extruded symmetric 160, gives the frame golden's
+  volume with an empty two-way difference against the golden's independent
+  twin (`tests/test_datum_angle.py`), and
+  `datum-angle-head-tube-od50-id32-l160-25deg` is derived by hand and against
+  a plain `Solid.make_cylinder` tube.

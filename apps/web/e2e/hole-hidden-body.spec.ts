@@ -239,7 +239,9 @@ async function snapIds(page: Page): Promise<string[]> {
  * with the FRAMING. That is why every assertion below compares against a floor
  * measured in the same body-visibility state, never against a literal zero
  * (measured on this fixture: 74 px both bodies framed, 33 px plate hidden,
- * 168 + 708 px with the crosshair up).
+ * 150 + 34 px with the crosshair up, 150 + 30 px after the restore fit — the
+ * same on every run once the boot camera sat on iso and the fit ease landed
+ * its target; before that the floor read 74 or 90 px and the restore 171..186).
  */
 interface Ink {
   /** `sketch.planeEdge` — the datum frame, and CRAFT-3's resting origin marks. */
@@ -516,7 +518,20 @@ test.describe("SEL-7 — a hidden body withholds the hole placement overlay", ()
     // that suited the block alone, with the plate behind the camera and drei's
     // `Html` hiding marks it has correctly mounted. Re-framing is a real user
     // action and this gate is about the marks, not the camera.
+    //
+    // Read the ink on the SETTLED camera, never mid-ease: the fit swings from
+    // the block-only frame back to both bodies, which eases for most of a
+    // second, and the crosshair's ink scales with the frame. Six frames is a
+    // wall time on a slow rasteriser and a fraction of the ease on a fast one.
+    // The rig stamps `data-fit-rect` only when the ease lands, so clear it and
+    // wait for the stamp — the same signal `openBoredPlateAndBlock` waits on.
+    await view.evaluate((node) => {
+      node.dataset["fitRect"] = "";
+    });
     await page.getByTestId("view-fit").click();
+    await expect(view).not.toHaveAttribute("data-fit-rect", "", {
+      timeout: 20_000,
+    });
     await waitForFrames(page, 6);
     await expect(page.getByTestId("hole-point-center")).toBeVisible({
       timeout: 20_000,

@@ -123,6 +123,25 @@ class MeasuredBody:
     volume: float
 
 
+@dataclass
+class ChainVolume:
+    """The volume of the body a chain of variadic booleans is at, where known.
+
+    A mirror or pattern applies one or several variadic booleans in a row, each
+    to the previous one's result. The feature seeds this with the active body's
+    memoised volume (:attr:`~geometry.features.state.EvaluationState.body_volumes`,
+    ``None`` when unknown), :func:`guarded_variadic` reads it as the target's
+    volume instead of integrating the body again and, on success, overwrites it
+    with the volume its guard measured on the result. After the chain it
+    describes the body the chain returned, so the feature records it when it
+    installs that body. Only a returned result writes it; a call that raises
+    leaves it as it was, and so does a path that applies no boolean (the body
+    it returns is the one the value describes).
+    """
+
+    volume: float | None = None
+
+
 #: One run of a boolean at a fuzzy value (``None`` = the plain boolean): the
 #: result body and its reading. Raises :class:`BooleanError` for a result the
 #: op's own rules refuse (empty, wrong lump count).
@@ -311,6 +330,7 @@ def guarded_variadic(
     finish: Callable[[list[Solid]], BodyShape],
     kernel_failure: Callable[[Exception], Exception],
     refusal: Callable[[str], Exception],
+    chain: ChainVolume | None = None,
 ) -> BodyShape:
     """:func:`guarded_boolean` for a mirror's or a pattern's one-shot boolean.
 
@@ -320,6 +340,8 @@ def guarded_variadic(
     lumps into the body, raising the op's own errors (empty, lump count). A
     kernel exception is wrapped by *kernel_failure*, and an integrity refusal is
     raised as *refusal* of its message, so each op keeps its error taxonomy.
+    *chain*, when given, supplies *body*'s volume if known and receives the
+    result's (:class:`ChainVolume`).
     """
 
     def attempt(fuzzy: float | None) -> tuple[BodyShape, BodyReading]:
@@ -335,13 +357,17 @@ def guarded_variadic(
             raise kernel_failure(exc) from exc
         return finish(solids), reading
 
+    known = None if chain is None else chain.volume
     try:
-        return guarded_boolean(
+        measured = guarded_boolean(
             attempt,
             operation,
             (body, *tools),
-            shape_volume(body),
+            shape_volume(body) if known is None else known,
             [shape_volume(tool) for tool in tools],
-        ).shape
+        )
     except BooleanIntegrityError as exc:
         raise refusal(str(exc)) from exc
+    if chain is not None:
+        chain.volume = measured.volume
+    return measured.shape
