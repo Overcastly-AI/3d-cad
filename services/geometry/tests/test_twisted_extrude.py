@@ -1,10 +1,15 @@
-"""Twisted extrude — the extrude feature's ``twist_angle_deg`` (helical-gear gap #1).
+"""Twisted extrude — the LEGACY extrude ``twist_angle_deg`` (helical-gear gap #1).
 
-docs/design/twisted-extrude.md. The golden
-``extrude-twist-square20-hole-r3-h30-30deg`` runs every parametrized gate in
-``test_goldens.py`` / ``test_step_roundtrip.py`` (analytic mass properties,
-exact topology, in-process + cross-interpreter byte determinism, STEP round
-trip). This module covers what one golden cannot:
+docs/design/twisted-extrude.md. The extrude twist is DEPRECATED (founder,
+2026-10-09; loft_wire.legacy_twist): it can no longer be authored, but every
+stored twisted extrude must still rebuild exactly as before, so this module
+keeps the legacy rebuild path under test. Its golden was rebuilt with base
+tooling as ``sweep-twist-square20-hole-r3-h30-30deg`` (a Sweep with twist along
+a straight path), which runs every parametrized gate in ``test_goldens.py`` /
+``test_step_roundtrip.py``. The legacy-load test below
+(``test_a_stored_twisted_extrude_rebuilds_as_the_sweep_golden``) proves the
+stored extrude row and that sweep are the same body. This module
+covers what one golden cannot:
 
 * **no twist is the old extrude, byte for byte** — ``twist_angle_deg`` absent,
   ``null`` and ``0`` all produce the identical evaluate response (mesh id
@@ -41,6 +46,7 @@ from geometry.assembly.protocol import ResolvedAxis
 from geometry.assembly.resolve import resolve_mate_geometry
 from geometry.features import evaluate_tree
 from geometry.features.evaluate import reset_rebuild_cache
+from geometry.harness import build_model_solid, evaluate_model, load_model_request
 from geometry.kernel import export_step_bytes, measure_shape
 from geometry.kernel.edges import enumerate_edges
 from geometry.kernel.imports import import_step_solid
@@ -55,7 +61,7 @@ client = TestClient(app)
 
 GOLDENS = Path(__file__).resolve().parent.parent / "goldens"
 EXTRUDE_GOLDEN = GOLDENS / "sketch-extrude-40x25x10" / "model.json"
-TWIST_GOLDEN = GOLDENS / "extrude-twist-square20-hole-r3-h30-30deg"
+TWIST_GOLDEN = GOLDENS / "sweep-twist-square20-hole-r3-h30-30deg"
 
 #: Absolute bound (mm^3, and mm on AABB bounds) for this module's twisted
 #: bodies, MEASURED FIRST, THEN SET (2026-09-24, pipe-shell fit 1e-7 mm): the
@@ -342,6 +348,52 @@ def _golden_body() -> Any:
     evaluation = evaluate_tree(request)
     assert evaluation.body is not None
     return evaluation.body
+
+
+def _legacy_twisted_extrude(twist_angle_deg: float) -> EvaluateTreeRequest:
+    """The retired golden ``extrude-twist-square20-hole-r3-h30-30deg``, verbatim:
+    the sweep golden's profile sketch and an extrude row carrying the legacy
+    twist, under the same part and feature ids, as a stored pre-deprecation
+    part has it."""
+    golden: dict[str, Any] = json.loads((TWIST_GOLDEN / "model.json").read_text())
+    profile = golden["features"][0]
+    sweep = golden["features"][2]
+    golden["features"] = [
+        profile,
+        _extrude(
+            uuid.UUID(sweep["id"]),
+            uuid.UUID(profile["id"]),
+            30.0,
+            twist_angle_deg=twist_angle_deg,
+        ),
+    ]
+    return EvaluateTreeRequest.model_validate(golden)
+
+
+def test_a_stored_twisted_extrude_rebuilds_as_the_sweep_golden() -> None:
+    """LEGACY LOAD: a stored twisted extrude still rebuilds, and it is the
+    sweep golden's body exactly: the two-way boolean difference is empty, and
+    the GLB and every reported number are byte- and bit-identical (so the
+    golden's hand-derived values hold for the legacy row too). The control,
+    the same row at 29 deg, leaves a nonzero difference, so an empty one is
+    not a boolean that silently returned nothing."""
+    golden_glb, golden_meta = evaluate_model(
+        load_model_request((TWIST_GOLDEN / "model.json").read_text())
+    )
+    legacy = _legacy_twisted_extrude(30.0)
+    legacy_glb, legacy_meta = evaluate_model(legacy)
+    assert legacy_glb == golden_glb
+    assert legacy_meta == golden_meta
+
+    sweep_body = _golden_body()
+    legacy_body = build_model_solid(legacy)
+    control = build_model_solid(_legacy_twisted_extrude(29.0))
+    assert isinstance(sweep_body, Solid)
+    assert isinstance(legacy_body, Solid) and isinstance(control, Solid)
+    assert legacy_body.cut(sweep_body).volume == 0.0  # pyright: ignore[reportUnknownMemberType]
+    assert sweep_body.cut(legacy_body).volume == 0.0  # pyright: ignore[reportUnknownMemberType]
+    assert control.cut(sweep_body).volume > 1.0  # pyright: ignore[reportUnknownMemberType]
+    assert sweep_body.cut(control).volume > 1.0  # pyright: ignore[reportUnknownMemberType]
 
 
 def test_cap_edges_are_lines_and_circles_and_a_rim_is_a_mate_axis() -> None:

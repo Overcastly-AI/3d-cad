@@ -46,18 +46,39 @@
       }
     },
     {
+      "id": "00000000-0000-0000-0000-0000000007a2",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": { "kind": "datum_plane", "plane": "XZ" },
+          "entities": [
+            {
+              "id": "p1",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 0.0 },
+              "end": { "x": 0.0, "y": 30.0 }
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
       "id": "00000000-0000-0000-0000-0000000007b1",
       "feature": {
-        "type": "extrude",
+        "type": "sweep",
         "version": 1,
         "params": {
           "profile": {
             "kind": "feature",
             "feature_id": "00000000-0000-0000-0000-0000000007a1"
           },
-          "distance_mm": 30.0,
+          "path": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000007a2"
+          },
           "operation": "add",
-          "direction": "normal",
           "twist_angle_deg": 30.0
         }
       }
