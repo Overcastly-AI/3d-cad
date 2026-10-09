@@ -16,7 +16,7 @@ import math
 from typing import Any
 
 import pytest
-from build123d import CenterOf, Compound, Face, Solid
+from build123d import CenterOf, Compound, Face, Plane, Solid
 from geometry.kernel import (
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
@@ -616,7 +616,6 @@ def test_two_matching_faces_is_subshape_ambiguous(monkeypatch: Any) -> None:
     twin = PlanarFaceRecord(
         index=0,
         signature=target,
-        plane=resolve_face_plane(_box(), target, 0.0),
         face=planar_faces(_box())[0].face,
     )
 
@@ -1080,3 +1079,31 @@ def test_face_signature_dto_shares_construction_with_planar_faces() -> None:
     for index, face in enumerate(faces):
         dto = face_signature_dto(face)
         assert dto == by_index.get(index)
+
+
+def test_one_integration_and_lazy_plane_are_the_eager_numbers() -> None:
+    """PERF-REBUILD-200 (RESEARCH §15): the signature reads area and centroid
+    from ONE surface integration, and a record builds its plane on first read
+    from the signature. Both must be the numbers the eager form produced, bit
+    for bit: ``face.center(CenterOf.MASS)``, ``face.area``, and a plane built
+    from the face's own normal and centroid."""
+    body = _box() - Solid.make_cylinder(4.0, 30.0).translate((5.0, 5.0, -10.0))
+    records = planar_faces(body)
+    assert len(records) == 6
+    for record in records:
+        face = record.face
+        centroid = face.center(CenterOf.MASS)
+        normal = face.normal_at(centroid)
+        assert planar_face_signature(face) == (normal, centroid, float(face.area))
+        sig = record.signature
+        assert (sig.centroid.x, sig.centroid.y, sig.centroid.z) == tuple(centroid)
+        assert sig.area_mm2 == float(face.area)
+        eager = Plane(
+            origin=centroid,
+            x_dir=faces_module.deterministic_x_dir(normal),
+            z_dir=normal,
+        )
+        assert tuple(record.plane.origin) == tuple(eager.origin)
+        assert tuple(record.plane.x_dir) == tuple(eager.x_dir)
+        assert tuple(record.plane.z_dir) == tuple(eager.z_dir)
+        assert record.plane is record.plane

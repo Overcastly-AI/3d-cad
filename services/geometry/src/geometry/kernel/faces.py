@@ -62,10 +62,13 @@ the boundary honest.
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import cached_property
 
 from build123d import CenterOf, Face, GeomType, Plane, Vector, Wire
 from loft_wire.features import PlanarFaceSignature, SubshapeResolutionTier
 from loft_wire.geometry import Vec3
+from OCP.BRepGProp import BRepGProp
+from OCP.GProp import GProp_GProps
 
 from geometry.kernel.resolution import ResolutionTally
 from geometry.kernel.types import BodyShape
@@ -112,13 +115,29 @@ class PlanarFaceRecord:
     field mirrors :class:`geometry.kernel.edges.EdgeRecord.edge` — a picked-face
     consumer like shell needs the Face, not just its plane). ``name`` is the
     face's history-based name (:mod:`geometry.kernel.naming`), when the caller
-    knows it."""
+    knows it.
+
+    :attr:`plane` is built on first read, not per record: a resolve enumerates
+    every planar face of the body (442 on the 200-feature tray) and reads the
+    plane of the one it matched, so building them all was 2.8 % of that rebuild
+    (RESEARCH §15). It is built from the signature's own normal and centroid,
+    the very floats the eager build used, so it is the same plane."""
 
     index: int
     signature: PlanarFaceSignature
-    plane: Plane
     face: Face
     name: str | None = None
+
+    @cached_property
+    def plane(self) -> Plane:
+        """The face's deterministic offset-0 sketch plane (:func:`_face_plane`)."""
+        normal = self.signature.normal
+        centroid = self.signature.centroid
+        return _face_plane(
+            Vector(normal.x, normal.y, normal.z),
+            Vector(centroid.x, centroid.y, centroid.z),
+            0.0,
+        )
 
 
 def deterministic_x_dir(normal: Vector) -> Vector:
@@ -161,9 +180,14 @@ def planar_face_signature(face: Face) -> tuple[Vector, Vector, float] | None:
     """
     if face.geom_type != GeomType.PLANE:
         return None
-    centroid = face.center(CenterOf.MASS)
+    # ONE surface integration for both: ``face.center(CenterOf.MASS)`` and
+    # ``face.area`` each run this same ``SurfaceProperties_s`` call and read one
+    # half of it, so a face used to be integrated twice (RESEARCH §15).
+    props = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(face.wrapped, props)
+    centroid = Vector(props.CentreOfMass())
     normal = face.normal_at(centroid)
-    return normal, centroid, float(face.area)
+    return normal, centroid, float(props.Mass())
 
 
 def _outer_region(face: Face) -> Face | None:
@@ -340,7 +364,6 @@ def planar_faces(
                     area,
                     outer_boundary_invariants(face, area=area, centroid=centroid),
                 ),
-                plane=_face_plane(normal, centroid, 0.0),
                 face=face,
                 name=None if names is None else names[index],
             )
