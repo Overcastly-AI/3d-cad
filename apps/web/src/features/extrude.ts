@@ -13,6 +13,13 @@ import { fieldBlocker } from "./submitBlocker";
 
 export type ExtrudeOperation = ExtrudeParams["operation"];
 export type ExtrudeDirection = ExtrudeParams["direction"];
+/**
+ * How far the extrude reaches each side of its plane (EXTRUDE-SYMMETRIC):
+ * `"one_side"` sweeps the distance along `direction`; `"symmetric"` sweeps half
+ * of it each way, the typed distance being the WHOLE length — SolidWorks Mid
+ * Plane, Onshape and Fusion Symmetric. Absent on the wire reads `"one_side"`.
+ */
+export type ExtrudeExtent = NonNullable<ExtrudeParams["extent"]>;
 
 /**
  * Where a sketch's plane came from — the fact that decides which way is "into
@@ -53,6 +60,12 @@ export interface ExtrudeForm {
    * profile switch — which is itself a statement of intent.
    */
   directionTouched: boolean;
+  /**
+   * One side or symmetric about the plane. While symmetric the direction is
+   * kept but means nothing (the kernel ignores it), so switching back to one
+   * side restores the side the user had.
+   */
+  extent: ExtrudeExtent;
   /**
    * "Merge result" (multi-body §MB-1): an ADD that fuses into the active body
    * (`true`, today's behavior) or starts a NEW body (`false`). Meaningless for
@@ -109,6 +122,8 @@ export interface ExtrudePreviewState {
   /** Canonical mm, always positive (an empty/invalid field yields null). */
   distanceMm: number;
   direction: ExtrudeDirection;
+  /** `"symmetric"` straddles the plane: half the distance each side. */
+  extent: ExtrudeExtent;
   operation: ExtrudeOperation;
   /**
    * Signed twist, degrees; 0 = a straight prism. Only a stored LEGACY twist
@@ -132,6 +147,7 @@ export function extrudePreviewState(
     profileFeatureId: form.profileFeatureId,
     distanceMm,
     direction: form.direction,
+    extent: form.extent,
     operation: form.operation,
     twistDeg: legacy?.deg ?? 0,
     twistCentre: legacy?.centre ?? null,
@@ -179,6 +195,7 @@ export function defaultExtrudeForm(
     operation: "add",
     direction: defaultExtrudeDirection("add", provenance),
     directionTouched: false,
+    extent: "one_side",
     merge: true,
   };
 }
@@ -202,6 +219,7 @@ export function formFromParams(
     operation: params.operation,
     direction: params.direction,
     directionTouched: false,
+    extent: params.extent ?? "one_side",
     merge: params.merge,
     stored: params,
   };
@@ -218,12 +236,18 @@ export function extrudeParamsFromForm(
   form: ExtrudeForm,
   distanceMm: number,
 ): ExtrudeParams {
+  // `one_side` is the wire's absent value: it is left out rather than sent, so
+  // a one-sided save carries exactly the keys it carried before the extent
+  // existed (and a symmetric extrude switched back drops the stored key).
+  const stored: Partial<ExtrudeParams> = { ...form.stored };
+  delete stored.extent;
   return {
-    ...form.stored,
+    ...stored,
     profile: { kind: "feature", feature_id: form.profileFeatureId },
     distance_mm: distanceMm,
     operation: form.operation,
     direction: form.direction,
+    ...(form.extent === "symmetric" ? { extent: "symmetric" as const } : {}),
     // Merge is an ADD choice only; a cut always removes from the active body,
     // so it sends the neutral `true` regardless of a stale toggle.
     merge: form.operation === "add" ? form.merge : true,
@@ -284,7 +308,11 @@ export function describeExtrudeDirection(
   operation: ExtrudeOperation,
   direction: ExtrudeDirection,
   provenance: PlaneProvenance,
+  extent: ExtrudeExtent = "one_side",
 ): string {
+  if (extent === "symmetric") {
+    return "Half the distance each side of the plane.";
+  }
   if (provenance !== "face") {
     return direction === "normal"
       ? "Along the plane normal."

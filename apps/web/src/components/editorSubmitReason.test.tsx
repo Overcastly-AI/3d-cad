@@ -246,6 +246,7 @@ const CASES: Case[] = [
           operation: "add",
           direction: "normal",
           directionTouched: false,
+          extent: "one_side",
           merge: true,
         }}
         onSubmit={noop}

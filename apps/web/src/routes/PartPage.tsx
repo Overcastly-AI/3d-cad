@@ -1038,6 +1038,7 @@ export function PartPage() {
                       data-testid="extrude-preview-active"
                       data-distance-mm={extrudePreview.distanceMm}
                       data-direction={extrudePreview.direction}
+                      data-extent={extrudePreview.extent}
                       data-operation={extrudePreview.operation}
                       data-twist-deg={extrudePreview.twistDeg}
                     />

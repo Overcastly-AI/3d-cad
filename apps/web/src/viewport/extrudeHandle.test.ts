@@ -494,3 +494,24 @@ describe("extrudeTrack — the options actually handed to the gauge", () => {
     expect(short.head.length / 5).toBeLessThanOrEqual(0.45 + 1e-9);
   });
 });
+
+describe("extrudeTrack — symmetric (EXTRUDE-SYMMETRIC)", () => {
+  const BASIS = sceneOriginBasis("XY");
+  const AXIS = handleAxis(BASIS, "normal", RECT);
+
+  it("rides the far face: the whole length's tip sits HALF of it out", () => {
+    const symmetric = extrudeTrack(AXIS, BASIS, "mm", true);
+    const oneSided = extrudeTrack(AXIS, BASIS, "mm");
+    // 30 mm whole length reaches 15 mm along the axis, where the ghost ends.
+    expect(symmetric.pointAt(30)[1]).toBeCloseTo(15, 6);
+    expect(oneSided.pointAt(30)[1]).toBeCloseTo(30, 6);
+  });
+
+  it("reads a pointer on the far face back as the whole length", () => {
+    const symmetric = extrudeTrack(AXIS, BASIS, "mm", true);
+    // A ray across the axis at 15 mm along it (scene +Y here), from +X.
+    const at = symmetric.valueAt([100, 15, -20], [-1, 0, 0]);
+    expect(at).not.toBeNull();
+    expect(at as number).toBeCloseTo(30, 6);
+  });
+});

@@ -94,6 +94,7 @@ describe("ExtrudeEditor preview projection", () => {
       profileFeatureId: "sk1",
       distanceMm: 10,
       direction: "normal",
+      extent: "one_side",
       operation: "add",
       twistDeg: 0,
       twistCentre: null,
@@ -569,5 +570,56 @@ describe("ExtrudeEditor — twist lives on Sweep now (TWIST-TO-SWEEP)", () => {
       twistDeg: 30,
       twistCentre: LEGACY.twist_center,
     });
+  });
+});
+
+describe("ExtrudeEditor — the Symmetric extent (EXTRUDE-SYMMETRIC)", () => {
+  it("submits symmetric and hides the direction, which means nothing then", () => {
+    const onSubmit = vi.fn();
+    const onPreviewChange = vi.fn();
+    renderEditor({ onSubmit, onPreviewChange });
+    expect(screen.getByTestId("extrude-dir-normal")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("extrude-extent-symmetric"));
+    expect(screen.queryByTestId("extrude-dir-normal")).toBeNull();
+    expect(lastPreview(onPreviewChange)?.extent).toBe("symmetric");
+    fireEvent.click(screen.getByTestId("extrude-submit"));
+    const params = onSubmit.mock.calls[0]?.[0] as ExtrudeParams;
+    expect(params.extent).toBe("symmetric");
+  });
+
+  it("works for a cut, and never warns that a symmetric cut misses", () => {
+    const onSubmit = vi.fn();
+    renderEditor({
+      onSubmit,
+      profiles: [{ id: "sk1", name: "Sketch on face", provenance: "face" }],
+    });
+    fireEvent.click(screen.getByTestId("extrude-op-cut"));
+    fireEvent.click(screen.getByTestId("extrude-extent-symmetric"));
+    expect(sweepRemovesNothing("cut", "normal", "face", "symmetric")).toBe(
+      false,
+    );
+    fireEvent.click(screen.getByTestId("extrude-submit"));
+    const params = onSubmit.mock.calls[0]?.[0] as ExtrudeParams;
+    expect(params).toMatchObject({ operation: "cut", extent: "symmetric" });
+  });
+
+  it("a one-sided create sends no extent key at all", () => {
+    const onSubmit = vi.fn();
+    renderEditor({ onSubmit });
+    fireEvent.click(screen.getByTestId("extrude-submit"));
+    expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty("extent");
+  });
+
+  it("is not offered over a stored legacy twist, which it cannot carry", () => {
+    const twisted: ExtrudeParams = {
+      profile: { kind: "feature", feature_id: "sk1" },
+      distance_mm: 20,
+      operation: "add",
+      direction: "normal",
+      merge: true,
+      twist_angle_deg: 30,
+    };
+    renderEditor({ initial: formFromParams(twisted, "mm") });
+    expect(screen.queryByTestId("extrude-extent-symmetric")).toBeNull();
   });
 });

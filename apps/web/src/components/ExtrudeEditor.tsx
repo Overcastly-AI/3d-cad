@@ -41,6 +41,7 @@ import {
   describeExtrudeDirection,
   distanceError,
   type ExtrudeDirection,
+  type ExtrudeExtent,
   type ExtrudeForm,
   type ExtrudeOperation,
   type ExtrudePreviewState,
@@ -126,6 +127,21 @@ const DIRECTIONS: ReadonlyArray<SegmentOption<ExtrudeDirection>> = [
   },
 ];
 
+const EXTENTS: ReadonlyArray<SegmentOption<ExtrudeExtent>> = [
+  {
+    value: "one_side",
+    label: "One side",
+    "data-testid": "extrude-extent-one-side",
+    "aria-label": "Extent: One side",
+  },
+  {
+    value: "symmetric",
+    label: "Symmetric",
+    "data-testid": "extrude-extent-symmetric",
+    "aria-label": "Extent: Symmetric",
+  },
+];
+
 /**
  * The one sweep state that is a WARNING rather than a description: a CUT
  * running along a face-seated sketch's normal leaves the solid immediately and
@@ -142,7 +158,10 @@ export function sweepRemovesNothing(
   operation: ExtrudeOperation,
   direction: ExtrudeDirection,
   provenance: PlaneProvenance,
+  extent: ExtrudeExtent = "one_side",
 ): boolean {
+  // A symmetric cut always reaches half its depth into the face's material.
+  if (extent === "symmetric") return false;
   return provenance === "face" && operation === "cut" && direction === "normal";
 }
 
@@ -239,11 +258,13 @@ export function ExtrudeEditor({
     form.operation,
     form.direction,
     provenance,
+    form.extent,
   );
   const sweepWarns = sweepRemovesNothing(
     form.operation,
     form.direction,
     provenance,
+    form.extent,
   );
 
   return (
@@ -380,17 +401,38 @@ export function ExtrudeEditor({
                   setForm((f) => withOperation(f, operation, provenance))
                 }
               />
-              <SegmentedControl
-                label="Direction"
-                hideLabel
-                size="dense"
-                value={form.direction}
-                options={DIRECTIONS}
-                onChange={(direction) =>
-                  setForm((f) => withDirection(f, direction))
-                }
-              />
+              {form.extent === "one_side" ? (
+                // Symmetric has no side to flip (the kernel ignores it), so the
+                // control leaves rather than sitting there doing nothing.
+                <SegmentedControl
+                  label="Direction"
+                  hideLabel
+                  size="dense"
+                  value={form.direction}
+                  options={DIRECTIONS}
+                  onChange={(direction) =>
+                    setForm((f) => withDirection(f, direction))
+                  }
+                />
+              ) : null}
             </FieldRow>
+
+            {legacyTwist === null ? (
+              // EXTRUDE-SYMMETRIC: one side, or half the distance each side of
+              // the plane (SolidWorks Mid Plane, Fusion/Onshape Symmetric). Not
+              // offered over a stored legacy twist, which the wire refuses to
+              // combine with it.
+              <FieldRow label="Extent">
+                <SegmentedControl
+                  label="Extent"
+                  hideLabel
+                  size="dense"
+                  value={form.extent}
+                  options={EXTENTS}
+                  onChange={(extent) => setForm((f) => ({ ...f, extent }))}
+                />
+              </FieldRow>
+            ) : null}
 
             {form.operation === "add" ? (
               // The old cell was "Merge result" plus a permanently-resident
