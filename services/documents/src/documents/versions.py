@@ -273,6 +273,7 @@ async def _version_state(
                 "param_version": row.param_version,
                 "suppressed": row.suppressed,
                 "params": copy.deepcopy(row.params),
+                "expressions": copy.deepcopy(row.expressions),
                 "created_at": _aware(existing.get(row.id, now)).isoformat(),
                 "updated_at": now.isoformat(),
             }

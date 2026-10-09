@@ -1888,7 +1888,10 @@ export interface paths {
          *     that does not evaluate is a 422 carrying the expression error's code
          *     (`expression_syntax`, `expression_unknown_name`, `expression_cycle` with
          *     its `chain`, `expression_name_invalid`, `expression_units`,
-         *     `expression_domain`, `expression_too_complex`).
+         *     `expression_domain`, `expression_too_complex`). Deleting a parameter a
+         *     feature still reads is a 409 `parameter_in_use` naming the features; a
+         *     rename rewrites every feature's references; the same table again changes
+         *     nothing.
          */
         put: operations["put_part_parameters_api_v1_parts__part_id__parameters_put"];
         post?: never;

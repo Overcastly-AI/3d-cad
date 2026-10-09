@@ -25,7 +25,6 @@ from typing import Annotated
 from fastapi import APIRouter, Query, status
 from loft_wire.features import (
     BODY_AFFECTING_FEATURE_TYPES,
-    FEATURE_REGISTRY,
     MAX_TREE_FEATURES,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
@@ -57,6 +56,11 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db, history
+from documents.feature_expressions import (
+    evaluation_features,
+    load_feature,
+    resolve_for_write,
+)
 from documents.parts import Principal, get_owned_part, section_view_feature_refs
 from documents.ref_backfill import backfill_written_params
 
@@ -276,12 +280,7 @@ def _to_response(feature: db.Feature, bar_index: int | None) -> FeatureResponse:
         part_id=feature.part_id,
         order_index=feature.order_index,
         name=feature.name,
-        feature=FEATURE_REGISTRY.load(
-            feature.type,
-            feature.param_version,
-            feature.params,
-            suppressed=feature.suppressed,
-        ),
+        feature=load_feature(feature)[0],
         rolled_back=bar_index is not None and feature.order_index > bar_index,
         created_at=feature.created_at,
         updated_at=feature.updated_at,
@@ -339,19 +338,16 @@ async def evaluation_prefix(
         if stop is None:
             raise NotFoundError("Feature not found.", code="feature_not_found")
         bar_index = stop.order_index - 1
-    return [
-        EvaluatedFeatureInput(
-            id=feature.id,
-            feature=FEATURE_REGISTRY.load(
-                feature.type,
-                feature.param_version,
-                feature.params,
-                suppressed=feature.suppressed,
-            ),
-        )
-        for feature in features
-        if bar_index is None or feature.order_index <= bar_index
-    ]
+    # Every formula is resolved against the part's parameters here, once, so
+    # geometry receives numbers only (PART-PARAMETERS, RESEARCH §20).
+    return evaluation_features(
+        part,
+        [
+            feature
+            for feature in features
+            if bar_index is None or feature.order_index <= bar_index
+        ],
+    )
 
 
 def part_materials(part: db.Part) -> MaterialAssignment | None:
@@ -440,9 +436,10 @@ async def create_feature(
     bar_index = _bar_index(part, features)
     position = len(features) if bar_index is None else bar_index + 1
 
-    reject_import_with_prior_body(request.feature, position, features)
-    reject_new_extrude_twist(request.feature)
-    target_ids = validate_references(request.feature, position, features_by_id)
+    envelope = resolve_for_write(part, request.feature)
+    reject_import_with_prior_body(envelope, position, features)
+    reject_new_extrude_twist(envelope)
+    target_ids = validate_references(envelope, position, features_by_id)
 
     await _shift_indexes(session, part.id, position, +1)
     feature = db.Feature(
@@ -450,12 +447,13 @@ async def create_feature(
         part_id=part.id,
         order_index=position,
         name=request.name,
-        type=request.feature.type,
-        param_version=request.feature.version,
-        params=request.feature.params.model_dump(mode="json"),
+        type=envelope.type,
+        param_version=envelope.version,
+        params=envelope.params.model_dump(mode="json"),
         # A feature CAN be born suppressed (slice-1 review 🔴: create must NOT
         # silently drop `suppressed: true`) — persist the envelope flag verbatim.
-        suppressed=request.feature.suppressed,
+        suppressed=envelope.suppressed,
+        expressions=envelope.expressions,
     )
     session.add(feature)
     await session.flush()  # row must exist before its edges (FK)
@@ -502,13 +500,12 @@ async def update_feature(
                 code="feature_type_immutable",
                 details={"current": feature.type, "provided": request.feature.type},
             )
-        reject_new_extrude_twist(request.feature, feature)
+        envelope = resolve_for_write(part, request.feature)
+        reject_new_extrude_twist(envelope, feature)
         features = await _ordered_features(session, part.id)
         features_by_id = {row.id: row for row in features}
-        target_ids = validate_references(
-            request.feature, feature.order_index, features_by_id
-        )
-        incoming = request.feature.params.model_dump(mode="json")
+        target_ids = validate_references(envelope, feature.order_index, features_by_id)
+        incoming = envelope.params.model_dump(mode="json")
         # A save from a tree read before a background history-name write
         # (DESIGN-INTENT-BACKFILL, which does not bump tree_version) keeps the
         # names THAT WRITE gave every pick it did not change. The source is
@@ -516,14 +513,15 @@ async def update_feature(
         # from anywhere else (a fresh pick) is the client's to keep or drop,
         # and a stored row that no longer loads is never read here.
         written = await backfill_written_params(session, part.id, feature.id)
-        feature.param_version = request.feature.version
+        feature.param_version = envelope.version
+        feature.expressions = envelope.expressions
         feature.params = (
             incoming if written is None else carry_ref_names(written, incoming)
         )
         # The envelope carries `suppressed`; a params replace persists it too so
         # an update never resets the flag (the dedicated toggle is the usual
         # path, but a full-envelope PATCH must round-trip it — feature-tree §4.3a).
-        feature.suppressed = request.feature.suppressed
+        feature.suppressed = envelope.suppressed
         await _rewrite_edges(session, part.id, feature.id, target_ids)
     if request.name is not None:
         feature.name = request.name

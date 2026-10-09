@@ -18260,7 +18260,7 @@
         ]
       },
       "put": {
-        "description": "Replace the whole parameter table, as one undoable edit.\n\nA stale `expected_tree_version` is a 422 `stale_tree_version`. A table\nthat does not evaluate is a 422 carrying the expression error's code\n(`expression_syntax`, `expression_unknown_name`, `expression_cycle` with\nits `chain`, `expression_name_invalid`, `expression_units`,\n`expression_domain`, `expression_too_complex`).",
+        "description": "Replace the whole parameter table, as one undoable edit.\n\nA stale `expected_tree_version` is a 422 `stale_tree_version`. A table\nthat does not evaluate is a 422 carrying the expression error's code\n(`expression_syntax`, `expression_unknown_name`, `expression_cycle` with\nits `chain`, `expression_name_invalid`, `expression_units`,\n`expression_domain`, `expression_too_complex`). Deleting a parameter a\nfeature still reads is a 409 `parameter_in_use` naming the features; a\nrename rewrites every feature's references; the same table again changes\nnothing.",
         "operationId": "put_part_parameters_api_v1_parts__part_id__parameters_put",
         "parameters": [
           {

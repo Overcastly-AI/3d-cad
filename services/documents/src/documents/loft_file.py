@@ -129,6 +129,7 @@ async def build_loft_tree(session: AsyncSession, part: db.Part) -> LoftTree:
                 param_version=envelope.version,
                 suppressed=row.suppressed,
                 params=envelope.model_dump(mode="json")["params"],
+                expressions=row.expressions,
             )
         )
     return LoftTree(
@@ -252,6 +253,7 @@ def _feature_create(
                     "version": version,
                     "params": params,
                     "suppressed": feature.suppressed,
+                    "expressions": feature.expressions,
                 },
                 "expected_tree_version": 0,
             }
@@ -323,6 +325,7 @@ def validated_rows(
             param_version=create.feature.version,
             params=create.feature.params.model_dump(mode="json"),
             suppressed=create.feature.suppressed,
+            expressions=create.feature.expressions,
         )
         rows.append(row)
         by_id[row.id] = row

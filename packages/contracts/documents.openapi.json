@@ -14258,7 +14258,7 @@
         ]
       },
       "put": {
-        "description": "Replace the whole parameter table: one undoable tree edit.\n\nStale ``expected_tree_version`` \u2192 422 ``stale_tree_version``. A table that\ndoes not evaluate (bad or repeated name, syntax, unknown name, cycle, unit\nclash, non-finite value) \u2192 422 with the expression error's code.",
+        "description": "Replace the whole parameter table: one undoable tree edit.\n\nStale ``expected_tree_version`` \u2192 422 ``stale_tree_version``. A table that\ndoes not evaluate (bad or repeated name, syntax, unknown name, cycle, unit\nclash, non-finite value) \u2192 422 with the expression error's code. Deleting a\nparameter a feature still reads \u2192 409 ``parameter_in_use``. The same table\nagain \u2192 200, nothing written.",
         "operationId": "put_parameters_api_v1_parts__part_id__parameters_put",
         "parameters": [
           {

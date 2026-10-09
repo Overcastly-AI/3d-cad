@@ -47,6 +47,7 @@ import json
 import re
 import uuid
 from collections.abc import Sequence
+from copy import deepcopy
 from typing import Any, cast
 
 from fastapi import APIRouter, status
@@ -260,6 +261,8 @@ async def duplicate_part(
                 param_version=feature.param_version,
                 params=remap_ids(feature.params, mapping),
                 suppressed=feature.suppressed,
+                # Pointers into params name fields, never feature ids.
+                expressions=deepcopy(feature.expressions),
             )
         )
     edges = (

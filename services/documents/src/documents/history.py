@@ -90,6 +90,8 @@ async def _serialize_state(session: AsyncSession, part: db.Part) -> dict[str, An
                 # params dict would let any future in-place mutation silently
                 # rewrite the snapshot (review 2026-07-17, latent hardening).
                 "params": copy.deepcopy(feature.params),
+                # Formulas driving params (PART-PARAMETERS step 4).
+                "expressions": copy.deepcopy(feature.expressions),
                 "created_at": feature.created_at.isoformat(),
                 "updated_at": feature.updated_at.isoformat(),
             }
@@ -137,6 +139,8 @@ async def _apply_state(
                 # Pre-suppress snapshots (persisted before this column) carry no
                 # key → default False (additive-optional, feature-tree.md §4.3a).
                 suppressed=row.get("suppressed", False),
+                # A snapshot from before formulas existed: every field a number.
+                expressions=copy.deepcopy(row.get("expressions")),
                 created_at=datetime.fromisoformat(row["created_at"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
             )
