@@ -514,7 +514,11 @@ class Part:
         ``profile`` and ``path`` each take a :class:`~loft.sketch.Sketch`
         (saved if it is not already), a ``FeatureRef`` or a bare feature id,
         exactly as :meth:`extrude`'s ``profile`` does. The path sketch's
-        entities must form one OPEN wire.
+        entities must form one connected wire, open or CLOSED. A closed path (a
+        loop of tube, a ring frame) sweeps once around into one closed solid,
+        seated where the path passes nearest the profile; every joint of a
+        closed path must be tangent-continuous, or :meth:`evaluate` raises the
+        ``sweep_path_not_tangent`` feature error naming the joint.
 
         ``twist_angle_deg`` turns the profile uniformly about the path by that
         many degrees from one end of the sweep to the other — a true helix for
