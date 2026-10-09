@@ -102,7 +102,6 @@ export function PartViewportLayers({
   >;
   pickState: Pick<
     PickState,
-    | "facePicking"
     | "pendingFaceIndex"
     | "datumFacePick"
     | "holePick"
@@ -165,7 +164,6 @@ export function PartViewportLayers({
     holeGaugeAnchor,
   } = pickSessions;
   const {
-    facePicking,
     pendingFaceIndex,
     datumFacePick,
     holePick,
@@ -314,7 +312,10 @@ export function PartViewportLayers({
           onChange={datumOffsetGauge.set}
         />
       ) : null}
-      {mode === "plane" && facePicking ? (
+      {/* Mounted for the whole plane-pick step (SKETCH-PLANE-PICK): the faces
+          are pickable beside the origin sheets, which yield to the body
+          (`sheetYield.ts`). `pickableFaces` is null when there is none. */}
+      {mode === "plane" ? (
         <FacePickOverlay
           faces={pickableFaces}
           onPick={authorFacePlane}

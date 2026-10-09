@@ -41,6 +41,7 @@ import { FacePatch } from "./facePatch";
 import { useHiddenPicks } from "./hiddenPicks";
 import { PickMark } from "./PickMark";
 import { PickSurface, usePickSurfaceTarget } from "./pickSurface";
+import { PLANE_PICK_BODY_ID } from "./sheetYield";
 import { useViewportPickStamp } from "./pickStamp";
 import {
   useSurfaceMarkBurial,
@@ -162,6 +163,9 @@ export function FacePickOverlay({
   return (
     <group userData={ANNOTATION_LAYER}>
       <PickSurface
+        // Named so the sketch plane-pick's origin sheets can yield to it
+        // (`sheetYield.ts`): a face seen through a sheet takes the click.
+        pickId={PLANE_PICK_BODY_ID}
         meshRef={surfaceRef}
         onMove={onSurfaceMove}
         onOut={() => setHovered(null)}
