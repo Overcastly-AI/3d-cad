@@ -29,7 +29,7 @@ import { type KeyboardEvent, useCallback, useEffect, useRef } from "react";
 import { useCommandBridge } from "../features/commandActions";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import { lengthInputValue } from "../units/length";
-import type { DatumParams } from "../api/parts";
+import type { DatumAngleParams, DatumParams } from "../api/parts";
 import type { DatumGaugeSeed } from "../viewport/faceAnchor";
 import {
   applyFacePick,
@@ -51,6 +51,13 @@ import {
   parseOffsetMm,
   refMidplaneSide,
 } from "../features/datum";
+import {
+  angleLineOptions,
+  datumAngleError,
+  edgeReadout,
+  EMPTY_ANGLE_LINE,
+  type SketchLineOption,
+} from "../features/datumAngle";
 import type { DatumPlaneName } from "../sketch/plane";
 import { EditorCard } from "./EditorCard";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
@@ -61,6 +68,8 @@ export interface DatumEditorProps {
   initial: DatumForm;
   /** Earlier datum features — the references offset-from + midplane draw on. */
   datumRefs: readonly DatumRef[];
+  /** Lines of earlier sketches — what a plane at an angle can turn about. */
+  sketchLines?: readonly SketchLineOption[];
   /** Commit the built params (documents/geometry handle the rest). */
   onSubmit: (params: DatumParams) => void;
   onCancel: () => void;
@@ -98,6 +107,11 @@ export interface DatumEditorProps {
    * offset to pull) and while a reference or a face is still unchosen.
    */
   onPlaneChange?: (seed: DatumGaugeSeed | null) => void;
+  /**
+   * The plane at an angle the form currently builds (null for any other kind,
+   * or while the form is incomplete), so the viewport can draw it before Save.
+   */
+  onAnglePlaneChange?: (params: DatumAngleParams | null) => void;
 }
 
 /**
@@ -113,7 +127,8 @@ function datumGaugeSeed(
   form: DatumForm,
   unit: LengthUnit,
 ): DatumGaugeSeed | null {
-  if (form.kind === "midplane") return null;
+  // A plane at an angle has no offset either: its handle is an angle.
+  if (form.kind === "midplane" || form.kind === "angle") return null;
   const offsetMm = parseOffsetMm(form.offsetInput, unit);
   if (offsetMm === null) return null;
   switch (form.kind) {
@@ -135,6 +150,7 @@ const KIND_OPTIONS: ReadonlyArray<{ value: DatumKind; label: string }> = [
   { value: "offset_from", label: "Offset from a datum" },
   { value: "midplane", label: "Midplane between two references" },
   { value: "on_face", label: "On a model face" },
+  { value: "angle", label: "At an angle about a line" },
 ];
 
 const BASE_OPTIONS: ReadonlyArray<SegmentOption<DatumPlaneName>> =
@@ -316,6 +332,7 @@ export function DatumEditor({
   mode,
   initial,
   datumRefs,
+  sketchLines = [],
   onSubmit,
   onCancel,
   saving,
@@ -327,6 +344,7 @@ export function DatumEditor({
   facePickError,
   offsetOverride = null,
   onPlaneChange,
+  onAnglePlaneChange,
 }: DatumEditorProps) {
   const unit = useDocumentLengthUnit();
   // THE ECHO (direction contract β). Without it the arrow springs back to its
@@ -342,7 +360,7 @@ export function DatumEditor({
     gaugeWrite(
       offsetOverride,
       (f: DatumForm, o) =>
-        f.kind === "midplane"
+        f.kind === "midplane" || f.kind === "angle"
           ? f
           : { ...f, offsetInput: lengthInputValue(o.mm, unit) },
       unit,
@@ -355,6 +373,11 @@ export function DatumEditor({
     onPlaneChange?.(datumGaugeSeed(form, unit));
     return () => onPlaneChange?.(null);
   }, [form, unit, onPlaneChange]);
+  useEffect(() => {
+    const params = form.kind === "angle" ? buildDatumParams(form, unit) : null;
+    onAnglePlaneChange?.(params?.kind === "angle" ? params : null);
+    return () => onAnglePlaneChange?.(null);
+  }, [form, unit, onAnglePlaneChange]);
 
   // Fold each delivered viewport face pick into its slot exactly once — the
   // nonce guards against a re-render re-applying the same pick.
@@ -646,6 +669,105 @@ export function DatumEditor({
                   The plane of the picked face. 0 sits on it; a signed offset
                   slides along the face normal.
                 </p>
+              </>
+            ) : null}
+
+            {form.kind === "angle" ? (
+              <>
+                {form.line.source === "edge" ? (
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-body text-xs text-gauge">Line</span>
+                    <div className="flex items-center justify-between gap-2 rounded-sm border border-brass/60 bg-carbide px-2 py-1">
+                      <span
+                        data-testid="datum-angle-edge"
+                        className="min-w-0 truncate font-data text-md text-mist"
+                      >
+                        {edgeReadout(form.line.edge)}
+                      </span>
+                      <button
+                        type="button"
+                        data-testid="datum-angle-edge-clear"
+                        onClick={() =>
+                          setForm((f) =>
+                            f.kind === "angle"
+                              ? { ...f, line: EMPTY_ANGLE_LINE }
+                              : f,
+                          )
+                        }
+                        className="shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <SelectField
+                    label="Line"
+                    data-testid="datum-angle-line"
+                    autoFocus
+                    value={form.line.value}
+                    options={angleLineOptions(sketchLines)}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setForm((f) =>
+                        f.kind === "angle"
+                          ? { ...f, line: { source: "ref", value } }
+                          : f,
+                      );
+                    }}
+                    aria-label="Line the plane turns about"
+                  />
+                )}
+                <MidplaneSideField
+                  slot="angle-reference"
+                  label="Reference plane"
+                  testIdBase="datum-angle-reference"
+                  side={form.reference}
+                  refOptions={midplaneSideOptions(datumRefs)}
+                  armed={activeFacePickSlot === "angle-reference"}
+                  canPickFace={canPickFace}
+                  autoFocus={false}
+                  onSelectRef={(value) =>
+                    setForm((f) =>
+                      f.kind === "angle"
+                        ? { ...f, reference: refMidplaneSide(value) }
+                        : f,
+                    )
+                  }
+                  onClearFace={() =>
+                    setForm((f) =>
+                      f.kind === "angle"
+                        ? { ...f, reference: refMidplaneSide("") }
+                        : f,
+                    )
+                  }
+                  onToggleFacePick={onToggleFacePick}
+                />
+                <NumberField
+                  label="Angle"
+                  unit="°"
+                  data-testid="datum-angle"
+                  value={form.angleInput}
+                  error={datumAngleError(form.angleInput)}
+                  onChange={(e) => {
+                    const angleInput = e.target.value;
+                    setForm((f) =>
+                      f.kind === "angle" ? { ...f, angleInput } : f,
+                    );
+                  }}
+                  onFocus={(e) => e.currentTarget.select()}
+                  aria-label="Angle from the reference plane (degrees)"
+                />
+                <p className="-mt-1 font-body text-xs text-gauge">
+                  The plane through the line, turned from the reference. 0 is
+                  parallel to it; positive turns right-handed about the line.
+                  The line must be parallel to the reference. Select a straight
+                  model edge before opening Datum to turn about it.
+                </p>
+                <FlipControl
+                  flip={form.flip}
+                  onChange={(flip) => setForm((f) => ({ ...f, flip }))}
+                />
               </>
             ) : null}
 

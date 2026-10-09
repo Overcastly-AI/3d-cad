@@ -108,6 +108,7 @@ export function FeatureEditorSeat({
     | "holeDiameterOverride"
     | "holeDepthOverride"
     | "setDatumGaugeSeed"
+    | "setDatumAnglePreview"
     | "datumOffsetOverride"
   >;
   rebuildNotices: Pick<RebuildNotices, "sweepRebuildError">;
@@ -135,7 +136,7 @@ export function FeatureEditorSeat({
     PickSessions,
     "onEdgeFlangeSpanChange" | "onReliefBendsChange"
   >;
-  actionFlags: Pick<ActionFlags, "datumEditorRefs">;
+  actionFlags: Pick<ActionFlags, "datumEditorRefs" | "datumSketchLines">;
   datumFacePicking: Pick<DatumFacePicking, "toggleDatumFacePick">;
 }) {
   const { mode } = partDocument;
@@ -191,6 +192,7 @@ export function FeatureEditorSeat({
     holeDiameterOverride,
     holeDepthOverride,
     setDatumGaugeSeed,
+    setDatumAnglePreview,
     datumOffsetOverride,
   } = editorSeat;
   const { sweepRebuildError } = rebuildNotices;
@@ -213,7 +215,7 @@ export function FeatureEditorSeat({
   } = pickState;
   const { toggleHolePick, onHolePreviewChange } = holePicking;
   const { onEdgeFlangeSpanChange, onReliefBendsChange } = pickSessions;
-  const { datumEditorRefs } = actionFlags;
+  const { datumEditorRefs, datumSketchLines } = actionFlags;
   const { toggleDatumFacePick } = datumFacePicking;
   return (
     <>
@@ -419,6 +421,7 @@ export function FeatureEditorSeat({
             mode={editor.mode}
             initial={editor.initial}
             datumRefs={datumEditorRefs}
+            sketchLines={datumSketchLines}
             onSubmit={submitDatum}
             onCancel={closeEditor}
             saving={editorSaving}
@@ -432,6 +435,7 @@ export function FeatureEditorSeat({
             onToggleFacePick={toggleDatumFacePick}
             facePick={datumFacePicked}
             onPlaneChange={setDatumGaugeSeed}
+            onAnglePlaneChange={setDatumAnglePreview}
             offsetOverride={datumOffsetOverride}
             // …and the standing refusal is stated on the editor's
             // own (ungated) pick-error line rather than nowhere.

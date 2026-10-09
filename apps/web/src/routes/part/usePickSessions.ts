@@ -15,6 +15,7 @@ import { useFacePickStore } from "../../features/facePickStore";
 import { usePreselectStore } from "../../features/preselect";
 import { datumAnchor, shellAnchor } from "../../viewport/faceAnchor";
 import { holeAnchor } from "../../viewport/holeAnchor";
+import { previewDatumSceneBasis } from "../../sketch/plane";
 import type { PartDocument } from "./usePartDocument";
 import type { PartBody } from "./usePartBody";
 import type { PickState } from "./usePickState";
@@ -29,7 +30,7 @@ type PickSessionsParams = Pick<PartDocument, "lengthUnit"> &
   Pick<PickState, "holePreview"> &
   Pick<SolvedSketches, "datumBasisById"> &
   Pick<FeatureCatalog, "features"> &
-  Pick<EditorSeat, "datumGaugeSeed"> &
+  Pick<EditorSeat, "datumGaugeSeed" | "datumAnglePreview"> &
   Pick<PickOverlays, "bodyFeatureId"> &
   Pick<EditorRepick, "pendingRepick">;
 
@@ -40,6 +41,7 @@ export function usePickSessions({
   datumBasisById,
   features,
   datumGaugeSeed,
+  datumAnglePreview,
   bodyFeatureId,
   pendingRepick,
 }: PickSessionsParams) {
@@ -171,6 +173,15 @@ export function usePickSessions({
       ),
     [datumGaugeSeed, datumBasisById],
   );
+  // The plane at an angle the datum editor is authoring, placed by the same
+  // walk as every saved datum (scene frame), or null.
+  const datumAngleBasis = useMemo(
+    () =>
+      datumAnglePreview === null
+        ? null
+        : previewDatumSceneBasis(datumAnglePreview, features),
+    [datumAnglePreview, features],
+  );
   // The hole instruments stand on the editor's live face + drill point — the
   // SAME mirror the placement overlay draws from, so the bore is drawn exactly
   // where the crosshair says the drill goes.
@@ -223,6 +234,7 @@ export function usePickSessions({
     shellPickedFaces,
     shellGaugeAnchor,
     datumGaugeAnchor,
+    datumAngleBasis,
     holeGaugeAnchor,
   };
 }

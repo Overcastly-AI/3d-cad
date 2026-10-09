@@ -298,6 +298,7 @@ export function PartPage() {
     setFilletRadiusMm,
     setChamferDistanceMm,
     datumGaugeSeed,
+    datumAnglePreview,
     revolveGauge,
     setRevolveGauge,
     setDraftGauge,
@@ -578,6 +579,7 @@ export function PartPage() {
     datumBasisById,
     features,
     datumGaugeSeed,
+    datumAnglePreview,
     bodyFeatureId,
     pendingRepick,
   });

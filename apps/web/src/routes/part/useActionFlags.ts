@@ -6,6 +6,7 @@
 
 import { useMemo, useState } from "react";
 
+import type { SketchLineOption } from "../../features/datumAngle";
 import type { PartBody } from "./usePartBody";
 import type { FeatureCatalog } from "./useFeatureCatalog";
 
@@ -28,6 +29,30 @@ export function useActionFlags({ editor, features }: ActionFlagsParams) {
       .filter((f, i) => f.feature.type === "datum" && i < bound)
       .map((f) => ({ id: f.id, name: f.name }));
   }, [editor, features]);
+  // Lines of the sketches before the datum: what a plane at an angle can turn
+  // about (the same strict-backward bound as the datum references above).
+  const datumSketchLines = useMemo((): SketchLineOption[] => {
+    if (editor?.kind !== "datum") return [];
+    const editingId = editor.featureId;
+    const foundAt = editingId
+      ? features.findIndex((f) => f.id === editingId)
+      : -1;
+    const bound = foundAt < 0 ? features.length : foundAt;
+    const lines: SketchLineOption[] = [];
+    features.slice(0, bound).forEach((f) => {
+      if (f.feature.type !== "sketch") return;
+      for (const entity of f.feature.params.entities) {
+        if (entity.kind !== "line") continue;
+        lines.push({
+          sketchId: f.id,
+          sketchName: f.name,
+          entityId: entity.id,
+          construction: entity.construction === true,
+        });
+      }
+    });
+    return lines;
+  }, [editor, features]);
   // STEP import (a discrete toolbar action, no editor panel): busy + the server
   // envelope's own message on rejection, surfaced in the viewport HUD.
   const [importing, setImporting] = useState(false);
@@ -48,6 +73,7 @@ export function useActionFlags({ editor, features }: ActionFlagsParams) {
   const [offsetPlaneError, setOffsetPlaneError] = useState<string | null>(null);
   return {
     datumEditorRefs,
+    datumSketchLines,
     importing,
     setImporting,
     importError,

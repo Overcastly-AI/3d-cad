@@ -9,6 +9,7 @@ import { useCallback } from "react";
 import { useMeasureStore } from "../../measure/store";
 import { type FeatureResponse } from "../../api/parts";
 import { defaultDatumForm } from "../../features/datum";
+import { isStraightEdge } from "../../features/datumAngle";
 import {
   defaultExtrudeForm,
   defaultProfileId,
@@ -382,7 +383,15 @@ export function useFeatureOpeners({
   // A datum plane needs no sketch/body — it's a construction plane parallel to
   // an origin datum. Available as soon as the tree exists (its own feature row).
   const openCreateDatum = useCallback(() => {
-    const seed = preselectedFace(usePreselectStore.getState(), bodyFeatureId);
+    const preselect = usePreselectStore.getState();
+    const seed = preselectedFace(preselect, bodyFeatureId);
+    // A selected straight edge means "a plane at an angle about THIS"
+    // (Fusion's Plane at Angle): the most recent edge pick, if it is straight.
+    const [edge] = preselectedEdges(preselect, bodyFeatureId, 1);
+    const edgeSeed =
+      edge !== undefined && bodyFeatureId !== null && isStraightEdge(edge)
+        ? { signature: edge, anchorId: bodyFeatureId }
+        : null;
     useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
@@ -391,7 +400,7 @@ export function useFeatureOpeners({
     setEditor({
       kind: "datum",
       mode: "create",
-      initial: defaultDatumForm(seed),
+      initial: defaultDatumForm(seed, edgeSeed),
     });
   }, [bodyFeatureId]);
 

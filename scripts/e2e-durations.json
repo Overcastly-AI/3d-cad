@@ -31,6 +31,7 @@
     "craft9b-gauges.spec.ts": 150.2,
     "craft9c-hole-gauge.spec.ts": 358.5,
     "datum-face-pick.spec.ts": 142.2,
+    "datum-plane-angle.spec.ts": 17.8,
     "datum-plane.spec.ts": 157.9,
     "datum-sheet-size.spec.ts": 29.3,
     "dimension-expressions.spec.ts": 94.2,

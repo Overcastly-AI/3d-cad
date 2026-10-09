@@ -18,6 +18,7 @@ import { ChamferGauge } from "../../viewport/ChamferGauge";
 import { FilletGauge } from "../../viewport/FilletGauge";
 import { RevolveGauge } from "../../viewport/RevolveGauge";
 import { DatumGauge } from "../../viewport/DatumGauge";
+import { DatumAnglePreview } from "../../viewport/DatumAnglePreview";
 import { ShellGauge } from "../../viewport/ShellGauge";
 import { HoleGauge } from "../../viewport/HoleGauge";
 import { PatternGaugeLayer } from "../../viewport/PatternGaugeLayer";
@@ -98,6 +99,7 @@ export function PartViewportLayers({
     | "edgeFlangeSpanLabel"
     | "shellGaugeAnchor"
     | "datumGaugeAnchor"
+    | "datumAngleBasis"
     | "holeGaugeAnchor"
   >;
   pickState: Pick<
@@ -162,6 +164,7 @@ export function PartViewportLayers({
     edgeFlangeSpanLabel,
     shellGaugeAnchor,
     datumGaugeAnchor,
+    datumAngleBasis,
     holeGaugeAnchor,
   } = pickSessions;
   const {
@@ -313,6 +316,11 @@ export function PartViewportLayers({
           offsetMm={datumGaugeSeed.offsetMm}
           onChange={datumOffsetGauge.set}
         />
+      ) : null}
+      {mode === "off" &&
+      editor?.kind === "datum" &&
+      datumAngleBasis !== null ? (
+        <DatumAnglePreview basis={datumAngleBasis} />
       ) : null}
       {/* Mounted for the whole plane-pick step (SKETCH-PLANE-PICK): the faces
           are pickable beside the origin sheets, which yield to the body

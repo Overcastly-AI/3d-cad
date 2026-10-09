@@ -77,6 +77,8 @@ export type MidplaneSide = DatumMidplaneParams["a"];
 export type DatumPlaneRef = components["schemas"]["DatumPlaneRef"];
 /** On-face datum params — a datum adopting a picked planar face's plane. */
 export type DatumOnFaceParams = components["schemas"]["DatumOnFaceParams"];
+/** A plane through a line at an angle from a reference (DATUM-PLANE-ANGLE). */
+export type DatumAngleParams = components["schemas"]["DatumAngleParams"];
 /** Stage-1 reference to one planar face of a body-affecting feature's result. */
 export type SubshapeRef = components["schemas"]["SubshapeRef"];
 /** The planar-face fingerprint an overlay face carries and a datum echoes. */
