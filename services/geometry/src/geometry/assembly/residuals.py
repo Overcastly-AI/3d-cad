@@ -34,6 +34,9 @@ Residuals (world frame, design §2.3):
   ``nA·nB - cosθ`` is flat near alignment and stalls); see :meth:`residual`.
 - ``lock(A, B)`` → ``[tB - t*, log(qB ⊗ q*⁻¹)]`` where ``(t*, q*) = A ∘ rel`` and
   ``rel`` is the authored seed relative pose — B rigidly fixed to A.
+- ``joint(A, B)`` → frame-to-frame rows from :mod:`geometry.assembly.joint_math`
+  (6 hard rows, plus one DRIVING row when the joint's value is set; the last
+  ``drive_rows`` rows of the block are the driving ones).
 """
 
 from __future__ import annotations
@@ -54,12 +57,20 @@ from loft_wire.assemblies import (
     MateParams,
     mate_instance_ids,
 )
+from loft_wire.joints import JointMate
 from numpy.typing import NDArray
 
+from geometry.assembly.joint_math import (
+    SOLVED_MOTIONS,
+    CompiledJoint,
+    LocalFrame,
+    compile_joint,
+)
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,
     ResolvedAxis,
     ResolvedFace,
+    ResolvedFrame,
     ResolvedMateGeometry,
     SolverMate,
 )
@@ -75,7 +86,7 @@ from geometry.assembly.transform import (
 
 Vector = NDArray[np.float64]
 
-CompiledMateKind = Literal["coincident", "concentric", "angle", "lock"]
+CompiledMateKind = Literal["coincident", "concentric", "angle", "lock", "joint"]
 
 _ZERO3 = np.zeros(3, dtype=np.float64)
 
@@ -94,7 +105,9 @@ class CompiledMate:
     For a face mate ``dir_a``/``dir_b`` are unit normals; for ``concentric`` they
     are unit axis directions; ``point_a``/``point_b`` are on the plane/axis. All
     arrays are in the respective instance's LOCAL frame. ``lock_rel`` is the
-    authored relative pose for a lock mate (``None`` otherwise).
+    authored relative pose for a lock mate (``None`` otherwise). ``joint`` is the
+    compiled joint for a ``joint`` mate (``None`` otherwise), whose last
+    ``drive_rows`` residual rows are driving rows, not hard constraints.
     """
 
     mate_id: uuid.UUID
@@ -112,8 +125,14 @@ class CompiledMate:
     cos_theta: float
     sin_theta: float
     lock_rel: Pose | None
+    joint: CompiledJoint | None = None
+    drive_rows: int = 0
 
     def residual(self, pose_a: Pose, pose_b: Pose) -> Vector:
+        if self.kind == "joint":
+            assert self.joint is not None
+            return self.joint.residual(pose_a, pose_b)
+
         if self.kind == "lock":
             assert self.lock_rel is not None
             desired = pose_a.compose(self.lock_rel)
@@ -192,6 +211,40 @@ def _axis(geom: ResolvedMateGeometry, mate_type: str, slot: str) -> ResolvedAxis
     return geom
 
 
+def _local_frame(geom: ResolvedMateGeometry, motion: str, slot: str) -> LocalFrame:
+    if not isinstance(geom, ResolvedFrame):
+        raise AssemblyDefinitionError(
+            f"{motion} joint slot {slot!r} requires a resolved frame, got {geom.kind!r}"
+        )
+    # Columns [x, z x x, z]: X is re-orthogonalised against Z so a synthetic
+    # frame that is not exactly orthonormal still gives a proper rotation.
+    z = normalize(as_vector(geom.z))
+    x_raw = as_vector(geom.x)
+    x = x_raw - float(np.dot(x_raw, z)) * z
+    if float(np.linalg.norm(z)) == 0.0 or float(np.linalg.norm(x)) < 1e-9:
+        raise AssemblyDefinitionError(
+            f"{motion} joint slot {slot!r} has a degenerate frame (zero or "
+            "parallel axes)"
+        )
+    x = normalize(x)
+    return LocalFrame(
+        origin=as_vector(geom.origin), rot=np.column_stack([x, np.cross(z, x), z])
+    )
+
+
+def _compile_joint(solver_mate: SolverMate, mate: JointMate) -> CompiledJoint:
+    if mate.motion not in SOLVED_MOTIONS:
+        raise AssemblyDefinitionError(
+            f"a {mate.motion} joint is not supported by the solver yet"
+        )
+    geometry = _require_geometry(solver_mate)
+    return compile_joint(
+        mate,
+        _local_frame(geometry[0], mate.motion, "a"),
+        _local_frame(geometry[1], mate.motion, "b"),
+    )
+
+
 def _require_geometry(
     solver_mate: SolverMate,
 ) -> tuple[ResolvedMateGeometry, ResolvedMateGeometry]:
@@ -240,8 +293,13 @@ def compile_mate(
     cos_theta = 0.0
     sin_theta = 0.0
     lock_rel: Pose | None = None
+    joint: CompiledJoint | None = None
 
-    if isinstance(mate, LockMate):
+    if isinstance(mate, JointMate):
+        kind = "joint"
+        joint = _compile_joint(solver_mate, mate)
+        rows = joint.rows
+    elif isinstance(mate, LockMate):
         kind = "lock"
         rows = 6
         lock_rel = relative_pose(seed_poses[idx_a], seed_poses[idx_b])
@@ -301,4 +359,6 @@ def compile_mate(
         cos_theta=cos_theta,
         sin_theta=sin_theta,
         lock_rel=lock_rel,
+        joint=joint,
+        drive_rows=joint.drive_rows if joint is not None else 0,
     )

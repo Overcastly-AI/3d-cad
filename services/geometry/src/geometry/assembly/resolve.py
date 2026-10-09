@@ -68,9 +68,11 @@ from loft_wire.assemblies import (
     mate_instance_ids,
 )
 from loft_wire.geometry import Vec3
-from loft_wire.joints import JointMate
+from loft_wire.joints import JointMate, JointOrigin
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 
+from geometry.assembly.joint_math import SOLVED_MOTIONS
+from geometry.assembly.joint_origins import resolve_joint_origin
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,
     AssemblySolveInput,
@@ -196,7 +198,9 @@ def resolve_mate_geometry(
     return _resolve_axis(body, ref)
 
 
-def _body_for(ref: MateGeometryRef, body_of: dict[uuid.UUID, BodyShape]) -> BodyShape:
+def _body_for(
+    ref: MateGeometryRef | JointOrigin, body_of: dict[uuid.UUID, BodyShape]
+) -> BodyShape:
     """The evaluated body of the instance a ref names, or a clean error.
 
     A ref to an instance absent from the assembly is malformed input — an
@@ -229,9 +233,15 @@ def _resolve_mate_pair(
                 )
         return None
     if isinstance(mate, JointMate):
-        # Joints are stored and edited before the solver understands them;
-        # refuse one cleanly (evaluate drops it as `mate_unsupported`).
-        raise AssemblyDefinitionError("joint mates are not solved yet")
+        if mate.motion not in SOLVED_MOTIONS:
+            # Cylindrical / planar / ball are stored and edited before the
+            # solver places them (S4b); refuse one cleanly (evaluate drops it
+            # as `mate_unsupported`).
+            raise AssemblyDefinitionError(f"{mate.motion} joints are not solved yet")
+        return (
+            resolve_joint_origin(_body_for(mate.a, body_of), mate.a),
+            resolve_joint_origin(_body_for(mate.b, body_of), mate.b),
+        )
     return (
         resolve_mate_geometry(_body_for(mate.a, body_of), mate.a),
         resolve_mate_geometry(_body_for(mate.b, body_of), mate.b),

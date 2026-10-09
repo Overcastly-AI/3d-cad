@@ -44,6 +44,7 @@ from loft_wire.assemblies import (
     Placement,
 )
 from loft_wire.geometry import Vec3
+from loft_wire.joints import JointState
 from pydantic import BaseModel, Field
 
 # ``AssemblySolveStatus`` / ``AssemblyOverconstraintClass`` /
@@ -62,6 +63,7 @@ __all__ = [
     "AssemblySolver",
     "ResolvedAxis",
     "ResolvedFace",
+    "ResolvedFrame",
     "ResolvedMateGeometry",
     "SolvedInstancePlacement",
     "SolverInstance",
@@ -96,9 +98,21 @@ class ResolvedAxis(BaseModel):
     direction: Vec3 = Field(description="Unit axis direction, instance-local")
 
 
-#: Discriminated resolved-geometry input: a planar face OR an axis.
+class ResolvedFrame(BaseModel):
+    """A joint origin resolved to a right-handed frame in an instance's LOCAL
+    part frame (S4a, RESEARCH §21): ``origin`` plus unit ``z`` and ``x`` axes,
+    with the origin's ``flip`` / ``quarter_turns`` already applied (Y = Z x X)."""
+
+    kind: Literal["frame"] = "frame"
+    origin: Vec3 = Field(description="Frame origin, instance-local mm")
+    z: Vec3 = Field(description="Unit Z axis (the joint axis), instance-local")
+    x: Vec3 = Field(description="Unit X axis, perpendicular to z, instance-local")
+
+
+#: Discriminated resolved-geometry input: a planar face, an axis, or a joint
+#: frame.
 ResolvedMateGeometry = Annotated[
-    ResolvedFace | ResolvedAxis, Field(discriminator="kind")
+    ResolvedFace | ResolvedAxis | ResolvedFrame, Field(discriminator="kind")
 ]
 
 
@@ -124,7 +138,8 @@ class SolverMate(BaseModel):
     (carrying ``flush`` / offsets / the two instance ids). ``geometry`` is the
     resolved ``(a, b)`` pair in the SAME order as the mate's ``a``/``b`` slots —
     two :class:`ResolvedFace` for ``coincident``/``distance``/``angle``, two
-    :class:`ResolvedAxis` for ``concentric``, and ``None`` for ``lock`` (which
+    :class:`ResolvedAxis` for ``concentric``, two :class:`ResolvedFrame` for a
+    ``joint``, and ``None`` for ``lock`` (which
     names instances directly and derives its target relative pose from the
     seeds). ``mate_id`` and ``order_index`` come from the persisted mate row:
     ``order_index`` fixes the deterministic processing order, ``mate_id`` names
@@ -169,6 +184,10 @@ class AssemblySolveResult(BaseModel):
     method: AssemblySolveMethod
     placements: list[SolvedInstancePlacement]
     diagnosis: AssemblySolveDiagnosis | None = None
+    joint_states: list[JointState] = Field(
+        default_factory=list["JointState"],
+        description="Each solved joint's position, in mate processing order",
+    )
 
 
 class AssemblySolver(Protocol):

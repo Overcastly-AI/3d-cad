@@ -32,6 +32,11 @@ geometry service's numpy untouched.
 Jacobian rank (``6·n_free - rank(J)``); a redundant *mate* is one whose residual
 rows add no rank (greedy, in processing order); a conflict is a consistent
 stationary point with irreducible residual, naming the offending mates.
+
+**Joints (S4a, RESEARCH §21)** compile through :mod:`geometry.assembly.joint_math`.
+The fast path snaps a joint's child onto its parent's frame (driven axes at the
+value, free axes at the seed), and a joint's DRIVING row (its set value) is left
+out of the remaining-DOF and redundancy ranks, so a driven hinge reports 1 DOF.
 """
 
 from __future__ import annotations
@@ -322,6 +327,18 @@ def _closed_form_child(
             blocks.append(m.residual(pose_a, pose_b))
         return np.concatenate(blocks) if blocks else np.zeros(0, dtype=np.float64)
 
+    # A joint snaps the child onto the parent's frame: driven axes take their
+    # value, free axes keep the seed (joint_math.CompiledJoint.snap_child).
+    joint_mate = next((m for m in pair_mates if m.joint is not None), None)
+    if joint_mate is not None:
+        assert joint_mate.joint is not None
+        child_pose = joint_mate.joint.snap_child(
+            parent_pose, joint_mate.idx_b == child_idx, seed_child
+        )
+        if float(np.linalg.norm(pair_residual(child_pose))) < SATISFIED_TOL:
+            return child_pose
+        return None
+
     # A lock fully fixes the relative pose — compose directly from the parent.
     for m in pair_mates:
         if m.kind == "lock":
@@ -440,7 +457,29 @@ def _try_fast_path(
 # --- diagnosis (shared by both paths) -------------------------------------------
 
 
-def _redundant_mates(mates: list[CompiledMate], jac: Matrix) -> list[uuid.UUID]:
+def _hard_system(mates: list[CompiledMate], jac: Matrix) -> tuple[Matrix, list[int]]:
+    """The Jacobian rows of the HARD constraints, plus each mate's hard row count.
+
+    A joint's driving row (its set value) places the joint but does not remove
+    a degree of freedom: a driven hinge still has 1 DOF, as in Fusion (RESEARCH
+    §21). Remaining DOF and redundancy are therefore read from the hard rows
+    only; conflicts still see every row (the residual). With no driving rows
+    this returns ``jac`` itself, so legacy assemblies are untouched.
+    """
+    counts = [m.rows - m.drive_rows for m in mates]
+    if all(m.drive_rows == 0 for m in mates):
+        return jac, counts
+    keep: list[int] = []
+    offset = 0
+    for m, count in zip(mates, counts, strict=True):
+        keep.extend(range(offset, offset + count))
+        offset += m.rows
+    return jac[keep], counts
+
+
+def _redundant_mates(
+    mates: list[CompiledMate], jac: Matrix, row_counts: list[int] | None = None
+) -> list[uuid.UUID]:
     """Mate ids whose Jacobian rows add no rank, greedily in processing order.
 
     A *whole* mate is redundant when the constraints already kept fully span its
@@ -452,9 +491,10 @@ def _redundant_mates(mates: list[CompiledMate], jac: Matrix) -> list[uuid.UUID]:
     kept = np.zeros((0, jac.shape[1]), dtype=np.float64)
     base_rank = 0
     offset = 0
-    for m in mates:
-        rows = jac[offset : offset + m.rows]
-        offset += m.rows
+    counts = row_counts if row_counts is not None else [m.rows for m in mates]
+    for m, count in zip(mates, counts, strict=True):
+        rows = jac[offset : offset + count]
+        offset += count
         stacked = np.vstack([kept, rows])
         if _numeric_rank(stacked) == base_rank:
             redundant.append(m.mate_id)
@@ -503,19 +543,25 @@ def _diagnose(
     if n == 0:
         return "well_constrained", None
 
-    jac = _jacobian(mates, poses, free_indices)
+    jac, hard_counts = _hard_system(mates, _jacobian(mates, poses, free_indices))
     remaining_dof = n - _numeric_rank(jac)
     if remaining_dof > 0:
+        message = (
+            f"{remaining_dof} degree(s) of freedom remain; free instances "
+            "left at their seed placement"
+        )
+        if any(m.joint is not None for m in mates):
+            message = (
+                f"{remaining_dof} degree(s) of freedom remain; a joint's free "
+                "axis sits at its value, or at the seed when no value is set"
+            )
         return "under_constrained", AssemblySolveDiagnosis(
             remaining_dof=remaining_dof,
-            message=(
-                f"{remaining_dof} degree(s) of freedom remain; free instances "
-                "left at their seed placement"
-            ),
+            message=message,
             suggested_fix="Add mates to remove the remaining degrees of freedom",
         )
 
-    redundant = _redundant_mates(mates, jac)
+    redundant = _redundant_mates(mates, jac, hard_counts)
     if redundant:
         return "over_constrained", AssemblySolveDiagnosis(
             classification="redundant",
@@ -569,6 +615,11 @@ class RigidBodyAssemblySolver:
             method = "numeric"
 
         status, diagnosis = _diagnose(compiled, poses, free_indices, converged)
+        joint_states = [
+            m.joint.state(m.mate_id, poses[m.idx_a], poses[m.idx_b])
+            for m in compiled
+            if m.joint is not None
+        ]
         placements = [
             SolvedInstancePlacement(
                 instance_id=instances[i].instance_id,
@@ -581,4 +632,5 @@ class RigidBodyAssemblySolver:
             method=method,
             placements=placements,
             diagnosis=diagnosis,
+            joint_states=joint_states,
         )

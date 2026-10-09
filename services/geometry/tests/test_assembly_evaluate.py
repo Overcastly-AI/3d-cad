@@ -381,8 +381,9 @@ def test_self_mate_is_a_per_mate_error_not_a_500() -> None:
 
 
 def test_joint_mate_is_a_clean_unsupported_mate_not_a_500() -> None:
-    """The solver does not understand ``type="joint"`` yet. A joint must be
-    DROPPED as a typed ``mate_unsupported`` per-mate error inside a 200, the
+    """The solver places rigid, revolute and slider joints (S4a) but not yet a
+    cylindrical, planar or ball one. Such a joint must be DROPPED as a typed
+    ``mate_unsupported`` per-mate error naming its motion inside a 200, the
     other mates still solve, and the result carries no ``joint_states`` (so it
     dumps as before)."""
     body = _plate_body()
@@ -393,7 +394,7 @@ def test_joint_mate_is_a_clean_unsupported_mate_not_a_500() -> None:
         mate_id=iid(1004),
         order_index=3,
         mate=JointMate(
-            motion="revolute",
+            motion="cylindrical",
             a=JointOrigin(instance_id=iid(1), kind="circle_centre", signature=h1),
             b=JointOrigin(instance_id=iid(2), kind="face_centre", signature=bottom),
         ),
@@ -410,6 +411,7 @@ def test_joint_mate_is_a_clean_unsupported_mate_not_a_500() -> None:
     )
     assert [me.mate_id for me in result.mate_errors] == [iid(1004)]
     assert result.mate_errors[0].error.code == "mate_unsupported"
+    assert "cylindrical joint" in result.mate_errors[0].error.message
     assert result.status == "well_constrained"
     assert all(inst.error is None for inst in result.instances)
     assert result.joint_states == []

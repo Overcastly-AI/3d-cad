@@ -1260,3 +1260,59 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   `sketch-trig-expression-40x20tan15x10` (step 1); a new golden kind
   `parametric.json` with re-drive steps (step 4); a cache-key test;
   documents route, undo, migration and `.loft` tests; web vitest and one e2e.
+
+## 21. Assembly joints: frames, alignment and values (S4a)
+
+**What mainstream CAD does.** Fusion 360 joints and Onshape mate connectors
+put a frame on each part (a face centre, a circle centre, a point on an edge),
+bring the two frames together, and leave a motion free between them. A face
+origin's Z is its outward normal, a circle origin's Z points out of the face
+the circle bounds, and the joint seats the parts face to face. A joint has a
+current value (Onshape persists it), and a driven hinge still has its 1 DOF:
+you can drag it.
+
+**Decisions** (`geometry/assembly/joint_origins.py`, `joint_math.py`).
+
+- **Origins.** `face_centre`: the face's area centroid (the point the
+  `on_face` datum and the coincident mate use), Z its outward normal.
+  `circle_centre`: the `gp_Circ` centre, Z along its axis, signed to the
+  outward normal of a planar face the circle bounds perpendicular to that
+  axis; a circle between two curved faces keeps the `gp_Circ` sense.
+  `edge_point`: start / arc-length mid / end, Z the unit tangent from start
+  to end. Start is the endpoint with the smaller `(x, y, z)` (the signature's
+  canonical `end_a` order, with a 1e-6 mm tie band), so OCCT's edge
+  orientation never matters. Origins resolve through the strict stage-1
+  resolvers, as legacy mates do.
+- **X reference.** The local axis least aligned with Z, ties X < Y < Z,
+  projected into the plane (`deterministic_x_dir`'s rule, with a 1e-9 tie
+  band so a normal of `(1e-17, 0, 1)` still picks X). Horizontal faces get
+  +X, a +X axis gets +Y. Even in Z.
+- **Flip and quarter turns** (applied to whichever origin carries them; the
+  PATCH route edits B's). Flip is a half turn about the frame's X: Z and Y
+  reverse, X is kept, so a flip changes only which way the frame faces.
+  Quarter turns then rotate X about the flipped Z by right-handed 90° steps.
+- **Alignment.** `F_B = F_A ∘ Trans(0, 0, offset + lin) ∘ RotZ(angle + rot)
+  ∘ RotX(180°)`: origins coincide, Z axes are OPPOSED and X axes aligned
+  (face to face, the legacy `flush`). `offset_mm` / `angle_deg` shift along
+  and turn about A's Z; `rot` / `lin` are the free motion.
+- **Rows.** Rigid: position (3) plus orientation rotation vector (3). Revolute:
+  position (3) plus `z_B + z_A` (rank 2). Slider: position perpendicular to
+  `z_A` (rank 2) plus orientation (3). A set value adds one driving row:
+  `wrap(φ - angle - rot)` in radians, or `(p_B - p_A)·z_A - offset - lin`.
+  Remaining DOF and redundancy read the hard rows only (a driven hinge reports
+  1 DOF, status `under_constrained`); conflicts read every row, so a value
+  fighting a legacy mate names both.
+- **Snap.** On a grounded tree the closed-form path places the child from its
+  parent: driven axes take the value, a free axis keeps the child's seed
+  position along it (so an undriven joint settles at the seed), and either
+  side may be the free one. A pair whose other mates disagree falls to the
+  damped LM, which also anchors free axes near the seed.
+- **State.** `rot_deg = wrap(atan2(x_B·y_A, x_B·x_A) - angle_deg)` in
+  (-180, 180]; `lin_mm = (p_B - p_A)·z_A - offset_mm`; `axis_world` is A's Z.
+  A value of 270 reads back -90. `at_limit` is false until limits (S4b).
+- **Not yet.** Cylindrical, planar and ball joints are dropped as
+  `mate_unsupported`, naming the motion, until S4b.
+- **Truth.** Goldens `assembly-hinge-revolute` (90° hinge through hole
+  circle centres, DOF 1, far edge 28.000 from the axis along A's +Y) and
+  `assembly-slider` (edge-point carriage, flipped B, value 80 moves B exactly
+  80.000); `test_assembly_joint_origins.py`, `test_assembly_joints.py`.
