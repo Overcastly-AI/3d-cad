@@ -405,8 +405,8 @@ CASES: list[BenchCase] = [
         _H,
         _overlay_factory("pattern-cut-6hole-boltcircle-60x60x10"),
     ),
-    # Tessellation (GLB): a primitive, a curved primitive, and a dense body.
-    BenchCase("tessellate", "box-primitive", _L, _tessellate_factory("box-10x20x30")),
+    # Tessellation (GLB): a box, a cylinder (curved), and a dense body.
+    BenchCase("tessellate", "box", _L, _tessellate_factory("box-10x20x30")),
     BenchCase(
         "tessellate", "cylinder-curved", _L, _tessellate_factory("cylinder-r10-h25")
     ),

@@ -2,7 +2,8 @@
 
 The golden suite (RESEARCH §9; ``services/geometry/tests/``) discovers
 ``goldens/<name>/model.json`` files that are EITHER a serialized
-``TessellateRequest`` (single-shape goldens: box, cylinder) OR a serialized
+``TessellateRequest`` (a single primitive shape; no golden uses one since
+2026-10-09, the primitive fixtures in tests/fixtures/primitives do) OR a serialized
 ``EvaluateTreeRequest`` (feature-tree goldens: sketch+extrude, …). This
 module is the single source of that dispatch — the in-process runner, the
 STEP round-trip gate, and the fresh-interpreter determinism probe all load

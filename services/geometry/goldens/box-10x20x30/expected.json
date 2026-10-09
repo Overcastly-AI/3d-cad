@@ -1,17 +1,18 @@
 {
-  "description": "10 x 20 x 30 mm axis-aligned box, min corner at the origin. Locks the parametric box builder, GProp mass properties, exact optimal AABB, B-rep topology counts, and the 0.1 mm linear-deflection tessellation (the only shipped modeling capability as of 2026-07-10).",
+  "description": "10 x 20 x 30 mm axis-aligned box, min corner at the origin, modelled as a working engineer does: a 10 x 20 rectangle sketched on XY from the origin, extruded 30 mm along +Z (rebuilt 2026-10-09 from the former {shape: box} primitive request; same body, see the derivation). Locks the sketch + extrude path on the simplest prism, GProp mass properties, exact optimal AABB, B-rep topology counts, and the 0.1 mm linear-deflection tessellation (first golden, 2026-07-10).",
   "derivation": [
     "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
     "volume = 10 * 20 * 30 = 6000 mm^3",
     "surface_area = 2 * (10*20 + 20*30 + 10*30) = 2 * (200 + 600 + 300) = 2200 mm^2",
     "centroid = (10/2, 20/2, 30/2) = (5, 10, 15) mm by symmetry",
-    "bounding_box = [0,0,0]..[10,20,30]: build_box places the min corner at the origin",
+    "bounding_box = [0,0,0]..[10,20,30]: the sketch rectangle runs (0,0)..(10,20) on XY and the extrude adds +Z 0..30",
     "topology: a rectangular prism is 6 planar faces, 12 straight edges, 1 closed shell",
     "mesh: each planar rectangular face tessellates to exactly 2 triangles (6 * 2 = 12); faceted per-face normals mean no vertex sharing across faces, so 6 faces * 4 corners = 24 vertices",
+    "REBUILT AS A FEATURE TREE (2026-10-09): every value above is unchanged from the {shape: box, params: {x: 10, y: 20, z: 30}} primitive this golden used to build. Proof, measured: the two-way boolean difference between the primitive and the sketch + extrude body is empty (0.0 mm^3 both ways), the vertex sets coincide, topology 6/12/1 and mesh 24/12 are identical. GProp now integrates the extruded faces to within 1e-12 of the analytic values (volume 6000.000000000001, area 2199.9999999999995) instead of exactly; the 1e-7 tolerance is unchanged.",
     "GLB byte size is deliberately NOT pinned here: it is asserted deterministic (byte-identical) by the runner within one kernel version, but pinning the absolute size would break on every glTF-writer upgrade without geometric meaning."
   ],
   "tolerance": 1e-7,
-  "tolerance_rationale": "CLAUDE.md kernel linear tolerance (1e-7 m convention, applied here in model units). The box is planar-exact in OCCT: GProp integrates planar faces without approximation error, so the measured deviation from analytic is exactly 0.0 (verified 2026-07-10, docs/GEOMETRY-QA.md). 1e-7 is the standing kernel bound, not a fitted epsilon; loosening it requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "tolerance_rationale": "CLAUDE.md kernel linear tolerance (1e-7 m convention, applied here in model units). The box is planar-exact in OCCT: GProp integrates planar faces without approximation error, so the measured deviation from analytic was exactly 0.0 for the primitive (verified 2026-07-10, docs/GEOMETRY-QA.md) and is <= 1e-12 for the sketch + extrude tree (2026-10-09). 1e-7 is the standing kernel bound, not a fitted epsilon; loosening it requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
   "properties": {
     "volume": 6000.0,
     "surface_area": 2200.0,

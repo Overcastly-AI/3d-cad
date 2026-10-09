@@ -23,8 +23,11 @@ importing each other), so every future golden gets export coverage for free.
 Two export request vocabularies, both endpoint-covered here (closing
 docs/GEOMETRY-QA.md gap #8):
 
-* **Shape goldens** (``model.json`` carrying a ``ShapeRequest``) → the
-  parametric ``POST /api/v1/export`` route.
+* **Primitive requests** (``tests/fixtures/primitives/*/model.json``, each a
+  ``ShapeRequest``) → the parametric ``POST /api/v1/export`` route. They were
+  the box and cylinder goldens until those became sketch + extrude trees
+  (2026-10-09); ``test_primitive_goldens.py`` proves each primitive is its
+  golden's body, so the expected values below still hold.
 * **Feature-tree goldens** (``model.json`` carrying an ``EvaluateTreeRequest``)
   → the ``POST /api/v1/export/tree`` route, which evaluates the tree through
   the SAME machinery as ``/evaluate`` and exports the last-good body. The
@@ -81,26 +84,18 @@ from loft_wire.geometry import EXPORT_MEDIA_TYPES, export_filename
 client = TestClient(app)
 
 GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens"
+PRIMITIVES_DIR = Path(__file__).resolve().parent / "fixtures" / "primitives"
 
-
-def _is_shape_golden(model_path: Path) -> bool:
-    """True for goldens the export endpoint can speak (ShapeRequest models);
-    feature-tree goldens carry a ``features`` list instead and export through
-    the ``/export/tree`` route."""
-    return "shape" in json.loads(model_path.read_text(encoding="utf-8"))
-
-
-MODEL_FILES = [
-    path for path in sorted(GOLDENS_DIR.glob("*/model.json")) if _is_shape_golden(path)
-]
+#: The parametric ``POST /api/v1/export`` inventory: primitive ShapeRequests.
+MODEL_FILES = sorted(PRIMITIVES_DIR.glob("*/model.json"))
 
 #: Feature-tree goldens (``EvaluateTreeRequest`` models) — the tree-export
-#: (``POST /api/v1/export/tree``) inventory. Complements the shape inventory
-#: above; every future tree golden gets endpoint export coverage for free.
+#: (``POST /api/v1/export/tree``) inventory. Every golden is a tree, and every
+#: future one gets endpoint export coverage for free.
 TREE_MODEL_FILES = [
     path
     for path in sorted(GOLDENS_DIR.glob("*/model.json"))
-    if not _is_shape_golden(path)
+    if "features" in json.loads(path.read_text(encoding="utf-8"))
 ]
 
 each_model = pytest.mark.parametrize(
@@ -109,7 +104,7 @@ each_model = pytest.mark.parametrize(
 each_tree_model = pytest.mark.parametrize(
     "model_path", TREE_MODEL_FILES, ids=[path.parent.name for path in TREE_MODEL_FILES]
 )
-#: The SHAPE-golden sweeps run every format: the inventory is two primitives,
+#: The PRIMITIVE sweeps run every format: the inventory is two primitives,
 #: so 4 formats x 2 models is free.
 each_format = pytest.mark.parametrize("fmt", ["step", "stl", "3mf", "glb"])
 
@@ -130,7 +125,7 @@ Triangle = tuple[float, float, float, float, float, float, float, float, float]
 
 
 def _export_request(model_path: Path, fmt: ExportFormat) -> ExportRequest:
-    """Derive an export request from a golden's ``TessellateRequest``."""
+    """Derive an export request from a primitive's ``TessellateRequest``."""
     tess = TessellateRequest.model_validate_json(model_path.read_text(encoding="utf-8"))
     return ExportRequest(
         shape=tess.shape,
@@ -214,7 +209,7 @@ def stl_volume_tolerance(
 
 def test_export_inventory_is_nonempty() -> None:
     """Discovery breakage must fail the gate, never skip it silently."""
-    assert MODEL_FILES, f"no golden models discovered under {GOLDENS_DIR}"
+    assert MODEL_FILES, f"no primitive models discovered under {PRIMITIVES_DIR}"
 
 
 @each_format
@@ -340,7 +335,7 @@ def test_export_is_byte_deterministic_in_process(
     )
 
 
-#: Re-exports a golden (TessellateRequest JSON on stdin) in a pristine
+#: Re-exports a primitive (TessellateRequest JSON on stdin) in a pristine
 #: interpreter and reports both formats' digests, emulating a worker restart.
 _RESTART_PROBE = """\
 import hashlib

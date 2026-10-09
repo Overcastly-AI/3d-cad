@@ -1,5 +1,42 @@
 {
-  "shape": "cylinder",
-  "params": { "radius": 10.0, "height": 25.0 },
+  "part_id": "00000000-0000-0000-0000-0000000001c0",
+  "tree_version": 2,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-0000000001c1",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": { "kind": "datum_plane", "plane": "XY" },
+          "entities": [
+            {
+              "id": "c1",
+              "kind": "circle",
+              "center": { "x": 0.0, "y": 0.0 },
+              "radius": 10.0
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000001c2",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000001c1"
+          },
+          "distance_mm": 25.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    }
+  ],
   "linear_deflection": 0.1
 }
