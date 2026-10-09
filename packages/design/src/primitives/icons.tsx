@@ -1227,3 +1227,30 @@ export const RenameIcon = (p: IconProps) => (
     <path d="M4 22 L20 22" />
   </Icon>
 );
+
+// --- Assembly component verbs ------------------------------------------------
+
+/**
+ * Move — the triad itself: three axis arrows from one origin and the rotation
+ * arc between two of them, the handle the command puts on the part.
+ */
+export const MoveIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M7 17 L7 4 M4.5 6.5 L7 4 L9.5 6.5" />
+    <path d="M7 17 L20 17 M17.5 14.5 L20 17 L17.5 19.5" />
+    <path d="M7 17 L3 21" />
+    <path d="M7 10 A7 7 0 0 1 14 17" strokeDasharray="2 2" />
+    <Node cx={7} cy={17} />
+  </Icon>
+);
+
+/**
+ * Grounded — a push-pin through the part into the bench (Fusion's glyph for a
+ * fixed component): the head, the collar, and the point driven home.
+ */
+export const PinIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M9 3 L15 3 M10 3 L10 10 L7 13 L17 13 L14 10 L14 3" />
+    <path d="M12 13 L12 21" />
+  </Icon>
+);
