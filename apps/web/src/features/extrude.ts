@@ -484,8 +484,20 @@ export function seededProfileId(
   return seed;
 }
 
+/**
+ * The sketches a PROFILE picker offers (extrude, revolve, sweep): every sketch
+ * except a lone-point apex, which has no closed profile to consume. The SAME
+ * `apex` rule the loft section list labels, so the two lists cannot disagree
+ * about what a one-point sketch is.
+ */
+export function closedProfileOptions(
+  features: readonly FeatureResponse[],
+): ProfileOption[] {
+  return profileOptions(features).filter((option) => option.apex !== true);
+}
+
 /** Default profile for a NEW extrude: the last sketch in the tree, or "". */
 export function defaultProfileId(features: readonly FeatureResponse[]): string {
-  const sketches = profileOptions(features);
+  const sketches = closedProfileOptions(features);
   return sketches.length > 0 ? (sketches[sketches.length - 1]?.id ?? "") : "";
 }

@@ -15,7 +15,7 @@ import {
   defaultProfileId,
   seededProfileId,
   optionProvenance,
-  profileOptions,
+  closedProfileOptions,
 } from "../../features/extrude";
 import {
   axisOptions,
@@ -92,7 +92,7 @@ export function useFeatureOpeners({
    * chip whose `aria-label` said "Extrude Sketch2" could open the editor
    * holding whatever the tree's default happened to be — the silent wrong noun
    * that the cross-agent `defaultPrevented` contract exists to prevent,
-   * arriving by a different route. Both sides read the same `profileOptions`
+   * arriving by a different route. Both sides read the same `closedProfileOptions`
    * today and so agree; a tree refetch landing between the chip's render and
    * the click, a rollback or an undo is all it would take. A chip that does
    * nothing is honest; a chip that opens a different sketch is not.
@@ -100,7 +100,7 @@ export function useFeatureOpeners({
   const openCreateExtrude = useCallback(
     (seedProfileId?: string) => {
       const features = tree.data?.features ?? [];
-      const profiles = profileOptions(features);
+      const profiles = closedProfileOptions(features);
       const profileId = seededProfileId(
         profiles,
         features,

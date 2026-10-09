@@ -14,7 +14,11 @@
  * both), so the path list excludes whatever the profile currently names.
  */
 import type { FeatureResponse, SweepParams } from "../api/parts";
-import { profileOptions, type ProfileOption } from "./extrude";
+import {
+  closedProfileOptions,
+  profileOptions,
+  type ProfileOption,
+} from "./extrude";
 import { fieldBlocker } from "./submitBlocker";
 import { parseTwistDeg, storedTwistInput } from "./twist";
 
@@ -123,7 +127,7 @@ export function pathOptions(
 export function defaultSweepProfileId(
   features: readonly FeatureResponse[],
 ): string {
-  const sketches = profileOptions(features);
+  const sketches = closedProfileOptions(features);
   return sketches.length > 0 ? (sketches[0]?.id ?? "") : "";
 }
 

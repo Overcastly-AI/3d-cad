@@ -24,7 +24,12 @@ import {
   TOOL_SHORTCUTS,
   type SketchEntity,
 } from "./tools";
-import { profileOptions } from "../features/extrude";
+import {
+  closedProfileOptions,
+  defaultProfileId,
+  profileOptions,
+} from "../features/extrude";
+import { defaultSweepProfileId } from "../features/sweep";
 import type { FeatureResponse } from "../api/parts";
 import { PART_CREATE_SHORTCUTS } from "../shortcuts/registry";
 import { VIEW_SHORTCUTS } from "../viewport/viewCommands";
@@ -164,7 +169,7 @@ describe("point entities as ink and as loft sections", () => {
     expect(isApexSketch({ entities: [] })).toBe(false);
   });
 
-  it("the loft's section list says which sketch is the apex", () => {
+  it("the loft list names the apex sketch; the profile pickers drop it", () => {
     const sketch = (id: string, entities: SketchEntity[]) =>
       ({
         id,
@@ -184,5 +189,15 @@ describe("point entities as ink and as loft sections", () => {
       sketch("Sketch2", [point("a1")]),
     ]);
     expect(options.map((o) => o.apex ?? false)).toEqual([false, true]);
+
+    // ...and by the same rule, the extrude / revolve / sweep PROFILE pickers
+    // never offer it, nor default to it even when it is the newest sketch.
+    const tree = [sketch("Sketch1", [line]), sketch("Sketch2", [point("a1")])];
+    expect(closedProfileOptions(tree).map((o) => o.id)).toEqual(["Sketch1"]);
+    expect(defaultProfileId(tree)).toBe("Sketch1");
+    expect(defaultSweepProfileId([tree[1], tree[0]] as typeof tree)).toBe(
+      "Sketch1",
+    );
+    expect(defaultProfileId([tree[1]] as typeof tree)).toBe("");
   });
 });
