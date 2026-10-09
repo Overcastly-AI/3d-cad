@@ -102,7 +102,11 @@ export function PartViewportLayers({
   >;
   pickState: Pick<
     PickState,
-    "pendingFaceIndex" | "datumFacePick" | "holePick" | "holePreview"
+    | "facePicking"
+    | "pendingFaceIndex"
+    | "datumFacePick"
+    | "holePick"
+    | "holePreview"
   >;
   sketchEntry: Pick<SketchEntry, "authorFacePlane">;
   datumFacePicking: Pick<DatumFacePicking, "pickDatumFace">;
@@ -160,7 +164,13 @@ export function PartViewportLayers({
     datumGaugeAnchor,
     holeGaugeAnchor,
   } = pickSessions;
-  const { pendingFaceIndex, datumFacePick, holePick, holePreview } = pickState;
+  const {
+    facePicking,
+    pendingFaceIndex,
+    datumFacePick,
+    holePick,
+    holePreview,
+  } = pickState;
   const { authorFacePlane } = sketchEntry;
   const { pickDatumFace } = datumFacePicking;
   const { pickHoleFace, pickHolePoint } = holePicking;
@@ -312,6 +322,9 @@ export function PartViewportLayers({
           faces={pickableFaces}
           onPick={authorFacePlane}
           pendingIndex={pendingFaceIndex}
+          // Marks only once "Pick a face" is armed: unarmed, the surface
+          // still takes the click, and the view cube stays a control.
+          marks={facePicking}
         />
       ) : null}
       {mode === "off" && editor?.kind === "datum" && datumFacePick !== null ? (

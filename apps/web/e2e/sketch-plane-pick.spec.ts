@@ -94,11 +94,9 @@ async function expectPlanePicker(
  */
 async function canvasPointOnFace(
   page: Page,
-  mark: Locator,
+  box: { x: number; y: number; width: number; height: number },
   ordinal: string,
 ): Promise<{ x: number; y: number }> {
-  const box = await mark.boundingBox();
-  if (box === null) throw new Error("the top face's mark has no box");
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
   const viewport = page.getByTestId("viewport");
@@ -194,6 +192,18 @@ test.describe("SKETCH-PLANE-PICK", () => {
     await expect(page.getByTestId("face-pick-prompt")).toHaveCount(0);
     await expect(page.getByTestId("plane-XY")).toBeVisible();
 
+    // Unarmed, no face marks are mounted, so the view cube stays a control.
+    await expect(page.locator('[data-testid^="plane-pick-face-"]')).toHaveCount(
+      0,
+    );
+    await expect(page.getByTestId("view-cube")).not.toHaveAttribute(
+      "data-pick-yield",
+      /.*/,
+    );
+
+    // Where the top face is on screen: read once from its mark with "Pick a
+    // face" armed, then disarm. The click below is on the bare canvas.
+    await page.getByTestId("plane-pick-face").click();
     const mark = await topMark(page, "plane-pick-face-");
     const testid = (await mark.getAttribute("data-testid")) ?? "";
     const ordinal = testid.replace("plane-pick-face-", "");
@@ -202,7 +212,17 @@ test.describe("SKETCH-PLANE-PICK", () => {
       "settled",
       { timeout: 60_000 },
     );
-    const point = await canvasPointOnFace(page, mark, ordinal);
+    const box = await mark.boundingBox();
+    if (box === null) throw new Error("the top face's mark has no box");
+    await page.getByTestId("plane-pick-face").click();
+    await expect(page.getByTestId("plane-pick-face")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    await expect(page.locator('[data-testid^="plane-pick-face-"]')).toHaveCount(
+      0,
+    );
+    const point = await canvasPointOnFace(page, box, ordinal);
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/sketch-plane-pick-2026-10-09/hover-top-face.png`,
     });

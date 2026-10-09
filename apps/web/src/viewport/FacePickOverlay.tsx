@@ -55,12 +55,20 @@ export interface FacePickOverlayProps {
   onPick: (face: OverlayFace & { signature: PlanarFaceSignature }) => void;
   /** The `body.faces()` index currently being authored (brass-fill busy cue). */
   pendingIndex: number | null;
+  /**
+   * Mount the centroid marks (default). Off for the sketch plane-pick step
+   * before "Pick a face" is armed (SKETCH-PLANE-PICK): the drawn surface still
+   * takes a click on a face, but nothing is ARMED, so no marks are mounted and
+   * the view cube stays a control (`armedPicks.ts` counts the marks).
+   */
+  marks?: boolean;
 }
 
 export function FacePickOverlay({
   faces,
   onPick,
   pendingIndex,
+  marks = true,
 }: FacePickOverlayProps) {
   const invalidate = useThree((s) => s.invalidate);
   const [hovered, setHovered] = useState<number | null>(null);
@@ -108,13 +116,13 @@ export function FacePickOverlay({
   const { ordinalAt } = usePickSurfaceTarget();
   const subjects = useMemo<SurfaceMarkSubject[]>(
     () =>
-      offered.map((face) => ({
+      (marks ? offered : []).map((face) => ({
         ordinal: face.index,
         point: face.signature.centroid,
         normal: face.signature.normal,
         areaMm2: face.signature.area_mm2,
       })),
-    [offered],
+    [offered, marks],
   );
   const seats = useSurfaceMarkBurial(subjects, surfaceRef, ordinalAt);
 
@@ -184,36 +192,42 @@ export function FacePickOverlay({
                 selected={pendingIndex === face.index}
               />
             ) : null}
-            <PickMark
-              // The seat the surface pass found ON this face and clear of any
-              // gauge — the centroid unless that was hidden or covered.
-              position={seat?.position ?? occtToScene(face.signature.centroid)}
-              zIndexRange={[30, 10]}
-            >
-              {/* The hidden-line ghost: a buried face is BEHIND the part, not
+            {marks ? (
+              <PickMark
+                // The seat the surface pass found ON this face and clear of any
+                // gauge — the centroid unless that was hidden or covered.
+                position={
+                  seat?.position ?? occtToScene(face.signature.centroid)
+                }
+                zIndexRange={[30, 10]}
+              >
+                {/* The hidden-line ghost: a buried face is BEHIND the part, not
                   absent, and the difference is what the audit's modeller could
                   not see. */}
-              {hidden ? <BuriedMark shape="face" /> : null}
-              <PickNode
-                shape="face"
-                // A7's recession: the drawn surface is this pick's primary
-                // hit-test, so the mark here is the keyboard/touch fallback and
-                // may rest quiet.
-                recede
-                occluded={hidden}
-                selected={pendingIndex === face.index}
-                data-testid={`plane-pick-face-${face.index}`}
-                data-buried={hidden ? "true" : "false"}
-                aria-label={faceLabel(face.index, face.signature)}
-                onClick={() => onPick(face)}
-                onPointerOver={() => setHovered(face.index)}
-                onPointerOut={() =>
-                  setHovered((h) => (h === face.index ? null : h))
-                }
-                onFocus={() => setHovered(face.index)}
-                onBlur={() => setHovered((h) => (h === face.index ? null : h))}
-              />
-            </PickMark>
+                {hidden ? <BuriedMark shape="face" /> : null}
+                <PickNode
+                  shape="face"
+                  // A7's recession: the drawn surface is this pick's primary
+                  // hit-test, so the mark here is the keyboard/touch fallback and
+                  // may rest quiet.
+                  recede
+                  occluded={hidden}
+                  selected={pendingIndex === face.index}
+                  data-testid={`plane-pick-face-${face.index}`}
+                  data-buried={hidden ? "true" : "false"}
+                  aria-label={faceLabel(face.index, face.signature)}
+                  onClick={() => onPick(face)}
+                  onPointerOver={() => setHovered(face.index)}
+                  onPointerOut={() =>
+                    setHovered((h) => (h === face.index ? null : h))
+                  }
+                  onFocus={() => setHovered(face.index)}
+                  onBlur={() =>
+                    setHovered((h) => (h === face.index ? null : h))
+                  }
+                />
+              </PickMark>
+            ) : null}
           </group>
         );
       })}
