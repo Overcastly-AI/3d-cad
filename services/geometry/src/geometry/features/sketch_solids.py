@@ -44,7 +44,7 @@ from geometry.kernel import (
     CutRemovedNothingError,
     LoftError,
     NoAxisError,
-    PathClosedError,
+    PathCornerError,
     PathEmptyError,
     PathNotConnectedError,
     ProfileNotClosedError,
@@ -315,12 +315,14 @@ def _evaluate_revolve(
     return _add_body(item, state, tool, merge=params.merge, generated=generated)
 
 
-def _resolve_path_wire(path: FeatureRef, state: EvaluationState) -> Wire | FeatureError:
-    """Resolve a sweep-path FeatureRef to its single OPEN path wire.
+def _resolve_path_wire(
+    path: FeatureRef, state: EvaluationState
+) -> tuple[Wire, Plane] | FeatureError:
+    """Resolve a sweep-path FeatureRef to its single path wire and its plane.
 
     The path sibling of :func:`_resolve_profile_face`: it re-checks the §2.2
     reference rule (documents enforces it at write time; geometry must not trust
-    its callers), then assembles the open path wire through
+    its callers), then assembles the path wire (open, or closed and G1) through
     :func:`geometry.kernel.build_path_wire` (construction geometry excluded
     there, the shared per-entity edge builder). Every failure flavour is a
     per-feature error pinned to the upstream path sketch.
@@ -338,7 +340,7 @@ def _resolve_path_wire(path: FeatureRef, state: EvaluationState) -> Wire | Featu
             upstream_feature_id=path_id,
         )
     try:
-        return build_path_wire(plane, solved.entities)
+        return build_path_wire(plane, solved.entities), plane
     except PathEmptyError as exc:
         return FeatureError(
             code="sweep_path_empty", message=str(exc), upstream_feature_id=path_id
@@ -349,9 +351,11 @@ def _resolve_path_wire(path: FeatureRef, state: EvaluationState) -> Wire | Featu
             message=str(exc),
             upstream_feature_id=path_id,
         )
-    except PathClosedError as exc:
+    except PathCornerError as exc:
         return FeatureError(
-            code="sweep_path_closed", message=str(exc), upstream_feature_id=path_id
+            code="sweep_path_not_tangent",
+            message=str(exc),
+            upstream_feature_id=path_id,
         )
 
 
@@ -363,11 +367,11 @@ def _evaluate_sweep(
     The first NON-PRISMATIC body-affecting handler: it shares extrude/revolve's
     profile resolution + closed-wire check (:func:`_resolve_profile_face`) and
     ``add``/``cut`` boolean (:func:`combine_body`), swapping the linear prism /
-    revolution for a sweep along a SECOND sketch's open path wire
+    revolution for a sweep along a SECOND sketch's path wire
     (:func:`_resolve_path_wire`). Kernel failures surface as design error codes
     pinned to the failing feature — ``profile_not_closed``/``profile_unsupported``
     and ``reference_unresolved`` (upstream profile), ``sweep_path_empty``/
-    ``sweep_path_not_connected``/``sweep_path_closed``/``reference_unresolved``
+    ``sweep_path_not_connected``/``sweep_path_not_tangent``/``reference_unresolved``
     (upstream path), ``no_prior_body`` (cut with nothing to cut),
     ``sweep_failed``, ``boolean_failed``. the active body is only replaced on
     success (strict-prefix rule tessellates the last-good body, §4.3).
@@ -381,9 +385,10 @@ def _evaluate_sweep(
         return resolved
     face, plane, _ = resolved
 
-    path = _resolve_path_wire(params.path, state)
-    if isinstance(path, FeatureError):
-        return path
+    resolved_path = _resolve_path_wire(params.path, state)
+    if isinstance(resolved_path, FeatureError):
+        return resolved_path
+    path, path_plane = resolved_path
 
     if params.operation == "cut" and state.active_body is None:
         return FeatureError(
@@ -394,7 +399,7 @@ def _evaluate_sweep(
             ),
         )
 
-    tool = _sweep_tool(face, plane, path, params)
+    tool = _sweep_tool(face, plane, path, path_plane, params)
     if isinstance(tool, FeatureError):
         return tool
 
@@ -404,7 +409,7 @@ def _evaluate_sweep(
 
 
 def _sweep_tool(
-    face: Face, plane: Plane, path: Wire, params: SweepParamsV1
+    face: Face, plane: Plane, path: Wire, path_plane: Plane, params: SweepParamsV1
 ) -> Solid | FeatureError:
     """The solid a sweep builds: a plain sweep, or one TWISTED along its path.
 
@@ -418,7 +423,7 @@ def _sweep_tool(
     """
     if not params.is_twisted:
         try:
-            return sweep_profile(face, path)
+            return sweep_profile(face, path, path_plane)
         except SweepError as exc:
             return FeatureError(code="sweep_failed", message=str(exc))
     assert params.twist_angle_deg is not None  # is_twisted implies a value

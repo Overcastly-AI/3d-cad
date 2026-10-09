@@ -6,7 +6,7 @@ Covers the BACKLOG #7 acceptance criteria beyond the golden harness (the golden
 mass properties and a fetchable content-addressed mesh; ``add``/``cut`` and a
 bent (multi-segment) path are numerically checked; and every sweep error path —
 ``profile_not_closed``, ``reference_unresolved`` (bad profile OR bad path),
-``sweep_path_closed``, ``sweep_path_not_connected``, ``sweep_path_empty``,
+``sweep_path_not_tangent``, ``sweep_path_not_connected``, ``sweep_path_empty``,
 ``no_prior_body`` — is a per-feature error pinned under the strict-prefix rule
 (design §4.3), never a transport failure.
 
@@ -240,16 +240,30 @@ def test_open_profile_is_profile_not_closed() -> None:
     assert error.upstream_feature_id == PROFILE_ID
 
 
-def test_closed_path_is_sweep_path_closed() -> None:
-    """A CLOSED path (a circle) → sweep_path_closed pinned to the path sketch."""
-    closed_path = _sketch(PATH_ID, "XZ", [_circle("p1", 0.0, 20.0, 10.0)])
-    result = _post(_request([profile_sketch(), closed_path, sweep_input()]))
+def test_closed_path_with_a_corner_is_sweep_path_not_tangent() -> None:
+    """A CLOSED path with a sharp corner → sweep_path_not_tangent, pinned to
+    the path sketch and naming the joint (SWEEP-CLOSED-PATH: a closed path must
+    be G1; tests/test_sweep_closed.py covers the closed sweeps that build)."""
+    square = _sketch(
+        PATH_ID,
+        "XZ",
+        [
+            _line("p1", (0.0, 0.0), (40.0, 0.0)),
+            _line("p2", (40.0, 0.0), (40.0, 40.0)),
+            _line("p3", (40.0, 40.0), (0.0, 40.0)),
+            _line("p4", (0.0, 40.0), (0.0, 0.0)),
+        ],
+    )
+    result = _post(_request([profile_sketch(), square, sweep_input()]))
 
     assert result.features[2].status == "error"
     error = result.features[2].error
     assert error is not None
-    assert error.code == "sweep_path_closed"
+    assert error.code == "sweep_path_not_tangent"
     assert error.upstream_feature_id == PATH_ID
+    assert "90 deg" in error.message
+    assert "'p1' and 'p4'" in error.message
+    assert "(0, 0)" in error.message
     assert result.mesh_glb_id is None
 
 

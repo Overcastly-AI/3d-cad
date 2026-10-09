@@ -12,7 +12,9 @@ test:
   in ONE piece, where the tree sweeps two open halves) -- volume and the
   two-way boolean difference;
 * the Pappus volume of the swept rail, annulus area x path length;
-* the two strict xfails that pin what the tree cannot do yet (BACKLOG Notes,
+* the closed rail swept in ONE piece (SWEEP-CLOSED-PATH) matching the golden's
+  two open halves and the independent one-piece ring;
+* the strict xfail that pins what the tree cannot do yet (BACKLOG Notes,
   2026-10-07 "moto frame").
 """
 
@@ -225,14 +227,10 @@ def test_cross_tube_extrude_joins_the_mirrored_rails() -> None:
     assert lump_count(evaluation.body) == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="BACKLOG Notes 2026-10-07 'moto frame': a sweep along a closed, "
-    "tangent-continuous path is refused (sweep_path_closed); the golden sweeps "
-    "two open halves instead",
-)
 def test_closed_loop_rail_sweeps_in_one_piece() -> None:
+    """SWEEP-CLOSED-PATH: the closed rail loop sweeps in ONE feature, and the
+    one-piece rail is the golden's two open halves fused (equal volume, empty
+    two-way difference) and the Pappus volume of the closed loop."""
     request = _tree()
     data = request.model_dump(mode="json")
     by_id = {f["id"]: f for f in data["features"]}
@@ -249,3 +247,28 @@ def test_closed_loop_rail_sweeps_in_one_piece() -> None:
         for r in evaluation.result.features
         if r.error
     ]
+    one_piece = evaluation.body
+    assert one_piece is not None
+    assert lump_count(one_piece) == 1
+    halves = evaluate_tree(_prefix(request, 0x0F)).body  # the golden's two sweeps
+    assert halves is not None
+    tolerance = _expected()["tolerance"]
+    assert measure_shape(one_piece).volume == pytest.approx(
+        measure_shape(halves).volume, abs=tolerance
+    )
+    assert measure_shape(one_piece).volume == pytest.approx(
+        ANNULUS_AREA * _rail_path().length, rel=1e-6
+    )
+    # The empty two-way difference goes through the independent build123d ring
+    # (one Solid.sweep of the closed filleted loop): one piece == twin and
+    # halves == twin. Not one piece against halves directly: the two share
+    # every face split (11 sketch entities) and seam position, and OCCT's cut
+    # of two fully coincident copies returns 4.06e5 mm^3 -- more than either
+    # operand -- one way and nothing the other (the test_datum_angle.py note).
+    path = _rail_path()
+    twin = Solid.sweep(_annulus(Plane(path.location_at(0)), TUBE_OD, TUBE_ID), path)
+    for name, body in (("one piece", one_piece), ("two halves", halves)):
+        lost_volume = float(body.cut(twin).volume)
+        gained_volume = float(twin.cut(body).volume)
+        assert lost_volume <= tolerance, f"{name} has {lost_volume} mm^3 more"
+        assert gained_volume <= tolerance, f"{name} lacks {gained_volume} mm^3"

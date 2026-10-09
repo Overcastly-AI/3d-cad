@@ -1105,6 +1105,52 @@ additive: no stored datum changes shape or bytes.
   `datum-angle-head-tube-od50-id32-l160-25deg` is derived by hand and against
   a plain `Solid.make_cylinder` tube.
 
+## 19. Closed-path sweep: G1 loop, fixed binormal, seated at the profile
+
+**What mainstream CAD does.** Fusion 360 (Sweep, "Path" a closed chain),
+SolidWorks (Swept Boss/Base along a closed sketch) and Onshape (Sweep along a
+closed path) sweep a profile once around a loop into one closed solid with no
+end caps: a ring of tube, a frame rail loop, a bumper. A closed path with a
+sharp corner is refused or needs a fillet; the section's twist follows the
+path's orientation options, with no flip on a planar path.
+
+**Decision (SWEEP-CLOSED-PATH).** `sweep_path_closed` is gone: a closed path
+wire sweeps through `kernel/sweep_closed.py::sweep_closed_profile`; an open one
+is unchanged, byte for byte. No wire field was needed.
+
+- **G1 at every joint, or a typed refusal.** OCCT's pipe shell around a sharp
+  corner of a CLOSED spine returns a "valid" zero-volume solid (a 100 mm
+  square loop: 3e-13 mm^3), so a joint that turns more than 1e-6 rad
+  (`G1_ANGLE_TOLERANCE_RAD`; solved tangencies close to ~1e-12) is the
+  per-feature error `sweep_path_not_tangent`, pinned to the path sketch, whose
+  message names the two entities and the sketch point of the first bad joint
+  in entity order.
+- **Fixed binormal.** A sketch path is planar, so the section's frame keeps
+  its binormal on the path sketch's normal (`MakePipeShell::SetMode(gp_Dir)`,
+  OCCT's BinormalMode): a pure function of the tangent, so it cannot flip at
+  an inflection (OCCT's Frenet sweep of an offset section around a peanut
+  loop swings it to the other side of the plane and is invalid), and it
+  returns to itself after one loop, so the end section lands on the start.
+- **Seated at the profile.** OCCT starts the pipe at the wire's first vertex;
+  the section is moved there from the path point nearest its centre by the
+  rigid motion between the two binormal frames. With a binormal frame every
+  section is that frame times the profile, so the solid does not depend on
+  where the loop's first entity begins (pinned by reordering and reversing the
+  rounded-rectangle loop).
+- **Refused rather than self-intersecting:** a bend tighter than the section
+  reaches across the path (arcs exact, splines sampled) and a section lying
+  along the path are `sweep_failed` with the reason; a twist on a closed path
+  stays `twist_path_unsupported`.
+- Truth: `sweep-closed-torus-ring-R50-r5` (2 pi^2 R r^2, against
+  `Solid.make_torus`) and `sweep-closed-rounded-rect-loop-140x100-rc20-rect10x6`
+  (the prism sum, against an extruded 2D ring), each with an empty two-way
+  difference (`tests/test_sweep_closed.py`); the moto frame's rail loop swept
+  in one piece equals the golden's two open halves and the independent
+  one-piece ring (`tests/test_moto_frame.py`). OCCT's cut of two fully
+  coincident copies of the rail (same face splits and seam) is unreliable
+  (4.06e5 mm^3 one way, 0 the other), so that pair is compared through the
+  independent twin.
+
 ## 20. Part parameters and the one expression language
 
 **What mainstream CAD does.** Fusion 360 (Modify > Change Parameters),

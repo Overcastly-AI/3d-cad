@@ -361,3 +361,5 @@ One line each. The founder triages weekly; most are closed without work.
 - SHELL-HEAL-VOLUME-GUARD (was a Next item): `conform_solid` measures volume after `split_pinched_faces`, so the split itself is never volume-checked (shell_heal.py claims it is).
 - SPLIT-SKETCHSCENE (was a Next item): `SketchScene.tsx` is 2,847 lines; split into modules and hooks with no behaviour change when it next blocks work.
 - SPLIT-WIRE-FEATURES (was a Next item): `loft_wire/features.py` is 4,419 lines; one module per family, re-exported, `just gen-verify` zero diff.
+- SWEEP-CLOSED-PATH: a path (open or closed) that passes within the section's reach of ITSELF away from a bend (a hairpin, a figure eight) sweeps into a self-overlapping solid; only bends tighter than the section and non-G1 joints of a closed path are refused.
+- Sketcher: `0` is a view shortcut, so a typed coordinate cannot start with 0 (`OPENS_A_COORDINATE` is `[1-9.-]`); a centre at x = 0 must be clicked or typed as `-0`.

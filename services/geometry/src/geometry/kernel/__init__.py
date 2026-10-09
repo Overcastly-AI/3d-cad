@@ -165,13 +165,13 @@ from geometry.kernel.step_assembly import (
     read_step_assembly,
 )
 from geometry.kernel.sweep import (
-    PathClosedError,
     PathEmptyError,
     PathNotConnectedError,
     SweepError,
     build_path_wire,
     sweep_profile,
 )
+from geometry.kernel.sweep_closed import PathCornerError
 from geometry.kernel.tessellate import ANGULAR_DEFLECTION, glb_stats, tessellate_glb
 from geometry.kernel.threads import (
     ISO_METRIC_PITCHES,
@@ -244,7 +244,7 @@ __all__ = [
     "NoAxisError",
     "NoEdgesSelectedError",
     "OverlapProbe",
-    "PathClosedError",
+    "PathCornerError",
     "PathEmptyError",
     "PathNotConnectedError",
     "PatternAngleError",

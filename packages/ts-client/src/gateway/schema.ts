@@ -10103,16 +10103,16 @@ export interface components {
         };
         /**
          * SweepParamsV1
-         * @description Sweep an earlier sketch's closed profile along an earlier sketch's open path.
+         * @description Sweep an earlier sketch's closed profile along an earlier sketch's path.
          *
          *     The first NON-PRISMATIC body-affecting feature (design §4.3): where extrude
          *     sweeps a profile along the plane normal and revolve about an axis, sweep
-         *     follows an arbitrary open PATH wire — the shaft / pipe / rib primitive named
+         *     follows an arbitrary PATH wire — the shaft / pipe / rib primitive named
          *     in the Part-modeling scorecard notes. It consumes the SAME ``profile``
          *     FeatureRef to an earlier sketch (a single closed wire, built by the shared
          *     ``build_profile_face``) and the SAME ``add``/``cut`` boolean against the body
          *     chain as extrude/revolve; the new ingredient is ``path``, a SECOND
-         *     FeatureRef to an earlier sketch whose entities form a single OPEN wire.
+         *     FeatureRef to an earlier sketch whose entities form one wire, open or closed.
          *
          *     Path representation (v1 DESIGN DECISION — docs/design/feature-tree.md
          *     §2.1/§2.2, docs/GEOMETRY-QA.md 2026-07-12): the path is a whole earlier
@@ -10124,12 +10124,12 @@ export interface components {
          *
          *     v1 limits (stated plainly — documented scope, not bugs):
          *
-         *     * the path must resolve to a single **open** wire; a closed path is a
-         *       ``sweep_path_closed`` rebuild error, disjoint path loops are
+         *     * the path must resolve to a single connected wire; disjoint path loops are
          *       ``sweep_path_not_connected``, and a path with no curve entities is
-         *       ``sweep_path_empty`` (construction geometry is excluded from the path
-         *       exactly as it is from the profile);
-         *     * the sweep is **anchored at the profile** — build123d applies the path as a
+         *       ``sweep_path_empty`` (construction geometry excluded, as from the profile);
+         *     * a CLOSED path sweeps once around into one capless solid; every joint must
+         *       be G1, else ``sweep_path_not_tangent`` names it (docs/RESEARCH.md §19);
+         *     * an open sweep is **anchored at the profile** — build123d applies the path as a
          *       relative trajectory from the profile's own location, so the path's
          *       absolute position is not used. Author the path starting at the profile
          *       origin, with its first segment perpendicular to the profile plane, for a
@@ -10166,7 +10166,7 @@ export interface components {
              * @enum {string}
              */
             operation: "add" | "cut";
-            /** @description Must resolve to an EARLIER sketch feature whose entities form a single OPEN wire — the sweep trajectory (design §2.2) */
+            /** @description Must resolve to an EARLIER sketch feature whose entities form one wire, open or closed and G1 — the sweep trajectory (§2.2) */
             path: components["schemas"]["FeatureRef"];
             /** @description Must resolve to an EARLIER sketch feature whose entities form the single CLOSED profile wire (design §2.2) */
             profile: components["schemas"]["FeatureRef"];
