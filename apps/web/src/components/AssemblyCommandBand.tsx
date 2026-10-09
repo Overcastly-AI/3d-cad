@@ -15,6 +15,7 @@ import {
   DistanceIcon,
   FixedIcon,
   MeasureIcon,
+  MoveIcon,
   ToolButton,
   ToolGroup,
 } from "@loft/design";
@@ -44,6 +45,11 @@ export interface AssemblyCommandBandProps {
   onRedo: () => void;
   canAddPart: boolean;
   onAddPart: () => void;
+  /** A Move session is open (the button reads armed; a press ends it). */
+  moveActive: boolean;
+  /** Why Move is unavailable (nothing selected / grounded), or null. */
+  moveBlocker: string | null;
+  onMove: () => void;
   /** A mate needs two instances; the tools stay disabled until then. */
   canMate: boolean;
   activeTool: MateTool | null;
@@ -78,6 +84,9 @@ export function AssemblyCommandBand({
   onRedo,
   canAddPart,
   onAddPart,
+  moveActive,
+  moveBlocker,
+  onMove,
   canMate,
   activeTool,
   onToggleTool,
@@ -108,6 +117,17 @@ export function AssemblyCommandBand({
           disabled={!canAddPart}
           data-testid="add-instance"
           onClick={onAddPart}
+        />
+        <ToolButton
+          icon={<MoveIcon />}
+          label="Move"
+          showLabel
+          shortcut="M"
+          active={moveActive}
+          disabled={!moveActive && moveBlocker !== null}
+          caption={moveActive ? undefined : (moveBlocker ?? undefined)}
+          data-testid="move-instance"
+          onClick={onMove}
         />
       </ToolGroup>
       <ToolGroup eyebrow="Mate">

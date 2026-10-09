@@ -67,6 +67,41 @@ export function placementToScene(placement: Placement): SceneTransform {
   };
 }
 
+/** `-0 → 0`, so an inverse never writes a signed zero onto the wire. */
+const unsign = (n: number): number => (n === 0 ? 0 : n);
+
+/** The inverse point map: scene mm (Y-up) → OCCT world mm (Z-up). */
+export function scenePointToOcct(p: readonly [number, number, number]): Vec3 {
+  // Inverts (x, y, z) → (x, z, -y): (a, b, c) → (a, -c, b).
+  return { x: unsign(p[0]), y: unsign(-p[2]), z: unsign(p[1]) };
+}
+
+/**
+ * The inverse of {@link placementToScene}: a scene-space group transform (what
+ * the Move triad reports while it is dragged) → the OCCT `Placement` the
+ * documents service stores. Translation is `S⁻¹·p`; rotation is the scene
+ * quaternion conjugated back, `s⁻¹ ⊗ q ⊗ s`. The quaternion is normalised and
+ * signed `w ≥ 0` (q and −q are the same rotation), so equal poses always write
+ * equal bytes.
+ */
+export function sceneToPlacement(transform: SceneTransform): Placement {
+  const [qx, qy, qz, qw] = transform.quaternion;
+  const scene = new Quaternion(qx, qy, qz, qw);
+  if (scene.lengthSq() === 0) scene.set(0, 0, 0, 1);
+  scene.normalize();
+  const world = S_QUAT_INV.clone().multiply(scene).multiply(S_QUAT).normalize();
+  const sign = world.w < 0 ? -1 : 1;
+  return {
+    position: scenePointToOcct(transform.position),
+    orientation: {
+      w: unsign(sign * world.w),
+      x: unsign(sign * world.x),
+      y: unsign(sign * world.y),
+      z: unsign(sign * world.z),
+    },
+  };
+}
+
 /** Squared scene-space distance between two placements' origins (a move probe). */
 export function placementMovedSq(a: Placement, b: Placement): number {
   const pa = occtPointToScene(a.position);

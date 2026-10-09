@@ -11,6 +11,7 @@
     "assembly-import.spec.ts": 42.3,
     "assembly-inspect.spec.ts": 59.8,
     "assembly-mass.spec.ts": 13.0,
+    "assembly-move.spec.ts": 92.4,
     "assembly-solve-provenance.spec.ts": 76.8,
     "assembly-step-names.spec.ts": 7.9,
     "assembly-undo-redo.spec.ts": 36.0,

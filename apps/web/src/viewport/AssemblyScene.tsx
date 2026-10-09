@@ -8,6 +8,7 @@
  * never on a re-solve of the same set (the snap-together motion plays
  * without the camera jumping).
  */
+import { PinIcon } from "@loft/design";
 import { assembly as assemblyTokens, viewport } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
 import {
@@ -84,6 +85,14 @@ export interface AssemblySceneProps {
    * with the pose it is rendering.
    */
   onPoseDrawn?: (instanceId: string, key: string | null) => void;
+  /**
+   * False while the Move triad is up: the bodies stop taking pointer-downs.
+   * A body's select handler stops propagation, and the triad hangs at the
+   * part's ORIGIN — usually inside or behind the body — so a body that kept
+   * its handler would swallow every press aimed at a handle (Fusion keeps the
+   * manipulator on top of the model for the same reason).
+   */
+  bodiesPickable?: boolean;
 }
 
 /** How much the last interference check actually knows about an instance. */
@@ -272,6 +281,10 @@ function Balloon({
         data-solved-x={instance.transform.position[0].toFixed(4)}
         data-solved-y={instance.transform.position[1].toFixed(4)}
         data-solved-z={instance.transform.position[2].toFixed(4)}
+        // Scene-frame `x,y,z,w` — the orientation half of the same pose.
+        data-solved-quat={instance.transform.quaternion
+          .map((n) => n.toFixed(5))
+          .join(",")}
         data-grounded={instance.grounded ? "true" : "false"}
         // `data-clashing` stays MEASURED-only; the third state is named
         // separately so no consumer can read "flagged" as "interferes".
@@ -303,7 +316,9 @@ function Balloon({
                   : "border-etch bg-anvil text-mist hover:border-brass hover:text-brass",
         ].join(" ")}
       >
-        {instance.grounded ? "⏚" : instance.balloon}
+        {/* Grounded wears the push-pin (Fusion's fixed-component glyph): the
+            part is pinned to the bench, so Move is not offered for it. */}
+        {instance.grounded ? <PinIcon size={12} /> : instance.balloon}
       </button>
       {onPoseDrawn ? (
         <PoseDrawnAck
@@ -325,6 +340,7 @@ export function AssemblyScene({
   clashingInstanceIds,
   unverifiedInstanceIds,
   onPoseDrawn,
+  bodiesPickable = true,
 }: AssemblySceneProps) {
   const { pools, floor } = useInstancePools(instances);
   const tool = useMateAuthoringStore((s) => s.tool);
@@ -581,10 +597,13 @@ export function AssemblyScene({
             unverified={unverifiedInstanceIds.has(inst.id)}
             ghost={inst.visibility === "ghost"}
             reducedMotion={reducedMotion}
-            onSelect={() =>
-              tool === "lock"
-                ? pickInstance(inst.id)
-                : onSelectInstance(inst.id)
+            onSelect={
+              bodiesPickable
+                ? () =>
+                    tool === "lock"
+                      ? pickInstance(inst.id)
+                      : onSelectInstance(inst.id)
+                : undefined
             }
           />
         ) : null,

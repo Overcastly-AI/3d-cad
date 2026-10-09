@@ -25,6 +25,9 @@ function renderBand(
       onRedo={vi.fn()}
       canAddPart
       onAddPart={vi.fn()}
+      moveActive={false}
+      moveBlocker={null}
+      onMove={vi.fn()}
       canMate={false}
       activeTool={null}
       onToggleTool={vi.fn()}
@@ -63,5 +66,26 @@ describe("AssemblyCommandBand — export", () => {
   it("renders no export group when the workspace supplies no exporter", () => {
     renderBand();
     expect(screen.queryByTestId("assembly-export-band-controls")).toBeNull();
+  });
+});
+
+describe("AssemblyCommandBand — move", () => {
+  it("says why Move is unavailable for a grounded component", () => {
+    const onMove = vi.fn();
+    renderBand({ moveBlocker: "Grounded components stay put.", onMove });
+    const button = screen.getByTestId("move-instance");
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).toHaveAccessibleDescription("Grounded components stay put.");
+    button.click();
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it("reads armed while a move is open, and a press ends it", () => {
+    const onMove = vi.fn();
+    renderBand({ moveActive: true, moveBlocker: null, onMove });
+    const button = screen.getByTestId("move-instance");
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    button.click();
+    expect(onMove).toHaveBeenCalledOnce();
   });
 });
