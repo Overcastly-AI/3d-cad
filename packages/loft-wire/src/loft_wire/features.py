@@ -35,6 +35,11 @@ from loft_wire.datum_angle import DatumAngleParams as DatumAngleParams
 from loft_wire.datum_angle import DatumOriginAxisRef as DatumOriginAxisRef
 from loft_wire.datum_angle import DatumSketchLineRef as DatumSketchLineRef
 from loft_wire.extrude_extent import EXTRUDE_EXTENT_FIELD, ExtrudeExtent
+from loft_wire.feature_expressions import (
+    EXPRESSIONS_FIELD,
+    FeatureExpressions,
+    check_expressions,
+)
 from loft_wire.feature_input import INPUT_ERROR_CHECK, INPUT_ERROR_FIELD
 from loft_wire.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
@@ -2573,33 +2578,21 @@ class FeatureEnvelopeBase(BaseModel):
     each later non-suppressed feature evaluates off the last non-suppressed
     body. It lives on the ENVELOPE, not inside ``params``, because it is
     orthogonal to every feature type (a rebuild flag, not a modeling parameter):
-    it does NOT change ``BODY_AFFECTING_FEATURE_TYPES`` (a suppressed extrude is
-    still an extrude), never forces a ``param_version`` bump, and defaults
-    ``False`` so every existing tree/golden validates and evaluates
-    byte-identically — the additive-optional ``merge``/``flip`` idiom, applied
-    once at the envelope level (CLAUDE.md DRY rule) so a new feature type
-    inherits it for free.
+    it does NOT change ``BODY_AFFECTING_FEATURE_TYPES``, never forces a
+    ``param_version`` bump, and defaults ``False`` so every existing tree/golden
+    validates and evaluates byte-identically. Documents stores it in its own
+    column beside ``params`` and passes it back through
+    :meth:`FeatureTypeRegistry.load`; ``expressions`` (PART-PARAMETERS) is
+    stored and read back the same way, and is left out of a dump while null.
 
-    NOTE (documents persistence — slice-1 scope): documents stores a feature by
-    DECOMPOSING the envelope into ``(type, param_version, params)`` columns, so
-    an envelope-level flag is NOT persisted automatically today (unlike a new
-    ``params`` field). The documents slice must add a ``suppressed`` column, read
-    it back in the CRUD/response and the evaluation-request builder, and expose a
-    toggle endpoint (see the return report).
-
-    ``suppressed`` is a normal, always-serialized field (a dumped envelope
-    carries ``"suppressed": false`` exactly as it carries ``merge`` /
-    ``version``). It is NOT hidden behind a model serializer — a
-    ``@model_serializer`` on this base perturbs pydantic's schema generation for
-    the per-type discriminated ``params`` unions (``DatumParams``/``HoleDepth``/…
-    collapse to an untyped ``Params``), which would break the generated
-    ts-client. The generated CLIENT type is kept OPTIONAL
+    ``suppressed`` is a normal, always-serialized field. It is NOT hidden
+    behind a model serializer — a ``@model_serializer`` on this base perturbs
+    pydantic's schema generation for the per-type discriminated ``params``
+    unions (they collapse to an untyped ``Params``), which would break the
+    generated ts-client. The generated CLIENT type is kept OPTIONAL
     (``suppressed?: boolean``) purely by dropping the JSON-schema ``default``
     (:func:`_drop_schema_default`), so existing web callers that omit it still
-    compile. The geometry goldens are unaffected: each ``model.json`` is
-    hand-authored input JSON (no ``suppressed`` key) that validates with the
-    default, and goldens assert evaluated mass-properties output — not a dumped
-    tree — so an input-field addition churns none of them.
+    compile.
     """
 
     suppressed: bool = Field(
@@ -2612,6 +2605,14 @@ class FeatureEnvelopeBase(BaseModel):
         ),
         json_schema_extra=_drop_schema_default,
     )
+    expressions: FeatureExpressions = EXPRESSIONS_FIELD
+
+    @model_validator(mode="after")
+    def _expressions_hit_numbers(self) -> Self:
+        if self.expressions is not None:
+            params = cast(BaseModel, getattr(self, "params"))  # noqa: B009
+            check_expressions(params.model_dump(mode="json"), self.expressions)
+        return self
 
 
 class DatumFeature(FeatureEnvelopeBase):
@@ -3051,6 +3052,7 @@ class FeatureTypeRegistry[ModelT: BaseModel]:
         params: JsonObject,
         *,
         suppressed: bool = False,
+        expressions: dict[str, str] | None = None,
     ) -> ModelT:
         """Stored columns → current-version validated envelope (read path).
 
@@ -3058,13 +3060,10 @@ class FeatureTypeRegistry[ModelT: BaseModel]:
         needed → validate. The rest of the system only ever sees
         current-version params.
 
-        ``suppressed`` is the ENVELOPE-level suppress flag
-        (:class:`FeatureEnvelopeBase`, feature-tree.md §4.3a). It lives beside
-        ``params`` (not inside it), so documents persists it in its own column
-        and must pass the stored value BACK through here on every read path —
-        both the CRUD response and the evaluation-request the geometry service
-        consumes. Absent (the default) reads ``False``, so callers that do not
-        persist suppress (goldens, tests) are unaffected.
+        ``suppressed`` and ``expressions`` are ENVELOPE-level
+        (:class:`FeatureEnvelopeBase`): documents persists each in its own
+        column and passes the stored value BACK through here on every read
+        path. Absent reads ``False`` / ``None``.
         """
         current = self.current_version(feature_type)
         upcast = self.upcast_params(feature_type, version, params)
@@ -3074,6 +3073,7 @@ class FeatureTypeRegistry[ModelT: BaseModel]:
                 "version": current,
                 "params": upcast,
                 "suppressed": suppressed,
+                "expressions": expressions,
             }
         )
 

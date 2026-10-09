@@ -720,6 +720,31 @@ def validate_name(name: str) -> str:
     return name
 
 
+def rename_references(
+    text: str, renames: Mapping[str, str], *, legacy_text: bool = False
+) -> str:
+    """``text`` with every identifier token in ``renames`` replaced, token by
+    token (``w`` in ``w*width`` is renamed, ``width`` is not), all at once (so
+    a swap is a swap). Whitespace and every other token keep their bytes. A
+    parameter name is never a unit, function or constant word, so every token
+    equal to one is a reference. Text that does not tokenize is returned as is.
+    """
+    pattern = _LEGACY_TOKEN_RE if legacy_text else _TOKEN_RE
+    out: list[str] = []
+    pos = 0
+    while pos < len(text):
+        match = pattern.match(text, pos)
+        if match is None:
+            return text if text[pos:].strip() else "".join(out) + text[pos:]
+        word = match.group("ident")
+        if word is not None and word in renames:
+            out.append(text[pos : match.start("ident")] + renames[word])
+        else:
+            out.append(match.group(0))
+        pos = match.end()
+    return "".join(out)
+
+
 # ---------------------------------------------------------------------------
 # Name graphs: ordering with cycle reports
 # ---------------------------------------------------------------------------
@@ -853,7 +878,9 @@ def _check_dimension(value: float, who: str, is_angle: bool) -> float:
     return value
 
 
-def evaluate_driving_dimensions(constraints: Sequence[object]) -> dict[int, float]:
+def evaluate_driving_dimensions(
+    constraints: Sequence[object], parameters: Mapping[str, Quantity] | None = None
+) -> dict[int, float]:
     """Evaluate every DRIVING dimension of a sketch to a concrete value.
 
     Returns ``constraint index -> value`` in the dimension's own unit (mm, or
@@ -870,7 +897,12 @@ def evaluate_driving_dimensions(constraints: Sequence[object]) -> dict[int, floa
     text is tokenized as before (Unicode digits and whitespace). Unknown names,
     references to driven dimensions (known only after the solve) and cycles
     are :class:`ExpressionError`.
+
+    ``parameters`` is the part's table (PART-PARAMETERS): a name that is not one
+    of this sketch's dimensions resolves there, TYPED (a length parameter in an
+    angle dimension is a unit error). The sketch's own names win.
     """
+    table: Mapping[str, Quantity] = parameters or {}
     dims = [(i, c) for i, c in enumerate(constraints) if _is_dimension(c)]
 
     def key(index: int, dim: DimensionLike) -> str:
@@ -882,6 +914,8 @@ def evaluate_driving_dimensions(constraints: Sequence[object]) -> dict[int, floa
     parsed: dict[str, Expression | None] = {}
 
     def deps(name: str) -> frozenset[str]:
+        if name not in by_key and name in table:
+            return frozenset()
         if name not in by_key:
             raise ExpressionReferenceError(
                 f"unknown dimension name {name!r} in expression"
@@ -904,6 +938,8 @@ def evaluate_driving_dimensions(constraints: Sequence[object]) -> dict[int, floa
     roots = [key(i, c) for i, c in dims if c.is_driving]
     values: dict[str, float] = {}
     for name in _dependency_order(roots, deps, "dimension expression"):
+        if name not in by_key:
+            continue  # a parameter: a leaf, read from the table
         index, dim = by_key[name]
         node = parsed[name]
         who = repr(name) if dim.name is not None else f"#{index}"
@@ -911,7 +947,11 @@ def evaluate_driving_dimensions(constraints: Sequence[object]) -> dict[int, floa
         if node is None:
             value = dim.value
         else:
-            q = node.evaluate(lambda ref: Quantity(values[ref], UNITLESS))
+            q = node.evaluate(
+                lambda ref: (
+                    Quantity(values[ref], UNITLESS) if ref in values else table[ref]
+                )
+            )
             value = coerce(q, ANGLE if is_angle else LENGTH, f"dimension {who}")
         values[name] = _check_dimension(value, who, is_angle)
     return {i: values[key(i, c)] for i, c in dims if c.is_driving}

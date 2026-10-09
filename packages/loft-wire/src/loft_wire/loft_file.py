@@ -58,6 +58,7 @@ from pydantic import (
 )
 
 from loft_wire.expr import MAX_PARAMETERS
+from loft_wire.feature_expressions import EXPRESSIONS_FIELD, FeatureExpressions
 from loft_wire.features import (
     MAX_INLINE_STEP_CHARS,
     MAX_TREE_FEATURES,
@@ -283,6 +284,10 @@ class LoftTreeFeature(BaseModel):
     param_version: int = Field(ge=1)
     suppressed: bool = False
     params: JsonObject
+    #: Formulas driving numbers in ``params`` (PART-PARAMETERS). Left out of the
+    #: dump while null, so every tree without them keeps its bytes; a file
+    #: without the key reads null, and an older reader ignores it.
+    expressions: FeatureExpressions = EXPRESSIONS_FIELD
 
 
 class LoftTree(BaseModel):
