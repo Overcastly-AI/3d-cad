@@ -104,7 +104,7 @@ import {
 } from "../sketch/pick";
 import { pickMark, type PickMarkKind } from "../sketch/pickMark";
 import { NEAR_MISS_MM, openEnds } from "../sketch/openEnds";
-import { pointEntryOpening } from "../sketch/pointEntry";
+import { opensACoordinate, pointEntryOpening } from "../sketch/pointEntry";
 import {
   DATUM_PLANES,
   sceneOriginBasis,
@@ -1520,14 +1520,6 @@ function OpenEndMarks({ basis }: { basis: PlaneBasis }) {
   );
 }
 
-/**
- * The keys that open a typed coordinate: a digit, a sign, a decimal point.
- * NOT `0`: at rest that key is the sketcher's Fit (F-11) and stays so. A
- * coordinate that starts with zero is typed ".5" or "-0.5"; once the cells
- * are open every key is theirs.
- */
-const OPENS_A_COORDINATE = /^[1-9.-]$/;
-
 /** One typed-point entry's buffer identity: typing never crosses entries. */
 const pointDraftId = (nonce: number): string => `point:${nonce}`;
 
@@ -1614,9 +1606,9 @@ function PointEntry({ basis }: { basis: PlaneBasis }) {
       if (state.mode !== "draw") return;
       const live = state.pointEntry;
       if (live === null) {
-        if (!OPENS_A_COORDINATE.test(event.key)) return;
+        // Which keys open one: `opensACoordinate` (`0` too, to place a point).
         const opening = pointEntryOpening(state);
-        if (opening === null) return;
+        if (opening === null || !opensACoordinate(event.key, opening)) return;
         event.preventDefault();
         // The typing takes the keyboard: a toolbar button left focused by a
         // click would otherwise claim the Enter that places this point.

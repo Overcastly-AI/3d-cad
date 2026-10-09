@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   gridStepOptions,
+  opensACoordinate,
   pointEntryOpening,
   withNamedPointAt,
+  zeroStartsAValue,
 } from "./pointEntry";
 import type { SketchEntity } from "./tools";
 
@@ -181,5 +183,64 @@ describe("gridStepOptions", () => {
     }
     // SketchDro's DRO_COLUMNS sizes GRID for this label; keep them in step.
     expect(longest).toBe("0.0000328 ft");
+  });
+});
+
+describe("0 starts a value whenever one may be typed, and is Fit otherwise", () => {
+  const placing = { anchor: { x: 0, y: 0 }, target: null };
+  const moving = {
+    anchor: { x: 2, y: 1 },
+    target: { entity: "e1", point: "start" as const },
+  };
+
+  it("opens a draw tool's typed point on 0, like every other digit", () => {
+    for (const key of ["0", "1", "9", ".", "-"]) {
+      expect(opensACoordinate(key, placing), key).toBe(true);
+    }
+  });
+
+  it("keeps 0 for Fit when the cells would MOVE a selected point", () => {
+    expect(opensACoordinate("0", moving)).toBe(false);
+    expect(opensACoordinate("5", moving)).toBe(true);
+    expect(opensACoordinate(".", moving)).toBe(true);
+  });
+
+  it("never opens on a letter or a view key that is not a digit", () => {
+    for (const key of ["l", "Home", "Enter", "Tab", "00"]) {
+      expect(opensACoordinate(key, placing), key).toBe(false);
+    }
+  });
+
+  const rest = {
+    tool: "select" as const,
+    pointEntry: null,
+    drawDimension: null,
+    dimensionEdit: null,
+  };
+
+  it("is Fit with no draw tool armed and nothing being typed", () => {
+    expect(zeroStartsAValue(rest)).toBe(false);
+    for (const tool of ["trim", "extend", "offset", "mirror"] as const) {
+      expect(zeroStartsAValue({ ...rest, tool }), tool).toBe(false);
+    }
+  });
+
+  it("is a digit whenever a draw tool is armed", () => {
+    for (const tool of ["line", "rect", "circle", "arc", "spline"] as const) {
+      expect(zeroStartsAValue({ ...rest, tool }), tool).toBe(true);
+    }
+  });
+
+  it("is a digit while a value cell is open or waiting for its first key", () => {
+    const open = { anchor: { x: 0, y: 0 }, target: null, nonce: 1 };
+    expect(zeroStartsAValue({ ...rest, pointEntry: open })).toBe(true);
+    expect(zeroStartsAValue({ ...rest, dimensionEdit: {} })).toBe(true);
+    expect(zeroStartsAValue({ ...rest, drawDimension: { typed: false } })).toBe(
+      true,
+    );
+    // A typed shape's size cells do not take keys (TYPED-COORD-HIJACK).
+    expect(zeroStartsAValue({ ...rest, drawDimension: { typed: true } })).toBe(
+      false,
+    );
   });
 });

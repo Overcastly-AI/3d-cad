@@ -293,3 +293,51 @@ test("a closed profile typed point by point is joined at every corner (TYPED-POL
     JSON.stringify(constraints),
   ).toHaveLength(4);
 });
+
+/**
+ * TYPED-ZERO: `0` is the sketcher's Fit (F-11), and it used to be Fit even
+ * with a draw tool armed, so no typed coordinate could start with 0: "0 Tab
+ * 25" fitted the view and then opened X on "25". With a draw tool armed, or a
+ * value cell open or mounting, `0` is a digit like the others; at rest it is
+ * still Fit, as in Fusion.
+ */
+test("a typed point and a typed length may start with 0, and 0 is Fit at rest", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const { token, partId } = await openSketch(page, "Typed zero");
+  const viewport = page.getByTestId("viewport");
+  await page.keyboard.press("l");
+  await page.mouse.move(1000, 250);
+
+  await typePoint(page, "0", "25");
+  await expect(page.getByTestId("point-entry")).toHaveCount(0);
+  // The end is clicked, so its length cell arms and takes the typing.
+  await page.mouse.move(1060, 320);
+  await page.mouse.click(1060, 320);
+  await expect(page.getByTestId("draw-dimensions")).toHaveAttribute(
+    "data-state",
+    "armed",
+  );
+  for (const key of "0.5") await page.keyboard.press(key);
+  await page.keyboard.press("Enter");
+  await expect(viewport).not.toHaveAttribute("data-view", "fit-sketch");
+
+  // Back at rest (no tool armed, nothing typed), 0 is Fit again.
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("draw-dimensions")).toHaveCount(0);
+  await page.keyboard.press("0");
+  await expect(viewport).toHaveAttribute("data-view", "fit-sketch", {
+    timeout: 10_000,
+  });
+  await expect(page.getByTestId("point-entry")).toHaveCount(0);
+
+  const entities = await saveAndRead(page, token, partId);
+  const lines = entities.filter((e) => e.kind === "line");
+  expect(lines, JSON.stringify(entities)).toHaveLength(1);
+  const line = lines[0];
+  expect(line?.start).toEqual({ x: 0, y: 25 });
+  const end = line?.end ?? { x: Number.NaN, y: Number.NaN };
+  expect(Math.hypot(end.x, end.y - 25)).toBeCloseTo(0.5, 6);
+});

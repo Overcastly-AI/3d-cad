@@ -89,6 +89,44 @@ export function pointEntryOpening(state: {
   return { anchor: at, target: { entity: pick.entity, point: pick.point } };
 }
 
+/** The value-opening keys other than `0`: a digit, a sign, a decimal point. */
+const OPENS_ALWAYS = /^[1-9.-]$/;
+
+/**
+ * Does `key` open the typed coordinate `opening` offers?
+ *
+ * `0` opens one only when it PLACES a draw tool's point: an engineer types
+ * "0 Tab 25" or "0.5" as readily as "12", and with a draw tool armed `0` is
+ * no view key (see {@link zeroStartsAValue}). Moving a selected point is the
+ * Select tool, where `0` stays Fit (F-11), as in Fusion; ".5" still opens.
+ */
+export function opensACoordinate(
+  key: string,
+  opening: PointEntryOpening,
+): boolean {
+  return OPENS_ALWAYS.test(key) || (key === "0" && opening.target === null);
+}
+
+/**
+ * Is `0` a digit of a value right now, rather than the sketcher's Fit (F-11)?
+ *
+ * Yes whenever a value is being typed or is about to be: a draw tool is armed
+ * (its next key may start a coordinate, `opensACoordinate`), the typed X / Y
+ * cells are open, size cells that take typing are live (FLOW-A1), or a
+ * dimension editor is open or still mounting (its first key must land).
+ * Otherwise `0` is Fit, the same key as the part workspace's.
+ */
+export function zeroStartsAValue(state: {
+  tool: SketchTool;
+  pointEntry: unknown;
+  drawDimension: { typed: boolean } | null;
+  dimensionEdit: unknown;
+}): boolean {
+  if (state.pointEntry !== null || state.dimensionEdit !== null) return true;
+  if (state.drawDimension !== null && !state.drawDimension.typed) return true;
+  return PLACING_TOOLS.has(state.tool);
+}
+
 /**
  * A typed coordinate this close to a drawn point IS that point. Not a user
  * tolerance: it only absorbs a solved coordinate's last-digit noise (a corner
