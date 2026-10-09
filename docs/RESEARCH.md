@@ -1248,6 +1248,16 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   past a red feature. A later feature that references its output fails with
   the existing `reference_unresolved` (upstream id pinned), which does stop
   the prefix. Only those two codes are accepted on the wire.
+- **Step 4, as built.** `loft_wire/feature_expressions.py` holds the
+  envelope field and its pointer check; `loft_wire/feature_resolve.py` the
+  resolution documents runs on write, per evaluation request and on a table
+  PUT (shared with the golden harness). A field's unit comes from its name.
+  A sketch is resolved only when a driving dimension names something outside
+  the sketch; a dimension that reads a parameter reaches geometry as its
+  number, one that reads only its sketch keeps its formula. A table PUT
+  keeps going when a dependent feature goes out of range: the feature keeps
+  its last good numbers and is sick on evaluation. The same table again is a
+  no-op. Golden kind `parametric.json` (`test_parametric_goldens.py`).
 - **UI, script, file.** A Parameters panel on the command band; one
   `<ValueField>` with `parseFieldEntry` (`units/length.ts`) in every numeric
   editor, with an fx mark and autocomplete. `loft-script`: `parameters()`,

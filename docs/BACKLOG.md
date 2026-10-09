@@ -41,7 +41,7 @@ byte-identical; RESEARCH §15a).
   - [x] 3. Parameter table: wire, migration 0018, documents GET/PUT,
         gateway, history, versions, `just gen`. _Accept:_ migration
         up/down/up; cycle/unknown 422; PUT+undo restores byte-for-byte.
-  - [ ] 4. Feature-field and sketch-dimension expressions: resolve on write
+  - [x] 4. Feature-field and sketch-dimension expressions: resolve on write
         and in the evaluation request, `parameter_in_use`, rename, a
         parametric golden. _Accept:_ the golden re-drives to hand values;
         cache test; out-of-range is a sick feature, not a 500.
@@ -237,6 +237,10 @@ One line each. The founder triages weekly; most are closed without work.
 - An aligned `point_distance` between two points drawn coincident reads `conflicting`: planegcs P2PDistance has no gradient at zero, so the solve cannot pull them apart (review of 564aa68).
 - An impossible pair of a point-line and an aligned point distance reads `diverged` with no constraint named, so the sketcher cannot flag which one to remove (review of 564aa68).
 - MinIO is built from RELEASE.2024-12-18 with Go 1.23.4 and has no image scan; a weekly trivy scan of the shipped images (plus `pnpm audit` / pip-audit) would catch advisories without reddening unrelated commits.
+- PARAM-FIELD-KIND: a driven field's unit comes from its name (`*_deg` angle, `*_mm`/x/y/z/radius length, `k_factor`/`relief_ratio` unitless, ints whole); a new float field named otherwise cannot take a formula until listed in `loft_wire/feature_expressions.py`.
+- PARAM-SKETCH-SYNTAX: a sketch dimension whose formula does not parse is still accepted at write and reported by geometry as `sketch_invalid`, as before step 4; only names it cannot resolve are a 422.
+- PARAM-PUT-OUT-OF-RANGE: a parameter PUT that drives a feature out of range is accepted; the feature keeps its last good numbers and goes sick on evaluation (Fusion's behaviour), rather than the PUT being refused.
+- PARAM-POINTER-REMINT: `.loft` import re-mints ids inside params but not inside `expressions` pointers; no drivable field is keyed by a feature id today.
 - `scripts/e2e.sh` does not derive `GATEWAY_ORIGIN` from `GATEWAY_PORT`, so specs on non-default ports fail with a register 500 (local only; CI uses the defaults).
 - `scripts/e2e-teardown.sh --self-test` flakes under load (a polite process takes over 5 s to exit), turning `just lint` red locally.
 - The full lane (32 min) never finishes while builders push faster than that; before a merge to main the orchestrator holds pushes until the tip's `full lane complete` is green.
