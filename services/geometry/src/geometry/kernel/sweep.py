@@ -38,7 +38,7 @@ are pure functions of their inputs — no unordered iteration participates.
 
 from collections.abc import Sequence
 
-from build123d import Face, Plane, Solid, Wire
+from build123d import Face, Plane, Solid, Transition, Wire
 from loft_wire.sketch import SketchEntity
 
 from geometry.kernel.extrude import (
@@ -50,6 +50,8 @@ from geometry.kernel.sweep_check import check_not_self_intersecting
 from geometry.kernel.sweep_closed import (
     ClosedSweepError,
     check_closed_path_tangent,
+    check_open_bends,
+    has_sharp_joint,
     sweep_closed_profile,
 )
 
@@ -114,8 +116,10 @@ def sweep_profile(face: Face, path: Wire, path_plane: Plane) -> Solid:
 
     An open path is anchored at the profile (build123d applies *path* as a
     relative trajectory from the profile's location — its absolute position is
-    unused). A closed path sweeps once around the loop, seated where it passes
-    nearest the profile, with *path_plane*'s normal as the fixed binormal
+    unused); a sharp joint is mitred, and a bend tighter than the section
+    reaches towards its inside is refused. A closed path sweeps once around the
+    loop, seated where it passes nearest the profile, with *path_plane*'s
+    normal as the fixed binormal
     (:func:`~geometry.kernel.sweep_closed.sweep_closed_profile`). ``clean()``
     collapses the redundant seams the operation leaves behind, keeping topology
     counts meaningful (and golden-assertable).
@@ -134,7 +138,16 @@ def sweep_profile(face: Face, path: Wire, path_plane: Plane) -> Solid:
         except ClosedSweepError as exc:
             raise SweepError(str(exc)) from exc
     try:
-        result = Solid.sweep(face, path)
+        check_open_bends(face, path, path_plane.z_dir)
+    except ClosedSweepError as exc:
+        raise SweepError(str(exc)) from exc
+    # A sharp (non-G1) joint is MITRED, as Fusion 360 and SolidWorks build it:
+    # OCCT's default transformed transition folds the next leg back through the
+    # last (an r3 L of 20 + 15 read 565.5 mm^3 against the mitre's 989.6). A
+    # G1 path takes the default call exactly as before (byte-identical).
+    transition = Transition.RIGHT if has_sharp_joint(path) else Transition.TRANSFORMED
+    try:
+        result = Solid.sweep(face, path, transition=transition)
         solids = result.solids()
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise SweepError(

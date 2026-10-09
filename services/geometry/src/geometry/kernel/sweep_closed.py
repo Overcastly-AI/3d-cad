@@ -41,6 +41,7 @@ its inputs.
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 
 from build123d import Edge, Face, Plane, Solid, Vector, Vertex, Wire
 from loft_wire.sketch import SketchEntity
@@ -383,3 +384,40 @@ def sweep_closed_profile(face: Face, path: Wire, normal: Vector) -> Solid:
         )
     check_not_self_intersecting(solid)
     return clean_shape(solid)
+
+
+def check_open_bends(face: Face, path: Wire, normal: Vector) -> None:
+    """The closed sweep's one-sided bend check, for an OPEN path.
+
+    OCCT's pipe shell places an open sweep's section where it lies along the
+    spine (``BRepFill_SectionPlacement``: the spine point nearest the section,
+    e.g. the far END of an arc drawn towards the profile), so the reach is
+    measured from that seat, across the path in its sketch plane (*normal*).
+
+    Raises:
+        PathTooTightError: a bend is tighter than the section reaches towards
+            its inside (the section would fold through itself: a spindle).
+    """
+    unit = normal.normalized()
+    seat, tangent = _seat_frame(path, face.center())
+    lateral = unit.cross(_in_plane(tangent, unit))
+    _check_bends(face, path, unit, seat, lateral)
+
+
+def has_sharp_joint(path: Wire) -> bool:
+    """Whether consecutive edges of *path* meet at a turn over
+    :data:`G1_ANGLE_TOLERANCE_RAD` (a corner that is not tangent-continuous)."""
+    ends: list[tuple[Vector, Vector]] = []  # (travel tangent in, out) per edge
+    explorer = BRepTools_WireExplorer(path.wrapped)
+    while explorer.More():
+        edge = explorer.Current()
+        curve = BRepAdaptor_Curve(edge)
+        first, last = curve.FirstParameter(), curve.LastParameter()
+        if edge.Orientation() == TopAbs_Orientation.TopAbs_REVERSED:
+            first, last = last, first
+        ends.append((_oriented_tangent(edge, first), _oriented_tangent(edge, last)))
+        explorer.Next()
+    return any(
+        _turn_rad(-arriving[1], leaving[0]) > G1_ANGLE_TOLERANCE_RAD
+        for arriving, leaving in pairwise(ends)
+    )

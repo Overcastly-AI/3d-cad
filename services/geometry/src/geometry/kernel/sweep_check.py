@@ -10,10 +10,10 @@ test runs the boolean engine's face-face intersection on the one shape and
 catches it, so every sweep is checked before it is cleaned and combined.
 
 It does NOT see a spindle torus (a bend tighter than the section, an analytic
-torus face folding through its axis), which is why the closed sweep keeps its
-one-sided bend check. Cost measured 2026-10-09 per sweep: 0.5-28 ms on the
-sweep goldens, 0.30 s and 0.51 s for the moto frame's two rail halves (0.8 s
-of a 5.7 s rebuild); docs/RESEARCH.md §19.
+torus face folding through its axis), which is why every sweep also runs the
+one-sided bend check (sweep_closed.py). Cost measured 2026-10-09 per sweep:
+0.5-28 ms on the sweep goldens, 0.30 s and 0.51 s for the moto frame's two
+rail halves (0.8 s of a 5.7 s rebuild); docs/RESEARCH.md §19.
 """
 
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false

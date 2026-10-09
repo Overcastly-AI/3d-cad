@@ -1142,11 +1142,18 @@ is unchanged, byte for byte. No wire field was needed.
   it is cleaned (`kernel/sweep_check.py`); a path that crosses or comes back
   on itself is `sweep_self_intersecting`. `BRepCheck_Analyzer` passes those
   solids (a G1 figure eight swept r3 reads pi r^2 L, the crossing counted
-  twice). The check does not see a spindle torus, so a closed sweep also
-  refuses a bend tighter than the section reaches towards the INSIDE of that
-  bend (one-sided; arcs and splines sampled) as `sweep_failed`, and a section
-  lying along the path likewise; a twist on a closed path stays
+  twice). The check does not see a spindle torus, so every sweep, open or
+  closed, also refuses a bend tighter than the section reaches towards the
+  INSIDE of that bend (one-sided, measured from where the section sits on the
+  path; arcs and splines sampled) as `sweep_failed`; a closed sweep refuses a
+  section lying along the path likewise; a twist on a closed path stays
   `twist_path_unsupported`.
+- **An open path's sharp corner is mitred** (`Transition.RIGHT`), as Fusion
+  360 and SolidWorks build it. OCCT's default transformed transition folded
+  the next leg back through the last (an r3 L of 20 + 15: 565.5 mm^3, BRepCheck
+  valid, against the mitre's 315 pi = 989.6). Only a path with a non-G1 joint
+  takes the mitre, so every G1 sweep keeps its bytes (every sweep golden's
+  BRep and GLB hashes equal dbae8f9's). A closed path still needs G1.
 - Truth: `sweep-closed-torus-ring-R50-r5` (2 pi^2 R r^2, against
   `Solid.make_torus`) and `sweep-closed-rounded-rect-loop-140x100-rc20-rect10x6`
   (the prism sum, against an extruded 2D ring), each with an empty two-way

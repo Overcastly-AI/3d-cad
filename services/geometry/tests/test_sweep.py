@@ -209,11 +209,13 @@ def test_bent_path_sweeps_a_valid_single_solid() -> None:
     )
 
 
-def test_a_sharp_cornered_open_path_is_sweep_self_intersecting() -> None:
-    """A SHARP 90 deg corner: OCCT's pipe shell (transformed transition) folds
-    the second leg back through the first — 565.5 mm^3 where a mitred elbow is
-    pi r^2 (20 + 15) = 989.6 — a solid BRepCheck passes. The self-check refuses
-    it rather than shipping it (review of SWEEP-CLOSED-PATH)."""
+def test_a_sharp_cornered_path_sweeps_a_mitred_elbow() -> None:
+    """A SHARP 90 deg L (up 20, over 15) is MITRED, as Fusion 360 and
+    SolidWorks build it. The mitre plane bisects the corner through the path,
+    so each leg is a cylinder cut obliquely through its axis end, which keeps
+    its volume: pi r^2 (20 + 15) = 315 pi = 989.6017 mm^3. (OCCT's default
+    transformed transition folded the second leg back: 565.5 mm^3, a solid
+    BRepCheck passes and the self-check refuses.)"""
     path = _sketch(
         PATH_ID,
         "XZ",
@@ -221,9 +223,56 @@ def test_a_sharp_cornered_open_path_is_sweep_self_intersecting() -> None:
     )
     result = _post(_request([profile_sketch(r=3.0), path, sweep_input()]))
 
+    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
+    assert result.properties is not None
+    # 1.4e-12 relative off the closed form (the mitre faces are integrated, not
+    # analytic), above the cylinder golden's absolute 1e-9 at this size.
+    assert result.properties.volume == pytest.approx(315.0 * math.pi, rel=1e-9)
+
+
+def test_an_obtuse_sharp_corner_is_mitred_too() -> None:
+    """A 60 deg turn (up 20, then 15 along 30 deg from vertical): the same
+    oblique-cut argument, pi r^2 (20 + 15) at any mitre angle."""
+    end = (
+        15.0 * math.sin(math.radians(30.0)),
+        20.0 + 15.0 * math.cos(math.radians(30.0)),
+    )
+    path = _sketch(
+        PATH_ID,
+        "XZ",
+        [_line("p1", (0.0, 0.0), (0.0, 20.0)), _line("p2", (0.0, 20.0), end)],
+    )
+    result = _post(_request([profile_sketch(r=3.0), path, sweep_input()]))
+
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(315.0 * math.pi, rel=1e-9)
+
+
+def test_an_open_bend_tighter_than_the_section_is_refused() -> None:
+    """r3 round an R2 bend would fold the inner wall through itself (a
+    spindle, which the self-check cannot see): the one-sided bend check."""
+    bend = {
+        "id": "b1",
+        "kind": "arc",
+        "center": {"x": 2.0, "y": 10.0},
+        "start": {"x": 2.0, "y": 12.0},
+        "end": {"x": 0.0, "y": 10.0},
+    }
+    path = _sketch(
+        PATH_ID,
+        "XZ",
+        [
+            _line("p1", (0.0, 0.0), (0.0, 10.0)),
+            bend,
+            _line("p2", (2.0, 12.0), (10.0, 12.0)),
+        ],
+    )
+    result = _post(_request([profile_sketch(r=3.0), path, sweep_input()]))
+
     error = result.features[2].error
     assert error is not None
-    assert error.code == "sweep_self_intersecting"
+    assert error.code == "sweep_failed"
+    assert "bends at radius 2 mm" in error.message
 
 
 def test_sweep_cut_removes_a_swept_channel() -> None:
