@@ -35,7 +35,7 @@ commits carry the ID (`git log --grep=<ID>`).
       the moto frame's cross tubes extruded symmetric from XZ give the
       golden `frame-moto-cradle-tube-od25.4-t1.6` volume, and a new golden
       covers a symmetric cut.
-- [ ] **LINE-CHAIN** (every sketch; the hub's 12-segment section took 24
+- [x] **LINE-CHAIN** (done b3d1b92 + 398799f; every sketch; the hub's 12-segment section took 24
       clicks): the Line tool does not chain. Fusion and SolidWorks chain
       lines, each click ending one segment and starting the next at that
       end. _Accept:_ the hub's 12-segment section takes 13 clicks (the last
@@ -373,3 +373,6 @@ One line each. The founder triages weekly; most are closed without work.
 - UNDO-PROJECTION-STATUS: undo/redo doesn't restore `projections`, so a sick mark can be stale until the next solve.
 - SKETCH-FACE-REOPEN-ZOOM: reopening a sketch on a face parks the camera tighter than the face.
 - SKETCH-PROJECT-SPLINE: projecting a spline (or other free-form) body edge into a sketch is not supported (SKETCH-PROJECT-EDGES step 4).
+- CHAINSTART-NOT-CLEARED: `chainStart` is never cleared by setTool, Escape or undo; it is harmless today but fragile.
+- CHAIN-CLOSE-MOVED-START: closing compares against the stored chainStart, so if the solver moved the first vertex, a click there joins it but does not end the chain.
+- CHAIN-PRESS-DRAG: a press-drag mid-chain places only the press point.
