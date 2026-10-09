@@ -39,12 +39,18 @@ function openPathParams(): unknown {
   };
 }
 
-/** A CLOSED circle on XZ — illegal as a path (a path must be an open wire). */
-function closedPathParams(): unknown {
+/**
+ * A CLOSED square on XZ — a closed path must be tangent-continuous at every
+ * joint (SWEEP-CLOSED-PATH), and a square has four sharp corners.
+ */
+function cornerPathParams(): unknown {
   return {
     plane: { kind: "datum_plane", plane: "XZ" },
     entities: [
-      { id: "p1", kind: "circle", center: { x: 0, y: 20 }, radius: 10 },
+      { id: "p1", kind: "line", start: { x: 0, y: 0 }, end: { x: 20, y: 0 } },
+      { id: "p2", kind: "line", start: { x: 20, y: 0 }, end: { x: 20, y: 20 } },
+      { id: "p3", kind: "line", start: { x: 20, y: 20 }, end: { x: 0, y: 20 } },
+      { id: "p4", kind: "line", start: { x: 0, y: 20 }, end: { x: 0, y: 0 } },
     ],
     constraints: [],
   };
@@ -148,16 +154,16 @@ test.describe("sweep authoring", () => {
     await expect(page.getByTestId("sweep-path")).toHaveValue(/./);
   });
 
-  test("a closed sketch as the path surfaces sweep_path_closed", async ({
+  test("a closed path with a sharp corner surfaces sweep_path_not_tangent", async ({
     page,
   }) => {
-    const part = await seedSweepPart(page, "Bad path", closedPathParams());
+    const part = await seedSweepPart(page, "Bad path", cornerPathParams());
     await page.goto(`/parts/${part.id}`);
 
     await page.getByTestId("new-sweep").click();
     await expect(page.getByTestId("sweep-editor")).toBeVisible();
     // The path note is honest about the constraint before the user even commits.
-    await expect(page.getByTestId("sweep-path-note")).toContainText("open");
+    await expect(page.getByTestId("sweep-path-note")).toContainText("tangent");
     await page.getByTestId("sweep-submit").click();
 
     // The create succeeds; the rebuild fails, loud and located under the row.
@@ -166,7 +172,9 @@ test.describe("sweep authoring", () => {
     });
     const error = page.getByTestId("feature-error-2");
     await expect(error).toBeVisible();
-    await expect(error).toContainText("sweep_path_closed");
+    await expect(error).toContainText("sweep_path_not_tangent");
+    // The message names the joint: the two sketch lines and where they meet.
+    await expect(error).toContainText("'p1' and 'p4'");
     await expect(page.getByTestId("body-inspector")).toBeHidden({
       timeout: 30_000,
     });

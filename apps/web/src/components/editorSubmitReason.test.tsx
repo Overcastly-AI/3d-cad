@@ -406,7 +406,7 @@ const CASES: Case[] = [
   },
   {
     id: "sweep-submit",
-    situation: "the part has no open sketch to sweep along",
+    situation: "the part has no other sketch to sweep along",
     render: () => (
       <SweepEditor
         mode="create"

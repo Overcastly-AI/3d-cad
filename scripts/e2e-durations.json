@@ -194,6 +194,7 @@
     "sketcher.spec.ts": 35.3,
     "solve-proposal.spec.ts": 77.7,
     "spline-constraint.spec.ts": 32.2,
+    "sweep-closed.spec.ts": 24.5,
     "sweep-twist.spec.ts": 26.1,
     "sweep.spec.ts": 58.7,
     "timeline.spec.ts": 58.4,

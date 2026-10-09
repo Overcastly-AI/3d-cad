@@ -93,7 +93,7 @@ describe("canSubmitSweep", () => {
     expect(canSubmitSweep(defaultSweepForm("s1", "s2"))).toBe(true);
     expect(canSubmitSweep(defaultSweepForm("", "s2"))).toBe(false);
     expect(canSubmitSweep(defaultSweepForm("s1", ""))).toBe(false);
-    // A sketch is a closed profile OR an open path, never both.
+    // A sketch is the profile OR the path, never both.
     expect(canSubmitSweep(defaultSweepForm("s1", "s1"))).toBe(false);
   });
 });

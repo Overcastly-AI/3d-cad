@@ -5,13 +5,14 @@
  * client (CLAUDE.md DRY rule); the builders live in `../api/parts`.
  *
  * Sweep is the first feature that references TWO earlier sketches by id: a
- * closed PROFILE and an open PATH (unlike extrude/revolve, which consume the
+ * closed PROFILE and a PATH, open or closed (unlike extrude/revolve, which
+ * consume the
  * one implicit preceding sketch). Both slots are `FeatureRef`s to earlier
  * SKETCH features — so the picker is two ruled selects over the tree's sketch
  * features (the revolve axis-select idiom, promoted from entities to features):
  * keyboard-first, deterministically testable, no new viewport selection layer.
- * A sketch can only fill ONE slot (a wire is either closed or open, never
- * both), so the path list excludes whatever the profile currently names.
+ * A sketch can only fill ONE slot (one sketch cannot be the section AND the
+ * trajectory), so the path list excludes whatever the profile currently names.
  */
 import type { FeatureResponse, SweepParams } from "../api/parts";
 import {
@@ -85,8 +86,8 @@ export function formFromSweepParams(params: SweepParams): SweepForm {
 
 /**
  * True when the form can be submitted: a profile, a path, and the two must be
- * DIFFERENT sketches (one closed wire, one open — a single sketch can't be
- * both). The kernel enforces open/closed at rebuild; distinctness we enforce
+ * DIFFERENT sketches (a single sketch can't be the section and the
+ * trajectory). The kernel checks each wire at rebuild; distinctness we enforce
  * here so the user can't author a self-referential sweep at all.
  */
 export function canSubmitSweep(form: SweepForm): boolean {
@@ -97,7 +98,7 @@ export function canSubmitSweep(form: SweepForm): boolean {
  * WHY the sweep cannot be created yet, or null when it can (REASON-GATE-1 — see
  * `submitBlocker.ts` for the rule and the 48-character budget).
  *
- * The "no open sketch exists at all" case is NOT here: it is a fact about the
+ * The "no other sketch exists at all" case is NOT here: it is a fact about the
  * part, not about this form, and `SweepEditor` states it as such before asking
  * for a path the tree cannot supply.
  */

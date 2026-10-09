@@ -175,7 +175,7 @@ export function useFeatureCatalog({
     return map;
   }, [sketchProfiles, features]);
   // Path choices per profile sketch — the sweep editor scopes its path picker
-  // to every OTHER sketch (a sketch fills one slot: closed profile OR open path).
+  // to every OTHER sketch (a sketch fills one slot: profile OR path).
   const pathsByProfile = useMemo(() => {
     const map: Record<string, ProfileOption[]> = {};
     for (const profile of sketchProfiles) {
