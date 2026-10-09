@@ -447,8 +447,9 @@ normal (off `XZ` by +5 lands at y = -5); `flip` negates the normal and keeps
 `x_dir`. An on-face datum sits at the face's area centroid with the outward
 normal, and `x_dir = deterministic_x_dir(normal)`, which is the world axis
 least aligned with the normal. A midplane between parallel sides takes side
-A's normal. Scripts should read the resolved plane back rather than guess a
-sign.
+A's normal. A plane at an angle has `x_dir` along its line and its origin at
+the line's point nearest the world origin (§18). Scripts should read the
+resolved plane back rather than guess a sign.
 
 ## 13. Sessions and tokens
 
@@ -1040,3 +1041,48 @@ rebuild-cache key. A future `two_sides` joins the same Literal.
   datum at y = +104), and `extrude-cut-symmetric-pocket-offset-xz-40x40x20`
   is derived by hand and against a plain build123d box-minus-box
   (`tests/test_extrude_symmetric.py`).
+
+## 18. Plane at an angle: through a line, turned from a reference
+
+**What mainstream CAD does.** Fusion 360 (Construct > Plane at Angle: a
+linear edge, sketch line or axis plus an angle), SolidWorks (Plane, "At
+angle": a plane or face plus an edge or axis) and Onshape (Plane, "Line
+angle") all build the plane that contains a line and makes a typed angle with
+a reference plane. Fusion takes the reference implicitly (the sketch's plane,
+or a face next to the edge); SolidWorks names it. Loft names it, as
+SolidWorks does, so the angle never depends on which neighbour a heuristic
+chose.
+
+**Decision (DATUM-PLANE-ANGLE).** A `datum` of `kind: "angle"`
+(`loft_wire.datum_angle`): `line` is a sketch line (`{sketch, entity}`), a
+picked edge (the fillet's `EdgeSubshapeRef`) or an origin axis; `reference`
+takes the midplane side's three forms (origin plane, earlier datum, picked
+planar face); `angle_deg` is in [-360, 360]; `flip` as for every datum. It is
+additive: no stored datum changes shape or bytes.
+
+- **Math** (`kernel/datum_angle.py::plane_at_angle`, ported to the web's
+  `angleBasis`): normal = the reference normal turned `angle_deg`
+  right-handed about the line direction (start to end of a sketch line,
+  `end_a` to `end_b` of the edge's canonical signature, +X/+Y/+Z for an
+  axis); 0 is the plane through the line parallel to the reference. Basis:
+  `x_dir` = the line direction, origin = the line's point nearest the world
+  origin, `y_dir = z_dir x x_dir`. Pure and deterministic.
+- **The line must be parallel to the reference** (in it or off it), to the
+  midplane's documented bound (`|d . n| <= 1e-9`). A line that pierces the
+  reference has no plane at a defined angle from it; that is the typed
+  `datum_line_not_parallel`, never a guessed plane.
+- **References follow on rebuild** through the existing funnels: the sketch
+  line from the SOLVED sketch of this pass through its resolved plane; the
+  edge through `resolve_edge_durable` with the active body's face names
+  (strict, named, durable tiers), so a resize with nothing re-picked follows
+  the edge by its history name; the reference through the midplane side's
+  resolver. A lost reference makes the datum sick with a typed code
+  (`reference_unresolved`, `subshape_unresolved`/`subshape_ambiguous`,
+  `datum_line_invalid` for a curved or zero-length line); a sketch on it then
+  fails, nothing crashes.
+- Truth: the moto frame's steering head, sketched on a 25 deg plane about a
+  construction line and extruded symmetric 160, gives the frame golden's
+  volume with an empty two-way difference against the golden's independent
+  twin (`tests/test_datum_angle.py`), and
+  `datum-angle-head-tube-od50-id32-l160-25deg` is derived by hand and against
+  a plain `Solid.make_cylinder` tube.

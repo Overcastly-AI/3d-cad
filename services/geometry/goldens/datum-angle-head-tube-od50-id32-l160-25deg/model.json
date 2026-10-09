@@ -1,0 +1,123 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000fa",
+  "tree_version": 1,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-000000000040",
+      "feature": {
+        "type": "datum",
+        "version": 1,
+        "params": {
+          "base": "XY",
+          "offset_mm": 495.46749033400226,
+          "flip": false
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000041",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000000040"
+          },
+          "entities": [
+            {
+              "id": "head",
+              "kind": "line",
+              "construction": true,
+              "start": {
+                "x": -32.38409359864937,
+                "y": 10.0
+              },
+              "end": {
+                "x": -32.38409359864937,
+                "y": -10.0
+              }
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000042",
+      "feature": {
+        "type": "datum",
+        "version": 1,
+        "params": {
+          "kind": "angle",
+          "line": {
+            "kind": "sketch_line",
+            "sketch": {
+              "kind": "feature",
+              "feature_id": "00000000-0000-0000-0000-000000000041"
+            },
+            "entity": "head"
+          },
+          "reference": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000000040"
+          },
+          "angle_deg": 25.0,
+          "flip": false
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000043",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000000042"
+          },
+          "entities": [
+            {
+              "id": "o",
+              "kind": "circle",
+              "center": {
+                "x": 0,
+                "y": 0
+              },
+              "radius": 25.0
+            },
+            {
+              "id": "i",
+              "kind": "circle",
+              "center": {
+                "x": 0,
+                "y": 0
+              },
+              "radius": 16.0
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000044",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000000043"
+          },
+          "distance_mm": 160.0,
+          "operation": "add",
+          "extent": "symmetric",
+          "merge": true
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

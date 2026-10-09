@@ -11,6 +11,7 @@ import uuid
 
 from build123d import Face, Plane
 from loft_wire.features import (
+    DatumAngleParams,
     DatumFeature,
     DatumMidplaneParams,
     DatumOffsetFromParams,
@@ -25,6 +26,7 @@ from loft_wire.features import (
 )
 from loft_wire.sketch import classify_overconstraint
 
+from geometry.features.datum_angle import resolve_angle_plane
 from geometry.features.sketch_projection import project_entities
 from geometry.features.state import (
     EvaluationState,
@@ -149,10 +151,13 @@ def _resolve_face_datum_plane(
         )
 
 
-def _resolve_midplane_side(
-    ref: DatumPlaneRef | FeatureRef | SubshapeRef, state: EvaluationState, *, slot: str
+def _resolve_plane_side(
+    ref: DatumPlaneRef | FeatureRef | SubshapeRef, state: EvaluationState, *, role: str
 ) -> Plane | FeatureError:
-    """Resolve one midplane side to a concrete plane (datum-planes §7a).
+    """Resolve one midplane side (or an angle datum's reference) to a plane.
+
+    Datum-planes §7a; the ``angle`` datum's reference takes the same three
+    forms, so it resolves here too (*role* names the slot in the message).
 
     Reuses the existing funnels — an origin datum name maps through
     :data:`DATUM_PLANES`, a ``datum`` FeatureRef through
@@ -163,7 +168,7 @@ def _resolve_midplane_side(
     if isinstance(ref, DatumPlaneRef):
         return DATUM_PLANES[ref.plane]
     if isinstance(ref, FeatureRef):
-        return _resolve_datum_feature_plane(ref, state, role=f"Midplane side '{slot}'")
+        return _resolve_datum_feature_plane(ref, state, role=role)
     assert isinstance(ref, SubshapeRef)  # closed union
     return _resolve_face_datum_plane(ref, 0.0, state)
 
@@ -171,7 +176,7 @@ def _resolve_midplane_side(
 def _evaluate_datum(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
-    """Resolve one datum plane — offset, on-a-face, chained offset, or midplane.
+    """Resolve one datum plane — offset, on-face, chained, midplane or angle.
 
     Not body-affecting: whatever the kind, the resolved plane is recorded under
     the feature id for a later consumer (a sketch's plane FeatureRef, another
@@ -193,7 +198,11 @@ def _evaluate_datum(
     * ``midplane`` — bisects two resolved side planes
       (:func:`midplane_between`, the documented parallel/angular/identical
       conventions). TOTAL over resolved sides; each side fails with its own
-      funnel's taxonomy (:func:`_resolve_midplane_side`).
+      funnel's taxonomy (:func:`_resolve_plane_side`).
+    * ``angle`` — a plane through a line, turned from a reference plane
+      (:func:`~geometry.features.datum_angle.resolve_angle_plane`); the
+      reference resolves like a midplane side, the line through its own
+      typed funnel.
     """
     feature = item.feature
     assert isinstance(feature, DatumFeature), "registry dispatches on type='datum'"
@@ -216,13 +225,25 @@ def _evaluate_datum(
         return None
 
     if isinstance(params, DatumMidplaneParams):
-        side_a = _resolve_midplane_side(params.a, state, slot="a")
+        side_a = _resolve_plane_side(params.a, state, role="Midplane side 'a'")
         if isinstance(side_a, FeatureError):
             return side_a
-        side_b = _resolve_midplane_side(params.b, state, slot="b")
+        side_b = _resolve_plane_side(params.b, state, role="Midplane side 'b'")
         if isinstance(side_b, FeatureError):
             return side_b
         state.datum_planes[item.id] = midplane_between(side_a, side_b, params.flip)
+        return None
+
+    if isinstance(params, DatumAngleParams):
+        reference = _resolve_plane_side(
+            params.reference, state, role="Plane-at-angle reference"
+        )
+        if isinstance(reference, FeatureError):
+            return reference
+        angled = resolve_angle_plane(params, reference, state)
+        if isinstance(angled, FeatureError):
+            return angled
+        state.datum_planes[item.id] = angled
         return None
 
     assert isinstance(params, DatumOnFaceParams)  # closed union
