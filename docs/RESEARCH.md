@@ -858,6 +858,82 @@ OCCT's. The double clean (build123d cleans inside every boolean, then
 `clean_shape` cleans again under the CM-6 guard) and the eager per-face `Plane`
 in `planar_faces` are ours and are the next costs to take; both are in BACKLOG.
 
+### 15a. PERF-REBUILD-200: what our own costs bought (2026-10-09)
+
+**Measured.** `housing_tree(N)` cold, one fresh interpreter per sample, 0909d2b
+and the change interleaved on the same host (load ~2 from other jobs; at load
+0.1 the old code read 6.64 s and 24.85 s), median of 3:
+
+| N   | before  | after   |
+| --- | ------- | ------- |
+| 100 | 6.98 s  | 6.26 s  |
+| 200 | 29.37 s | 25.28 s |
+
+**Taken.** The GLB and the whole result JSON are byte-identical for 79 goldens,
+22 sheet-metal goldens, 3 assembly goldens, `housing_tree` 29/100/200 and
+`heat_sink_tree` 32/128.
+
+- Face resolve (`kernel/faces.py`), 12 % of the rebuild down to 5 %. A face is
+  integrated once, not twice (`center(MASS)` and `area` ran the same
+  `SurfaceProperties`), its `Plane` is built when read, and tiers 1-3 (normal,
+  centroid, area) run before any outer boundary is built: a record is completed
+  only where tier 4 reads it or it is returned. Building only the strict tier's
+  matches would have bought nothing on this part: its holes resolve on the
+  coplanar tier once the first pocket has changed the top face's area.
+- A Hole records the volume its guarded cut measured, so the next boolean on
+  the body (the next hole) and its own counterbore/countersink cut do not
+  integrate the whole body again.
+- The Hole's second common was already gone (above).
+
+**Not taken: the double face-merge.** Measured, not assumed:
+
+- The second `UnifySameDomain` is not idempotent on our bodies. Dropping it
+  leaves `frame-moto-cradle-tube-od25.4-t1.6` with the same counts and the same
+  JSON but a different GLB (385 of 4873 vertices move, by up to 0.025 mm, and
+  the triangulation changes). On the coincident-tube frames it rewrites the
+  solid (different BRep bytes, same counts). That breaks the byte-identical
+  rule.
+- Guarding the first merge instead (raw boolean, one guarded merge) is worse.
+  On curved bodies the first merge moves the GProp volume by up to 3e-5
+  relative (the quadrature over re-partitioned faces, not material), so the
+  1e-9 guard would refuse it and ship unmerged faces.
+- The guard cannot skip its "before" volume when the merge "did nothing". The
+  CM-6 weld hands back a shape `IsSame` as its input, with its volume changed.
+- A finding for the founder: without the second merge, the chain in
+  `test_cm6_a_body_occt_rejects_is_an_error_not_an_artifact` (the CM-6 mirror,
+  then a pocket 30 mm away) builds the analytic body (30193.6284 mm^3, off by
+  4e-12, valid) instead of `invalid_body`. The in-place weld that test blames on
+  the boolean is the second merge rewriting TShapes the bodies share.
+
+**Where 200 features go now** (py-spy, 100 Hz). The OCCT boolean is 27 %, the
+merge inside it 8 %, the second, guarded merge 8 %, the guard's volumes ~10 %
+and its spare copy 3 %, the admission `BRepCheck` of changed faces 11 %, the
+Hole's pocket common 6 %, the rebuild ladder's forks 4 %, face resolve 5 %,
+edge resolve 3.5 % and tessellation 3 %. Every one of these scales with the
+body (442 faces), and `BRepCheck` and the merges also scale with the wire count
+of the top face every pocket borders. A feature costs 63 ms at N=100 and
+126 ms at N=200.
+
+**Plan for the rest** (largest gain first; none fits the byte-identical rule):
+
+1. One merge per boolean (~15 % with its copy and two integrations). Drop the
+   second merge on the plain paths and keep the guarded one for the fuzzy
+   repair. Needs the founder to accept a new `mesh_glb_id` for the moto frame
+   (same counts and properties, no tolerance touched) and the CM-6
+   later-pocket chain turning from `invalid_body` into the right body.
+2. Admission `BRepCheck` by changed wire, not changed face (~8 %). Drive
+   `BRepCheck_Face`/`_Wire`/`_Edge` directly and reuse the verdict of every
+   wire and edge whose TShape is unchanged. Prove it equal to
+   `BRepCheck_Analyzer` over the suite before it replaces it.
+3. Volumes per face, cached by TShape (~6 %): GProp about a fixed reference
+   point, summed over faces. That changes the guard's floats, not the geometry.
+4. Local features: `BRepFeat_MakeCylindricalHole` for holes and
+   `BRepFeat_MakePrism` for pockets, which cost the faces they touch rather than
+   the whole body. This is the structural fix that gets N=200 under 10 s, and it
+   changes face splits, so it ships with new goldens.
+5. Smaller, ours, safe: pattern and mirror do not record their result's volume
+   yet (`guarded_variadic`, ~0.5 %).
+
 ## 16. Shell corners: sharp by default, rounded where stored
 
 **What mainstream CAD does.** SolidWorks, Onshape and Fusion 360 shell with
