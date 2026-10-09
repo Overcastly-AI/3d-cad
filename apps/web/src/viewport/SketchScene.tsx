@@ -21,7 +21,6 @@ import {
   TangentIcon,
   HorizontalIcon,
   VerticalIcon,
-  HazardIcon,
   type IconProps,
 } from "@loft/design";
 import { sketch, viewport } from "@loft/design/tokens";
@@ -38,14 +37,12 @@ import {
 } from "react";
 import {
   BufferGeometry,
-  Float32BufferAttribute,
   Matrix4,
   OrthographicCamera,
   Quaternion,
   Vector3,
   type Box3,
   type Camera,
-  type LineSegments,
 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
@@ -123,17 +120,15 @@ import {
 } from "../sketch/plane";
 import { axisLinePoints, reflectEntity } from "../sketch/mirror";
 import { isClick, type PointerGesture } from "../sketch/clickIntent";
+import { SNAP_LABELS, SNAP_TOLERANCE_PX, type SnapKind } from "../sketch/snap";
+import { isProjected } from "../sketch/project";
+import { ProjectedInk, SickProjectionMarks } from "./ProjectedInk";
 import {
-  midpointOf,
-  SNAP_LABELS,
-  SNAP_TOLERANCE_PX,
-  type SnapKind,
-} from "../sketch/snap";
-import {
-  isProjected,
-  SICK_REASON_TEXT,
-  sickProjections,
-} from "../sketch/project";
+  InkPoints,
+  InkSegments,
+  partitionConstruction,
+  usePositionsGeometry,
+} from "./sketchInk";
 import {
   useSketchStore,
   type DrawDimensionDraft,
@@ -200,10 +195,9 @@ import {
  *
  * Constraint glyphs, the snap mark and the spline handles need no entry here:
  * they are DOM-in-canvas (drei `Html`), so they already float over the scene.
+ * The ink's two orders live with the primitives, in `sketchInk.tsx`.
  */
-const ACTIVE_INK_RENDER_ORDER = 900;
-/** Defining-point dots ride one step above their own lines. */
-const ACTIVE_POINT_RENDER_ORDER = 901;
+
 /**
  * The plane's own frame (origin + axes) draws over the solid like the rest of
  * the active layer, but one step UNDER the ink: it is the paper, not what is
@@ -398,125 +392,6 @@ function segmentPositions(
     out.set(planeToWorld(basis, b), i * 6 + 3);
   });
   return out;
-}
-
-/** Shared geometry plumbing: a positions buffer with disposal. */
-function usePositionsGeometry(positions: Float32Array): BufferGeometry {
-  const geometry = useMemo(() => {
-    const g = new BufferGeometry();
-    g.setAttribute("position", new Float32BufferAttribute(positions, 3));
-    return g;
-  }, [positions]);
-  useEffect(() => () => geometry.dispose(), [geometry]);
-  return geometry;
-}
-
-interface InkSegmentsProps {
-  positions: Float32Array;
-  color: string;
-  dashed?: boolean;
-  /** Dash geometry (world mm); defaults to the rubber-band preview pattern. */
-  dashSize?: number;
-  gapSize?: number;
-  /**
-   * This is the ACTIVE sketch — draw it over the solid (policy note above).
-   * Off by default so committed/solved ink keeps ordinary occlusion.
-   */
-  onTop?: boolean;
-  /** Order WITHIN the on-top layer; defaults to the ink's own step. */
-  order?: number;
-}
-
-/** One layer of sketch ink — a single LineSegments draw call. */
-function InkSegments({
-  positions,
-  color,
-  dashed = false,
-  dashSize = sketch.previewDashMm,
-  gapSize = sketch.previewGapMm,
-  onTop = false,
-  order = ACTIVE_INK_RENDER_ORDER,
-}: InkSegmentsProps) {
-  const ref = useRef<LineSegments>(null);
-  const geometry = usePositionsGeometry(positions);
-  // LineDashedMaterial needs per-vertex line distances.
-  useEffect(() => {
-    if (dashed) ref.current?.computeLineDistances();
-  }, [geometry, dashed]);
-  if (positions.length === 0) return null;
-  // Alpha stays 1: `transparent` is here to put the ink in the queue that
-  // renders LAST, not to fade it, so the token hex still lands exactly (the
-  // e2e pixel probe reads it).
-  const depth = onTop
-    ? { depthTest: false, depthWrite: false, transparent: true }
-    : {};
-  return (
-    <lineSegments
-      ref={ref}
-      geometry={geometry}
-      frustumCulled={false}
-      renderOrder={onTop ? order : 0}
-    >
-      {dashed ? (
-        <lineDashedMaterial
-          color={color}
-          dashSize={dashSize}
-          gapSize={gapSize}
-          toneMapped={false}
-          {...depth}
-        />
-      ) : (
-        <lineBasicMaterial color={color} toneMapped={false} {...depth} />
-      )}
-    </lineSegments>
-  );
-}
-
-/** Split entities into profile (solid scribe) and construction (dashed) sets. */
-function partitionConstruction(entities: readonly SketchEntity[]): {
-  profile: SketchEntity[];
-  construction: SketchEntity[];
-} {
-  const profile: SketchEntity[] = [];
-  const construction: SketchEntity[] = [];
-  for (const entity of entities) {
-    (entity.construction ? construction : profile).push(entity);
-  }
-  return { profile, construction };
-}
-
-/** Defining points (endpoints, centers) — screen-space brass dots. */
-function InkPoints({
-  positions,
-  color,
-  sizePx = sketch.pointSizePx,
-  onTop = false,
-}: {
-  positions: Float32Array;
-  color: string;
-  sizePx?: number;
-  /** Active-sketch handles draw over the solid (policy note above). */
-  onTop?: boolean;
-}) {
-  const geometry = usePositionsGeometry(positions);
-  if (positions.length === 0) return null;
-  return (
-    <points
-      geometry={geometry}
-      frustumCulled={false}
-      renderOrder={onTop ? ACTIVE_POINT_RENDER_ORDER : 0}
-    >
-      <pointsMaterial
-        color={color}
-        size={sizePx}
-        sizeAttenuation={false}
-        toneMapped={false}
-        {...(onTop
-          ? { depthTest: false, depthWrite: false, transparent: true }
-          : {})}
-      />
-    </points>
-  );
 }
 
 /**
@@ -1652,55 +1527,6 @@ function OpenEndMarks({ basis }: { basis: PlaneBasis }) {
 }
 
 /**
- * SICK PROJECTIONS (SKETCH-PROJECT-EDGES): a projected entity whose body edge
- * no longer resolves keeps its last good position, as Fusion's does, and wears
- * a hazard mark at its middle saying why (the tooltip and the accessible
- * name). The mark is the only place this is said inside the sketch; the tree
- * row says it outside (`projectionWarning`).
- */
-function SickProjectionMarks({ basis }: { basis: PlaneBasis }) {
-  const entities = useSketchStore((state) => state.entities);
-  const statuses = useSketchStore((state) => state.projections);
-  const marks = useMemo(() => {
-    const sick = sickProjections(statuses);
-    return entities.flatMap((entity) => {
-      const reason = sick.get(entity.id);
-      if (reason === undefined || !isProjected(entity)) return [];
-      const at =
-        entity.kind === "circle"
-          ? { x: entity.center.x, y: entity.center.y + entity.radius }
-          : midpointOf(entity);
-      return at === null ? [] : [{ id: entity.id, at, reason }];
-    });
-  }, [entities, statuses]);
-  return (
-    <>
-      {marks.map((mark) => (
-        <Html
-          key={mark.id}
-          position={planeToWorld(basis, mark.at)}
-          center
-          zIndexRange={OPEN_END_Z_RANGE}
-        >
-          <span
-            role="img"
-            data-testid="projection-sick"
-            data-entity={mark.id}
-            data-reason={mark.reason}
-            aria-label={`Projection lost: ${SICK_REASON_TEXT[mark.reason]}`}
-            title={SICK_REASON_TEXT[mark.reason]}
-            className="block cursor-help"
-            style={{ color: sketch.projectedSickInk }}
-          >
-            <HazardIcon size={14} />
-          </span>
-        </Html>
-      ))}
-    </>
-  );
-}
-
-/**
  * The keys that open a typed coordinate: a digit, a sign, a decimal point.
  * NOT `0`: at rest that key is the sketcher's Fit (F-11) and stays so. A
  * coordinate that starts with zero is typed ".5" or "-0.5"; once the cells
@@ -2416,18 +2242,7 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
     () => partitionConstruction(idle.filter((e) => !isProjected(e))),
     [idle],
   );
-  const projected = useMemo(
-    () => partitionConstruction(idle.filter(isProjected)),
-    [idle],
-  );
-  const projectedPositions = useMemo(
-    () => entitySegmentPositions(projected.profile, basis),
-    [projected, basis],
-  );
-  const projectedConstructionPositions = useMemo(
-    () => entitySegmentPositions(projected.construction, basis),
-    [projected, basis],
-  );
+  const projected = useMemo(() => idle.filter(isProjected), [idle]);
   const bufferPositions = useMemo(
     () => entitySegmentPositions(buffer.profile, basis),
     [buffer, basis],
@@ -2500,19 +2315,7 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
         gapSize={sketch.constructionGapMm}
         onTop
       />
-      <InkSegments
-        positions={projectedPositions}
-        color={sketch.projectedInk}
-        onTop
-      />
-      <InkSegments
-        positions={projectedConstructionPositions}
-        color={sketch.projectedInk}
-        dashed
-        dashSize={sketch.constructionDashMm}
-        gapSize={sketch.constructionGapMm}
-        onTop
-      />
+      <ProjectedInk entities={projected} basis={basis} />
       <InkSegments positions={hoveredPositions} color={sketch.hoverInk} onTop />
       <InkSegments
         positions={selectedPositions}

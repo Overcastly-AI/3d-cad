@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { OverlayEdge, Vec3 } from "../api/measure";
-import { applyConstraintAction, pointDimensionEditor } from "./constraints";
+import {
+  applyConstraintAction,
+  pointDimensionEditor,
+  resolveSketchKey,
+} from "./constraints";
 import { sceneOriginBasis, faceBasis } from "./plane";
 import { pointEntryOpening } from "./pointEntry";
 import {
@@ -360,6 +364,16 @@ describe("breakLinks — Fusion's Break Link", () => {
         ?.broken,
     ).toBe(1);
     expect(breakLinks([{ kind: "entity", id: "e3" }], ENTITIES)).toBeNull();
+  });
+});
+
+describe("P — Project with nothing selected, Parallel with a selection", () => {
+  it("follows the S precedent in resolveSketchKey", () => {
+    expect(resolveSketchKey("p", false)).toEqual({ type: "tool" });
+    expect(resolveSketchKey("p", true)).toEqual({
+      type: "constraint",
+      action: "parallel",
+    });
   });
 });
 

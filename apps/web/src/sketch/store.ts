@@ -63,14 +63,8 @@ import {
 } from "./dimensionPick";
 import { reconcileEditedConstraints } from "./reconcileEdit";
 import type { OverlayEdge } from "../api/measure";
-import { edgeSignatureKey } from "../features/edge";
-import {
-  breakLinks,
-  isProjected,
-  projectedSignatures,
-  type SketchProjectionStatus,
-} from "./project";
-import { projectOverlayEdge } from "./projectEdge";
+import { isProjected, type SketchProjectionStatus } from "./project";
+import { breakLinkTransition, projectEdgeTransition } from "./projectActions";
 import { axisInferenceHint } from "./snap";
 import { toggleCornerPick, type CornerOp } from "./corner";
 import { keepSharps, reconcileCornerConstraints } from "./cornerConstraints";
@@ -97,12 +91,7 @@ import {
 import { mirrorAxisFor, toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import { originIdentity } from "./origin";
 import { typedJoin, withNamedPointAt } from "./pointEntry";
-import {
-  resolveSpecBasis,
-  type DatumPlaneName,
-  type Point2D,
-  type SketchPlaneSpec,
-} from "./plane";
+import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
 import {
   applyPick,
   toggleSelection,
@@ -124,6 +113,7 @@ import {
   placePoint,
   placesPoints,
   type SketchEntity,
+  nextIdIndexAfter,
   type SketchTool,
 } from "./tools";
 
@@ -387,11 +377,7 @@ export interface SketchState {
    * placeholder 30 while the model sat at 45.
    */
   solvedAngles: SolvedAngle[];
-  /**
-   * How each projected entity re-projected on the last solve
-   * (SKETCH-PROJECT-EDGES): `sick` ones keep their last good position and say
-   * why. Empty until the first solve, and for a sketch with nothing projected.
-   */
+  /** Last solve's per-projected-entity status (sick = kept its last position). */
   projections: SketchProjectionStatus[];
   /** Transient strip hint (invalid constraint action, duplicates, …). */
   hint: string | null;
@@ -646,11 +632,7 @@ export interface SketchState {
   undo: () => void;
   /** Redo the last undone sketch edit (cleared the moment you draw again). */
   redo: () => void;
-  /**
-   * PROJECT a picked body edge into the sketch (the Project tool, P): the
-   * linked entity is appended, or the strip says why the edge cannot be.
-   * `anchorFeatureId` is the body-affecting feature the edge belongs to.
-   */
+  /** Project a picked body edge (anchored at its body feature) into the sketch. */
   projectEdge: (edge: OverlayEdge, anchorFeatureId: string) => void;
   /** BREAK LINK on the selected projected entities: geometry kept, link gone. */
   breakLink: () => void;
@@ -750,27 +732,6 @@ const freshSession = (state: SketchState) => ({
   snapEnabled: state.snapEnabled,
   snapStepMm: state.snapStepMm,
 });
-
-/**
- * The first sketch-local id index free above a loaded entity set. Ids are minted
- * `e1`, `e2`, … (`tools.entityId`), so a re-opened sketch has to resume ABOVE
- * the highest one it loaded: resuming at 1 — what a fresh session gives a
- * brand-new sketch — would mint `e1` a second time, and every id-keyed consumer
- * (constraint refs, `adoptSolved`'s solved-by-id map, picks, the solver's own
- * entity table) would then address two entities at once.
- *
- * Anything that is not `e<digits>` is ignored rather than guessed at: the index
- * only has to be free, and a foreign id shape contributes no claim on one.
- */
-const nextIdIndexAfter = (entities: readonly SketchEntity[]): number => {
-  let highest = 0;
-  for (const entity of entities) {
-    const match = /^e(\d+)$/.exec(entity.id);
-    if (match === null) continue;
-    highest = Math.max(highest, Number(match[1]));
-  }
-  return highest + 1;
-};
 
 /**
  * Does this click ADD to the selection, or replace it (FB-14)?
@@ -1942,55 +1903,10 @@ const createSketchState = (
   },
 
   projectEdge: (edge, anchorFeatureId) => {
-    const { plane, entities, nextIdIndex, revision } = get();
-    if (plane === null) return;
-    const key = edgeSignatureKey(edge.signature);
-    if (
-      projectedSignatures(entities).some(
-        (signature) => edgeSignatureKey(signature) === key,
-      )
-    ) {
-      set({ hint: "That edge is already projected into this sketch." });
-      return;
-    }
-    const result = projectOverlayEdge(
-      edge,
-      resolveSpecBasis(plane),
-      anchorFeatureId,
-      `e${nextIdIndex}`,
-    );
-    if (!("entity" in result)) {
-      set({ hint: result.hint });
-      return;
-    }
-    set({
-      entities: [...entities, result.entity],
-      nextIdIndex: nextIdIndex + 1,
-      revision: revision + 1,
-      hint: null,
-    });
+    const next = projectEdgeTransition(get(), edge, anchorFeatureId);
+    if (next !== null) set({ hint: null, ...next });
   },
-
-  breakLink: () => {
-    const { selection, entities, revision } = get();
-    const result = breakLinks(selection, entities);
-    if (result === null) {
-      set({ hint: "Select projected geometry to break its link." });
-      return;
-    }
-    const what = `${result.broken} ${result.broken === 1 ? "entity" : "entities"}`;
-    set({
-      entities: result.entities,
-      revision: revision + 1,
-      // The broken entities are no longer the solver's to report on.
-      projections: get().projections.filter((status) =>
-        isProjected(result.entities.find((e) => e.id === status.entity)),
-      ),
-      selection: [],
-      hint: null,
-      editNote: `Link broken on ${what}. It no longer follows the body.`,
-    });
-  },
+  breakLink: () => set({ hint: null, ...breakLinkTransition(get()) }),
 
   bind: (featureId) => set({ featureId }),
 

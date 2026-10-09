@@ -486,3 +486,24 @@ export function escapeAction(
   if (unstarted) return "exit";
   return "none";
 }
+
+/**
+ * The first sketch-local id index free above a loaded entity set. Ids are minted
+ * `e1`, `e2`, … (`tools.entityId`), so a re-opened sketch has to resume ABOVE
+ * the highest one it loaded: resuming at 1 — what a fresh session gives a
+ * brand-new sketch — would mint `e1` a second time, and every id-keyed consumer
+ * (constraint refs, `adoptSolved`'s solved-by-id map, picks, the solver's own
+ * entity table) would then address two entities at once.
+ *
+ * Anything that is not `e<digits>` is ignored rather than guessed at: the index
+ * only has to be free, and a foreign id shape contributes no claim on one.
+ */
+export const nextIdIndexAfter = (entities: readonly SketchEntity[]): number => {
+  let highest = 0;
+  for (const entity of entities) {
+    const match = /^e(\d+)$/.exec(entity.id);
+    if (match === null) continue;
+    highest = Math.max(highest, Number(match[1]));
+  }
+  return highest + 1;
+};
