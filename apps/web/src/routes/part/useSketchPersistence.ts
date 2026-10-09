@@ -469,6 +469,8 @@ export function useSketchPersistence({
         info,
         result.data.dimensions ?? [],
         result.data.angles ?? [],
+        // Which projected entities followed their edge, and which went sick.
+        result.data.projections ?? [],
       );
       return;
     }

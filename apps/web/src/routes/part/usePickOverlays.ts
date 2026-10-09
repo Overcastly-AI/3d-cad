@@ -12,6 +12,7 @@ import { fetchOverlay } from "../../api/measure";
 import { buildEvaluateTree } from "../../measure/geometry";
 import { type FeatureTreeResponse } from "../../api/parts";
 import { useEdgePickStore } from "../../features/edgePickStore";
+import { useSketchStore } from "../../sketch/store";
 import { useFacePickStore } from "../../features/facePickStore";
 import { preselectedFaces, usePreselectStore } from "../../features/preselect";
 import {
@@ -245,8 +246,22 @@ export function usePickOverlays({
   );
 
   const edgePicking = useEdgePickStore((s) => s.active && s.picking);
+  const edgePurpose = useEdgePickStore((s) => s.purpose);
   const setEdgeOverlay = useEdgePickStore((s) => s.setOverlay);
   const setEdgeOverlayError = useEdgePickStore((s) => s.setOverlayError);
+
+  // PROJECT (SKETCH-PROJECT-EDGES): the sketcher's Project tool picks edges of
+  // the body BEFORE the sketch — the body a projected edge resolves against on
+  // every rebuild, so what you click is what the kernel re-finds. A sketch not
+  // yet saved lands at the tip, so its body is the tip's. The ref's anchor is
+  // the last body-affecting feature before it, as for any picked reference.
+  const sketchFeatureId = useSketchStore((s) => s.featureId);
+  const projectAnchorFeatureId = useMemo(
+    () => anchorBodyFeatureId(tree.data?.features ?? [], sketchFeatureId),
+    [tree.data, sketchFeatureId],
+  );
+  const edgeBeforeId =
+    edgePurpose === "project" ? sketchFeatureId : editingFeatureId;
 
   // WHICH BODY THE EDGES COME FROM. Creating, it is the tip (the shared overlay
   // entry). EDITING, it is the body the feature under edit is BUILT ON, the
@@ -255,14 +270,14 @@ export function usePickOverlays({
   // and a re-pick of a moved edge (EDGE-RESOLVE-WARN-1) had nothing to click.
   const edgeOverlayQuery = useQuery({
     queryKey:
-      editingFeatureId === null
+      edgeBeforeId === null
         ? ["overlay", partId, treeVersion, meshGlbId]
-        : ["overlay-before", partId, treeVersion, editingFeatureId],
+        : ["overlay-before", partId, treeVersion, edgeBeforeId],
     queryFn: () =>
       fetchOverlay(
         buildEvaluateTree(
           tree.data as FeatureTreeResponse,
-          editingFeatureId ?? undefined,
+          edgeBeforeId ?? undefined,
         ),
       ),
     enabled: edgePicking && tree.data !== undefined && meshGlbId !== null,
@@ -451,6 +466,7 @@ export function usePickOverlays({
     proposalContext,
     proposedFace,
     pickAnchorFeatureId,
+    projectAnchorFeatureId,
     edgePicking,
     shellPicking,
     highlightFeatureIds,

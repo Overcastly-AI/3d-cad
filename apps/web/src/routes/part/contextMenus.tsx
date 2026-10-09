@@ -7,6 +7,7 @@
  */
 import {
   CloseIcon,
+  ConstructionIcon,
   type ContextMenuSection,
   DatumIcon,
   MeasureIcon,
@@ -24,6 +25,59 @@ import {
 import type { FeatureResponse } from "../../api/parts";
 import { scopeFeature } from "../../features/patternScope";
 import { useViewCommandStore } from "../../viewport/viewCommands";
+import { selectionTouchesProjected } from "../../sketch/project";
+import { useSketchStore } from "../../sketch/store";
+
+/**
+ * The SKETCHER's right-click menu (SKETCH-PROJECT-EDGES): what can be done to
+ * the selected sketch geometry. Break link is Fusion's verb for projected
+ * geometry — the entity stays where it is and stops following the body — and
+ * it is offered only when the selection holds some; the other two are the
+ * strip's own verbs (N, Delete), here because the pointer is.
+ */
+export function sketchMenuSections(): ContextMenuSection[] {
+  const sketch = useSketchStore.getState();
+  const projected = selectionTouchesProjected(
+    sketch.selection,
+    sketch.entities,
+  );
+  const empty = sketch.selection.length === 0;
+  return [
+    {
+      key: "sketch",
+      label: "Sketch",
+      items: [
+        {
+          key: "break-link",
+          label: "Break link",
+          icon: <CloseIcon />,
+          disabled: !projected,
+          onSelect: () => useSketchStore.getState().breakLink(),
+          "data-testid": "ctx-sketch-break-link",
+        },
+        {
+          key: "construction",
+          label: "Toggle construction",
+          icon: <ConstructionIcon />,
+          shortcut: "N",
+          disabled: empty,
+          onSelect: () => useSketchStore.getState().toggleConstruction(),
+          "data-testid": "ctx-sketch-construction",
+        },
+        {
+          key: "delete",
+          label: "Delete",
+          icon: <CloseIcon />,
+          shortcut: "Del",
+          danger: true,
+          disabled: empty,
+          onSelect: () => useSketchStore.getState().deleteSelection(),
+          "data-testid": "ctx-sketch-delete",
+        },
+      ],
+    },
+  ];
+}
 
 const requestView = (
   kind: "fit" | "home" | "front" | "top" | "right" | "iso",

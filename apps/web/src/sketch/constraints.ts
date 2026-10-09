@@ -29,100 +29,21 @@ import {
   type PointDimensionSubject,
 } from "./pointDimension";
 import { dimensionSpan, lineAnnotationAnchor, sharpIds } from "./virtualSharp";
+import { allProjected, projectedRefusal } from "./project";
 
 export type SketchConstraint =
   components["schemas"]["SketchParamsV1"]["constraints"][number];
 export type EntityPointRef = components["schemas"]["EntityPointRef"];
 export type SolveStatus = components["schemas"]["SolvedSketchData"]["status"];
-/**
- * One solved dimension readout, lined to its authored constraint by
- * `constraint_index`: for a DRIVING dim `value_mm` is the evaluated
- * expression/literal; for a DRIVEN dim it is measured from the solved geometry.
- */
-export type SolvedDimension = components["schemas"]["SolvedDimension"];
-/**
- * One solved ANGULAR readout, in degrees, on the same `constraint_index` space
- * as {@link SolvedDimension}. The contract keeps the two lists apart on purpose
- * — there is no honest millimetre value for an angle, and `value_mm` is a
- * required field every linear consumer reads unconditionally — so the merge
- * happens here, once, in {@link solvedReadouts}.
- */
-export type SolvedAngle = components["schemas"]["SolvedAngle"];
-
-/**
- * THE readout the sketcher shows for one dimension, whatever its unit — the
- * single merge point for `SolvedSketch.dimensions` + `SolvedSketch.angles`.
- *
- * QA-R2: the two wire lists were never merged, so `apps/web/src` read the
- * linear list alone and NOTHING read `angles`. An angle driven by an expression
- * therefore kept the placeholder degrees the client had guessed while the
- * solver moved the model: authored 30, re-driven `15*3`, the geometry went to
- * 45.000 and the glyph read `30°` forever. An annotation that contradicts the
- * geometry is worse than an absent one, because it looks authoritative.
- *
- * `value` is in the constraint's OWN unit and `unit` says which, so a consumer
- * cannot read degrees out of something named for millimetres — the property the
- * split existed to protect, kept without forcing every reader to merge lists.
- */
-export interface SolvedReadout {
-  constraint_index: number;
-  driving: boolean;
-  expression: string | null;
-  name: string | null;
-  /** The solved value in `unit`: evaluated if driving, measured if driven. */
-  value: number;
-  unit: "mm" | "deg";
-}
-
-/**
- * Merge the solver's two per-dimension lists into one lookup by
- * `constraint_index`. A constraint is linear or angular and never both, so an
- * index collision means the payload disagrees with itself; the LINEAR entry
- * wins and the angular one is dropped, but the unit rides along either way, so
- * the readers below still refuse a readout whose unit does not match the
- * constraint they are drawing. Silently showing the wrong unit is the failure
- * this whole split exists to prevent.
- */
-export function solvedReadouts(
-  dimensions: readonly SolvedDimension[],
-  angles: readonly SolvedAngle[],
-): Map<number, SolvedReadout> {
-  const byIndex = new Map<number, SolvedReadout>();
-  for (const angle of angles) {
-    byIndex.set(angle.constraint_index, {
-      constraint_index: angle.constraint_index,
-      driving: angle.driving,
-      expression: angle.expression ?? null,
-      name: angle.name ?? null,
-      value: angle.value_deg,
-      unit: "deg",
-    });
-  }
-  for (const dimension of dimensions) {
-    byIndex.set(dimension.constraint_index, {
-      constraint_index: dimension.constraint_index,
-      driving: dimension.driving,
-      expression: dimension.expression ?? null,
-      name: dimension.name ?? null,
-      value: dimension.value_mm,
-      unit: "mm",
-    });
-  }
-  return byIndex;
-}
-
-/** The readout for `index`, or undefined unless its unit is the one asked for. */
-export function readoutIn(
-  solved: ReadonlyMap<number, SolvedReadout> | undefined,
-  index: number | null | undefined,
-  unit: "mm" | "deg",
-): SolvedReadout | undefined {
-  if (solved === undefined || index === null || index === undefined) {
-    return undefined;
-  }
-  const readout = solved.get(index);
-  return readout?.unit === unit ? readout : undefined;
-}
+// The solve readouts live in `readouts.ts`; re-exported for their readers.
+export {
+  readoutIn,
+  solvedReadouts,
+  type SolvedAngle,
+  type SolvedDimension,
+  type SolvedReadout,
+} from "./readouts";
+import { readoutIn, type SolvedReadout } from "./readouts";
 
 /** Constraint verbs — the keyboard-first strip actions. */
 export type ConstraintAction =
@@ -884,6 +805,39 @@ const targetOf = (
   ...(subject === undefined ? {} : { subject }),
 });
 
+/** Every entity a point dimension touches (a sharp's second line included). */
+function subjectEntities(subject: PointDimensionSubject): string[] {
+  const of = (ref: DimensionPointRef): string[] =>
+    ref.sharp === null || ref.sharp === undefined
+      ? [ref.entity]
+      : [ref.entity, ref.sharp];
+  return subject.kind === "point_distance"
+    ? [...of(subject.a), ...of(subject.b)]
+    : [...of(subject.point), subject.line];
+}
+
+/**
+ * A NEW dimension on geometry that is all projected (SKETCH-PROJECT-EDGES) is
+ * created DRIVEN: the body already decides that length, so a driving value
+ * could only fight the projection. It still reads the number, as Fusion's
+ * driven dimension on projected geometry does. An existing dimension keeps its
+ * own flag.
+ */
+function drivenWhenProjected(
+  result: ConstraintActionResult,
+  entities: readonly SketchEntity[],
+): ConstraintActionResult {
+  if (result.outcome !== "editor") return result;
+  const target = result.target;
+  if (target.constraintIndex !== null || target.subject !== undefined) {
+    return result;
+  }
+  const ids =
+    target.entityB === null ? [target.entity] : [target.entity, target.entityB];
+  if (!allProjected(ids, entities)) return result;
+  return { outcome: "editor", target: { ...target, initialDriving: false } };
+}
+
 /** The entity a point dimension's editor is keyed and anchored by. */
 const subjectEntity = (subject: PointDimensionSubject): string =>
   subject.kind === "point_distance" ? subject.a.entity : subject.point.entity;
@@ -910,7 +864,9 @@ export function pointDimensionEditor(
     value: measurePointDimension(subject, byId) ?? 0,
     expression: null,
     name: null,
-    driving: true,
+    // Between two FIXED things (projected points, the frame) the distance is
+    // the body's to decide: the new dimension measures it (driven).
+    driving: !allProjected(subjectEntities(subject), entities),
   };
   return targetOf(
     "distance",
@@ -1112,6 +1068,18 @@ export function applyConstraintAction(
   entities: readonly SketchEntity[],
   constraints: readonly SketchConstraint[],
 ): ConstraintActionResult {
+  return drivenWhenProjected(
+    constraintActionResult(action, selection, entities, constraints),
+    entities,
+  );
+}
+
+function constraintActionResult(
+  action: ConstraintAction,
+  selection: readonly SketchPick[],
+  entities: readonly SketchEntity[],
+  constraints: readonly SketchConstraint[],
+): ConstraintActionResult {
   const byId = new Map(entities.map((e) => [e.id, e]));
   // A point dimension may MEASURE FROM the frame (a point to the origin, to an
   // axis), which is the frame as a target; it is answered before the refusal
@@ -1134,6 +1102,14 @@ export function applyConstraintAction(
   if (DATUM_SUBJECT_REFUSED.has(action) && selectionTouchesDatum(selection)) {
     return hint(DATUM_SUBJECT_HINT);
   }
+  // PROJECTED GEOMETRY IS A TARGET TOO (SKETCH-PROJECT-EDGES). A projected
+  // entity is fixed by the body it follows, exactly as the frame is fixed by
+  // its pins, so the same gate answers for it: H / V / Fixed on it are refused,
+  // as is any relation whose every subject is already fixed (two projected
+  // points made coincident). Dimensions are not refused: on all-projected
+  // geometry they are created driven (`drivenWhenProjected`).
+  const projected = projectedRefusal(action, selection, entities);
+  if (projected !== null) return hint(projected);
   switch (action) {
     case "horizontal":
     case "vertical": {

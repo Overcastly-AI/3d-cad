@@ -1,7 +1,7 @@
 import { exportPartLoft } from "../api/exportPart";
 import { partExportBinding } from "../features/partExport";
 import type { PartBuild } from "../features/partBuild";
-import { ExportRow } from "./ExportRow";
+import { ExportRow, type ExportRowProps } from "./ExportRow";
 
 export interface PartExportControlsProps {
   /** The part whose CURRENT evaluated tree is exported. */
@@ -15,6 +15,8 @@ export interface PartExportControlsProps {
    * feature from the failure onward (AUDIT-ENGINEERING J2).
    */
   build: PartBuild;
+  /** Save version / Versions links on the status line (LOFT-VERSIONS). */
+  versionActions?: ExportRowProps["versionActions"];
 }
 
 /**
@@ -34,7 +36,11 @@ export interface PartExportControlsProps {
  * surface ("this file would be partial"), the band is the ACTION surface that
  * survives a panel collapse, and neither derives its own answer (EXPORT-1).
  */
-export function PartExportControls({ partId, build }: PartExportControlsProps) {
+export function PartExportControls({
+  partId,
+  build,
+  versionActions,
+}: PartExportControlsProps) {
   const { gate, exporter } = partExportBinding(partId, build);
   return (
     <ExportRow
@@ -52,6 +58,7 @@ export function PartExportControls({ partId, build }: PartExportControlsProps) {
       }
       state={gate.state}
       loftExporter={() => exportPartLoft(partId)}
+      versionActions={versionActions}
     />
   );
 }

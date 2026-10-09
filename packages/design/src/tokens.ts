@@ -331,6 +331,26 @@ export const sketch = {
   /** Construction dash pattern (world mm) — finer than the preview rubber band. */
   constructionDashMm: 1.4,
   constructionGapMm: 1,
+  /**
+   * PROJECTED geometry ink (SKETCH-PROJECT-EDGES) — a body edge brought into
+   * the sketch by Project (Fusion) / Convert Entities (SolidWorks). It is
+   * fixed: it follows its edge on every rebuild and cannot be dragged or
+   * constrained as a subject. Fusion draws it purple, and so does this, so the
+   * one hue says "this line belongs to the body, not to you".
+   *
+   * Measured (WCAG relative luminance): **8.4:1** on the carbide ground and
+   * **3.3:1** on the layout bluing over a lit aluminium face (carbide at
+   * `faceBluingOpacity` over ≈#C5C7C8), so it clears the 3:1 non-text floor on
+   * both grounds a sketch is drawn on. Pinned by `tokens.test.ts`. Construction
+   * projected geometry dashes in the same ink.
+   */
+  projectedInk: "#C79BFF",
+  /**
+   * The hazard mark on a SICK projected entity — its edge no longer resolves,
+   * so it holds its last good position. Flag ink: the user has to decide what
+   * it should follow now (Break link, or delete it).
+   */
+  projectedSickInk: color.flag,
   /** In-progress preview (rubber band) — dashes in working brass. */
   preview: color.brass,
   /** Entity defining points (endpoints, centers). */

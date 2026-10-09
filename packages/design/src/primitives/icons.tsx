@@ -179,6 +179,32 @@ export const MirrorIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Project = bring a body edge into the sketch (Fusion's Project, SolidWorks'
+ * Convert Entities): a slanted body edge above, dashed projectors falling
+ * straight down, and the scribed line it lands as on the sketch plane. The
+ * projectors are what separate it from Offset (a parallel copy beside).
+ */
+export const ProjectIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 8 L17 4" />
+    <path d="M5 10 V16" strokeDasharray="2 2" />
+    <path d="M17 6 V16" strokeDasharray="2 2" />
+    <path d="M3 19 H21" />
+    <Node cx={5} cy={19} />
+    <Node cx={17} cy={19} />
+  </Icon>
+);
+
+/** Hazard — a triangle with a bar and dot: something here needs a look. */
+export const HazardIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 3 L22 20 H2 Z" />
+    <path d="M12 9 V14" />
+    <circle cx={12} cy={17} r={1.2} fill="currentColor" stroke="none" />
+  </Icon>
+);
+
 // --- Geometric constraints --------------------------------------------------
 
 export const HorizontalIcon = (p: IconProps) => (

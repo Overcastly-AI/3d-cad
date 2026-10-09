@@ -15,6 +15,8 @@ import { SketchDro } from "../components/SketchDro";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
 import { TimelineStrip } from "../components/TimelineStrip";
 import { TopBar } from "../components/TopBar";
+import { SaveVersionDialog } from "../components/SaveVersionDialog";
+import { VersionsPanel } from "../components/VersionsPanel";
 import { TopToolbar } from "../components/TopToolbar";
 import { resolveSketchKey } from "../sketch/constraints";
 import { isTypingTarget } from "../lib/isTypingTarget";
@@ -42,7 +44,11 @@ import { InspectorRail, FeatureTreeRail } from "./part/PartSidePanels";
 import { PartViewportLayers } from "./part/PartViewportLayers";
 import { FeatureEditorSeat } from "./part/FeatureEditorSeat";
 import { PartCommandBand } from "./part/PartCommandBand";
-import { treeMenuSections, viewportMenuSections } from "./part/contextMenus";
+import {
+  sketchMenuSections,
+  treeMenuSections,
+  viewportMenuSections,
+} from "./part/contextMenus";
 import { usePartDocument } from "./part/usePartDocument";
 import { usePartBody } from "./part/usePartBody";
 import { usePickState } from "./part/usePickState";
@@ -67,8 +73,10 @@ import { useSketchEntry } from "./part/useSketchEntry";
 import { useDatumFacePicking } from "./part/useDatumFacePicking";
 import { useHolePicking } from "./part/useHolePicking";
 import { useTimelineHistory } from "./part/useTimelineHistory";
+import { usePartVersions } from "./part/usePartVersions";
 import { useRebuildNotices } from "./part/useRebuildNotices";
 import { useViewportState } from "./part/useViewportState";
+import { useSketchProjectSession } from "./part/useSketchProjectSession";
 
 /**
  * The part workspace: feature tree left, viewport hero, sketch mode inside
@@ -337,10 +345,12 @@ export function PartPage() {
     proposalContext,
     proposedFace,
     pickAnchorFeatureId,
+    projectAnchorFeatureId,
     highlightFeatureIds,
     selectedFaceIndices,
     preselectedFaceIndices,
   } = pickOverlays;
+  useSketchProjectSession({ mode, anchorFeatureId: projectAnchorFeatureId });
   const treeWrites = useTreeWrites({ partId, queryClient, lengthUnit, tree });
   const {
     freshTreeVersion,
@@ -711,6 +721,20 @@ export function PartPage() {
   });
   const { historyStep, triggerUndo, triggerRedo, moveRollback } =
     timelineHistory;
+  const partVersions = usePartVersions({
+    partId,
+    tree,
+    mode,
+    editor,
+    setSelectedFeatureId,
+    rollbackBusy,
+    freshTreeVersion,
+    refreshTreeAndBody,
+    beginTreeWrite,
+    endTreeWrite,
+    noteWrittenTreeVersion,
+    historyBusy: historyStep !== null,
+  });
   const rebuildNotices = useRebuildNotices({
     evaluation,
     editor,
@@ -863,18 +887,20 @@ export function PartPage() {
 
   // Context-menu section builders (UI-REVIEW #10): `part/contextMenus`.
   const buildViewportSections = () =>
-    viewportMenuSections({
-      selectedFeatureId,
-      features,
-      hasBody,
-      measureActive,
-      deletingId,
-      startSketch,
-      startSketchOnFace,
-      toggleMeasure,
-      toggleSuppress,
-      requestDeleteFeature,
-    });
+    mode === "draw"
+      ? sketchMenuSections()
+      : viewportMenuSections({
+          selectedFeatureId,
+          features,
+          hasBody,
+          measureActive,
+          deletingId,
+          startSketch,
+          startSketchOnFace,
+          toggleMeasure,
+          toggleSuppress,
+          requestDeleteFeature,
+        });
 
   const buildTreeSections = (feature: FeatureResponse) =>
     treeMenuSections(feature, {
@@ -1097,7 +1123,33 @@ export function PartPage() {
               partDocument={partDocument}
               partBody={partBody}
               materialPanel={materialPanel}
+              partVersions={partVersions}
             />
+            {/* Named versions (LOFT-VERSIONS): the list, and the save dialog
+                over it when it was opened from there. */}
+            {partVersions.panelOpen ? (
+              <VersionsPanel
+                partName={part.data?.name ?? "Part"}
+                versions={partVersions.versions}
+                loadError={partVersions.versionsError}
+                restoringSeq={partVersions.restoringSeq}
+                restoreError={partVersions.restoreError}
+                restoreBlockedReason={partVersions.restoreBlockedReason}
+                onRestore={partVersions.restore}
+                onSaveVersion={partVersions.openSave}
+                onClose={partVersions.closePanel}
+              />
+            ) : null}
+            {partVersions.saveOpen ? (
+              <SaveVersionDialog
+                partName={part.data?.name ?? "Part"}
+                defaultName={partVersions.defaultName}
+                pending={partVersions.saving}
+                error={partVersions.saveError}
+                onSave={partVersions.save}
+                onCancel={partVersions.closeSave}
+              />
+            ) : null}
             {/* What breaks if this feature goes — asked before it does (F3). */}
             {deleteIntent !== null ? (
               <FeatureDeleteConfirm

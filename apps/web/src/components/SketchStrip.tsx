@@ -59,6 +59,7 @@ import {
   PanelActionCell,
   ParallelIcon,
   PerpendicularIcon,
+  ProjectIcon,
   RadiusIcon,
   RectIcon,
   SegmentedControl,
@@ -107,6 +108,7 @@ import {
   type SketchPlaneSpec,
 } from "../sketch/plane";
 import { useSketchStore } from "../sketch/store";
+import { ProjectPrompt, SplinePrompt } from "./SketchToolPrompts";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { SketchTool } from "../sketch/tools";
 
@@ -151,6 +153,16 @@ const TOOLS: ReadonlyArray<{
     keyHint: "S",
     name: "Spline tool (S) — click fit points, Enter or double-click to finish; each fit point constrains like any point (coincident / fixed / symmetric)",
     icon: <SplineIcon />,
+  },
+  {
+    // Fusion's Project / SolidWorks' Convert Entities (SKETCH-PROJECT-EDGES):
+    // it CREATES sketch geometry, so it sits with the draw tools as Fusion's
+    // Create menu has it, and it arms on P exactly as Spline arms on S.
+    tool: "project",
+    label: "Project",
+    keyHint: "P",
+    name: "Project tool (P) — click body edges to bring them into the sketch, linked: they follow the body on every rebuild",
+    icon: <ProjectIcon />,
   },
 ];
 
@@ -821,47 +833,6 @@ function CornerPrompt({
   );
 }
 
-/**
- * The Spline tool's fit-point guide, hung from the band into the viewport. It
- * counts placed points and, once two are held, offers the keyboard-first finish
- * (Enter / double-click). Once committed, each fit point constrains like any
- * point (coincident / fixed / symmetric); the spline is also valid as part of a
- * closed extrude/revolve loop.
- */
-function SplinePrompt({ count }: { count: number }) {
-  const ready = count >= 2;
-  return (
-    <div
-      role="status"
-      data-testid="spline-prompt"
-      data-phase={ready ? "ready" : "collecting"}
-      className="border border-hairline bg-anvil px-3 py-2 font-body text-xs text-gauge"
-    >
-      {ready ? (
-        <span>
-          <span className="text-mist" data-testid="spline-count">
-            {count} fit points
-          </span>{" "}
-          · Enter or double-click to finish · fit points constrain like any
-          point
-        </span>
-      ) : (
-        <span>
-          Click to place fit points
-          {count > 0 ? (
-            <>
-              {" · "}
-              <span className="text-mist" data-testid="spline-count">
-                {count} placed
-              </span>
-            </>
-          ) : null}
-        </span>
-      )}
-    </div>
-  );
-}
-
 export function SketchStrip({
   onSave,
   saving,
@@ -1472,6 +1443,7 @@ export function SketchStrip({
       {mirror !== null ||
       corner !== null ||
       tool === "spline" ||
+      tool === "project" ||
       hint ||
       saveError ||
       editNote ? (
@@ -1481,6 +1453,7 @@ export function SketchStrip({
           ) : null}
           {corner !== null ? <CornerPrompt corner={corner} /> : null}
           {tool === "spline" ? <SplinePrompt count={pending.length} /> : null}
+          {tool === "project" ? <ProjectPrompt /> : null}
           {editNote ? (
             <p
               role="status"

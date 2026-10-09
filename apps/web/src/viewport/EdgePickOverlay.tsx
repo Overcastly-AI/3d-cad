@@ -41,6 +41,7 @@ import type { Vec3 } from "../api/measure";
 import { useCommandActionStore } from "../features/commandActions";
 import { edgeSignatureKey } from "../features/edge";
 import { useEdgePickStore } from "../features/edgePickStore";
+import { PROJECT_SPLINE_HINT } from "../sketch/projectEdge";
 import {
   occtToScene,
   polylineMidpoint,
@@ -73,7 +74,8 @@ export function EdgePickOverlay() {
   const overlay = useEdgePickStore((s) => s.overlay);
   const picked = useEdgePickStore((s) => s.picked);
   const hoverEdge = useEdgePickStore((s) => s.hoverEdge);
-  const toggle = useEdgePickStore((s) => s.toggle);
+  const pick = useEdgePickStore((s) => s.pick);
+  const purpose = useEdgePickStore((s) => s.purpose);
   const setHoverEdge = useEdgePickStore((s) => s.setHoverEdge);
   const requestSubmit = useCommandActionStore((s) => s.requestSubmit);
   const invalidate = useThree((s) => s.invalidate);
@@ -185,9 +187,9 @@ export function EdgePickOverlay() {
           ? own
           : resolveMark(own, event.clientX, event.clientY);
       const edge = overlay?.edges[index];
-      if (edge !== undefined) toggle(edge.signature);
+      if (edge !== undefined) pick(edge);
     },
-    [overlay, resolveMark, toggle],
+    [overlay, resolveMark, pick],
   );
 
   const hoverMark = useCallback(
@@ -200,9 +202,9 @@ export function EdgePickOverlay() {
   const pickBandEdge = useCallback(
     (index: number) => {
       const edge = overlay?.edges[index];
-      if (edge !== undefined) toggle(edge.signature);
+      if (edge !== undefined) pick(edge);
     },
-    [overlay, toggle],
+    [overlay, pick],
   );
 
   // Highlights follow the OFFER, not the store: hiding a body does not unpick
@@ -267,6 +269,10 @@ export function EdgePickOverlay() {
         const midpoint = polylineMidpoint(edge.polyline);
         const anchor = anchors[slot];
         const hidden = anchor?.buried === true;
+        // Project cannot take a spline yet (SKETCH-PROJECT-SPLINE): the mark
+        // says so rather than offering a click that only earns a refusal.
+        const refused =
+          purpose === "project" && edge.signature.curve === "other";
         return (
           <PickMark
             key={`e${index}`}
@@ -289,6 +295,8 @@ export function EdgePickOverlay() {
               data-testid={`edge-pick-${index}`}
               data-buried={hidden ? "true" : "false"}
               aria-label={edgeLabel(index, edge.kind, midpoint)}
+              disabled={refused || undefined}
+              title={refused ? PROJECT_SPLINE_HINT : undefined}
               onClick={(event) => clickMark(index, event)}
               // Enter is the command's Create key even with focus on the last
               // edge picked; Space toggles (PICK-ENTER-UNPICKS).

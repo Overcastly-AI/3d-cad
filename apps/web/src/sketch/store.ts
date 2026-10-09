@@ -62,6 +62,9 @@ import {
   type DimensionPickAction,
 } from "./dimensionPick";
 import { reconcileEditedConstraints } from "./reconcileEdit";
+import type { OverlayEdge } from "../api/measure";
+import { isProjected, type SketchProjectionStatus } from "./project";
+import { breakLinkTransition, projectEdgeTransition } from "./projectActions";
 import { axisInferenceHint } from "./snap";
 import { toggleCornerPick, type CornerOp } from "./corner";
 import { keepSharps, reconcileCornerConstraints } from "./cornerConstraints";
@@ -110,6 +113,7 @@ import {
   placePoint,
   placesPoints,
   type SketchEntity,
+  nextIdIndexAfter,
   type SketchTool,
 } from "./tools";
 
@@ -373,6 +377,8 @@ export interface SketchState {
    * placeholder 30 while the model sat at 45.
    */
   solvedAngles: SolvedAngle[];
+  /** Last solve's per-projected-entity status (sick = kept its last position). */
+  projections: SketchProjectionStatus[];
   /** Transient strip hint (invalid constraint action, duplicates, …). */
   hint: string | null;
   /**
@@ -626,6 +632,10 @@ export interface SketchState {
   undo: () => void;
   /** Redo the last undone sketch edit (cleared the moment you draw again). */
   redo: () => void;
+  /** Project a picked body edge (anchored at its body feature) into the sketch. */
+  projectEdge: (edge: OverlayEdge, anchorFeatureId: string) => void;
+  /** BREAK LINK on the selected projected entities: geometry kept, link gone. */
+  breakLink: () => void;
   /** Bind the session to its persisted feature (first save). */
   bind: (featureId: string) => void;
   /**
@@ -640,6 +650,7 @@ export interface SketchState {
     solve: SolveInfo | null,
     dimensions?: readonly SolvedDimension[],
     angles?: readonly SolvedAngle[],
+    projections?: readonly SketchProjectionStatus[],
   ) => void;
   /**
    * Escape cascade: editor → placement → tool → selection → and then STOP.
@@ -698,6 +709,7 @@ const INITIAL = {
   solve: null,
   solvedDimensions: [],
   solvedAngles: [],
+  projections: [],
   hint: null,
   edit: null,
   editBusy: false,
@@ -720,27 +732,6 @@ const freshSession = (state: SketchState) => ({
   snapEnabled: state.snapEnabled,
   snapStepMm: state.snapStepMm,
 });
-
-/**
- * The first sketch-local id index free above a loaded entity set. Ids are minted
- * `e1`, `e2`, … (`tools.entityId`), so a re-opened sketch has to resume ABOVE
- * the highest one it loaded: resuming at 1 — what a fresh session gives a
- * brand-new sketch — would mint `e1` a second time, and every id-keyed consumer
- * (constraint refs, `adoptSolved`'s solved-by-id map, picks, the solver's own
- * entity table) would then address two entities at once.
- *
- * Anything that is not `e<digits>` is ignored rather than guessed at: the index
- * only has to be free, and a foreign id shape contributes no claim on one.
- */
-const nextIdIndexAfter = (entities: readonly SketchEntity[]): number => {
-  let highest = 0;
-  for (const entity of entities) {
-    const match = /^e(\d+)$/.exec(entity.id);
-    if (match === null) continue;
-    highest = Math.max(highest, Number(match[1]));
-  }
-  return highest + 1;
-};
 
 /**
  * Does this click ADD to the selection, or replace it (FB-14)?
@@ -1180,7 +1171,7 @@ const createSketchState = (
     const { entities, revision } = get();
     let moved = false;
     const next = entities.map((entity) => {
-      if (entity.id !== target.entity) return entity;
+      if (entity.id !== target.entity || isProjected(entity)) return entity;
       const updated = withNamedPointAt(entity, target.point, at);
       if (updated === null) return entity;
       moved = true;
@@ -1911,9 +1902,15 @@ const createSketchState = (
     });
   },
 
+  projectEdge: (edge, anchorFeatureId) => {
+    const next = projectEdgeTransition(get(), edge, anchorFeatureId);
+    if (next !== null) set({ hint: null, ...next });
+  },
+  breakLink: () => set({ hint: null, ...breakLinkTransition(get()) }),
+
   bind: (featureId) => set({ featureId }),
 
-  adoptSolved: (entities, solve, dimensions, angles) => {
+  adoptSolved: (entities, solve, dimensions, angles, projections) => {
     const dims = {
       ...(dimensions === undefined
         ? {}
@@ -1923,6 +1920,7 @@ const createSketchState = (
       // mistaken for "no report" — deleting the last angle would otherwise
       // leave its reading behind for the next one to inherit.
       ...(angles === undefined ? {} : { solvedAngles: [...angles] }),
+      ...(projections === undefined ? {} : { projections: [...projections] }),
     };
     // THE seam where the solve report becomes something the user is shown.
     // Sanitised once, here, rather than at each of the three readers (the DRO
