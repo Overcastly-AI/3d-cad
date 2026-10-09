@@ -63,6 +63,7 @@ from geometry.kernel import (
     resolve_revolve_axis,
     revolve_face,
     sweep_profile,
+    symmetric_start,
     twisted_extrude_face,
     twisted_sweep_face,
 )
@@ -83,7 +84,10 @@ def _evaluate_extrude(
     feature = item.feature
     assert isinstance(feature, ExtrudeFeature), "registry dispatches on type='extrude'"
     params = feature.params
-    reverse = params.direction == "reverse"
+    # A symmetric extrude starts half its depth behind the plane and runs along
+    # the normal (`symmetric_start`), whichever `direction` the row carries.
+    symmetric = params.extent == "symmetric"
+    reverse = params.direction == "reverse" and not symmetric
 
     if params.operation == "cut":
         return _evaluate_extrude_cut(item.id, params, state, reverse)
@@ -96,6 +100,8 @@ def _evaluate_extrude(
     if isinstance(resolved, FeatureError):
         return resolved
     face, plane, solved = resolved
+    if symmetric:
+        face, plane = symmetric_start(face, plane, params.distance_mm)
 
     history = OpHistory()
     tool = _extrude_tool(face, plane, params, reverse, history)
@@ -168,6 +174,10 @@ def _evaluate_extrude_cut(
         return resolved
     faces, plane = resolved
     solved = state.solved_sketches[params.profile.feature_id]
+    if params.extent == "symmetric":
+        # Every region slides by the same half depth; `plane` slides once, last.
+        faces = [symmetric_start(f, plane, params.distance_mm)[0] for f in faces]
+        plane = plane.offset(-params.distance_mm / 2.0)
 
     body = state.active_body
     if body is None:

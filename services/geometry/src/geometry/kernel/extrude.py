@@ -532,6 +532,28 @@ def extrude_face(
     return solid
 
 
+def symmetric_start(face: Face, plane: Plane, distance_mm: float) -> tuple[Face, Plane]:
+    """Where a SYMMETRIC extrude starts: *face* and *plane* slid half the depth
+    back along the plane normal (EXTRUDE-SYMMETRIC, ``extent: "symmetric"``).
+
+    A symmetric extrude is one prism of the whole *distance_mm*, from
+    ``-distance_mm / 2`` to ``+distance_mm / 2`` about the sketch plane
+    (SolidWorks Mid Plane, Onshape and Fusion Symmetric with the whole length
+    typed). Built as ONE prism from the slid face rather than two halves fused,
+    so it has the topology of a one-sided extrude (no seam across the sketch
+    plane) and the solid :func:`extrude_face` builds from the slid face along
+    the normal. The slid *plane* is returned with it so the face-naming hook
+    rebuilds the sketch edges on the plane the face now lies on.
+
+    The face is regenerated (``transform=True``), not merely re-located, so the
+    prism carries no ``TopLoc_Location`` that a one-sided prism would not.
+    """
+    if distance_mm <= 0:
+        raise ValueError(f"distance_mm must be > 0, got {distance_mm}")
+    half = distance_mm / 2.0
+    return face.translate(plane.z_dir * -half, transform=True), plane.offset(-half)
+
+
 def combine_body(
     body: BodyShape | None,
     tool: Solid,

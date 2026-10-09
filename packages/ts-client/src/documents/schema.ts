@@ -3494,6 +3494,12 @@ export interface components {
              */
             distance_mm: number;
             /**
+             * Extent
+             * @description How far the extrude reaches on each side of the sketch plane. `one_side` (absent; every extrude stored before the field existed) sweeps `distance_mm` along `direction`. `symmetric` sweeps `distance_mm / 2` each way, so the distance is the WHOLE length (SolidWorks Mid Plane, Onshape and Fusion Symmetric); `direction` is ignored while symmetric. Applies to add and cut. Not combinable with the legacy twist (422). `one_side` is not serialized, so stored rows stay byte-identical.
+             * @enum {string}
+             */
+            extent?: "one_side" | "symmetric";
+            /**
              * Merge
              * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
              * @default true

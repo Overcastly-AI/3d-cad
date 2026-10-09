@@ -30,6 +30,7 @@ from pydantic import (
     model_validator,
 )
 
+from loft_wire.extrude_extent import EXTRUDE_EXTENT_FIELD, ExtrudeExtent
 from loft_wire.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
@@ -57,6 +58,11 @@ from loft_wire.sketch import (
     SketchProjection,
     SolvedSketch,
 )
+from loft_wire.twist import MAX_TWIST_ANGLE_DEG as MAX_TWIST_ANGLE_DEG
+from loft_wire.twist import MIN_TWIST_ANGLE_DEG as MIN_TWIST_ANGLE_DEG
+from loft_wire.twist import is_none as _is_none
+from loft_wire.twist import normalised_twist as _normalised_twist
+from loft_wire.twist import twist_angle_field as _twist_angle_field
 
 #: Upper bound for a user-facing feature name ("Sketch1", "Extrude1").
 FEATURE_NAME_MAX_LENGTH = 200
@@ -629,62 +635,6 @@ MERGE_FIELD = Field(
 )
 
 
-#: Largest |twist| a twisted extrude accepts (degrees over the whole distance):
-#: ten full turns. A request-validation sanity bound, not the geometric limit —
-#: how tight a twist the kernel can sweep depends on the profile's radius from
-#: the axis and on the distance, so a twist that is inside this bound and still
-#: too tight for its profile is refused at rebuild as ``twist_failed``
-#: (docs/design/twisted-extrude.md §4). So is a twist with too many turns for
-#: its profile to build within the kernel's cost budget, a limit that depends
-#: on the profile's edges (design §6.1).
-MAX_TWIST_ANGLE_DEG = 3600.0
-
-#: Smallest |twist| that IS a twist (degrees over the whole distance); anything
-#: smaller is normalised to "no twist" (absent). 1e-9 deg is 1.75e-11 rad, which
-#: moves a point 5.7 m from the axis by 1e-7 mm — the kernel's own linear
-#: tolerance — so no modelled part can tell it from zero. It also keeps the
-#: kernel's auxiliary helix pitch (360 / twist x distance) finite and sane: a
-#: sub-normal twist (5e-324 deg) made that pitch infinite and hung the worker.
-MIN_TWIST_ANGLE_DEG = 1e-9
-
-
-def _is_none(value: object) -> bool:
-    """``exclude_if`` predicate: an absent optional field is not serialized.
-
-    Used by additive fields whose absence must leave a dumped envelope EXACTLY
-    as it was before the field existed — the stored row, the response bytes and
-    the rebuild-cache key of every untwisted extrude or sweep
-    (:attr:`ExtrudeParamsV1.twist_angle_deg`, :attr:`SweepParamsV1.twist_angle_deg`).
-    """
-    return value is None
-
-
-def _twist_angle_field(description: str) -> Any:
-    """The ``twist_angle_deg`` field shared by sweep and the legacy extrude twist.
-
-    One definition of the bounds and the serialization (CLAUDE.md DRY rule):
-    optional, omitted from a dump while null, finite, and at most
-    :data:`MAX_TWIST_ANGLE_DEG` either way. The "too small to be a twist"
-    normalisation is :func:`_normalised_twist`, run by each model's validator.
-    """
-    return Field(
-        default=None,
-        exclude_if=_is_none,
-        ge=-MAX_TWIST_ANGLE_DEG,
-        le=MAX_TWIST_ANGLE_DEG,
-        allow_inf_nan=False,
-        description=description,
-    )
-
-
-def _normalised_twist(twist: float | None) -> float | None:
-    """``None`` for every spelling of "no twist" (``None``, ``0``, ``-0``, and
-    any ``|twist| < MIN_TWIST_ANGLE_DEG``); the twist itself otherwise."""
-    if twist is not None and abs(twist) < MIN_TWIST_ANGLE_DEG:
-        return None
-    return twist
-
-
 class ExtrudeParamsV1(BaseModel):
     """Linear extrusion of an earlier sketch feature's profile.
 
@@ -712,6 +662,7 @@ class ExtrudeParamsV1(BaseModel):
     distance_mm: float = Field(gt=0, description="Extrusion depth (mm)")
     operation: Literal["add", "cut"]
     direction: Literal["normal", "reverse"] = "normal"
+    extent: ExtrudeExtent = EXTRUDE_EXTENT_FIELD
     merge: bool = MERGE_FIELD
     twist_angle_deg: float | None = _twist_angle_field(
         "LEGACY: new twists belong on the sweep's `twist_angle_deg` (twist "
@@ -762,6 +713,8 @@ class ExtrudeParamsV1(BaseModel):
         self.twist_angle_deg = _normalised_twist(self.twist_angle_deg)
         if self.twist_angle_deg is None:
             self.twist_center = None
+        elif self.extent == "symmetric":
+            raise ValueError("a symmetric extrude cannot carry the legacy twist")
         return self
 
     @property

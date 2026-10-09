@@ -143,6 +143,37 @@ def test_re_parametrizing_the_extrude_rebuilds_the_body(stack: Stack) -> None:
     )
 
 
+def test_a_symmetric_extrude_straddles_the_sketch_plane(stack: Stack) -> None:
+    """``extent="symmetric"``: the whole 10 mm split about XY, z in [-5, 5].
+
+    The same volume as the one-sided bracket and the same topology (one prism,
+    no seam on the sketch plane); only the placement differs, which is the
+    whole feature. ``direction`` is ignored, so ``reverse`` lands the same.
+    """
+    with _session(stack) as session:
+        part = session.new_part("Symmetric")
+        sketch = part.sketch(on="XY")
+        sketch.rect(WIDTH_MM, HEIGHT_MM)
+        sketch.solve()
+        part.extrude(sketch, DEPTH_MM, extent="symmetric", direction="reverse")
+        properties = part.mass_properties()
+        stored = next(
+            record.feature
+            for record in part.features()
+            if isinstance(record.feature, ExtrudeFeature)
+        )
+
+    assert stored.params.extent == "symmetric"
+    assert properties.volume == pytest.approx(
+        EXPECTED_VOLUME_MM3, abs=VOLUME_TOLERANCE_MM3
+    )
+    assert properties.topology.faces == 6
+    box = properties.bounding_box
+    assert (box.min.z, box.max.z) == pytest.approx(
+        (-DEPTH_MM / 2, DEPTH_MM / 2), abs=1e-9
+    )
+
+
 #: A twisted prism's flanks are B-spline fits of screw surfaces (fit tolerance
 #: 1e-7 mm, docs/design/twisted-extrude.md), so its volume is not float-exact
 #: like the box's. Measured first, then set: residual +2.5e-7 mm^3 on this part

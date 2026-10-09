@@ -208,11 +208,15 @@ function expectOptionalKeysKept<T extends object>(
   stored: T,
   schema: string,
   save: (row: T) => unknown,
+  // Keys the wire refuses to combine with this fixture's, each pinned by a
+  // sibling fixture instead (an extrude's symmetric extent and its twist).
+  pinnedElsewhere: readonly string[] = [],
 ): void {
   const row = stored as Record<string, unknown>;
   const node = objectSchema(schema, row);
   for (const [key, prop] of Object.entries(node.properties ?? {})) {
     if ((node.required ?? []).includes(key) || !isChoice(prop)) continue;
+    if (pinnedElsewhere.includes(key)) continue;
     const at = row[key];
     expect(
       at !== undefined &&
@@ -455,13 +459,41 @@ for (const unit of UNITS) {
         twist_angle_deg: 30,
         twist_center: { x: 1, y: 2 },
       };
-      expectOptionalKeysKept(stored, "ExtrudeParamsV1", (row) => {
-        const form = formFromParams(row, unit);
-        return extrudeParamsFromForm(
-          form,
-          extrudeDistanceMm(form, unit) as number,
-        );
-      });
+      expectOptionalKeysKept(
+        stored,
+        "ExtrudeParamsV1",
+        (row) => {
+          const form = formFromParams(row, unit);
+          return extrudeParamsFromForm(
+            form,
+            extrudeDistanceMm(form, unit) as number,
+          );
+        },
+        ["extent"],
+      );
+    });
+
+    it("extrude: the symmetric extent (no twist: the wire refuses the pair)", () => {
+      const stored: ExtrudeParams = {
+        profile: { kind: "feature", feature_id: "sk" },
+        distance_mm: A,
+        operation: "cut",
+        direction: "reverse",
+        extent: "symmetric",
+        merge: true,
+      };
+      expectOptionalKeysKept(
+        stored,
+        "ExtrudeParamsV1",
+        (row) => {
+          const form = formFromParams(row, unit);
+          return extrudeParamsFromForm(
+            form,
+            extrudeDistanceMm(form, unit) as number,
+          );
+        },
+        ["merge", "twist_angle_deg", "twist_center"],
+      );
     });
 
     it("revolve: angle, direction and merge", () => {

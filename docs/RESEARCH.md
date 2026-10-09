@@ -890,3 +890,32 @@ every stored shell keeps its shape and its bytes; the web authors `sharp`.
   bodies), and two goldens derived by hand
   (`shell-sharp-bored-plate-60x40x12-blind-r6-t1.5`,
   `shell-sharp-l-bracket-40x30x25-open-top-t2`).
+
+## 17. Symmetric extrude: one prism from half the depth back
+
+**What mainstream CAD does.** SolidWorks (End Condition "Mid Plane"), Onshape
+(end type "Symmetric") and Fusion 360 (Direction "Symmetric", Measurement
+"Whole length") extrude both ways from the sketch plane, the typed depth being
+the whole length. The flip does nothing there, and add and cut both offer it.
+
+**Decision (EXTRUDE-SYMMETRIC).** `ExtrudeParamsV1.extent` is
+`one_side | symmetric`, a sibling of `direction` (the extent is Fusion's
+Direction enum; our `direction` is its flip). Absent reads `one_side`, and
+`one_side` is not serialized, so every stored extrude keeps its bytes and its
+rebuild-cache key. A future `two_sides` joins the same Literal.
+
+- The kernel slides the profile face and its plane back by half the depth
+  (`kernel/extrude.py::symmetric_start`, the face regenerated, not
+  re-located) and builds ONE prism of the whole depth along the normal. Two
+  half prisms fused would leave a seam face across the sketch plane; one prism
+  has a one-sided extrude's topology, and its faces are named the same way
+  (the naming hook is handed the slid plane).
+- `direction` is ignored while symmetric and kept, so switching back to one
+  side restores the user's side. The legacy extrude twist is refused with a
+  symmetric extent (422): twist belongs on Sweep, and nothing stored combines
+  them.
+- Truth: the moto frame's cross tubes sketched on XZ and extruded symmetric
+  208 give the frame golden's volume (the golden itself reaches them from a
+  datum at y = +104), and `extrude-cut-symmetric-pocket-offset-xz-40x40x20`
+  is derived by hand and against a plain build123d box-minus-box
+  (`tests/test_extrude_symmetric.py`).
