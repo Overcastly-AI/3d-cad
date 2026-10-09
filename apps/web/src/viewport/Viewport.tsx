@@ -84,6 +84,15 @@ import {
 
 /** The studio iso direction — every "home" has always opened here. */
 const ISO_DIR = new Vector3(...VIEW_DIRECTIONS.iso).normalize();
+/**
+ * Where the camera BOOTS: on {@link ISO_DIR}, at the radius the old literal
+ * `[45, 32, 60]` sat at. That literal was a degree off iso, and the miss was
+ * not cosmetic: a chrome `fit` that lands before the first geometry keeps the
+ * boot DIRECTION, while an auto-fit that lands first uses `ISO_DIR` — so the
+ * same part opened at one of two attitudes depending on which won the race
+ * (SEL-7's ink census read 74 px or 90 px of origin mark on identical scenes).
+ */
+const BOOT_CAMERA_POSITION = ISO_DIR.clone().multiplyScalar(81.5).toArray();
 /** Fit margin: orbit radius = bounds diagonal × this (the historic framing). */
 const FIT_FACTOR = 1.75;
 /** Default orbit radius when the scene is empty (the resting bench view). */
@@ -872,6 +881,13 @@ function CameraRig({
         zooming.zoom = g.zoom;
         zooming.updateProjectionMatrix();
       }
+      // Land the TARGET too, not only the position. Left at its last lerp, the
+      // target misses the solved one by up to the settle epsilon, by an amount
+      // that depends on the frame timing — and every later Fit reads its
+      // direction off `position − target`, so the miss compounds: the same
+      // part, framed the same way, came to rest a few microns apart from run
+      // to run (SEL-7's ink census read 175..184 px on one settled view).
+      controls?.target.copy(g.target);
       controls?.update();
       goal.current = null;
       easing.current = false;
@@ -1711,7 +1727,7 @@ export function Viewport({
         frameloop="demand"
         dpr={[1, 2]}
         gl={{ antialias: true, preserveDrawingBuffer: true, alpha: true }}
-        camera={{ fov: CAMERA_FOV_DEG, position: [45, 32, 60] }}
+        camera={{ fov: CAMERA_FOV_DEG, position: BOOT_CAMERA_POSITION }}
       >
         <RenderProbe />
         {groundGrid ? (
