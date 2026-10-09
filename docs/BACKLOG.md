@@ -28,6 +28,34 @@ byte-identical; RESEARCH §15a).
       26.16 s); step 3 refused, because a cache keyed on TShape misses
       OCCT's in-place rewrites (§15a); step 2 waits on the founder: may we
       fetch the OCCT `BRepCheck` source?
+- [ ] **PART-PARAMETERS** (was PARAMETERS; absorbs SKETCH-EXPR-TRIG; the
+      gear is not parametric): named part parameters shared by sketches and
+      features, as Fusion's Change Parameters and Onshape's Variables.
+      Decisions: RESEARCH §19. Each step merges alone:
+  - [x] 1. Expression library in `loft_wire/expr.py`; the sketch evaluator
+        delegates (sketch trig). _Accept:_ existing sketch-expression tests
+        unchanged; `20*tan(15)` solves in a sketch dimension and round-trips;
+        all goldens byte-identical.
+  - [ ] 2. `input_error` wire field; geometry fails such a feature.
+        _Accept:_ unit test, later features build; goldens unchanged.
+  - [ ] 3. Parameter table: wire, migration 0018, documents GET/PUT,
+        gateway, history, versions, `just gen`. _Accept:_ migration
+        up/down/up; cycle/unknown 422; PUT+undo restores byte-for-byte.
+  - [ ] 4. Feature-field and sketch-dimension expressions: resolve on write
+        and in the evaluation request, `parameter_in_use`, rename, a
+        parametric golden. _Accept:_ the golden re-drives to hand values;
+        cache test; out-of-range is a sick feature, not a 500.
+  - [ ] 5. `.loft` 1.2. _Accept:_ export/import/re-export gives identical
+        bytes; the 1.0 and 1.1 fixtures import.
+  - [ ] 6. loft-script API. _Accept:_ a script builds the step-4 part;
+        `set_parameter` alone changes the volume as expected.
+  - [ ] 7. Web Parameters panel. _Accept:_ e2e: adding and editing a
+        parameter rebuilds the body; Ctrl+Z restores.
+  - [ ] 8. Web `<ValueField>` in every numeric editor, with autocomplete.
+        _Accept:_ e2e: Extrude = H/2; editing H re-drives it.
+  - [ ] 9. Reference parts parametric (helical gear, ladder 2c/3d).
+        _Accept:_ the gear's `--edit` is one `set_parameter("beta", "20 deg")`
+        and its volume matches `expected_volume(Gear(20))` to 1e-4.
 - [ ] **DATUM-PLANE-ANGLE** (moto frame steering head, tube-frame gap): there
       is no tilted datum plane (only offset, on-face, offset-from and
       midplane), so the 25° steering head is a revolve about a sketch axis.
@@ -73,12 +101,6 @@ byte-identical; RESEARCH §15a).
       Fusion keeps the edges that still resolve and warns about the rest.
       _Accept:_ the fillet builds on the resolved edges with a per-edge
       warning; nothing resolves to an unpicked edge.
-- [ ] **PARAMETERS** (takes over SKETCH-EXPR-TRIG; the gear is not
-      parametric): named user parameters shared across sketches and features
-      (Fusion's Change Parameters, SolidWorks Global Variables), and
-      `sin`/`cos`/`tan` in degrees in expressions. _Accept:_ changing the
-      gear's helix angle or tooth count in one place rebuilds the whole part,
-      and `20*tan(15)` solves and round-trips through save and reload.
 - [ ] **MULTI-PROFILE-EXTRUDE**: one sketch with 4 boss circles and 4 rib
       rectangles is refused PROFILE_UNSUPPORTED ("8 closed loops not enclosed
       by a single outer boundary"). Fusion extrudes every selected profile.

@@ -1104,3 +1104,89 @@ additive: no stored datum changes shape or bytes.
   twin (`tests/test_datum_angle.py`), and
   `datum-angle-head-tube-od50-id32-l160-25deg` is derived by hand and against
   a plain `Solid.make_cylinder` tube.
+
+## 19. Part parameters and the one expression language
+
+**What mainstream CAD does.** Fusion 360 (Modify > Change Parameters),
+SolidWorks (Global Variables in the Equations dialog) and Onshape (Variable
+features, `#name`) give a part a table of named values whose formulas any
+dimension or feature field may use. Each value has a unit; a bare number takes
+the document unit; trig works in degrees; a dependency loop is refused by
+name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
+
+**Decisions.**
+
+- **One grammar, standard-library only** (`loft_wire/expr.py`, step 1):
+  the tokenizer, recursive-descent parser and `evaluate_driving_dimensions`
+  moved out of `geometry/sketch/expression.py`, which keeps `measure_*` and
+  maps every `ExpressionError` to `SketchExpressionError` (`sketch_invalid`).
+  Documents, geometry and `loft-script` evaluate the same string to the same
+  float. Never `eval`: anything outside the grammar is a typed error
+  (`ExpressionSyntaxError`, `...LimitError`, `...UnitError`,
+  `...DomainError`, `...ReferenceError`, `...CycleError`, `...NameError`, each
+  with a stable `code`).
+- **Language.** `+ - * /`, unary sign, parentheses, ASCII decimals (no
+  exponent form), `pi`, unit suffixes on a number (`mm cm m in ft deg rad`),
+  and calls on a closed whitelist: `sin cos tan` (degrees in), `asin acos atan
+  atan2` (degrees out), `sqrt abs min max round floor ceil`, `rad()` (degrees
+  to a plain number of radians) and `deg()` (radians to an angle). `round` is
+  half away from zero, as in a spreadsheet. `tan` of an odd multiple of 90
+  and `atan2(0, 0)` are domain errors, not 1.6e16 and 0.
+- **Units.** Kinds are length (mm), angle (degrees) and unitless; unitless
+  joins either, so a bare number is mm or degrees by its field (the web
+  appends the document unit's suffix in a non-mm document). Errors: length
+  plus angle, a product of two unit-carrying values, a number over a length,
+  trig of a length, a length in an angle field and the reverse. Int fields
+  take a unitless value within 1e-9 of an integer, rounded.
+- **Limits.** 256 characters, nesting depth 150 (parser and evaluator), 200
+  parameters per part, finite results only. Names match
+  `^[A-Za-z_][A-Za-z0-9_]{0,63}$` and are not a function, unit or constant
+  word.
+- **Sketch compatibility.** A sketch dimension referenced by another reads
+  its NUMBER, unitless (`angle = half*2` over a 20 mm `half` is still 40
+  degrees), so every stored sketch evaluates as before. Dimension names keep
+  their old pattern; a dimension named after a reserved word errors only when
+  an expression uses that word (a dimension `pi` would otherwise silently read
+  3.14159).
+- **Where it is evaluated.** In documents, once per evaluation-request build
+  (`documents/features.py`, shared by part and assembly) and on every write,
+  with the resolved numbers stored back in `params`. Geometry receives
+  numbers only (`expression` cleared), so rebuild-cache keys reflect resolved
+  values with no kernel-boundary change.
+- **Namespaces and cycles.** Parameters see parameters; feature fields see
+  parameters; a sketch dimension sees its own sketch's dimensions, then
+  parameters, and may not take a parameter's name (422). Ordering is an
+  ITERATIVE memoised DFS (a 200-long chain never meets the recursion limit)
+  that reports a loop as its chain, `a -> b -> a`.
+- **Storage** (step 3, alembic `0018_part_parameters`): `parts.parameters`
+  JSONB NOT NULL default `[]`, ordered `{id, name, expression, unit, comment,
+  value}`; `features.expressions` JSONB nullable, JSON pointer to expression,
+  where the pointer must hit an int or float leaf (else 422). The wire
+  envelope gains `expressions: dict[str, str] | None`, excluded when None so
+  existing dumps stay byte-identical. `loft_wire/parameters.py` holds
+  `PartParameter`, `PartParametersUpdate{expected_tree_version,
+  parameters}` and the response; `EvaluatedFeatureInput.input_error:
+  FeatureError | None`, excluded when None.
+- **Undo and versions.** `PUT /parts/{id}/parameters` replaces the whole
+  table under optimistic concurrency: one tree mutation, one history
+  snapshot. Snapshots carry parameters and expressions (an old snapshot reads
+  `[]`); named versions carry parameters.
+- **Errors.** Syntax, unknown name, cycle, unresolvable or colliding name:
+  422 at write. Deleting a referenced parameter: 409 `parameter_in_use`
+  listing the features; a rename rewrites references token by token. A
+  resolved value that fails its field's validation, or an unresolved import,
+  makes that feature sick with `input_error` (`parameter_value_invalid` /
+  `parameter_unresolved`), keeps the last good value, and answers 200 with
+  per-feature errors.
+- **UI, script, file.** A Parameters panel on the command band; one
+  `<ValueField>` with `parseFieldEntry` (`units/length.ts`) in every numeric
+  editor, with an fx mark and autocomplete. `loft-script`: `parameters()`,
+  `set_parameter`, `rename_parameter`, `delete_parameter`, numeric arguments
+  accept `float | str`, and `loft.expr.evaluate`. `.loft` 1.2 carries the
+  table and per-feature expressions in `tree.json` and version trees; 1.1
+  readers degrade to numbers; frozen fixture `golden-v1.2.loft`.
+- **Truth.** `packages/loft-wire/tests/test_expr.py` (grammar, units,
+  functions, cycles, depth, hostile strings, off-whitelist names); golden
+  `sketch-trig-expression-40x20tan15x10` (step 1); a new golden kind
+  `parametric.json` with re-drive steps (step 4); a cache-key test;
+  documents route, undo, migration and `.loft` tests; web vitest and one e2e.
