@@ -613,18 +613,21 @@ def test_two_matching_faces_is_subshape_ambiguous(monkeypatch: Any) -> None:
     ambiguity is unreachable with real bodies today; this exercises the branch
     that becomes load-bearing for edge/vertex signatures (stage 2)."""
     target = _top_face_signature()
-    twin = PlanarFaceRecord(
-        index=0,
-        signature=target,
-        face=planar_faces(_box())[0].face,
+    top = next(
+        r.face for r in planar_faces(_box()) if r.signature.normal.z == pytest.approx(1)
     )
+    sig = planar_face_signature(top)
+    assert sig is not None
+    twin = (0, top, sig, None)
 
-    def _two_matching(_body: Solid, _names: object = None) -> list[PlanarFaceRecord]:
+    def _two_matching(_body: Solid, _names: object = None) -> list[object]:
         return [twin, twin]
 
-    monkeypatch.setattr("geometry.kernel.faces.planar_faces", _two_matching)
+    # The enumeration both planar_faces and the resolver's strict tier read.
+    monkeypatch.setattr("geometry.kernel.faces._planar_cores", _two_matching)
     with pytest.raises(SubshapeAmbiguousError):
         resolve_face_plane(_box(), target, 0.0)
+    assert len(planar_faces(_box())) == 2
 
 
 # --- tier 4a: the OUTER-WIRE invariants, compared not inferred (GEOM-3, §12b) -----
@@ -1107,3 +1110,55 @@ def test_one_integration_and_lazy_plane_are_the_eager_numbers() -> None:
         assert tuple(record.plane.x_dir) == tuple(eager.x_dir)
         assert tuple(record.plane.z_dir) == tuple(eager.z_dir)
         assert record.plane is record.plane
+
+
+def _tiers_as_they_were(
+    records: list[PlanarFaceRecord], target: PlanarFaceSignature
+) -> tuple[list[PlanarFaceRecord], str]:
+    """The tier order over whole records, written out as it stood before the
+    resolver stopped building every record (the oracle of the test below)."""
+    strict = [r for r in records if planar_signatures_match(r.signature, target)]
+    if strict:
+        return strict, "exact"
+    geometric = [
+        r for r in records if coplanar_signatures_match(r.signature, target)
+    ] or [r for r in records if translated_signatures_match(r.signature, target)]
+    if not geometric:
+        geometric = [r for r in records if enclosing_face_match(r, target)]
+    named = faces_module.named_match(records, target.topo_name)
+    if named is not None and (
+        not geometric or any(r.index == named.index for r in geometric)
+    ):
+        return [named], "named"
+    return geometric, "durable"
+
+
+def test_resolver_matches_exactly_as_the_full_enumeration() -> None:
+    """PERF-REBUILD-200: the resolver runs tiers 1-3 before it builds any face's
+    outer-boundary invariants, and builds a record only where tier 4 reads it
+    or it is returned. Every tier must still answer with the records and the
+    tier the full enumeration gave: strict, coplanar (area drifted), translated
+    (plane moved), enclosing (moved and drifted), named, and nothing."""
+    body = _box() - Solid.make_cylinder(4.0, 30.0).translate((5.0, 5.0, -10.0))
+    names: list[str | None] = [f"f{i}" for i in range(len(body.faces()))]
+    records = planar_faces(body, names)
+    top = next(r for r in records if r.signature.normal.z > 0.5)
+    sig = top.signature
+    moved = sig.centroid.model_copy(update={"z": 11.0})
+    nowhere = Vec3(x=0.6, y=0.0, z=0.8)
+    targets = [r.signature for r in records] + [
+        sig.model_copy(update={"area_mm2": sig.area_mm2 * 1.1}),
+        sig.model_copy(update={"centroid": moved}),
+        sig.model_copy(update={"centroid": moved, "area_mm2": sig.area_mm2 * 1.1}),
+        sig.model_copy(update={"normal": nowhere, "topo_name": top.name}),
+        sig.model_copy(update={"normal": nowhere}),
+    ]
+    tiers: list[str] = []
+    for target in targets:
+        want = _tiers_as_they_were(records, target)
+        got = faces_module._match_planar_faces(body, names, target)  # pyright: ignore[reportPrivateUsage]
+        assert got == want
+        assert faces_module.match_face_records_tiered(records, target) == want
+        tiers.append(f"{want[1]}:{len(want[0])}")
+    assert tiers[-5:] == ["durable:1", "durable:1", "durable:1", "named:1", "durable:0"]
+    assert set(tiers[:-5]) == {"exact:1"}
