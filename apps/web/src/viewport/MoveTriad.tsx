@@ -128,7 +128,32 @@ export function MoveTriad({
     },
     [flush],
   );
+  // ——— the camera hand-back ——————————————————————————————————————————————
+  //
+  // drei's handles (AxisArrow, AxisRotator, PlaneSlider in 10.7.7) switch the
+  // default camera controls OFF on pointer-down and back on only in their OWN
+  // pointer-up. A triad that unmounts mid-drag — Esc, a mate key, Enter in a
+  // cell, leaving the page — never sees that pointer-up, and the orbit stayed
+  // dead until a reload. So the triad tracks its own drag and, when it goes
+  // away (or its handles are withdrawn) during one, hands the camera back.
+  const controls = useThree((state) => state.controls) as {
+    enabled?: boolean;
+  } | null;
+  const dragging = useRef(false);
+  const handleDragStart = useCallback(() => {
+    dragging.current = true;
+  }, []);
+  useEffect(
+    () => () => {
+      if (!dragging.current) return;
+      dragging.current = false;
+      if (controls !== null) controls.enabled = true;
+    },
+    [controls, enabled],
+  );
+
   const handleDragEnd = useCallback(() => {
+    dragging.current = false;
     flush();
     onDragEnd();
   }, [flush, onDragEnd]);
@@ -194,6 +219,7 @@ export function MoveTriad({
       depthTest={false}
       axisColors={[...tokens.axisColors] as [string, string, string]}
       hoveredColor={tokens.hovered}
+      onDragStart={handleDragStart}
       onDrag={handleDrag}
       onDragEnd={handleDragEnd}
     />

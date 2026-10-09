@@ -18,6 +18,7 @@
 import { expect, test, type Page } from "./fixtures";
 
 import { balloonPose, setupTwoInstances, waitForSolved } from "./assemblyFlow";
+import { cameraPose, installSceneProbe } from "./invariants";
 import { SCREENSHOT_DIR } from "./support";
 
 type V3 = [number, number, number];
@@ -205,6 +206,8 @@ test.describe("Assembly Move (S5a)", () => {
   test("the triad moves 30 in Y and turns 90° about Z; one PATCH per release; reload keeps it; Ctrl+Z restores", async ({
     page,
   }) => {
+    // The LIVE camera (not the settle stamp, which a user orbit never writes).
+    await installSceneProbe(page);
     const { idA, idB } = await setupTwoInstances(page);
     const patches = countPatches(page);
 
@@ -282,6 +285,42 @@ test.describe("Assembly Move (S5a)", () => {
     await waitForSolved(page);
     await page.keyboard.press("Control+z");
     await expectAtSeed(page, idB);
+
+    // Esc MID-DRAG: the drag is dropped, nothing is written, and the camera
+    // still orbits. drei's handles switch the orbit off on press and on again
+    // only in their own pointer-up, which an unmounted triad never receives.
+    await page.getByTestId(`instance-select-${idB}`).click();
+    await page.getByTestId("move-instance").click();
+    await page.getByTestId("view-top").click();
+    const seedTriad = await triadAt(page, [80, 0, 0]);
+    const press = toScreen(seedTriad, seedTriad.arrows[0]);
+    await page.mouse.move(press.x, press.y);
+    await page.mouse.down();
+    await page.mouse.move(press.x + 40, press.y);
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await expect(page.getByTestId("move-panel")).toHaveCount(0);
+    await expectAtSeed(page, idB);
+    expect(patches.count()).toBe(2);
+
+    const before = (await cameraPose(page)).position;
+    await page.mouse.move(300, 700);
+    await page.mouse.down();
+    await page.mouse.move(380, 650, { steps: 4 });
+    await page.mouse.move(460, 600, { steps: 4 });
+    await page.mouse.up();
+    await expect
+      .poll(
+        async () => {
+          const after = (await cameraPose(page)).position;
+          return Math.hypot(...after.map((v, i) => v - (before[i] as number)));
+        },
+        {
+          timeout: 10_000,
+          message: "the camera did not orbit after Esc mid-drag",
+        },
+      )
+      .toBeGreaterThan(1);
   });
 
   test("typed X/Y/Z/Rx/Ry/Rz commit on Enter as ONE PATCH; Esc cancels and restores", async ({
