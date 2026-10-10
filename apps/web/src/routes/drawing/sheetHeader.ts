@@ -12,7 +12,6 @@ import {
 import { gatewayClient } from "../../api/client";
 import { envelopeMessage } from "../../api/envelope";
 import { evaluatePart } from "../../api/parts";
-import type { AssemblySolveFacts } from "../../features/assemblyExport";
 import {
   SCALE_OPTIONS,
   type ModelExtents,
@@ -56,16 +55,6 @@ export const OTHER_ORIENTATION: Record<SheetOrientation, SheetOrientation> = {
 };
 
 /**
- * A measured source. An assembly's reading also carries what its solve could
- * not honour (QA 2026-10-10): the sheet is projected from the SAME solve, so a
- * joint that did not resolve is a view drawn with a part where nobody put it,
- * and the sheet says so (`assemblyFaultSummary`).
- */
-export type SourceExtents = ModelExtents & {
-  readonly assemblySolve?: AssemblySolveFacts;
-};
-
-/**
  * How big is the drafted document — the ONE reading every fit on this page
  * takes, for EITHER kind of source (ASMDRAW-FIT-1b).
  *
@@ -92,20 +81,10 @@ export type SourceExtents = ModelExtents & {
 export async function fetchSourceExtents(
   sourceId: string,
   kind: RefDocumentKind,
-): Promise<SourceExtents | null> {
+): Promise<ModelExtents | null> {
   if (kind === "assembly") {
-    const measured = await fetchAssemblyExtents(sourceId);
-    const box = measured.bounding_box;
-    return box
-      ? {
-          ...boxExtents(box),
-          assemblySolve: {
-            status: measured.status,
-            diagnosis: measured.diagnosis ?? null,
-            mateErrors: measured.mate_errors ?? [],
-          },
-        }
-      : null;
+    const { bounding_box: box } = await fetchAssemblyExtents(sourceId);
+    return box ? boxExtents(box) : null;
   }
   const evaluated = await evaluatePart(sourceId);
   const box = evaluated.properties?.bounding_box;

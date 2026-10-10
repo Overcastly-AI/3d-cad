@@ -2331,11 +2331,14 @@ export interface components {
             assembly_id: string;
             /** @description World-mm AABB of the SOLVED compound (union of each instance's part bbox at its solved pose); null when no instance produced a body */
             bounding_box: components["schemas"]["BoundingBox"] | null;
-            /** @description The solve's diagnosis (conflicting mates by id), as on EvaluateAssemblyResult. Omitted while null. A drawing of this assembly reads it to say its parts are not where the mates put them. */
-            diagnosis?: components["schemas"]["AssemblySolveDiagnosis"] | null;
+            /**
+             * Conflicting Mates
+             * @description Ids of mutually-unsatisfiable mates (the solve's `diagnosis.conflicting_mates`). Omitted while empty. A drawing of this assembly reads it, with `mate_errors`, to say its parts are not where the mates put them.
+             */
+            conflicting_mates?: string[];
             /**
              * Mate Errors
-             * @description Mates the solve could not resolve and dropped, as on EvaluateAssemblyResult. Omitted while empty.
+             * @description Mates the solve could not resolve and dropped, as on EvaluateAssemblyResult. Omitted while empty, so a solve that honoured every mate dumps exactly as before either field existed.
              */
             mate_errors?: components["schemas"]["MateEvaluationError"][];
             /**

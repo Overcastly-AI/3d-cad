@@ -21,11 +21,11 @@ import {
   type ExportFormat,
 } from "../api/exportPart";
 import type {
-  AssemblySolveDiagnosis,
   AssemblyStatus,
   MateEvaluationError,
   MateResponse,
 } from "../api/assemblies";
+import type { AssemblySolve } from "./assemblySolve";
 
 /** What the solve could not honour, counted by kind. */
 export interface AssemblySolveFaults {
@@ -40,11 +40,43 @@ export interface AssemblySolveFaults {
   readonly unsolved: AssemblyStatus | null;
 }
 
-/** The facts a fault count is derived from — `AssemblySolve`'s claimable part. */
+/**
+ * The facts a fault count is derived from: `AssemblySolve`'s claimable part on
+ * the assembly page, `GET /assemblies/{id}/extents` on a drawing.
+ */
 export interface AssemblySolveFacts {
   readonly status: AssemblyStatus | null;
-  readonly diagnosis: AssemblySolveDiagnosis | null;
+  /** `diagnosis.conflicting_mates`: mutually unsatisfiable mates, by id. */
+  readonly conflictingMates: readonly string[];
   readonly mateErrors: readonly MateEvaluationError[];
+}
+
+/** The claimable facts of the solve on screen (empty while it is stale). */
+export function solveFacts(solve: AssemblySolve): AssemblySolveFacts {
+  return {
+    status: solve.status,
+    conflictingMates: solve.diagnosis?.conflicting_mates ?? [],
+    mateErrors: solve.mateErrors,
+  };
+}
+
+/**
+ * Why the assembly export is inert, or undefined when it may write.
+ *
+ * A solve that is not the answer for the graph as it stands has no faults to
+ * claim (`assemblySolve.ts` empties them), so the partial gate would read
+ * "Ready" over it — while the export re-solves server-side and writes whatever
+ * pose THAT solve finds, unannounced. Like Fusion, which does not export
+ * mid-compute, the cells wait for the solve: "Solving…" while one is under
+ * way, "Not solved" when the last one failed.
+ */
+export function assemblyExportBlockedReason(
+  base: string | undefined,
+  solve: Pick<AssemblySolve, "stale" | "activity">,
+): string | undefined {
+  if (base !== undefined) return base;
+  if (!solve.stale) return undefined;
+  return solve.activity === "solving" ? "Solving…" : "Not solved";
 }
 
 /**
@@ -62,9 +94,7 @@ export function assemblySolveFaults(
   );
   const unresolved = new Set(facts.mateErrors.map((e) => e.mate_id));
   const conflicting = new Set(
-    (facts.diagnosis?.conflicting_mates ?? []).filter(
-      (id) => !unresolved.has(id),
-    ),
+    facts.conflictingMates.filter((id) => !unresolved.has(id)),
   );
   const count = (ids: Set<string>, wantJoint: boolean) =>
     [...ids].filter((id) => joints.has(id) === wantJoint).length;

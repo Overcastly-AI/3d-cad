@@ -517,16 +517,16 @@ def test_status_cannot_tell_the_two_apart(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-def test_extents_carry_the_solve_diagnosis_a_drawing_warns_from(
+def test_a_solve_that_honoured_every_mate_reads_as_before(
     tmp_path: Path,
 ) -> None:
-    """The drawing's "Partial" warning reads the solve off this route (QA
-    2026-10-10), so the diagnosis and the dropped mates must be the SOLVE's.
+    """The drawing's "Partial" warning reads the solve's faults off this route
+    (QA 2026-10-10), and a solve with none must dump exactly as before.
 
-    Measured by the one number that differs between the two assemblies: the
-    mated one has 3 remaining DOF, the unmated control 6. No mate was dropped in
-    either, and an empty ``mate_errors`` is omitted from the body entirely, so
-    an assembly that solved cleanly reads exactly as it did before the field.
+    Both assemblies solve without a dropped or conflicting mate, so the two new
+    fields are empty and OMITTED: the body has the four keys it always had.
+    (The unresolved case is driven end to end by the web's
+    ``assembly-partial-export.spec.ts``, which moves a joint's hole.)
     """
 
     async def scenario() -> None:
@@ -538,16 +538,20 @@ def test_extents_carry_the_solve_diagnosis_a_drawing_warns_from(
             unmated = await _extents(
                 chain.client, fixture.headers, fixture.unmated.assembly_id
             )
-            assert mated.diagnosis is not None and unmated.diagnosis is not None
-            assert mated.diagnosis.remaining_dof == 3, mated.diagnosis
-            assert unmated.diagnosis.remaining_dof == 6, unmated.diagnosis
-            assert mated.mate_errors == [] == unmated.mate_errors
+            for solved in (mated, unmated):
+                assert solved.mate_errors == [], solved.mate_errors
+                assert solved.conflicting_mates == [], solved.conflicting_mates
 
             raw = await chain.client.get(
                 f"/api/v1/assemblies/{fixture.mated.assembly_id}/extents",
                 headers=fixture.headers,
             )
-            assert "mate_errors" not in raw.json(), raw.text
+            assert sorted(raw.json()) == [
+                "assembly_id",
+                "bounding_box",
+                "status",
+                "version",
+            ], raw.text
 
     asyncio.run(scenario())
 

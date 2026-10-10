@@ -7,10 +7,12 @@ import { describe, expect, it } from "vitest";
 
 import type { MateResponse } from "../api/assemblies";
 import {
+  assemblyExportBlockedReason,
   assemblyExporter,
   assemblyExportGate,
   assemblyFaultSummary,
   assemblySolveFaults,
+  solveFacts,
   type AssemblySolveFacts,
 } from "./assemblyExport";
 
@@ -32,7 +34,7 @@ const unresolved = (id: string) => ({
 function facts(over: Partial<AssemblySolveFacts> = {}): AssemblySolveFacts {
   return {
     status: "well_constrained",
-    diagnosis: null,
+    conflictingMates: [],
     mateErrors: [],
     ...over,
   };
@@ -78,14 +80,7 @@ describe("assemblyExportGate", () => {
       facts({
         status: "conflicting",
         mateErrors: [unresolved(JOINT_A)],
-        diagnosis: {
-          classification: "conflicting",
-          remaining_dof: 0,
-          removable: false,
-          conflicting_mates: [JOINT_A, MATE_C],
-          redundant_mates: [],
-          message: "conflict",
-        },
+        conflictingMates: [JOINT_A, MATE_C],
       }),
       mates,
     );
@@ -102,7 +97,9 @@ describe("assemblyExportGate", () => {
 
   it("does not count redundant mates: the assembly still solves", () => {
     const gate = assemblyExportGate(
-      facts({
+      solveFacts({
+        stale: false,
+        activity: "idle",
         status: "over_constrained",
         diagnosis: {
           classification: "redundant",
@@ -112,9 +109,45 @@ describe("assemblyExportGate", () => {
           redundant_mates: [MATE_C],
           message: "redundant",
         },
+        mateErrors: [],
       }),
       mates,
     );
     expect(gate.state).toBe("ready");
+  });
+});
+
+describe("assemblyExportBlockedReason", () => {
+  // Review 2026-10-10: during a re-solve the faults are emptied (not yet
+  // known), so the partial gate read "Ready" while the export solved again
+  // server-side and wrote the new pose unannounced.
+  it("waits for an in-flight solve rather than reading Ready", () => {
+    expect(
+      assemblyExportBlockedReason(undefined, {
+        stale: true,
+        activity: "solving",
+      }),
+    ).toBe("Solving…");
+  });
+
+  it("refuses a solve that failed", () => {
+    expect(
+      assemblyExportBlockedReason(undefined, { stale: true, activity: "idle" }),
+    ).toBe("Not solved");
+  });
+
+  it("is open over a settled solve, and keeps the page's own reason first", () => {
+    expect(
+      assemblyExportBlockedReason(undefined, {
+        stale: false,
+        activity: "idle",
+      }),
+    ).toBeUndefined();
+    expect(
+      assemblyExportBlockedReason("No body", {
+        stale: true,
+        activity: "solving",
+      }),
+    ).toBe("No body");
   });
 });

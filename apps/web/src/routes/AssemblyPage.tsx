@@ -96,8 +96,10 @@ import {
 } from "../assembly/posePublication";
 import { buildEvaluateTree } from "../measure/geometry";
 import {
+  assemblyExportBlockedReason,
   assemblyExporter,
   assemblyExportGate,
+  solveFacts,
 } from "../features/assemblyExport";
 import { deriveAssemblySolve } from "../features/assemblySolve";
 import { FloatingPanel } from "../components/FloatingPanel";
@@ -1150,7 +1152,11 @@ export function AssemblyPage() {
   // A solve that dropped or could not satisfy a mate still places every part
   // it can, so the file is writable but misplaced: "Partial", named, `-partial`
   // in the filename, and one confirm before it writes (QA 2026-10-10).
-  const exportGate = assemblyExportGate(solve, mates);
+  const exportGate = assemblyExportGate(solveFacts(solve), mates);
+  const exportBlockedReason = assemblyExportBlockedReason(
+    exportDisabledReason,
+    solve,
+  );
   const exportPartial = exportGate.partial;
   const gatedExporter = useMemo(
     () => assemblyExporter(exporter, exportPartial),
@@ -1234,7 +1240,7 @@ export function AssemblyPage() {
               // as the Inspect panel's strip — the panel can be collapsed, and
               // the file has to stay reachable when it is (EXPORT-1).
               exporter={gatedExporter}
-              exportDisabledReason={exportDisabledReason}
+              exportDisabledReason={exportBlockedReason}
               exportGate={exportGate}
             />
             {/* The way OUT of the assembly and onto paper. It sits on the band
@@ -1440,7 +1446,7 @@ export function AssemblyPage() {
               clashBusy={clashBusy}
               clashError={clashError}
               exporter={gatedExporter}
-              exportDisabledReason={exportDisabledReason}
+              exportDisabledReason={exportBlockedReason}
               exportGate={exportGate}
             />
           </FloatingPanel>

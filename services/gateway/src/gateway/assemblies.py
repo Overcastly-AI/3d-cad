@@ -175,7 +175,9 @@ async def get_assembly_extents(
         version=result.version,
         bounding_box=result.bounding_box,
         status=result.status,
-        diagnosis=result.diagnosis,
+        conflicting_mates=(
+            result.diagnosis.conflicting_mates if result.diagnosis else []
+        ),
         mate_errors=result.mate_errors,
     )
 
