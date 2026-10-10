@@ -4,6 +4,7 @@ What a ``.loft`` is, in one paragraph: a zip holding ``manifest.json`` (what the
 file is and the sha256 of every other member), ``tree.json`` (the feature tree
 — the only thing an import ever builds from), the part's named versions
 (``versions/index.json`` plus one ``versions/<seq>.tree.json`` each, format 1.1),
+each tree with its parameter table and formulas (format 1.2),
 ``blobs/sha256-<hex>.step`` (an ``import`` feature's STEP text, moved out of the
 tree so the tree stays a readable diff; shared by every tree that names it) and
 an optional ``cache/body.step`` (the exported body, for tools that do not run
@@ -67,6 +68,7 @@ from loft_wire.features import (
     document_slug,
 )
 from loft_wire.geometry import BoundingBox
+from loft_wire.loft_formulas import DimensionFormulaError, move_in, move_out
 from loft_wire.materials import MaterialAssignment
 from loft_wire.parameters import PartParameter
 from loft_wire.parts import PartName, PartResponse
@@ -87,10 +89,14 @@ LOFT_FORMAT = "loft"
 #: The format version this build WRITES, ``major.minor``. A reader refuses a
 #: newer MAJOR (``loft_format_too_new``) and reads a newer MINOR, ignoring the
 #: keys and members it does not know. 1.1 added ``versions/``; a 1.0 reader
-#: skips it unread and imports the part without its versions.
-LOFT_FORMAT_VERSION = "1.1"
+#: skips it unread and imports the part without its versions. 1.2 added the
+#: parameter table (``parameters``), feature formulas (``expressions``) and
+#: sketch formulas that name a parameter (``dimension_expressions``,
+#: :mod:`loft_wire.loft_formulas`) to every tree; a 1.1 reader ignores the
+#: three keys and imports the resolved numbers ``params`` always holds.
+LOFT_FORMAT_VERSION = "1.2"
 LOFT_FORMAT_MAJOR = 1
-LOFT_FORMAT_MINOR = 1
+LOFT_FORMAT_MINOR = 2
 
 #: The file suffix and the media type the export route answers with.
 LOFT_SUFFIX = ".loft"
@@ -284,9 +290,13 @@ class LoftTreeFeature(BaseModel):
     param_version: int = Field(ge=1)
     suppressed: bool = False
     params: JsonObject
-    #: Formulas driving numbers in ``params`` (PART-PARAMETERS). Left out of the
-    #: dump while null, so every tree without them keeps its bytes; a file
-    #: without the key reads null, and an older reader ignores it.
+    #: Formulas driving numbers in ``params`` (PART-PARAMETERS, format 1.2).
+    #: Left out of the dump while null, so every tree without them keeps its
+    #: bytes; a file without the key reads null, and a 1.1 reader ignores it
+    #: and keeps the resolved numbers in ``params``. A sketch dimension's
+    #: formula that names a parameter travels in ``dimension_expressions``
+    #: (file only: :mod:`loft_wire.loft_formulas`) and is back in its
+    #: dimension's ``expression`` here.
     expressions: FeatureExpressions = EXPRESSIONS_FIELD
 
 
@@ -305,9 +315,9 @@ class LoftTree(BaseModel):
     materials: MaterialAssignment | None = None
     rollback_feature_id: uuid.UUID | None = None
     features: list[LoftTreeFeature] = Field(max_length=MAX_TREE_FEATURES)
-    #: The part's parameter table (PART-PARAMETERS, RESEARCH §20). Left out of
-    #: the dump while empty, so every tree without parameters keeps its bytes
-    #: (and its version ``tree_sha256``); a reader that predates it ignores it.
+    #: The part's parameter table (PART-PARAMETERS, RESEARCH §20; format 1.2).
+    #: Left out of the dump while empty, so every tree without parameters keeps
+    #: its bytes (and its version ``tree_sha256``); a 1.1 reader ignores it.
     parameters: list[PartParameter] = Field(
         default_factory=list[PartParameter],
         max_length=MAX_PARAMETERS,
@@ -522,7 +532,9 @@ def encode_tree(tree: LoftTree) -> tuple[bytes, dict[str, bytes]]:
     version's), and the bytes a version's ``tree_sha256`` is taken over.
     """
     extracted, blobs = _extract_blobs(_canonical_tree(tree))
-    return canonical_json(extracted.model_dump(mode="json")), blobs
+    data = extracted.model_dump(mode="json")
+    data["features"] = [move_out(feature) for feature in data["features"]]
+    return canonical_json(data), blobs
 
 
 def _inlined_bytes(tree: LoftTree) -> int:
@@ -1154,11 +1166,38 @@ def _verify(manifest: LoftManifest, contents: dict[str, bytes]) -> LoftArchive:
     )
 
 
+def _restore_dimension_formulas(raw: Any, *, member: str) -> None:
+    """Put each sketch formula ``dimension_expressions`` holds back on its
+    dimension (format 1.2, :func:`loft_wire.loft_formulas.move_in`)."""
+    features = (
+        cast(dict[str, Any], raw).get("features") if isinstance(raw, dict) else None
+    )
+    if not isinstance(features, list):
+        return  # the model refuses it with the details
+    for feature in cast(list[Any], features):
+        if not isinstance(feature, dict):
+            continue
+        entry = cast(dict[str, Any], feature)
+        try:
+            move_in(entry)
+        except DimensionFormulaError as exc:
+            raise LoftFileError(
+                f"The .loft {member} has a sketch formula that does not fit its "
+                f"sketch: {exc}",
+                code="loft_tree_invalid",
+                details={
+                    "member": member,
+                    "feature_id": str(entry.get("id"))[:64],
+                    "pointer": exc.pointer,
+                },
+            ) from exc
+
+
 def _parse_tree(data: bytes, *, member: str) -> LoftTree:
+    raw = _parse_json(data, member=member, code="loft_tree_invalid")
+    _restore_dimension_formulas(raw, member=member)
     try:
-        return LoftTree.model_validate(
-            _parse_json(data, member=member, code="loft_tree_invalid")
-        )
+        return LoftTree.model_validate(raw)
     except ValidationError as exc:
         raise LoftFileError(
             f"The .loft {member} is invalid.",

@@ -429,7 +429,7 @@ def test_named_versions_save_restore_and_travel_in_the_loft(tmp_path: Path) -> N
                 "versions/2.tree.json",
                 "cache/body.step",
             ]
-            assert json.loads(members["manifest.json"])["format_version"] == "1.1"
+            assert json.loads(members["manifest.json"])["format_version"] == "1.2"
             index = json.loads(members["versions/index.json"])
             assert "loft@example.com" not in members["versions/index.json"].decode()
             assert [v["name"] for v in index["versions"]] == ["Rev A", "Rev B"]
