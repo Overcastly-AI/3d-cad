@@ -215,16 +215,17 @@ test.describe("the band buys labels back as it widens (2400)", () => {
   });
 });
 
-test.describe("the fully labeled tier returns when it genuinely fits (2700)", () => {
-  test.use({ viewport: { width: 2700, height: 1000 } });
+test.describe("the fully labeled tier returns when it genuinely fits (2800)", () => {
+  test.use({ viewport: { width: 2800, height: 1000 } });
 
   test("every group has its words, and the row still fits", async ({
     page,
   }) => {
     await openEmptyPart(page);
 
-    // 2700 is not a magic number: the fully labeled row measures 2650.9px, so
-    // this is the first round width above it. It is the top of the ramp — the
+    // 2800 is not a magic number: the fully labeled row measures 2774.7px
+    // (2650.9 until Parameters joined Modify, PART-PARAMETERS), so this is the
+    // first round width above it. It is the top of the ramp — the
     // guard that the probe really is measuring and not latched to a tier.
     await expect(page.getByTestId("top-toolbar")).toHaveAttribute(
       "data-band-tier",
