@@ -700,6 +700,20 @@ export const MeasureIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Parameters = a ruled schedule: a header rule, a name column, and an equals
+ * sign in the value column — the table of named values every dimension may
+ * use (Fusion's Change Parameters, SolidWorks' Equations).
+ */
+export const ParametersIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={4} y={5} width={16} height={14} />
+    <path d="M4 9.5 H20" />
+    <path d="M10 9.5 V19" />
+    <path d="M13 12.5 H17 M13 15.5 H17" />
+  </Icon>
+);
+
 // --- DRO --------------------------------------------------------------------
 
 /** Grid snap = a ruled grid with one punched intersection (the snapped node). */

@@ -1040,6 +1040,15 @@ export const layout = {
   commandBandHeight: 56,
   inspectorWidth: 320,
   /**
+   * The Parameters panel (PART-PARAMETERS): a five-column table — Name, Unit,
+   * Expression, Value, Comment — docked in the right rail. 320 left the
+   * expression ~12 characters, too few for `W/2 + 3 mm`; 480 gives it ~20 at
+   * the data face and still leaves the model 400+ px at the 1280 floor with
+   * the tree open. The panel is modeless and closes in one click, so it only
+   * costs that width while the user is working in it.
+   */
+  parametersPanelWidth: 480,
+  /**
    * THE BOUNDED SHEET — the widest a page-level "sheet" composition may grow
    * (`max-w-sheet`), shared by the sign-in plate and the document registers.
    *
