@@ -407,7 +407,6 @@ One line each. The founder triages weekly; most are closed without work.
 - QA-DRAWING-DECIMALS: drawing dimensions show 3 decimals (diameter 8.000).
 - QA-SKETCH-LABEL-OVERLAP: dimension labels overlap at a small hole near a corner.
 - QA-1280-LAYOUT: at 1280x800 the Parameters table scrolls sideways, the fillet radius popup covers the Material panel, and Fit sketch leaves part of the profile under the position readout.
-- JOINT-STRICT-WRONG-HOLE (joints-follow-edits review): the strict first resolve tier ignores `topo_name`, so if another hole now sits exactly where a picked hole was (hole moved and a new one added at the old spot), the joint lands on that other hole. Pre-existing; the strict tier should check the name.
 - JOINT-LEGACY-SIGNATURES: joints saved before overlay names existed (no `topo_name`) still lose their joint when the hole moves.
 - JOINT-RESOLVE-PROVENANCE: assembly mates don't report when a reference was re-found by a fallback tier (features do).
 - DRAWING-NOTICE-RACE (export-warning review): a drawing's server compose and `/extents` are two solves, so a part edit landing between them can leave the Partial notice and the sheet out of step.

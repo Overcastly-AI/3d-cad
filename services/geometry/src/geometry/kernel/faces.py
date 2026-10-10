@@ -884,7 +884,12 @@ def match_face_records_tiered(
     between the strict tier and the geometric ones, and it can only ever add a
     resolution, never re-target one:
 
-    * strict first, unchanged — an exact match never consults the name;
+    * strict first — but a strict hit the body names DIFFERENTLY from a stored
+      name is another face standing where the picked one was (it moved and a
+      twin took its place, or two swapped; JOINT-STRICT-WRONG-HOLE). It is
+      dropped, and when that leaves no strict hit, the geometric tiers below
+      run with every differently named face dropped too, so the name finds
+      the picked face or nothing resolves. A face the body cannot name passes;
     * a stored ``topo_name`` held by EXACTLY ONE current face wins when the
       geometric tiers 2-4 find nothing (the drafted wall that moved within its
       own plane) or find several including it (the name breaks the tie);
@@ -921,13 +926,21 @@ def _tiered(
     area, so a signature without its outer-boundary fields serves them; tier 4
     reads the whole record, which *record* builds for a position on demand.
     """
+    name = target.topo_name
     strict = [
         p for p, sig in enumerate(signatures) if planar_signatures_match(sig, target)
     ]
+    refused = False
+    if strict and name is not None:
+        agreeing = [p for p in strict if _not_named_other(names[p], name)]
+        refused = len(agreeing) < len(strict)
+        strict = agreeing
     if strict:
         return strict, "exact"
     geometric = _geometric_matches(signatures, record, target)
-    named = _named_position(names, target.topo_name)
+    if refused:
+        geometric = [p for p in geometric if _not_named_other(names[p], name)]
+    named = _named_position(names, name)
     if named is not None and (
         not geometric or any(indices[p] == indices[named] for p in geometric)
     ):
@@ -951,6 +964,12 @@ def _named_position(names: Sequence[str | None], name: str | None) -> int | None
         return None
     held = [p for p, held in enumerate(names) if _answers_to(held, name)]
     return held[0] if len(held) == 1 else None
+
+
+def _not_named_other(held: str | None, name: str | None) -> bool:
+    """Whether a face named *held* may stand for a reference stored as *name*:
+    the body cannot name it, or it answers to *name* (:func:`_answers_to`)."""
+    return held is None or name is None or _answers_to(held, name)
 
 
 def _answers_to(held: str | None, name: str) -> bool:

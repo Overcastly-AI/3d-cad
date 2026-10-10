@@ -866,12 +866,24 @@ def _match_edge_records(
     guard for every edge-ref consumer (fillet, chamfer, edge flange, hem, a
     sketch projection). An unnamed reference, or an edge the body cannot name,
     is matched as before.
+
+    THE STRICT NAME CHECK (JOINT-STRICT-WRONG-HOLE): the same guard applies to
+    the strict tier. Identical geometry is not identity: when the picked hole
+    moved and another hole now stands exactly where it was (or two holes
+    swapped places), the strict signature hits the OTHER hole. So a strict hit
+    the body names differently from a NAMED reference is dropped, and with no
+    strict hit left the tiers below run, where the guard drops that edge again
+    and the name finds the picked edge or nothing. A strict hit the body cannot
+    name, or an unnamed reference, is accepted as before.
     """
+    name = target.topo_name
     strict = [r for r in records if edge_signatures_match(r.signature, target)]
+    if strict and name is not None:
+        held = _strict_names(body, strict, face_names)
+        strict = [r for r, n in zip(strict, held, strict=True) if n in (None, name)]
     if strict:
         return strict, "exact"
     geometric, tier = _geometric_edge_matches(body, records, target, face_names)
-    name = target.topo_name
     if name is None:
         return geometric, tier
     names = _record_names(body, records, face_names)
@@ -882,6 +894,23 @@ def _match_edge_records(
     if named and (not geometric or any(r.index in held for r in geometric)):
         return named, "named"
     return geometric, tier
+
+
+def _strict_names(
+    body: BodyShape,
+    strict: list[EdgeRecord],
+    face_names: Sequence[str | None] | None,
+) -> list[str | None]:
+    """The names of the strict tier's hits, aligned with *strict*.
+
+    The records' own names when they carry any; otherwise only these few edges
+    are named (:func:`edge_names`' ``edges`` path), so an unedited rebuild
+    still never names the whole body. That path names one edge between two
+    faces and no run piece; a piece it cannot name passes the check, as an
+    unnameable edge does."""
+    if any(r.name is not None for r in strict) or face_names is None:
+        return [r.name for r in strict]
+    return edge_names(body, face_names, [r.edge for r in strict])
 
 
 def _record_names(

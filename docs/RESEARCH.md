@@ -499,6 +499,23 @@ face, a pair of faces meeting twice, an op without a hook. A ref without a
 name resolves as before, so goldens are unchanged. Names carry through the
 rebuild-cache fork face for face.
 
+**A strict hit must agree with the name (2026-10-10).** Identical geometry
+is not identity. On a bolt-pattern plate, moving the picked hole h2 and adding
+h9 where it was, or swapping h1 into h2's spot, put another hole exactly on
+the stored signature, and the exact tier landed a joint or a chamfer on it
+with no error (BACKLOG JOINT-STRICT-WRONG-HOLE). Fusion 360 follows the hole
+the user picked, or fails the reference. So for a ref with a name, a strict hit
+that the body names differently is dropped. If no strict hit is left, the
+tiers below run with every differently named subshape dropped too (the edge
+guard already worked this way; for faces it applies only after such a refusal).
+The name then finds the picked subshape or nothing (`subshape_unresolved`). A
+hit the body cannot name passes, and a ref without a name resolves as before.
+Edges name only the strict hits (`edge_names`' few-edges path), so an
+unedited rebuild still never names the whole body. One change in the shared
+resolvers covers features and assembly origins alike
+(`test_strict_name_check.py`). Every part and assembly golden is
+byte-identical (result-JSON sha256 against 4fe3162).
+
 **Scope.** Step 1 hooks extrude, draft, fillet and chamfer. Revolve, loft,
 pattern, mirror, shell offsets, sheet metal and `clean_shape` history are
 steps 2-3 (BACKLOG DESIGN-INTENT-REFS). Old selectors are backfilled once,
@@ -1380,8 +1397,8 @@ you can drag it.
   carries no adjacency and only its name (`side:h1 | end`) re-finds it; an
   origin picked before names existed resolves as before. The same safety
   rules apply as for features: each tier runs only on an empty result from
-  the one above, an edge re-found geometrically that the body names
-  differently is refused, and zero or several candidates stay
+  the one above, an edge re-found geometrically (strict tier included, §14)
+  that the body names differently is refused, and zero or several candidates stay
   `subshape_unresolved` / `subshape_ambiguous`. A deleted hole therefore leaves its joint unresolved
   rather than moving it to another edge. Names are a pure function of the
   tree, so resolution stays deterministic, and an assembly computes them once
