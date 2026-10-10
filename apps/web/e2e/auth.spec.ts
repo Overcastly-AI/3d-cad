@@ -491,7 +491,25 @@ test.describe("session refresh (any stack)", () => {
     page,
   }) => {
     const { email, token } = await signUpThroughUi(page);
+    // The workspace reads the parameter table as the part loads. That read
+    // must have been answered before the revoke, or IT, not the CREATE, is the
+    // first refused request and sign-in opens before the editor does.
+    const parametersRead = page.waitForResponse(
+      (r) =>
+        r.request().method() === "GET" &&
+        /^\/api\/v1\/parts\/[^/]+\/parameters$/.test(new URL(r.url()).pathname),
+    );
     const partId = await openCubePart(page, token);
+    const read = await parametersRead;
+    expect(read.status()).toBe(200);
+    // ...and at the tree_version on screen, so no later read is still due.
+    const tree = await page.request.get(`/api/v1/parts/${partId}/features`, {
+      headers: { Authorization: `Bearer ${await storedToken(page)}` },
+    });
+    expect(tree.status()).toBe(200);
+    expect(((await read.json()) as { tree_version: number }).tree_version).toBe(
+      ((await tree.json()) as { tree_version: number }).tree_version,
+    );
 
     // End the session server-side, as a sign-out on another device would:
     // the access token AND the refresh cookie stop working together.
