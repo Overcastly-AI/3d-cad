@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "./fixtures";
 
 import {
+  armMate,
   authorBoltMates,
   balloonX,
   pickDispatch,
@@ -85,7 +86,7 @@ test.describe("Assemblies v1 — parametric mates (distance / angle)", () => {
 
     // Arm the distance tool and pick a face on each part (the same face pair a
     // coincident collects — the residual reads the normals + a point on each).
-    await page.getByTestId("mate-distance").click();
+    await armMate(page, "distance");
     await expect(page.getByTestId("mate-hud")).toHaveAttribute(
       "data-mate-tool",
       "distance",

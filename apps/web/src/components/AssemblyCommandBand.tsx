@@ -13,15 +13,23 @@ import {
   CoincidentIcon,
   ConcentricIcon,
   DistanceIcon,
+  DuplicateIcon,
   FixedIcon,
+  Flyout,
+  formatChord,
+  JointIcon,
   MeasureIcon,
+  MoreIcon,
   MoveIcon,
   ToolButton,
   ToolGroup,
 } from "@loft/design";
+import type { ReactNode } from "react";
 
 import type { ExportedFile, ExportFormat } from "../api/exportPart";
+import type { AssemblyExportGate } from "../features/assemblyExport";
 import type { MateTool } from "../assembly/mateStore";
+import { CHORD_COPY_INSTANCE } from "../shortcuts/registry";
 import type { HistoryStep } from "../lib/undoRedoShortcut";
 import { ExportToolGroup } from "./ExportToolGroup";
 import { HistoryGroup } from "./HistoryGroup";
@@ -50,6 +58,13 @@ export interface AssemblyCommandBandProps {
   /** Why Move is unavailable (nothing selected / grounded), or null. */
   moveBlocker: string | null;
   onMove: () => void;
+  /**
+   * Why Copy is unavailable (nothing selected / a write in flight), or null.
+   * A grounded component CAN be copied: the copy is never grounded.
+   */
+  copyBlocker: string | null;
+  /** Copy the selected component, then open Move on the copy (Ctrl+D). */
+  onCopy: () => void;
   /** A mate needs two instances; the tools stay disabled until then. */
   canMate: boolean;
   activeTool: MateTool | null;
@@ -71,7 +86,41 @@ export interface AssemblyCommandBandProps {
   exporter?: (format: ExportFormat) => Promise<ExportedFile>;
   /** Why export is inert (no assembly / no body), or undefined when ready. */
   exportDisabledReason?: string;
+  /**
+   * The solve did not honour every mate (QA 2026-10-10): the cells say the file
+   * would be partial and a click asks once before writing.
+   */
+  exportGate?: AssemblyExportGate;
 }
+
+/** The relation mates under More, in their band order and with their keys. */
+const LEGACY_MATES: readonly {
+  tool: Exclude<MateTool, "joint">;
+  label: string;
+  shortcut: string;
+  icon: ReactNode;
+}[] = [
+  {
+    tool: "coincident",
+    label: "Coincident",
+    shortcut: "F",
+    icon: <CoincidentIcon />,
+  },
+  {
+    tool: "concentric",
+    label: "Concentric",
+    shortcut: "N",
+    icon: <ConcentricIcon />,
+  },
+  {
+    tool: "distance",
+    label: "Distance",
+    shortcut: "D",
+    icon: <DistanceIcon />,
+  },
+  { tool: "angle", label: "Angle", shortcut: "G", icon: <AngleIcon /> },
+  { tool: "lock", label: "Lock", shortcut: "K", icon: <FixedIcon /> },
+];
 
 export function AssemblyCommandBand({
   historyReady,
@@ -87,6 +136,8 @@ export function AssemblyCommandBand({
   moveActive,
   moveBlocker,
   onMove,
+  copyBlocker,
+  onCopy,
   canMate,
   activeTool,
   onToggleTool,
@@ -95,6 +146,7 @@ export function AssemblyCommandBand({
   onCheckInterference,
   exporter,
   exportDisabledReason,
+  exportGate,
 }: AssemblyCommandBandProps) {
   const mateReason = canMate ? undefined : "Add two parts first";
   return (
@@ -129,62 +181,47 @@ export function AssemblyCommandBand({
           data-testid="move-instance"
           onClick={onMove}
         />
+        <ToolButton
+          icon={<DuplicateIcon />}
+          label="Copy"
+          showLabel
+          shortcut={formatChord(CHORD_COPY_INSTANCE)}
+          disabled={copyBlocker !== null}
+          caption={copyBlocker ?? undefined}
+          data-testid="copy-instance"
+          onClick={onCopy}
+        />
       </ToolGroup>
+      {/* Joint leads, as in Fusion's Assemble panel: one command that brings
+          two origins together and names the motion left free. The five
+          relation mates stay a keystroke away under More, shortcuts intact. */}
       <ToolGroup eyebrow="Mate">
         <ToolButton
-          icon={<CoincidentIcon />}
-          label="Coincident"
+          icon={<JointIcon />}
+          label="Joint"
           showLabel
-          shortcut="F"
-          active={activeTool === "coincident"}
+          shortcut="J"
+          active={activeTool === "joint"}
           disabled={!canMate}
           caption={mateReason}
-          data-testid="mate-coincident"
-          onClick={() => onToggleTool("coincident")}
+          data-testid="mate-joint"
+          onClick={() => onToggleTool("joint")}
         />
-        <ToolButton
-          icon={<ConcentricIcon />}
-          label="Concentric"
-          showLabel
-          shortcut="N"
-          active={activeTool === "concentric"}
-          disabled={!canMate}
-          caption={mateReason}
-          data-testid="mate-concentric"
-          onClick={() => onToggleTool("concentric")}
-        />
-        <ToolButton
-          icon={<DistanceIcon />}
-          label="Distance"
-          showLabel
-          shortcut="D"
-          active={activeTool === "distance"}
-          disabled={!canMate}
-          caption={mateReason}
-          data-testid="mate-distance"
-          onClick={() => onToggleTool("distance")}
-        />
-        <ToolButton
-          icon={<AngleIcon />}
-          label="Angle"
-          showLabel
-          shortcut="G"
-          active={activeTool === "angle"}
-          disabled={!canMate}
-          caption={mateReason}
-          data-testid="mate-angle"
-          onClick={() => onToggleTool("angle")}
-        />
-        <ToolButton
-          icon={<FixedIcon />}
-          label="Lock"
-          showLabel
-          shortcut="K"
-          active={activeTool === "lock"}
-          disabled={!canMate}
-          caption={mateReason}
-          data-testid="mate-lock"
-          onClick={() => onToggleTool("lock")}
+        <Flyout
+          label="More"
+          icon={<MoreIcon />}
+          eyebrow="Mates"
+          active={activeTool !== null && activeTool !== "joint"}
+          data-testid="mate-more"
+          items={LEGACY_MATES.map((mate) => ({
+            key: mate.tool,
+            icon: mate.icon,
+            label: mate.label,
+            shortcut: mate.shortcut,
+            disabled: !canMate,
+            "data-testid": `mate-${mate.tool}`,
+            onSelect: () => onToggleTool(mate.tool),
+          }))}
         />
       </ToolGroup>
       <ToolGroup eyebrow="Inspect">
@@ -220,6 +257,10 @@ export function AssemblyCommandBand({
           labelPriority={40}
           exporter={exporter}
           disabledReason={exportDisabledReason}
+          partial={exportGate?.partial ?? false}
+          partialQualifier={exportGate?.qualifier ?? undefined}
+          confirmReason={exportGate?.confirmReason ?? null}
+          state={exportGate?.state}
         />
       ) : null}
     </div>

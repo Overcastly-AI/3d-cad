@@ -3,15 +3,16 @@
 A `.loft` file is one Loft part as a file you own: the whole parametric feature
 tree, which any Loft can import back into an editable part, plus a cached STEP
 body that any CAD tool can open, and the part's named versions. Format version
-**1.1** (step 1: parts; step 2: named versions). Assemblies (step 3) come
-later.
+**1.2** (1.0: parts; 1.1: named versions; 1.2: parameters and formulas; see
+Versioning). Assemblies come later.
 
 Code: `packages/loft-wire/src/loft_wire/loft_file.py` (the format),
 `packages/loft-wire/src/loft_wire/versions.py` (the version API types),
 `services/documents/src/documents/loft_file.py` (tree read and import),
 `services/documents/src/documents/versions.py` (versions: save, list, restore),
 `services/gateway/src/gateway/loft_file.py` (the two file routes),
-`services/gateway/src/gateway/versions.py` (the version routes).
+`services/gateway/src/gateway/versions.py` (the version routes),
+`packages/loft-wire/src/loft_wire/loft_formulas.py` (sketch formulas in a tree).
 
 ## Routes and clients
 
@@ -71,16 +72,19 @@ A zip holding only data. Members, in this order:
 | `blobs/sha256-<hex>.step`  | an `import` feature's STEP text, moved out of every tree that names it     |
 | `cache/body.step`          | the exported body, for tools that do not run Loft (absent with no body)    |
 
-`manifest.json`: `format` `"loft"`, `format_version` `"1.1"`, `loft_version`,
+`manifest.json`: `format` `"loft"`, `format_version` `"1.2"`, `loft_version`,
 `kind` `"part"`, `document_id`, `units` `{storage: "mm"}`, `tree_sha256`,
 `members` `{path: sha256}`, `cache` `{step_sha256, built_from_tree_sha256,
 properties {volume_mm3, area_mm2, bbox}}` or null, and `references` `[]`. There
 is no export time.
 
 `tree.json`: `name`, `length_unit`, `materials` (per-body entries sorted by
-`base_feature_id`), `rollback_feature_id`, and `features` in tree order, each
-`{id, name, type, param_version, suppressed, params}`. Params are written at
-the current `param_version`, through the feature registry. There is no
+`base_feature_id`), `rollback_feature_id`, `parameters` (1.2, left out when the
+table is empty), and `features` in tree order, each `{id, name, type,
+param_version, suppressed, params}` plus, in 1.2, `expressions` and
+`dimension_expressions` when the feature has formulas. Params are written at
+the current `param_version`, through the feature registry, and always hold
+numbers: every formula's resolved value is in place. There is no
 `order_index`, no dependency edges, no timestamps and no undo history. An
 import feature's `params.data` reads `"loft-blob:sha256:<hex>"`; the reader puts
 the STEP text back.
@@ -92,6 +96,33 @@ tree_sha256}]}` in strictly ascending `seq`. `created_at` is UTC ISO 8601 (`Z`);
 `tree.json` (canonical JSON, blobs moved out), so a version identical to the
 current tree has identical bytes, and the trees share one copy of each blob.
 
+## Parameters and formulas (1.2)
+
+The part's parameter table and every formula travel in each tree (`tree.json`
+and every `versions/<seq>.tree.json`), as Loft stores them (RESEARCH §20):
+
+- `parameters`: the table in its order, each `{id, name, expression, unit,
+  comment, value}`; `value` is the resolved number (mm, degrees or plain).
+- A feature's `expressions`: a JSON pointer into `params` to the formula that
+  drives that number, `{"/distance_mm": "D * 2"}`. The number at the pointer
+  is the formula's value.
+- A sketch dimension's formula over the sketch's own dimensions
+  (`width / 2`) stays in the dimension's `expression`, as every Loft reads it.
+- A sketch dimension's formula that names anything outside its sketch (a
+  parameter) is written beside the feature in `dimension_expressions`, a
+  pointer to the dimension's `expression` to the formula
+  (`{"/constraints/9/expression": "W"}`), and the dimension's `expression` is
+  null, its `value_mm`/`value_deg` the resolved number. The reader puts it
+  back. The pointer addresses the constraint by position, which a file can
+  do because it is one snapshot. An entry that is not a formula of at most
+  256 characters for a formula-less dimension of that sketch is
+  `loft_tree_invalid`.
+
+So `params` alone always builds the part, and an older Loft that ignores the
+three keys imports the numbers (Versioning). An import keeps the table and the
+formulas; documents resolves them again on write, so the part re-drives: change
+a parameter and the body follows.
+
 ## Canonical bytes
 
 The same part on the same Loft build writes the same bytes:
@@ -102,10 +133,18 @@ The same part on the same Loft build writes the same bytes:
 - Zip: fixed member order, every date 1980-01-01, mode 0644, no extra fields;
   JSON STORED, STEP DEFLATE level 6.
 
-`packages/loft-wire/tests/fixtures/golden-v1.1.loft` (with two versions) is
-checked byte for byte, and read-then-repacked to the same bytes.
-`golden-v1.loft` is the frozen format 1.0 file: it is never regenerated, and
-proves an older file still imports.
+Three frozen fixtures in `packages/loft-wire/tests/fixtures/`, never
+regenerated (a format change adds a new one):
+
+- `golden-v1.2.loft`: a parametric part (parameters `W` and `D`, a sketch
+  width `= W` and height `= width / 2`, an extrude `= D * 2`, and version
+  "Rev A") written by the real export. Read-then-repacked to the same bytes;
+  over the real services, import, export, import into a fresh install and
+  export again gives identical bytes, and the imported part re-drives
+  (`services/gateway/tests/test_loft_parametric_chain.py`).
+- `golden-v1.1.loft` (two versions, container-only params): still reads, and
+  this build writes its inputs to the same members, `format_version` aside.
+- `golden-v1.loft`: format 1.0; still reads.
 
 ### Diffing `.loft` files in git
 
@@ -128,10 +167,29 @@ to skip them).
 ## Versioning
 
 - `format_version` is `major.minor`. A newer **major** is refused with
-  `422 loft_format_too_new` ("Upgrade Loft"). A newer **minor** is read; keys
-  it adds are ignored, and members it adds are skipped unread if their path is
-  safe. 1.1 added `versions/`: a 1.0 Loft opens a 1.1 file and imports the part
-  without its versions. A 1.0 file has no versions and imports as before.
+  `422 loft_format_too_new` ("This .loft was written by a newer Loft ...
+  Upgrade Loft to open it.", `details.format_version` and
+  `details.supported_major`), before anything else is read. A newer **minor**
+  is read: every model ignores keys it does not know, and members it adds are
+  skipped unread if their path is safe. Nothing warns about what was skipped.
+
+| Version | Adds                                                              | What the previous minor's reader does with it               |
+| ------- | ----------------------------------------------------------------- | ----------------------------------------------------------- |
+| 1.0     | parts: `manifest.json`, `tree.json`, `blobs/`, `cache/body.step`  |                                                             |
+| 1.1     | `versions/index.json`, `versions/<seq>.tree.json`                 | 1.0: imports the part without its versions                  |
+| 1.2     | `parameters`, feature `expressions`, `dimension_expressions`      | 1.1: imports the numbers, without the table or any formula  |
+
+- **A 1.1 Loft opening a 1.2 file** takes the newer-minor path: the manifest
+  reads, there are no new members, and `tree.json` and the version trees
+  validate with `parameters`, `expressions` and `dimension_expressions`
+  ignored. `params` holds every resolved number, and the only formulas left
+  are over a sketch's own dimensions, which 1.1 evaluates, so the part
+  rebuilds to the exported volume with no warning; it is no longer
+  parametric. Had a parameter formula stayed in a dimension's `expression`,
+  1.1 would have read it as a sketch formula and failed the sketch (`unknown
+  dimension name 'W'`); that is why 1.2 moves it out.
+- **1.0 and 1.1 files** import unchanged: they have no parameters and no
+  formulas, and their trees are written by 1.2 to the same bytes.
 - `param_version`: an older version is upcast through the registry chain. A
   newer version (`loft_feature_too_new`) or an unknown type
   (`loft_feature_unknown_type`) is a 422 naming the feature.

@@ -14,6 +14,16 @@ does not evaluate is refused with 422 and the expression error's stable
 ``expression_cycle`` with its ``chain``, ``expression_name_invalid``,
 ``expression_units``, ``expression_domain``, ``expression_too_complex``).
 
+Step 4: a PUT also carries the table into the features
+(:func:`documents.feature_expressions.apply_table_change`): deleting a
+parameter a feature reads is a 409 ``parameter_in_use`` naming the features, a
+rename rewrites every reference, and every dependent feature is re-resolved in
+the same transaction and the same undo step. A rename (same ``id``, new name)
+also rewrites, token by token and before the table is evaluated, the other
+parameters that read it (:func:`follow_renames`): ``H = W - 15`` becomes
+``H = Wid - 15``. A PUT whose table is identical to the stored one is a no-op:
+no ``tree_version`` bump and no undo step.
+
 Owner-scoped through :func:`~documents.parts.get_owned_part`: another owner's
 part is the same 404 as a missing one.
 """
@@ -22,6 +32,11 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter
+from loft_wire.expr import (
+    MAX_EXPRESSION_LENGTH,
+    ExpressionLimitError,
+    rename_references,
+)
 from loft_wire.parameters import (
     ParameterTableError,
     PartParameter,
@@ -32,8 +47,10 @@ from loft_wire.parameters import (
 )
 from py_kit import ValidationApiError, get_logger
 from py_kit.db import SessionDep
+from sqlalchemy import select
 
 from documents import db, history
+from documents.feature_expressions import apply_table_change, parameter_renames
 from documents.features import ensure_fresh
 from documents.parts import Principal, get_owned_part
 
@@ -59,6 +76,43 @@ def resolved_rows(rows: list[PartParameterInput]) -> list[dict[str, Any]]:
             details["chain"] = list(exc.chain)
         raise ValidationApiError(exc.message, code=exc.code, details=details) from exc
     return [row.model_dump(mode="json") for row in resolved]
+
+
+def follow_renames(
+    stored: list[dict[str, Any]], rows: list[PartParameterInput]
+) -> list[PartParameterInput]:
+    """*rows* with each reference to a renamed parameter rewritten.
+
+    A rename keeps the row's ``id``; every OTHER row whose expression this
+    PUT leaves as stored follows it, token by token and all at once (a swap
+    is a swap), exactly as feature formulas do. A row whose expression the
+    PUT writes is taken as written, so a client that rewrote the reference
+    itself is not rewritten twice. A rewrite past the formula cap is a 422
+    naming the row, with nothing stored.
+    """
+    renames = parameter_renames(stored, [row.model_dump(mode="json") for row in rows])
+    if not renames:
+        return rows
+    before = {str(row["id"]): row["expression"] for row in stored}
+    out: list[PartParameterInput] = []
+    for row in rows:
+        text = row.expression
+        if before.get(str(row.id)) == text:
+            text = rename_references(text, renames)
+        if len(text) > MAX_EXPRESSION_LENGTH:
+            raise ValidationApiError(
+                f"Parameter {row.name!r}: the rename makes its formula "
+                f"{len(text)} characters long; the limit is "
+                f"{MAX_EXPRESSION_LENGTH}. Choose a shorter name.",
+                code=ExpressionLimitError.code,
+                details={"parameter": row.name},
+            )
+        out.append(
+            row
+            if text == row.expression
+            else row.model_copy(update={"expression": text})
+        )
+    return out
 
 
 def stored_parameters(part: db.Part) -> list[PartParameter]:
@@ -88,12 +142,27 @@ async def put_parameters(
 
     Stale ``expected_tree_version`` → 422 ``stale_tree_version``. A table that
     does not evaluate (bad or repeated name, syntax, unknown name, cycle, unit
-    clash, non-finite value) → 422 with the expression error's code.
+    clash, non-finite value) → 422 with the expression error's code. Deleting a
+    parameter a feature still reads → 409 ``parameter_in_use``. A rename
+    rewrites the parameters and features that read the old name. The same
+    table again → 200, nothing written.
     """
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
     ensure_fresh(part, request.expected_tree_version)
-    rows = resolved_rows(request.parameters)
+    rows = resolved_rows(follow_renames(part.parameters, request.parameters))
+    if rows == part.parameters:
+        return PartParametersResponse(
+            tree_version=part.tree_version, parameters=stored_parameters(part)
+        )
     pre_op = await history.PART_HISTORY.baseline_state(session, part)
+    features = (
+        await session.execute(
+            select(db.Feature)
+            .where(db.Feature.part_id == part.id)
+            .order_by(db.Feature.order_index)
+        )
+    ).scalars()
+    apply_table_change(list(features), part.parameters, rows)
     part.parameters = rows
     part.tree_version += 1
     await history.PART_HISTORY.record(session, part, pre_op)

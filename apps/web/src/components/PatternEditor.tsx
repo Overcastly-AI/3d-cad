@@ -13,7 +13,6 @@ import {
   CircularPatternIcon,
   type LengthUnit,
   LinearPatternIcon,
-  NumberField,
   Panel,
   PanelActionCell,
   SegmentedControl,
@@ -42,6 +41,7 @@ import {
 import { lengthInputValue } from "../units/length";
 import type { PatternPreviewState } from "../viewport/patternGhost";
 import { EditorCard } from "./EditorCard";
+import { ValueField } from "./ValueField";
 import { ScopeRow } from "./ScopeRow";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
@@ -263,13 +263,15 @@ export function PatternEditor({
               onChange={(kind) => set("kind", kind)}
             />
 
-            <NumberField
+            <ValueField
               label="Count"
+              kind="int"
+              pointer="/pattern/count"
               data-testid="pattern-count"
               autoFocus
               value={form.countInput}
               error={countError(form.countInput)}
-              onChange={(e) => set("countInput", e.target.value)}
+              onValueChange={(value) => set("countInput", value)}
               onFocus={(e) => e.currentTarget.select()}
             />
             {showCountNote ? (
@@ -294,13 +296,15 @@ export function PatternEditor({
                     set("direction", e.target.value as PatternForm["direction"])
                   }
                 />
-                <NumberField
+                <ValueField
                   label="Spacing"
                   unit={unit}
+                  kind="length"
+                  pointer="/pattern/spacing_mm"
                   data-testid="pattern-spacing"
                   value={form.spacingInput}
                   error={spacingError(form.spacingInput, unit)}
-                  onChange={(e) => set("spacingInput", e.target.value)}
+                  onValueChange={(value) => set("spacingInput", value)}
                   onFocus={(e) => e.currentTarget.select()}
                 />
               </>
@@ -323,42 +327,50 @@ export function PatternEditor({
                     Axis point
                   </span>
                   <div className="grid grid-cols-3 gap-2">
-                    <NumberField
+                    <ValueField
                       label="X"
                       unit={unit}
+                      kind="length"
+                      pointer="/pattern/axis_point/x"
                       data-testid="pattern-axis-x"
                       value={form.axisPointXInput}
                       error={coordError(form.axisPointXInput, unit)}
-                      onChange={(e) => set("axisPointXInput", e.target.value)}
+                      onValueChange={(value) => set("axisPointXInput", value)}
                       onFocus={(e) => e.currentTarget.select()}
                     />
-                    <NumberField
+                    <ValueField
                       label="Y"
                       unit={unit}
+                      kind="length"
+                      pointer="/pattern/axis_point/y"
                       data-testid="pattern-axis-y"
                       value={form.axisPointYInput}
                       error={coordError(form.axisPointYInput, unit)}
-                      onChange={(e) => set("axisPointYInput", e.target.value)}
+                      onValueChange={(value) => set("axisPointYInput", value)}
                       onFocus={(e) => e.currentTarget.select()}
                     />
-                    <NumberField
+                    <ValueField
                       label="Z"
                       unit={unit}
+                      kind="length"
+                      pointer="/pattern/axis_point/z"
                       data-testid="pattern-axis-z"
                       value={form.axisPointZInput}
                       error={coordError(form.axisPointZInput, unit)}
-                      onChange={(e) => set("axisPointZInput", e.target.value)}
+                      onValueChange={(value) => set("axisPointZInput", value)}
                       onFocus={(e) => e.currentTarget.select()}
                     />
                   </div>
                 </div>
-                <NumberField
+                <ValueField
                   label="Angle"
                   unit="°"
+                  kind="angle"
+                  pointer="/pattern/angle_deg"
                   data-testid="pattern-angle"
                   value={form.angleInput}
                   error={angleError(form.angleInput)}
-                  onChange={(e) => set("angleInput", e.target.value)}
+                  onValueChange={(value) => set("angleInput", value)}
                   onFocus={(e) => e.currentTarget.select()}
                 />
               </>

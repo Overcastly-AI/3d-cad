@@ -44,7 +44,9 @@ import {
   cameraPose,
   installSceneProbe,
   waitForCameraRest,
+  waitForCameraStill,
 } from "./invariants";
+import { VIEWPORT_CHROME_EVENT } from "../src/viewport/fitFraming";
 import { createFeature, rectangleSketch } from "./partSeed";
 import { createPartViaApi, seedSession, waitForFrames } from "./support";
 import { describeProjected, expectProjected } from "./sceneProject";
@@ -192,6 +194,32 @@ async function orbitByHand(page: Page): Promise<void> {
   ).toBeGreaterThan(HELD_STILL);
 }
 
+/**
+ * Wait for the re-fit to SETTLE, then assert the proposal is wholly in frame.
+ *
+ * `waitForCameraStill`, not `waitForCameraRest`: every re-fit here is a dolly
+ * (or a parallel zoom) along an unchanged view direction, which a
+ * direction-only settle reads as "at rest" on its first sample.
+ */
+async function expectProposalInFrame(page: Page, when: string): Promise<void> {
+  await waitForCameraStill(page);
+  await waitForFrames(page, 3);
+
+  const seen = await expectProjected(page, "command-layer");
+  console.log(`[overrun] ${when} — ${describeProjected("proposal", seen)}`);
+
+  expect(
+    seen.cornersInFrame,
+    `the ${OVERRUN_MM} mm proposal still has corners outside the frame ` +
+      `after the re-fit: ${describeProjected("proposal", seen)}`,
+  ).toBe(8);
+  expect(
+    seen.coveredFraction,
+    `only ${(seen.coveredFraction * 100).toFixed(1)}% of the proposal's ` +
+      `projected box is inside the frame after the re-fit`,
+  ).toBeGreaterThan(0.99);
+}
+
 test.describe("CRAFT-12 — the preview re-fit", () => {
   test("a proposal that runs past the frame is brought back into it", async ({
     page,
@@ -201,24 +229,34 @@ test.describe("CRAFT-12 — the preview re-fit", () => {
 
     await page.getByTestId("extrude-distance").fill(OVERRUN_MM);
     await page.getByTestId("extrude-distance").press("Tab");
-    await waitForCameraRest(page);
-    await waitForFrames(page, 3);
+    await expectProposalInFrame(page, "after re-fit");
+  });
 
-    const seen = await expectProjected(page, "command-layer");
-    console.log(
-      `[overrun] after re-fit — ${describeProjected("proposal", seen)}`,
-    );
+  /*
+    The CI red on 9ac4bee (4/8 corners, 3134 px tall: the camera never left the
+    seed framing). The w-fit rail announces a chrome change whenever a late
+    webfont swap moves its edge, and the viewport serves that as a model Fit.
+    Landing during the proposal's own re-fit, it REPLACED that ease, and the
+    watch had already consumed the box change, so nothing ever re-checked.
+    Reproduced 2/2 by announcing one in the frames straight after the pull.
+  */
+  test("a chrome change mid-re-fit still leaves the proposal in frame", async ({
+    page,
+  }) => {
+    await installSceneProbe(page);
+    await openSmallBodyExtrude(page);
 
-    expect(
-      seen.cornersInFrame,
-      `the ${OVERRUN_MM} mm proposal still has corners outside the frame ` +
-        `after the re-fit: ${describeProjected("proposal", seen)}`,
-    ).toBe(8);
-    expect(
-      seen.coveredFraction,
-      `only ${(seen.coveredFraction * 100).toFixed(1)}% of the proposal's ` +
-        `projected box is inside the frame after the re-fit`,
-    ).toBeGreaterThan(0.99);
+    await page.getByTestId("extrude-distance").fill(OVERRUN_MM);
+    await page.evaluate((name: string) => {
+      let frames = 0;
+      const announce = (): void => {
+        window.dispatchEvent(new Event(name));
+        if ((frames += 1) < 4) requestAnimationFrame(announce);
+      };
+      requestAnimationFrame(announce);
+    }, VIEWPORT_CHROME_EVENT);
+    await page.getByTestId("extrude-distance").press("Tab");
+    await expectProposalInFrame(page, "chrome change mid-re-fit");
   });
 
   test("a proposal is NOT re-framed once the modeler has navigated", async ({

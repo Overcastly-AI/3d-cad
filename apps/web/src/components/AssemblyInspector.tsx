@@ -30,6 +30,7 @@ import type {
 } from "../api/assemblies";
 import { assemblyDiagnosisReadout } from "../assembly/diagnosis";
 import { assemblyMassState, combinedEyebrow } from "../assembly/mass";
+import { positionedBy } from "../assembly/joints";
 import { mateNamesById } from "../assembly/mates";
 import { assemblyReadout } from "../assembly/readout";
 import {
@@ -95,10 +96,25 @@ export function AssemblyInspector({
   // `diagnosis.message`/`suggested_fix` — those are the server's own prose and
   // they carry a Python `repr` of a UUID list. `mateNamesById` is the tree
   // panel's own numbering, so every mate the message names is findable.
-  const diagnosisReadout = assemblyDiagnosisReadout(
-    diagnosis,
-    mateNamesById(mates),
+  //
+  // A driven joint is not a missing mate. The solver counts hard rows only,
+  // so a hinge driven to 30° reports 1 DOF and `under_constrained` (Fusion's
+  // way: it can still be dragged). When every DOF left is a driven joint axis
+  // the part IS placed, and the cell says by what instead of reading like a
+  // warning.
+  const positioned = positionedBy(
+    status,
+    diagnosis?.remaining_dof ?? null,
+    mates,
+    new Set(solve.mateErrors.map((e) => e.mate_id)),
   );
+  const diagnosisReadout =
+    positioned !== null
+      ? {
+          text: `${positioned}. Drag the part or edit the joint to move it.`,
+          subjects: [],
+        }
+      : assemblyDiagnosisReadout(diagnosis, mateNamesById(mates));
   const mateById = new Map(mates.map((mate) => [mate.id, mate]));
   // Combined-mass / bbox readouts honor the document unit (FINDINGS burn-down
   // 2026-07-25 #7) — the same display-boundary conversion the part inspector
@@ -134,9 +150,10 @@ export function AssemblyInspector({
               )}`}
               data-testid="assembly-solve-status"
               data-solve-stale={solve.stale ? "true" : "false"}
+              data-solve-positioned={positioned !== null ? "true" : undefined}
               aria-live="polite"
             >
-              {assemblySolveLabel(solve)}
+              {positioned ?? assemblySolveLabel(solve)}
             </span>
           </div>
           <PanelRow label="Free DOF" data-testid="assembly-dof">

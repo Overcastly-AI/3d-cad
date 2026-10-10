@@ -13,7 +13,6 @@
  * least one face is picked (the `no_draft_faces` submit-guard).
  */
 import {
-  NumberField,
   Panel,
   PanelActionCell,
   SegmentedControl,
@@ -38,6 +37,7 @@ import { useFacePickStore } from "../features/facePickStore";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { DatumPlaneName } from "../sketch/plane";
 import { EditorCard } from "./EditorCard";
+import { ValueField } from "./ValueField";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
 /**
@@ -259,15 +259,17 @@ export function DraftEditor({
             {mode === "create" ? "New draft" : "Edit draft"}
           </h2>
           <div className="flex flex-col gap-2 px-3 pb-3 pt-1">
-            <NumberField
+            <ValueField
               label="Angle"
               unit="°"
+              kind="angle"
+              pointer="/angle_deg"
               data-testid="draft-angle"
               autoFocus
               value={form.angleInput}
               error={angleError(form.angleInput)}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, angleInput: e.target.value }))
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, angleInput: value }))
               }
               onFocus={(e) => e.currentTarget.select()}
               aria-label="Draft angle (degrees, signed)"
@@ -321,16 +323,18 @@ export function DraftEditor({
                 setForm((f) => ({ ...f, neutral: { ...f.neutral, base } }))
               }
             />
-            <NumberField
+            <ValueField
               label="Neutral offset"
               unit={unit}
+              kind="length"
+              pointer="/neutral_plane/offset_mm"
               data-testid="draft-neutral-offset"
               value={form.neutral.offsetInput}
               error={neutralOffsetError(form.neutral.offsetInput, unit)}
-              onChange={(e) =>
+              onValueChange={(value) =>
                 setForm((f) => ({
                   ...f,
-                  neutral: { ...f.neutral, offsetInput: e.target.value },
+                  neutral: { ...f.neutral, offsetInput: value },
                 }))
               }
               onFocus={(e) => e.currentTarget.select()}

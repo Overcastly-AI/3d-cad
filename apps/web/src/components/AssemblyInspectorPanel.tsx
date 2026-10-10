@@ -24,6 +24,7 @@ import { AssemblyClashPanel } from "./AssemblyClashPanel";
 import { AssemblyInspector } from "./AssemblyInspector";
 import { ExportRow } from "./ExportRow";
 import type { ExportedFile, ExportFormat } from "../api/exportPart";
+import type { AssemblyExportGate } from "../features/assemblyExport";
 
 export type InspectorView = "solve" | "bom" | "clash";
 
@@ -59,6 +60,8 @@ export interface AssemblyInspectorPanelProps {
   exporter: (format: ExportFormat) => Promise<ExportedFile>;
   /** Why export is inert (no body to write), or undefined when ready. */
   exportDisabledReason?: string;
+  /** Partial (a mate or joint did not solve) — the strip says so and asks. */
+  exportGate?: AssemblyExportGate;
 }
 
 const VIEW_OPTIONS = [
@@ -96,6 +99,7 @@ export function AssemblyInspectorPanel({
   clashError,
   exporter,
   exportDisabledReason,
+  exportGate,
 }: AssemblyInspectorPanelProps) {
   return (
     <div className="flex w-full flex-col gap-3">
@@ -134,6 +138,14 @@ export function AssemblyInspectorPanel({
           testIdPrefix="assembly-export"
           exporter={exporter}
           disabledReason={exportDisabledReason}
+          statusLabel={exportGate?.statusLabel}
+          notice={
+            exportGate?.notice == null
+              ? null
+              : { text: exportGate.notice, tone: "flag" }
+          }
+          state={exportGate?.state}
+          confirmReason={exportGate?.confirmReason ?? null}
         />
       </div>
     </div>

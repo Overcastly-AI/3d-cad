@@ -101,7 +101,7 @@ def ensure_fresh(assembly: db.Assembly, expected_version: int) -> None:
         )
 
 
-async def _get_instance(
+async def get_instance(
     session: AsyncSession, assembly: db.Assembly, instance_id: uuid.UUID
 ) -> db.Instance:
     """An instance of *assembly*, or 404 (unknown id == another assembly's id)."""
@@ -750,7 +750,7 @@ async def update_instance(
         )
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
     ensure_fresh(assembly, request.expected_version)
-    instance = await _get_instance(session, assembly, instance_id)
+    instance = await get_instance(session, assembly, instance_id)
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
 
     if request.name is not None:
@@ -830,7 +830,7 @@ async def delete_instance(
     ``doc_version``)."""
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
     ensure_fresh(assembly, expected_version)
-    instance = await _get_instance(session, assembly, instance_id)
+    instance = await get_instance(session, assembly, instance_id)
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
 
     # Cascade-remove mates that reference this instance (§1.2 graph integrity).

@@ -269,6 +269,19 @@ export const KEY_ISOLATE = "v";
 export const CHORD_SAVE_VERSION = "Ctrl+S";
 
 /**
+ * The assembly workspace's component verbs — `AssemblyPage`'s handler reads
+ * both. M is Fusion's Move accelerator. Copy is Ctrl+D, ONE chord, rather than
+ * Fusion's Ctrl+C then Ctrl+V: a two-step clipboard needs hidden state (what
+ * was copied, and what Ctrl+V means once that component is gone) for no gain
+ * when the paste lands in the same assembly anyway, and the paste half is
+ * already Fusion's: Move opens on the copy so it is placed at once. The bare
+ * D stays the Distance mate; the handler tells them apart by the modifier.
+ */
+export const KEY_MOVE_INSTANCE = "m";
+export const KEY_COPY_INSTANCE = "d";
+export const CHORD_COPY_INSTANCE = `Ctrl+${KEY_COPY_INSTANCE.toUpperCase()}`;
+
+/**
  * Move the SELECTED feature up or down the build order (REACH-ORDER). A chord
  * rather than a letter because it acts on a selection and every bare letter in
  * the workspace is a create verb; `Alt` is unclaimed — every other keydown
@@ -398,6 +411,18 @@ export function shortcutGroups(): ShortcutGroup[] {
           action: "Isolate it — or show everything again",
         },
         { keys: CHORD_SAVE_VERSION, action: "Save a version" },
+      ],
+    },
+    {
+      title: "Assembly",
+      note: "In an assembly workspace, with a component selected.",
+      shortcuts: [
+        { keys: KEY_MOVE_INSTANCE.toUpperCase(), action: "Move" },
+        {
+          keys: CHORD_COPY_INSTANCE,
+          action: "Copy, then move the copy",
+          when: "grounded ones too; the copy is free",
+        },
       ],
     },
     {

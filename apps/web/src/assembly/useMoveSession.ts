@@ -1,5 +1,6 @@
 /**
- * The Move command's session — Fusion 360's Move/Copy, without the Copy.
+ * The Move command's session — Fusion 360's Move (Copy is `useCopyComponent`,
+ * which opens this session on the new copy).
  *
  * A session is bound to ONE instance and holds the pose the user is shaping.
  * Nothing is persisted while it is shaped: a triad drag and a typed cell only

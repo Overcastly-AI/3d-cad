@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, Ref } from "react";
+import type { InputHTMLAttributes, ReactNode, Ref } from "react";
 import { useId } from "react";
 
 import { cx } from "../cx";
@@ -38,6 +38,18 @@ export interface NumberFieldProps extends Omit<
    * node, and the primitive owns the node.
    */
   ref?: Ref<HTMLInputElement>;
+  /**
+   * The cell holds a FORMULA (`H/2`), not a number: an italic brass `fx` is
+   * engraved at its head, Fusion's mark for a driven value (PART-PARAMETERS).
+   */
+  formula?: boolean;
+  /**
+   * What the formula comes to (`= 10 mm`), set in brass at the cell's tail in
+   * place of the unit (the hint carries its own). Hidden while `error` shows.
+   */
+  hint?: ReactNode;
+  /** Test hook on the hint. */
+  hintTestId?: string;
 }
 
 /**
@@ -53,12 +65,17 @@ export function NumberField({
   emphasis = "default",
   layout = "stacked",
   ref,
+  formula = false,
+  hint,
+  hintTestId,
   ...rest
 }: NumberFieldProps) {
   const id = useId();
   const errorId = `${id}-error`;
+  const hintId = `${id}-hint`;
   const invalid = Boolean(error);
   const primary = emphasis === "primary";
+  const showHint = !invalid && hint !== undefined && hint !== null;
   // The cell itself is written ONCE and reused by both layouts — the only thing
   // a layout changes is where the caption sits, so the carbide inset, the brass
   // focus ring and the flag state cannot drift apart between the two.
@@ -81,6 +98,15 @@ export function NumberField({
             : "border-etch focus-within:outline-brass",
       )}
     >
+      {formula ? (
+        <span
+          aria-hidden="true"
+          data-formula-mark=""
+          className="shrink-0 select-none font-data text-xs italic text-brass"
+        >
+          fx
+        </span>
+      ) : null}
       <input
         id={id}
         ref={ref}
@@ -89,14 +115,22 @@ export function NumberField({
         autoComplete="off"
         spellCheck={false}
         aria-invalid={invalid || undefined}
-        aria-describedby={invalid ? errorId : undefined}
+        aria-describedby={invalid ? errorId : showHint ? hintId : undefined}
         className={cx(
           "w-full min-w-0 bg-transparent font-data outline-none placeholder:text-gauge",
           primary ? "text-lg text-brass" : "py-1 text-md text-mist",
         )}
         {...rest}
       />
-      {unit ? (
+      {showHint ? (
+        <span
+          id={hintId}
+          data-testid={hintTestId}
+          className="shrink-0 select-none whitespace-nowrap font-data text-xs text-brass tabular-nums"
+        >
+          {hint}
+        </span>
+      ) : unit ? (
         <span className="font-body text-xs text-gauge select-none">{unit}</span>
       ) : null}
     </div>

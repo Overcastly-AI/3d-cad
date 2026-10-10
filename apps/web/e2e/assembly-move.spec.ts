@@ -11,6 +11,10 @@
  * values are ONE `PATCH`, and neither a drag in progress nor an Esc-cancelled
  * edit writes anything.
  *
+ * Copy (ASM-COPY) is Fusion's Copy/Paste in one chord: Ctrl+D on the grounded
+ * anchor makes ONE `POST .../copy`, a free "<3>" 20 mm along X, with Move open
+ * on it; Ctrl+Z then removes it as one step.
+ *
  * The triad lives in WebGL, so the spec reads its handles from the
  * `data-move-triad` QA stamp (world points + the camera's view-projection) and
  * projects them to the screen itself — then does the real pointer gesture.
@@ -358,6 +362,98 @@ test.describe("Assembly Move (S5a)", () => {
     await expectMoved(page, idB, 1e-3);
 
     await page.keyboard.press("Control+z");
+    await expectAtSeed(page, idB);
+  });
+
+  test("Ctrl+D copies even a grounded part: free, '<3>', +20 mm X, Move open on it; Ctrl+Z removes it", async ({
+    page,
+  }) => {
+    const { idA, idB } = await setupTwoInstances(page);
+    const patches = countPatches(page);
+    let copies = 0;
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        /\/instances\/[0-9a-f-]+\/copy$/.test(new URL(request.url()).pathname)
+      ) {
+        copies += 1;
+      }
+    });
+
+    // The grounded anchor refuses Move but offers Copy: in the Component
+    // group and in its row's menu, both with the chord.
+    await page.getByTestId(`instance-select-${idA}`).click();
+    const copyButton = page.getByTestId("copy-instance");
+    await expect(copyButton).not.toHaveAttribute("aria-disabled", "true");
+    await expect(copyButton).toHaveAccessibleName(/^Copy — (Ctrl\+D|⌘D)$/);
+    await page.getByTestId(`instance-select-${idA}`).click({ button: "right" });
+    await expect(page.getByTestId("instance-ctx-copy")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("instance-context-menu")).toHaveCount(0);
+
+    await page.keyboard.press("Control+d");
+
+    // ONE write, and the copy lands as the third row, numbered after the two.
+    await expect(page.getByTestId("instance-row")).toHaveCount(3, {
+      timeout: 15_000,
+    });
+    const ids = await page
+      .getByTestId("instance-row")
+      .evaluateAll((rows) =>
+        rows.map((r) => (r as HTMLElement).dataset.instanceId ?? ""),
+      );
+    const idC = ids.find((id) => id !== idA && id !== idB);
+    if (idC === undefined) throw new Error("no copy row");
+    await expect(page.getByTestId(`instance-select-${idC}`)).toHaveText(
+      /Hole plate <3>$/,
+    );
+
+    // Fusion's paste: the copy is selected and Move is open ON IT.
+    await expect(page.getByTestId("move-panel")).toBeVisible();
+    await expect(page.getByTestId("move-panel")).toContainText(
+      "Hole plate <3>",
+    );
+    await expect(page.getByTestId("move-instance")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByTestId("move-x")).toHaveValue("20");
+    await expect(page.getByTestId("move-y")).toHaveValue("0");
+    await expect(page.getByTestId("move-z")).toHaveValue("0");
+
+    // The copy is free (no pin) and sits 20 mm along X from its source, which
+    // is still grounded at the origin.
+    await expect(
+      page.getByTestId(`assembly-balloon-${idC}`).locator("svg"),
+    ).toHaveCount(0);
+    await expect(
+      page.getByTestId(`assembly-balloon-${idA}`).locator("svg"),
+    ).toHaveCount(1);
+    await expect
+      .poll(
+        async () => {
+          await waitForSolved(page);
+          const pose = await balloonPose(page, idC);
+          if (pose === null || pose.stale) return "stale";
+          return [pose.x, pose.y, pose.z].map((n) => n.toFixed(3)).join(",");
+        },
+        { timeout: 30_000 },
+      )
+      .toBe("20.000,0.000,0.000");
+
+    // OK with nothing typed closes Move without a write.
+    await page.getByTestId("move-ok").click();
+    await expect(page.getByTestId("move-panel")).toHaveCount(0);
+    expect(copies).toBe(1);
+    expect(patches.count()).toBe(0);
+
+    // The copy was ONE undo step: Ctrl+Z takes it away, and nothing else.
+    await page.keyboard.press("Control+z");
+    await expect(page.getByTestId("instance-row")).toHaveCount(2, {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId(`instance-select-${idC}`)).toHaveCount(0);
+    await expect(page.getByTestId(`assembly-balloon-${idC}`)).toHaveCount(0);
     await expectAtSeed(page, idB);
   });
 });

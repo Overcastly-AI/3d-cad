@@ -156,3 +156,88 @@ def test_parameters_through_the_gateway(tmp_path: Path) -> None:
             ).status_code == 401
 
     asyncio.run(scenario())
+
+
+def _line(eid: str, a: tuple[float, float], b: tuple[float, float]) -> Any:
+    return {
+        "id": eid,
+        "kind": "line",
+        "start": {"x": a[0], "y": a[1]},
+        "end": {"x": b[0], "y": b[1]},
+    }
+
+
+def test_feature_formulas_survive_the_gateway_and_guard_their_parameter(
+    tmp_path: Path,
+) -> None:
+    """The gateway forwards a feature's `expressions` (it re-serializes the
+    body), and a parameter still in use comes back as documents' 409."""
+
+    async def scenario() -> None:
+        async with _gateway(tmp_path) as client:
+            owner = await _token(client, "loft@example.com")
+            created = await client.post(
+                "/api/v1/parts", json={"name": "Block"}, headers=owner
+            )
+            part = f"/api/v1/parts/{created.json()['id']}"
+            put = await client.put(
+                f"{part}/parameters",
+                json={"expected_tree_version": 0, "parameters": [_row("D", "12")]},
+                headers=owner,
+            )
+            assert put.status_code == 200, put.text
+            sketch = {
+                "type": "sketch",
+                "version": 1,
+                "params": {
+                    "plane": {"kind": "datum_plane", "plane": "XY"},
+                    "entities": [
+                        _line("e1", (0, 0), (40, 0)),
+                        _line("e2", (40, 0), (40, 25)),
+                        _line("e3", (40, 25), (0, 25)),
+                        _line("e4", (0, 25), (0, 0)),
+                    ],
+                    "constraints": [],
+                },
+            }
+            made = await client.post(
+                f"{part}/features",
+                json={"name": "S", "feature": sketch, "expected_tree_version": 1},
+                headers=owner,
+            )
+            assert made.status_code == 201, made.text
+            extrude = {
+                "type": "extrude",
+                "version": 1,
+                "expressions": {"/distance_mm": "D * 2"},
+                "params": {
+                    "profile": {
+                        "kind": "feature",
+                        "feature_id": made.json()["feature"]["id"],
+                    },
+                    "distance_mm": 1.0,
+                    "operation": "add",
+                    "direction": "normal",
+                },
+            }
+            made = await client.post(
+                f"{part}/features",
+                json={"name": "E", "feature": extrude, "expected_tree_version": 2},
+                headers=owner,
+            )
+            assert made.status_code == 201, made.text
+            stored = made.json()["feature"]["feature"]
+            assert stored["expressions"] == {"/distance_mm": "D * 2"}
+            assert stored["params"]["distance_mm"] == 24.0
+
+            refused = await client.put(
+                f"{part}/parameters",
+                json={"expected_tree_version": 3, "parameters": []},
+                headers=owner,
+            )
+            assert refused.status_code == 409, refused.text
+            error = refused.json()["error"]
+            assert error["code"] == "parameter_in_use"
+            assert error["details"]["parameters"] == ["D"]
+
+    asyncio.run(scenario())

@@ -78,7 +78,8 @@ rather than a 404 in somebody's script.
 | Parts | create, list, get, rename, set display unit, delete |
 | Sketch entities | line, rectangle (dimensioned + grounded), circle (by radius **or** diameter), arc, point, construction geometry |
 | Sketch constraints | coincident, horizontal, vertical, fixed, parallel, perpendicular, tangent, equal, concentric |
-| Sketch dimensions | distance, radius, diameter — each with `name=` and `expression=` (the parametric half) |
+| Sketch dimensions | distance, radius, diameter — each with `name=` and `expression=` (the parametric half), or a formula as the value |
+| Parameters | `parameters()`, `set_parameter`, `rename_parameter`, `delete_parameter`; formulas in any numeric builder argument; `loft.expr.evaluate` offline |
 | Solve | `sketch.save()` / `sketch.solve()`, with `SketchNotSolved` carrying the conflicting/redundant constraint indices |
 | Features | extrude (add/cut, direction, merge), sweep along a path (add/cut, merge, twist along a straight path), re-parametrize an extrude or a sweep's twist, read the tree, delete a feature |
 | Query | `part.evaluate()`, `part.mass_properties()` (volume, area, centroid, bbox, face/edge/shell counts) |
@@ -92,6 +93,45 @@ folders; STEP import; undo/redo and the rollback bar; measure and overlay;
 materials. Every one of them is an existing gateway route already present in
 `loft/_operations.py`, so adding a verb is a typed method over a constant that
 is already generated — not new plumbing.
+
+## Parameters
+
+A part has a table of named values (Fusion 360's Change Parameters), and any
+numeric argument of a builder takes `float | str`: a number is used as it is,
+and a string is a formula over the parameters (RESEARCH §20).
+
+```python
+part = session.new_part("Box")
+part.set_parameter("W", "40", comment="width")
+part.set_parameter("H", "W - 15")
+part.set_parameter("D", "10")
+
+sk = part.sketch(on="XY")
+sk.rect("W", "H")                 # each formula sits in its dimension
+part.extrude(sk, "D")             # stored as expressions["/distance_mm"] = "D"
+print(part.mass_properties().volume)   # 10000.0
+
+part.set_parameter("D", "25")     # one undoable edit re-drives the part
+print(part.mass_properties().volume)   # 25000.0
+```
+
+- `part.parameters()` gives each row's `name`, `expression`, `unit` (length
+  in mm, angle in degrees, or unitless), resolved `value` and `comment`.
+- `set_parameter(name, expression, comment=None)` creates or updates by name
+  and PUTs the whole table. A new row is a length unless its formula says
+  otherwise (`"30 deg"`); pass `unit="unitless"` for a count.
+  `rename_parameter(old, new)` keeps the row id, so the server rewrites every
+  formula that reads it. `delete_parameter(name)` raises `ParameterInUse`,
+  whose `.features` names the features that still read it.
+- A bare number in a formula is mm (or degrees in an angle field), whatever
+  the part's display unit; write `"2 in"` for inches.
+- A refusal is `InvalidExpression` with the server's code
+  (`expression_syntax`, `expression_unknown_name`, `expression_cycle` with
+  `.chain`, `expression_units`, ...). A builder evaluates its formula to fill
+  the number stored beside it, so a formula it can already see is wrong is
+  refused with the same code before anything is sent.
+- `loft.expr` is the shared expression library itself, for offline checks:
+  `loft.expr.evaluate("D/2", part.parameter_values())`.
 
 ## Designed for the MCP server that comes next
 

@@ -32,6 +32,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pytest
 from geometry.assembly import evaluate_assembly
 from geometry.assembly.transform import Pose
@@ -76,6 +77,32 @@ class ExpectedTopology(BaseModel):
     shells: int
 
 
+class ExpectedJointState(BaseModel):
+    """One joint's expected solved state (S4a). ``rot_deg`` / ``lin_mm`` must be
+    null exactly when the motion has no such value; ``at_limit`` (S4b) is
+    checked exactly when given."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mate_id: str
+    rot_deg: float | None
+    lin_mm: float | None
+    at_limit: bool | None = None
+    axis_world: Vec3
+
+
+class ExpectedProbe(BaseModel):
+    """A point fixed in an instance's part frame and where it must land in the
+    world at the solved placement (e.g. a hinge leaf's far edge)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instance_id: str
+    local: Vec3
+    world: Vec3
+    note: str
+
+
 class AssemblyGoldenExpectation(BaseModel):
     """Committed expectations for one assembly golden (``expected.json``).
 
@@ -93,6 +120,13 @@ class AssemblyGoldenExpectation(BaseModel):
     tolerance: float = Field(gt=0)
     tolerance_rationale: str
     status: AssemblySolveStatus
+    remaining_dof: int | None = Field(
+        default=None, ge=0, description="Diagnosed DOF; checked when given"
+    )
+    joint_states: list[ExpectedJointState] | None = Field(
+        default=None, description="Solved joint states; checked when given"
+    )
+    probes: list[ExpectedProbe] = Field(default_factory=list["ExpectedProbe"])
     distinct_mesh_count: int = Field(ge=1)
     instances: list[ExpectedInstancePlacement]
     properties: ExpectedCombinedProperties
@@ -173,6 +207,55 @@ def test_solved_placements_match_analytic_transform(case: AssemblyGoldenCase) ->
         assert got_r == pytest.approx(want_r, abs=tolerance), (
             f"{case.name}: instance {want.instance_id} orientation differs from "
             f"the analytic transform beyond {tolerance!r}"
+        )
+
+
+@each_golden
+def test_dof_joint_states_and_probes_match_hand_values(
+    case: AssemblyGoldenCase,
+) -> None:
+    """Joint goldens (S4a): the diagnosed DOF, each joint's solved state and the
+    world position of hand-picked body points, within the documented tolerance.
+    Goldens that state none of these check nothing here."""
+    result = evaluate_assembly(case.request)
+    expected = case.expected
+    tolerance = expected.tolerance
+    if expected.remaining_dof is not None:
+        got_dof = 0 if result.diagnosis is None else result.diagnosis.remaining_dof
+        assert got_dof == expected.remaining_dof, f"{case.name}: remaining_dof"
+    if expected.joint_states is not None:
+        got_states = result.joint_states
+        assert [str(js.mate_id) for js in got_states] == [
+            js.mate_id for js in expected.joint_states
+        ], f"{case.name}: joint_states mate ids"
+        for got, want in zip(got_states, expected.joint_states, strict=True):
+            if want.at_limit is not None:
+                assert got.at_limit is want.at_limit, f"{case.name}: at_limit"
+            for label, g, w in (
+                ("rot_deg", got.rot_deg, want.rot_deg),
+                ("lin_mm", got.lin_mm, want.lin_mm),
+            ):
+                assert (g is None) == (w is None), f"{case.name}: {label} presence"
+                if g is not None and w is not None:
+                    assert g == pytest.approx(w, abs=tolerance), (
+                        f"{case.name}: joint {want.mate_id} {label} expected {w!r}, "
+                        f"got {g!r}"
+                    )
+            for g, w in (
+                (got.axis_world.x, want.axis_world.x),
+                (got.axis_world.y, want.axis_world.y),
+                (got.axis_world.z, want.axis_world.z),
+            ):
+                assert g == pytest.approx(w, abs=tolerance), f"{case.name}: axis"
+    placements = {str(inst.instance_id): inst.placement for inst in result.instances}
+    for probe in expected.probes:
+        pose = Pose.from_placement(placements[probe.instance_id])
+        local = np.array([probe.local.x, probe.local.y, probe.local.z])
+        world = pose.apply_point(local)
+        want = np.array([probe.world.x, probe.world.y, probe.world.z])
+        assert world == pytest.approx(want, abs=tolerance), (
+            f"{case.name}: probe ({probe.note}) expected {want.tolist()}, got "
+            f"{world.tolist()}"
         )
 
 

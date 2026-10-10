@@ -14,7 +14,7 @@ import {
  * seeded through the gateway (an XZ circle at x = 50, as the golden
  * `sweep-closed-torus-ring-R50-r5` has it); the CLOSED path is DRAWN in the
  * sketcher — the circle tool on XY, centre clicked onto the origin and the
- * radius typed as 50 — and swept in the sweep editor, which takes a closed path as readily
+ * diameter typed as 100 — and swept in the sweep editor, which takes a closed path as readily
  * as an open one. The body is the torus, 2 pi^2 R r^2 = 24 674.01 mm^3.
  */
 
@@ -79,7 +79,7 @@ test.describe("sweep along a closed path", () => {
     });
 
     // The CLOSED path: an R50 circle on XY. The rim click opens the size cell
-    // (FB-16) and the radius is typed into it.
+    // (FB-16) and its diameter (100) is typed into it.
     await enterSketch(page, "XY");
     const at = await calibratePlane(
       page,
@@ -103,9 +103,10 @@ test.describe("sweep along a closed path", () => {
       "data-state",
       "armed",
     );
-    for (const key of String(MAJOR_R)) await page.keyboard.press(key);
-    await expect(page.getByTestId("draw-dimension-radius")).toHaveValue(
-      String(MAJOR_R),
+    // The cell asks for the DIAMETER (QA-CIRCLE-DIAMETER-BOX).
+    for (const key of String(2 * MAJOR_R)) await page.keyboard.press(key);
+    await expect(page.getByTestId("draw-dimension-diameter")).toHaveValue(
+      String(2 * MAJOR_R),
     );
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("draw-dimensions")).toHaveCount(0);

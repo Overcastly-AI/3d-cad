@@ -53,6 +53,7 @@ import {
 
 import { useCommandBridge } from "../features/commandActions";
 import { EditorCard } from "./EditorCard";
+import { ValueField } from "./ValueField";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { HoleParams } from "../api/parts";
@@ -973,16 +974,18 @@ export function HoleEditor({
           {/* Diameter — THE parametric handle. When the hole is tapped this IS
               the tap drill, so an untappable bore reports here, on the field
               that has to change. */}
-          <NumberField
+          <ValueField
             label="Diameter"
             emphasis="primary"
             unit={unit}
+            kind="length"
+            pointer="/diameter_mm"
             data-testid="hole-diameter"
             autoFocus
             value={form.diameterInput}
             error={diameterMsg ?? threadBoreMsg}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, diameterInput: e.target.value }))
+            onValueChange={(value) =>
+              setForm((f) => ({ ...f, diameterInput: value }))
             }
             onFocus={(e) => e.currentTarget.select()}
           />
@@ -995,14 +998,16 @@ export function HoleEditor({
             onChange={(depthMode) => setForm((f) => ({ ...f, depthMode }))}
           />
           {form.depthMode === "blind" ? (
-            <NumberField
+            <ValueField
               label="Blind depth"
               unit={unit}
+              kind="length"
+              pointer="/depth/depth_mm"
               data-testid="hole-blind-depth"
               value={form.depthInput}
               error={depthMsg}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, depthInput: e.target.value }))
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, depthInput: value }))
               }
               onFocus={(e) => e.currentTarget.select()}
             />
@@ -1019,30 +1024,34 @@ export function HoleEditor({
           />
           {form.typeKind === "counterbore" ? (
             <div className="flex gap-2">
-              <NumberField
+              <ValueField
                 className="flex-1"
                 label="C'bore Ø"
                 unit={unit}
+                kind="length"
+                pointer="/type/cbore_diameter_mm"
                 data-testid="hole-cbore-diameter"
                 value={form.cboreDiameterInput}
                 error={cboreDiameterMsg}
-                onChange={(e) =>
+                onValueChange={(value) =>
                   setForm((f) => ({
                     ...f,
-                    cboreDiameterInput: e.target.value,
+                    cboreDiameterInput: value,
                   }))
                 }
                 onFocus={(e) => e.currentTarget.select()}
               />
-              <NumberField
+              <ValueField
                 className="flex-1"
                 label="C'bore depth"
                 unit={unit}
+                kind="length"
+                pointer="/type/cbore_depth_mm"
                 data-testid="hole-cbore-depth"
                 value={form.cboreDepthInput}
                 error={cboreDepthMsg}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, cboreDepthInput: e.target.value }))
+                onValueChange={(value) =>
+                  setForm((f) => ({ ...f, cboreDepthInput: value }))
                 }
                 onFocus={(e) => e.currentTarget.select()}
               />
@@ -1050,33 +1059,37 @@ export function HoleEditor({
           ) : null}
           {form.typeKind === "countersink" ? (
             <div className="flex flex-col gap-2">
-              <NumberField
+              <ValueField
                 label="C'sink Ø"
                 unit={unit}
+                kind="length"
+                pointer="/type/csink_diameter_mm"
                 data-testid="hole-csink-diameter"
                 value={form.csinkDiameterInput}
                 error={csinkDiameterMsg}
-                onChange={(e) =>
+                onValueChange={(value) =>
                   setForm((f) => ({
                     ...f,
-                    csinkDiameterInput: e.target.value,
+                    csinkDiameterInput: value,
                   }))
                 }
                 onFocus={(e) => e.currentTarget.select()}
               />
               <div className="flex items-end gap-2">
-                <NumberField
+                <ValueField
                   className="flex-1"
                   label="C'sink angle"
                   unit="°"
+                  kind="angle"
+                  pointer="/type/csink_angle_deg"
                   data-testid="hole-csink-angle"
                   aria-label="Countersink included angle (degrees)"
                   value={form.csinkAngleInput}
                   error={csinkAngleMsg}
-                  onChange={(e) =>
+                  onValueChange={(value) =>
                     setForm((f) => ({
                       ...f,
-                      csinkAngleInput: e.target.value,
+                      csinkAngleInput: value,
                     }))
                   }
                   onFocus={(e) => e.currentTarget.select()}

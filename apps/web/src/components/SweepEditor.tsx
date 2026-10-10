@@ -27,7 +27,6 @@ import {
   AddIcon,
   Checkbox,
   CutIcon,
-  NumberField,
   Panel,
   PanelActionCell,
   SegmentedControl,
@@ -53,6 +52,7 @@ import {
   twistHand,
 } from "../features/twist";
 import { EditorCard } from "./EditorCard";
+import { ValueField } from "./ValueField";
 
 export interface SweepEditorProps {
   mode: "create" | "edit";
@@ -284,7 +284,7 @@ export function SweepEditor({
               </p>
             )}
 
-            <NumberField
+            <ValueField
               label="Twist"
               unit="°"
               placeholder="0"
@@ -292,11 +292,13 @@ export function SweepEditor({
               // has no minus sign, and a LEFT-hand twist is negative (review
               // N4). `parseTwistDeg` is the gate on what was typed.
               inputMode="text"
+              kind="angle"
+              pointer="/twist_angle_deg"
               data-testid="sweep-twist"
               value={form.twistInput}
               error={twistMsg}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, twistInput: e.target.value }))
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, twistInput: value }))
               }
               onFocus={(e) => e.currentTarget.select()}
             />

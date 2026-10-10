@@ -12,7 +12,7 @@
  * `frameloop="demand"` with `invalidate` only while moving.
  */
 import { assembly as assemblyTokens } from "@loft/design/tokens";
-import { useFrame, useThree } from "@react-three/fiber";
+import { type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import {
   type Group,
@@ -50,7 +50,8 @@ export interface InstanceMeshProps {
    */
   ghost?: boolean;
   reducedMotion: boolean;
-  onSelect?: () => void;
+  /** A press on the body; the event carries the ray (a joint drag reads it). */
+  onSelect?: (event: ThreeEvent<PointerEvent>) => void;
 }
 
 /** Below this squared scene-mm distance the snap is considered complete. */
@@ -177,7 +178,7 @@ export function InstanceMesh({
         onSelect
           ? (event) => {
               event.stopPropagation();
-              onSelect();
+              onSelect(event);
             }
           : undefined
       }

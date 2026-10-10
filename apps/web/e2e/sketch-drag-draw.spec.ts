@@ -307,19 +307,20 @@ test.describe("FB-16 — the size is typed while you draw", () => {
     );
   });
 
-  test("a circle is dimensioned by radius as it is dragged", async ({
+  test("a circle is dimensioned by diameter as it is dragged", async ({
     page,
   }) => {
-    const { partId } = await openSketchOnXy(page, "Circle radius");
+    const { partId } = await openSketchOnXy(page, "Circle diameter");
     const evaluations = collectEvaluations(page, partId);
     await page.keyboard.press("c");
     await dragDraw(page, [850, 520], [1000, 520]);
     await expectSketchEntities(page, 1);
-    await expect(page.getByTestId("draw-dimension-radius")).toBeVisible();
-    // Visible is NOT armed — the radius cell renders as a readout during the
+    await expect(page.getByTestId("draw-dimension-diameter")).toBeVisible();
+    // Visible is NOT armed — the diameter cell renders as a readout during the
     // drag too, so its visibility says nothing about whether typing lands.
     await armedForTyping(page);
-    await page.keyboard.type("18");
+    // Fusion's centre-diameter circle: the cell takes Ø 36 for an R18.
+    await page.keyboard.type("36");
     await page.keyboard.press("Enter");
 
     await expect

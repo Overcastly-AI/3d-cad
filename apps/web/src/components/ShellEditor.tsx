@@ -13,7 +13,6 @@
  * the overlay); this editor reads its count and builds the params on submit.
  */
 import {
-  NumberField,
   Panel,
   PanelActionCell,
   SegmentedControl,
@@ -35,6 +34,7 @@ import {
   thicknessError,
 } from "../features/shell";
 import { EditorCard } from "./EditorCard";
+import { ValueField } from "./ValueField";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
 export interface ShellEditorProps {
@@ -226,15 +226,17 @@ export function ShellEditor({
             {mode === "create" ? "New shell" : "Edit shell"}
           </h2>
           <div className="flex flex-col gap-2 px-3 pb-3 pt-1">
-            <NumberField
+            <ValueField
               label="Thickness"
               unit={unit}
+              kind="length"
+              pointer="/thickness_mm"
               data-testid="shell-thickness"
               autoFocus
               value={form.thicknessInput}
               error={thicknessError(form.thicknessInput, unit)}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, thicknessInput: e.target.value }))
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, thicknessInput: value }))
               }
               onFocus={(e) => e.currentTarget.select()}
             />

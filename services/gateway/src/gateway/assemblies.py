@@ -32,6 +32,7 @@ from loft_wire.assemblies import (
     AssemblyUpdate,
     EvaluateAssemblyRequest,
     EvaluateAssemblyResult,
+    InstanceCopy,
     InstanceCreate,
     InstanceMutationResponse,
     InstanceUpdate,
@@ -174,6 +175,10 @@ async def get_assembly_extents(
         version=result.version,
         bounding_box=result.bounding_box,
         status=result.status,
+        conflicting_mates=(
+            result.diagnosis.conflicting_mates if result.diagnosis else []
+        ),
+        mate_errors=result.mate_errors,
     )
 
 
@@ -282,6 +287,36 @@ async def update_instance(
         request.model_dump_json(),
     )
     if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return InstanceMutationResponse.model_validate_json(upstream.content)
+
+
+@router.post(
+    "/{assembly_id}/instances/{instance_id}/copy",
+    status_code=status.HTTP_201_CREATED,
+)
+async def copy_instance(
+    assembly_id: uuid.UUID,
+    instance_id: uuid.UUID,
+    request: InstanceCopy,
+    user: CurrentUser,
+    http_request: Request,
+) -> InstanceMutationResponse:
+    """Copy one instance within its assembly and return the copy (201).
+
+    Fusion's Copy and Paste: same referenced document, next free ``<n>`` name,
+    the source's pose offset by ``offset`` (+20 mm X by default), not
+    grounded, no mates or joints copied. Bumps ``doc_version`` and records one
+    undo step; documents' 404 / 422 envelopes are re-surfaced verbatim.
+    """
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "POST",
+        f"/api/v1/assemblies/{assembly_id}/instances/{instance_id}/copy",
+        request.model_dump_json(),
+    )
+    if upstream.status_code != status.HTTP_201_CREATED:
         raise_upstream_error(upstream, service=_SERVICE)
     return InstanceMutationResponse.model_validate_json(upstream.content)
 

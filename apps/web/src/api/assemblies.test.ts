@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   checkInterference,
+  copyInstance,
   type EvaluateAssemblyRequest,
   exportAssembly,
   redoAssembly,
@@ -122,6 +123,68 @@ describe("undoAssembly / redoAssembly", () => {
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(StaleAssemblyVersionError);
     expect((error as Error).message).toMatch(/no such assembly/);
+  });
+});
+
+describe("copyInstance", () => {
+  const instanceId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const copied = {
+    doc_version: 6,
+    instance: {
+      id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      assembly_id: assemblyId,
+      name: "Hole plate <3>",
+      ref_document_id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+      ref_document_kind: "part",
+      grounded: false,
+      placement: {
+        position: { x: 100, y: 0, z: 0 },
+        orientation: { w: 1, x: 0, y: 0, z: 0 },
+      },
+      order_index: 2,
+    },
+  };
+
+  it("POSTs the expected_version (and only that) to the copy route", async () => {
+    let captured: Request | undefined;
+    const client = createGatewayClient({
+      baseUrl: "http://gateway.test",
+      fetch: (request: Request) => {
+        captured = request;
+        return Promise.resolve(json(copied, 201));
+      },
+    });
+
+    await expect(
+      copyInstance(assemblyId, instanceId, { expected_version: 5 }, client),
+    ).resolves.toEqual(copied);
+    expect(captured?.method).toBe("POST");
+    expect(new URL(captured?.url ?? "").pathname).toBe(
+      `/api/v1/assemblies/${assemblyId}/instances/${instanceId}/copy`,
+    );
+    // No offset: the server's +20 mm X is the one default.
+    expect(JSON.parse(await captured!.text())).toEqual({ expected_version: 5 });
+  });
+
+  it("throws the typed StaleAssemblyVersionError on a 422 stale version", async () => {
+    const error = await copyInstance(
+      assemblyId,
+      instanceId,
+      { expected_version: 1 },
+      clientReturning(
+        json(
+          {
+            error: {
+              code: "stale_assembly_version",
+              message: "graph moved on",
+            },
+          },
+          422,
+        ),
+      ),
+    ).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(StaleAssemblyVersionError);
+    expect((error as Error).message).toMatch(/graph moved on/);
   });
 });
 

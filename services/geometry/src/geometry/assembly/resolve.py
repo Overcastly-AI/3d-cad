@@ -5,8 +5,10 @@ Item #2 proved the solver numerics against SYNTHETIC resolved geometry; this
 module derives that same resolved geometry from REAL evaluated OCCT part bodies,
 so the ``(point, normal)`` / ``(point, direction)`` pairs handed to
 :class:`~geometry.assembly.protocol.SolverMate.geometry` come from the kernel,
-not a test fixture. It reuses — never reimplements — the stage-1 signature
-resolvers topological naming already ships:
+not a test fixture. It reuses — never reimplements — the tiered resolvers
+topological naming already ships, with the part's history-based face names, so
+a mate follows a face or hole that a part edit MOVED (the named tier) exactly
+as a feature's picked reference does (RESEARCH §21):
 
 - a :class:`~loft_wire.assemblies.MateFaceRef` resolves through
   :func:`geometry.kernel.faces.resolve_face_plane` (the SAME machinery an
@@ -15,11 +17,12 @@ resolvers topological naming already ships:
   the sign convention the solver's ``coincident`` residual expects (``flush`` ⇒
   ``n_a + n_b = 0``, the two outward normals anti-parallel, design §2.3).
 - a :class:`~loft_wire.assemblies.MateAxisRef` (``curve == "circle"``)
-  resolves through :func:`geometry.kernel.edges.resolve_edge`, then the circle's
-  centre and axis direction come from the exact B-rep (``BRepAdaptor_Curve`` →
-  ``gp_Circ``) — a hole rim or a shaft rim. The centre lies ON the axis line and
-  the axis direction is the circle's normal, which is what ``concentric`` needs
-  (its ± sense is resolved by the seed inside the solver, design §2.2).
+  resolves through :func:`geometry.kernel.edges.resolve_edge_durable`, then the
+  circle's centre and axis direction come from the exact B-rep
+  (``BRepAdaptor_Curve`` → ``gp_Circ``) — a hole rim or a shaft rim. The centre
+  lies ON the axis line and the axis direction is the circle's normal, which is
+  what ``concentric`` needs (its ± sense is resolved by the seed inside the
+  solver, design §2.2).
 
 All resolved geometry is in the instance's LOCAL part frame (the part body is
 evaluated in its own frame); the solver transforms it to world by the instance's
@@ -55,7 +58,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from build123d import GeomType, Vector
 from loft_wire.assemblies import (
@@ -68,9 +71,10 @@ from loft_wire.assemblies import (
     mate_instance_ids,
 )
 from loft_wire.geometry import Vec3
-from loft_wire.joints import JointMate
+from loft_wire.joints import JointMate, JointOrigin
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 
+from geometry.assembly.joint_origins import FaceNames, resolve_joint_origin
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,
     AssemblySolveInput,
@@ -80,7 +84,7 @@ from geometry.assembly.protocol import (
     SolverInstance,
     SolverMate,
 )
-from geometry.kernel.edges import resolve_edge
+from geometry.kernel.edges import resolve_edge_durable
 from geometry.kernel.faces import (
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
@@ -111,6 +115,11 @@ class ResolvableInstance:
     body: BodyShape
     placement: Placement
     grounded: bool = False
+    #: The part evaluation's history-based face names, aligned with
+    #: ``body.faces()`` (:meth:`~geometry.features.evaluate.TreeEvaluation.face_names`).
+    #: They enable the named tier, which carries a mate or joint through a part
+    #: edit that moved its face or hole; ``None`` runs the geometric tiers only.
+    face_names: FaceNames = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -132,7 +141,9 @@ def _vec3(vector: Vector) -> Vec3:
     return Vec3(x=float(vector.X), y=float(vector.Y), z=float(vector.Z))
 
 
-def _resolve_face(body: BodyShape, ref: MateFaceRef) -> ResolvedFace:
+def _resolve_face(
+    body: BodyShape, ref: MateFaceRef, face_names: FaceNames
+) -> ResolvedFace:
     """Resolve a planar-face ref to ``(centroid point, outward unit normal)``.
 
     Delegates to the ``on_face`` datum's :func:`resolve_face_plane` (offset 0):
@@ -142,7 +153,7 @@ def _resolve_face(body: BodyShape, ref: MateFaceRef) -> ResolvedFace:
     resolver; a zero/multiple match becomes :class:`AssemblyDefinitionError`.
     """
     try:
-        plane = resolve_face_plane(body, ref.signature, 0.0)
+        plane = resolve_face_plane(body, ref.signature, 0.0, face_names=face_names)
     except _SUBSHAPE_ERRORS as exc:
         raise AssemblyDefinitionError(
             f"mate face ref for instance {ref.instance_id} did not resolve to "
@@ -151,10 +162,13 @@ def _resolve_face(body: BodyShape, ref: MateFaceRef) -> ResolvedFace:
     return ResolvedFace(point=_vec3(plane.origin), normal=_vec3(plane.z_dir))
 
 
-def _resolve_axis(body: BodyShape, ref: MateAxisRef) -> ResolvedAxis:
+def _resolve_axis(
+    body: BodyShape, ref: MateAxisRef, face_names: FaceNames
+) -> ResolvedAxis:
     """Resolve a circular-edge ref to ``(circle centre, axis unit direction)``.
 
-    Resolves the edge with :func:`resolve_edge` (exactly-one-or-error), then
+    Resolves the edge with :func:`resolve_edge_durable` (exactly-one-or-error,
+    following a moved hole by its name), then
     requires it be a CIRCLE and reads the centre + axis direction from the exact
     B-rep (``BRepAdaptor_Curve`` → ``gp_Circ``). The centre lies on the axis line
     and the axis direction is the circle's normal — the ``concentric`` residual
@@ -162,7 +176,7 @@ def _resolve_axis(body: BodyShape, ref: MateAxisRef) -> ResolvedAxis:
     a legible :class:`AssemblyDefinitionError`, never a wrong axis.
     """
     try:
-        edge = resolve_edge(body, ref.signature)
+        edge = resolve_edge_durable(body, ref.signature, face_names=face_names).edge
     except _SUBSHAPE_ERRORS as exc:
         raise AssemblyDefinitionError(
             f"mate axis ref for instance {ref.instance_id} did not resolve to "
@@ -184,20 +198,23 @@ def _resolve_axis(body: BodyShape, ref: MateAxisRef) -> ResolvedAxis:
 
 
 def resolve_mate_geometry(
-    body: BodyShape, ref: MateGeometryRef
+    body: BodyShape, ref: MateGeometryRef, *, face_names: FaceNames = None
 ) -> ResolvedMateGeometry:
     """Resolve one :class:`MateGeometryRef` against a part body (LOCAL frame).
 
     A :class:`MateFaceRef` → :class:`ResolvedFace`; a :class:`MateAxisRef` →
     :class:`ResolvedAxis`. The single entry point #4/#5 call per mate slot.
+    *face_names* (aligned with ``body.faces()``) enables the named tier.
     """
     if isinstance(ref, MateFaceRef):
-        return _resolve_face(body, ref)
-    return _resolve_axis(body, ref)
+        return _resolve_face(body, ref, face_names)
+    return _resolve_axis(body, ref, face_names)
 
 
-def _body_for(ref: MateGeometryRef, body_of: dict[uuid.UUID, BodyShape]) -> BodyShape:
-    """The evaluated body of the instance a ref names, or a clean error.
+def _body_for(
+    ref: MateGeometryRef | JointOrigin, body_of: dict[uuid.UUID, ResolvableInstance]
+) -> ResolvableInstance:
+    """The evaluated instance (body and face names) a ref names, or a clean error.
 
     A ref to an instance absent from the assembly is malformed input — an
     :class:`AssemblyDefinitionError`, never a crash (design §4 step 2).
@@ -211,7 +228,7 @@ def _body_for(ref: MateGeometryRef, body_of: dict[uuid.UUID, BodyShape]) -> Body
 
 
 def _resolve_mate_pair(
-    mate: MateParams, body_of: dict[uuid.UUID, BodyShape]
+    mate: MateParams, body_of: dict[uuid.UUID, ResolvableInstance]
 ) -> tuple[ResolvedMateGeometry, ResolvedMateGeometry] | None:
     """Resolve a mate's ``a``/``b`` slots into the solver's geometry pair.
 
@@ -229,13 +246,22 @@ def _resolve_mate_pair(
                 )
         return None
     if isinstance(mate, JointMate):
-        # Joints are stored and edited before the solver understands them;
-        # refuse one cleanly (evaluate drops it as `mate_unsupported`).
-        raise AssemblyDefinitionError("joint mates are not solved yet")
-    return (
-        resolve_mate_geometry(_body_for(mate.a, body_of), mate.a),
-        resolve_mate_geometry(_body_for(mate.b, body_of), mate.b),
-    )
+        return (_resolve_origin(mate.a, body_of), _resolve_origin(mate.b, body_of))
+    return (_resolve_ref(mate.a, body_of), _resolve_ref(mate.b, body_of))
+
+
+def _resolve_origin(
+    origin: JointOrigin, body_of: dict[uuid.UUID, ResolvableInstance]
+) -> ResolvedMateGeometry:
+    inst = _body_for(origin, body_of)
+    return resolve_joint_origin(inst.body, origin, face_names=inst.face_names)
+
+
+def _resolve_ref(
+    ref: MateGeometryRef, body_of: dict[uuid.UUID, ResolvableInstance]
+) -> ResolvedMateGeometry:
+    inst = _body_for(ref, body_of)
+    return resolve_mate_geometry(inst.body, ref, face_names=inst.face_names)
 
 
 def build_assembly_solve_input(
@@ -255,11 +281,11 @@ def build_assembly_solve_input(
             not in the assembly, a stale/ambiguous signature, or a non-circular
             edge where an axis is expected (design §4 step 2).
     """
-    body_of: dict[uuid.UUID, BodyShape] = {}
+    body_of: dict[uuid.UUID, ResolvableInstance] = {}
     for inst in instances:
         if inst.instance_id in body_of:
             raise AssemblyDefinitionError(f"duplicate instance id {inst.instance_id}")
-        body_of[inst.instance_id] = inst.body
+        body_of[inst.instance_id] = inst
 
     solver_instances = [
         SolverInstance(

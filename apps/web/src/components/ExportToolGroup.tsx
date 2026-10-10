@@ -2,6 +2,7 @@ import { ToolButton, ToolGroup } from "@loft/design";
 
 import type { ExportedFile, ExportFormat } from "../api/exportPart";
 import { EXPORT_FORMATS, useExportAction } from "../features/exportAction";
+import { ExportConfirm } from "./ExportConfirm";
 
 export interface ExportToolGroupProps {
   /** Fetch the file for a format — the caller binds the part or assembly. */
@@ -38,6 +39,11 @@ export interface ExportToolGroupProps {
    * an identifier no glyph can spell — see the table in `CreateStrip.tsx`.
    */
   labelPriority?: number;
+  /**
+   * Set = a format click asks once before it writes; this is why. The band has
+   * no notice line, so the confirm hangs under the group (`ExportConfirm`).
+   */
+  confirmReason?: string | null;
 }
 
 /**
@@ -68,8 +74,10 @@ export function ExportToolGroup({
   partialQualifier,
   state,
   labelPriority,
+  confirmReason = null,
 }: ExportToolGroupProps) {
-  const { busy, failed, failure, run } = useExportAction(exporter);
+  const { busy, failed, failure, request, armed, confirm, cancel } =
+    useExportAction(exporter, confirmReason !== null);
   const blocked = disabledReason !== undefined;
   /** The clause every cell carries: why it is inert, or what the file will be. */
   const qualifier =
@@ -82,6 +90,7 @@ export function ExportToolGroup({
       labelPriority={labelPriority}
       data-testid={`${testIdPrefix}-controls`}
       data-export-state={state}
+      className="relative"
     >
       {EXPORT_FORMATS.map(({ format, label, caption, name, icon }) => (
         <ToolButton
@@ -110,9 +119,19 @@ export function ExportToolGroup({
                     : caption))
           }
           data-testid={`${testIdPrefix}-${format}`}
-          onClick={() => void run(format)}
+          onClick={() => request(format)}
         />
       ))}
+      {armed !== null && confirmReason !== null ? (
+        <ExportConfirm
+          format={armed}
+          reason={confirmReason}
+          testIdPrefix={testIdPrefix}
+          onConfirm={confirm}
+          onCancel={cancel}
+          className="absolute right-0 top-full z-40 mt-1 w-[18rem] border border-hairline bg-anvil px-3 py-2 shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
+        />
+      ) : null}
       {failure !== null ? (
         // The band has no room for the strip's ruled alert, and a failure the
         // user only discovers by hovering is a failure they do not discover.

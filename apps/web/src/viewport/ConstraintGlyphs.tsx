@@ -19,7 +19,6 @@
  * founder's report while the ink they annotate did not.
  */
 import {
-  ExpressionField,
   NumberField,
   Panel,
   SegmentedControl,
@@ -53,6 +52,8 @@ import {
   dimensionNameError,
   type DimensionValue,
 } from "../sketch/dimensionExpr";
+import { ValueField } from "../components/ValueField";
+import { sketchDimensionScope } from "../sketch/readouts";
 import { cornerPoint } from "../sketch/corner";
 import { entityAnchor } from "../sketch/geometry";
 import { planeToWorld, type PlaneBasis } from "../sketch/plane";
@@ -126,6 +127,8 @@ interface TypedField {
   /** Write the cell from code (e.g. "Flip side") — DOM and shadow together. */
   write: (next: string) => void;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  /** The shadow, from a cell that reports text rather than events. */
+  onText: (next: string) => void;
 }
 
 /**
@@ -166,6 +169,7 @@ function useTypedField(resetKey: string | null, initial: string): TypedField {
       setTyped(next);
     },
     onChange: (event) => setTyped(event.target.value),
+    onText: (next) => setTyped(next),
   };
 }
 
@@ -281,6 +285,11 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
     target?.constraintIndex,
     target?.unit === "deg" ? "deg" : "mm",
   );
+  const editedIndex = target?.constraintIndex ?? null;
+  const dimensionScope = useMemo(
+    () => sketchDimensionScope(constraints, solvedReadout, editedIndex),
+    [constraints, solvedReadout, editedIndex],
+  );
 
   // One identity per edited constraint: it re-prefills the cells, so opening a
   // second dimension never inherits the first one's text.
@@ -385,7 +394,7 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
       <Panel className="w-[13rem] space-y-2 p-2" data-testid="dimension-editor">
         <form onSubmit={onSubmit} className="space-y-2">
           {isDriving ? (
-            <ExpressionField
+            <ValueField
               // Keyed on the target so a retarget REMOUNTS the cell. Moving
               // `defaultValue` is not enough on its own: it sets the value
               // ATTRIBUTE, which the HTML spec ignores once the field is dirty
@@ -394,11 +403,16 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
               key={`value:${editKey ?? ""}`}
               label={noun}
               unit={target.unit}
-              ref={valueField.ref}
-              defaultValue={valueField.defaultValue}
+              // The formula is the dimension's own `expression` (no pointer):
+              // it may read this sketch's named dimensions and the part's
+              // parameters, both offered as it is typed (PART-PARAMETERS).
+              kind={target.unit === "deg" ? "angle" : "length"}
+              dimensions={dimensionScope}
+              inputRef={valueField.ref}
+              value={valueField.defaultValue}
               error={valueError}
-              resolved={resolved}
-              onChange={valueField.onChange}
+              fallbackHint={resolved}
+              onValueChange={valueField.onText}
               onKeyDown={onKeyDown}
               autoFocus
               onFocus={(event) => event.target.select()}

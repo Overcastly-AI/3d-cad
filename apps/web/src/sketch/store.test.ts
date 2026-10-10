@@ -2079,18 +2079,18 @@ describe("draw-time dimensions", () => {
     expect(store().drawDimensionFocus).toBeNull();
   });
 
-  it("dimensions a circle by radius", () => {
+  it("dimensions a circle by diameter, a formula riding as its expression", () => {
     const store = useSketchStore.getState;
     store().begin();
     store().choosePlane("XY");
     store().setTool("circle");
     store().placeAt({ x: 0, y: 0 });
     store().placeAt({ x: 5, y: 0 });
-    store().commitDrawDimensions({ radius: 12 });
+    store().commitDrawDimensions({ diameter: 24 }, { diameter: "D" });
     const circle = store().entities[0];
     expect(circle?.kind === "circle" && circle.radius).toBe(12);
     expect(store().constraints).toEqual([
-      { kind: "radius", entity: "e1", value_mm: 12 },
+      { kind: "diameter", entity: "e1", value_mm: 24, expression: "D" },
     ]);
   });
 });

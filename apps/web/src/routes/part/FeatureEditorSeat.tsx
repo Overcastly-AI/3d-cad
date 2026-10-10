@@ -21,6 +21,8 @@ import { PatternEditor } from "../../components/PatternEditor";
 import { RevolveEditor } from "../../components/RevolveEditor";
 import { ShellEditor } from "../../components/ShellEditor";
 import { SweepEditor } from "../../components/SweepEditor";
+import { FormulaSessionContext } from "../../components/ValueField";
+import type { EditorFormulas } from "./useEditorFormulas";
 import type { PartDocument } from "./usePartDocument";
 import type { PartBody } from "./usePartBody";
 import type { FeatureCatalog } from "./useFeatureCatalog";
@@ -43,6 +45,7 @@ export function FeatureEditorSeat({
   featureSubmit,
   editorRepick,
   editorSeat,
+  editorFormulas,
   rebuildNotices,
   solvedSketches,
   pickOverlays,
@@ -52,6 +55,7 @@ export function FeatureEditorSeat({
   actionFlags,
   datumFacePicking,
 }: {
+  editorFormulas: Pick<EditorFormulas, "formulaSession" | "editorInputError">;
   partDocument: Pick<PartDocument, "mode">;
   partBody: Pick<PartBody, "editor" | "hasBody">;
   featureCatalog: Pick<
@@ -219,8 +223,12 @@ export function FeatureEditorSeat({
   const { onEdgeFlangeSpanChange, onReliefBendsChange } = pickSessions;
   const { datumEditorRefs, datumSketchLines } = actionFlags;
   const { toggleDatumFacePick } = datumFacePicking;
+  const { formulaSession, editorInputError } = editorFormulas;
+  // A save's refusal, else the feature's own `input_error` when no field on
+  // screen carries it (PART-PARAMETERS step 8).
+  const seatError = editorError ?? editorInputError;
   return (
-    <>
+    <FormulaSessionContext.Provider value={formulaSession}>
       {mode === "off" && editor !== null ? (
         editor.kind === "extrude" ? (
           <ExtrudeEditor
@@ -230,7 +238,7 @@ export function FeatureEditorSeat({
             onSubmit={submitExtrude}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
             onPreviewChange={setExtrudePreview}
             depthOverride={extrudeDepthOverride}
           />
@@ -243,7 +251,7 @@ export function FeatureEditorSeat({
             onSubmit={submitRevolve}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
             onGaugeChange={setRevolveGauge}
             angleOverride={revolveAngleOverride}
           />
@@ -256,7 +264,7 @@ export function FeatureEditorSeat({
             onSubmit={submitSweep}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
             rebuildError={sweepRebuildError}
             profileEntities={profileEntities}
           />
@@ -268,7 +276,7 @@ export function FeatureEditorSeat({
             onSubmit={submitLoft}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
           />
         ) : editor.kind === "pattern" ? (
           <PatternEditor
@@ -277,7 +285,7 @@ export function FeatureEditorSeat({
             onSubmit={submitPattern}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
             // ANCHOR C — contract β's echo, both halves. The
             // gauges ask, the form takes it, the form projects the
             // row back out through `onPreviewChange`, and the
@@ -295,7 +303,7 @@ export function FeatureEditorSeat({
             onSubmit={submitFillet}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
             radiusOverride={filletRadiusOverride}
             onPreviewChange={setFilletRadiusMm}
           />
@@ -308,7 +316,7 @@ export function FeatureEditorSeat({
             onSubmit={submitChamfer}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
             distanceOverride={chamferDistanceOverride}
             onPreviewChange={setChamferDistanceMm}
           />
@@ -320,7 +328,7 @@ export function FeatureEditorSeat({
             onSubmit={submitShell}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
             onThicknessChange={setShellThicknessMm}
             thicknessOverride={shellThicknessOverride}
           />
@@ -332,7 +340,7 @@ export function FeatureEditorSeat({
             onSubmit={submitDraft}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
             onGaugeChange={setDraftGauge}
             angleOverride={draftAngleOverride}
           />
@@ -343,7 +351,7 @@ export function FeatureEditorSeat({
             onSubmit={submitHole}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
             canPickFace={hasBody}
             // PICK-2: an armed pick whose overlay cannot populate is
             // not an armed pick. Reading `null` here is what stops
@@ -369,7 +377,7 @@ export function FeatureEditorSeat({
             onSubmit={submitBaseFlange}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
           />
         ) : editor.kind === "edgeFlange" ? (
           <EdgeFlangeEditor
@@ -381,7 +389,7 @@ export function FeatureEditorSeat({
             onSubmit={submitEdgeFlange}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
             onSpanChange={onEdgeFlangeSpanChange}
           />
         ) : editor.kind === "hem" ? (
@@ -394,7 +402,7 @@ export function FeatureEditorSeat({
             onSubmit={submitHem}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
           />
         ) : editor.kind === "cornerRelief" ? (
           <CornerReliefEditor
@@ -405,7 +413,7 @@ export function FeatureEditorSeat({
             onSubmit={submitCornerRelief}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
             onBendsChange={onReliefBendsChange}
           />
         ) : editor.kind === "mirror" ? (
@@ -416,7 +424,7 @@ export function FeatureEditorSeat({
             onSubmit={submitMirror}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
           />
         ) : editor.kind === "datum" ? (
           <DatumEditor
@@ -427,7 +435,7 @@ export function FeatureEditorSeat({
             onSubmit={submitDatum}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
             canPickFace={hasBody}
             // PICK-2, as for the hole editor: an armed slot whose
             // overlay cannot populate reads as not armed…
@@ -450,10 +458,10 @@ export function FeatureEditorSeat({
             onSubmit={submitCombine}
             onCancel={closeEditor}
             saving={editorSaving}
-            error={editorError}
+            error={seatError}
           />
         )
       ) : null}
-    </>
+    </FormulaSessionContext.Provider>
   );
 }

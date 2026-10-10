@@ -1,0 +1,111 @@
+{
+  "description": "PLANAR + BALL JOINT GOLDEN (S4b, RESEARCH §22): three instances of the SAME 40 x 25 x 10 mm plate (two r5 through-holes at (12, 12.5) and (28, 12.5)). Plate A is grounded at the origin. Plate B sits on A on a PLANAR joint (A's top face centre to B's bottom face centre) driven to rot_deg = 90 with rotation limits [-90, 90], so the value sits ON its max. B is seeded upside down (a half turn about X) at (5, 22, 30): the joint discards the seed's tilt and height but keeps its in-plane position. Plate C hangs from B on a BALL joint (B's hole-2 top rim centre to C's hole-1 bottom rim centre), seeded far away at (100, 100, 100) and turned a quarter turn about X: the ball keeps that orientation and moves C so the two centres coincide. Locks: the planar and ball rows, the planar snap (value for the turn, seed for the slide), the ball snap (seed orientation), DOF 3 + 3 = 6 from the hard rows, at_limit for a value driven onto its bound, and the closed-form chain A -> B -> C.",
+  "derivation": [
+    "Expectations are HAND-DERIVED, not recorded pipeline output. The plate's own mass properties are the sketch-extrude-plate-2holes golden's: volume 8429.203673205104 mm^3, surface_area 3614.159265358979 mm^2, centroid (20, 12.5, 5), AABB [0,0,0]..[40,25,10], 8 faces / 18 edges / 1 shell.",
+    "Planar frame A (face_centre, A's top face): the face's area centroid; the two holes are symmetric about x = 20 and y = 12.5, so the origin is (20, 12.5, 10). Z = outward normal +Z; X = reference axis least aligned with Z = +X; Y = +Y.",
+    "Planar frame B (face_centre, B's bottom face, B-local): origin (20, 12.5, 0); Z = outward normal -Z; X = +X (reference_x is even in Z); Y = Z x X = -Y.",
+    "Planar seed: B's seed is q = (1, 0, 0, 0), a half turn about X, (x, y, z) -> (x, -y, -z), at t = (5, 22, 30). Its frame origin sits at (20, -12.5, 0) + (5, 22, 30) = (25, 9.5, 30). The in-plane slide is measured along A's frame X and Y from A's origin: u = 25 - 20 = 5, v = 9.5 - 12.5 = -3. The normal distance (30 - 10) and the seed's tilt are not free axes and are discarded.",
+    "Planar relation: F_B = F_A o Trans(u, v, offset) o RotZ(angle + rot) o RotX(180 deg) with u = 5, v = -3, offset 0, angle 0, rot = 90 deg. World B frame: origin (25, 9.5, 10); x = RotZ(90) X = +Y; z = -Z; y = z x x = (-Z) x Y = +X.",
+    "B's body rotation R_B maps the local frame onto that: R_B(+X) = +Y, R_B(-Y) = +X so R_B(Y) = -X, R_B(-Z) = -Z so R_B(Z) = Z: RotZ(+90 deg), quaternion (0, 0, sin 45, cos 45) = (0, 0, 0.7071067811865476, 0.7071067811865476). Translation t_B = (25, 9.5, 10) - R_B (20, 12.5, 0) = (25, 9.5, 10) - (-12.5, 20, 0) = (37.5, -10.5, 10).",
+    "Ball frame on B (circle_centre, B's hole-2 TOP rim, B-local): origin (28, 12.5, 10), Z out of the top face = +Z. World: R_B (28, 12.5, 10) + t_B = (-12.5, 28, 10) + (37.5, -10.5, 10) = (25, 17.5, 20).",
+    "Ball frame on C (circle_centre, C's hole-1 BOTTOM rim, C-local): origin (12, 12.5, 0), Z out of the bottom face = -Z.",
+    "Ball relation: the two frame origins coincide (offset 0); C keeps its seed orientation R_C = RotX(+90 deg), q = (sin 45, 0, 0, cos 45) = (0.7071067811865476, 0, 0, 0.7071067811865476), (x, y, z) -> (x, -z, y). R_C (12, 12.5, 0) = (12, 0, 12.5), so t_C = (25, 17.5, 20) - (12, 0, 12.5) = (13, 17.5, 7.5). The seed position (100, 100, 100) is discarded.",
+    "Joint states: planar rot_deg = atan2(x_B . y_A, x_B . x_A) - angle = atan2(1, 0) = 90; lin_mm null (a planar joint carries no single linear value); at_limit TRUE (the driven 90 equals rot_max_deg 90); axis_world = A's Z = (0, 0, 1). Ball: rot_deg and lin_mm null (three rotations, no scalar), at_limit false, axis_world = B's ball frame Z in the world = R_B (0, 0, 1) = (0, 0, 1).",
+    "remaining_dof = 6: planar hard rows z_B + z_A (rank 2) and the normal distance (rank 1) leave 3 of B's 6; the ball's 3 position rows leave 3 of C's 6. The planar driving row places B but removes no DOF, so status is under_constrained.",
+    "Probes: B's bottom face centre (20, 12.5, 0) -> (25, 9.5, 10), on A's top plane z = 10, (5, -3) from A's top centre. B's hole-2 top centre (28, 12.5, 10) and C's hole-1 bottom centre (12, 12.5, 0) both land on (25, 17.5, 20), the ball centre. C's corner (40, 25, 10) -> R_C (40, 25, 10) + t_C = (40, -10, 25) + (13, 17.5, 7.5) = (53, 7.5, 32.5).",
+    "combined volume = 3 x 8429.203673205104 = 25287.611019615312 mm^3; surface_area = 3 x 3614.159265358979 = 10842.477796076937 mm^2 (sums; no boolean).",
+    "combined centroid: A (20, 12.5, 5); B = R_B (20, 12.5, 5) + t_B = (-12.5 + 37.5, 20 - 10.5, 5 + 10) = (25, 9.5, 15); C = R_C (20, 12.5, 5) + t_C = (20 + 13, -5 + 17.5, 12.5 + 7.5) = (33, 12.5, 20). Equal volumes, so the mean is (78/3, 34.5/3, 40/3) = (26, 11.5, 13.333333333333334).",
+    "combined bounding_box: A [0,0,0]..[40,25,10]. B: x = -y + 37.5 in [12.5, 37.5], y = x - 10.5 in [-10.5, 29.5], z in [10, 20]. C: x = x + 13 in [13, 53], y = -z + 17.5 in [7.5, 17.5], z = y + 7.5 in [7.5, 32.5]. Both are quarter turns, so the corner unions are exact. Union [0, -10.5, 0]..[53, 29.5, 32.5].",
+    "combined topology 24 / 54 / 3 (summed); distinct_mesh_count 1 (one part_key shared by all three instances)."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "CLOSED-FORM tolerance: both joints hang off a grounded parent in a tree, so the closed-form snap places B then C with no iteration and the solved poses are the analytic ones to float64 round-off. Measured first (2026-10-10, build123d 0.11.1 / OCCT 7.9, numpy BLAS pinned to 1 thread): B position within 5.4e-15 mm of (37.5, -10.5, 10), C position within 7.2e-15 mm of (13, 17.5, 7.5), quaternions within 1.2e-16 and rotation matrices within 4.5e-16, planar rot_deg within 1.5e-14 deg of 90, every probe within 7.2e-15 mm, combined volume within 3.7e-12 mm^3 (summation order of three part volumes), centroid within 1.1e-14 mm, bounding box within 7.2e-15 mm. 1e-9 is ~270x the worst observation and matches the S4a joint goldens. Loosening it requires a reviewed justification here and in docs/GEOMETRY-QA.md.",
+  "status": "under_constrained",
+  "remaining_dof": 6,
+  "distinct_mesh_count": 1,
+  "instances": [
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000001",
+      "placement": {
+        "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000002",
+      "placement": {
+        "position": { "x": 37.5, "y": -10.5, "z": 10.0 },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.7071067811865476,
+          "w": 0.7071067811865476
+        }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000003",
+      "placement": {
+        "position": { "x": 13.0, "y": 17.5, "z": 7.5 },
+        "orientation": {
+          "x": 0.7071067811865476,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 0.7071067811865476
+        }
+      }
+    }
+  ],
+  "joint_states": [
+    {
+      "mate_id": "00000000-0000-0000-0000-0000000007d1",
+      "rot_deg": 90.0,
+      "lin_mm": null,
+      "at_limit": true,
+      "axis_world": { "x": 0.0, "y": 0.0, "z": 1.0 }
+    },
+    {
+      "mate_id": "00000000-0000-0000-0000-0000000007d2",
+      "rot_deg": null,
+      "lin_mm": null,
+      "at_limit": false,
+      "axis_world": { "x": 0.0, "y": 0.0, "z": 1.0 }
+    }
+  ],
+  "probes": [
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000002",
+      "local": { "x": 20.0, "y": 12.5, "z": 0.0 },
+      "world": { "x": 25.0, "y": 9.5, "z": 10.0 },
+      "note": "B's bottom face centre: on A's top plane, slid (5, -3) from A's top centre"
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000002",
+      "local": { "x": 28.0, "y": 12.5, "z": 10.0 },
+      "world": { "x": 25.0, "y": 17.5, "z": 20.0 },
+      "note": "B's hole-2 top rim centre: the ball centre"
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000003",
+      "local": { "x": 12.0, "y": 12.5, "z": 0.0 },
+      "world": { "x": 25.0, "y": 17.5, "z": 20.0 },
+      "note": "C's hole-1 bottom rim centre: on the ball centre"
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000003",
+      "local": { "x": 40.0, "y": 25.0, "z": 10.0 },
+      "world": { "x": 53.0, "y": 7.5, "z": 32.5 },
+      "note": "C's far corner: the seed's quarter turn about X is kept"
+    }
+  ],
+  "properties": {
+    "volume": 25287.611019615312,
+    "surface_area": 10842.477796076937,
+    "centroid": { "x": 26.0, "y": 11.5, "z": 13.333333333333334 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": -10.5, "z": 0.0 },
+      "max": { "x": 53.0, "y": 29.5, "z": 32.5 }
+    }
+  },
+  "topology": { "faces": 24, "edges": 54, "shells": 3 }
+}

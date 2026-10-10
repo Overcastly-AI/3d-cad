@@ -23,7 +23,6 @@ import {
   Checkbox,
   FieldRow,
   formatLength,
-  NumberField,
   Panel,
   PanelActionCell,
   SegmentedControl,
@@ -57,6 +56,7 @@ import {
   withProfile,
 } from "../features/extrude";
 import { EditorCard } from "./EditorCard";
+import { ValueField } from "./ValueField";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
 export interface ExtrudeEditorProps {
@@ -347,17 +347,19 @@ export function ExtrudeEditor({
               </FieldRow>
             )}
 
-            <NumberField
+            <ValueField
               label="Distance"
               layout="inline"
               emphasis="primary"
               unit={unit}
+              kind="length"
+              pointer="/distance_mm"
               data-testid="extrude-distance"
               autoFocus
               value={form.distanceInput}
               error={distanceMsg}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, distanceInput: e.target.value }))
+              onValueChange={(distanceInput) =>
+                setForm((f) => ({ ...f, distanceInput }))
               }
               onFocus={(e) => e.currentTarget.select()}
             />

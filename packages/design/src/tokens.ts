@@ -560,6 +560,19 @@ export const assembly = {
     /** Handle stroke width, in CSS px. */
     lineWidth: 3,
   },
+  /**
+   * The joint drive handle (Move on a jointed part): the joint's axis, scribed
+   * through the origin, and the one grip its motion allows — a ring for a
+   * revolute, an arrow for a slider. Brass, because it is the joint's own
+   * handle, not a world axis.
+   */
+  jointHandle: {
+    color: color.brass,
+    hovered: color.brassHover,
+    /** The axis scribe's half-length and the grip's size, in CSS px. */
+    sizePx: 72,
+    lineWidth: 2,
+  },
 } as const;
 
 /**

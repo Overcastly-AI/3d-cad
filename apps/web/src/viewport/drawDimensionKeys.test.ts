@@ -107,3 +107,25 @@ describe("signed values (typed coordinates, G2)", () => {
     expect(bufferDrawKey(null, "-", OPTIONS).kind).toBe("ignored");
   });
 });
+
+describe("formulas (QA-RECT-BOX-NAMES)", () => {
+  const DRAGGING = { ...OPTIONS, formula: "always" as const };
+
+  it("a letter is the tools' until a value has begun, then the value's", () => {
+    expect(bufferDrawKey(null, "w", OPTIONS).kind).toBe("ignored");
+    expect(bufferedText(type(["2", "*", "W"])!, 0)).toBe("2*W");
+  });
+
+  it("mid-drag the size box owns letters: W Tab H Enter is two names", () => {
+    const buffer = type(["W", "Tab", "H", "Enter"], DRAGGING);
+    expect(bufferedText(buffer!, 0)).toBe("W");
+    expect(bufferedText(buffer!, 1)).toBe("H");
+    expect(buffer!.apply).toBe(true);
+  });
+
+  it("an operator never starts a size, even mid-drag", () => {
+    for (const key of ["-", "*", " ", "/"]) {
+      expect(bufferDrawKey(null, key, DRAGGING).kind).toBe("ignored");
+    }
+  });
+});

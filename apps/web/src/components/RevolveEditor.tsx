@@ -17,7 +17,6 @@ import {
   Checkbox,
   CutIcon,
   NormalIcon,
-  NumberField,
   Panel,
   PanelActionCell,
   ReverseIcon,
@@ -46,6 +45,7 @@ import {
   type RevolveOperation,
 } from "../features/revolve";
 import { EditorCard } from "./EditorCard";
+import { ValueField } from "./ValueField";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
 /**
@@ -334,15 +334,17 @@ export function RevolveEditor({
               </p>
             )}
 
-            <NumberField
+            <ValueField
               label="Angle"
               unit="°"
+              kind="angle"
+              pointer="/angle_deg"
               data-testid="revolve-angle"
               autoFocus
               value={form.angleInput}
               error={angleMsg}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, angleInput: e.target.value }))
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, angleInput: value }))
               }
               onFocus={(e) => e.currentTarget.select()}
             />

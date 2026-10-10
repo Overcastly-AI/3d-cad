@@ -34,6 +34,7 @@ from documents.folders import assemblies_router as folder_assemblies_router
 from documents.folders import drawings_router as folder_drawings_router
 from documents.folders import parts_router as folder_parts_router
 from documents.folders import router as folders_router
+from documents.instance_copy import router as instance_copy_router
 from documents.loft_file import router as loft_file_router
 from documents.materials import router as materials_router
 from documents.parameters import router as parameters_router
@@ -99,6 +100,7 @@ def build_app(settings: DocumentsSettings | None = None) -> FastAPI:
     app.include_router(materials_router)
     app.include_router(assemblies_router)
     app.include_router(assembly_joints_router)
+    app.include_router(instance_copy_router)
     app.include_router(drawings_router)
     app.include_router(step_import_router)
     app.include_router(loft_file_router)

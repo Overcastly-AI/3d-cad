@@ -70,7 +70,7 @@ from loft_wire.geometry import (
     TopologyCounts,
     Vec3,
 )
-from loft_wire.joints import JointMate
+from loft_wire.joints import JointState
 
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,
@@ -125,6 +125,12 @@ class _PartResult:
     properties: ShapeProperties | None
     error: FeatureError | None
     evaluation: TreeEvaluation | None = None
+
+    def face_names(self) -> list[str | None] | None:
+        """The body's history-based face names (aligned with ``body.faces()``),
+        which let a mate follow a face or hole a part edit moved; ``None``
+        without an evaluation."""
+        return None if self.evaluation is None else self.evaluation.face_names()
 
 
 def _part_no_body_error(result: EvaluateTreeResult) -> FeatureError:
@@ -184,23 +190,6 @@ def _mate_self_reference_error(
                 f"mate {mate_id} constrains instance {instance_id} to itself; a "
                 "mate must relate two distinct instances"
             ),
-        ),
-    )
-
-
-def _mate_unsupported_error(mate_id: uuid.UUID) -> MateEvaluationError:
-    """A per-mate error for a joint, which the solver does not handle yet.
-
-    Joints are stored and edited by documents before the solver learns them;
-    until then one is DROPPED as a typed ``mate_unsupported`` error, so the
-    rest of the assembly still solves and nothing 500s (§4).
-    """
-    return MateEvaluationError(
-        mate_id=mate_id,
-        error=FeatureError(
-            code="mate_unsupported",
-            message=f"mate {mate_id} is a joint, which the solver does not "
-            "support yet; it was ignored",
         ),
     )
 
@@ -265,9 +254,6 @@ def _resolve_mates(
             # per-mate resolve guard) but the solver rejects it — drop it here as
             # a typed per-mate error instead of letting it raise (§4).
             mate_errors.append(_mate_self_reference_error(evaluated.mate_id, ids[0]))
-            continue
-        if isinstance(evaluated.mate, JointMate):
-            mate_errors.append(_mate_unsupported_error(evaluated.mate_id))
             continue
         resolvable = ResolvableMate(
             mate_id=evaluated.mate_id,
@@ -418,6 +404,7 @@ class SolvedAssembly:
     status: AssemblySolveStatus
     diagnosis: AssemblySolveDiagnosis | None
     mate_errors: list[MateEvaluationError]
+    joint_states: list[JointState]
 
 
 def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
@@ -435,6 +422,15 @@ def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
 
     evaluable: list[ResolvableInstance] = []
     instance_errors: dict[uuid.UUID, FeatureError] = {}
+    # Once per unique part, like its evaluation; only a part some mate names
+    # needs them, and an unmated assembly pays nothing.
+    mated = {
+        i for evaluated in request.mates for i in mate_instance_ids(evaluated.mate)
+    }
+    names_of: dict[str, list[str | None] | None] = {}
+    for inst in request.instances:
+        if inst.instance_id in mated and inst.part_key not in names_of:
+            names_of[inst.part_key] = parts[inst.part_key].face_names()
     for inst in request.instances:
         part = parts[inst.part_key]
         if part.body is None:
@@ -447,6 +443,7 @@ def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
                     body=part.body,
                     placement=inst.placement,
                     grounded=inst.grounded,
+                    face_names=names_of.get(inst.part_key),
                 )
             )
 
@@ -454,6 +451,7 @@ def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
     diagnosis: AssemblySolveDiagnosis | None = None
     mate_errors: list[MateEvaluationError] = []
     solved: dict[uuid.UUID, Placement] = {}
+    joint_states: list[JointState] = []
 
     if evaluable:
         try:
@@ -475,6 +473,7 @@ def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
             status = result.status
             diagnosis = result.diagnosis
             solved = {p.instance_id: p.placement for p in result.placements}
+            joint_states = result.joint_states
     else:
         diagnosis = AssemblySolveDiagnosis(
             remaining_dof=0,
@@ -504,6 +503,7 @@ def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
         status=status,
         diagnosis=diagnosis,
         mate_errors=mate_errors,
+        joint_states=joint_states,
     )
 
 
@@ -563,4 +563,5 @@ def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResul
         mate_errors=mate_errors,
         properties=combined,
         bounding_box=combined.bounding_box if combined is not None else None,
+        joint_states=solved_assembly.joint_states,
     )

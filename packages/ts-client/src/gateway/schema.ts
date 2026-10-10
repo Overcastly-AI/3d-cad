@@ -240,6 +240,31 @@ export interface paths {
         patch: operations["update_instance_api_v1_assemblies__assembly_id__instances__instance_id__patch"];
         trace?: never;
     };
+    "/api/v1/assemblies/{assembly_id}/instances/{instance_id}/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy Instance
+         * @description Copy one instance within its assembly and return the copy (201).
+         *
+         *     Fusion's Copy and Paste: same referenced document, next free ``<n>`` name,
+         *     the source's pose offset by ``offset`` (+20 mm X by default), not
+         *     grounded, no mates or joints copied. Bumps ``doc_version`` and records one
+         *     undo step; documents' 404 / 422 envelopes are re-surfaced verbatim.
+         */
+        post: operations["copy_instance_api_v1_assemblies__assembly_id__instances__instance_id__copy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}/mates": {
         parameters: {
             query?: never;
@@ -1603,6 +1628,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/evaluation-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Part Evaluation Request
+         * @description The part's evaluation-ready feature list, exactly as ``evaluate`` sends
+         *     it to geometry: rollback bar applied, params upcast, every formula
+         *     resolved, and a feature whose formula no longer resolves carrying its
+         *     ``input_error`` (PART-PARAMETERS, RESEARCH §20).
+         *
+         *     The web builds its measure and pick (overlay) requests from this rather
+         *     than from ``GET /features``, so those tools see the body the viewport
+         *     shows: a sick feature builds nothing there either, instead of a phantom
+         *     body from its last good numbers (MEASURE-FROM-EVAL-REQUEST). ``before``
+         *     is the Edit-feature cut, as on ``evaluate``. A read: nothing is evaluated
+         *     or recorded.
+         */
+        get: operations["get_part_evaluation_request_api_v1_parts__part_id__evaluation_request_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/export": {
         parameters: {
             query?: never;
@@ -1888,7 +1943,10 @@ export interface paths {
          *     that does not evaluate is a 422 carrying the expression error's code
          *     (`expression_syntax`, `expression_unknown_name`, `expression_cycle` with
          *     its `chain`, `expression_name_invalid`, `expression_units`,
-         *     `expression_domain`, `expression_too_complex`).
+         *     `expression_domain`, `expression_too_complex`). Deleting a parameter a
+         *     feature still reads is a 409 `parameter_in_use` naming the features; a
+         *     rename rewrites every feature's references; the same table again changes
+         *     nothing.
          */
         put: operations["put_part_parameters_api_v1_parts__part_id__parameters_put"];
         post?: never;
@@ -2273,6 +2331,16 @@ export interface components {
             assembly_id: string;
             /** @description World-mm AABB of the SOLVED compound (union of each instance's part bbox at its solved pose); null when no instance produced a body */
             bounding_box: components["schemas"]["BoundingBox"] | null;
+            /**
+             * Conflicting Mates
+             * @description Ids of mutually-unsatisfiable mates (the solve's `diagnosis.conflicting_mates`). Omitted while empty. A drawing of this assembly reads it, with `mate_errors`, to say its parts are not where the mates put them.
+             */
+            conflicting_mates?: string[];
+            /**
+             * Mate Errors
+             * @description Mates the solve could not resolve and dropped, as on EvaluateAssemblyResult. Omitted while empty, so a solve that honoured every mate dumps exactly as before either field existed.
+             */
+            mate_errors?: components["schemas"]["MateEvaluationError"][];
             /**
              * Status
              * @description The solve these extents came out of. Anything other than `well_constrained` means the poses are a best fit, not a determined result (§2.4)
@@ -2702,6 +2770,13 @@ export interface components {
          *     defined, wired in MB-2).
          */
         BooleanFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["BooleanParamsV1"];
             /**
              * Suppressed
@@ -2821,6 +2896,13 @@ export interface components {
          * @description ``{"type": "chamfer", "version": 1, "params": {...}}`` envelope.
          */
         ChamferFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["ChamferParamsV1"];
             /**
              * Suppressed
@@ -3767,6 +3849,13 @@ export interface components {
          *     (datum-planes §4/§7).
          */
         DatumFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             /** Params */
             params: components["schemas"]["DatumOffsetParams"] | components["schemas"]["DatumOnFaceParams"] | components["schemas"]["DatumOffsetFromParams"] | components["schemas"]["DatumMidplaneParams"] | components["schemas"]["DatumAngleParams"];
             /**
@@ -4433,6 +4522,13 @@ export interface components {
          * @description ``{"type": "draft", "version": 1, "params": {...}}`` envelope.
          */
         DraftFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["DraftParamsV1"];
             /**
              * Suppressed
@@ -5549,6 +5645,13 @@ export interface components {
          * @description ``{"type": "extrude", "version": 1, "params": {...}}`` envelope.
          */
         ExtrudeFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["ExtrudeParamsV1"];
             /**
              * Suppressed
@@ -5968,6 +6071,13 @@ export interface components {
          * @description ``{"type": "fillet", "version": 1, "params": {...}}`` envelope.
          */
         FilletFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["FilletParamsV1"];
             /**
              * Suppressed
@@ -6316,6 +6426,13 @@ export interface components {
          *     :class:`HoleParamsV1`.
          */
         HoleFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["HoleParamsV1"];
             /**
              * Suppressed
@@ -6458,6 +6575,13 @@ export interface components {
          *     one. ``params`` is :class:`ImportParamsV1` (inline STEP text in v1).
          */
         ImportFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["ImportParamsV1"];
             /**
              * Suppressed
@@ -6517,6 +6641,30 @@ export interface components {
              * @constant
              */
             kind: "inline";
+        };
+        /**
+         * InstanceCopy
+         * @description Copy one instance within its assembly (Fusion's Copy and Paste).
+         *
+         *     The copy references the same document as the source, keeps its
+         *     orientation, and sits at the source's position plus ``offset`` (assembly
+         *     axes, mm). It is never grounded, and mates and joints are not copied.
+         */
+        InstanceCopy: {
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §1.2)
+             */
+            expected_version: number;
+            /**
+             * Offset
+             * @description [x, y, z] mm added to the source's position, in the assembly's axes. Absent reads [20, 0, 0].
+             */
+            offset?: [
+                number,
+                number,
+                number
+            ];
         };
         /**
          * InstanceCreate
@@ -7013,6 +7161,13 @@ export interface components {
          * @description ``{"type": "loft", "version": 1, "params": {...}}`` envelope.
          */
         LoftFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["LoftParamsV1"];
             /**
              * Suppressed
@@ -7596,6 +7751,13 @@ export interface components {
          *     :class:`MirrorParamsV1`.
          */
         MirrorFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["MirrorParamsV1"];
             /**
              * Suppressed
@@ -8223,6 +8385,13 @@ export interface components {
          * @description ``{"type": "pattern", "version": 1, "params": {...}}`` envelope.
          */
         PatternFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["PatternParamsV1"];
             /**
              * Suppressed
@@ -8826,6 +8995,13 @@ export interface components {
          * @description ``{"type": "revolve", "version": 1, "params": {...}}`` envelope.
          */
         RevolveFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["RevolveParamsV1"];
             /**
              * Suppressed
@@ -9083,6 +9259,13 @@ export interface components {
          *     :class:`SheetMetalBaseFlangeParamsV1`.
          */
         SheetMetalBaseFlangeFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["SheetMetalBaseFlangeParamsV1"];
             /**
              * Suppressed
@@ -9174,6 +9357,13 @@ export interface components {
          *     :class:`SheetMetalCornerReliefParamsV1`.
          */
         SheetMetalCornerReliefFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["SheetMetalCornerReliefParamsV1"];
             /**
              * Suppressed
@@ -9251,6 +9441,13 @@ export interface components {
          *     for the unfold's provenance. ``params`` is :class:`SheetMetalEdgeFlangeParamsV1`.
          */
         SheetMetalEdgeFlangeFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["SheetMetalEdgeFlangeParamsV1"];
             /**
              * Suppressed
@@ -9337,6 +9534,13 @@ export interface components {
          *     an edge flange does. ``params`` is :class:`SheetMetalHemParamsV1`.
          */
         SheetMetalHemFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["SheetMetalHemParamsV1"];
             /**
              * Suppressed
@@ -9525,6 +9729,13 @@ export interface components {
          * @description ``{"type": "shell", "version": 1, "params": {...}}`` envelope.
          */
         ShellFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["ShellParamsV1"];
             /**
              * Suppressed
@@ -9831,6 +10042,13 @@ export interface components {
          * @description ``{"type": "sketch", "version": 1, "params": {...}}`` envelope.
          */
         SketchFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["SketchParamsV1"];
             /**
              * Suppressed
@@ -10429,6 +10647,13 @@ export interface components {
          * @description ``{"type": "sweep", "version": 1, "params": {...}}`` envelope.
          */
         SweepFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
             params: components["schemas"]["SweepParamsV1"];
             /**
              * Suppressed
@@ -11409,6 +11634,42 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstanceMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    copy_instance_api_v1_assemblies__assembly_id__instances__instance_id__copy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+                instance_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstanceCopy"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13493,6 +13754,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvaluateTreeResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_part_evaluation_request_api_v1_parts__part_id__evaluation_request_get: {
+        parameters: {
+            query?: {
+                /** @description Evaluate only the features BEFORE this one (the feature itself excluded), ignoring the stored rollback bar: the same body a rollback bar on the preceding feature would give. Read-only: the bar and tree_version do not move and the evaluation is not recorded. Omit to evaluate the part as stored. An id that is not a feature of this part is a 404 feature_not_found. */
+                before?: string | null;
+            };
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluateTreeRequest"];
                 };
             };
             /** @description Validation Error */

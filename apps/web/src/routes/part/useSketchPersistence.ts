@@ -14,6 +14,11 @@ import {
   sketchFeatureUpdate,
   updateFeature,
 } from "../../api/parts";
+import { FeatureWriteError } from "../../api/envelope";
+import {
+  describeInputError,
+  INPUT_ERROR_CODES,
+} from "../../features/fieldFormulas";
 import { type SolveInfo } from "../../sketch/solveFeedback";
 import { planeRefFromSpec } from "../../sketch/plane";
 import { useSketchStore } from "../../sketch/store";
@@ -173,6 +178,22 @@ export function useSketchPersistence({
                 ? error.message
                 : "The sketch could not be saved — reload and try again.",
             );
+            // A dimension formula documents refuses at write (an unknown
+            // name, a cycle, a unit clash: PART-PARAMETERS step 4) never
+            // reaches the solver, so it takes the same diagnostic stamp a
+            // formula the solver refuses does, in the field's words.
+            if (
+              error instanceof FeatureWriteError &&
+              error.code?.startsWith("expression_") === true
+            ) {
+              useSketchStore.getState().adoptSolved(null, {
+                status: "invalid",
+                dof: null,
+                conflicting: [],
+                redundant: [],
+                message: describeInputError(error.message),
+              });
+            }
           } finally {
             if (isCreate) {
               creatingRef.current = false;
@@ -478,13 +499,23 @@ export function useSketchPersistence({
       // A bad expression / cycle / unknown-or-driven ref / div-by-zero comes
       // back as `sketch_invalid` — surface the server's message in the
       // diagnostic stamp (never swallow it), keeping the last-good geometry.
-      if (result.error.code === "sketch_invalid") {
+      // A formula over the part's parameters that no longer resolves (a name
+      // gone, a value out of range) is the sketch's `input_error`
+      // (SKETCH-STAMP-UNRESOLVED) and takes the same stamp, in the field's
+      // words.
+      if (
+        result.error.code === "sketch_invalid" ||
+        INPUT_ERROR_CODES.has(result.error.code)
+      ) {
         store.adoptSolved(null, {
           status: "invalid",
           dof: null,
           conflicting: [],
           redundant: [],
-          message: result.error.message,
+          message:
+            result.error.code === "sketch_invalid"
+              ? result.error.message
+              : describeInputError(result.error.message),
         });
         return;
       }

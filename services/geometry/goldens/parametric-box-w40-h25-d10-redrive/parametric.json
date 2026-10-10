@@ -1,0 +1,177 @@
+{
+  "description": "FIRST PARAMETRIC GOLDEN (PART-PARAMETERS step 4, RESEARCH §20): a box driven by a parameter table, the way a Fusion 360 user builds one -- W = 40, H = W - 15, D = 10 -- with the sketch's two driving dimensions = W and = H and the extrude depth = D. `tree` is the part as documents STORES it: every formula kept, every number resolved at the table below. model.json beside it is exactly what documents SENDS geometry for that table (asserted by the runner: loft_wire.feature_resolve turns this tree into that request byte for byte). Each step re-drives the table and rebuilds from the STORED entities, which still sit at the 40 x 25 drawing: the solver must move them to the new dimensions, as it does when a user edits a parameter. Steps are cumulative.",
+  "parameters": [
+    {
+      "id": "00000000-0000-4000-8000-0000000002a1",
+      "name": "W",
+      "expression": "40",
+      "unit": "length",
+      "comment": "box width (x)"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000002a2",
+      "name": "H",
+      "expression": "W - 15",
+      "unit": "length",
+      "comment": "box height (y), follows the width"
+    },
+    {
+      "id": "00000000-0000-4000-8000-0000000002a3",
+      "name": "D",
+      "expression": "10",
+      "unit": "length",
+      "comment": "extrude depth (z)"
+    }
+  ],
+  "tree": [
+    {
+      "id": "00000000-0000-0000-0000-0000000002b1",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": { "kind": "datum_plane", "plane": "XY" },
+          "entities": [
+            {
+              "id": "e1",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 0.0 },
+              "end": { "x": 40.0, "y": 0.0 }
+            },
+            {
+              "id": "e2",
+              "kind": "line",
+              "start": { "x": 40.0, "y": 0.0 },
+              "end": { "x": 40.0, "y": 25.0 }
+            },
+            {
+              "id": "e3",
+              "kind": "line",
+              "start": { "x": 40.0, "y": 25.0 },
+              "end": { "x": 0.0, "y": 25.0 }
+            },
+            {
+              "id": "e4",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 25.0 },
+              "end": { "x": 0.0, "y": 0.0 }
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "coincident",
+              "a": { "entity": "e1", "point": "end" },
+              "b": { "entity": "e2", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "e2", "point": "end" },
+              "b": { "entity": "e3", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "e3", "point": "end" },
+              "b": { "entity": "e4", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "e4", "point": "end" },
+              "b": { "entity": "e1", "point": "start" }
+            },
+            { "kind": "fixed", "point": { "entity": "e1", "point": "start" } },
+            { "kind": "horizontal", "entity": "e1" },
+            { "kind": "horizontal", "entity": "e3" },
+            { "kind": "vertical", "entity": "e2" },
+            { "kind": "vertical", "entity": "e4" },
+            {
+              "kind": "distance",
+              "entity": "e1",
+              "value_mm": 40.0,
+              "expression": "W"
+            },
+            {
+              "kind": "distance",
+              "entity": "e2",
+              "value_mm": 25.0,
+              "expression": "H"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000002b2",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "expressions": { "/distance_mm": "D" },
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000002b1"
+          },
+          "distance_mm": 10.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "set": { "D": "25" },
+      "derivation": [
+        "W = 40, H = W - 15 = 25, D = 25: a 40 x 25 x 25 box, origin corner fixed at (0, 0, 0)",
+        "volume = 40 * 25 * 25 = 25000 mm^3",
+        "surface_area = 2*(40*25) + 2*(40*25) + 2*(25*25) = 2000 + 2000 + 1250 = 5250 mm^2",
+        "centroid = (20, 12.5, 12.5); bounding_box = [0,0,0]..[40,25,25]"
+      ],
+      "properties": {
+        "volume": 25000.0,
+        "surface_area": 5250.0,
+        "centroid": { "x": 20.0, "y": 12.5, "z": 12.5 },
+        "bounding_box": {
+          "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+          "max": { "x": 40.0, "y": 25.0, "z": 25.0 }
+        }
+      }
+    },
+    {
+      "set": { "W": "2 in + 9.2" },
+      "derivation": [
+        "W = 2 in + 9.2 = 50.8 + 9.2 = 60 mm; H = W - 15 = 45 follows it through the table; D = 25 from the previous step",
+        "the sketch re-solves from its stored 40 x 25 drawing to 60 x 45: e1 start is fixed at the origin, e1/e3 horizontal, e2/e4 vertical",
+        "volume = 60 * 45 * 25 = 67500 mm^3",
+        "surface_area = 2*(60*45) + 2*(60*25) + 2*(45*25) = 5400 + 3000 + 2250 = 10650 mm^2",
+        "centroid = (30, 22.5, 12.5); bounding_box = [0,0,0]..[60,45,25]"
+      ],
+      "properties": {
+        "volume": 67500.0,
+        "surface_area": 10650.0,
+        "centroid": { "x": 30.0, "y": 22.5, "z": 12.5 },
+        "bounding_box": {
+          "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+          "max": { "x": 60.0, "y": 45.0, "z": 25.0 }
+        }
+      }
+    },
+    {
+      "set": { "D": "W / 4" },
+      "derivation": [
+        "D = W / 4 = 60 / 4 = 15 (a parameter reading another): a 60 x 45 x 15 box",
+        "volume = 60 * 45 * 15 = 40500 mm^3",
+        "surface_area = 2*(60*45) + 2*(60*15) + 2*(45*15) = 5400 + 1800 + 1350 = 8550 mm^2",
+        "centroid = (30, 22.5, 7.5); bounding_box = [0,0,0]..[60,45,15]"
+      ],
+      "properties": {
+        "volume": 40500.0,
+        "surface_area": 8550.0,
+        "centroid": { "x": 30.0, "y": 22.5, "z": 7.5 },
+        "bounding_box": {
+          "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+          "max": { "x": 60.0, "y": 45.0, "z": 15.0 }
+        }
+      }
+    }
+  ]
+}

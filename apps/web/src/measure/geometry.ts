@@ -29,6 +29,12 @@ export type MeasurePick =
  * documents feature tree — the rollback bar is applied client-side (drop the
  * rolled-back suffix) so geometry receives exactly the evaluated prefix, the
  * same body the viewport renders. Presentation deflection matches the mesh.
+ *
+ * The PART workspace's measure and pick requests no longer use this: they read
+ * documents' own evaluation request (`api/measure.ts`
+ * `fetchEvaluationRequest`), which marks a feature whose formula no longer
+ * resolves so it builds nothing there, as on evaluate. Built from here, such a
+ * feature still builds from its last good numbers.
  */
 export function buildEvaluateTree(
   tree: FeatureTreeResponse,

@@ -2,13 +2,12 @@
 
 Three claims, each pinned here:
 
-1. **Same part, same bytes.** The golden fixture (``golden-v1.1.loft``, with
-   named versions) is checked byte-for-byte, and a file that is read and packed
-   again comes back identical (the repack test). Regenerate the golden ONLY for
-   a deliberate format change:
-   ``LOFT_REGEN_GOLDEN=1 uv run pytest packages/loft-wire/tests/test_loft_file.py``.
-   ``golden-v1.loft`` is the frozen format 1.0 file: never regenerated, it
-   proves an older file still reads, and the hostile-zip tests start from it.
+1. **Same part, same bytes.** ``golden-v1.1.loft`` (with named versions) and
+   ``golden-v1.loft`` (format 1.0) are FROZEN: never regenerated, they prove an
+   older file still reads, and the 1.1 file pins the container (this build
+   writes its inputs to the same members, ``format_version`` aside). The
+   hostile-zip tests start from the 1.0 file. The 1.2 fixture, a parametric
+   part, is pinned in ``test_loft_formulas.py``.
 2. **The reader never trusts the zip.** Zip-slip paths, duplicates, directory
    entries, encryption, foreign compression, unknown members, every size cap and
    a zip bomb are each refused with their own code.
@@ -20,7 +19,6 @@ from __future__ import annotations
 
 import io
 import json
-import os
 import random
 import time
 import tracemalloc
@@ -164,26 +162,29 @@ def _members(data: bytes) -> dict[str, bytes]:
 # --- 1. canonical bytes -------------------------------------------------------------
 
 
-def test_golden_fixture_byte_for_byte() -> None:
-    """Pinned bytes. A diff here is a FORMAT change: bump the version or revert."""
-    produced = _golden_bytes()
-    if os.environ.get("LOFT_REGEN_GOLDEN") == "1":
-        GOLDEN.parent.mkdir(parents=True, exist_ok=True)
-        GOLDEN.write_bytes(produced)
-    expected = GOLDEN.read_bytes()
-    if produced != expected:
-        # Say WHICH layer moved before failing: a member's content, or only the
-        # deflate stream (a different zlib build), are different conversations.
-        same_members = _members(produced) == _members(expected)
-        pytest.fail(
-            "golden-v1.1.loft changed: "
-            + (
-                "member contents are identical, only the zip bytes differ "
-                f"(zlib {__import__('zlib').ZLIB_RUNTIME_VERSION})"
-                if same_members
-                else "member contents differ"
-            )
-        )
+def _same_but_the_format_version(produced: bytes, frozen: bytes) -> None:
+    """*produced* (written by this build) holds *frozen*'s members byte for
+    byte, and the same manifest but for ``format_version``. Says WHICH layer
+    moved before failing: a member's content, or only the deflate stream (a
+    different zlib build), are different conversations."""
+    ours, theirs = _members(produced), _members(frozen)
+    assert list(ours) == list(theirs)
+    for name in theirs:
+        if name != MANIFEST_PATH:
+            assert ours[name] == theirs[name], f"{name} changed"
+    manifest = json.loads(ours[MANIFEST_PATH])
+    assert manifest.pop("format_version") == loft_file.LOFT_FORMAT_VERSION
+    frozen_manifest = json.loads(theirs[MANIFEST_PATH])
+    assert frozen_manifest.pop("format_version") == "1.1"
+    assert manifest == frozen_manifest
+
+
+def test_a_tree_without_parameters_writes_as_format_1_1_did() -> None:
+    """The frozen 1.1 golden (never regenerated) pins the container: this
+    build writes its inputs to the same members, the manifest's
+    ``format_version`` aside. A tree with no parameters or formulas has the
+    same bytes in 1.2, so its version ``tree_sha256`` values hold too."""
+    _same_but_the_format_version(_golden_bytes(), GOLDEN.read_bytes())
 
 
 def test_pack_is_deterministic_and_member_order_is_fixed() -> None:
@@ -246,19 +247,26 @@ def test_manifest_has_no_timestamp_and_hashes_every_member() -> None:
         "tree_sha256",
         "units",
     }
-    assert manifest["format_version"] == "1.1"
+    assert manifest["format_version"] == "1.2"
     assert manifest["units"] == {"storage": "mm"}
     for name, digest in manifest["members"].items():
         assert sha256_hex(members[name]) == digest
     assert manifest["cache"]["built_from_tree_sha256"] == manifest["tree_sha256"]
 
 
-def test_repack_is_byte_identical() -> None:
-    """read -> pack gives the same bytes: nothing is lost or reordered on the
-    way, the versions included (seq, name, message, author, time and tree)."""
+def test_a_format_1_1_file_reads_and_repacks_unchanged() -> None:
+    """read -> pack of the frozen 1.1 file: nothing is lost or reordered on
+    the way, the versions included (seq, name, message, author, time and
+    tree); only the manifest says 1.2. No parameters appear."""
     original = GOLDEN.read_bytes()
     archive = read_loft(original)
+    assert archive.manifest.format_version == "1.1"
     assert archive.warnings == ()
+    # Per-body materials come back in the order they were written: sorted.
+    assert archive.tree == _golden_tree().model_copy(
+        update={"materials": archive.tree.materials}
+    )
+    assert archive.tree.parameters == []
     assert archive.tree.features[0].params["data"] == STEP_TEXT
     assert [v.seq for v in archive.versions] == [1, 2]
     assert archive.versions[0].author == "Ada Lovelace"
@@ -273,7 +281,7 @@ def test_repack_is_byte_identical() -> None:
         properties=archive.cache.properties if archive.cache else None,
         versions=archive.versions,
     )
-    assert repacked == original
+    _same_but_the_format_version(repacked, original)
 
 
 def test_a_format_1_0_file_without_versions_still_reads() -> None:

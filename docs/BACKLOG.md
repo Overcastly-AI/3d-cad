@@ -41,21 +41,26 @@ byte-identical; RESEARCH §15a).
   - [x] 3. Parameter table: wire, migration 0018, documents GET/PUT,
         gateway, history, versions, `just gen`. _Accept:_ migration
         up/down/up; cycle/unknown 422; PUT+undo restores byte-for-byte.
-  - [ ] 4. Feature-field and sketch-dimension expressions: resolve on write
+  - [x] 4. Feature-field and sketch-dimension expressions: resolve on write
         and in the evaluation request, `parameter_in_use`, rename, a
         parametric golden. _Accept:_ the golden re-drives to hand values;
         cache test; out-of-range is a sick feature, not a 500.
-  - [ ] 5. `.loft` 1.2. _Accept:_ export/import/re-export gives identical
+  - [x] 5. `.loft` 1.2. _Accept:_ export/import/re-export gives identical
         bytes; the 1.0 and 1.1 fixtures import.
-  - [ ] 6. loft-script API. _Accept:_ a script builds the step-4 part;
+  - [x] 6. loft-script API. _Accept:_ a script builds the step-4 part;
         `set_parameter` alone changes the volume as expected.
+        (`packages/loft-script/tests/test_parameters.py`.)
   - [ ] 7. Web Parameters panel. _Accept:_ e2e: adding and editing a
         parameter rebuilds the body; Ctrl+Z restores.
-  - [ ] 8. Web `<ValueField>` in every numeric editor, with autocomplete.
-        _Accept:_ e2e: Extrude = H/2; editing H re-drives it.
-  - [ ] 9. Reference parts parametric (helical gear, ladder 2c/3d).
+  - [x] 8. Web `<ValueField>` in every numeric editor, with autocomplete.
+        _Accept:_ e2e: Extrude = H/2; editing H re-drives it
+        (`parameters-drive.spec.ts`; RESEARCH §20 "Step 8, as built").
+  - [x] 9. Reference parts parametric (helical gear, ladder 2c/3d).
         _Accept:_ the gear's `--edit` is one `set_parameter("beta", "20 deg")`
         and its volume matches `expected_volume(Gear(20))` to 1e-4.
+        (`docs/reference-parts/{helical-gear,manifold,knob}.py`, run in CI by
+        `packages/loft-script/tests/test_reference_parts.py`; RESEARCH §20
+        "Step 9, as built".)
 - [ ] **DATUM-PLANE-ANGLE** (moto frame steering head, tube-frame gap): there
       is no tilted datum plane (only offset, on-face, offset-from and
       midplane), so the 25° steering head is a revolve about a sketch axis.
@@ -237,6 +242,17 @@ One line each. The founder triages weekly; most are closed without work.
 - An aligned `point_distance` between two points drawn coincident reads `conflicting`: planegcs P2PDistance has no gradient at zero, so the solve cannot pull them apart (review of 564aa68).
 - An impossible pair of a point-line and an aligned point distance reads `diverged` with no constraint named, so the sketcher cannot flag which one to remove (review of 564aa68).
 - MinIO is built from RELEASE.2024-12-18 with Go 1.23.4 and has no image scan; a weekly trivy scan of the shipped images (plus `pnpm audit` / pip-audit) would catch advisories without reddening unrelated commits.
+- PARAM-FIELD-KIND: a driven field's unit comes from its name (`*_deg` angle, `*_mm`/x/y/z/radius length, `k_factor`/`relief_ratio` unitless, ints whole); a new float field named otherwise cannot take a formula until listed in `loft_wire/feature_expressions.py`.
+- PARAM-SKETCH-SYNTAX: a sketch dimension whose formula does not parse is still accepted at write and reported by geometry as `sketch_invalid`, as before step 4; only names it cannot resolve are a 422.
+- PARAM-PUT-OUT-OF-RANGE: a parameter PUT that drives a feature out of range is accepted; the feature keeps its last good numbers and goes sick on evaluation (Fusion's behaviour), rather than the PUT being refused.
+- PARAM-SKETCH-TYPO-422: a sketch dimension formula naming an unknown name (a typo, not a parameter) is now a 422 `expression_unknown_name` at save instead of a `sketch_invalid` at rebuild.
+- PARAM-INT-REF-FIELDS: an int formula is accepted on any int leaf, including reference fields such as `index`/`constraint_index`; restrict int pointers to counts.
+- PARAM-STALE-MEASURE: a feature whose formula no longer resolves keeps its last good numbers; the web's measure/pick requests build it from them with no `input_error`, so a pick can land on a body the viewport shows as failed.
+- PARAM-DRAFT-PREVIEW: the web's edit preview sends an UNSAVED draft; geometry drops a draft dimension's `= W` and uses whatever `value_mm` the draft carries until it is saved (step 8 should resolve drafts on the server).
+- PARAM-LEGACY-TYPO: a sketch stored before step 4 whose dimension formula names an unknown name now builds from its stored `value_mm` (the geometry boundary drops the formula) instead of failing `sketch_invalid`.
+- PARAM-POINTER-REMINT: `.loft` import re-mints ids inside params but not inside `expressions` pointers; no drivable field is keyed by a feature id today.
+- SCRIPT-PARAM-DOC-UNIT: loft-script reads a bare number in a formula as mm whatever the part's display unit; the web appends the document unit (`2` -> `2 in`).
+- SCRIPT-PARAM-VERBS: only extrude, sweep twist, plane at angle and the sketch dimension helpers take formulas; `create_feature` with `expressions` covers every other field.
 - `scripts/e2e.sh` does not derive `GATEWAY_ORIGIN` from `GATEWAY_PORT`, so specs on non-default ports fail with a register 500 (local only; CI uses the defaults).
 - `scripts/e2e-teardown.sh --self-test` flakes under load (a polite process takes over 5 s to exit), turning `just lint` red locally.
 - The full lane (32 min) never finishes while builders push faster than that; before a merge to main the orchestrator holds pushes until the tip's `full lane complete` is green.
@@ -359,11 +375,59 @@ One line each. The founder triages weekly; most are closed without work.
 - CHAIN-CLOSE-MOVED-START: closing compares against the stored chainStart, so if the solver moved the first vertex, a click there joins it but does not end the chain.
 - CHAIN-PRESS-DRAG: a press-drag mid-chain places only the press point.
 - SHELL-HEAL-VOLUME-GUARD (was a Next item): `conform_solid` measures volume after `split_pinched_faces`, so the split itself is never volume-checked (shell_heal.py claims it is).
-- SPLIT-SKETCHSCENE (was a Next item): `SketchScene.tsx` is 2,847 lines; split into modules and hooks with no behaviour change when it next blocks work.
+- SPLIT-SKETCHSCENE (was a Next item): `SketchScene.tsx` is 2,182 lines (the draw boxes moved out); split into modules and hooks with no behaviour change when it next blocks work.
 - SPLIT-WIRE-FEATURES (was a Next item): `loft_wire/features.py` is 4,419 lines; one module per family, re-exported, `just gen-verify` zero diff.
 - Sweep self-check (`BRepAlgoAPI_Check`, SWEEP-CLOSED-PATH review): costs 0.8 s of the moto frame's 5.7 s rebuild (0.30 s + 0.51 s on its two rail sweeps); 0.5-28 ms on the other sweep goldens.
 - Sketcher: `0` is a view shortcut, so a typed coordinate cannot start with 0 (`OPENS_A_COORDINATE` is `[1-9.-]`); a centre at x = 0 must be clicked or typed as `-0`.
-- ASM-COPY: Move ships without Fusion's Copy; copying a component needs `POST /assemblies/{id}/instances/{instance_id}/copy` in documents (none exists today; `duplicate.py` copies whole assemblies only).
+- PROPOSAL-REFIT-AFTER-ORBIT (CRAFT-12 review): if the modeler orbited before the proposal appeared, a later layout change does not re-check the proposal against the narrower rect; the chrome event should set `refitDue` itself.
+- PROPOSAL-FIT-DOUBLE-MOVE: Fit while an overrunning proposal is live frames the body, then eases out to the proposal (two moves).
+- CRAFT12-NEGATIVE-SETTLE: preview-overrun.spec.ts:281's negative case still settles with waitForCameraRest; use waitForCameraStill.
+- ENV-E2E-PORT: Playwright reuses an existing server on :5173 (`reuseExistingServer`), so parallel agents test each other's code unless each sets its own web port.
+- LOFT-DIMEXPR-INDEX (step 5 review): `dimension_expressions` pointers are keyed by constraint index; a hand edit that moves a plain dimension to that index silently moves the formula (warning `loft_tree_edited` only). Store the dimension's name in the entry and check it on read.
+- LOFT-COMMENT-PIN: golden-v1.2.loft has only empty parameter comments, so a non-empty comment's round trip is not pinned.
+- DRAW-BOX-LINE-ANGLE (after QA-RECT-BOX-NAMES): a line's draw box has length only; Fusion also asks for an angle, which needs an angle-to-axis dimension (a datum-axis `angle` constraint).
+- DRAW-BOX-LINE-LETTERS: mid-line (a chain is always mid-gesture) letters are still tool shortcuts and digits open X / Y; only a rectangle's and circle's size box owns the keyboard mid-drag.
+- DRAW-BOX-PREVIEW: a size typed mid-drag is not previewed on the rubber band, and a click while typing places at the cursor and drops the typed text.
+- DRAW-BOX-MODIFY-FIELDS: the sketcher's offset and corner (fillet/chamfer) value boxes still take numbers only.
+- QA-PROJECTED-PROFILE (major): projected edges count as profile geometry, so a cut's preview passes then the commit fails PROFILE_NOT_CLOSED until they are made construction; Fusion leaves projected lines out of profile closure.
+- QA-DRAWING-CENTRE-MARKS (major): drawings have no centre marks or hole-centre picks, so hole positions cannot be dimensioned (a circle offers only diameter/radius).
+- QA-DRAWING-DIMS-DURABLE (major): drawing dimensions go "unresolved" after a part edit even when their edge only moved; the PDF then prints overlapping "REFERENCE LOST" labels.
+- QA-FILLET-PICK-REFRAME (minor): the camera sometimes reframes on a fillet edge pick, so the next click picks the wrong edge.
+- QA-FILLET-DEFAULT-MODE: fillet opens in "By rule, all edges"; Fusion opens in edge-pick.
+- QA-SKETCH-PLANE-REFRAME: the sketch plane pick reframes before the click, so a face click aimed from the old view lands on a datum plane.
+- QA-SKETCH-ON-FACE-DATUM: sketching on a face adds a Plane1 datum and puts the sketch origin at the face centre, not the part origin.
+- QA-JOINT-PICK-LABELS: the joint picker labels fillet-arc centres "Hole centre", and overlapping markers from two parts take the topmost.
+- QA-JOINT-RESET-ON-ADD: adding a second joint reset the first from 11 deg to its 0 deg limit.
+- QA-JOINT-ANGLE-LIVE: the joint angle in the tree updates only on drag release.
+- QA-JOINT-PICK-FREEZE: one ~30 s freeze on the joint origin-B pick (not reproduced; 0.67 s next try).
+- QA-CREATE-OPENS: creating an assembly or drawing leaves you on the register; creating a part opens it.
+- QA-PART-DRAWING-CMD: the part editor has no Drawing command; the assembly editor does.
+- QA-DRAWING-SCALE: auto-layout drew at 1:2 though the setup showed 1:1.
+- QA-DRAWING-OVERALL-DIM: a linear dimension on a filleted edge gives 90/40, not overall; "Distance to edge" asks for the type in two menus in a row.
+- QA-DRAWING-DECIMALS: drawing dimensions show 3 decimals (diameter 8.000).
+- QA-SKETCH-LABEL-OVERLAP: dimension labels overlap at a small hole near a corner.
+- QA-1280-LAYOUT: at 1280x800 the Parameters table scrolls sideways, the fillet radius popup covers the Material panel, and Fit sketch leaves part of the profile under the position readout.
+- JOINT-STRICT-WRONG-HOLE (joints-follow-edits review): the strict first resolve tier ignores `topo_name`, so if another hole now sits exactly where a picked hole was (hole moved and a new one added at the old spot), the joint lands on that other hole. Pre-existing; the strict tier should check the name.
+- JOINT-LEGACY-SIGNATURES: joints saved before overlay names existed (no `topo_name`) still lose their joint when the hole moves.
+- JOINT-RESOLVE-PROVENANCE: assembly mates don't report when a reference was re-found by a fallback tier (features do).
+- DRAWING-NOTICE-RACE (export-warning review): a drawing's server compose and `/extents` are two solves, so a part edit landing between them can leave the Partial notice and the sheet out of step.
+- DRAWBOX-W-ONLY (draw-box review): typing only W before the pointer moves makes a zero-height rectangle that is silently not placed and the box clears.
+- DRAWBOX-CLICK-DROPS: a click instead of Enter mid-drag drops the typed value; Fusion keeps it.
+- DRAWBOX-STALE-TEXT: a cancelled drag restarted at the same first point shows the old typed text.
+- JOINT-PLANAR-PARENT (motions review): a planar slide PATCHes B's placement; when B is the solve parent rather than the child the slide may not stick. Unverified.
+- JOINT-CARD-OVERLAP: the joint drive card overlaps the inspector's DOF text (revolute and planar).
+- MEASURE-FROM-EVAL-REQUEST, rest (step 8 did the part's measure and pick): assembly overlays (`AssemblyPage.tsx` `buildEvaluateTree`) and drawing requests (`useDrawingData.ts`) still build from GET features, so a sick feature still shows its last good body there.
+- HOLE-POSITION-FORMULA: the hole's X/Y cells take numbers only; the stored `position` is a world point derived from face-local X/Y, so no pointer can hold a face-local formula (Fusion drives it with sketch dimensions).
+- VALUEFIELD-PARITY: `apps/web/src/features/expr.ts` is a TS port of `loft_wire/expr.py` for the field's hint and preview; nothing checks the two agree beyond the vitest cases (the server re-resolves on write, so a drift shows as a 422 on the field, never as stored geometry).
+- SKETCH-UNKNOWN-NAME-APPLY: the sketcher's dimension box applies a formula naming an unknown name; documents refuses the sketch sync (422, since step 4) and the diagnostic stamp now says why, but the box could refuse it before Apply as the feature editors do.
+- JOINT-ESC-INFLIGHT (S5b review): Esc while the joint OK POST is in flight closes the dialog but the joint is still created (`useJointDialog.ts` cancel ignores `submitting`).
+- JOINT-DRAG-BUSY: a joint drag released while the previous value PATCH is committing is dropped and the part snaps back.
+- JOINT-DRAG-REFRESH-ERR: a failed graph refresh after a successful drag PATCH reports "could not be driven".
+- JOINT-HANDLE-RMB: a right/middle press on a jointed part is consumed without selecting it.
+- UNIT-BARE-LITERALS: in a non-mm document a bare number inside a longer expression (`W/2 + 3`) is read as mm; Fusion reads it in document units.
+- JOINT-REDUNDANT-DRIVEN: two identical driven joints on one pair read under_constrained DOF 1, not redundant (redundancy is only checked at DOF 0).
+- JOINT-XREF-FLIP: a slanted face edited across equal alignment with two axes turns the joint's X by 90 deg (least-aligned-axis rule).
+- JOINT-CIRCLE-NOFACE: a circle_centre with no perpendicular planar face keeps OCCT's gp_Circ direction (deterministic, not guaranteed outward).
 - JOINT-VALUE-MERGE (joints review): PATCH `value` replaces both axes, so `{rot_deg}` on a cylindrical joint nulls `lin_mm`; the joint dialog (S5b) must send both axes, or merge per axis.
 - JOINT-PATCH-NOOP: a PATCH that changes nothing still bumps doc_version and records an undo step.
 - JOINT-LABEL-ORDER: "Revolute 2" in errors is by mate order, so it renumbers when an earlier joint is deleted (no name column).
@@ -371,3 +435,15 @@ One line each. The founder triages weekly; most are closed without work.
 - INPUT-ERROR-REF-CODE (step 2 review): a face/edge reference on a feature skipped for `input_error` fails as `subshape_unresolved`, not `reference_unresolved` naming the sick feature.
 - ASM-MOVE-PREVIEW (Move build): each triad drag step re-renders the assembly page (~1.2 s per step under software GL); a scene-only preview store is the fix.
 - ENV-GATEWAY-ORIGIN: `scripts/e2e.sh` with a custom `GATEWAY_PORT` also needs `GATEWAY_ORIGIN` (Vite proxies to :8000), else register returns 500; belongs in docs/ENVIRONMENT.md.
+- JOINT-EDIT-MOTION (S5b): `MateUpdate` has no `motion`, so the dialog locks the motion of a stored joint; Fusion lets you change it in Edit Joint (needs the field, or delete-and-recreate as one undo step).
+- JOINT-DRAG-A-SIDE (S5b): dragging drives a joint from its B part only; pressing A when B is grounded selects instead of turning A.
+- JOINT-POSITIONED-COUNT (S5b): "Positioned by Revolute 1" is a count (remaining DOF == driven joint axes); the solver could report which DOF are driven instead.
+- JOINT-PREVIEW-COST (S5b): every settled dialog edit runs an evaluate AND an interference check (the Flip hint); a solve-only interference on the two parts would be cheaper.
+- JOINT-ORIGIN-FACE-CENTRE (S5b): the drag axis point uses the stored face centroid, while the solver follows a resized face's current centre; harmless to the value, the handle sits off-centre until the parts are re-picked.
+- JOINT-ONE-SIDED-LIMIT (S4b): with only a max of 90°, a hinge driven to 170° is pinned to 90° (a lone bound reads on (-180°, 180°], RESEARCH §22); check against Fusion's one-sided limits.
+- JOINT-BALL-DRAG (S4b web): a ball joint has no joint drag; Move's free triad turns it (the solver keeps a ball's authored orientation, and its translation snaps back on the re-solve).
+- HOLE-DRILL-POINT (ladder 2c, PART-PARAMETERS step 9): Hole has no drill point angle, no "To" (up-to-object) extent and no pipe (G) thread, so 2c's ports and M6 holes are revolve cuts of their half-sections and P's depth is the formula `H - pass_z`; Fusion's Hole has all three.
+- SCRIPT-FACE-PICK (step 9): loft-script cannot pick a face, so a script cannot place a Hole (or a thread callout) without hand-building a face signature; 2c's M6 holes carry no M6 callout.
+- BOOLEAN-KEEP-TOOLS (ladder 3d, step 9): a Boolean always consumes its tool body; Fusion's Combine has "Keep Tools". 3d's body 2 is an annulus plus a patterned flute fill instead of band minus body 1.
+- SCRIPT-POINT-DIMS (step 9): loft-script's Sketch has no sugar for point dimensions (`point_distance`, `point_line_distance`); the parametric reference parts place vertices through `docs/reference-parts/formula_sketch.py`.
+- LADDER-3D-BORE (step 9): read literally, "band minus body 1" fills the D-bore from Z 6 to 15 with a second lump; `knob.py` reads the band as round body 1, and ladder.md should say which is meant.

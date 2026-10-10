@@ -14,7 +14,6 @@
  * change can move a picked edge (topological naming §10) — the copy says so.
  */
 import {
-  NumberField,
   Panel,
   PanelActionCell,
   SegmentedControl,
@@ -37,6 +36,7 @@ import {
   type SelectionMode,
 } from "../features/modify";
 import { EditorCard } from "./EditorCard";
+import { ValueField } from "./ValueField";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 import type { MovedEdgeWarning } from "../features/subshapeResolution";
 import { MovedEdgeNotice } from "./MovedEdgeNotice";
@@ -226,15 +226,17 @@ export function FilletEditor({
             {mode === "create" ? "New fillet" : "Edit fillet"}
           </h2>
           <div className="flex flex-col gap-2 px-3 pb-3 pt-1">
-            <NumberField
+            <ValueField
               label="Radius"
               unit={unit}
+              kind="length"
+              pointer="/radius_mm"
               data-testid="fillet-radius"
               autoFocus
               value={form.radiusInput}
               error={radiusError(form.radiusInput, unit)}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, radiusInput: e.target.value }))
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, radiusInput: value }))
               }
               onFocus={(e) => e.currentTarget.select()}
             />

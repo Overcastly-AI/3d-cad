@@ -43,6 +43,7 @@ import {
   PanelSection,
   PinIcon,
   SegmentedControl,
+  Stamp,
 } from "@loft/design";
 
 import type {
@@ -50,12 +51,14 @@ import type {
   InstanceResponse,
   MateResponse,
 } from "../api/assemblies";
+import { jointLabels } from "../assembly/joints";
 import {
   mateDetail,
   mateLabel,
   mateInstanceIds,
   mateTag,
 } from "../assembly/mates";
+import type { JointProbe } from "../assembly/useJointDrive";
 import type { AssemblySolve } from "../features/assemblySolve";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import {
@@ -108,7 +111,29 @@ export interface AssemblyTreePanelProps {
   onToggleGrounded: (instance: InstanceResponse) => void;
   onDeleteInstance: (instance: InstanceResponse) => void;
   onDeleteMate: (mate: MateResponse) => void;
+  /** Re-open a joint's dialog (double-click or Enter on its row). */
+  onEditJoint?: (mate: MateResponse) => void;
+  /**
+   * Each joint's solved readout, published on its row as `data-joint-*` at
+   * full precision for QA. Written only for a settled solve.
+   */
+  jointProbes?: ReadonlyMap<string, JointProbe>;
   busy: boolean;
+}
+
+/** A probe's numbers as attributes (full precision; JSON for vectors). */
+function probeAttributes(probe: JointProbe | undefined) {
+  if (probe === undefined) return {};
+  const vec = (v: { x: number; y: number; z: number }) =>
+    JSON.stringify([v.x, v.y, v.z]);
+  return {
+    "data-joint-rot": probe.rotDeg ?? "",
+    "data-joint-lin": probe.linMm ?? "",
+    "data-joint-at-limit": probe.atLimit ? "true" : "false",
+    "data-joint-axis": vec(probe.axis),
+    "data-joint-origin-a": vec(probe.originA),
+    "data-joint-origin-b": vec(probe.originB),
+  };
 }
 
 /** The three stops, in the order the eye walks them. */
@@ -150,6 +175,8 @@ export function AssemblyTreePanel({
   onToggleGrounded,
   onDeleteInstance,
   onDeleteMate,
+  onEditJoint,
+  jointProbes,
   busy,
 }: AssemblyTreePanelProps) {
   const unit = useDocumentLengthUnit();
@@ -167,6 +194,9 @@ export function AssemblyTreePanel({
   // than the previous solve's claim.
   const failedMateIds = new Set(solve.mateErrors.map((e) => e.mate_id));
   const conflictingMateIds = new Set(solve.diagnosis?.conflicting_mates ?? []);
+  // A joint is named by its motion and ordinal ("Revolute 1"), the name the
+  // server's refusals use too.
+  const jointNames = jointLabels(mates);
 
   return (
     <aside
@@ -354,8 +384,9 @@ export function AssemblyTreePanel({
               data-testid="mates-empty"
               className="px-3 py-3 font-body text-xs text-gauge"
             >
-              No mates yet. Pick a face on each of two parts for Coincident, a
-              hole edge on each for Concentric, or two parts for Lock.
+              No mates yet. Joint (J) brings an origin on one part to an origin
+              on another and leaves one motion free; the relation mates are
+              under More.
             </p>
           ) : (
             <ul className="py-1" data-testid="mate-list">
@@ -374,6 +405,10 @@ export function AssemblyTreePanel({
                     : conflicting
                       ? "conflict"
                       : "ok";
+                const jointName = jointNames.get(mate.id);
+                const label = jointName ?? mateLabel(mate.mate);
+                const editable =
+                  jointName !== undefined && onEditJoint !== undefined;
                 return (
                   <li
                     key={mate.id}
@@ -381,7 +416,37 @@ export function AssemblyTreePanel({
                     data-mate-id={mate.id}
                     data-mate-tag={tag}
                     data-mate-state={state}
-                    className="flex items-center gap-2 px-2 py-1"
+                    data-mate-label={label}
+                    {...(jointName !== undefined && !solve.stale
+                      ? probeAttributes(jointProbes?.get(mate.id))
+                      : {})}
+                    // Fusion's grammar: double-click a joint to edit it. Enter
+                    // on the focused row is the keyboard's way to the same.
+                    tabIndex={editable ? 0 : undefined}
+                    title={
+                      editable ? `Double-click to edit ${label}` : undefined
+                    }
+                    onDoubleClick={
+                      editable ? () => onEditJoint(mate) : undefined
+                    }
+                    onKeyDown={
+                      editable
+                        ? (event) => {
+                            if (
+                              event.key === "Enter" &&
+                              event.target === event.currentTarget
+                            ) {
+                              event.preventDefault();
+                              onEditJoint(mate);
+                            }
+                          }
+                        : undefined
+                    }
+                    className={`flex items-center gap-2 px-2 py-1 ${
+                      editable
+                        ? "cursor-default outline-none hover:bg-carbide focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass"
+                        : ""
+                    }`}
                   >
                     {/* The mate's handle (MATEUI-1). A component is a drafting
                         balloon — a circle; a joint is not a part, so it takes a
@@ -409,7 +474,7 @@ export function AssemblyTreePanel({
                           sick ? "text-flag" : "text-mist"
                         }`}
                       >
-                        {mateLabel(mate.mate)}
+                        {label}
                         {(() => {
                           const detail = mateDetail(mate.mate, unit);
                           return detail ? (
@@ -421,6 +486,18 @@ export function AssemblyTreePanel({
                             </span>
                           ) : null;
                         })()}
+                        {jointName !== undefined &&
+                        !solve.stale &&
+                        jointProbes?.get(mate.id)?.atLimit === true ? (
+                          <Stamp
+                            tone="brass"
+                            className="ml-1.5 align-middle"
+                            data-testid="mate-at-limit"
+                            title={`${label} sits on one of its limits`}
+                          >
+                            at limit
+                          </Stamp>
+                        ) : null}
                       </span>
                       <span className="block font-data text-2xs tabular-nums text-gauge">
                         ①{balloonById.get(a) ?? "?"} · ②
@@ -439,7 +516,7 @@ export function AssemblyTreePanel({
                       // Named with the TAG, so two Coincident mates between the
                       // same pair no longer share one accessible name — and it
                       // is word-for-word the inspector's own action label.
-                      aria-label={`Remove ${tag} ${mateLabel(mate.mate)}`}
+                      aria-label={`Remove ${tag} ${label}`}
                       data-testid={`mate-delete-${mate.id}`}
                       className="shrink-0 rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none hover:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-50"
                     >

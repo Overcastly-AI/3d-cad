@@ -41,7 +41,6 @@
 import {
   Checkbox,
   formatLength,
-  NumberField,
   Panel,
   PanelActionCell,
   SegmentedControl,
@@ -71,6 +70,7 @@ import {
 } from "../features/sheetMetal";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import { EditorCard } from "./EditorCard";
+import { ValueField } from "./ValueField";
 import type { MovedEdgeWarning } from "../features/subshapeResolution";
 import { MovedEdgeNotice } from "./MovedEdgeNotice";
 
@@ -293,15 +293,17 @@ export function HemEditor({
               ) : null}
             </div>
 
-            <NumberField
+            <ValueField
               label="Return length"
               unit={unit}
+              kind="length"
+              pointer="/length_mm"
               data-testid="hem-length"
               autoFocus
               value={form.lengthInput}
               error={hemLengthError(form.lengthInput, unit)}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, lengthInput: e.target.value }))
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, lengthInput: value }))
               }
               onFocus={(e) => e.currentTarget.select()}
             />
@@ -361,14 +363,16 @@ export function HemEditor({
                 description={form.overrideBendRadius ? radiusHint : derivedNote}
               />
               {form.overrideBendRadius ? (
-                <NumberField
+                <ValueField
                   label="Bend radius"
                   unit={unit}
+                  kind="length"
+                  pointer="/bend_radius_mm"
                   data-testid="hem-bend-radius"
                   value={form.bendRadiusInput}
                   error={bendRadiusError(form.bendRadiusInput, unit)}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, bendRadiusInput: e.target.value }))
+                  onValueChange={(value) =>
+                    setForm((f) => ({ ...f, bendRadiusInput: value }))
                   }
                   onFocus={(e) => e.currentTarget.select()}
                 />
@@ -402,13 +406,15 @@ export function HemEditor({
                 }
               />
               {form.overrideKFactor ? (
-                <NumberField
+                <ValueField
                   label="K-factor"
+                  kind="unitless"
+                  pointer="/k_factor"
                   data-testid="hem-k-factor"
                   value={form.kFactorInput}
                   error={kFactorError(form.kFactorInput)}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, kFactorInput: e.target.value }))
+                  onValueChange={(value) =>
+                    setForm((f) => ({ ...f, kFactorInput: value }))
                   }
                   onFocus={(e) => e.currentTarget.select()}
                 />

@@ -6,6 +6,10 @@
 import { useMemo } from "react";
 
 import { friendlyFeatureError } from "../../features/featureErrors";
+import {
+  describeInputError,
+  INPUT_ERROR_CODES,
+} from "../../features/fieldFormulas";
 import type { PartDocument } from "./usePartDocument";
 import type { PartBody } from "./usePartBody";
 import type { FeatureCatalog } from "./useFeatureCatalog";
@@ -31,11 +35,11 @@ export function useRebuildNotices({
     const result = evaluation.data?.features.find(
       (f) => f.feature_id === lastSavedFeatureId,
     );
-    return result !== undefined &&
-      result.status === "error" &&
-      result.error != null
-      ? result.error.message
-      : null;
+    if (result?.status !== "error" || result.error == null) return null;
+    // A formula's `input_error` reads in the field's words, as in the tree.
+    return INPUT_ERROR_CODES.has(result.error.code)
+      ? describeInputError(result.error.message)
+      : result.error.message;
   }, [lastSavedFeatureId, rebuildNoticeDismissed, evaluation.data]);
 
   // The rebuild error of the SWEEP being edited, in the tree's friendly copy,

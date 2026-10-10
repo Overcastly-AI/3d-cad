@@ -1,0 +1,70 @@
+{
+  "description": "REVOLUTE JOINT GOLDEN (S4a, RESEARCH §21): two instances of the SAME 40 x 25 x 10 mm plate (two r5 through-holes at (12, 12.5) and (28, 12.5)) on ONE revolute joint through hole 1. Plate A is grounded at the origin; the joint pairs the circle centre of A's hole-1 TOP rim with the circle centre of B's hole-1 BOTTOM rim and is driven to value rot_deg = 90. B is seeded displaced (3, 2, 16) and spun ~5.7 deg about Z so the joint has to snap it. Locks: circle_centre origins (centre + outward axis), the opposed-Z alignment, the driven rotation sense (right-handed about A's joint Z), DOF = 1 for a driven hinge (as in Fusion), the reported joint state, and the closed-form snap.",
+  "derivation": [
+    "Expectations are HAND-DERIVED, not recorded pipeline output. The plate's own mass properties are the sketch-extrude-plate-2holes golden's: volume 8429.203673205104 mm^3, surface_area 3614.159265358979 mm^2, centroid (20, 12.5, 5), AABB [0,0,0]..[40,25,10], 8 faces / 18 edges / 1 shell.",
+    "Frame A (circle_centre, hole-1 top rim): origin (12, 12.5, 10); Z = the rim's axis pointing OUT of the top face = +Z; X = the local axis least aligned with Z, ties X < Y < Z, projected = +X; Y = Z x X = +Y.",
+    "Frame B (circle_centre, hole-1 bottom rim, B-local): origin (12, 12.5, 0); Z = out of the bottom face = -Z; X = +X (reference_x is even in Z); Y = Z x X = (-Z) x X = -Y.",
+    "Joint relation: F_B = F_A o T with T = RotZ(angle + rot) o RotX(180 deg), offset 0, angle 0, rot = 90 deg. World B frame: x = RotZ(90) X = +Y, z = -Z (opposed to A's), y = z x x = (-Z) x Y = +X.",
+    "B's body rotation R maps its local frame onto that: R(+X) = +Y, R(-Y) = +X so R(Y) = -X, R(-Z) = -Z so R(Z) = Z. That is RotZ(+90 deg): quaternion (0, 0, sin 45, cos 45) = (0, 0, 0.7071067811865476, 0.7071067811865476).",
+    "B's translation t satisfies R (12, 12.5, 0) + t = (12, 12.5, 10). R (12, 12.5, 0) = (-12.5, 12, 0), so t = (24.5, 0.5, 10).",
+    "Far top edge of B (B-local x = 40, z = 10, y 0..25; its midpoint (40, 12.5, 10)) maps to R (40, 12.5, 10) + t = (-12.5 + 24.5, 40 + 0.5, 20) = (12, 40.5, 20): on the line through the axis point (12, 12.5) in A's +Y direction, 40.5 - 12.5 = 28.000 from the joint axis (= 40 - 12, the edge's distance from the hole centre in B). At value 0 the same point sits at (40, 12.5, 20), 28 along +X: the 90 deg turn carried it a quarter turn counter-clockwise seen from +Z.",
+    "Joint state: rot_deg = atan2(x_B . y_A, x_B . x_A) - angle = atan2(1, 0) = 90; lin_mm null (a revolute has no linear value); axis_world = A's joint Z = (0, 0, 1).",
+    "remaining_dof = 1: six hard rows of rank 5 (position 3 + axis alignment 2); the driving row places B but removes no DOF, so status is under_constrained.",
+    "combined volume = 2 x 8429.203673205104 = 16858.407346410208 mm^3; surface_area = 2 x 3614.159265358979 = 7228.318530717958 mm^2 (sums; no boolean).",
+    "combined centroid: A (20, 12.5, 5); B = R (20, 12.5, 5) + t = (-12.5 + 24.5, 20 + 0.5, 15) = (12, 20.5, 15). Equal volumes, so the mean is (16, 16.5, 10).",
+    "combined bounding_box: A [0,0,0]..[40,25,10]; B's local box x 0..40, y 0..25, z 0..10 maps to world x = -y + 24.5 in [-0.5, 24.5], y = x + 0.5 in [0.5, 40.5], z in [10, 20] (a quarter turn, so the corner union is exact). Union [-0.5, 0, 0]..[40, 40.5, 20].",
+    "combined topology 16 / 36 / 2 (summed); distinct_mesh_count 1 (one part_key shared by both instances)."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "CLOSED-FORM tolerance: a driven joint on a grounded parent is placed by the closed-form snap (no iteration), so the solved pose is the analytic one to float64 round-off. Measured first (2026-10-09, build123d 0.11.1 / OCCT 7.9, numpy BLAS pinned to 1 thread): B position within 3.6e-15 mm of (24.5, 0.5, 10), rotation matrix within 4.5e-16, the far-edge probe within 5.4e-15 mm, combined volume within 1.9e-12 mm^3 (summation order of the two part volumes). 1e-9 is ~500x the worst observation and 1000x tighter than the numeric goldens' 1e-6. Loosening it requires a reviewed justification here and in docs/GEOMETRY-QA.md.",
+  "status": "under_constrained",
+  "remaining_dof": 1,
+  "distinct_mesh_count": 1,
+  "instances": [
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000001",
+      "placement": {
+        "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000002",
+      "placement": {
+        "position": { "x": 24.5, "y": 0.5, "z": 10.0 },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.7071067811865476,
+          "w": 0.7071067811865476
+        }
+      }
+    }
+  ],
+  "joint_states": [
+    {
+      "mate_id": "00000000-0000-0000-0000-0000000003e9",
+      "rot_deg": 90.0,
+      "lin_mm": null,
+      "axis_world": { "x": 0.0, "y": 0.0, "z": 1.0 }
+    }
+  ],
+  "probes": [
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000002",
+      "local": { "x": 40.0, "y": 12.5, "z": 10.0 },
+      "world": { "x": 12.0, "y": 40.5, "z": 20.0 },
+      "note": "midpoint of B's far top edge: 28.000 from the joint axis along A's +Y at 90 deg"
+    }
+  ],
+  "properties": {
+    "volume": 16858.407346410208,
+    "surface_area": 7228.318530717958,
+    "centroid": { "x": 16.0, "y": 16.5, "z": 10.0 },
+    "bounding_box": {
+      "min": { "x": -0.5, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 40.5, "z": 20.0 }
+    }
+  },
+  "topology": { "faces": 16, "edges": 36, "shells": 2 }
+}

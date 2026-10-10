@@ -13,7 +13,7 @@
 import type { components, GatewayClient } from "@loft/ts-client/gateway";
 
 import { gatewayClient } from "./client";
-import { envelopeCode, envelopeMessage } from "./envelope";
+import { envelopeCode, envelopeDetails, envelopeMessage } from "./envelope";
 import { StaleTreeVersionError } from "./parts";
 
 export type PartParameter = components["schemas"]["PartParameter"];
@@ -37,17 +37,6 @@ export class ParameterTableError extends Error {
     super(message);
     this.name = "ParameterTableError";
   }
-}
-
-/** The envelope's `details` object, narrowed; `{}` when there is none. */
-function envelopeDetails(body: unknown): Record<string, unknown> {
-  if (typeof body !== "object" || body === null) return {};
-  const error = (body as { error?: unknown }).error;
-  if (typeof error !== "object" || error === null) return {};
-  const details = (error as { details?: unknown }).details;
-  return typeof details === "object" && details !== null
-    ? (details as Record<string, unknown>)
-    : {};
 }
 
 /** Turn a refused PUT's body into the error the panel maps onto a row. */

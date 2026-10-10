@@ -2,7 +2,7 @@ import type { Locator } from "@playwright/test";
 
 import { expect, test, type Page } from "./fixtures";
 
-import { setupTwoInstances } from "./assemblyFlow";
+import { armMate, setupTwoInstances } from "./assemblyFlow";
 import { ORACLE_TIMEOUT_MS, settledStamp, stampSettles } from "./hoverStamp";
 import { installSceneProbe, waitForCameraRest } from "./invariants";
 import {
@@ -1733,7 +1733,7 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     const { idA, idB } = await setupTwoInstances(page);
     const viewport = page.getByTestId("viewport");
 
-    await page.getByTestId("mate-coincident").click();
+    await armMate(page, "coincident");
     await expect(page.getByTestId("mate-hud")).toBeVisible();
     await expect(
       page.locator('[data-testid^="mate-face-"]').first(),
@@ -1779,7 +1779,7 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
 
     // …AND THE AXIS PICK IS A BAND, not a diamond. Same sweep as the part
     // workspace, against the assembly's own `EdgeBandLayer` mount.
-    await page.getByTestId("mate-concentric").click();
+    await armMate(page, "concentric");
     await expect(page.getByTestId("mate-hud")).toBeVisible();
     const axes = page.locator(`[data-testid^="mate-axis-${idA}-"]`);
     await expect(axes.first()).toBeVisible({ timeout: 20_000 });

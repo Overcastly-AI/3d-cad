@@ -1,13 +1,6 @@
 import {
-  CloseIcon,
   ContextMenu,
-  type ContextMenuSection,
   DrawingSheetIcon,
-  EyeIcon,
-  EyeOffIcon,
-  FixedIcon,
-  IsolateIcon,
-  MoveIcon,
   ToolButton,
   ToolGroup,
 } from "@loft/design";
@@ -66,6 +59,7 @@ import {
 } from "../components/HistoryErrorAlert";
 import { DocumentUnitSelect } from "../components/DocumentUnitSelect";
 import { DocumentUnitProvider } from "../units/documentUnit";
+import { JointHud } from "../components/JointHud";
 import { MateHud } from "../components/MateHud";
 import { MoveInstancePanel } from "../components/MoveInstancePanel";
 import { TopBar } from "../components/TopBar";
@@ -83,9 +77,17 @@ import {
 } from "../assembly/mateStore";
 import { placementToScene } from "../assembly/placement";
 import {
+  useJointDialog,
+  useReleaseJointHold,
+} from "../assembly/useJointDialog";
+import * as jointDrive from "../assembly/useJointDrive";
+import { useJointHandles } from "../assembly/useJointHandles";
+import { JointDragLayer } from "../viewport/JointDragLayer";
+import {
   useMoveSession,
   useReleaseWhenSolved,
 } from "../assembly/useMoveSession";
+import { copyBlocker, useCopyComponent } from "../assembly/useCopyComponent";
 import {
   type DrawnPoses,
   NO_DRAWN_POSES,
@@ -93,12 +95,20 @@ import {
   recordDrawnPose,
 } from "../assembly/posePublication";
 import { buildEvaluateTree } from "../measure/geometry";
+import {
+  assemblyExportBlockedReason,
+  assemblyExporter,
+  assemblyExportGate,
+  solveFacts,
+} from "../features/assemblyExport";
 import { deriveAssemblySolve } from "../features/assemblySolve";
 import { FloatingPanel } from "../components/FloatingPanel";
 import { executeHistoryStep, signedInUserId } from "../lib/historyStep";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { useReducedMotion } from "../lib/useReducedMotion";
+import { KEY_COPY_INSTANCE, KEY_MOVE_INSTANCE } from "../shortcuts/registry";
+import { instanceMenuSections, moveBlocker } from "../components/instanceMenu";
 import { assemblyRoute } from "../router";
 import {
   assemblyBounds,
@@ -123,15 +133,6 @@ import { Viewport } from "../viewport/Viewport";
 import { VisibilityStamp } from "../components/VisibilityStamp";
 
 const IDENTITY_QUAT = { w: 1, x: 0, y: 0, z: 0 };
-
-/** Why Move is unavailable for `instance`, or null when it can move. */
-function moveBlocker(instance: InstanceResponse | null): string | null {
-  return instance === null
-    ? "Select a component to move"
-    : instance.grounded
-      ? "Grounded components stay put. Unground it to move it."
-      : null;
-}
 
 /**
  * The assembly workspace — the sibling of the part editor. The tree (left) is a
@@ -413,9 +414,16 @@ export function AssemblyPage() {
     [queryClient, assemblyId],
   );
 
-  // Move (Fusion's Move/Copy, minus Copy — ASM-COPY): a session previews a
-  // pose in place of the solve and commits it as ONE PATCH (`useMoveSession`).
+  // Move (Fusion's Move): a session previews a pose in place of the solve and
+  // commits it as ONE PATCH (`useMoveSession`). Copy (`useCopyComponent`) is
+  // one POST, then Move opens on the copy, as Fusion's paste does.
   const move = useMoveSession({
+    assemblyId,
+    docVersion,
+    refreshGraph,
+    onError: setActionError,
+  });
+  const { copying, copy } = useCopyComponent({
     assemblyId,
     docVersion,
     refreshGraph,
@@ -428,12 +436,38 @@ export function AssemblyPage() {
     () => new Map((evaluation?.instances ?? []).map((i) => [i.instance_id, i])),
     [evaluation],
   );
+  // Joints: the dialog (server-solved preview, one write on OK) and dragging
+  // a jointed part along its free axis (local preview, one PATCH on release).
+  const jointDialog = useJointDialog({
+    assemblyId,
+    docVersion,
+    unit: lengthUnit,
+    mates,
+    evaluateRequest,
+    refreshGraph,
+  });
+  const drive = jointDrive.useJointDrive({
+    assemblyId,
+    docVersion,
+    mates,
+    instances,
+    solvedById,
+    evaluation,
+    refreshGraph,
+    onError: setActionError,
+  });
+  const driveOverride = drive.overrideFor;
+  const jointPreview = jointDialog.previewFor;
   const sceneInstances = useMemo<SceneInstance[]>(
     () =>
       instances.map((instance, index) => {
         const solved = solvedById.get(instance.id);
         const placement =
-          moveOverride(instance.id) ?? solved?.placement ?? instance.placement;
+          moveOverride(instance.id) ??
+          driveOverride(instance.id) ??
+          jointPreview(instance.id) ??
+          solved?.placement ??
+          instance.placement;
         const meshGlbId = solved?.part_mesh_glb_id ?? null;
         return {
           id: instance.id,
@@ -445,7 +479,15 @@ export function AssemblyPage() {
           visibility: visibilityModeOf(visibility, instance.id),
         };
       }),
-    [instances, solvedById, byMeshId, visibility, moveOverride],
+    [
+      instances,
+      solvedById,
+      byMeshId,
+      visibility,
+      moveOverride,
+      driveOverride,
+      jointPreview,
+    ],
   );
 
   // The pose each balloon has actually DRAWN (MATE-OBS-3,
@@ -466,6 +508,9 @@ export function AssemblyPage() {
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(
     null,
   );
+  const selectInstance = useCallback((id: string) => {
+    setSelectedInstanceId((current) => (current === id ? null : id));
+  }, []);
   const tool = useMateAuthoringStore((s) => s.tool);
   const picks = useMateAuthoringStore((s) => s.picks);
   const mateValue = useMateAuthoringStore((s) => s.value);
@@ -738,7 +783,14 @@ export function AssemblyPage() {
   const canRedo = graph?.can_redo ?? false;
   /** Any graph mutation in flight — history must never race its version. */
   const mutationInFlight =
-    busy || submitting || unitBusy || addingPartId !== null || move.committing;
+    busy ||
+    copying ||
+    submitting ||
+    unitBusy ||
+    addingPartId !== null ||
+    move.committing ||
+    jointDialog.submitting ||
+    drive.committing;
   /** Which step is in flight (drives the honest hold caption), or null. */
   const [historyStep, setHistoryStep] = useState<HistoryStep | null>(null);
   const historyInFlight = useRef(false);
@@ -828,17 +880,30 @@ export function AssemblyPage() {
   const selectedInstance =
     instances.find((i) => i.id === selectedInstanceId) ?? null;
   const startSession = move.start;
+  const { targetFor: driveTargetFor, arm: armDrive } = drive;
   const startMove = useCallback(
     (instance: InstanceResponse) => {
       if (instance.grounded) return;
       setTool(null);
       setAddOpen(false);
       setSelectedInstanceId(instance.id);
-      startSession(instance.id);
+      // A jointed part moves only along its joint: Move puts up the joint's
+      // handle instead of the free triad.
+      if (driveTargetFor(instance.id) !== null) armDrive(instance.id);
+      else startSession(instance.id);
     },
-    [setTool, startSession],
+    [setTool, startSession, driveTargetFor, armDrive],
   );
   const movingId = move.session?.instanceId ?? null;
+  // The joint the selected (or Move-armed) part can be dragged along.
+  const handles = useJointHandles({
+    drive,
+    idle: tool === null && !jointDialog.open && movingId === null,
+    selectedInstanceId,
+    selectInstance,
+    select: setSelectedInstanceId,
+  });
+  const driveTarget = handles.target;
   const movingInstance = instances.find((i) => i.id === movingId) ?? null;
   const movingScene = sceneInstances.find((i) => i.id === movingId) ?? null;
   // What the drop is compared with — the pose the part had before the drag.
@@ -851,6 +916,18 @@ export function AssemblyPage() {
     movingId !== null &&
     mates.some((m) => mateInstanceIds(m.mate).includes(movingId));
   const cancelMove = move.cancel;
+  // Copy the component, then select the copy and open Move on it.
+  const copyWriting = mutationInFlight || historyStep !== null;
+  const copyComponent = useCallback(
+    (instance: InstanceResponse) => {
+      if (copyWriting) return;
+      setTool(null);
+      setAddOpen(false);
+      cancelMove();
+      void copy(instance.id).then((created) => created && startMove(created));
+    },
+    [copyWriting, setTool, cancelMove, copy, startMove],
+  );
   // A session ends when its part is grounded, removed, or a mate tool arms.
   useEffect(() => {
     if (movingId === null) return;
@@ -865,13 +942,30 @@ export function AssemblyPage() {
   const canCheckInterference = evaluateRequest !== null && canMate;
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
       const key = event.key.toLowerCase();
+      // Ctrl/⌘+D copies the selected component (the browser's bookmark chord
+      // is the workspace's here, selection or not).
+      const chord = event.ctrlKey || event.metaKey;
+      if (
+        chord &&
+        !event.altKey &&
+        !event.shiftKey &&
+        key === KEY_COPY_INSTANCE
+      ) {
+        event.preventDefault();
+        if (selectedInstance !== null) copyComponent(selectedInstance);
+        return;
+      }
+      if (chord || event.altKey) return;
       if (event.key === "Escape") {
         if (movingId !== null) {
           event.preventDefault();
           cancelMove();
+        } else if (jointDialog.open || drive.armed !== null) {
+          event.preventDefault();
+          if (jointDialog.open) jointDialog.cancel();
+          else armDrive(null);
         } else if (useMateAuthoringStore.getState().tool !== null) {
           event.preventDefault();
           setTool(null);
@@ -887,7 +981,7 @@ export function AssemblyPage() {
         return;
       }
       // M moves the selected component (Fusion's accelerator).
-      if (key === "m" && !event.shiftKey) {
+      if (key === KEY_MOVE_INSTANCE && !event.shiftKey) {
         event.preventDefault();
         if (selectedInstance !== null && moveBlocker(selectedInstance) === null)
           startMove(selectedInstance);
@@ -913,7 +1007,9 @@ export function AssemblyPage() {
         return;
       }
       if (!canMate) return;
+      if (jointDialog.open) return;
       const map: Record<string, MateTool> = {
+        j: "joint",
         f: "coincident",
         n: "concentric",
         k: "lock",
@@ -944,6 +1040,10 @@ export function AssemblyPage() {
     cancelMove,
     selectedInstance,
     startMove,
+    jointDialog,
+    drive.armed,
+    armDrive,
+    copyComponent,
   ]);
 
   // One predicate owns "who holds Ctrl+Z right now": an armed mate tool or the
@@ -951,13 +1051,15 @@ export function AssemblyPage() {
   // reason read THIS value, so the keys and the buttons can never disagree (a
   // third owning state added to one and not the other was the drift risk).
   const historyLockReason: string | null =
-    movingId !== null
+    movingId !== null || drive.dragging
       ? "Finish the move first"
-      : tool !== null
-        ? `Finish the ${mateToolLabel(tool)} mate first`
-        : addOpen
-          ? "Close the part picker first"
-          : null;
+      : jointDialog.open || tool === "joint"
+        ? "Finish the joint first"
+        : tool !== null
+          ? `Finish the ${mateToolLabel(tool)} mate first`
+          : addOpen
+            ? "Close the part picker first"
+            : null;
 
   // Undo/redo keyboard grammar: Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, Ctrl+Y — assembly
   // idle only. An armed mate tool owns the session (a mid-pick Ctrl+Z must
@@ -980,96 +1082,33 @@ export function AssemblyPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [historyLockReason, triggerUndo, triggerRedo]);
 
-  const selectInstance = useCallback((id: string) => {
-    setSelectedInstanceId((current) => (current === id ? null : id));
-  }, []);
-
-  // ---------------------------------------------------------------------
-  // The component row's right-click menu (UI-W2). Isolate is a VERB, not an
-  // icon — infrequent, destructive to view state — so it lives here with its
-  // accelerator rather than adding a third control to every row. Built on open
-  // so each row reads the freshest state; every item is a wired action.
-  // ---------------------------------------------------------------------
+  // The component row's right-click menu (`components/instanceMenu`).
   const [instanceMenu, setInstanceMenu] = useState<{
     instance: InstanceResponse;
     x: number;
     y: number;
   } | null>(null);
-
-  const buildInstanceSections = (
-    instance: InstanceResponse,
-  ): ContextMenuSection[] => {
-    const hidden = visibilityModeOf(visibility, instance.id) === "hidden";
-    return [
+  const buildInstanceSections = (instance: InstanceResponse) =>
+    instanceMenuSections(
+      instance,
       {
-        key: "view",
-        label: instance.name,
-        items: [
-          {
-            key: "hide",
-            label: hidden ? "Show" : "Hide",
-            icon: hidden ? <EyeIcon /> : <EyeOffIcon />,
-            shortcut: "V",
-            onSelect: () => toggleVisibility(instance.id),
-            "data-testid": "instance-ctx-hide",
-          },
-          {
-            key: "isolate",
-            label: "Isolate",
-            icon: <IsolateIcon />,
-            shortcut: "⇧V",
-            disabled: instances.length < 2,
-            disabledReason: "Add a second part before isolating one",
-            onSelect: () => isolate(instance.id),
-            "data-testid": "instance-ctx-isolate",
-          },
-          {
-            key: "show-all",
-            label: "Show all",
-            icon: <EyeIcon />,
-            disabled: hiddenCount === 0,
-            disabledReason: "Every component is already shown",
-            onSelect: showAll,
-            "data-testid": "instance-ctx-show-all",
-          },
-        ],
+        hidden: visibilityModeOf(visibility, instance.id) === "hidden",
+        canIsolate: instances.length >= 2,
+        hiddenCount,
+        moveBlocker: moveBlocker(instance),
+        copyBlocker: copyBlocker(instance, copyWriting),
+        busy,
       },
       {
-        key: "edit",
-        items: [
-          {
-            key: "move",
-            label: "Move",
-            icon: <MoveIcon />,
-            shortcut: "M",
-            disabled: moveBlocker(instance) !== null,
-            disabledReason: moveBlocker(instance) ?? undefined,
-            onSelect: () => startMove(instance),
-            "data-testid": "instance-ctx-move",
-          },
-          {
-            key: "ground",
-            label: instance.grounded ? "Unground" : "Ground",
-            icon: <FixedIcon />,
-            disabled: busy,
-            disabledReason: "Waiting for the current edit…",
-            onSelect: () => void handleToggleGrounded(instance),
-            "data-testid": "instance-ctx-ground",
-          },
-          {
-            key: "remove",
-            label: "Remove",
-            icon: <CloseIcon />,
-            danger: true,
-            disabled: busy,
-            disabledReason: "Waiting for the current edit…",
-            onSelect: () => void handleDeleteInstance(instance),
-            "data-testid": "instance-ctx-remove",
-          },
-        ],
+        toggleVisibility: () => toggleVisibility(instance.id),
+        isolate: () => isolate(instance.id),
+        showAll,
+        move: () => startMove(instance),
+        copy: () => copyComponent(instance),
+        toggleGrounded: () => void handleToggleGrounded(instance),
+        remove: () => void handleDeleteInstance(instance),
       },
-    ];
-  };
+    );
 
   // ---------------------------------------------------------------------
   // WHAT MAY BE CLAIMED ABOUT THE SOLVE ON SCREEN (`features/assemblySolve`).
@@ -1110,6 +1149,21 @@ export function AssemblyPage() {
     evaluation,
   });
   useReleaseWhenSolved(move, docVersion, !solve.stale);
+  // A solve that dropped or could not satisfy a mate still places every part
+  // it can, so the file is writable but misplaced: "Partial", named, `-partial`
+  // in the filename, and one confirm before it writes (QA 2026-10-10).
+  const exportGate = assemblyExportGate(solveFacts(solve), mates);
+  const exportBlockedReason = assemblyExportBlockedReason(
+    exportDisabledReason,
+    solve,
+  );
+  const exportPartial = exportGate.partial;
+  const gatedExporter = useMemo(
+    () => assemblyExporter(exporter, exportPartial),
+    [exporter, exportPartial],
+  );
+  useReleaseJointHold(jointDialog, docVersion, !solve.stale);
+  jointDrive.useReleaseDriveWhenSolved(drive, docVersion, !solve.stale);
 
   // Camera fit inputs for the shared Viewport rig. The fit key is the set of
   // instances whose mesh has LOADED — the fit fires when geometry actually
@@ -1163,12 +1217,18 @@ export function AssemblyPage() {
               onRedo={triggerRedo}
               canAddPart={graph !== undefined}
               onAddPart={() => setAddOpen((open) => !open)}
-              moveActive={movingId !== null}
+              moveActive={movingId !== null || drive.armed !== null}
               moveBlocker={moveBlocker(selectedInstance)}
               onMove={() =>
                 movingId !== null
                   ? cancelMove()
-                  : selectedInstance !== null && startMove(selectedInstance)
+                  : drive.armed !== null
+                    ? armDrive(null)
+                    : selectedInstance !== null && startMove(selectedInstance)
+              }
+              copyBlocker={copyBlocker(selectedInstance, copyWriting)}
+              onCopy={() =>
+                selectedInstance !== null && copyComponent(selectedInstance)
               }
               canMate={canMate}
               activeTool={tool}
@@ -1179,8 +1239,9 @@ export function AssemblyPage() {
               // Export is a document-level ACTION, so it rides the band as well
               // as the Inspect panel's strip — the panel can be collapsed, and
               // the file has to stay reachable when it is (EXPORT-1).
-              exporter={exporter}
-              exportDisabledReason={exportDisabledReason}
+              exporter={gatedExporter}
+              exportDisabledReason={exportBlockedReason}
+              exportGate={exportGate}
             />
             {/* The way OUT of the assembly and onto paper. It sits on the band
                 rather than in a menu because drafting is what a solved
@@ -1236,6 +1297,13 @@ export function AssemblyPage() {
                   submitError={submitError}
                   submitting={submitting}
                   onCommit={commitMate}
+                />
+                <JointHud
+                  dialog={jointDialog}
+                  drive={drive}
+                  driveTarget={driveTarget}
+                  instances={instances}
+                  mates={mates}
                 />
                 {movingInstance !== null && movingBase !== null ? (
                   <MoveInstancePanel
@@ -1317,6 +1385,14 @@ export function AssemblyPage() {
               unverifiedInstanceIds={clashIds.unverifiedOnly}
               onPoseDrawn={onPoseDrawn}
               bodiesPickable={movingId === null}
+              onBodyPress={handles.onBodyPress}
+            />
+            <JointDragLayer
+              target={driveTarget}
+              showHandle={drive.armed !== null}
+              pressRef={handles.pressRef}
+              onPreview={drive.preview}
+              onRelease={handles.onRelease}
             />
             {movingScene !== null && movingBase !== null ? (
               <MoveTriad
@@ -1345,6 +1421,8 @@ export function AssemblyPage() {
               onToggleGrounded={handleToggleGrounded}
               onDeleteInstance={handleDeleteInstance}
               onDeleteMate={handleDeleteMate}
+              onEditJoint={jointDialog.openEdit}
+              jointProbes={drive.probes}
               // The panel's writes also hold while a history step restores
               // (the mutual exclusion's visible half — runHistoryStep guards
               // the other direction).
@@ -1367,8 +1445,9 @@ export function AssemblyPage() {
               clashResult={clashResult}
               clashBusy={clashBusy}
               clashError={clashError}
-              exporter={exporter}
-              exportDisabledReason={exportDisabledReason}
+              exporter={gatedExporter}
+              exportDisabledReason={exportBlockedReason}
+              exportGate={exportGate}
             />
           </FloatingPanel>
         </main>

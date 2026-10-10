@@ -58,6 +58,7 @@ import { useSolvedSketches } from "./part/useSolvedSketches";
 import { useSketchEditRequests } from "./part/useSketchEditRequests";
 import { useFeatureCatalog } from "./part/useFeatureCatalog";
 import { useEditorSeat } from "./part/useEditorSeat";
+import { useEditorFormulas } from "./part/useEditorFormulas";
 import { useActionFlags } from "./part/useActionFlags";
 import { usePickOverlays } from "./part/usePickOverlays";
 import { useTreeWrites } from "./part/useTreeWrites";
@@ -282,6 +283,13 @@ export function PartPage() {
   const { features, sketchProfiles, closedProfiles, bodies, specFromPlaneRef } =
     featureCatalog;
   const editorSeat = useEditorSeat({ setEditorState, features });
+  const editorFormulas = useEditorFormulas({
+    partId,
+    treeVersion,
+    evaluation,
+    editor,
+    features,
+  });
   const {
     selectedFeatureId,
     setSelectedFeatureId,
@@ -588,6 +596,7 @@ export function PartPage() {
   const { shellPickedFaces } = pickSessions;
   const featureSubmit = useFeatureSubmit({
     partId,
+    formulaSession: editorFormulas.formulaSession,
     editor,
     features,
     setSelectedFeatureId,
@@ -1084,6 +1093,7 @@ export function PartPage() {
                     featureSubmit={featureSubmit}
                     editorRepick={editorRepick}
                     editorSeat={editorSeat}
+                    editorFormulas={editorFormulas}
                     rebuildNotices={rebuildNotices}
                     solvedSketches={solvedSketches}
                     pickOverlays={pickOverlays}

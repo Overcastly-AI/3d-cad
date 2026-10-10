@@ -517,6 +517,45 @@ def test_status_cannot_tell_the_two_apart(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+def test_a_solve_that_honoured_every_mate_reads_as_before(
+    tmp_path: Path,
+) -> None:
+    """The drawing's "Partial" warning reads the solve's faults off this route
+    (QA 2026-10-10), and a solve with none must dump exactly as before.
+
+    Both assemblies solve without a dropped or conflicting mate, so the two new
+    fields are empty and OMITTED: the body has the four keys it always had.
+    (The unresolved case is driven end to end by the web's
+    ``assembly-partial-export.spec.ts``, which moves a joint's hole.)
+    """
+
+    async def scenario() -> None:
+        async with _chain(tmp_path) as chain:
+            fixture = await _build(chain.client, "extents-diag@example.com")
+            mated = await _extents(
+                chain.client, fixture.headers, fixture.mated.assembly_id
+            )
+            unmated = await _extents(
+                chain.client, fixture.headers, fixture.unmated.assembly_id
+            )
+            for solved in (mated, unmated):
+                assert solved.mate_errors == [], solved.mate_errors
+                assert solved.conflicting_mates == [], solved.conflicting_mates
+
+            raw = await chain.client.get(
+                f"/api/v1/assemblies/{fixture.mated.assembly_id}/extents",
+                headers=fixture.headers,
+            )
+            assert sorted(raw.json()) == [
+                "assembly_id",
+                "bounding_box",
+                "status",
+                "version",
+            ], raw.text
+
+    asyncio.run(scenario())
+
+
 def test_the_mate_is_in_the_solve_it_removes_three_degrees_of_freedom(
     tmp_path: Path,
 ) -> None:

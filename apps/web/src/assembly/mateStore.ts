@@ -17,9 +17,10 @@
 import { create } from "zustand";
 
 import type { EdgeSignature, PlanarFaceSignature } from "../api/parts";
+import type { JointOriginPick } from "./joints";
 
 export type MateTool =
-  "coincident" | "concentric" | "lock" | "distance" | "angle";
+  "joint" | "coincident" | "concentric" | "lock" | "distance" | "angle";
 
 /**
  * A parametric mate carries a numeric value the user edits before commit:
@@ -57,7 +58,9 @@ export type MatePick =
       edgeIndex: number;
       signature: EdgeSignature;
     }
-  | { kind: "instance"; instanceId: string };
+  | { kind: "instance"; instanceId: string }
+  /** A joint origin: a snap point (face centre, hole centre, edge point). */
+  | { kind: "origin"; instanceId: string; origin: JointOriginPick };
 
 export interface MateAuthoringState {
   tool: MateTool | null;
@@ -89,6 +92,8 @@ export interface MateAuthoringState {
     signature: EdgeSignature,
   ) => void;
   pickInstance: (instanceId: string) => void;
+  /** A joint origin; the pair opens the joint dialog. */
+  pickOrigin: (origin: JointOriginPick) => void;
   /** Keep the tool armed, drop the collected picks (chain another mate). */
   resetPicks: () => void;
   /** Disarm entirely (tool + picks) — e.g. leaving the workspace. */
@@ -165,6 +170,20 @@ export const useMateAuthoringStore = create<MateAuthoringState>((set) => ({
       if (!ok) return { ...state, error };
       return {
         picks: [...state.picks, { kind: "instance", instanceId }],
+        error: null,
+      };
+    }),
+
+  pickOrigin: (origin) =>
+    set((state) => {
+      if (state.tool !== "joint") return state;
+      const { ok, error } = acceptSecond(state.picks, origin.instanceId);
+      if (!ok) return { ...state, error };
+      return {
+        picks: [
+          ...state.picks,
+          { kind: "origin", instanceId: origin.instanceId, origin },
+        ],
         error: null,
       };
     }),

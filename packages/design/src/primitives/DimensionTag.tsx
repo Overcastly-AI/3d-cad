@@ -1,4 +1,9 @@
-import type { HTMLAttributes, InputHTMLAttributes, Ref } from "react";
+import type {
+  HTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+  Ref,
+} from "react";
 import { useId } from "react";
 
 import { cx } from "../cx";
@@ -80,6 +85,15 @@ export interface DimensionTagCellProps extends Omit<
   /** Character width of the value cell (defaults to 5 — `1234.5`). */
   width?: number;
   ref?: Ref<HTMLInputElement>;
+  /**
+   * The cell holds a FORMULA (`W/2`): the italic brass `fx` NumberField
+   * engraves, Fusion's mark for a driven value (PART-PARAMETERS).
+   */
+  formula?: boolean;
+  /** What the formula comes to (`= 80`), in brass after the value. */
+  hint?: ReactNode;
+  /** Test hook on the hint. */
+  hintTestId?: string;
 }
 
 export function DimensionTagCell({
@@ -88,9 +102,14 @@ export function DimensionTagCell({
   width = 5,
   className,
   ref,
+  formula = false,
+  hint,
+  hintTestId,
   ...rest
 }: DimensionTagCellProps) {
   const id = useId();
+  const invalid =
+    rest["aria-invalid"] === true || rest["aria-invalid"] === "true";
   // `ch` on the data face: the cell is sized by the DIGITS it holds, not by a
   // guessed rem value, so it never grows a ragged right edge across shapes.
   const valueStyle = { width: `${width}ch` };
@@ -117,13 +136,24 @@ export function DimensionTagCell({
       htmlFor={id}
       className={cx(
         "flex items-baseline gap-1.5 px-2 py-1",
-        "focus-within:bg-brass/15",
+        // An invalid cell (a name nothing defines) is flagged on its ground,
+        // the way a focused one is browned: no ring to fatten the strip.
+        invalid ? "bg-flag/15" : "focus-within:bg-brass/15",
         className,
       )}
     >
       <span className="font-display text-2xs uppercase tracking-[0.16em] text-gauge">
         {label}
       </span>
+      {formula ? (
+        <span
+          aria-hidden="true"
+          data-formula-mark=""
+          className="select-none font-data text-2xs italic text-brass"
+        >
+          fx
+        </span>
+      ) : null}
       <input
         id={id}
         ref={ref}
@@ -131,10 +161,21 @@ export function DimensionTagCell({
         inputMode="decimal"
         autoComplete="off"
         spellCheck={false}
-        className="bg-transparent font-data text-sm tabular-nums text-mist outline-none placeholder:text-gauge focus:text-brass"
+        className={cx(
+          "bg-transparent font-data text-sm tabular-nums outline-none placeholder:text-gauge",
+          invalid ? "text-flag" : "text-mist focus:text-brass",
+        )}
         style={valueStyle}
         {...rest}
       />
+      {hint !== undefined && hint !== null && !invalid ? (
+        <span
+          data-testid={hintTestId}
+          className="select-none whitespace-nowrap font-data text-2xs tabular-nums text-brass"
+        >
+          {hint}
+        </span>
+      ) : null}
     </label>
   );
 }

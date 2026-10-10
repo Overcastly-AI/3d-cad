@@ -34,6 +34,10 @@ Residuals (world frame, design §2.3):
   ``nA·nB - cosθ`` is flat near alignment and stalls); see :meth:`residual`.
 - ``lock(A, B)`` → ``[tB - t*, log(qB ⊗ q*⁻¹)]`` where ``(t*, q*) = A ∘ rel`` and
   ``rel`` is the authored seed relative pose — B rigidly fixed to A.
+- ``joint(A, B)`` → frame-to-frame rows from :mod:`geometry.assembly.joint_math`
+  (the motion's hard rows, plus one DRIVING row per set or limit-pinned value;
+  the solver stacks every hard row first and the driving rows after them,
+  :meth:`CompiledMate.hard_residual` / :meth:`CompiledMate.drive_residual`).
 """
 
 from __future__ import annotations
@@ -41,7 +45,7 @@ from __future__ import annotations
 import math
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 import numpy as np
@@ -54,12 +58,19 @@ from loft_wire.assemblies import (
     MateParams,
     mate_instance_ids,
 )
+from loft_wire.joints import JointMate
 from numpy.typing import NDArray
 
+from geometry.assembly.joint_math import (
+    CompiledJoint,
+    LocalFrame,
+    compile_joint,
+)
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,
     ResolvedAxis,
     ResolvedFace,
+    ResolvedFrame,
     ResolvedMateGeometry,
     SolverMate,
 )
@@ -75,7 +86,7 @@ from geometry.assembly.transform import (
 
 Vector = NDArray[np.float64]
 
-CompiledMateKind = Literal["coincident", "concentric", "angle", "lock"]
+CompiledMateKind = Literal["coincident", "concentric", "angle", "lock", "joint"]
 
 _ZERO3 = np.zeros(3, dtype=np.float64)
 
@@ -94,7 +105,10 @@ class CompiledMate:
     For a face mate ``dir_a``/``dir_b`` are unit normals; for ``concentric`` they
     are unit axis directions; ``point_a``/``point_b`` are on the plane/axis. All
     arrays are in the respective instance's LOCAL frame. ``lock_rel`` is the
-    authored relative pose for a lock mate (``None`` otherwise).
+    authored relative pose for a lock mate (``None`` otherwise). ``joint`` is the
+    compiled joint for a ``joint`` mate (``None`` otherwise), whose last
+    ``drive_rows`` residual rows are driving rows, not hard constraints.
+    ``label`` names the mate in a diagnosis ("rigid joint", "coincident mate").
     """
 
     mate_id: uuid.UUID
@@ -112,8 +126,35 @@ class CompiledMate:
     cos_theta: float
     sin_theta: float
     lock_rel: Pose | None
+    joint: CompiledJoint | None = None
+    drive_rows: int = 0
+    label: str = ""
+
+    @property
+    def hard_rows(self) -> int:
+        return self.rows - self.drive_rows
+
+    def hard_residual(self, pose_a: Pose, pose_b: Pose) -> Vector:
+        """The constraint rows (every row of a legacy mate)."""
+        if self.joint is not None:
+            return self.joint.hard_residual(pose_a, pose_b)
+        return self.residual(pose_a, pose_b)
+
+    def drive_residual(self, pose_a: Pose, pose_b: Pose) -> Vector:
+        """A joint's driving rows (set values, pinned limits); empty otherwise."""
+        if self.joint is not None and self.drive_rows:
+            return self.joint.drive_residual(pose_a, pose_b)
+        return np.zeros(0, dtype=np.float64)
+
+    def with_joint(self, joint: CompiledJoint) -> CompiledMate:
+        """This joint mate re-compiled around ``joint`` (a limit pinned)."""
+        return replace(self, joint=joint, rows=joint.rows, drive_rows=joint.drive_rows)
 
     def residual(self, pose_a: Pose, pose_b: Pose) -> Vector:
+        if self.kind == "joint":
+            assert self.joint is not None
+            return self.joint.residual(pose_a, pose_b)
+
         if self.kind == "lock":
             assert self.lock_rel is not None
             desired = pose_a.compose(self.lock_rel)
@@ -192,6 +233,36 @@ def _axis(geom: ResolvedMateGeometry, mate_type: str, slot: str) -> ResolvedAxis
     return geom
 
 
+def _local_frame(geom: ResolvedMateGeometry, motion: str, slot: str) -> LocalFrame:
+    if not isinstance(geom, ResolvedFrame):
+        raise AssemblyDefinitionError(
+            f"{motion} joint slot {slot!r} requires a resolved frame, got {geom.kind!r}"
+        )
+    # Columns [x, z x x, z]: X is re-orthogonalised against Z so a synthetic
+    # frame that is not exactly orthonormal still gives a proper rotation.
+    z = normalize(as_vector(geom.z))
+    x_raw = as_vector(geom.x)
+    x = x_raw - float(np.dot(x_raw, z)) * z
+    if float(np.linalg.norm(z)) == 0.0 or float(np.linalg.norm(x)) < 1e-9:
+        raise AssemblyDefinitionError(
+            f"{motion} joint slot {slot!r} has a degenerate frame (zero or "
+            "parallel axes)"
+        )
+    x = normalize(x)
+    return LocalFrame(
+        origin=as_vector(geom.origin), rot=np.column_stack([x, np.cross(z, x), z])
+    )
+
+
+def _compile_joint(solver_mate: SolverMate, mate: JointMate) -> CompiledJoint:
+    geometry = _require_geometry(solver_mate)
+    return compile_joint(
+        mate,
+        _local_frame(geometry[0], mate.motion, "a"),
+        _local_frame(geometry[1], mate.motion, "b"),
+    )
+
+
 def _require_geometry(
     solver_mate: SolverMate,
 ) -> tuple[ResolvedMateGeometry, ResolvedMateGeometry]:
@@ -240,8 +311,13 @@ def compile_mate(
     cos_theta = 0.0
     sin_theta = 0.0
     lock_rel: Pose | None = None
+    joint: CompiledJoint | None = None
 
-    if isinstance(mate, LockMate):
+    if isinstance(mate, JointMate):
+        kind = "joint"
+        joint = _compile_joint(solver_mate, mate)
+        rows = joint.rows
+    elif isinstance(mate, LockMate):
         kind = "lock"
         rows = 6
         lock_rel = relative_pose(seed_poses[idx_a], seed_poses[idx_b])
@@ -301,4 +377,9 @@ def compile_mate(
         cos_theta=cos_theta,
         sin_theta=sin_theta,
         lock_rel=lock_rel,
+        joint=joint,
+        drive_rows=joint.drive_rows if joint is not None else 0,
+        label=f"{mate.motion} joint"
+        if isinstance(mate, JointMate)
+        else f"{mate.type} mate",
     )

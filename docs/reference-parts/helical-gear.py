@@ -8,43 +8,51 @@ calls - so a run can separate "the kernel cannot" from "the UI cannot reach it".
 Part: normal module 2, 24 teeth, normal pressure angle 20 deg, helix 15 deg
 right hand, face width 20 mm, bore 10 mm with a DIN 6885 keyway (3 x 1.4).
 
-Two routes (Loft has no equation curve and no gear generator):
+Loft has no equation curve and no gear generator, so the involute is drawn as
+fit-point splines through exact involute points.
 
-**Loft route** (the default; the only route when the report was written):
+**Parametric route** (the default; PART-PARAMETERS step 9). The part carries a
+parameter table, as Fusion 360's Change Parameters: ``module``, ``teeth``,
+``alpha_n``, ``beta`` and ``face_width`` drive it, and the gear quantities
+(``rp``, ``rbase``, ``ra``, ``rf``, ``twist``, ...) are formulas over them.
 
-1. blank: tip-circle disc, extruded 20 mm;
-2. ONE tooth gap, exact involute flanks as fit-point splines, sketched on XY
-   and again on offset datum planes, each copy rotated by the helix twist at
-   that height (``z * tan(beta) / r``);
-3. a RULED loft cut through those sections, then a feature-scope circular
-   pattern x ``z``;
-4. bore + keyway as one closed profile, extrude-cut;
-5. independent checks: mass properties against an analytic estimate, STEP
+1. blank: tip-circle disc, diameter ``2 * ra``, extruded ``face_width``;
+2. ONE tooth-gap sketch on XY whose every vertex and involute fit point is
+   placed by driving dimensions from the sketch origin, each a formula over
+   the table, and ONE path sketch (the gear axis, ``face_width`` long, on XZ);
+3. ONE SWEEP CUT along the axis with ``twist_angle_deg = twist`` - Fusion
+   360's and SolidWorks' "twist along path", a true helical sweep (the twist
+   moved from Extrude to Sweep in TWIST-TO-SWEEP) - then a feature-scope
+   circular pattern of ``teeth`` instances;
+4. bore + keyway as one closed profile, extrude-cut ``face_width``;
+5. independent checks: mass properties against the analytic volume, STEP
    export re-read by OCCT outside the app, twist measured on that STEP.
 
-**Twisted route** (``--twisted``; helical-gear gap #1): steps 2-3 become ONE
-tooth-gap sketch on XY, ONE path sketch (a line up the gear axis, on XZ) and
-ONE SWEEP CUT along it with ``twist_angle_deg`` = the helix twist over the face
-width - Fusion 360's and SolidWorks' "twist along path", a true helical sweep
-rather than a ruled approximation (docs/design/twisted-extrude.md; the twist
-moved from Extrude to Sweep in TWIST-TO-SWEEP) - then the same pattern, bore
-and checks.
+``--edit`` re-drives the helix with ONE parameter edit,
+``part.set_parameter("beta", "20 deg")``: the blank, the gap sketch, the twist
+and the pattern all follow the table, and the volume must then match
+``expected_volume(Gear(beta_deg=20.0), ...)``.
+
+**Ruled route** (``--ruled``; the only route when the first report was
+written, kept as a loft probe): the gap is sketched on XY and again on offset
+datum planes, each copy drawn rotated by the helix twist at that height
+(``z * tan(beta) / r``), then a RULED loft cut and the same pattern. It is not
+parametric (each section's rotation is drawn, not driven), so ``--edit``
+refuses it. ``--sections N`` is the number of loft sections (2 = bottom + top
+only). A ruled loft joins matching points by STRAIGHT lines, so between
+sections the flank sags inside the true helicoid; more sections shrink that
+error by ~N^2.
 
 Run against a live gateway::
 
     uv run python docs/reference-parts/helical-gear.py --url http://127.0.0.1:8000
-    uv run python docs/reference-parts/helical-gear.py --url ... --sections 5 --edit
-    uv run python docs/reference-parts/helical-gear.py --url ... --twisted --edit
+    uv run python docs/reference-parts/helical-gear.py --url ... --edit
+    uv run python docs/reference-parts/helical-gear.py --url ... --ruled --sections 5
 
-``--sections N`` is the number of loft sections (2 = bottom + top only). A
-ruled loft joins matching points by STRAIGHT lines, so between sections the
-flank sags inside the true helicoid; more sections shrink that error by ~N^2.
-``--twisted`` has no sections and no sag: its expected volume IS the true
-helical one. ``--edit`` then re-drives the part to beta = 20 deg and times the
-rebuild.
-
-The STEP check imports build123d, which only a QA probe may do (the product
-path never does). It is skipped with a note when build123d is absent.
+The run exits 1 when a volume is more than 1e-4 relative from its expected
+value. The STEP check imports build123d, which only a QA probe may do (the
+product path never does). It is skipped with a note when build123d is absent,
+and with ``--no-step``.
 """
 
 from __future__ import annotations
@@ -55,12 +63,15 @@ import sys
 import tempfile
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 import loft
+from formula_sketch import VOLUME_REL_TOL, Placer, Row, Timer, define
 from loft.part import Part
 from loft.sketch import Sketch
+from loft_wire.expr import Quantity
 from loft_wire.features import (
     CircularPatternParamsV1,
     DatumFeature,
@@ -247,19 +258,10 @@ def draw_bore_keyway(sk: Sketch, g: Gear) -> None:
     sk.line((-hw, top), (-hw, y_edge))
 
 
-class Timer:
-    def __init__(self) -> None:
-        self.rows: list[tuple[str, float]] = []
-
-    def step(self, label: str, t0: float) -> None:
-        dt = time.perf_counter() - t0
-        self.rows.append((label, dt))
-        print(f"  {dt:7.2f} s  {label}", flush=True)
-
-
-def build(
+def build_ruled(
     part: Part, g: Gear, sections: int, fit_points: int, timer: Timer
 ) -> dict[str, uuid.UUID]:
+    """The ruled route: numbers, one rotated gap section per height."""
     ids: dict[str, uuid.UUID] = {}
 
     t0 = time.perf_counter()
@@ -308,26 +310,7 @@ def build(
     timer.step("loft cut of one gap + evaluate", t0)
 
     t0 = time.perf_counter()
-    pattern = part.create_feature(
-        "Gap pattern",
-        PatternFeature(
-            type="pattern",
-            version=1,
-            params=PatternParamsV1(
-                pattern=CircularPatternParamsV1(
-                    axis_point=Vec3(x=0.0, y=0.0, z=0.0),
-                    axis_direction=Vec3(x=0.0, y=0.0, z=1.0),
-                    angle_deg=360.0,
-                    count=g.z,
-                ),
-                scope=PatternFeaturesScope(
-                    kind="features",
-                    features=[FeatureRef(kind="feature", feature_id=cut.feature.id)],
-                ),
-            ),
-        ),
-    )
-    ids["pattern"] = pattern.feature.id
+    ids["pattern"] = gap_pattern(part, cut.feature.id, g.z, None)
     part.evaluate(strict=True)
     timer.step(f"circular pattern x{g.z} (feature scope) + evaluate", t0)
 
@@ -340,44 +323,120 @@ def build(
     return ids
 
 
-def build_twisted(
-    part: Part, g: Gear, fit_points: int, timer: Timer
-) -> dict[str, uuid.UUID]:
-    """The twisted route: one gap sketch, one axis path, one twisted sweep cut,
-    one pattern."""
-    ids: dict[str, uuid.UUID] = {}
+# --------------------------------------------------------------------------
+# The parametric route: a parameter table, and formulas that read it
+# --------------------------------------------------------------------------
 
-    t0 = time.perf_counter()
-    blank = part.sketch(on="XY", name="Blank (tip circle)")
-    blank.circle((0, 0), diameter=2 * g.ra)
-    part.extrude(blank, g.face_width, name="Blank")
-    ids["blank"] = blank.id
-    timer.step("blank: tip-circle sketch + extrude", t0)
 
-    t0 = time.perf_counter()
-    sk = part.sketch(on="XY", name="Tooth gap")
-    draw_gap(sk, g, 0.0, fit_points)
-    sk.save()
-    ids["section0"] = sk.id
-    # The sweep path IS the twist axis: the gear axis, from the gap's own
-    # plane (z = 0) up through the face width. On XZ, sketch y is world +Z.
-    axis = part.sketch(on="XZ", name="Gear axis (sweep path)")
-    axis.line((0.0, 0.0), (0.0, g.face_width))
-    axis.save()
-    ids["axis"] = axis.id
-    twist = math.degrees(g.twist_at(g.face_width))
-    cut = part.sweep(
-        sk,
-        axis,
-        operation="cut",
-        twist_angle_deg=twist,
-        name="Tooth gap (twisted sweep cut)",
+def parameter_table(g: Gear) -> list[Row]:
+    """(name, formula, unit, comment) rows, in dependency order.
+
+    The first five are the gear's design inputs; the rest are the textbook
+    (ISO 21771) quantities as formulas over them, so a user who opens Change
+    Parameters reads the gear, not a list of magic numbers. A unit of None lets
+    the formula say it (a new row is a length unless it evaluates to an angle).
+    """
+    return [
+        ("module", f"{g.m_n:g}", None, "normal module m_n"),
+        ("teeth", f"{g.z}", "unitless", "tooth count z"),
+        ("alpha_n", f"{g.alpha_n_deg:g} deg", None, "normal pressure angle"),
+        ("beta", f"{g.beta_deg:g} deg", None, "helix angle, right hand"),
+        ("face_width", f"{g.face_width:g}", None, "face width b"),
+        ("mt", "module / cos(beta)", None, "transverse module"),
+        ("rp", "teeth * mt / 2", None, "pitch radius"),
+        ("alpha_t", "atan(tan(alpha_n) / cos(beta))", None, "transverse pressure"),
+        ("rbase", "rp * cos(alpha_t)", None, "base circle radius"),
+        ("ra", "rp + module", None, "tip radius"),
+        ("rf", "rp - 1.25 * module", None, "root radius"),
+        ("r_out", "ra + 0.4 * module", None, "gap cutter's outer radius"),
+        (
+            "t_out",
+            "sqrt((r_out / rbase) * (r_out / rbase) - 1)",
+            "unitless",
+            "involute roll parameter at r_out",
+        ),
+        ("inv_t", "tan(alpha_t) - rad(alpha_t)", "unitless", "inv(alpha_t)"),
+        ("gap0", "90 deg / teeth - deg(inv_t)", None, "half gap at the base circle"),
+        ("twist", "deg(face_width * tan(beta) / rp)", None, "helix twist over b"),
+    ]
+
+
+def roll(i: int, n: int) -> str:
+    """Involute roll parameter of fit point ``i`` of ``n`` (``involute_radii``)."""
+    return f"t_out*{i}/{n - 1}"
+
+
+def flank_radius(i: int, n: int) -> str:
+    """Radius of fit point ``i``: ``rb * sqrt(1 + t^2)``."""
+    return "rbase" if i == 0 else f"rbase*sqrt(1+({roll(i, n)})*({roll(i, n)}))"
+
+
+def flank_half_gap(i: int, n: int) -> str:
+    """``gap_half_angle`` at fit point ``i``: gap0 + inv(alpha), inv = t - atan t."""
+    t = roll(i, n)
+    return "gap0" if i == 0 else f"(gap0+deg({t})-atan({t}))"
+
+
+def spline(sk: Sketch, points: list[tuple[float, float]]) -> str:
+    return sk.add(
+        SketchSpline(
+            id=sk._new_id(),  # pyright: ignore[reportPrivateUsage]
+            kind="spline",
+            points=[Point2D(x=x, y=y) for x, y in points],
+        )
     )
-    ids["cut"] = cut.id
-    part.evaluate(strict=True)
-    timer.step(f"gap + axis sketches + twisted sweep cut ({twist:.3f} deg)", t0)
 
-    t0 = time.perf_counter()
+
+def draw_gap_parametric(
+    sk: Sketch, g: Gear, n: int, values: Mapping[str, Quantity]
+) -> None:
+    """The tooth-gap cutter of :func:`draw_gap` (``rot = 0``), every point driven.
+
+    Drawn at the gear ``g`` (the table's current values), then held by
+    formulas: each vertex and involute fit point gets its x and |y| from the
+    origin, the joins are coincidences, and both arcs are centred on the
+    origin. The upper flank's outer point and the root arc's upper end take
+    only their y: the arc through them fixes x, so the sketch is fully
+    constrained with no redundant dimension.
+    """
+    at = Placer(sk, values)
+    radii = involute_radii(g, n)
+    gb = g.gap_half_angle(g.rb)
+    lower = [polar(r, -g.gap_half_angle(r)) for r in radii]
+    upper = [polar(r, g.gap_half_angle(r)) for r in reversed(radii)]
+    root_lo, root_hi = polar(g.rf, -gb), polar(g.rf, gb)
+
+    run_lo = sk.line(root_lo, lower[0])
+    flank_lo = spline(sk, lower)
+    outer = sk.arc((0, 0), lower[-1], upper[0])
+    flank_hi = spline(sk, upper)
+    run_hi = sk.line(upper[-1], root_hi)
+    root = sk.arc((0, 0), root_lo, root_hi)
+
+    last = n - 1
+    at.polar(run_lo, "start", "rf", "gap0")
+    sk.coincident((run_lo, "end"), (flank_lo, "fit0"))
+    for i in range(n):
+        at.polar(flank_lo, f"fit{i}", flank_radius(i, n), flank_half_gap(i, n))
+    sk.coincident((outer, "center"), (at.origin, "position"))
+    sk.coincident((outer, "start"), (flank_lo, f"fit{last}"))
+    sk.coincident((outer, "end"), (flank_hi, "fit0"))
+    top = f"{flank_radius(last, n)}*sin({flank_half_gap(last, n)})"
+    at.place(flank_hi, "fit0", None, top)
+    for j in range(1, n):
+        i = last - j
+        at.polar(flank_hi, f"fit{j}", flank_radius(i, n), flank_half_gap(i, n))
+    sk.coincident((run_hi, "start"), (flank_hi, f"fit{last}"))
+    at.place(run_hi, "end", None, "rf*sin(gap0)")
+    sk.coincident((root, "center"), (at.origin, "position"))
+    sk.coincident((root, "start"), (run_lo, "start"))
+    sk.coincident((root, "end"), (run_hi, "end"))
+
+
+def gap_pattern(
+    part: Part, cut: uuid.UUID, count: int, formula: str | None
+) -> uuid.UUID:
+    """Feature-scope circular pattern of the gap cut about the gear axis."""
     pattern = part.create_feature(
         "Gap pattern",
         PatternFeature(
@@ -388,23 +447,75 @@ def build_twisted(
                     axis_point=Vec3(x=0.0, y=0.0, z=0.0),
                     axis_direction=Vec3(x=0.0, y=0.0, z=1.0),
                     angle_deg=360.0,
-                    count=g.z,
+                    count=count,
                 ),
                 scope=PatternFeaturesScope(
                     kind="features",
-                    features=[FeatureRef(kind="feature", feature_id=cut.id)],
+                    features=[FeatureRef(kind="feature", feature_id=cut)],
                 ),
             ),
+            expressions=None if formula is None else {"/pattern/count": formula},
         ),
     )
-    ids["pattern"] = pattern.feature.id
+    return pattern.feature.id
+
+
+def build_parametric(
+    part: Part, g: Gear, fit_points: int, timer: Timer
+) -> dict[str, uuid.UUID]:
+    """The parametric route: the table, then one gap sketch, one axis path, one
+    twisted sweep cut and one pattern, every size a formula over the table."""
+    ids: dict[str, uuid.UUID] = {}
+
+    t0 = time.perf_counter()
+    values = define(part, parameter_table(g))
+    timer.step(f"parameter table ({len(values)} rows)", t0)
+
+    t0 = time.perf_counter()
+    blank = part.sketch(on="XY", name="Blank (tip circle)")
+    tip = blank.circle((0, 0), diameter="2 * ra")
+    blank.fixed((tip, "center"))
+    part.extrude(blank, "face_width", name="Blank")
+    ids["blank"] = blank.id
+    timer.step("blank: tip-circle sketch + extrude", t0)
+
+    t0 = time.perf_counter()
+    sk = part.sketch(on="XY", name="Tooth gap")
+    draw_gap_parametric(sk, g, fit_points, values)
+    solved = sk.save().solved
+    assert solved is not None
+    print(f"  tooth gap sketch: {solved.status}, {solved.dof} DOF")
+    ids["gap"] = sk.id
+    # The sweep path IS the twist axis: the gear axis, from the gap's own
+    # plane (z = 0) up through the face width. On XZ, sketch y is world +Z.
+    axis = part.sketch(on="XZ", name="Gear axis (sweep path)")
+    shaft = axis.line((0.0, 0.0), (0.0, g.face_width))
+    axis.fixed((shaft, "start"))
+    axis.vertical(shaft)
+    axis.distance(shaft, "face_width")
+    axis.save()
+    ids["axis"] = axis.id
+    cut = part.sweep(
+        sk,
+        axis,
+        operation="cut",
+        twist_angle_deg="twist",
+        name="Tooth gap (twisted sweep cut)",
+    )
+    ids["cut"] = cut.id
     part.evaluate(strict=True)
-    timer.step(f"circular pattern x{g.z} (feature scope) + evaluate", t0)
+    twist = values["twist"].value
+    timer.step(f"gap + axis sketches + twisted sweep cut ({twist:.3f} deg)", t0)
+
+    t0 = time.perf_counter()
+    ids["pattern"] = gap_pattern(part, cut.id, g.z, "teeth")
+    part.evaluate(strict=True)
+    timer.step(f"circular pattern x teeth={g.z} (feature scope) + evaluate", t0)
 
     t0 = time.perf_counter()
     bore = part.sketch(on="XY", name="Bore + keyway")
     draw_bore_keyway(bore, g)
-    part.extrude(bore, g.face_width, operation="cut", name="Bore + keyway cut")
+    part.extrude(bore, "face_width", operation="cut", name="Bore + keyway cut")
     part.evaluate(strict=True)
     timer.step("bore + keyway extrude-cut + evaluate", t0)
     return ids
@@ -522,22 +633,48 @@ def verify_step(path: Path, g: Gear) -> None:
     )
 
 
+def report(label: str, volume: float, expected: float, exact: float) -> bool:
+    """Print a volume against its expected value; True when within tolerance."""
+    rel = volume / expected - 1
+    ok = abs(rel) <= VOLUME_REL_TOL
+    print(
+        f"{label}: volume {volume:.3f} mm^3, expected {expected:.3f} "
+        f"({rel:+.2e} relative, tolerance {VOLUME_REL_TOL:g}: "
+        f"{'ok' if ok else 'FAIL'}); vs true helical {exact:.3f}: "
+        f"{volume - exact:+.3f} mm^3"
+    )
+    return ok
+
+
+def export_and_verify(part: Part, g: Gear, timer: Timer) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        t0 = time.perf_counter()
+        step = part.export(Path(tmp) / "gear.step")
+        timer.step(f"STEP export ({step.stat().st_size} bytes)", t0)
+        verify_step(step, g)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--url", default="http://127.0.0.1:8000")
-    ap.add_argument("--sections", type=int, default=2)
+    ap.add_argument(
+        "--ruled",
+        action="store_true",
+        help="the legacy route: rotated gap sections and a RULED loft cut",
+    )
+    ap.add_argument("--sections", type=int, default=2, help="ruled route only")
     ap.add_argument("--fit-points", type=int, default=12)
     ap.add_argument(
-        "--twisted",
+        "--edit",
         action="store_true",
-        help="one gap sketch + a TWISTED sweep cut instead of the ruled loft",
+        help='re-drive with one set_parameter("beta", "20 deg") and time it',
     )
-    ap.add_argument(
-        "--edit", action="store_true", help="re-drive to beta=20 and time it"
-    )
+    ap.add_argument("--no-step", action="store_true", help="skip the STEP re-read")
     args = ap.parse_args()
+    if args.edit and args.ruled:
+        ap.error("--edit re-drives the parametric route; the ruled route is drawn")
     g = Gear()
 
     twist_b = math.degrees(g.twist_at(g.face_width))
@@ -547,28 +684,22 @@ def main() -> int:
         f"twist over b = {twist_b:.3f} deg"
     )
     exact, ruled = expected_volume(g, args.sections)
-    if args.twisted:
-        # A twisted sweep is the helicoid itself: its expected volume is the
-        # true helical one, so "vs ruled" below compares against the same value.
-        ruled = exact
-        print(f"expected volume: true helical {exact:.1f} mm^3 (twisted cut)")
-    else:
-        print(
-            f"expected volume: true helical {exact:.1f} mm^3, this "
-            f"{args.sections}-section ruled loft {ruled:.1f} mm^3"
-        )
+    # A twisted sweep is the helicoid itself: its expected volume is the true
+    # helical one. Only the ruled loft sags inside it.
+    expected = ruled if args.ruled else exact
+    route = f"{args.sections}-section ruled loft" if args.ruled else "twisted cut"
+    print(f"expected volume: true helical {exact:.3f} mm^3, {route} {expected:.3f}")
 
     timer = Timer()
     email = f"gear-script-{uuid.uuid4().hex[:8]}@example.com"
     with loft.register(args.url, email=email, password="gear-script-pw-123") as session:
-        route = "twisted cut" if args.twisted else f"{args.sections} sections"
         part = session.new_part(f"Helical gear (script, {route})")
         t_all = time.perf_counter()
         try:
-            if args.twisted:
-                ids = build_twisted(part, g, args.fit_points, timer)
+            if args.ruled:
+                build_ruled(part, g, args.sections, args.fit_points, timer)
             else:
-                ids = build(part, g, args.sections, args.fit_points, timer)
+                build_parametric(part, g, args.fit_points, timer)
         except loft.LoftError as exc:
             print(f"FAILED: {exc.as_dict()}")
             return 1
@@ -577,55 +708,31 @@ def main() -> int:
         t0 = time.perf_counter()
         props = part.mass_properties()
         timer.step("mass properties (evaluate)", t0)
-        bb = props.bounding_box
-        vs_ruled = 100 * (props.volume / ruled - 1)
-        vs_exact = 100 * (props.volume / exact - 1)
-        print(
-            f"app: volume {props.volume:.3f} mm^3 (vs ruled {ruled:.3f}: "
-            f"{vs_ruled:+.3f}%, vs true helical {exact:.3f}: {vs_exact:+.5f}%, "
-            f"{props.volume - exact:+.3f} mm^3)"
-        )
-        topo = props.topology
+        ok = report("app", props.volume, expected, exact)
+        bb, topo = props.bounding_box, props.topology
         print(
             f"app: bbox x {bb.min.x:.3f}..{bb.max.x:.3f} "
             f"y {bb.min.y:.3f}..{bb.max.y:.3f} z {bb.min.z:.3f}..{bb.max.z:.3f}; "
             f"faces {topo.faces} edges {topo.edges} shells {topo.shells}; "
             f"area {props.surface_area:.1f}"
         )
-
-        with tempfile.TemporaryDirectory() as tmp:
-            t0 = time.perf_counter()
-            step = part.export(Path(tmp) / "gear.step")
-            timer.step(f"STEP export ({step.stat().st_size} bytes)", t0)
-            verify_step(step, g)
+        if not args.no_step:
+            export_and_verify(part, g, timer)
 
         if args.edit:
             g2 = Gear(beta_deg=20.0)
             t0 = time.perf_counter()
-            blank = part.sketch_by_id(ids["blank"])
-            blank.entities, blank.constraints = [], []
-            blank.circle((0, 0), diameter=2 * g2.ra)
-            part.update_feature(blank.id, feature=blank.feature())
-            sections = 1 if args.twisted else args.sections
-            for i in range(sections):
-                sk = part.sketch_by_id(ids[f"section{i}"])
-                sk.entities = []
-                height = 0.0 if args.twisted else g2.face_width * i / (sections - 1)
-                draw_gap(sk, g2, g2.twist_at(height), args.fit_points)
-                sk.part.update_feature(sk.id, feature=sk.feature())
-            if args.twisted:
-                part.set_sweep_twist(
-                    ids["cut"], math.degrees(g2.twist_at(g2.face_width))
-                )
-            timer.step("re-drive blank + gap sketch(es) (+ twist) to beta=20", t0)
+            part.set_parameter("beta", "20 deg")
+            timer.step('set_parameter("beta", "20 deg")', t0)
             t0 = time.perf_counter()
             props2 = part.mass_properties()
             timer.step("rebuild after helix edit (evaluate)", t0)
-            exact2, ruled2 = expected_volume(g2, args.sections)
-            expected2 = exact2 if args.twisted else ruled2
-            print(f"after edit: volume {props2.volume:.3f} (expected {expected2:.3f})")
+            exact2, _ = expected_volume(g2, args.sections)
+            ok = report("after edit", props2.volume, exact2, exact2) and ok
+            if not args.no_step:
+                export_and_verify(part, g2, timer)
         print(f"part id: {part.id}")
-    return 0
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

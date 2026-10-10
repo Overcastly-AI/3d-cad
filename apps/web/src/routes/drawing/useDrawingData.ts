@@ -22,11 +22,17 @@ import {
   type ViewProjection,
   composeDrawingSheet,
   evaluateDrawingViews,
+  fetchAssemblyExtents,
   fetchDrawing,
   fetchDrawingBom,
 } from "../../api/drawings";
 import { fetchFeatureTree, fetchParts } from "../../api/parts";
-import { fetchAssemblies } from "../../api/assemblies";
+import { fetchAssemblies, fetchAssemblyGraph } from "../../api/assemblies";
+import {
+  assemblyFaultSummary,
+  assemblySolveFaults,
+  type AssemblySolveFacts,
+} from "../../features/assemblyExport";
 import {
   STANDARD_VIEWS,
   type OrientationFit,
@@ -365,6 +371,62 @@ export function useDrawingData(drawingId: string) {
     staleTime: Infinity,
   });
   const composed = sheetQuery.data;
+  // THE SHEET'S SOLVE, read again every time the sheet is (re)composed. An
+  // assembly sheet is projected from a fresh server-side solve on each compose,
+  // so a joint that stopped resolving puts a part where nobody put it, on the
+  // paper as in a STEP (QA 2026-10-10). Keying this read on the sheet's own
+  // `dataUpdatedAt` is what keeps the warning and the paper from disagreeing:
+  // whatever invalidated the sheet (Reproject, a view move, a reload) also
+  // re-reads the solve, with no list of call sites to keep in step. The fit's
+  // extents query is deliberately NOT reused: it is cached forever for the
+  // orientation proposal, which was review 2026-10-10's stale-warning repro.
+  const sheetSolveQuery = useQuery({
+    queryKey: [
+      "drawing-assembly-solve",
+      draftedSourceId,
+      sheetQuery.dataUpdatedAt,
+    ],
+    enabled:
+      hasLayout &&
+      draftedSourceKind === "assembly" &&
+      draftedSourceId !== null &&
+      sheetQuery.isSuccess &&
+      !sheetQuery.isFetching,
+    queryFn: async (): Promise<AssemblySolveFacts> => {
+      const solved = await fetchAssemblyExtents(draftedSourceId as string);
+      return {
+        status: solved.status,
+        conflictingMates: solved.conflicting_mates ?? [],
+        mateErrors: solved.mate_errors ?? [],
+      };
+    },
+    staleTime: Infinity,
+  });
+  const sheetSolve =
+    hasLayout && draftedSourceKind === "assembly"
+      ? (sheetSolveQuery.data ?? null)
+      : null;
+  // The kinds ("joint" / "mate") come from the graph — read only when there is
+  // something to name, and named only once it has landed, so the sentence never
+  // flips from "1 mate" to "1 joint".
+  const sheetAtFault =
+    sheetSolve !== null &&
+    assemblyFaultSummary(assemblySolveFaults(sheetSolve, [])) !== null;
+  const draftedAssemblyQuery = useQuery({
+    queryKey: ["assembly", draftedSourceId],
+    queryFn: () => fetchAssemblyGraph(draftedSourceId as string),
+    enabled: sheetAtFault && draftedSourceId !== null,
+  });
+  const draftedAssemblyMates = draftedAssemblyQuery.data?.mates;
+  const assemblyPartial = useMemo(
+    () =>
+      sheetSolve === null || draftedAssemblyMates === undefined
+        ? null
+        : assemblyFaultSummary(
+            assemblySolveFaults(sheetSolve, draftedAssemblyMates),
+          ),
+    [sheetSolve, draftedAssemblyMates],
+  );
   // The PLACED views by projection — the reading the Views panel falls back to
   // when there is no client-side evaluation to read (an assembly sheet).
   const composedByProjection = useMemo(() => {
@@ -404,6 +466,7 @@ export function useDrawingData(drawingId: string) {
     annotations,
     hasLayout,
     draftedSourceId,
+    assemblyPartial,
     parts,
     sources,
     selectedSourceId,

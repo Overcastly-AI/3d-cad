@@ -315,6 +315,23 @@
             ],
             "description": "World-mm AABB of the SOLVED compound (union of each instance's part bbox at its solved pose); null when no instance produced a body"
           },
+          "conflicting_mates": {
+            "description": "Ids of mutually-unsatisfiable mates (the solve's `diagnosis.conflicting_mates`). Omitted while empty. A drawing of this assembly reads it, with `mate_errors`, to say its parts are not where the mates put them.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Conflicting Mates",
+            "type": "array"
+          },
+          "mate_errors": {
+            "description": "Mates the solve could not resolve and dropped, as on EvaluateAssemblyResult. Omitted while empty, so a solve that honoured every mate dumps exactly as before either field existed.",
+            "items": {
+              "$ref": "#/components/schemas/MateEvaluationError"
+            },
+            "title": "Mate Errors",
+            "type": "array"
+          },
           "status": {
             "description": "The solve these extents came out of. Anything other than `well_constrained` means the poses are a best fit, not a determined result (\u00a72.4)",
             "enum": [
@@ -887,6 +904,28 @@
       "BooleanFeature": {
         "description": "``{\"type\": \"boolean\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-affecting feature that fuses two independently-built bodies\n(docs/design/multi-body.md \u00a7Decisions-3 / \u00a7MB-1): unlike extrude/revolve/\u2026\nit consumes no sketch and produces no new primitive \u2014 it combines two\nexisting bodies named by their base features. ``params`` is\n:class:`BooleanParamsV1` (``union`` wired in MB-1a; ``subtract``/``intersect``\ndefined, wired in MB-2).",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/BooleanParamsV1"
           },
@@ -1000,6 +1039,28 @@
       "ChamferFeature": {
         "description": "``{\"type\": \"chamfer\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/ChamferParamsV1"
           },
@@ -2300,6 +2361,28 @@
       "DatumFeature": {
         "description": "``{\"type\": \"datum\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA non-body-affecting feature that produces a plane a later sketch sits on\n(docs/design/datum-planes.md \u00a72b). ``params`` is the discriminated\n:data:`DatumParams` union \u2014 an ``offset`` plane (\u00a73), an ``on_face`` plane\n(\u00a77), an ``offset_from`` chained plane, a ``midplane`` (\u00a77a), or a plane\nat an ``angle`` about a line (:mod:`loft_wire.datum_angle`). Every\nvariant after ``offset`` is ADDITIVE with NO ``param_version`` bump: legacy\noffset params (persisted before ``on_face`` existed) carry no ``kind``\ndiscriminator, so :meth:`_legacy_offset_kind` injects ``\"offset\"`` before\nvalidation and every existing datum row/golden validates unchanged\n(datum-planes \u00a74/\u00a77).",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "discriminator": {
               "mapping": {
@@ -3203,6 +3286,28 @@
       "DraftFeature": {
         "description": "``{\"type\": \"draft\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/DraftParamsV1"
           },
@@ -4747,6 +4852,28 @@
       "ExtrudeFeature": {
         "description": "``{\"type\": \"extrude\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/ExtrudeParamsV1"
           },
@@ -5592,6 +5719,28 @@
       "FilletFeature": {
         "description": "``{\"type\": \"fillet\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/FilletParamsV1"
           },
@@ -6052,6 +6201,28 @@
       "HoleFeature": {
         "description": "``{\"type\": \"hole\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-MODIFYING feature (design \u00a77.6): it drills a cylinder into the current\nbody at a point on a picked planar face (through-all or blind). ``params`` is\n:class:`HoleParamsV1`.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/HoleParamsV1"
           },
@@ -6210,6 +6381,28 @@
       "ImportFeature": {
         "description": "``{\"type\": \"import\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-affecting BASE feature (docs/design/step-import.md \u00a71): it produces\nthe imported solid as the part's base body, rather than modifying a prior\none. ``params`` is :class:`ImportParamsV1` (inline STEP text in v1).",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/ImportParamsV1"
           },
@@ -6264,6 +6457,46 @@
           "data"
         ],
         "title": "ImportParamsV1",
+        "type": "object"
+      },
+      "InstanceCopy": {
+        "description": "Copy one instance within its assembly (Fusion's Copy and Paste).\n\nThe copy references the same document as the source, keeps its\norientation, and sits at the source's position plus ``offset`` (assembly\naxes, mm). It is never grounded, and mates and joints are not copied.",
+        "properties": {
+          "expected_version": {
+            "description": "Optimistic-concurrency guard (design \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "offset": {
+            "description": "[x, y, z] mm added to the source's position, in the assembly's axes. Absent reads [20, 0, 0].",
+            "maxItems": 3,
+            "minItems": 3,
+            "prefixItems": [
+              {
+                "maximum": 100000.0,
+                "minimum": -100000.0,
+                "type": "number"
+              },
+              {
+                "maximum": 100000.0,
+                "minimum": -100000.0,
+                "type": "number"
+              },
+              {
+                "maximum": 100000.0,
+                "minimum": -100000.0,
+                "type": "number"
+              }
+            ],
+            "title": "Offset",
+            "type": "array"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "title": "InstanceCopy",
         "type": "object"
       },
       "InstanceCreate": {
@@ -7034,6 +7267,28 @@
       "LoftFeature": {
         "description": "``{\"type\": \"loft\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/LoftParamsV1"
           },
@@ -7885,6 +8140,28 @@
       "MirrorFeature": {
         "description": "``{\"type\": \"mirror\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-affecting feature (design \u00a77.6): it reflects the current body about a\nplane and boolean-unions the reflection into the single body chain \u2014 the\nreflective sibling of :class:`PatternFeature`. ``params`` is\n:class:`MirrorParamsV1`.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/MirrorParamsV1"
           },
@@ -8791,6 +9068,28 @@
       "PatternFeature": {
         "description": "``{\"type\": \"pattern\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/PatternParamsV1"
           },
@@ -9601,6 +9900,28 @@
       "RevolveFeature": {
         "description": "``{\"type\": \"revolve\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/RevolveParamsV1"
           },
@@ -9975,6 +10296,28 @@
       "SheetMetalBaseFlangeFeature": {
         "description": "``{\"type\": \"sheet_metal_base_flange\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-CREATING base feature (docs/design/sheet-metal.md \u00a74.1): it thickens a\nprofile to gauge, producing the sheet-metal part's first body, and anchors the\npart's sheet-metal defaults (``k_factor``/``bend_radius_mm``). ``params`` is\n:class:`SheetMetalBaseFlangeParamsV1`.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/SheetMetalBaseFlangeParamsV1"
           },
@@ -10057,6 +10400,28 @@
       "SheetMetalCornerReliefFeature": {
         "description": "``{\"type\": \"sheet_metal_corner_relief\", \"version\": 1, \"params\": {...}}``.\n\nA body-affecting feature (sheet-metal.md \u00a74.4) that cuts a rectangular notch at\nthe shared corner of two adjacent edge flanges and \u2014 via the analytic relieved\nunfold \u2014 makes that corner develop into a single non-overlapping flat blank. It\nnames the two bends by :class:`FeatureRef` (the edge-flange features that created\nthem); the evaluator resolves each to its recorded\n:class:`CylindricalFaceSignature` (\u00a75) to drive both relief halves. ``params`` is\n:class:`SheetMetalCornerReliefParamsV1`.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/SheetMetalCornerReliefParamsV1"
           },
@@ -10133,6 +10498,28 @@
       "SheetMetalEdgeFlangeFeature": {
         "description": "``{\"type\": \"sheet_metal_edge_flange\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-MODIFYING feature (docs/design/sheet-metal.md \u00a74.2): it folds a flange\noff a straight edge of the sheet body and fuses it across a cylindrical bend\nregion, tagging that bend face with a :class:`CylindricalFaceSignature` (\u00a75)\nfor the unfold's provenance. ``params`` is :class:`SheetMetalEdgeFlangeParamsV1`.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/SheetMetalEdgeFlangeParamsV1"
           },
@@ -10245,6 +10632,28 @@
       "SheetMetalHemFeature": {
         "description": "``{\"type\": \"sheet_metal_hem\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-MODIFYING feature (parity \u00a72, closed hem): it folds the picked edge ~180\ndeg back onto the sheet (reusing the edge flange's bend machinery at a fixed 180\ndeg fold), fusing one clean solid, and tags the bend face with a\n:class:`CylindricalFaceSignature` (\u00a75) for the unfold's provenance \u2014 exactly as\nan edge flange does. ``params`` is :class:`SheetMetalHemParamsV1`.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/SheetMetalHemParamsV1"
           },
@@ -10553,6 +10962,28 @@
       "ShellFeature": {
         "description": "``{\"type\": \"shell\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/ShellParamsV1"
           },
@@ -11010,6 +11441,28 @@
       "SketchFeature": {
         "description": "``{\"type\": \"sketch\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/SketchParamsV1"
           },
@@ -12033,6 +12486,28 @@
       "SweepFeature": {
         "description": "``{\"type\": \"sweep\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
           "params": {
             "$ref": "#/components/schemas/SweepParamsV1"
           },
@@ -13522,6 +13997,75 @@
           }
         ],
         "summary": "Update Instance",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/instances/{instance_id}/copy": {
+      "post": {
+        "description": "Copy one instance within its assembly and return the copy (201).\n\nFusion's Copy and Paste: same referenced document, next free ``<n>`` name,\nthe source's pose offset by ``offset`` (+20 mm X by default), not\ngrounded, no mates or joints copied. Bumps ``doc_version`` and records one\nundo step; documents' 404 / 422 envelopes are re-surfaced verbatim.",
+        "operationId": "copy_instance_api_v1_assemblies__assembly_id__instances__instance_id__copy_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "instance_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Instance Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstanceCopy"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Copy Instance",
         "tags": [
           "assemblies"
         ]
@@ -16956,6 +17500,74 @@
         ]
       }
     },
+    "/api/v1/parts/{part_id}/evaluation-request": {
+      "get": {
+        "description": "The part's evaluation-ready feature list, exactly as ``evaluate`` sends\nit to geometry: rollback bar applied, params upcast, every formula\nresolved, and a feature whose formula no longer resolves carrying its\n``input_error`` (PART-PARAMETERS, RESEARCH \u00a720).\n\nThe web builds its measure and pick (overlay) requests from this rather\nthan from ``GET /features``, so those tools see the body the viewport\nshows: a sick feature builds nothing there either, instead of a phantom\nbody from its last good numbers (MEASURE-FROM-EVAL-REQUEST). ``before``\nis the Edit-feature cut, as on ``evaluate``. A read: nothing is evaluated\nor recorded.",
+        "operationId": "get_part_evaluation_request_api_v1_parts__part_id__evaluation_request_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Evaluate only the features BEFORE this one (the feature itself excluded), ignoring the stored rollback bar: the same body a rollback bar on the preceding feature would give. Read-only: the bar and tree_version do not move and the evaluation is not recorded. Omit to evaluate the part as stored. An id that is not a feature of this part is a 404 feature_not_found.",
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Evaluate only the features BEFORE this one (the feature itself excluded), ignoring the stored rollback bar: the same body a rollback bar on the preceding feature would give. Read-only: the bar and tree_version do not move and the evaluation is not recorded. Omit to evaluate the part as stored. An id that is not a feature of this part is a 404 feature_not_found.",
+              "title": "Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluateTreeRequest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Part Evaluation Request",
+        "tags": [
+          "features"
+        ]
+      }
+    },
     "/api/v1/parts/{part_id}/export": {
       "post": {
         "description": "Export the part's current evaluated body as a downloadable CAD file.\n\nThe export twin of :func:`evaluate_part` and the same two-hop aggregation:\ndocuments serves the evaluation-ready feature list (rollback bar applied,\nparams upcast \u2014 \u00a74.2), the gateway wraps it with the requested format into\nan ``ExportTreeRequest`` and relays it to the stateless geometry service's\ntree-export route, and the file bytes stream back byte-exact. Auth-scoped\nlike every parts route (the principal reaches documents, never geometry).\nA tree with no body is the geometry service's 422 ``tree_export_failed``\nenvelope, re-surfaced verbatim.",
@@ -17842,7 +18454,7 @@
         ]
       },
       "put": {
-        "description": "Replace the whole parameter table, as one undoable edit.\n\nA stale `expected_tree_version` is a 422 `stale_tree_version`. A table\nthat does not evaluate is a 422 carrying the expression error's code\n(`expression_syntax`, `expression_unknown_name`, `expression_cycle` with\nits `chain`, `expression_name_invalid`, `expression_units`,\n`expression_domain`, `expression_too_complex`).",
+        "description": "Replace the whole parameter table, as one undoable edit.\n\nA stale `expected_tree_version` is a 422 `stale_tree_version`. A table\nthat does not evaluate is a 422 carrying the expression error's code\n(`expression_syntax`, `expression_unknown_name`, `expression_cycle` with\nits `chain`, `expression_name_invalid`, `expression_units`,\n`expression_domain`, `expression_too_complex`). Deleting a parameter a\nfeature still reads is a 409 `parameter_in_use` naming the features; a\nrename rewrites every feature's references; the same table again changes\nnothing.",
         "operationId": "put_part_parameters_api_v1_parts__part_id__parameters_put",
         "parameters": [
           {

@@ -428,6 +428,47 @@ class InstanceUpdate(BaseModel):
     )
 
 
+#: Where a copied instance lands when the request names no offset: +20 mm along
+#: the assembly's X axis. A fixed nudge rather than one sized from the part's
+#: bounding box, because the documents service never evaluates geometry; 20 mm
+#: is enough to see the copy beside the source and Move puts it where it goes.
+DEFAULT_INSTANCE_COPY_OFFSET_MM: tuple[float, float, float] = (20.0, 0.0, 0.0)
+
+#: Bound on each offset component (100 m), the same as the joint length bound.
+MAX_INSTANCE_COPY_OFFSET_MM = 100_000.0
+
+#: One finite, bounded offset component (mm).
+CopyOffsetComponent = Annotated[
+    float,
+    Field(
+        allow_inf_nan=False,
+        ge=-MAX_INSTANCE_COPY_OFFSET_MM,
+        le=MAX_INSTANCE_COPY_OFFSET_MM,
+    ),
+]
+
+
+class InstanceCopy(BaseModel):
+    """Copy one instance within its assembly (Fusion's Copy and Paste).
+
+    The copy references the same document as the source, keeps its
+    orientation, and sits at the source's position plus ``offset`` (assembly
+    axes, mm). It is never grounded, and mates and joints are not copied.
+    """
+
+    expected_version: int = Field(
+        ge=0, description="Optimistic-concurrency guard (design §1.2)"
+    )
+    offset: tuple[CopyOffsetComponent, CopyOffsetComponent, CopyOffsetComponent] = (
+        Field(
+            default=DEFAULT_INSTANCE_COPY_OFFSET_MM,
+            json_schema_extra=_drop_schema_default,
+            description="[x, y, z] mm added to the source's position, in the "
+            "assembly's axes. Absent reads [20, 0, 0].",
+        )
+    )
+
+
 class InstanceResponse(BaseModel):
     """An instance as stored (design §1.2)."""
 
@@ -946,6 +987,23 @@ class AssemblyExtentsResponse(BaseModel):
         description="The solve these extents came out of. Anything other than "
         "`well_constrained` means the poses are a best fit, not a determined "
         "result (§2.4)"
+    )
+    conflicting_mates: list[uuid.UUID] = Field(
+        default_factory=list["uuid.UUID"],
+        exclude_if=_is_empty,
+        json_schema_extra=_drop_schema_default,
+        description="Ids of mutually-unsatisfiable mates (the solve's "
+        "`diagnosis.conflicting_mates`). Omitted while empty. A drawing of this "
+        "assembly reads it, with `mate_errors`, to say its parts are not where "
+        "the mates put them.",
+    )
+    mate_errors: list[MateEvaluationError] = Field(
+        default_factory=list["MateEvaluationError"],
+        exclude_if=_is_empty,
+        json_schema_extra=_drop_schema_default,
+        description="Mates the solve could not resolve and dropped, as on "
+        "EvaluateAssemblyResult. Omitted while empty, so a solve that honoured "
+        "every mate dumps exactly as before either field existed.",
     )
 
 

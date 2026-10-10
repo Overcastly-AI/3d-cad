@@ -137,6 +137,16 @@ PATCH_ASSEMBLIES_ASSEMBLY_ID_INSTANCES_INSTANCE_ID: Final = Operation(
     required_query=(),
 )
 
+POST_ASSEMBLIES_ASSEMBLY_ID_INSTANCES_INSTANCE_ID_COPY: Final = Operation(
+    operation_id="copy_instance_api_v1_assemblies__assembly_id__instances__instance_id__copy_post",
+    method="POST",
+    path="/api/v1/assemblies/{assembly_id}/instances/{instance_id}/copy",
+    request_model="InstanceCopy",
+    response_model="InstanceMutationResponse",
+    path_params=("assembly_id", "instance_id",),
+    required_query=(),
+)
+
 POST_ASSEMBLIES_ASSEMBLY_ID_MATES: Final = Operation(
     operation_id="create_mate_api_v1_assemblies__assembly_id__mates_post",
     method="POST",
@@ -767,6 +777,16 @@ POST_PARTS_PART_ID_EVALUATE: Final = Operation(
     required_query=(),
 )
 
+GET_PARTS_PART_ID_EVALUATION_REQUEST: Final = Operation(
+    operation_id="get_part_evaluation_request_api_v1_parts__part_id__evaluation_request_get",
+    method="GET",
+    path="/api/v1/parts/{part_id}/evaluation-request",
+    request_model=None,
+    response_model="EvaluateTreeRequest",
+    path_params=("part_id",),
+    required_query=(),
+)
+
 POST_PARTS_PART_ID_EXPORT: Final = Operation(
     operation_id="export_part_api_v1_parts__part_id__export_post",
     method="POST",
@@ -994,6 +1014,7 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "create_instance_api_v1_assemblies__assembly_id__instances_post": POST_ASSEMBLIES_ASSEMBLY_ID_INSTANCES,
         "delete_instance_api_v1_assemblies__assembly_id__instances__instance_id__delete": DELETE_ASSEMBLIES_ASSEMBLY_ID_INSTANCES_INSTANCE_ID,
         "update_instance_api_v1_assemblies__assembly_id__instances__instance_id__patch": PATCH_ASSEMBLIES_ASSEMBLY_ID_INSTANCES_INSTANCE_ID,
+        "copy_instance_api_v1_assemblies__assembly_id__instances__instance_id__copy_post": POST_ASSEMBLIES_ASSEMBLY_ID_INSTANCES_INSTANCE_ID_COPY,
         "create_mate_api_v1_assemblies__assembly_id__mates_post": POST_ASSEMBLIES_ASSEMBLY_ID_MATES,
         "delete_mate_api_v1_assemblies__assembly_id__mates__mate_id__delete": DELETE_ASSEMBLIES_ASSEMBLY_ID_MATES_MATE_ID,
         "update_mate_api_v1_assemblies__assembly_id__mates__mate_id__patch": PATCH_ASSEMBLIES_ASSEMBLY_ID_MATES_MATE_ID,
@@ -1057,6 +1078,7 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "update_part_api_v1_parts__part_id__patch": PATCH_PARTS_PART_ID,
         "duplicate_part_api_v1_parts__part_id__duplicate_post": POST_PARTS_PART_ID_DUPLICATE,
         "evaluate_part_api_v1_parts__part_id__evaluate_post": POST_PARTS_PART_ID_EVALUATE,
+        "get_part_evaluation_request_api_v1_parts__part_id__evaluation_request_get": GET_PARTS_PART_ID_EVALUATION_REQUEST,
         "export_part_api_v1_parts__part_id__export_post": POST_PARTS_PART_ID_EXPORT,
         "export_part_loft_api_v1_parts__part_id__export_loft_get": GET_PARTS_PART_ID_EXPORT_LOFT,
         "get_feature_tree_api_v1_parts__part_id__features_get": GET_PARTS_PART_ID_FEATURES,

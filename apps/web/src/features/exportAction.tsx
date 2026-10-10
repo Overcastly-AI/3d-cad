@@ -93,6 +93,17 @@ export interface ExportAction {
   readonly failure: ExportFailureCopy | null;
   /** Fetch the file and hand it to the browser as a named download. */
   readonly run: (format: ExportFormat) => Promise<void>;
+  /**
+   * A format click: runs at once, or — when the caller asked for a confirm —
+   * arms that format and waits for `confirm()`.
+   */
+  readonly request: (format: ExportFormat) => void;
+  /** The format waiting on an explicit "Export anyway", or null. */
+  readonly armed: ExportFormat | null;
+  /** Write the armed format. */
+  readonly confirm: () => void;
+  /** Drop the armed format without writing anything. */
+  readonly cancel: () => void;
 }
 
 /** What a failed export tells the user, on both export surfaces. */
@@ -157,8 +168,14 @@ export function exportFailureCopy(
  */
 export function useExportAction(
   exporter: (format: ExportFormat) => Promise<ExportedFile>,
+  /**
+   * Ask once before writing (an assembly whose mates did not all solve — the
+   * file would hold parts where nobody put them). Turning it off disarms.
+   */
+  confirmFirst = false,
 ): ExportAction {
   const [busy, setBusy] = useState<ExportFormat | null>(null);
+  const [armedFormat, setArmed] = useState<ExportFormat | null>(null);
   const [failed, setFailed] = useState<{
     format: ExportFormat;
     copy: ExportFailureCopy;
@@ -181,10 +198,33 @@ export function useExportAction(
     [exporter],
   );
 
+  // Derived, not synced: a confirm armed while the assembly was partial means
+  // nothing once it solves cleanly, and must not linger to be clicked later.
+  const armed = confirmFirst ? armedFormat : null;
+  const request = useCallback(
+    (format: ExportFormat) => {
+      if (confirmFirst) {
+        setFailed(null);
+        setArmed(format);
+      } else void run(format);
+    },
+    [confirmFirst, run],
+  );
+  const confirm = useCallback(() => {
+    if (armed === null) return;
+    setArmed(null);
+    void run(armed);
+  }, [armed, run]);
+  const cancel = useCallback(() => setArmed(null), []);
+
   return {
     busy,
     failed: failed?.format ?? null,
     failure: failed?.copy ?? null,
     run,
+    request,
+    armed,
+    confirm,
+    cancel,
   };
 }

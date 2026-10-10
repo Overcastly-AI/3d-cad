@@ -1237,8 +1237,9 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   `[]`); named versions carry parameters.
 - **Errors.** Syntax, unknown name, cycle, unresolvable or colliding name:
   422 at write. Deleting a referenced parameter: 409 `parameter_in_use`
-  listing the features; a rename rewrites references token by token. A
-  resolved value that fails its field's validation, or an unresolved import,
+  listing the features; a rename rewrites references token by token, in
+  features, sketch dimensions and the other parameters (a row the PUT
+  itself rewrites is taken as written). A resolved value that fails its field's validation, or an unresolved import,
   makes that feature sick with `input_error` (`parameter_value_invalid` /
   `parameter_unresolved`), keeps the last good value, and answers 200 with
   per-feature errors. Geometry (step 2, `features/tree.py::_dispatch_one`)
@@ -1248,15 +1249,247 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   past a red feature. A later feature that references its output fails with
   the existing `reference_unresolved` (upstream id pinned), which does stop
   the prefix. Only those two codes are accepted on the wire.
+- **Step 4, as built.** `loft_wire/feature_expressions.py` holds the
+  envelope field and its pointer check; `loft_wire/feature_resolve.py` the
+  resolution documents runs on write, per evaluation request and on a table
+  PUT (shared with the golden harness). A field's unit comes from its name.
+  A sketch is resolved only when a driving dimension names something outside
+  the sketch. **A dimension's formula stays in its own `expression`** (the
+  web sketcher saves only `{type, version, params}`, so anything kept beside
+  params would be erased), with the resolved number stored in
+  `value_mm`/`value_deg`. Pointers into a sketch's `constraints` or
+  `entities` are refused (422): positions move when a sketch is edited.
+  **Geometry boundary:** `EvaluatedFeatureInput` (every geometry request that
+  carries features) drops `expressions` and the `expression` of each
+  dimension that names anything outside its sketch, decided from the sketch
+  alone, so the stored number stands. Same-sketch formulas still reach
+  geometry. So the evaluation request, the web's measure, pick, preview and
+  drawing requests (built from `GET /features`) and the reference backfill
+  all solve, and all key the rebuild cache alike. A rename that would push a
+  formula past 256 characters is a 422 naming the feature and pointer, with
+  nothing stored. A table PUT
+  keeps going when a dependent feature goes out of range: the feature keeps
+  its last good numbers and is sick on evaluation. The same table again is a
+  no-op. Golden kind `parametric.json` (`test_parametric_goldens.py`).
 - **UI, script, file.** A Parameters panel on the command band; one
   `<ValueField>` with `parseFieldEntry` (`units/length.ts`) in every numeric
   editor, with an fx mark and autocomplete. `loft-script`: `parameters()`,
   `set_parameter`, `rename_parameter`, `delete_parameter`, numeric arguments
-  accept `float | str`, and `loft.expr.evaluate`. `.loft` 1.2 carries the
+  accept `float | str`, and `loft.expr.evaluate`. Step 6 as built: a
+  builder evaluates a str with the shared library against the part's table
+  (read only when the formula names something) to fill the number the DTO
+  needs beside it; documents re-resolves on write, so its number is the one
+  stored. Table edits re-read and PUT the whole table, retried once on a
+  stale version. `.loft` 1.2 carries the
   table and per-feature expressions in `tree.json` and version trees; 1.1
   readers degrade to numbers; frozen fixture `golden-v1.2.loft`.
+- **Step 5, as built.** A dimension formula that names a parameter is
+  written beside its sketch in `dimension_expressions` (pointer to the
+  dimension's `expression`), with null in the dimension and the resolved
+  number standing; `loft_wire/loft_formulas.py`, the geometry boundary's
+  rule. Left in place, a 1.1 Loft (whose sketch formulas see only the
+  sketch) would fail the sketch on `unknown dimension name` rather than
+  degrade. Same-sketch formulas stay in place. docs/FILE-FORMAT.md has the
+  version table.
+- **Step 8, as built.** `<ValueField>` (`components/ValueField.tsx`) is an
+  uncontrolled cell (the sketcher's box sits in the canvas, DIM-1). A number
+  goes to the editor's form as before. A formula is shown with `fx` and its
+  value (`= 10 mm`), and the form gets the resolved number, so validation,
+  preview and gauges are unchanged. The formula is kept by pointer in the
+  open editor's session (`features/fieldFormulas.ts`) and saved as the
+  envelope's `expressions`, only for pointers that land on a number of the
+  params sent. The client evaluates with a TS port of the grammar
+  (`features/expr.ts`), for the hint and preview only; documents re-resolves
+  on write. A gauge drag writes a number and drops the formula, as Fusion's
+  manipulators do. A 422 naming a pointer goes on that field. A feature's
+  `input_error` reads `Width: parameter 'W' not found.` in the tree, the
+  editor and the sketch stamp. The hole's X/Y cells stay numbers, because the
+  stored position is a world point and has no pointer for a face-local
+  formula. The part's measure and pick requests come from
+  `GET /parts/{id}/evaluation-request` (new gateway route), so a sick feature
+  builds nothing there either. Assembly overlays and drawings still build
+  from `GET /features`.
+- **Step 9, as built.** Three reference parts carry a table and re-drive from
+  one `set_parameter`. The gear (`helical-gear.py`, default route) has 5
+  inputs (`module`, `teeth`, `alpha_n`, `beta`, `face_width`) and 11 ISO
+  21771 formulas over them (`rp`, `rbase`, `ra`, `rf`, `t_out`, `inv_t`,
+  `gap0`, `twist`, ...). Its tooth gap places every vertex and involute fit
+  point by a horizontal and a vertical `point_distance` from a fixed origin
+  point, each a formula over the table: fit point i sits at radius
+  `rbase*sqrt(1+t^2)` and half-gap angle `gap0 + deg(t) - atan(t)`, with
+  `t = t_out*i/11`. The sketch is fully constrained without redundancy: the
+  upper flank's outer point and the root arc's upper end take only their y,
+  and the arc through them fixes x. The sweep twist is `twist`, the pattern
+  count `teeth`, and depths are `face_width`. `--edit` is
+  `set_parameter("beta", "20 deg")`. The ruled-loft route (`--ruled`) draws
+  its rotated sections and refuses `--edit`. Ladder 2c (`manifold.py`, 27
+  rows, edit `H` 50 -> 60) cuts each drilled hole as a revolve of its
+  half-section on an offset datum through its axis. P's depth is
+  `H - pass_z`, the stand-in for Hole "To" (BACKLOG HOLE-DRILL-POINT). Ladder
+  3d (`knob.py`, 13 rows, edit `flutes` 18 -> 24) builds body 2 as an
+  annulus plus a patterned flute fill (BOOLEAN-KEEP-TOOLS). The shared
+  helper is `formula_sketch.py`. Each script's expected volumes are pure
+  Python: closed-form solids of revolution, and 1D integrals of
+  closed-form chord areas for the overlaps. Measured (2026-10-10): gear
+  36470.392 / 38685.979 mm³ against 36470.374 / 38685.960 (+4.7e-7);
+  manifold 229390.6201 / 276369.9166 (1e-11); knob 33498.2060 / 33324.8390
+  (1e-11). The STEP re-reads agree to 1.3e-7: one connected P + A + plug
+  cavity with four M6 holes on their grid points, two knob bodies with zero
+  common volume, and the gear's twist on the true helix after the edit.
+  `packages/loft-script/tests/test_reference_parts.py` runs all three builds
+  and edits to 1e-4 in CI (about 40 s).
 - **Truth.** `packages/loft-wire/tests/test_expr.py` (grammar, units,
   functions, cycles, depth, hostile strings, off-whitelist names); golden
   `sketch-trig-expression-40x20tan15x10` (step 1); a new golden kind
   `parametric.json` with re-drive steps (step 4); a cache-key test;
   documents route, undo, migration and `.loft` tests; web vitest and one e2e.
+
+## 21. Assembly joints: frames, alignment and values (S4a)
+
+**What mainstream CAD does.** Fusion 360 joints and Onshape mate connectors
+put a frame on each part (a face centre, a circle centre, a point on an edge),
+bring the two frames together, and leave a motion free between them. A face
+origin's Z is its outward normal, a circle origin's Z points out of the face
+the circle bounds, and the joint seats the parts face to face. A joint has a
+current value (Onshape persists it), and a driven hinge still has its 1 DOF:
+you can drag it.
+
+**Decisions** (`geometry/assembly/joint_origins.py`, `joint_math.py`).
+
+- **Origins.** `face_centre`: the matched face's own area centroid, Z its
+  outward normal. After a resilient re-match (the face was resized or moved)
+  it follows the face's current centre, as Fusion's does, where a sketch
+  plane stays at the stored centroid.
+  `circle_centre`: the `gp_Circ` centre, Z along its axis, signed to the
+  outward normal of a planar face the circle bounds perpendicular to that
+  axis; a circle between two curved faces keeps the `gp_Circ` sense.
+  `edge_point`: start / arc-length mid / end, Z the unit tangent from start
+  to end. Start is the endpoint with the smaller `(x, y, z)` (the signature's
+  canonical `end_a` order, with a 1e-6 mm tie band), so OCCT's edge
+  orientation never matters.
+- **Resolution: origins follow the part.** In Fusion 360 a joint moves with
+  its hole when the part is edited. Every joint origin and every legacy mate
+  reference (`MateFaceRef`, `MateAxisRef`) resolves through the feature
+  tree's tiered resolvers with the part evaluation's history-based face names:
+  `resolve_edge_durable` for an edge (strict, then `topo_name`, then the
+  line / circle invariants and the adjacent faces) and `resolve_faces` /
+  `resolve_face_plane` for a face (strict, `topo_name`, the four geometric
+  tiers). Strict alone was a defect: widening a hinge bracket 100 -> 80
+  re-centred its hole, both joints went `subshape_unresolved` and every part
+  dropped to its seed pose. A circle rim bounds a cylindrical face, so it
+  carries no adjacency and only its name (`side:h1 | end`) re-finds it; an
+  origin picked before names existed resolves as before. The same safety
+  rules apply as for features: each tier runs only on an empty result from
+  the one above, an edge re-found geometrically that the body names
+  differently is refused, and zero or several candidates stay
+  `subshape_unresolved` / `subshape_ambiguous`. A deleted hole therefore leaves its joint unresolved
+  rather than moving it to another edge. Names are a pure function of the
+  tree, so resolution stays deterministic, and an assembly computes them once
+  per mated part. The six earlier assembly goldens are byte-identical
+  (result-JSON sha256 against b7dcbcc).
+- **X reference.** The local axis least aligned with Z, ties X < Y < Z,
+  projected into the plane (`deterministic_x_dir`'s rule, with a 1e-9 tie
+  band so a normal of `(1e-17, 0, 1)` still picks X). Horizontal faces get
+  +X, a +X axis gets +Y. Even in Z.
+- **Flip and quarter turns** (applied to whichever origin carries them; the
+  PATCH route edits B's). Flip is a half turn about the frame's X: Z and Y
+  reverse, X is kept, so a flip changes only which way the frame faces.
+  Quarter turns then rotate X about the flipped Z by right-handed 90° steps.
+- **Alignment.** `F_B = F_A ∘ Trans(0, 0, offset + lin) ∘ RotZ(angle + rot)
+  ∘ RotX(180°)`: origins coincide, Z axes are OPPOSED and X axes aligned
+  (face to face, the legacy `flush`). `offset_mm` / `angle_deg` shift along
+  and turn about A's Z; `rot` / `lin` are the free motion.
+- **Rows.** Rigid: position (3) plus orientation rotation vector (3). Revolute:
+  position (3) plus `z_B + z_A` (rank 2). Slider: position perpendicular to
+  `z_A` (rank 2) plus orientation (3). A set value adds one driving row:
+  `wrap(φ - angle - rot)` in radians, or `(p_B - p_A)·z_A - offset - lin`.
+  Remaining DOF and redundancy read the hard rows only (a driven hinge reports
+  1 DOF, status `under_constrained`); conflicts read every row, so a value
+  fighting a legacy mate names both.
+- **Snap.** On a grounded tree the closed-form path places the child from its
+  parent: driven axes take the value, a free axis keeps the child's seed
+  position along it (so an undriven joint settles at the seed), and either
+  side may be the free one. A pair whose other mates disagree falls to the
+  damped LM, which also anchors free axes near the seed.
+- **State.** `rot_deg = wrap(atan2(x_B·y_A, x_B·x_A) - angle_deg)` in
+  (-180, 180]; `lin_mm = (p_B - p_A)·z_A - offset_mm`; `axis_world` is A's Z.
+  A value of 270 reads back -90. `at_limit` came with limits (§22).
+- **S4a scope.** Cylindrical, planar and ball joints were dropped as
+  `mate_unsupported` until S4b (§22), which solves them.
+- **Truth.** Goldens `assembly-hinge-revolute` (90° hinge through hole
+  circle centres, DOF 1, far edge 28.000 from the axis along A's +Y) and
+  `assembly-slider` (edge-point carriage, flipped B, value 80 moves B exactly
+  80.000); `assembly-hinge-pin-moved-holes-w100-to-80` (origins picked at
+  W = 100, rebuilt at W = 80: the pin sits at (40, 15, 0) and B at
+  (55, -25, 10) turned 90°); `test_assembly_joint_origins.py`,
+  `test_assembly_joints.py`, `test_assembly_moved_origins.py` (also the
+  deleted hole, and a legacy concentric mate).
+
+## 22. Assembly joints: the remaining motions, drives and limits (S4b)
+
+**What mainstream CAD does.** Fusion 360's joint motions are rigid, revolute,
+slider, cylindrical, pin-slot, planar and ball; Onshape's mates match all but
+pin-slot (fastened, revolute, slider, cylindrical, planar, ball), and so does
+Loft. A cylindrical
+joint turns and slides on one axis; a planar joint keeps two faces together
+and lets the part slide in that plane and turn about its normal; a ball keeps
+two points together. Joint limits are a min and max per axis; a dragged part
+stops at a limit, and a value outside the limits is refused when typed. A
+limit stops motion; it does not remove the degree of freedom.
+
+**Decisions** (`geometry/assembly/joint_math.py`, `solver.py`).
+
+- **Rows.** Cylindrical: B's origin on A's axis line, `w - (w·z_A) z_A`
+  (rank 2), plus `z_B + z_A` (rank 2): 4, leaving 2 DOF. Planar: `z_B + z_A`
+  (rank 2) plus the normal distance `(p_B - p_A)·z_A - offset` (1): 3, leaving
+  3. Ball: `p_B - (p_A + offset·z_A)`: 3, leaving 3. `offset_mm` on a planar
+  joint is the gap between the planes; on a ball it shifts the centre along
+  A's Z; a ball ignores `angle_deg`.
+- **Drives.** `rot_deg` drives cylindrical and planar (as revolute), `lin_mm`
+  drives cylindrical (as slider). A planar joint's in-plane slide has no
+  single scalar, so it has no value (the wire refuses one). Remaining DOF
+  still reads the hard rows only.
+- **Stages.** The residual stacks every mate's HARD rows first (stage 1), then
+  every DRIVING row (set values, then pinned limits within a joint, rot before
+  lin) in `(order_index, id)` order (stage 2). The hard system is then a
+  prefix of the Jacobian. Without driving rows the vector is exactly the S4a /
+  legacy one, so the five earlier goldens are byte-identical (result-JSON
+  sha256 checked against 35e6461).
+- **Snap.** Planar keeps the seed's in-plane position `(u, v)`, measured
+  along A's frame X and Y. Its turn comes from the value, or from the seed.
+  It discards the seed's tilt and height. Ball keeps the child's seed
+  orientation exactly (its quaternion) and translates the child onto the
+  centre.
+- **Limits: a fixed-order active set.** Solve, then measure every FREE axis
+  that has a limit, joints in `(order_index, id)` order and rot before lin.
+  Pin each axis past a bound by more than `LIMIT_TOL` (1e-9 rad or mm) to
+  that bound as a driving row, then re-solve from the solved poses. Repeat
+  until no axis is past a bound. Pins are never released, so the loop ends
+  within the count of limited axes, and the order is deterministic. A pinned
+  axis that other mates hold elsewhere becomes a conflict that names both.
+  `at_limit` is true when an axis is driven onto a bound, pinned, or a free
+  axis sits within `LIMIT_TOL` of a bound.
+- **Driven values.** Documents refuses a value outside its limits
+  (`joint_value_out_of_limits`, raw degrees against raw bounds). A request
+  that carries one anyway is clamped to the bound when it compiles, so
+  geometry never places a joint past a limit.
+- **Seam rule (rotation limits).** A measured angle is known only modulo
+  360°, so it is read on a branch `(c - 180°, c + 180°]`. With both bounds,
+  `c` is their midpoint. An angle outside the limits then goes to the
+  NEARER bound around the circle; the point exactly opposite the midpoint
+  falls on the closed end and goes to the max. Limits of [150°, 210°]
+  therefore accept 190° (reported as -170°), and 0° goes to 210° (reported
+  as -150°). With [-90°, 90°], 180° goes to 90° and -179° to -90°. With one
+  bound, `c` is the point of the allowed side nearest 0: a lone `max 90°`
+  reads on (-180°, 180°], so 120° stops at 90° and -120° is free. A span of
+  360° or more never clamps. `rot_deg` is still reported on (-180°, 180°].
+- **Diagnosis.** When a conflict involves a joint, the message names each
+  culprit by kind and id ("rigid joint … and coincident mate … cannot all be
+  satisfied"). `conflicting_mates` lists both. Legacy-only conflicts keep
+  their message.
+- **Truth.** Golden `assembly-ball-planar`: planar driven onto its 90° max
+  (at_limit) keeps the seed's in-plane (5, -3) and drops its half-turn tilt;
+  a ball keeps C's quarter turn about X and puts its rim centre on
+  (25, 17.5, 20); DOF 6; all hand-derived, tolerance 1e-9.
+  `test_assembly_joints_solver.py` covers DOF 0/1/1/2/3/3, the stops, the
+  seam, the numeric limit path and named conflicts.

@@ -1,6 +1,11 @@
 import { expect, test } from "./fixtures";
 
-import { authorBoltMates, balloonX, setupTwoInstances } from "./assemblyFlow";
+import {
+  armMate,
+  authorBoltMates,
+  balloonX,
+  setupTwoInstances,
+} from "./assemblyFlow";
 import { expectHistoryGates, SCREENSHOT_DIR } from "./support";
 
 /**
@@ -30,7 +35,7 @@ test.describe("Assembly undo/redo (UR3)", () => {
     // An ARMED MATE TOOL owns the session: History locks (honest reason, not
     // a dead click) and the chord is inert — a mid-pick Ctrl+Z must never
     // yank the graph out from under the picks.
-    await page.getByTestId("mate-coincident").click();
+    await armMate(page, "coincident");
     await expect(page.getByTestId("mate-hud")).toBeVisible();
     await expect(page.getByTestId("undo-button")).toBeDisabled();
     await expect(page.getByTestId("redo-button")).toBeDisabled();

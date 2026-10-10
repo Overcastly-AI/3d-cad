@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { NumberField } from "@loft/design";
+import { Notice, NumberField } from "@loft/design";
 
 import type { DrawingBomLine, ViewProjection } from "../api/drawings";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -23,6 +23,7 @@ import {
   setPlacementOffset,
 } from "../drawing/authoring";
 import { drawingSourceName } from "../drawing/source";
+import { capitalise, PARTIAL_POSE_CLAUSE } from "../features/assemblyExport";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { drawingRoute } from "../router";
 import { CenterNote, SetupHint, SheetTabs } from "./drawing/SheetChrome";
@@ -75,6 +76,7 @@ export function DrawingPage() {
     annotations,
     hasLayout,
     draftedSourceId,
+    assemblyPartial,
     parts,
     sources,
     selectedSourceId,
@@ -432,9 +434,36 @@ export function DrawingPage() {
               // The check strip needs clearance from the sheet switcher, which
               // floats in this same top-left margin; without it the two touch at
               // narrow widths. Only paid for when the strip is there.
-              layoutIssues.length > 0 ? "pt-12 sm:pt-12" : ""
+              layoutIssues.length > 0 || assemblyPartial !== null
+                ? "pt-12 sm:pt-12"
+                : ""
             }`}
           >
+            {/* The assembly's mates did not all solve, so the views draw its
+                parts where the solve left them — the export strip's "Partial",
+                carried onto the paper (QA 2026-10-10). */}
+            {assemblyPartial !== null && draftedSourceId !== null ? (
+              <Notice
+                role="status"
+                label="Partial"
+                tone="flag"
+                data-testid="drawing-assembly-partial"
+                className="w-full max-w-3xl shrink-0"
+                action={{
+                  label: "Open assembly",
+                  testId: "drawing-assembly-partial-open",
+                  onClick: () =>
+                    void navigate({
+                      to: "/assemblies/$assemblyId",
+                      params: { assemblyId: draftedSourceId },
+                    }),
+                }}
+              >
+                {capitalise(assemblyPartial)} in{" "}
+                {drawingSourceName(sources, draftedSourceId) ?? "the assembly"},
+                so these views draw the {PARTIAL_POSE_CLAUSE}.
+              </Notice>
+            ) : null}
             <SheetIssueStrip
               issues={layoutIssues}
               handPlaced={handPlacedViews}

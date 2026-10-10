@@ -176,7 +176,7 @@ main `01e49e2` on 2026-10-09 (commits and tests; no grade changed).
 | Scripting API | ➖ | `loft-script` shipped, versions included. |
 | Agent access (MCP) | ❌ | Not started. It is the one gap no incumbent can answer. |
 | Free and unlimited | ✅ | Air-gap claim gated by `check-air-gap.py`. |
-| Your data, your files | ✅ | Backup and restore drill runs in CI. A part and its named versions export and import as a `.loft` file (format 1.1; docs/FILE-FORMAT.md). |
+| Your data, your files | ✅ | Backup and restore drill runs in CI. A part and its named versions export and import as a `.loft` file (format 1.2; docs/FILE-FORMAT.md). |
 
 ## Not building (for now)
 

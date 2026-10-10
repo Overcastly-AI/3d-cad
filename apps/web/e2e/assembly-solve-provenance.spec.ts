@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "./fixtures";
 
 import {
+  armMate,
   authorConflictingMates,
   balloonPose,
   pickDispatch,
@@ -266,7 +267,7 @@ async function assertNoClaimOverPreMatePose(
 
   // Arm the coincident tool and collect the first face; the SECOND pick is
   // the write (the value-free mates auto-commit on a complete pair).
-  await page.getByTestId("mate-coincident").click();
+  await armMate(page, "coincident");
   await expect(page.getByTestId("mate-hud")).toBeVisible();
   await pickDispatch(
     page,
@@ -391,7 +392,7 @@ test.describe("MATE-OBS — a mate in flight is never reported as the solve", ()
     // supposed to have waited out. The old barrier fails this by ~600 ms.
     const { idA, idB, seedX } = await setupTwoInstances(page);
 
-    await page.getByTestId("mate-concentric").click();
+    await armMate(page, "concentric");
     await expect(page.getByTestId("mate-hud")).toBeVisible();
     await pickDispatch(page, `[data-testid^="mate-axis-${idA}-"]`);
     await pickDispatch(page, `[data-testid^="mate-axis-${idB}-"]`);

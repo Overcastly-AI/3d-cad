@@ -1259,6 +1259,21 @@ export const MoveIcon = (p: IconProps) => (
 );
 
 /**
+ * Joint — two links meeting on one pin, the frame each carries drawn as a
+ * short tick: Fusion's joint is two origins brought together with a motion
+ * left free between them, and a hinge is the motion everyone already knows.
+ */
+export const JointIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3.5 19.5 L9.5 13.5" />
+    <path d="M14.5 10.5 L20.5 4.5" />
+    <circle cx={12} cy={12} r={3.2} />
+    <path d="M12 3.5 L12 6.5 M12 17.5 L12 20.5" />
+    <Node cx={12} cy={12} />
+  </Icon>
+);
+
+/**
  * Grounded — a push-pin through the part into the bench (Fusion's glyph for a
  * fixed component): the head, the collar, and the point driven home.
  */

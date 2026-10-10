@@ -275,6 +275,79 @@ def test_another_owners_part_is_a_404(client: TestClient) -> None:
     assert client.get(missing, headers=_headers()).status_code == 404
 
 
+# --- renames between parameters --------------------------------------------------
+
+
+def _renamed(rows: list[dict[str, Any]], names: dict[str, str]) -> list[dict[str, Any]]:
+    """The stored rows as a client sends them back, with some names changed."""
+    return [
+        {
+            "id": row["id"],
+            "name": names.get(row["name"], row["name"]),
+            "expression": row["expression"],
+            "unit": row["unit"],
+            "comment": row["comment"],
+        }
+        for row in rows
+    ]
+
+
+def test_a_rename_rewrites_the_parameters_that_read_it(client: TestClient) -> None:
+    part = Part(client)
+    assert (
+        part.put([_row("W", "40"), _row("H", "W - 15", comment="h")]).status_code == 200
+    )
+    before = part.rows()
+    response = part.put(_renamed(before, {"W": "Wid"}))
+    assert response.status_code == 200, response.text
+    after = part.rows()
+    assert [(r["id"], r["name"], r["expression"], r["value"]) for r in after] == [
+        (before[0]["id"], "Wid", "40", 40.0),
+        (before[1]["id"], "H", "Wid - 15", 25.0),
+    ]
+    assert after[1]["comment"] == "h"
+    # One undo step restores the old names and formula together.
+    part.step("undo")
+    assert part.rows() == before
+
+
+def test_a_swap_is_a_swap_and_a_row_the_put_writes_is_taken_as_written(
+    client: TestClient,
+) -> None:
+    part = Part(client)
+    assert (
+        part.put([_row("a", "1"), _row("b", "a + 1"), _row("c", "a * 3")]).status_code
+        == 200
+    )
+    stored = part.rows()
+    swapped = _renamed(stored, {"a": "b", "b": "a"})
+    swapped[2]["expression"] = "b * 3"  # the client already followed the rename
+    assert part.put(swapped).status_code == 200
+    assert [(r["name"], r["expression"], r["value"]) for r in part.rows()] == [
+        ("b", "1", 1.0),
+        ("a", "b + 1", 2.0),
+        ("c", "b * 3", 3.0),
+    ]
+
+
+def test_a_rename_past_the_formula_cap_is_a_422_naming_the_row(
+    client: TestClient,
+) -> None:
+    part = Part(client)
+    assert (
+        part.put([_row("W", "1"), _row("H", "+".join(["W"] * 128))]).status_code == 200
+    )
+    before = part.get().json()
+    response = part.put(_renamed(before["parameters"], {"W": "Width"}))
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert (error["code"], error["details"]["parameter"]) == (
+        "expression_too_complex",
+        "H",
+    )
+    assert part.get().json() == before
+
+
 # --- history ----------------------------------------------------------------------
 
 

@@ -53,6 +53,7 @@ from loft_wire.sketch import (
 )
 
 from loft.errors import SketchNotSolved
+from loft.parameters import Numeric, Once, ParameterValues, dimension_value
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle only matters to the checker
     from loft.part import Part
@@ -164,6 +165,25 @@ class Sketch:
             if all(entity.id != candidate for entity in self.entities):
                 return candidate
 
+    def _dimension(
+        self,
+        value: Numeric,
+        expression: str | None,
+        values: ParameterValues | None = None,
+    ) -> tuple[float, str | None]:
+        """``(number, formula)`` for a dimension given as a number or a formula.
+
+        A string is the dimension's own ``expression`` (over this sketch's
+        named dimensions and the part's parameters), with the number it gives
+        now as ``value_mm``; documents re-resolves it on every write.
+        """
+        if not isinstance(value, str):
+            return value, expression
+        if expression is not None:
+            raise ValueError("give a formula as the value or as expression=, not both")
+        fetch = values or Once(lambda: self.part.parameter_values())
+        return dimension_value(value, self.constraints, fetch), value
+
     def add(self, entity: SketchEntity) -> str:
         """Append a raw entity DTO; returns its id. The escape hatch under the sugar."""
         self.entities.append(entity)
@@ -210,8 +230,8 @@ class Sketch:
         self,
         center: PointLike,
         *,
-        radius: float | None = None,
-        diameter: float | None = None,
+        radius: Numeric | None = None,
+        diameter: Numeric | None = None,
         construction: bool = False,
         dimension: bool = True,
     ) -> str:
@@ -224,25 +244,31 @@ class Sketch:
         :class:`~loft_wire.sketch.DiameterConstraint` exists for). When
         ``dimension`` is true the size also becomes a DRIVING dimension of the
         kind that matches how it was given, so the number in the script is the
-        number in the model rather than a starting guess.
+        number in the model rather than a starting guess. A formula
+        (``diameter="bore"``) becomes that dimension's expression, so it needs
+        ``dimension=True``.
         """
         if (radius is None) == (diameter is None):
             raise ValueError("give exactly one of radius= or diameter=")
-        value = radius if radius is not None else (diameter or 0.0) / 2.0
+        given = radius if radius is not None else diameter
+        assert given is not None
+        if isinstance(given, str) and not dimension:
+            raise ValueError("a formula is kept by its dimension: use dimension=True")
+        size, formula = self._dimension(given, None)
         entity_id = self.add(
             SketchCircle(
                 id=self._new_id(),
                 kind="circle",
                 center=as_point(center),
-                radius=value,
+                radius=size if radius is not None else size / 2.0,
                 construction=construction,
             )
         )
         if dimension:
             if diameter is not None:
-                self.diameter(entity_id, diameter)
-            elif radius is not None:
-                self.radius(entity_id, radius)
+                self.diameter(entity_id, size, expression=formula)
+            else:
+                self.radius(entity_id, size, expression=formula)
         return entity_id
 
     def arc(self, center: PointLike, start: PointLike, end: PointLike) -> str:
@@ -259,8 +285,8 @@ class Sketch:
 
     def rect(
         self,
-        width: float,
-        height: float,
+        width: Numeric,
+        height: Numeric,
         *,
         at: PointLike = (0.0, 0.0),
         center: bool = False,
@@ -288,7 +314,16 @@ class Sketch:
         the sketch to zero degrees of freedom; without it the profile solves but
         floats, and reports ``underconstrained``. Pass ``ground=False`` when the
         rectangle is to be located by constraints of your own.
+
+        ``width``/``height`` may be formulas over the part's parameters
+        (``sk.rect("W", "H")``): each becomes its dimension's expression, and
+        the rectangle is drawn at the size they give now.
         """
+        if not dimension and (isinstance(width, str) or isinstance(height, str)):
+            raise ValueError("a formula is kept by its dimension: use dimension=True")
+        values = Once(lambda: self.part.parameter_values())
+        width, width_formula = self._dimension(width, None, values)
+        height, height_formula = self._dimension(height, None, values)
         origin = as_point(at)
         x0 = origin.x - width / 2.0 if center else origin.x
         y0 = origin.y - height / 2.0 if center else origin.y
@@ -315,8 +350,8 @@ class Sketch:
         if ground:
             self.fixed((rect.bottom, "start"))
         if dimension:
-            self.distance(rect.bottom, width)
-            self.distance(rect.right, height)
+            self.distance(rect.bottom, width, expression=width_formula)
+            self.distance(rect.right, height, expression=height_formula)
         return rect
 
     # -- constraints -------------------------------------------------------
@@ -392,7 +427,7 @@ class Sketch:
     def distance(
         self,
         entity: str,
-        value_mm: float,
+        value_mm: Numeric,
         *,
         name: str | None = None,
         expression: str | None = None,
@@ -403,14 +438,19 @@ class Sketch:
         ``expression`` makes the dimension a formula over other dimensions'
         ``name``s (``height`` carrying ``expression="width/2"``), which is the
         parametric half of the sketcher and costs nothing extra to expose here.
+        A string ``value_mm`` is that formula, and may also name the part's
+        parameters (``sk.distance(e, "W/2")``); the number it gives now is
+        stored beside it. The same holds for :meth:`radius` and
+        :meth:`diameter`.
         """
+        value, formula = self._dimension(value_mm, expression)
         return self.constrain(
             DistanceConstraint(
                 kind="distance",
                 entity=entity,
-                value_mm=value_mm,
+                value_mm=value,
                 name=name,
-                expression=expression,
+                expression=formula,
                 driving=driving,
             )
         )
@@ -418,20 +458,21 @@ class Sketch:
     def radius(
         self,
         entity: str,
-        value_mm: float,
+        value_mm: Numeric,
         *,
         name: str | None = None,
         expression: str | None = None,
         driving: bool = True,
     ) -> int:
         """Dimension the radius of a circle or arc (mm)."""
+        value, formula = self._dimension(value_mm, expression)
         return self.constrain(
             RadiusConstraint(
                 kind="radius",
                 entity=entity,
-                value_mm=value_mm,
+                value_mm=value,
                 name=name,
-                expression=expression,
+                expression=formula,
                 driving=driving,
             )
         )
@@ -439,20 +480,21 @@ class Sketch:
     def diameter(
         self,
         entity: str,
-        value_mm: float,
+        value_mm: Numeric,
         *,
         name: str | None = None,
         expression: str | None = None,
         driving: bool = True,
     ) -> int:
         """Dimension the DIAMETER of a circle or arc (mm)."""
+        value, formula = self._dimension(value_mm, expression)
         return self.constrain(
             DiameterConstraint(
                 kind="diameter",
                 entity=entity,
-                value_mm=value_mm,
+                value_mm=value,
                 name=name,
-                expression=expression,
+                expression=formula,
                 driving=driving,
             )
         )
@@ -480,14 +522,35 @@ class Sketch:
 
         Idempotent in the useful direction: creates on first call, PATCHes the
         whole param envelope afterwards (the re-save of the live parametric
-        loop).
+        loop). A re-save replaces only ``params``: the envelope fields the
+        script did not author (``suppressed``, ``expressions``) are read back
+        from the stored feature and kept, so a suppressed sketch stays
+        suppressed. A suppressed sketch is not built, so it is saved but not
+        solved, as the sketcher leaves it.
         """
         if self.feature_id is None:
             created = self.part.create_feature(self.name, self.feature())
             self.feature_id = created.feature.id
             self.name = created.feature.name
         else:
-            self.part.update_feature(self.feature_id, feature=self.feature())
+            stored = self.part.feature(self.feature_id).feature
+            if not isinstance(stored, SketchFeature):
+                raise TypeError(
+                    f"feature {self.feature_id} is a {stored.type!r}, not a sketch"
+                )
+            self.part.update_feature(
+                self.feature_id,
+                feature=SketchFeature(
+                    type="sketch",
+                    version=1,
+                    params=self.params(),
+                    suppressed=stored.suppressed,
+                    expressions=stored.expressions,
+                ),
+            )
+            if stored.suppressed:
+                self._solved = None
+                return self
         self.solve()
         return self
 
@@ -505,6 +568,12 @@ class Sketch:
             return self._solved
         evaluation = self.part.evaluate()
         result = evaluation.feature(self.feature_id)
+        if result is not None and result.status == "suppressed":
+            raise SketchNotSolved(
+                f"sketch {self.name!r} is suppressed, so it is not built",
+                solve_status="suppressed",
+                details={"feature_id": str(self.feature_id)},
+            )
         if result is not None and result.status == "error" and result.error is not None:
             # A CONTRADICTORY sketch is a feature ERROR carrying a typed
             # diagnosis, not a solved payload with a `conflicting` status — the

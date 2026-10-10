@@ -1,0 +1,464 @@
+{
+  "assembly_id": "00000000-0000-0000-0000-000000000041",
+  "version": 1,
+  "instances": [
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000001",
+      "part_key": "part-bracket@80",
+      "name": null,
+      "features": [
+        {
+          "id": "00000000-0000-0000-0000-0000000000a1",
+          "feature": {
+            "suppressed": false,
+            "type": "sketch",
+            "version": 1,
+            "params": {
+              "entities": [
+                {
+                  "id": "e1",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 0.0,
+                    "y": 0.0
+                  },
+                  "end": {
+                    "x": 80.0,
+                    "y": 0.0
+                  }
+                },
+                {
+                  "id": "e2",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 80.0,
+                    "y": 0.0
+                  },
+                  "end": {
+                    "x": 80.0,
+                    "y": 30.0
+                  }
+                },
+                {
+                  "id": "e3",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 80.0,
+                    "y": 30.0
+                  },
+                  "end": {
+                    "x": 0.0,
+                    "y": 30.0
+                  }
+                },
+                {
+                  "id": "e4",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 0.0,
+                    "y": 30.0
+                  },
+                  "end": {
+                    "x": 0.0,
+                    "y": 0.0
+                  }
+                },
+                {
+                  "id": "h1",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 40.0,
+                    "y": 15.0
+                  },
+                  "radius": 5.0
+                }
+              ],
+              "constraints": [],
+              "plane": {
+                "kind": "datum_plane",
+                "plane": "XY"
+              }
+            }
+          }
+        },
+        {
+          "id": "00000000-0000-0000-0000-0000000000b1",
+          "feature": {
+            "suppressed": false,
+            "type": "extrude",
+            "version": 1,
+            "params": {
+              "profile": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-0000000000a1"
+              },
+              "distance_mm": 10.0,
+              "operation": "add",
+              "direction": "normal",
+              "merge": true
+            }
+          }
+        }
+      ],
+      "materials": null,
+      "placement": {
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      },
+      "grounded": true
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000002",
+      "part_key": "part-pin@1",
+      "name": null,
+      "features": [
+        {
+          "id": "00000000-0000-0000-0000-0000000000a1",
+          "feature": {
+            "suppressed": false,
+            "type": "sketch",
+            "version": 1,
+            "params": {
+              "entities": [
+                {
+                  "id": "c1",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 0.0,
+                    "y": 0.0
+                  },
+                  "radius": 5.0
+                }
+              ],
+              "constraints": [],
+              "plane": {
+                "kind": "datum_plane",
+                "plane": "XY"
+              }
+            }
+          }
+        },
+        {
+          "id": "00000000-0000-0000-0000-0000000000b1",
+          "feature": {
+            "suppressed": false,
+            "type": "extrude",
+            "version": 1,
+            "params": {
+              "profile": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-0000000000a1"
+              },
+              "distance_mm": 20.0,
+              "operation": "add",
+              "direction": "normal",
+              "merge": true
+            }
+          }
+        }
+      ],
+      "materials": null,
+      "placement": {
+        "position": {
+          "x": 0.0,
+          "y": -60.0,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      },
+      "grounded": false
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000003",
+      "part_key": "part-bracket@80",
+      "name": null,
+      "features": [
+        {
+          "id": "00000000-0000-0000-0000-0000000000a1",
+          "feature": {
+            "suppressed": false,
+            "type": "sketch",
+            "version": 1,
+            "params": {
+              "entities": [
+                {
+                  "id": "e1",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 0.0,
+                    "y": 0.0
+                  },
+                  "end": {
+                    "x": 80.0,
+                    "y": 0.0
+                  }
+                },
+                {
+                  "id": "e2",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 80.0,
+                    "y": 0.0
+                  },
+                  "end": {
+                    "x": 80.0,
+                    "y": 30.0
+                  }
+                },
+                {
+                  "id": "e3",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 80.0,
+                    "y": 30.0
+                  },
+                  "end": {
+                    "x": 0.0,
+                    "y": 30.0
+                  }
+                },
+                {
+                  "id": "e4",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 0.0,
+                    "y": 30.0
+                  },
+                  "end": {
+                    "x": 0.0,
+                    "y": 0.0
+                  }
+                },
+                {
+                  "id": "h1",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 40.0,
+                    "y": 15.0
+                  },
+                  "radius": 5.0
+                }
+              ],
+              "constraints": [],
+              "plane": {
+                "kind": "datum_plane",
+                "plane": "XY"
+              }
+            }
+          }
+        },
+        {
+          "id": "00000000-0000-0000-0000-0000000000b1",
+          "feature": {
+            "suppressed": false,
+            "type": "extrude",
+            "version": 1,
+            "params": {
+              "profile": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-0000000000a1"
+              },
+              "distance_mm": 10.0,
+              "operation": "add",
+              "direction": "normal",
+              "merge": true
+            }
+          }
+        }
+      ],
+      "materials": null,
+      "placement": {
+        "position": {
+          "x": 0.0,
+          "y": 60.0,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      },
+      "grounded": false
+    }
+  ],
+  "mates": [
+    {
+      "mate_id": "00000000-0000-0000-0000-0000000003e9",
+      "order_index": 0,
+      "mate": {
+        "type": "joint",
+        "motion": "revolute",
+        "a": {
+          "instance_id": "00000000-0000-0000-0000-000000000001",
+          "kind": "circle_centre",
+          "signature": {
+            "subshape_type": "edge",
+            "curve": "circle",
+            "end_a": {
+              "x": 55.0,
+              "y": 14.999999999999998,
+              "z": 0.0
+            },
+            "end_b": {
+              "x": 55.0,
+              "y": 15.0,
+              "z": 0.0
+            },
+            "midpoint": {
+              "x": 45.0,
+              "y": 15.0,
+              "z": 0.0
+            },
+            "length_mm": 31.41592653589793,
+            "adjacent_faces": null,
+            "topo_name": "[\"00000000-0000-0000-0000-0000000000b1:side:h1\",\"00000000-0000-0000-0000-0000000000b1:start\"]",
+            "end_a_topo_name": null
+          },
+          "at": null,
+          "flip": false,
+          "quarter_turns": 0
+        },
+        "b": {
+          "instance_id": "00000000-0000-0000-0000-000000000002",
+          "kind": "circle_centre",
+          "signature": {
+            "subshape_type": "edge",
+            "curve": "circle",
+            "end_a": {
+              "x": 5.0,
+              "y": -1.2246467991473533e-15,
+              "z": 0.0
+            },
+            "end_b": {
+              "x": 5.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            "midpoint": {
+              "x": -5.0,
+              "y": 6.123233995736766e-16,
+              "z": 0.0
+            },
+            "length_mm": 31.41592653589793,
+            "adjacent_faces": null,
+            "topo_name": "[\"00000000-0000-0000-0000-0000000000b1:side:c1\",\"00000000-0000-0000-0000-0000000000b1:start\"]",
+            "end_a_topo_name": null
+          },
+          "at": null,
+          "flip": true,
+          "quarter_turns": 0
+        },
+        "offset_mm": 0.0,
+        "angle_deg": 0.0,
+        "limits": null,
+        "value": {
+          "rot_deg": 0.0,
+          "lin_mm": null
+        }
+      }
+    },
+    {
+      "mate_id": "00000000-0000-0000-0000-0000000003ea",
+      "order_index": 1,
+      "mate": {
+        "type": "joint",
+        "motion": "revolute",
+        "a": {
+          "instance_id": "00000000-0000-0000-0000-000000000002",
+          "kind": "circle_centre",
+          "signature": {
+            "subshape_type": "edge",
+            "curve": "circle",
+            "end_a": {
+              "x": 5.0,
+              "y": -1.2246467991473533e-15,
+              "z": 20.0
+            },
+            "end_b": {
+              "x": 5.0,
+              "y": 0.0,
+              "z": 20.0
+            },
+            "midpoint": {
+              "x": -5.0,
+              "y": 6.123233995736766e-16,
+              "z": 20.0
+            },
+            "length_mm": 31.41592653589793,
+            "adjacent_faces": null,
+            "topo_name": "[\"00000000-0000-0000-0000-0000000000b1:end\",\"00000000-0000-0000-0000-0000000000b1:side:c1\"]",
+            "end_a_topo_name": null
+          },
+          "at": null,
+          "flip": false,
+          "quarter_turns": 0
+        },
+        "b": {
+          "instance_id": "00000000-0000-0000-0000-000000000003",
+          "kind": "circle_centre",
+          "signature": {
+            "subshape_type": "edge",
+            "curve": "circle",
+            "end_a": {
+              "x": 55.0,
+              "y": 14.999999999999998,
+              "z": 10.0
+            },
+            "end_b": {
+              "x": 55.0,
+              "y": 15.0,
+              "z": 10.0
+            },
+            "midpoint": {
+              "x": 45.0,
+              "y": 15.0,
+              "z": 10.0
+            },
+            "length_mm": 31.41592653589793,
+            "adjacent_faces": null,
+            "topo_name": "[\"00000000-0000-0000-0000-0000000000b1:end\",\"00000000-0000-0000-0000-0000000000b1:side:h1\"]",
+            "end_a_topo_name": null
+          },
+          "at": null,
+          "flip": true,
+          "quarter_turns": 0
+        },
+        "offset_mm": 0.0,
+        "angle_deg": 0.0,
+        "limits": null,
+        "value": {
+          "rot_deg": 90.0,
+          "lin_mm": null
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

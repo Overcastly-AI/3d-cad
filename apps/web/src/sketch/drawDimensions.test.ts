@@ -63,7 +63,7 @@ describe("drawDimensionFields", () => {
     expect(fields.every((f) => f.entity === null)).toBe(true);
   });
 
-  it("gives a line its length and a circle its radius", () => {
+  it("gives a line its length and a circle its diameter", () => {
     expect(
       drawDimensionFields("line", { x: 0, y: 0 }, { x: 3, y: 4 }, ["e1"]),
     ).toEqual([
@@ -80,12 +80,12 @@ describe("drawDimensionFields", () => {
       drawDimensionFields("circle", { x: 1, y: 1 }, { x: 1, y: 7 }, ["e9"]),
     ).toEqual([
       {
-        key: "radius",
-        label: "R",
-        name: "Radius",
-        measuredMm: 6,
+        key: "diameter",
+        label: "Ø",
+        name: "Diameter",
+        measuredMm: 12,
         entity: "e9",
-        kind: "radius",
+        kind: "diameter",
       },
     ]);
   });
@@ -164,7 +164,7 @@ describe("resizeDrawn", () => {
     expect(next[4]).toBe(other);
   });
 
-  it("sets a circle's radius", () => {
+  it("sets a circle's diameter", () => {
     const circle: SketchEntity = {
       id: "e1",
       kind: "circle",
@@ -178,9 +178,19 @@ describe("resizeDrawn", () => {
       { x: 2, y: 2 },
       { x: 5, y: 2 },
       [circle],
-      { radius: 12 },
+      { diameter: 24 },
     );
     expect(next?.kind === "circle" && next.radius).toBe(12);
+  });
+
+  it("sizes a shape typed before the pointer moved, along +x", () => {
+    // Mid-drag typing can apply with the cursor still on the first point.
+    expect(
+      resizedTo("circle", { x: 1, y: 1 }, { x: 1, y: 1 }, { diameter: 10 }),
+    ).toEqual({ x: 6, y: 1 });
+    expect(
+      resizedTo("line", { x: 0, y: 0 }, { x: 0, y: 0 }, { length: 7 }),
+    ).toEqual({ x: 7, y: 0 });
   });
 });
 
@@ -229,8 +239,22 @@ describe("drawDimensionConstraints", () => {
       ["e1"],
     );
     expect(
-      drawDimensionConstraints("circle", ["e1"], fields, { radius: 8 }),
-    ).toEqual([{ kind: "radius", entity: "e1", value_mm: 8 }]);
+      drawDimensionConstraints("circle", ["e1"], fields, { diameter: 8 }),
+    ).toEqual([{ kind: "diameter", entity: "e1", value_mm: 8 }]);
+  });
+
+  it("carries a typed formula as the dimension's own expression", () => {
+    const constraints = drawDimensionConstraints(
+      "rect",
+      ["e1", "e2", "e3", "e4"],
+      rectFields,
+      { width: 80, height: 50 },
+      { width: "W" },
+    );
+    expect(constraints).toEqual([
+      { kind: "distance", entity: "e1", value_mm: 80, expression: "W" },
+      { kind: "distance", entity: "e2", value_mm: 50 },
+    ]);
   });
 });
 

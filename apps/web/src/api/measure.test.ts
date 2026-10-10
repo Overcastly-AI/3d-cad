@@ -2,6 +2,7 @@ import { createGatewayClient } from "@loft/ts-client/gateway";
 import { describe, expect, it } from "vitest";
 
 import {
+  fetchEvaluationRequest,
   fetchOverlay,
   measureTargets,
   MeasureError,
@@ -29,6 +30,53 @@ const TREE: EvaluateTreeRequest = {
   linear_deflection: 0.1,
   features: [],
 };
+
+describe("fetchEvaluationRequest (MEASURE-FROM-EVAL-REQUEST)", () => {
+  it("reads documents' request, the Edit cut in `before`, at mesh deflection", async () => {
+    const seen: string[] = [];
+    const sick = {
+      ...TREE,
+      linear_deflection: 0.5,
+      features: [
+        {
+          id: "00000000-0000-0000-0000-000000000001",
+          feature: { type: "boolean", version: 1, params: {} },
+          input_error: { code: "parameter_unresolved", message: "gone" },
+        },
+      ],
+    };
+    const client = createGatewayClient({
+      baseUrl: "http://gateway.test",
+      fetch: (request: Request) => {
+        seen.push(request.url);
+        return Promise.resolve(json(sick));
+      },
+    });
+    const tree = await fetchEvaluationRequest("p-1", "f-2", client);
+    expect(seen).toEqual([
+      "http://gateway.test/api/v1/parts/p-1/evaluation-request?before=f-2",
+    ]);
+    // The sick feature's input_error rides through to geometry untouched.
+    expect(tree.features[0]?.input_error?.code).toBe("parameter_unresolved");
+    expect(tree.linear_deflection).toBe(0.1);
+    await fetchEvaluationRequest("p-1", undefined, client);
+    expect(seen[1]).toBe(
+      "http://gateway.test/api/v1/parts/p-1/evaluation-request",
+    );
+  });
+
+  it("refuses with a typed MeasureError", async () => {
+    const client = clientReturning(
+      json({ error: { code: "feature_not_found", message: "no" } }, 404),
+    );
+    await expect(
+      fetchEvaluationRequest("p-1", "f-9", client),
+    ).rejects.toMatchObject({
+      name: "MeasureError",
+      code: "feature_not_found",
+    });
+  });
+});
 
 describe("fetchOverlay", () => {
   it("returns the vertices + edges on success", async () => {

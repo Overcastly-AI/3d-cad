@@ -8,9 +8,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { fetchOverlay } from "../../api/measure";
-import { buildEvaluateTree } from "../../measure/geometry";
-import { type FeatureTreeResponse } from "../../api/parts";
+import { fetchPartOverlay } from "../../api/measure";
 import { useEdgePickStore } from "../../features/edgePickStore";
 import { useSketchStore } from "../../sketch/store";
 import { useFacePickStore } from "../../features/facePickStore";
@@ -68,8 +66,7 @@ export function usePickOverlays({
   // same request/key (one cache entry, faces line up with the rendered body).
   const datumFacesQuery = useQuery({
     queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    queryFn: () => fetchPartOverlay(partId),
     enabled:
       datumFacePick !== null && tree.data !== undefined && meshGlbId !== null,
     staleTime: Infinity,
@@ -87,8 +84,7 @@ export function usePickOverlays({
   const holeEditing = editor?.kind === "hole";
   const holeOverlayQuery = useQuery({
     queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    queryFn: () => fetchPartOverlay(partId),
     enabled: holeEditing && tree.data !== undefined && meshGlbId !== null,
     staleTime: Infinity,
     retry: false,
@@ -166,8 +162,7 @@ export function usePickOverlays({
     mode === "plane" && (facePicking || facePickRefusal === null);
   const facesQuery = useQuery({
     queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    queryFn: () => fetchPartOverlay(partId),
     enabled: planeFacesLive && tree.data !== undefined && meshGlbId !== null,
     staleTime: Infinity,
     retry: false,
@@ -209,8 +204,7 @@ export function usePickOverlays({
   // the Sketch, measure, hole and datum flows all go on to reuse.
   const proposalFacesQuery = useQuery({
     queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    queryFn: () => fetchPartOverlay(partId),
     enabled: proposalArmed && tree.data !== undefined && meshGlbId !== null,
     staleTime: Infinity,
     retry: false,
@@ -281,13 +275,7 @@ export function usePickOverlays({
       edgeBeforeId === null
         ? ["overlay", partId, treeVersion, meshGlbId]
         : ["overlay-before", partId, treeVersion, edgeBeforeId],
-    queryFn: () =>
-      fetchOverlay(
-        buildEvaluateTree(
-          tree.data as FeatureTreeResponse,
-          edgeBeforeId ?? undefined,
-        ),
-      ),
+    queryFn: () => fetchPartOverlay(partId, edgeBeforeId ?? undefined),
     enabled: edgePicking && tree.data !== undefined && meshGlbId !== null,
     staleTime: Infinity,
     retry: false,
@@ -327,13 +315,7 @@ export function usePickOverlays({
       editingFeatureId === null
         ? ["overlay", partId, treeVersion, meshGlbId]
         : ["overlay-before", partId, treeVersion, editingFeatureId],
-    queryFn: () =>
-      fetchOverlay(
-        buildEvaluateTree(
-          tree.data as FeatureTreeResponse,
-          editingFeatureId ?? undefined,
-        ),
-      ),
+    queryFn: () => fetchPartOverlay(partId, editingFeatureId ?? undefined),
     enabled: shellPicking && tree.data !== undefined && meshGlbId !== null,
     staleTime: Infinity,
     retry: false,
@@ -388,8 +370,7 @@ export function usePickOverlays({
     mode === "off" && highlightFeatureIds.length > 0 && !measureActive;
   const selectionOverlayQuery = useQuery({
     queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    queryFn: () => fetchPartOverlay(partId),
     enabled: selectionActive && tree.data !== undefined && meshGlbId !== null,
     staleTime: Infinity,
     retry: false,
@@ -436,8 +417,7 @@ export function usePickOverlays({
     livePreselectedFaces.length > 0;
   const preselectOverlayQuery = useQuery({
     queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    queryFn: () => fetchPartOverlay(partId),
     enabled:
       preselectHighlightActive && tree.data !== undefined && meshGlbId !== null,
     staleTime: Infinity,

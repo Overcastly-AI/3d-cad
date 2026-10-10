@@ -46,7 +46,9 @@ const DECLARED: Readonly<Record<string, number>> = {
   "lib/modalGate.ts": 7,
   // Pre-seam listeners. Ordered by count so the heaviest surfaces are visible.
   "routes/PartPage.tsx": 7,
-  "viewport/SketchScene.tsx": 2,
+  // Was 2: the draw-time size strip moved to `DrawDimensionTag.tsx` and
+  // through `useGlobalKeys` (QA-RECT-BOX-NAMES).
+  "viewport/SketchScene.tsx": 1,
   "routes/AssemblyPage.tsx": 2,
   // Was 2: the row drag's Escape moved to the cancel cascade's "drag" rung.
   "components/FeatureTreePanel.tsx": 1,

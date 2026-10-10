@@ -1,4 +1,5 @@
 import type { FeatureResponse } from "../api/parts";
+import { describeInputError, INPUT_ERROR_CODES } from "./fieldFormulas";
 
 /** A feature's kind on the wire (sketch / extrude / revolve / …). */
 type FeatureKind = FeatureResponse["feature"]["type"];
@@ -155,6 +156,9 @@ export function friendlyFeatureError(
   serverMessage: string,
   featureType?: FeatureKind,
 ): string {
+  // A formula that no longer resolves names its field and the reason, from
+  // the message itself: `Width: parameter 'W' not found.` (PART-PARAMETERS).
+  if (INPUT_ERROR_CODES.has(code)) return describeInputError(serverMessage);
   if (featureType !== undefined) {
     const specific = FEATURE_SPECIFIC_ERROR[code]?.[featureType];
     if (specific !== undefined) return specific;

@@ -17,7 +17,6 @@
 import {
   cx,
   type LengthUnit,
-  NumberField,
   Panel,
   PanelActionCell,
   SegmentedControl,
@@ -60,6 +59,7 @@ import {
 } from "../features/datumAngle";
 import type { DatumPlaneName } from "../sketch/plane";
 import { EditorCard } from "./EditorCard";
+import { ValueField } from "./ValueField";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
 export interface DatumEditorProps {
@@ -497,15 +497,17 @@ export function DatumEditor({
                   options={BASE_OPTIONS}
                   onChange={(base) => setForm((f) => ({ ...f, base }))}
                 />
-                <NumberField
+                <ValueField
                   label="Offset"
                   unit={unit}
+                  kind="length"
+                  pointer="/offset_mm"
                   data-testid="datum-offset"
                   autoFocus
                   value={form.offsetInput}
                   error={offsetError(form.offsetInput, unit)}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, offsetInput: e.target.value }))
+                  onValueChange={(value) =>
+                    setForm((f) => ({ ...f, offsetInput: value }))
                   }
                   onFocus={(e) => e.currentTarget.select()}
                   aria-label="Offset distance (signed)"
@@ -534,14 +536,16 @@ export function DatumEditor({
                   }
                   aria-label="Datum plane to offset from"
                 />
-                <NumberField
+                <ValueField
                   label="Offset"
                   unit={unit}
+                  kind="length"
+                  pointer="/offset_mm"
                   data-testid="datum-offset"
                   value={form.offsetInput}
                   error={offsetError(form.offsetInput, unit)}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, offsetInput: e.target.value }))
+                  onValueChange={(value) =>
+                    setForm((f) => ({ ...f, offsetInput: value }))
                   }
                   onFocus={(e) => e.currentTarget.select()}
                   aria-label="Offset distance (signed)"
@@ -649,17 +653,17 @@ export function DatumEditor({
                     />
                   ) : null}
                 </div>
-                <NumberField
+                <ValueField
                   label="Offset"
                   unit={unit}
+                  kind="length"
+                  pointer="/offset_mm"
                   data-testid="datum-offset"
                   value={form.offsetInput}
                   error={offsetError(form.offsetInput, unit)}
-                  onChange={(e) =>
+                  onValueChange={(value) =>
                     setForm((f) =>
-                      f.kind === "on_face"
-                        ? { ...f, offsetInput: e.target.value }
-                        : f,
+                      f.kind === "on_face" ? { ...f, offsetInput: value } : f,
                     )
                   }
                   onFocus={(e) => e.currentTarget.select()}
@@ -743,14 +747,16 @@ export function DatumEditor({
                   }
                   onToggleFacePick={onToggleFacePick}
                 />
-                <NumberField
+                <ValueField
                   label="Angle"
                   unit="°"
+                  kind="angle"
+                  pointer="/angle_deg"
                   data-testid="datum-angle"
                   value={form.angleInput}
                   error={datumAngleError(form.angleInput)}
-                  onChange={(e) => {
-                    const angleInput = e.target.value;
+                  onValueChange={(value) => {
+                    const angleInput = value;
                     setForm((f) =>
                       f.kind === "angle" ? { ...f, angleInput } : f,
                     );

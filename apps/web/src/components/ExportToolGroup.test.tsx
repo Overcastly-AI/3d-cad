@@ -248,3 +248,78 @@ describe("a refused export", () => {
     );
   });
 });
+
+describe("a partial assembly asks once before it writes (QA 2026-10-10)", () => {
+  const reason = "1 joint unresolved.";
+
+  it("the strip arms a confirm instead of writing, then writes on confirm", async () => {
+    const exporter = exporterFor("hinge-partial");
+    render(
+      <ExportRow
+        testIdPrefix="assembly-export"
+        exporter={exporter}
+        statusLabel="Partial · 1 joint unresolved"
+        confirmReason={reason}
+      />,
+    );
+    expect(screen.getByTestId("assembly-export-status")).toHaveTextContent(
+      "Partial · 1 joint unresolved",
+    );
+    fireEvent.click(screen.getByTestId("assembly-export-step"));
+    expect(exporter).not.toHaveBeenCalled();
+    const ask = screen.getByRole("alertdialog");
+    expect(ask).toHaveTextContent("STEP would be partial. 1 joint unresolved.");
+    const go = screen.getByRole("button", {
+      name: "Export anyway — parts at their last solved or initial positions",
+    });
+    expect(go).toHaveFocus();
+    fireEvent.click(go);
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
+    expect(exporter).toHaveBeenCalledWith("step");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("Cancel and Escape write nothing", () => {
+    const exporter = exporterFor("hinge");
+    render(
+      <ExportRow
+        testIdPrefix="assembly-export"
+        exporter={exporter}
+        confirmReason={reason}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("assembly-export-stl"));
+    fireEvent.click(screen.getByTestId("assembly-export-confirm-cancel"));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    fireEvent.click(screen.getByTestId("assembly-export-3mf"));
+    fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(exporter).not.toHaveBeenCalled();
+  });
+
+  it("the band asks the same question", async () => {
+    const exporter = exporterFor("hinge-partial");
+    render(
+      <ExportToolGroup
+        testIdPrefix="assembly-export-band"
+        exporter={exporter}
+        partial
+        partialQualifier="1 joint unresolved, marked partial"
+        confirmReason={reason}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("assembly-export-band-glb"));
+    expect(exporter).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("assembly-export-band-confirm-export"));
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
+    expect(exporter).toHaveBeenCalledWith("glb");
+  });
+
+  it("a clean assembly writes on the first click", async () => {
+    const exporter = exporterFor("hinge");
+    render(<ExportRow testIdPrefix="assembly-export" exporter={exporter} />);
+    fireEvent.click(screen.getByTestId("assembly-export-step"));
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+});
