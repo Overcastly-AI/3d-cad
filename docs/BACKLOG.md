@@ -51,8 +51,9 @@ byte-identical; RESEARCH §15a).
         `set_parameter` alone changes the volume as expected.
   - [ ] 7. Web Parameters panel. _Accept:_ e2e: adding and editing a
         parameter rebuilds the body; Ctrl+Z restores.
-  - [ ] 8. Web `<ValueField>` in every numeric editor, with autocomplete.
-        _Accept:_ e2e: Extrude = H/2; editing H re-drives it.
+  - [x] 8. Web `<ValueField>` in every numeric editor, with autocomplete.
+        _Accept:_ e2e: Extrude = H/2; editing H re-drives it
+        (`parameters-drive.spec.ts`; RESEARCH §20 "Step 8, as built").
   - [ ] 9. Reference parts parametric (helical gear, ladder 2c/3d).
         _Accept:_ the gear's `--edit` is one `set_parameter("beta", "20 deg")`
         and its volume matches `expected_volume(Gear(20))` to 1e-4.
@@ -378,8 +379,10 @@ One line each. The founder triages weekly; most are closed without work.
 - ENV-E2E-PORT: Playwright reuses an existing server on :5173 (`reuseExistingServer`), so parallel agents test each other's code unless each sets its own web port.
 - JOINT-PLANAR-PARENT (motions review): a planar slide PATCHes B's placement; when B is the solve parent rather than the child the slide may not stick. Unverified.
 - JOINT-CARD-OVERLAP: the joint drive card overlaps the inspector's DOF text (revolute and planar).
-- MEASURE-FROM-EVAL-REQUEST (step 4 review): the web builds measure/pick requests from GET features, so a feature that is sick (`parameter_unresolved`, or out of range after a PUT) shows a phantom body built from its last good numbers in those tools; build them from `/evaluation-request` (step 8).
-- SKETCH-STAMP-UNRESOLVED: the sketcher's diagnostic stamp shows only `sketch_invalid`; a dimension formula naming an unknown name now reports `parameter_unresolved` and needs the same stamp.
+- MEASURE-FROM-EVAL-REQUEST, rest (step 8 did the part's measure and pick): assembly overlays (`AssemblyPage.tsx` `buildEvaluateTree`) and drawing requests (`useDrawingData.ts`) still build from GET features, so a sick feature still shows its last good body there.
+- HOLE-POSITION-FORMULA: the hole's X/Y cells take numbers only; the stored `position` is a world point derived from face-local X/Y, so no pointer can hold a face-local formula (Fusion drives it with sketch dimensions).
+- VALUEFIELD-PARITY: `apps/web/src/features/expr.ts` is a TS port of `loft_wire/expr.py` for the field's hint and preview; nothing checks the two agree beyond the vitest cases (the server re-resolves on write, so a drift shows as a 422 on the field, never as stored geometry).
+- SKETCH-UNKNOWN-NAME-APPLY: the sketcher's dimension box applies a formula naming an unknown name; documents refuses the sketch sync (422, since step 4) and the diagnostic stamp now says why, but the box could refuse it before Apply as the feature editors do.
 - JOINT-ESC-INFLIGHT (S5b review): Esc while the joint OK POST is in flight closes the dialog but the joint is still created (`useJointDialog.ts` cancel ignores `submitting`).
 - JOINT-DRAG-BUSY: a joint drag released while the previous value PATCH is committing is dropped and the part snaps back.
 - JOINT-DRAG-REFRESH-ERR: a failed graph refresh after a successful drag PATCH reports "could not be driven".

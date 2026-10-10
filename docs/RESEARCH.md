@@ -1277,6 +1277,24 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   accept `float | str`, and `loft.expr.evaluate`. `.loft` 1.2 carries the
   table and per-feature expressions in `tree.json` and version trees; 1.1
   readers degrade to numbers; frozen fixture `golden-v1.2.loft`.
+- **Step 8, as built.** `<ValueField>` (`components/ValueField.tsx`) is an
+  uncontrolled cell (the sketcher's box sits in the canvas, DIM-1). A number
+  goes to the editor's form as before. A formula is shown with `fx` and its
+  value (`= 10 mm`), and the form gets the resolved number, so validation,
+  preview and gauges are unchanged. The formula is kept by pointer in the
+  open editor's session (`features/fieldFormulas.ts`) and saved as the
+  envelope's `expressions`, only for pointers that land on a number of the
+  params sent. The client evaluates with a TS port of the grammar
+  (`features/expr.ts`), for the hint and preview only; documents re-resolves
+  on write. A gauge drag writes a number and drops the formula, as Fusion's
+  manipulators do. A 422 naming a pointer goes on that field. A feature's
+  `input_error` reads `Width: parameter 'W' not found.` in the tree, the
+  editor and the sketch stamp. The hole's X/Y cells stay numbers, because the
+  stored position is a world point and has no pointer for a face-local
+  formula. The part's measure and pick requests come from
+  `GET /parts/{id}/evaluation-request` (new gateway route), so a sick feature
+  builds nothing there either. Assembly overlays and drawings still build
+  from `GET /features`.
 - **Truth.** `packages/loft-wire/tests/test_expr.py` (grammar, units,
   functions, cycles, depth, hostile strings, off-whitelist names); golden
   `sketch-trig-expression-40x20tan15x10` (step 1); a new golden kind
