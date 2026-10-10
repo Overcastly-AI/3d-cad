@@ -449,6 +449,21 @@ reports its anchor in that frame, so saved sheets do not move and a drag
 was auto-placed or pinned. The ink box
 includes the caption's width as well as its height.
 
+**Durable dimension references (2026-10-10, QA-DRAWING-DIMS-DURABLE).** As in
+Fusion 360, a drawing dimension follows its model edge through an edit and is
+lost only when that edge is gone. Each projected edge's `source_edge` is now
+the pick-side signature (adjacency + history `topo_name`, the overlay's own
+construction), so a dimension picked on the sheet stores the part's persistent
+naming. Resolution keeps the drawing tiers (exact, collinear / concentric,
+axis-translated circle among drawn edges) and, only when all of them find
+nothing, falls through to `resolve_edge_durable` with the part's face names,
+the resolver assembly joints use. A bracket's 40 mm height edge at x = W
+therefore re-anchors when W goes 100 -> 80. A named reference also refuses a
+geometric re-anchor onto an edge the body names differently. References
+stored before this carry no names and keep the geometric tiers only, until
+they are healed. Errors with no edge to sit on (lost references fall back to
+the view centre) stack one row apart instead of printing over each other.
+
 ## 12. Datum-plane conventions (scripting trap)
 
 | Datum | x_dir | y_dir | normal (extrude direction) |

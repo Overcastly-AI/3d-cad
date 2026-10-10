@@ -73,11 +73,14 @@ from loft_wire.features import EdgeSignature
 from loft_wire.geometry import Vec3
 
 from geometry.kernel.edges import (
+    EdgeRecord,
+    annotated_edge_signatures,
     circle_axis,
     edge_signature_dto,
     edge_signatures_match,
     enumerate_edges,
     resolve_edge,
+    resolve_edge_durable,
 )
 from geometry.kernel.faces import (
     CENTROID_TOL_MM,
@@ -101,6 +104,35 @@ ANCHOR_POINT_TOL_MM = CENTROID_TOL_MM
 #: does. Declared ONCE here and reused by the drawings foreshortening flag
 #: (:mod:`geometry.drawings.measure`) so the package holds one such bound, not two.
 ANCHOR_DIRECTION_SIN_TOL = 1e-7
+
+
+@dataclass(frozen=True)
+class BodyNaming:
+    """The persistent names of the body a drawing's dimensions resolve against.
+
+    ``face_names`` is the part's history-based face naming (aligned with
+    ``body.faces()``), the same input an assembly joint resolves its edges with;
+    ``signatures`` is every edge's PICK-side signature (aligned with
+    ``body.edges()``) — stage-1 fields plus adjacency and ``topo_name`` — which the
+    projector hands out as ``source_edge`` and the anchor reports back, so a
+    reference picked or healed today carries what the durable tiers need.
+    Built once per evaluation by :func:`body_naming`."""
+
+    face_names: list[str | None]
+    signatures: list[EdgeSignature]
+
+    def signature_at(self, index: int) -> EdgeSignature | None:
+        if 0 <= index < len(self.signatures):
+            return self.signatures[index]
+        return None
+
+
+def body_naming(body: BodyShape, face_names: list[str | None]) -> BodyNaming:
+    """:class:`BodyNaming` for *body* (one face/adjacency/name pass)."""
+    return BodyNaming(
+        face_names=face_names,
+        signatures=annotated_edge_signatures(body, face_names),
+    )
 
 
 @dataclass(frozen=True)
@@ -335,7 +367,35 @@ def _durable_match(candidate: EdgeSignature, target: EdgeSignature) -> bool:
     return False
 
 
-def _durable_resolve(body: BodyShape, target: EdgeSignature) -> ResolvedAnchor:
+def _same_name(
+    record: EdgeRecord, target: EdgeSignature, naming: BodyNaming | None
+) -> bool:
+    """The NAME GUARD (the kernel's EDGE-REF-CONCENTRIC rule, applied here too).
+
+    A geometric re-anchor of a NAMED reference onto an edge the body names
+    DIFFERENTLY is another edge standing where the referenced one was, not the
+    referenced edge moved — Fusion fails such a reference rather than move it. An
+    unnamed reference, or an edge the body cannot name, passes as before."""
+    if target.topo_name is None or naming is None:
+        return True
+    current = naming.signature_at(record.index)
+    name = current.topo_name if current is not None else None
+    return name is None or name == target.topo_name
+
+
+def _current_signature(record: EdgeRecord, naming: BodyNaming | None) -> EdgeSignature:
+    """The CURRENT signature a resolved anchor reports: the pick-side one (with
+    adjacency + name) when the body's naming is known, else the bare stage-1 one."""
+    if naming is not None:
+        annotated = naming.signature_at(record.index)
+        if annotated is not None:
+            return annotated
+    return record.signature
+
+
+def _durable_resolve(
+    body: BodyShape, target: EdgeSignature, naming: BodyNaming | None = None
+) -> ResolvedAnchor:
     """Tier 2: re-anchor *target* on its curve-kind invariant, or fail honestly."""
     if target.curve not in ("line", "circle"):
         raise SubshapeUnresolvedError(
@@ -348,6 +408,7 @@ def _durable_resolve(body: BodyShape, target: EdgeSignature) -> ResolvedAnchor:
         record
         for record in enumerate_edges(body)
         if _durable_match(record.signature, target)
+        and _same_name(record, target, naming)
     ]
     if not matches:
         raise SubshapeUnresolvedError(
@@ -369,11 +430,16 @@ def _durable_resolve(body: BodyShape, target: EdgeSignature) -> ResolvedAnchor:
             "one the dimension meant — re-pick the edge."
         )
     record = matches[0]
-    return ResolvedAnchor(edge=record.edge, signature=record.signature, tier="durable")
+    return ResolvedAnchor(
+        edge=record.edge, signature=_current_signature(record, naming), tier="durable"
+    )
 
 
 def _translated_resolve(
-    body: BodyShape, target: EdgeSignature, drawn: Sequence[EdgeSignature]
+    body: BodyShape,
+    target: EdgeSignature,
+    drawn: Sequence[EdgeSignature],
+    naming: BodyNaming | None = None,
 ) -> ResolvedAnchor:
     """Tier 3: re-anchor a circle that MOVED ALONG ITS OWN AXIS, among the edges the
     dimension's view actually DRAWS.
@@ -398,6 +464,7 @@ def _translated_resolve(
         if record.signature.curve == "circle"
         and any(edge_signatures_match(record.signature, sig) for sig in drawn)
         and _translated_circle(record.signature, record.edge, target)
+        and _same_name(record, target, naming)
     ]
     if len(matches) > 1:
         raise SubshapeAmbiguousError(
@@ -415,15 +482,58 @@ def _translated_resolve(
             "the edge, or edit the upstream feature back to a state where it resolves."
         )
     record = matches[0]
-    return ResolvedAnchor(edge=record.edge, signature=record.signature, tier="durable")
+    return ResolvedAnchor(
+        edge=record.edge, signature=_current_signature(record, naming), tier="durable"
+    )
+
+
+def _index_of(body: BodyShape, edge: Edge) -> int:
+    """*edge*'s position in ``body.edges()`` (OCCT shape identity), or -1."""
+    for index, candidate in enumerate(body.edges()):
+        if candidate.is_same(edge):  # pyright: ignore[reportUnknownMemberType]
+            return index
+    return -1
+
+
+def _annotated(body: BodyShape, edge: Edge, naming: BodyNaming | None) -> EdgeSignature:
+    """The CURRENT signature of a kernel-resolved *edge* (see _current_signature)."""
+    if naming is not None:
+        annotated = naming.signature_at(_index_of(body, edge))
+        if annotated is not None:
+            return annotated
+    return edge_signature_dto(edge)
+
+
+def _persistent_resolve(
+    body: BodyShape, target: EdgeSignature, naming: BodyNaming
+) -> ResolvedAnchor:
+    """Tier 4: the part's PERSISTENT naming — the kernel's durable edge resolver.
+
+    QA-DRAWING-DIMS-DURABLE: a bracket's 40 mm height edge sits at x = W; changing W
+    100 -> 80 TRANSLATES it off its own supporting line, so tiers 1-3 (all pinned to
+    an absolute position) find nothing and the dimension went "lost" although its
+    edge had only moved. The assembly joints hit the same wall and were fixed by
+    :func:`geometry.kernel.edges.resolve_edge_durable` with the part's face names;
+    a drawing dimension now resolves through the very same resolver — its adjacency
+    tier (the two planar faces the edge bounds, re-resolved through the face
+    matcher) and its named tier (the edge's history-based name) — so a reference
+    follows its edge exactly as a fillet or a joint does, and is lost only when
+    that edge is truly gone. Exactly-one-or-honest-error, as everywhere."""
+    resolved = resolve_edge_durable(body, target, face_names=naming.face_names)
+    return ResolvedAnchor(
+        edge=resolved.edge,
+        signature=_annotated(body, resolved.edge, naming),
+        tier="durable",
+    )
 
 
 def resolve_anchor_edge(
     body: BodyShape,
     target: EdgeSignature,
     drawn: Sequence[EdgeSignature] = (),
+    naming: BodyNaming | None = None,
 ) -> ResolvedAnchor:
-    """Resolve a dimension's stored edge signature against *body* — three tiers.
+    """Resolve a dimension's stored edge signature against *body* — four tiers.
 
     Tier 1 is :func:`geometry.kernel.edges.resolve_edge` verbatim (exact signature
     match). Only a tier-1 *unresolved* falls through to the durable re-match; a tier-1
@@ -432,7 +542,12 @@ def resolve_anchor_edge(
     tier 2 also finds nothing AND the caller supplied *drawn* — the model-edge
     signatures this dimension's VIEW projects, which is the candidate set that makes
     freeing the offset along a circle's axis safe. Callers that supply no *drawn* set
-    (a unit test, an older caller) behave exactly as before.
+    (a unit test, an older caller) behave exactly as before. Tier 4
+    (:func:`_persistent_resolve`) runs only when every tier above found NOTHING and
+    the caller supplied the body's *naming*: the kernel's durable resolver with the
+    part's face names, which follows an edge CARRIED elsewhere by a resize. With a
+    *naming*, a NAMED reference also refuses a tier-2/3 re-anchor onto an edge the
+    body names differently (:func:`_same_name`).
 
     Returns the edge, its CURRENT signature, and which tier matched. Both re-anchoring
     tiers report ``durable``: the wire distinction that matters to a client is exact
@@ -448,9 +563,16 @@ def resolve_anchor_edge(
         edge = resolve_edge(body, target)
     except SubshapeUnresolvedError:
         try:
-            return _durable_resolve(body, target)
+            return _durable_resolve(body, target, naming)
         except SubshapeUnresolvedError:
-            if not drawn or target.curve != "circle":
-                raise
-            return _translated_resolve(body, target, drawn)
-    return ResolvedAnchor(edge=edge, signature=edge_signature_dto(edge), tier="exact")
+            try:
+                if not drawn or target.curve != "circle":
+                    raise
+                return _translated_resolve(body, target, drawn, naming)
+            except SubshapeUnresolvedError:
+                if naming is None:
+                    raise
+                return _persistent_resolve(body, target, naming)
+    return ResolvedAnchor(
+        edge=edge, signature=_annotated(body, edge, naming), tier="exact"
+    )

@@ -271,6 +271,74 @@ def _dimension_error(
     )
 
 
+#: Radius (mm) of the dashed error marker every serializer draws.
+_DIM_ERROR_MARKER_R = 2.6
+
+#: Advance (mm) per caption character: base-14 Courier is 0.6 em wide, plus the
+#: 0.2 mm letter-spacing the SVG/web sheet add — the widest of the three renderings.
+_DIM_ERROR_CHAR_MM = 0.6 * _DIM_ERROR_TEXT_MM + 0.2
+
+#: Clear space (mm) between two stacked error rows.
+_DIM_ERROR_ROW_GAP = 0.8
+
+
+def _error_rect(err: ComposedDimensionError) -> SvgRect:
+    """The sheet box one stamped error occupies: its marker plus its caption."""
+    r = _DIM_ERROR_MARKER_R
+    min_x, min_y = err.at.x_mm - r, err.at.y_mm - r
+    max_x, max_y = err.at.x_mm + r, err.at.y_mm + r
+    if err.message and err.text is not None:
+        min_y = min(min_y, err.text.y_mm - _DIM_ERROR_TEXT_MM)
+        max_y = max(max_y, err.text.y_mm)
+        max_x = max(max_x, err.text.x_mm + len(err.message) * _DIM_ERROR_CHAR_MM)
+    return SvgRect(min_x, min_y, max_x, max_y)
+
+
+def _shifted(err: ComposedDimensionError, dy: float) -> ComposedDimensionError:
+    at = ComposedPoint(x_mm=err.at.x_mm, y_mm=err.at.y_mm + dy)
+    text = (
+        None
+        if err.text is None
+        else ComposedPoint(x_mm=err.text.x_mm, y_mm=err.text.y_mm + dy)
+    )
+    return err.model_copy(update={"at": at, "text": text})
+
+
+def stack_dimension_errors(dims: list[ComposedDimension]) -> list[ComposedDimension]:
+    """Move each stamped error clear of the errors and annotations before it.
+
+    QA-DRAWING-DIMS-DURABLE: a dimension whose reference is lost has no edge on the
+    sheet to sit on, so its marker falls back to the view centre — and two lost
+    dimensions in one view printed "REFERENCE LOST" on top of each other, unreadable
+    on the PDF. Each error, in authored order, now steps DOWN one row at a time until
+    its marker + caption box overlaps neither an earlier error nor a placed
+    dimension: a list of the view's broken dimensions under one another, like the
+    banner lines a sheet stamps for its other errors. A sheet whose errors already
+    stand clear is returned unchanged (byte-identical), and the result is a pure
+    function of the input order (RESEARCH §9)."""
+    taken = [
+        _annotation_bounds(d) for d in dims if isinstance(d, ComposedMeasuredDimension)
+    ]
+    out: list[ComposedDimension] = []
+    for dim in dims:
+        if not isinstance(dim, ComposedDimensionError):
+            out.append(dim)
+            continue
+        rect = _error_rect(dim)
+        pitch = rect.max_y - rect.min_y + _DIM_ERROR_ROW_GAP
+        dy = 0.0
+        # Bounded: every step clears at least one row, so len(taken) + 1 suffice.
+        for _ in range(len(taken) + 1):
+            box = SvgRect(rect.min_x, rect.min_y + dy, rect.max_x, rect.max_y + dy)
+            if not any(_rect_overlap(box, other) > 0.0 for other in taken):
+                break
+            dy += pitch
+        placed = _shifted(dim, dy) if dy else dim
+        taken.append(_error_rect(placed))
+        out.append(placed)
+    return out
+
+
 # ---------------------------------------------------------------------------------
 # Annotation geometry — port of dimensions.ts.
 # ---------------------------------------------------------------------------------

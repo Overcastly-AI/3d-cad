@@ -203,10 +203,12 @@ def test_per_view_hlr_failure_is_a_typed_per_view_error(
     ``view_projection_failed`` entry (empty edges) while the other requested views
     still project — never a raise, never failing the whole request (§1.5)."""
 
-    def flaky_project_view(body: object, view: str, scale: float = 1.0) -> object:
+    def flaky_project_view(
+        body: object, view: str, scale: float = 1.0, **kwargs: Any
+    ) -> object:
         if view == "top":
             raise ViewProjectionError("top", "synthetic HLR failure")
-        return project_view(body, view, scale=scale)  # type: ignore[arg-type]
+        return project_view(body, view, scale=scale, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(drawings_evaluate, "project_view", flaky_project_view)
 

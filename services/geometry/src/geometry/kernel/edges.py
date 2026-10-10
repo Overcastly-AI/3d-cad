@@ -323,6 +323,41 @@ def enumerate_edges_with_adjacency(body: BodyShape) -> list[EdgeRecord]:
     ]
 
 
+def annotated_edge_signatures(
+    body: BodyShape,
+    face_names: Sequence[str | None] | None = None,
+    face_signatures: list[PlanarFaceSignature | None] | None = None,
+) -> list[EdgeSignature]:
+    """The PICK-side signature of every edge of *body*, in ``body.edges()`` order.
+
+    THE single construction of a durable edge reference (CLAUDE.md DRY rule),
+    shared by the selection overlay and the drawing projector: the stage-1
+    signature plus the §14 adjacency annotation (its two planar neighbours) and,
+    when *face_names* (aligned with ``body.faces()``) is given, the edge's
+    history-based ``topo_name`` and its neighbours' names. A reference stored from
+    one of these survives an edit that CARRIES the edge somewhere else (resolver
+    tiers 3 and named), not only one that grows it along itself.
+
+    *face_signatures*, when supplied, is index-aligned with ``body.faces()`` and
+    built with the same names (the overlay shares the ones it returns).
+    """
+    if face_names is not None and len(face_names) != len(body.faces()):
+        face_names = None
+    if face_signatures is None:
+        face_signatures = [
+            face_signature_dto(face, None if face_names is None else face_names[i])
+            for i, face in enumerate(body.faces())
+        ]
+    adjacency = edge_adjacency(body, face_signatures)
+    names = edge_names(body, face_names) if face_names is not None else None
+    return [
+        edge_signature_dto(
+            edge, adjacency.get(index), None if names is None else names[index]
+        )
+        for index, edge in enumerate(body.edges())
+    ]
+
+
 def circle_axis(edge: Edge) -> tuple[float, float, float]:
     """The unit axis of a CIRCULAR edge's plane, from the exact B-rep circle.
 
