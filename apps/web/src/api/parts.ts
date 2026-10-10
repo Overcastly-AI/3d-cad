@@ -6,7 +6,7 @@
 import type { components, GatewayClient } from "@loft/ts-client/gateway";
 
 import { gatewayClient } from "./client";
-import { envelopeCode, envelopeMessage } from "./envelope";
+import { envelopeCode, envelopeMessage, featureWriteError } from "./envelope";
 
 import type {
   BooleanFeature,
@@ -1209,11 +1209,9 @@ export async function updateFeature(
     },
   );
   if (error !== undefined) {
-    throw new Error(
-      envelopeMessage(
-        error,
-        "The sketch could not be saved — reload and try again.",
-      ),
+    throw featureWriteError(
+      error,
+      "The sketch could not be saved — reload and try again.",
     );
   }
   return data;
@@ -1485,11 +1483,9 @@ export async function createFeature(
     { params: { path: { part_id: partId } }, body },
   );
   if (error !== undefined) {
-    throw new Error(
-      envelopeMessage(
-        error,
-        "The sketch could not be saved — reload and try again.",
-      ),
+    throw featureWriteError(
+      error,
+      "The sketch could not be saved — reload and try again.",
     );
   }
   return data;

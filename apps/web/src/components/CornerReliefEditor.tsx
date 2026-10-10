@@ -19,13 +19,7 @@
  * inheriting, the resolved size is previewed from the base-flange gauge so the
  * ratio is never an opaque number.
  */
-import {
-  Checkbox,
-  NumberField,
-  Panel,
-  PanelActionCell,
-  SelectField,
-} from "@loft/design";
+import { Checkbox, Panel, PanelActionCell, SelectField } from "@loft/design";
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import type { SheetMetalCornerReliefParams } from "../api/parts";
@@ -42,6 +36,7 @@ import {
 } from "../features/sheetMetal";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import { EditorCard } from "./EditorCard";
+import { ValueField } from "./ValueField";
 
 export interface CornerReliefEditorProps {
   mode: "create" | "edit";
@@ -219,14 +214,16 @@ export function CornerReliefEditor({
               Each pick is tagged on its bend in the viewport.
             </p>
 
-            <NumberField
+            <ValueField
               label="Relief ratio"
               unit="× gauge"
+              kind="unitless"
+              pointer="/relief_ratio"
               data-testid="corner-relief-ratio"
               value={form.reliefRatioInput}
               error={reliefRatioError(form.reliefRatioInput)}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, reliefRatioInput: e.target.value }))
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, reliefRatioInput: value }))
               }
               onFocus={(e) => e.currentTarget.select()}
             />
@@ -256,14 +253,16 @@ export function CornerReliefEditor({
                 }
               />
               {form.overrideSize ? (
-                <NumberField
+                <ValueField
                   label="Notch size"
                   unit={unit}
+                  kind="length"
+                  pointer="/size_mm"
                   data-testid="corner-relief-size"
                   value={form.sizeInput}
                   error={reliefSizeError(form.sizeInput, unit)}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, sizeInput: e.target.value }))
+                  onValueChange={(value) =>
+                    setForm((f) => ({ ...f, sizeInput: value }))
                   }
                   onFocus={(e) => e.currentTarget.select()}
                 />

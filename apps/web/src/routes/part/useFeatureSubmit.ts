@@ -62,14 +62,43 @@ import {
   sweepFeatureUpdate,
   updateFeature,
 } from "../../api/parts";
+import { FeatureWriteError } from "../../api/envelope";
+import {
+  expressionsForParams,
+  formulaFieldMounted,
+  inputErrorSentence,
+  sessionFormulas,
+  setSessionFieldError,
+  useFormulaSessionStore,
+} from "../../features/fieldFormulas";
 import { usePreselectStore } from "../../features/preselect";
+import type { EditorFormulas } from "./useEditorFormulas";
 import type { PartDocument } from "./usePartDocument";
 import type { PartBody } from "./usePartBody";
 import type { FeatureCatalog } from "./useFeatureCatalog";
 import type { EditorSeat } from "./useEditorSeat";
 import type { TreeWrites } from "./useTreeWrites";
 
+/**
+ * The envelope with the editor's formulas whose fields it carries (none:
+ * `expressions` omitted, which stores none, so a formula replaced by a number
+ * is gone).
+ */
+function withFormulas<T extends FeatureCreate | FeatureUpdate>(
+  body: T,
+  formulas: Readonly<Record<string, string>>,
+): T {
+  const feature = body.feature;
+  if (feature === undefined || feature === null) return body;
+  const expressions = expressionsForParams(feature.params, formulas);
+  const next = { ...feature };
+  delete next.expressions;
+  if (expressions !== undefined) next.expressions = expressions;
+  return { ...body, feature: next };
+}
+
 type FeatureSubmitParams = Pick<PartDocument, "partId"> &
+  Pick<EditorFormulas, "formulaSession"> &
   Pick<PartBody, "editor"> &
   Pick<FeatureCatalog, "features"> &
   Pick<
@@ -92,6 +121,7 @@ type FeatureSubmitParams = Pick<PartDocument, "partId"> &
 
 export function useFeatureSubmit({
   partId,
+  formulaSession,
   editor,
   features,
   setSelectedFeatureId,
@@ -119,6 +149,16 @@ export function useFeatureSubmit({
     ) => {
       setEditorSaving(true);
       setEditorError(null);
+      // The editor's formulas ride on the envelope (PART-PARAMETERS step 8).
+      const session = formulaSession;
+      const formulas =
+        session === null
+          ? {}
+          : sessionFormulas(
+              useFormulaSessionStore.getState(),
+              session.key,
+              session.seed,
+            );
       // The body on screen is superseded from HERE, not from when the reply
       // lands — see the tree-write block above.
       beginTreeWrite();
@@ -126,11 +166,14 @@ export function useFeatureSubmit({
         try {
           const attempt = async (version: number) =>
             isCreate
-              ? createFeature(partId, createEnvelope(version))
+              ? createFeature(
+                  partId,
+                  withFormulas(createEnvelope(version), formulas),
+                )
               : updateFeature(
                   partId,
                   featureId as string,
-                  updateEnvelope(version),
+                  withFormulas(updateEnvelope(version), formulas),
                 );
           let response;
           try {
@@ -152,9 +195,25 @@ export function useFeatureSubmit({
           setEditor(null);
           await refreshTreeAndBody();
         } catch (error) {
-          setEditorError(
-            error instanceof Error ? error.message : fallbackMessage,
-          );
+          // A formula the server refused goes on the field it names.
+          const pointer =
+            error instanceof FeatureWriteError ? error.pointer : null;
+          if (
+            session !== null &&
+            pointer !== null &&
+            formulaFieldMounted(pointer)
+          ) {
+            const sentence = inputErrorSentence((error as Error).message);
+            setSessionFieldError(
+              session,
+              pointer,
+              sentence.charAt(0).toUpperCase() + sentence.slice(1),
+            );
+          } else {
+            setEditorError(
+              error instanceof Error ? error.message : fallbackMessage,
+            );
+          }
         } finally {
           setEditorSaving(false);
           endTreeWrite();
@@ -162,6 +221,7 @@ export function useFeatureSubmit({
       })();
     },
     [
+      formulaSession,
       partId,
       freshTreeVersion,
       refreshTreeAndBody,

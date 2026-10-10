@@ -11,7 +11,6 @@
  */
 import {
   Checkbox,
-  NumberField,
   Panel,
   PanelActionCell,
   SegmentedControl,
@@ -44,6 +43,7 @@ import {
 } from "../features/sheetMetal";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import { EditorCard } from "./EditorCard";
+import { ValueField } from "./ValueField";
 import type { MovedEdgeWarning } from "../features/subshapeResolution";
 import { MovedEdgeNotice } from "./MovedEdgeNotice";
 
@@ -249,15 +249,17 @@ export function EdgeFlangeEditor({
               ) : null}
             </div>
 
-            <NumberField
+            <ValueField
               label="Flange length"
               unit={unit}
+              kind="length"
+              pointer="/flange_length_mm"
               data-testid="edge-flange-length"
               autoFocus
               value={form.flangeLengthInput}
               error={flangeLengthError(form.flangeLengthInput, unit)}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, flangeLengthInput: e.target.value }))
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, flangeLengthInput: value }))
               }
               onFocus={(e) => e.currentTarget.select()}
             />
@@ -274,27 +276,31 @@ export function EdgeFlangeEditor({
                 }
               />
               {form.widthExtent !== "full" ? (
-                <NumberField
+                <ValueField
                   label="Flange width"
                   unit={unit}
+                  kind="length"
+                  pointer="/width_mm"
                   data-testid="edge-flange-width"
                   value={form.widthInput}
                   error={flangeWidthError(form.widthInput, unit)}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, widthInput: e.target.value }))
+                  onValueChange={(value) =>
+                    setForm((f) => ({ ...f, widthInput: value }))
                   }
                   onFocus={(e) => e.currentTarget.select()}
                 />
               ) : null}
               {form.widthExtent === "offset" ? (
-                <NumberField
+                <ValueField
                   label="Offset from edge start"
                   unit={unit}
+                  kind="length"
+                  pointer="/offset_mm"
                   data-testid="edge-flange-offset"
                   value={form.offsetInput}
                   error={flangeOffsetError(form.offsetInput, unit)}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, offsetInput: e.target.value }))
+                  onValueChange={(value) =>
+                    setForm((f) => ({ ...f, offsetInput: value }))
                   }
                   onFocus={(e) => e.currentTarget.select()}
                 />
@@ -318,14 +324,16 @@ export function EdgeFlangeEditor({
               ) : null}
             </div>
 
-            <NumberField
+            <ValueField
               label="Bend angle"
               unit="°"
+              kind="angle"
+              pointer="/bend_angle_deg"
               data-testid="edge-flange-angle"
               value={form.bendAngleInput}
               error={bendAngleError(form.bendAngleInput)}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, bendAngleInput: e.target.value }))
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, bendAngleInput: value }))
               }
               onFocus={(e) => e.currentTarget.select()}
             />
@@ -346,14 +354,16 @@ export function EdgeFlangeEditor({
                 }
               />
               {form.overrideBendRadius ? (
-                <NumberField
+                <ValueField
                   label="Bend radius"
                   unit={unit}
+                  kind="length"
+                  pointer="/bend_radius_mm"
                   data-testid="edge-flange-bend-radius"
                   value={form.bendRadiusInput}
                   error={bendRadiusError(form.bendRadiusInput, unit)}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, bendRadiusInput: e.target.value }))
+                  onValueChange={(value) =>
+                    setForm((f) => ({ ...f, bendRadiusInput: value }))
                   }
                   onFocus={(e) => e.currentTarget.select()}
                 />
@@ -376,13 +386,15 @@ export function EdgeFlangeEditor({
                 }
               />
               {form.overrideKFactor ? (
-                <NumberField
+                <ValueField
                   label="K-factor"
+                  kind="unitless"
+                  pointer="/k_factor"
                   data-testid="edge-flange-k-factor"
                   value={form.kFactorInput}
                   error={kFactorError(form.kFactorInput)}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, kFactorInput: e.target.value }))
+                  onValueChange={(value) =>
+                    setForm((f) => ({ ...f, kFactorInput: value }))
                   }
                   onFocus={(e) => e.currentTarget.select()}
                 />

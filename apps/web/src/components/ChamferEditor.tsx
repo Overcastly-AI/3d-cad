@@ -6,7 +6,6 @@
  * symmetric bevel distance, not a radius. Distance wears brass as THE handle.
  */
 import {
-  NumberField,
   Panel,
   PanelActionCell,
   SegmentedControl,
@@ -29,6 +28,7 @@ import {
   type SelectionMode,
 } from "../features/modify";
 import { EditorCard } from "./EditorCard";
+import { ValueField } from "./ValueField";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 import type { MovedEdgeWarning } from "../features/subshapeResolution";
 import { MovedEdgeNotice } from "./MovedEdgeNotice";
@@ -215,15 +215,17 @@ export function ChamferEditor({
             {mode === "create" ? "New chamfer" : "Edit chamfer"}
           </h2>
           <div className="flex flex-col gap-2 px-3 pb-3 pt-1">
-            <NumberField
+            <ValueField
               label="Distance"
               unit={unit}
+              kind="length"
+              pointer="/distance_mm"
               data-testid="chamfer-distance"
               autoFocus
               value={form.distanceInput}
               error={distanceError(form.distanceInput, unit)}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, distanceInput: e.target.value }))
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, distanceInput: value }))
               }
               onFocus={(e) => e.currentTarget.select()}
             />

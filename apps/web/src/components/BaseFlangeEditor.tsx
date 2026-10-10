@@ -8,7 +8,6 @@
  */
 import {
   NormalIcon,
-  NumberField,
   Panel,
   PanelActionCell,
   ReverseIcon,
@@ -32,6 +31,7 @@ import {
 } from "../features/sheetMetal";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import { EditorCard } from "./EditorCard";
+import { ValueField } from "./ValueField";
 
 export interface BaseFlangeEditorProps {
   mode: "create" | "edit";
@@ -175,38 +175,44 @@ export function BaseFlangeEditor({
               </div>
             )}
 
-            <NumberField
+            <ValueField
               label="Gauge (thickness)"
               unit={unit}
+              kind="length"
+              pointer="/thickness_mm"
               data-testid="base-flange-thickness"
               autoFocus
               value={form.thicknessInput}
               error={thicknessError(form.thicknessInput, unit)}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, thicknessInput: e.target.value }))
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, thicknessInput: value }))
               }
               onFocus={(e) => e.currentTarget.select()}
             />
 
-            <NumberField
+            <ValueField
               label="Bend radius"
               unit={unit}
+              kind="length"
+              pointer="/bend_radius_mm"
               data-testid="base-flange-bend-radius"
               value={form.bendRadiusInput}
               error={bendRadiusError(form.bendRadiusInput, unit)}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, bendRadiusInput: e.target.value }))
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, bendRadiusInput: value }))
               }
               onFocus={(e) => e.currentTarget.select()}
             />
 
-            <NumberField
+            <ValueField
               label="K-factor"
+              kind="unitless"
+              pointer="/k_factor"
               data-testid="base-flange-k-factor"
               value={form.kFactorInput}
               error={kFactorError(form.kFactorInput)}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, kFactorInput: e.target.value }))
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, kFactorInput: value }))
               }
               onFocus={(e) => e.currentTarget.select()}
             />

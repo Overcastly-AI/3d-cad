@@ -81,6 +81,37 @@ export function solvedReadouts(
   return byIndex;
 }
 
+/**
+ * The sketch's own named DRIVING dimensions a dimension formula may read
+ * (PART-PARAMETERS step 8: the dimension box offers them as it does the part's
+ * parameters), each at its number: the solver's reading when there is one,
+ * else the authored value. `except` is the dimension being edited (a formula
+ * may not read itself). A driven dimension is measured after the solve, so the
+ * server refuses a reference to it, and it is not offered.
+ */
+export function sketchDimensionScope(
+  constraints: readonly object[],
+  solved: ReadonlyMap<number, SolvedReadout>,
+  except: number | null,
+): { name: string; value: number }[] {
+  const out: { name: string; value: number }[] = [];
+  constraints.forEach((constraint, index) => {
+    if (index === except) return;
+    const c = constraint as {
+      name?: string | null;
+      driving?: boolean;
+      value_mm?: number;
+      value_deg?: number;
+    };
+    if (typeof c.name !== "string" || c.name === "" || c.driving === false) {
+      return;
+    }
+    const value = solved.get(index)?.value ?? c.value_mm ?? c.value_deg;
+    if (typeof value === "number") out.push({ name: c.name, value });
+  });
+  return out;
+}
+
 /** The readout for `index`, or undefined unless its unit is the one asked for. */
 export function readoutIn(
   solved: ReadonlyMap<number, SolvedReadout> | undefined,
