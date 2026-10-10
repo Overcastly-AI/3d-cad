@@ -495,7 +495,17 @@ def test_unresolvable_joint_origin_is_a_per_mate_error() -> None:
     request = _golden("assembly-slider")
     joint = request.mates[0].mate
     assert isinstance(joint, JointMate)
-    stale_sig = joint.b.signature.model_copy(update={"length_mm": 999.0})
+    # The stored line sits 50 mm off the body: no edge is there, on that line
+    # or between its faces, so no tier re-finds it. (A stale length alone, on
+    # the same line, is the edge grown or shrunk; the durable tier follows it.)
+    sig = joint.b.signature
+    assert isinstance(sig, EdgeSignature)
+    stale_sig = sig.model_copy(
+        update={
+            name: getattr(sig, name).model_copy(update={"y": -50.0})
+            for name in ("end_a", "end_b", "midpoint")
+        }
+    )
     stale = joint.model_copy(
         update={"b": joint.b.model_copy(update={"signature": stale_sig})}
     )

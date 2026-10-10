@@ -126,6 +126,12 @@ class _PartResult:
     error: FeatureError | None
     evaluation: TreeEvaluation | None = None
 
+    def face_names(self) -> list[str | None] | None:
+        """The body's history-based face names (aligned with ``body.faces()``),
+        which let a mate follow a face or hole a part edit moved; ``None``
+        without an evaluation."""
+        return None if self.evaluation is None else self.evaluation.face_names()
+
 
 def _part_no_body_error(result: EvaluateTreeResult) -> FeatureError:
     """The per-instance error for a part that evaluated to no body (§4).
@@ -416,6 +422,15 @@ def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
 
     evaluable: list[ResolvableInstance] = []
     instance_errors: dict[uuid.UUID, FeatureError] = {}
+    # Once per unique part, like its evaluation; only a part some mate names
+    # needs them, and an unmated assembly pays nothing.
+    mated = {
+        i for evaluated in request.mates for i in mate_instance_ids(evaluated.mate)
+    }
+    names_of: dict[str, list[str | None] | None] = {}
+    for inst in request.instances:
+        if inst.instance_id in mated and inst.part_key not in names_of:
+            names_of[inst.part_key] = parts[inst.part_key].face_names()
     for inst in request.instances:
         part = parts[inst.part_key]
         if part.body is None:
@@ -428,6 +443,7 @@ def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
                     body=part.body,
                     placement=inst.placement,
                     grounded=inst.grounded,
+                    face_names=names_of.get(inst.part_key),
                 )
             )
 

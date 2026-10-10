@@ -1,0 +1,94 @@
+{
+  "description": "MOVED-HOLE HINGE GOLDEN (RESEARCH §21, QA 2026-10-10): a hinge of two instances of ONE bracket (W x 30 x 10, an r5 through-hole h1 centred at (W/2, 15)) and an r5 x 20 pin, on two revolute joints through the hole and pin circle centres, the hinge driven to 90 deg. Every joint origin was PICKED from the selection overlay of the W = 100 bracket (hole at (50, 15)), so each stored circle signature carries its topo_name; the part is then rebuilt at W = 80, which moves the hole to (40, 15), off every coordinate the signatures store. Locks: the joints follow the moved holes through the named tier (the strict tier alone finds no edge, which dropped both joints and every part to its seed), the pin sits in A's moved hole, and B turns 90 deg about the moved axis. test_assembly_moved_origins.py proves the stored signatures are the W = 100 pick and covers the deleted-hole case.",
+  "derivation": [
+    "Expectations are HAND-DERIVED, not recorded pipeline output. Bracket at W = 80: volume 80 x 30 x 10 - pi 5^2 10 = 24000 - 250 pi = 23214.601836602553 mm^3; surface area 2 (2400 - 25 pi) + 2 (80 + 30) 10 + 2 pi 5 10 = 7000 + 50 pi = 7157.07963267949 mm^2; the hole is centred, so its centroid is (40, 15, 5); AABB [0,0,0]..[80,30,10]; 7 faces (4 sides, 2 caps, the hole wall) / 15 edges (8 rectangle + 4 vertical + 2 rims + 1 seam) / 1 shell.",
+    "Pin: volume pi 5^2 20 = 500 pi = 1570.7963267948965 mm^3; surface area 2 pi 5^2 + 2 pi 5 20 = 250 pi = 785.3981633974482 mm^2; centroid (0, 0, 10); 3 faces / 3 edges (2 rims + 1 seam) / 1 shell.",
+    "Joint 1 (revolute, value 0). Frame A on A's hole BOTTOM rim (the W = 100 pick, re-found at W = 80 by its name 'side:h1 | start'): origin (40, 15, 0), Z = out of the bottom face = -Z, X = reference_x(-Z) = +X. Frame B on the pin's bottom cap circle: origin (0, 0, 0), Z = -Z, X = +X; flip = half turn about X, so Z = +Z, Y = +Y, X kept. F_B = F_A o RotZ(0) o RotX(180): B's world frame x = +X, z = -(-Z) = +Z, so the pin's rotation is the identity and its translation is (40, 15, 0). The pin spans z 0..20 on A's hole axis.",
+    "Joint 2 (revolute, value 90). Frame A on the pin's TOP cap circle: pin-local (0, 0, 20), Z = +Z, X = +X; world (40, 15, 20), Z = +Z, X = +X, Y = +Y. Frame B on B's hole TOP rim (re-found by 'end | side:h1'): B-local (40, 15, 10), Z = +Z, flipped to Z = -Z, Y = -Y, X = +X. F_B = F_A o RotZ(90) o RotX(180): world x_B = RotZ(90) X = +Y, z_B = -Z, y_B = z_B x x_B = (-Z) x Y = +X.",
+    "B's rotation R maps local +X to +Y, local -Y to +X (so Y to -X) and local -Z to -Z: R = RotZ(+90 deg), quaternion (0, 0, sin 45, cos 45) = (0, 0, 0.7071067811865476, 0.7071067811865476). Translation: R (40, 15, 10) + t = (40, 15, 20) with R (40, 15, 10) = (-15, 40, 10), so t = (55, -25, 10). In general t = (W/2 + 15, 15 - W/2, 10); at the W = 100 pick it was (65, -35, 10).",
+    "Probes: B's hole bottom-rim centre, B-local (40, 15, 0), maps to R (40, 15, 0) + t = (-15 + 55, 40 - 25, 10) = (40, 15, 10), on A's hole axis one plate up. B's far end face centre, B-local (80, 15, 5), maps to (-15 + 55, 80 - 25, 15) = (40, 55, 15): 40.000 from the axis along A's +Y, the 90 deg turn. The pin's top centre (0, 0, 20) lands at (40, 15, 20), flush with B's top.",
+    "Joint states: J1 rot_deg = atan2(x_B . y_A, x_B . x_A) = atan2(0, 1) = 0, axis_world = A's Z = (0, 0, -1); J2 rot_deg = atan2(Y . Y, Y . X) = atan2(1, 0) = 90, axis_world = the pin's top Z = (0, 0, 1); lin_mm null on both (revolute).",
+    "remaining_dof = 2: each revolute has rank-5 hard rows, and a driving row places its part but removes no DOF, so the pin and B keep one each; status under_constrained.",
+    "combined volume = 2 (24000 - 250 pi) + 500 pi = 48000 mm^3 exactly; surface_area = 2 (7000 + 50 pi) + 250 pi = 14000 + 350 pi = 15099.557428756427 mm^2.",
+    "combined centroid: A (40, 15, 5); pin (40, 15, 10); B = R (40, 15, 5) + t = (40, 15, 15). Volume-weighted z = (V_b 5 + V_p 10 + V_b 15) / (2 V_b + V_p) = 10 (the bracket terms average to 10), so (40, 15, 10).",
+    "combined bounding_box: A [0,0,0]..[80,30,10]; pin [35,10,0]..[45,20,20]; B's local box x 0..80, y 0..30, z 0..10 maps to world x = -y + 55 in [25, 55], y = x - 25 in [-25, 55], z in [10, 20] (a quarter turn, so the corner union is exact). Union [0, -25, 0]..[80, 55, 20].",
+    "combined topology 7 + 3 + 7 / 15 + 3 + 15 / 1 + 1 + 1 = 17 / 33 / 3; distinct_mesh_count 2 (the two brackets share one part_key)."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "CLOSED-FORM tolerance, the assembly-hinge-revolute posture: both joints are driven on a grounded tree (A -> pin -> B), so the closed-form snap places every part with no iteration and the solved poses are the analytic ones to float64 round-off. Measured first (2026-10-10, build123d 0.11.1 / OCCT 7.9, numpy BLAS pinned to 1 thread): B position within 7.2e-15 mm of (55, -25, 10), J2's rot_deg within 1.5e-14 of 90, combined volume within 1.5e-11 mm^3 of 48000 and surface area within 3.7e-12 mm^2 of 14000 + 350 pi (summation of the three parts), centroid within 7.2e-15 mm. 1e-9 is far above every observation. Loosening it requires a reviewed justification here.",
+  "status": "under_constrained",
+  "remaining_dof": 2,
+  "distinct_mesh_count": 2,
+  "instances": [
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000001",
+      "placement": {
+        "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000002",
+      "placement": {
+        "position": { "x": 40.0, "y": 15.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000003",
+      "placement": {
+        "position": { "x": 55.0, "y": -25.0, "z": 10.0 },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.7071067811865476,
+          "w": 0.7071067811865476
+        }
+      }
+    }
+  ],
+  "joint_states": [
+    {
+      "mate_id": "00000000-0000-0000-0000-0000000003e9",
+      "rot_deg": 0.0,
+      "lin_mm": null,
+      "axis_world": { "x": 0.0, "y": 0.0, "z": -1.0 }
+    },
+    {
+      "mate_id": "00000000-0000-0000-0000-0000000003ea",
+      "rot_deg": 90.0,
+      "lin_mm": null,
+      "axis_world": { "x": 0.0, "y": 0.0, "z": 1.0 }
+    }
+  ],
+  "probes": [
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000003",
+      "local": { "x": 40.0, "y": 15.0, "z": 0.0 },
+      "world": { "x": 40.0, "y": 15.0, "z": 10.0 },
+      "note": "B's moved hole bottom-rim centre on A's moved hole axis, one plate up"
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000003",
+      "local": { "x": 80.0, "y": 15.0, "z": 5.0 },
+      "world": { "x": 40.0, "y": 55.0, "z": 15.0 },
+      "note": "B's far end face centre: 40.000 from the axis along A's +Y at 90 deg"
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000002",
+      "local": { "x": 0.0, "y": 0.0, "z": 20.0 },
+      "world": { "x": 40.0, "y": 15.0, "z": 20.0 },
+      "note": "the pin's top centre, flush with B's top face"
+    }
+  ],
+  "properties": {
+    "volume": 48000.0,
+    "surface_area": 15099.557428756427,
+    "centroid": { "x": 40.0, "y": 15.0, "z": 10.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": -25.0, "z": 0.0 },
+      "max": { "x": 80.0, "y": 55.0, "z": 20.0 }
+    }
+  },
+  "topology": { "faces": 17, "edges": 33, "shells": 3 }
+}

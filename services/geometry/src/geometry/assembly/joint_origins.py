@@ -2,10 +2,16 @@
 
 The kernel half of S4a joints (the numeric half is
 :mod:`geometry.assembly.joint_math`). Each origin kind resolves against the
-instance's part body, in its LOCAL part frame, through the same stage-1
-signature resolvers the legacy mates use (exactly one match or an honest
+instance's part body, in its LOCAL part frame, through the SAME tiered resolvers
+the feature tree uses for a picked face or edge (strict signature, then the
+history-based ``topo_name`` and the geometric re-matches,
+:func:`~geometry.kernel.edges.resolve_edge_durable` /
+:func:`~geometry.kernel.faces.resolve_faces` with the part's face names), so a
+hole that moves when its part is edited keeps its joint, as in Fusion 360
+(RESEARCH §21). Exactly one match or an honest
 :class:`~geometry.assembly.protocol.AssemblyDefinitionError`, the subshape error
-chained so evaluation can name ``subshape_unresolved`` / ``subshape_ambiguous``).
+chained so evaluation can name ``subshape_unresolved`` / ``subshape_ambiguous``:
+an origin whose face or edge is gone never slides onto another one.
 Rules, as in Fusion 360 joint origins and Onshape mate connectors (RESEARCH §21):
 
 - ``face_centre``: the matched planar face's own area centroid, Z its OUTWARD
@@ -34,6 +40,8 @@ The OCP wheel ships no type stubs; the directives scope that to this file.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 from build123d import Edge, Face, GeomType
 from loft_wire.features import EdgeSignature, PlanarFaceSignature
@@ -50,7 +58,7 @@ from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
 from geometry.assembly.joint_math import build_frame
 from geometry.assembly.protocol import AssemblyDefinitionError, ResolvedFrame
 from geometry.assembly.transform import as_vec3
-from geometry.kernel.edges import resolve_edge
+from geometry.kernel.edges import resolve_edge_durable
 from geometry.kernel.faces import (
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
@@ -80,11 +88,17 @@ def _arr(x: float, y: float, z: float) -> Vector:
     return np.array([x, y, z], dtype=np.float64)
 
 
-def _resolve_edge(body: BodyShape, origin: JointOrigin) -> Edge:
+#: The history-based name of each face of a part body, aligned with
+#: ``body.faces()`` (``None`` where a face has none), or ``None`` when the
+#: caller has no names; then only the geometric tiers run.
+FaceNames = Sequence[str | None] | None
+
+
+def _resolve_edge(body: BodyShape, origin: JointOrigin, face_names: FaceNames) -> Edge:
     signature = origin.signature
     assert isinstance(signature, EdgeSignature)
     try:
-        return resolve_edge(body, signature)
+        return resolve_edge_durable(body, signature, face_names=face_names).edge
     except _SUBSHAPE_ERRORS as exc:
         raise AssemblyDefinitionError(
             f"joint origin on instance {origin.instance_id} did not resolve to "
@@ -92,7 +106,9 @@ def _resolve_edge(body: BodyShape, origin: JointOrigin) -> Edge:
         ) from exc
 
 
-def _face_centre(body: BodyShape, origin: JointOrigin) -> tuple[Vector, Vector]:
+def _face_centre(
+    body: BodyShape, origin: JointOrigin, face_names: FaceNames
+) -> tuple[Vector, Vector]:
     """The matched face's OWN area centroid and outward normal.
 
     Deliberately not :func:`resolve_face_plane`'s origin: after a resilient
@@ -104,7 +120,7 @@ def _face_centre(body: BodyShape, origin: JointOrigin) -> tuple[Vector, Vector]:
     signature = origin.signature
     assert isinstance(signature, PlanarFaceSignature)
     try:
-        (face,) = resolve_faces(body, [signature])
+        (face,) = resolve_faces(body, [signature], face_names=face_names)
     except _SUBSHAPE_ERRORS as exc:
         raise AssemblyDefinitionError(
             f"joint origin on instance {origin.instance_id} did not resolve to "
@@ -138,8 +154,10 @@ def _outward_planar_normal(body: BodyShape, edge: Edge, axis: Vector) -> Vector 
     return found
 
 
-def _circle_centre(body: BodyShape, origin: JointOrigin) -> tuple[Vector, Vector]:
-    edge = _resolve_edge(body, origin)
+def _circle_centre(
+    body: BodyShape, origin: JointOrigin, face_names: FaceNames
+) -> tuple[Vector, Vector]:
+    edge = _resolve_edge(body, origin, face_names)
     if edge.geom_type != GeomType.CIRCLE:
         raise AssemblyDefinitionError(
             f"joint origin on instance {origin.instance_id} resolved to a "
@@ -170,8 +188,10 @@ def _canonical_forward(p_first: gp_Pnt, p_last: gp_Pnt) -> bool:
     return True
 
 
-def _edge_point(body: BodyShape, origin: JointOrigin) -> tuple[Vector, Vector]:
-    edge = _resolve_edge(body, origin)
+def _edge_point(
+    body: BodyShape, origin: JointOrigin, face_names: FaceNames
+) -> tuple[Vector, Vector]:
+    edge = _resolve_edge(body, origin, face_names)
     curve = BRepAdaptor_Curve(edge.wrapped)
     first, last = curve.FirstParameter(), curve.LastParameter()
     forward = _canonical_forward(curve.Value(first), curve.Value(last))
@@ -197,19 +217,27 @@ def _edge_point(body: BodyShape, origin: JointOrigin) -> tuple[Vector, Vector]:
     return _arr(point.X(), point.Y(), point.Z()), z
 
 
-def resolve_joint_origin(body: BodyShape, origin: JointOrigin) -> ResolvedFrame:
+def resolve_joint_origin(
+    body: BodyShape, origin: JointOrigin, *, face_names: FaceNames = None
+) -> ResolvedFrame:
     """Resolve one joint origin against its instance's part body (LOCAL frame).
+
+    *face_names* (the part evaluation's history-based face names, aligned with
+    ``body.faces()``) enables the named tier, which is what carries an origin
+    through an edit that moves its face or edge off every stored coordinate (a
+    hole re-centred by a width change). Without names the strict and geometric
+    tiers still run.
 
     Raises:
         AssemblyDefinitionError: the face/edge did not resolve to exactly one
             subshape, or a circle_centre edge is not a circle.
     """
     if origin.kind == "face_centre":
-        point, z = _face_centre(body, origin)
+        point, z = _face_centre(body, origin, face_names)
     elif origin.kind == "circle_centre":
-        point, z = _circle_centre(body, origin)
+        point, z = _circle_centre(body, origin, face_names)
     else:
-        point, z = _edge_point(body, origin)
+        point, z = _edge_point(body, origin, face_names)
     frame = build_frame(point, z, flip=origin.flip, quarter_turns=origin.quarter_turns)
     return ResolvedFrame(
         origin=as_vec3(frame.origin), z=as_vec3(frame.z), x=as_vec3(frame.x)

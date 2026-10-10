@@ -405,12 +405,13 @@ def resolve_edge(body: BodyShape, target: EdgeSignature) -> Edge:
     Matches *target* against the edges of *body* (:func:`enumerate_edges`) and
     requires EXACTLY ONE match (§7.2 — refuse to guess).
 
-    Deliberately NOT the resilient entry point. Two callers need the strict answer
-    on its own: :func:`geometry.drawings.anchor.resolve_anchor_edge` runs this as
-    its tier 1 and reports which tier fired (an exact match and a re-anchored one
-    are different facts to a drawing), and the assembly mate resolver wants a mate
-    to fail honestly rather than slide onto a moved edge. Every FEATURE-tree
-    consumer wants :func:`resolve_edge_durable` instead.
+    Deliberately NOT the resilient entry point.
+    :func:`geometry.drawings.anchor.resolve_anchor_edge` needs the strict answer
+    on its own: it runs this as its tier 1 and reports which tier fired (an exact
+    match and a re-anchored one are different facts to a drawing). Every
+    FEATURE-tree consumer, and every assembly mate or joint origin (a joint moves
+    with its hole, as in Fusion 360, RESEARCH §21), wants
+    :func:`resolve_edge_durable` instead.
 
     Raises:
         SubshapeUnresolvedError: zero matching edges (the referenced edge no

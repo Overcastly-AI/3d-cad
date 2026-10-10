@@ -1337,8 +1337,27 @@ you can drag it.
   `edge_point`: start / arc-length mid / end, Z the unit tangent from start
   to end. Start is the endpoint with the smaller `(x, y, z)` (the signature's
   canonical `end_a` order, with a 1e-6 mm tie band), so OCCT's edge
-  orientation never matters. Origins resolve through the strict stage-1
-  resolvers, as legacy mates do.
+  orientation never matters.
+- **Resolution: origins follow the part.** In Fusion 360 a joint moves with
+  its hole when the part is edited. Every joint origin and every legacy mate
+  reference (`MateFaceRef`, `MateAxisRef`) resolves through the feature
+  tree's tiered resolvers with the part evaluation's history-based face names:
+  `resolve_edge_durable` for an edge (strict, then `topo_name`, then the
+  line / circle invariants and the adjacent faces) and `resolve_faces` /
+  `resolve_face_plane` for a face (strict, `topo_name`, the four geometric
+  tiers). Strict alone was a defect: widening a hinge bracket 100 -> 80
+  re-centred its hole, both joints went `subshape_unresolved` and every part
+  dropped to its seed pose. A circle rim bounds a cylindrical face, so it
+  carries no adjacency and only its name (`side:h1 | end`) re-finds it; an
+  origin picked before names existed resolves as before. The same safety
+  rules apply as for features: each tier runs only on an empty result from
+  the one above, an edge re-found geometrically that the body names
+  differently is refused, and zero or several candidates stay
+  `subshape_unresolved` / `subshape_ambiguous`. A deleted hole therefore leaves its joint unresolved
+  rather than moving it to another edge. Names are a pure function of the
+  tree, so resolution stays deterministic, and an assembly computes them once
+  per mated part. The six earlier assembly goldens are byte-identical
+  (result-JSON sha256 against b7dcbcc).
 - **X reference.** The local axis least aligned with Z, ties X < Y < Z,
   projected into the plane (`deterministic_x_dir`'s rule, with a 1e-9 tie
   band so a normal of `(1e-17, 0, 1)` still picks X). Horizontal faces get
@@ -1371,7 +1390,11 @@ you can drag it.
 - **Truth.** Goldens `assembly-hinge-revolute` (90° hinge through hole
   circle centres, DOF 1, far edge 28.000 from the axis along A's +Y) and
   `assembly-slider` (edge-point carriage, flipped B, value 80 moves B exactly
-  80.000); `test_assembly_joint_origins.py`, `test_assembly_joints.py`.
+  80.000); `assembly-hinge-pin-moved-holes-w100-to-80` (origins picked at
+  W = 100, rebuilt at W = 80: the pin sits at (40, 15, 0) and B at
+  (55, -25, 10) turned 90°); `test_assembly_joint_origins.py`,
+  `test_assembly_joints.py`, `test_assembly_moved_origins.py` (also the
+  deleted hole, and a legacy concentric mate).
 
 ## 22. Assembly joints: the remaining motions, drives and limits (S4b)
 
