@@ -249,5 +249,32 @@ test.describe("assembly joint — cylindrical and planar", () => {
     expect(after.rot).toBeCloseTo(90, 6);
     expect(after.atLimit).toBe(true);
     await expect(row.getByTestId("mate-at-limit")).toBeVisible();
+
+    // ——— a plain drag turns it about its own origin, off the limit ————————
+    const turnStamp = await settledStamp(page);
+    const turnPatches = recordPatches(page);
+    const path = [0, -10, -20, -30].map((d) => onTop(turnStamp, after, d));
+    const [press, ...rest] = path;
+    if (press === undefined) throw new Error("no press point");
+    await page.mouse.move(press.x, press.y);
+    await page.mouse.down();
+    for (const p of rest) await page.mouse.move(p.x, p.y);
+    await shot(page, "planar-turn-mid-drag");
+    await page.mouse.up();
+    await expect
+      .poll(async () => (await readJoint(page)).rot, {
+        timeout: 30_000,
+        message: "the drag never turned the planar joint",
+      })
+      .toBeLessThan(70);
+    const turned = await readJoint(page);
+    expect(turned.rot).toBeCloseTo(60, 0);
+    expect(turned.atLimit).toBe(false);
+    // The turn is about B's own origin: its in-plane seat holds.
+    expect(gap(turned.originB, after.originB)).toBeLessThan(1e-6);
+    expect(turnPatches).toHaveLength(1);
+    expect(mateValue(turnPatches[0])?.lin_mm).toBeNull();
+    await expect(row.getByTestId("mate-at-limit")).toBeHidden();
+    await expect(page.getByTestId("joint-drive-at-limit")).toBeHidden();
   });
 });
