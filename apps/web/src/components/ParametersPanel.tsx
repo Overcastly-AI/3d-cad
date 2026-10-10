@@ -50,6 +50,12 @@ export interface ParametersPanelProps {
   saving: boolean;
   /** When set, the table is read-only and says why. */
   blockedReason?: string;
+  /**
+   * A re-read of the table failed after it had loaded: edits are held (the
+   * table is read-only) until `onReload` succeeds.
+   */
+  refreshFailed?: boolean;
+  onReload?: () => void;
   /** The row Add just created; its Name cell takes focus. */
   focusRowId: string | null;
   onCommitCell: (id: string, field: ParameterField, text: string) => void;
@@ -72,6 +78,8 @@ export function ParametersPanel({
   stale,
   saving,
   blockedReason,
+  refreshFailed = false,
+  onReload,
   focusRowId,
   onCommitCell,
   onUnitChange,
@@ -128,7 +136,26 @@ export function ParametersPanel({
         </button>
       </header>
 
-      {locked ? (
+      {refreshFailed ? (
+        <Notice
+          role="alert"
+          label="Not refreshed"
+          layout="stacked"
+          data-testid="parameters-refresh-failed"
+          action={
+            onReload === undefined
+              ? undefined
+              : {
+                  label: "Reload",
+                  onClick: onReload,
+                  testId: "parameters-reload",
+                }
+          }
+        >
+          The latest parameters could not be read. Your edits are kept, and
+          changes are held until the table reloads.
+        </Notice>
+      ) : locked ? (
         <p
           data-testid="parameters-blocked"
           className="border-b border-hairline px-3 py-1.5 font-body text-xs text-gauge"

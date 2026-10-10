@@ -26,6 +26,7 @@ import {
   commitCell as commitCellRows,
   deleteRow as deleteRowFrom,
   type DraftRow,
+  isIncompleteDraft,
   mapTableError,
   type ParameterField,
   rebaseRows,
@@ -133,24 +134,22 @@ export function usePartParameters({
     });
   }, [query.data, query.isPlaceholderData, setTable]);
 
+  // The table on screen was read once, and a later read of a newer version
+  // failed. Writing now would send rows the server may have moved past, so
+  // edits hold (the typed text stays) until a read succeeds.
+  const refreshFailed = panelOpen && table.version !== null && query.isError;
+  const reload = useCallback(() => {
+    void query.refetch();
+  }, [query]);
+
   const blockedReason =
     mode !== "off"
       ? "Finish the sketch to change parameters."
       : editor !== null
         ? "Close the open command to change parameters."
-        : undefined;
-
-  /** The highest tree version this page has seen: versions only go up. */
-  const knownVersion = useRef<number | null>(null);
-  useEffect(() => {
-    knownVersion.current = null;
-  }, [partId]);
-  const expectedVersion = useCallback((): number | undefined => {
-    const seen = [treeVersion, knownVersion.current].filter(
-      (v): v is number => typeof v === "number",
-    );
-    return seen.length === 0 ? undefined : Math.max(...seen);
-  }, [treeVersion]);
+        : refreshFailed
+          ? "The latest parameters could not be read, so changes are held."
+          : undefined;
 
   const inFlight = useRef(false);
   const again = useRef(false);
@@ -163,6 +162,12 @@ export function usePartParameters({
       return;
     }
     const sent = tableRef.current;
+    // The version the table ON SCREEN was read at, never a newer one seen
+    // since: after an undo or another window's edit, rows read at the old
+    // version must be refused as stale (and rebased, and retried), not
+    // written over the newer table.
+    const expected = sent.version;
+    if (expected === null) return;
     const wire = tableToWire(sent.rows, sent.base);
     if ("error" in wire) {
       setError(wire.error);
@@ -173,14 +178,18 @@ export function usePartParameters({
       setError(null);
       return;
     }
-    const expected = expectedVersion();
-    if (expected === undefined) return;
+    // The rows this PUT carries. A new row still missing its name or
+    // expression was left out, so it is NOT something the server dropped:
+    // rebasing against `sent.rows` would read it as deleted and lose it.
+    const storedIds = new Set(sent.base.map((row) => row.id));
+    const sentRows = sent.rows.filter(
+      (row) => !isIncompleteDraft(row, storedIds),
+    );
     inFlight.current = true;
     setSaving(true);
     beginTreeWrite();
     try {
       const response = await putPartParameters(partId, wire.body, expected);
-      knownVersion.current = response.tree_version;
       noteWrittenTreeVersion(response.tree_version);
       // The tree refetch below moves the query key to this version; seed it
       // so the panel does not read back what it was just told.
@@ -189,7 +198,7 @@ export function usePartParameters({
       setTable({
         base: fresh,
         // Anything typed while the write was in flight stays on top.
-        rows: rebaseRows(sent.rows, tableRef.current.rows, fresh),
+        rows: rebaseRows(sentRows, tableRef.current.rows, fresh),
         version: response.tree_version,
       });
       setError(null);
@@ -233,7 +242,6 @@ export function usePartParameters({
     }
   }, [
     blockedReason,
-    expectedVersion,
     beginTreeWrite,
     endTreeWrite,
     noteWrittenTreeVersion,
@@ -335,6 +343,8 @@ export function usePartParameters({
     stale,
     saving,
     blockedReason,
+    refreshFailed,
+    reload,
     focusRowId,
     commitCell,
     setUnit,

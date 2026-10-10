@@ -165,6 +165,8 @@ export function InspectorRail({
               stale={partParameters.stale}
               saving={partParameters.saving}
               blockedReason={partParameters.blockedReason}
+              refreshFailed={partParameters.refreshFailed}
+              onReload={partParameters.reload}
               focusRowId={partParameters.focusRowId}
               onCommitCell={partParameters.commitCell}
               onUnitChange={partParameters.setUnit}
