@@ -37,6 +37,7 @@ import {
   LoftIcon,
   MeasureIcon,
   MirrorIcon,
+  ParametersIcon,
   PatternIcon,
   RevolveIcon,
   ShellIcon,
@@ -71,6 +72,7 @@ export const VERB_GLYPHS: Readonly<Record<string, ComponentType<IconProps>>> = {
   import_step: ImportStepIcon,
   flat_pattern: FlatPatternIcon,
   measure: MeasureIcon,
+  parameters: ParametersIcon,
 };
 
 export interface VerbGlyphProps extends IconProps {

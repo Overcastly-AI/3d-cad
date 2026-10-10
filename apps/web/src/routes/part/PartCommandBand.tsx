@@ -25,6 +25,7 @@ import type { ViewportState } from "./useViewportState";
 import type { EditorRepick } from "./useEditorRepick";
 import type { SketchPersistence } from "./useSketchPersistence";
 import type { PickState } from "./usePickState";
+import type { PartParameters } from "./usePartParameters";
 
 export function PartCommandBand({
   partDocument,
@@ -44,6 +45,7 @@ export function PartCommandBand({
   editorRepick,
   sketchPersistence,
   pickState,
+  partParameters,
   openCreateCombine,
 }: {
   partDocument: Pick<PartDocument, "mode" | "tree">;
@@ -119,6 +121,7 @@ export function PartCommandBand({
     PickState,
     "facePicking" | "facePlaneBusy" | "facePlaneError"
   >;
+  partParameters: Pick<PartParameters, "panelOpen" | "togglePanel">;
   openCreateCombine: () => void;
 }) {
   const { mode, tree } = partDocument;
@@ -213,6 +216,8 @@ export function PartCommandBand({
           onExportFlatDxf={exportFlatDxf}
           canCombine={bodies.length >= 2}
           onCombine={openCreateCombine}
+          parametersOpen={partParameters.panelOpen}
+          onToggleParameters={partParameters.togglePanel}
           canMeasure={hasBody}
           measuring={measureActive}
           onToggleMeasure={toggleMeasure}

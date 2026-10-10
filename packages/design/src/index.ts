@@ -98,6 +98,13 @@ export { AxisGrip, type AxisGripProps } from "./primitives/AxisGrip";
 export { FieldRow, type FieldRowProps } from "./primitives/FieldRow";
 export { NumberField, type NumberFieldProps } from "./primitives/NumberField";
 export {
+  GridCellInput,
+  GridCellSelect,
+  type GridCellInputProps,
+  type GridCellSelectOption,
+  type GridCellSelectProps,
+} from "./primitives/GridCell";
+export {
   ExpressionField,
   type ExpressionFieldProps,
 } from "./primitives/ExpressionField";

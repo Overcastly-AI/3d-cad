@@ -28,7 +28,7 @@ import type { ExportedFile, ExportFormat } from "../api/exportPart";
 import { useCommandActionStore } from "../features/commandActions";
 import { verbHint, verbLabel } from "../features/patternScope";
 import { useCancelKey, useGlobalKeys } from "../lib/modalGate";
-import { partVerbKey } from "../shortcuts/registry";
+import { KEY_PARAMETERS, partVerbKey } from "../shortcuts/registry";
 import { ExportToolGroup } from "./ExportToolGroup";
 import { HistoryGroup } from "./HistoryGroup";
 import type { NextStepProposal, NextStepTool } from "./nextStep";
@@ -211,6 +211,13 @@ export interface CreateStripProps {
   canCombine?: boolean;
   /** Fuse two bodies into one via a boolean union (multi-body §MB-1). */
   onCombine?: () => void;
+  /** The Parameters panel is open (the tool reads as on). */
+  parametersOpen?: boolean;
+  /**
+   * Open or close the Parameters panel (PART-PARAMETERS): Fusion's Modify >
+   * Change Parameters. Needs no body, only a loaded tree.
+   */
+  onToggleParameters?: () => void;
   /** A solid body exists to inspect — the Measure tool lights up. */
   canMeasure?: boolean;
   /** The Measure tool is armed (picking targets in the viewport). */
@@ -457,6 +464,8 @@ export function CreateStrip({
   onExportFlatDxf,
   canCombine = false,
   onCombine,
+  parametersOpen = false,
+  onToggleParameters,
   canMeasure = false,
   measuring = false,
   onToggleMeasure,
@@ -485,6 +494,7 @@ export function CreateStrip({
   const holeReady = canModify && treeReady && onHole !== undefined;
   const mirrorReady = canModify && treeReady && onMirror !== undefined;
   const combineReady = canCombine && treeReady && onCombine !== undefined;
+  const parametersReady = treeReady && onToggleParameters !== undefined;
   const baseFlangeReady =
     canBaseFlange && treeReady && onNewBaseFlange !== undefined;
   const edgeFlangeReady =
@@ -1075,6 +1085,21 @@ export function CreateStrip({
             caption={captionFor(combineReady, "Needs two bodies")}
             disabled={locked || !combineReady}
             onClick={onCombine}
+          />
+          {/* Fusion files Change Parameters under Modify: the table drives
+              the dimensions the other Modify tools change. It is a panel, not
+              a feature, so it needs no body and reads as on while open. */}
+          <ToolButton
+            icon={<VerbGlyph verb="parameters" />}
+            showLabel
+            label="Parameters"
+            shortcut={KEY_PARAMETERS}
+            active={parametersOpen}
+            data-testid="parameters-tool"
+            aria-label={`Parameters — the part's named values and formulas (${KEY_PARAMETERS})`}
+            caption={captionFor(parametersReady, "Loading the part")}
+            disabled={locked || !parametersReady}
+            onClick={onToggleParameters}
           />
         </ToolGroup>
 

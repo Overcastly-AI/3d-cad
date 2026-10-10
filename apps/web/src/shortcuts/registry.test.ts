@@ -30,6 +30,7 @@ import {
   KEY_FILTER,
   KEY_ISOLATE,
   KEY_MEASURE,
+  KEY_PARAMETERS,
   KEY_NEW_DOCUMENT,
   KEY_SHORTCUT_SHEET,
   KEY_SNAP,
@@ -99,6 +100,7 @@ describe("declared constants", () => {
       expect(printed).toContain(entry.keys);
     }
     expect(printed).toContain(KEY_MEASURE.toUpperCase());
+    expect(printed).toContain(KEY_PARAMETERS);
     expect(group("Sketch tools").shortcuts.map((s) => s.keys)).toContain(
       KEY_SNAP.toUpperCase(),
     );
@@ -266,16 +268,17 @@ describe("the modelling letters", () => {
     const claimed = [
       ...PART_CREATE_SHORTCUTS.map((entry) => entry.key),
       KEY_MEASURE,
+      KEY_PARAMETERS,
       KEY_ISOLATE,
       KEY_SHORTCUT_SHEET,
       KEY_ACCEPT_PROPOSAL,
       ...Object.keys(VIEW_SHORTCUTS),
       PROJECTION_SHORTCUT,
     ];
-    // 12 verbs + measure + isolate + ? + Enter + 6 view snaps + the projection
-    // toggle = 23. Stated, so a table that lost its rows cannot pass this by
-    // being trivially unique.
-    expect(claimed).toHaveLength(23);
+    // 12 verbs + measure + parameters + isolate + ? + Enter + 6 view snaps +
+    // the projection toggle = 24. Stated, so a table that lost its rows cannot
+    // pass this by being trivially unique.
+    expect(claimed).toHaveLength(24);
     expect(new Set(claimed).size).toBe(claimed.length);
   });
 

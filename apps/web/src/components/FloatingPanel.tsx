@@ -39,7 +39,30 @@ export interface FloatingPanelProps {
    * Trimming the copy above it is not a fix; that had already failed twice.
    */
   footer?: ReactNode;
+  /**
+   * The panel's width token: `inspector` (320: the tree, the inspector) or
+   * `parameters` (the Parameters table's five columns). In a rail that holds
+   * two widths, a panel hugs its own side's edge, so a narrower one never
+   * floats in the middle of the column.
+   */
+  width?: "inspector" | "parameters";
+  /**
+   * In a rail shared with another panel, this one is where the user is
+   * WORKING: it keeps its content height (up to 60 % of the column) and its
+   * neighbour scrolls instead. Without it two railed panels shrink in
+   * proportion to their content, so a three-row table opened over a long
+   * inspector was squeezed to a scrolling sliver of itself.
+   */
+  holds?: boolean;
 }
+
+const WIDTH = {
+  inspector: "w-inspector",
+  parameters: "w-parameters",
+} as const;
+
+/** A railed panel's edge: the frame edge its rail is anchored to. */
+const RAIL_EDGE = { left: "self-start", right: "self-end" } as const;
 
 // The reference cube (drei GizmoHelper) always lives bottom-RIGHT, occupying
 // roughly the 64–144px band above the frame's bottom edge. A tall right panel
@@ -61,6 +84,8 @@ export function FloatingPanel({
   children,
   maxHeightClassName = DEFAULT_CLEARANCE[side],
   footer,
+  width = "inspector",
+  holds = false,
 }: FloatingPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   // Inside a `ChromeRail` the panel is a FLOW child of the column it shares
@@ -92,7 +117,7 @@ export function FloatingPanel({
           "transition-colors duration-fast hover:text-brass",
           "focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass",
           railed
-            ? "shrink-0 self-start"
+            ? cx("shrink-0", RAIL_EDGE[side])
             : cx(
                 "absolute top-3 z-panel",
                 side === "left" ? "left-3" : "right-3",
@@ -108,7 +133,10 @@ export function FloatingPanel({
     <div
       data-viewport-chrome={`panel-${id}`}
       className={cx(
-        "pointer-events-auto flex w-inspector flex-col",
+        "pointer-events-auto flex flex-col",
+        WIDTH[width],
+        railed && RAIL_EDGE[side],
+        railed && holds && "max-h-[60%] shrink-0",
         railed
           ? // A flow child of the rail: shrinkable so a tall editor can take the
             // room it needs, floored at `min-h-rail-panel` so the tree it was

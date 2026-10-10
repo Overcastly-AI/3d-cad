@@ -94,6 +94,14 @@ export const KEY_SNAP = "g";
 /** Arm the measure tool — `PartPage`. */
 export const KEY_MEASURE = "m";
 /**
+ * Open or close the Parameters panel — `usePartParameters`. Fusion and Onshape
+ * ship no default key for their parameter tables, and every free LETTER here
+ * is a future create verb's, so it is the equals sign: the table is where the
+ * part's formulas live. Compared against `event.key`, so it is the same key on
+ * a layout that types `=` with Shift.
+ */
+export const KEY_PARAMETERS = "=";
+/**
  * Accept whatever the viewport's leader note is offering — `ProposalNote`.
  *
  * TWO MOMENTS, ONE NOTE, and therefore one key (FLOW-B1): rest on a face and
@@ -370,6 +378,7 @@ export function shortcutGroups(): ShortcutGroup[] {
           when,
         })),
         { keys: KEY_MEASURE.toUpperCase(), action: "Measure" },
+        { keys: KEY_PARAMETERS, action: "Parameters" },
         {
           // The sheet is the app's only keyboard reference, so this row has to
           // describe what the key now DOES: since FLOW-B1 the note is written

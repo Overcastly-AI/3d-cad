@@ -74,6 +74,7 @@ import { useDatumFacePicking } from "./part/useDatumFacePicking";
 import { useHolePicking } from "./part/useHolePicking";
 import { useTimelineHistory } from "./part/useTimelineHistory";
 import { usePartVersions } from "./part/usePartVersions";
+import { usePartParameters } from "./part/usePartParameters";
 import { useRebuildNotices } from "./part/useRebuildNotices";
 import { useViewportState } from "./part/useViewportState";
 import { useSketchProjectSession } from "./part/useSketchProjectSession";
@@ -738,6 +739,18 @@ export function PartPage() {
     noteWrittenTreeVersion,
     historyBusy: historyStep !== null,
   });
+  const partParameters = usePartParameters({
+    partId,
+    queryClient,
+    tree,
+    mode,
+    lengthUnit,
+    editor,
+    refreshTreeAndBody,
+    beginTreeWrite,
+    endTreeWrite,
+    noteWrittenTreeVersion,
+  });
   const rebuildNotices = useRebuildNotices({
     evaluation,
     editor,
@@ -966,6 +979,7 @@ export function PartPage() {
             editorRepick={editorRepick}
             sketchPersistence={sketchPersistence}
             pickState={pickState}
+            partParameters={partParameters}
             openCreateCombine={openCreateCombine}
           />
         </TopToolbar>
@@ -1128,6 +1142,7 @@ export function PartPage() {
               partBody={partBody}
               materialPanel={materialPanel}
               partVersions={partVersions}
+              partParameters={partParameters}
             />
             {/* Named versions (LOFT-VERSIONS): the list, and the save dialog
                 over it when it was opened from there. */}
