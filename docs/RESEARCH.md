@@ -1277,6 +1277,14 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   accept `float | str`, and `loft.expr.evaluate`. `.loft` 1.2 carries the
   table and per-feature expressions in `tree.json` and version trees; 1.1
   readers degrade to numbers; frozen fixture `golden-v1.2.loft`.
+- **Step 5, as built.** A dimension formula that names a parameter is
+  written beside its sketch in `dimension_expressions` (pointer to the
+  dimension's `expression`), with null in the dimension and the resolved
+  number standing; `loft_wire/loft_formulas.py`, the geometry boundary's
+  rule. Left in place, a 1.1 Loft (whose sketch formulas see only the
+  sketch) would fail the sketch on `unknown dimension name` rather than
+  degrade. Same-sketch formulas stay in place. docs/FILE-FORMAT.md has the
+  version table.
 - **Step 8, as built.** `<ValueField>` (`components/ValueField.tsx`) is an
   uncontrolled cell (the sketcher's box sits in the canvas, DIM-1). A number
   goes to the editor's form as before. A formula is shown with `fx` and its

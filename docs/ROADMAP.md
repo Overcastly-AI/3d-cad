@@ -27,7 +27,7 @@ Then a level-1 rerun, the A1 hinge (ASM-\* in the backlog), and level 2.
   with views, sections, dimensions and PDF/DXF.
 - **Sheet metal v1:** base and edge flanges, hems, flat pattern, DXF.
 - **Scripting:** the `loft-script` Python API (`import loft`).
-- **Files and versions:** the `.loft` part file (format 1.1) and named,
+- **Files and versions:** the `.loft` part file (format 1.2) and named,
   restorable part versions.
 - **Self-hosting:** air-gapped operation, backup/restore drill, licence gates.
 

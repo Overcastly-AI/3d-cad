@@ -45,7 +45,7 @@ byte-identical; RESEARCH §15a).
         and in the evaluation request, `parameter_in_use`, rename, a
         parametric golden. _Accept:_ the golden re-drives to hand values;
         cache test; out-of-range is a sick feature, not a 500.
-  - [ ] 5. `.loft` 1.2. _Accept:_ export/import/re-export gives identical
+  - [x] 5. `.loft` 1.2. _Accept:_ export/import/re-export gives identical
         bytes; the 1.0 and 1.1 fixtures import.
   - [ ] 6. loft-script API. _Accept:_ a script builds the step-4 part;
         `set_parameter` alone changes the volume as expected.
@@ -377,6 +377,8 @@ One line each. The founder triages weekly; most are closed without work.
 - PROPOSAL-FIT-DOUBLE-MOVE: Fit while an overrunning proposal is live frames the body, then eases out to the proposal (two moves).
 - CRAFT12-NEGATIVE-SETTLE: preview-overrun.spec.ts:281's negative case still settles with waitForCameraRest; use waitForCameraStill.
 - ENV-E2E-PORT: Playwright reuses an existing server on :5173 (`reuseExistingServer`), so parallel agents test each other's code unless each sets its own web port.
+- LOFT-DIMEXPR-INDEX (step 5 review): `dimension_expressions` pointers are keyed by constraint index; a hand edit that moves a plain dimension to that index silently moves the formula (warning `loft_tree_edited` only). Store the dimension's name in the entry and check it on read.
+- LOFT-COMMENT-PIN: golden-v1.2.loft has only empty parameter comments, so a non-empty comment's round trip is not pinned.
 - JOINT-PLANAR-PARENT (motions review): a planar slide PATCHes B's placement; when B is the solve parent rather than the child the slide may not stick. Unverified.
 - JOINT-CARD-OVERLAP: the joint drive card overlaps the inspector's DOF text (revolute and planar).
 - MEASURE-FROM-EVAL-REQUEST, rest (step 8 did the part's measure and pick): assembly overlays (`AssemblyPage.tsx` `buildEvaluateTree`) and drawing requests (`useDrawingData.ts`) still build from GET features, so a sick feature still shows its last good body there.
