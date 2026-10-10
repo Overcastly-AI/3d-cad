@@ -1209,8 +1209,9 @@ export interface paths {
          *     Stale ``expected_tree_version`` → 422 ``stale_tree_version``. A table that
          *     does not evaluate (bad or repeated name, syntax, unknown name, cycle, unit
          *     clash, non-finite value) → 422 with the expression error's code. Deleting a
-         *     parameter a feature still reads → 409 ``parameter_in_use``. The same table
-         *     again → 200, nothing written.
+         *     parameter a feature still reads → 409 ``parameter_in_use``. A rename
+         *     rewrites the parameters and features that read the old name. The same
+         *     table again → 200, nothing written.
          */
         put: operations["put_parameters_api_v1_parts__part_id__parameters_put"];
         post?: never;
