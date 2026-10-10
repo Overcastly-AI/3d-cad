@@ -148,3 +148,30 @@ def test_server_refusals_are_typed_with_the_servers_code(stack: Stack) -> None:
         with pytest.raises(loft.ParameterNotFound):
             part.rename_parameter("nope", "yes")
         assert [p.name for p in part.parameters()] == ["a", "b"]
+
+
+def test_renaming_a_parameter_another_reads_rewrites_both(stack: Stack) -> None:
+    with loft.register(
+        stack.gateway_url, email=next(_emails), password=PASSWORD
+    ) as session:
+        part, sketch = _box(session)
+        ids = {p.name: p.id for p in part.parameters()}
+
+        renamed = part.rename_parameter("W", "Wid")
+        assert renamed.id == ids["W"]
+        rows = {p.name: p for p in part.parameters()}
+        assert {n: (p.id, p.expression, p.value) for n, p in rows.items()} == {
+            "Wid": (ids["W"], "40", 40.0),
+            "H": (ids["H"], "Wid - 15", 25.0),
+            "D": (ids["D"], "10", 10.0),
+        }
+        stored = part.feature(sketch.id).feature
+        assert isinstance(stored, SketchFeature)
+        assert [
+            c.expression
+            for c in stored.params.constraints
+            if isinstance(c, DistanceConstraint)
+        ] == ["Wid", "H"]
+        assert part.mass_properties().volume == pytest.approx(10_000, abs=TOLERANCE_MM3)
+        part.set_parameter("Wid", "50")  # H still follows it: 50 x 35 x 10
+        assert part.mass_properties().volume == pytest.approx(17_500, abs=TOLERANCE_MM3)

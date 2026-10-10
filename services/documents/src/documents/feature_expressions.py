@@ -120,9 +120,10 @@ def _store(row: db.Feature, envelope: FeatureEnvelope) -> None:
     row.expressions = envelope.expressions
 
 
-def _renames(
+def parameter_renames(
     old_rows: Sequence[Mapping[str, Any]], new_rows: Sequence[Mapping[str, Any]]
 ) -> dict[str, str]:
+    """old name -> new name for every row (by ``id``) the new table renames."""
     old_names = {row["id"]: row["name"] for row in old_rows}
     return {
         old_names[row["id"]]: row["name"]
@@ -181,7 +182,7 @@ def apply_table_change(
                 details={"feature_id": str(row.id)},
             ) from exc
     values: dict[str, Quantity] = parameter_values(new_rows)
-    renames = _renames(old_rows, new_rows)
+    renames = parameter_renames(old_rows, new_rows)
     # Every change is computed before any row is touched: a rename that a
     # feature cannot take refuses the whole PUT.
     changes: list[tuple[db.Feature, FeatureEnvelope]] = []

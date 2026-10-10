@@ -1237,8 +1237,9 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   `[]`); named versions carry parameters.
 - **Errors.** Syntax, unknown name, cycle, unresolvable or colliding name:
   422 at write. Deleting a referenced parameter: 409 `parameter_in_use`
-  listing the features; a rename rewrites references token by token. A
-  resolved value that fails its field's validation, or an unresolved import,
+  listing the features; a rename rewrites references token by token, in
+  features, sketch dimensions and the other parameters (a row the PUT
+  itself rewrites is taken as written). A resolved value that fails its field's validation, or an unresolved import,
   makes that feature sick with `input_error` (`parameter_value_invalid` /
   `parameter_unresolved`), keeps the last good value, and answers 200 with
   per-feature errors. Geometry (step 2, `features/tree.py::_dispatch_one`)
