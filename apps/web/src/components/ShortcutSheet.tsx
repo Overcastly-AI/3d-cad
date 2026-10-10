@@ -10,6 +10,36 @@ import {
 } from "../shortcuts/registry";
 
 /**
+ * THE CARD'S FOUR COLUMNS, by where the keys apply: the app and the other
+ * workspaces; the part workspace; the camera and the sketcher; the sketcher's
+ * constraints. Placed, not flowed. CSS columns balanced the blocks by height
+ * and, with every block kept whole, left the fourth column half empty while
+ * the third ran the card 858px into an 800px frame once ASM-COPY added
+ * Assembly. A group this plan does not name joins the LAST column, so a new
+ * group is never dropped; `shortcut-sheet-fit.spec.ts` then says if it fits.
+ */
+const COLUMN_PLAN: readonly (readonly string[])[] = [
+  ["Everywhere", "Registers", "Assembly"],
+  ["Modelling", "Feature tree"],
+  ["View", "Sketch tools"],
+  ["Sketch constraints"],
+];
+
+/** The registry's groups dealt into {@link COLUMN_PLAN}'s columns. */
+export function sheetColumns(
+  groups: readonly ShortcutGroup[],
+): ShortcutGroup[][] {
+  const columns = COLUMN_PLAN.map((titles) =>
+    titles.flatMap((title) => groups.filter((group) => group.title === title)),
+  );
+  const planned = new Set(COLUMN_PLAN.flat());
+  columns[columns.length - 1]!.push(
+    ...groups.filter((group) => !planned.has(group.title)),
+  );
+  return columns;
+}
+
+/**
  * THE KEY CARD — the keyboard reference `?` opens (UI-REVIEW 2026-07-30 F4).
  *
  * FORM. Not a modal with a drop shadow and a rounded card, which is what a web
@@ -108,11 +138,13 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
 
   useModalLayer("the key card", panelRef, onKeyDown);
 
-  const groups = shortcutGroups();
+  const columns = sheetColumns(shortcutGroups());
 
   return (
+    // `z-menu`, as every other modal scrim: at `z-50` the command band
+    // (`z-band`, later in the DOM) painted over the card's header band.
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-carbide/85 p-4 sm:p-6"
+      className="fixed inset-0 z-menu flex items-start justify-center overflow-y-auto bg-carbide/85 p-4 sm:p-6"
       data-testid="shortcut-sheet-backdrop"
       // A click on the ground closes, the way tapping outside a card does; the
       // sheet itself stops the event so a click on a row never dismisses.
@@ -140,6 +172,20 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
             Every shortcut the app is listening for, right now.
           </p>
           <span className="grow" />
+          {/* WHICH BUILD IS THIS (FB-11). On the key card rather than in the
+              app chrome because the viewport is the hero and a permanent
+              version stamp is chrome that earns nothing 99% of the time; the
+              card is one keystroke (`?`) away on every authed surface. In the
+              header band, where a title block carries its revision, rather
+              than in a footer row the columns need. Selectable, monospace: it
+              exists to be read out or pasted into a bug report. */}
+          <p
+            data-testid="build-stamp"
+            data-build-sha={BUILD_SHA}
+            className="select-text font-data text-2xs text-gauge"
+          >
+            Build {buildLabel()}
+          </p>
           <button
             type="button"
             onClick={onClose}
@@ -151,43 +197,21 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
           </button>
         </header>
 
-        {/* CSS multi-column, not a grid: the seven blocks are wildly different
-            heights (two reorder keys against sixteen modelling verbs), and a
-            grid leaves the short column's remaining space empty while the tall
-            one runs off the bottom of the frame. Columns FLOW, so the card
-            packs and fits — `break-inside-avoid` on each section keeps a block
-            whole.
-
-            A FOURTH COLUMN AT `xl`, with the card widened to match, is what
-            keeps the card on ONE SCREEN now that MODELLING carries 16 rows
-            (FLOW-B2 bound five more verbs and the card went to 1127px of
-            content in a 900px frame). The column WIDTH is deliberately
-            unchanged — 1152px across four columns is 262px each, against the
-            266px that three columns of 896px were giving — so the extra column
-            costs no extra line wrapping. The alternative, dropping rows until
-            it fits, would be removing the reference from the reference. */}
-        <div className="columns-1 gap-x-6 px-4 py-3 sm:columns-2 lg:columns-3 xl:columns-4">
-          {groups.map((group) => (
-            <Group key={group.title} group={group} />
+        {/* Below `xl` the blocks FLOW in CSS columns (each wrapper is
+            `display: contents`), `break-inside-avoid` keeping a block whole.
+            From `xl` (the 1280x800 floor up) they are PLACED in the four
+            columns of `COLUMN_PLAN`, 262px each as before, so the structure
+            costs no extra line wrapping. Dropping rows until it fits would be
+            removing the reference from the reference. */}
+        <div className="columns-1 gap-x-6 px-4 py-3 sm:columns-2 lg:columns-3 xl:grid xl:columns-auto xl:grid-cols-4 xl:items-start">
+          {columns.map((column, index) => (
+            <div key={index} className="contents xl:block">
+              {column.map((group) => (
+                <Group key={group.title} group={group} />
+              ))}
+            </div>
           ))}
         </div>
-
-        {/* WHICH BUILD IS THIS (FB-11). Here rather than in the app chrome
-            because the viewport is the hero and a permanent version stamp is
-            chrome that earns nothing 99% of the time — but the key card is
-            already mounted on every authed surface and is one keystroke (`?`)
-            away, so the answer is always reachable without taking a pixel from
-            the model. Selectable, monospace: it exists to be read out or pasted
-            into a bug report. */}
-        <footer className="border-t border-hairline px-4 py-2">
-          <p
-            data-testid="build-stamp"
-            data-build-sha={BUILD_SHA}
-            className="select-text font-data text-2xs text-gauge"
-          >
-            Build {buildLabel()}
-          </p>
-        </footer>
       </div>
     </div>
   );
@@ -197,7 +221,7 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
 function Group({ group }: { group: ShortcutGroup }) {
   return (
     <section
-      className="mb-4 break-inside-avoid"
+      className="mb-4 break-inside-avoid xl:last:mb-0"
       data-testid="shortcut-group"
       data-group={group.title}
     >

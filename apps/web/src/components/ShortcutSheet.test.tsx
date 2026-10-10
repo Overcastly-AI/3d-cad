@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resetModalGateAlarmForTest } from "../lib/modalGate";
 import { shortcutGroups } from "../shortcuts/registry";
-import { ShortcutSheetHost } from "./ShortcutSheet";
+import { sheetColumns, ShortcutSheetHost } from "./ShortcutSheet";
 
 function pressQuestionMark(): void {
   fireEvent.keyDown(window, { key: "?" });
@@ -75,6 +75,27 @@ describe("what it draws", () => {
     for (const entry of groups) {
       expect(screen.getByText(entry.title)).toBeInTheDocument();
     }
+  });
+
+  it("places every registry group in exactly one of four columns", () => {
+    const groups = shortcutGroups();
+    const columns = sheetColumns(groups);
+    expect(columns).toHaveLength(4);
+    expect(
+      columns
+        .flat()
+        .map((group) => group.title)
+        .sort(),
+    ).toEqual(groups.map((group) => group.title).sort());
+    // Every column holds something: a plan naming a renamed group would
+    // otherwise leave a hole and push the group to the end.
+    for (const column of columns) expect(column.length).toBeGreaterThan(0);
+  });
+
+  it("a group the plan does not name still renders, in the last column", () => {
+    const stray = { title: "Drawings", note: null, shortcuts: [] };
+    const columns = sheetColumns([...shortcutGroups(), stray]);
+    expect(columns.at(-1)).toContain(stray);
   });
 
   it("advertises its own key, so the reference is self-describing", () => {
