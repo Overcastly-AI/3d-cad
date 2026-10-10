@@ -76,6 +76,8 @@ from geometry.kernel.edges import (
     EdgeRecord,
     annotated_edge_signatures,
     circle_axis,
+    edge_face_name_pairs,
+    edge_name_agreement,
     edge_signature_dto,
     edge_signatures_match,
     enumerate_edges,
@@ -120,6 +122,9 @@ class BodyNaming:
 
     face_names: list[str | None]
     signatures: list[EdgeSignature]
+    #: Each edge's two face names (aligned with ``body.edges()``), the
+    #: alias-preserving form the shared name guard compares.
+    face_pairs: list[tuple[str, str] | None]
 
     def signature_at(self, index: int) -> EdgeSignature | None:
         if 0 <= index < len(self.signatures):
@@ -132,6 +137,7 @@ def body_naming(body: BodyShape, face_names: list[str | None]) -> BodyNaming:
     return BodyNaming(
         face_names=face_names,
         signatures=annotated_edge_signatures(body, face_names),
+        face_pairs=edge_face_name_pairs(body, face_names),
     )
 
 
@@ -367,20 +373,43 @@ def _durable_match(candidate: EdgeSignature, target: EdgeSignature) -> bool:
     return False
 
 
-def _same_name(
-    record: EdgeRecord, target: EdgeSignature, naming: BodyNaming | None
-) -> bool:
-    """The NAME GUARD (the kernel's EDGE-REF-CONCENTRIC rule, applied here too).
+def _agreement(index: int, name: str, naming: BodyNaming) -> str:
+    """The shared name comparison for the edge at *index* (its face pair)."""
+    pair = naming.face_pairs[index] if 0 <= index < len(naming.face_pairs) else None
+    return "same" if pair is None else edge_name_agreement(pair, name)
+
+
+def _name_guard(
+    records: list[EdgeRecord], target: EdgeSignature, naming: BodyNaming | None
+) -> list[EdgeRecord]:
+    """The NAME GUARD, through the kernel's ONE edge-name comparison.
 
     A geometric re-anchor of a NAMED reference onto an edge the body names
     DIFFERENTLY is another edge standing where the referenced one was, not the
-    referenced edge moved — Fusion fails such a reference rather than move it. An
-    unnamed reference, or an edge the body cannot name, passes as before."""
-    if target.topo_name is None or naming is None:
-        return True
-    current = naming.signature_at(record.index)
-    name = current.topo_name if current is not None else None
-    return name is None or name == target.topo_name
+    referenced edge moved — Fusion fails such a reference rather than move it.
+    The comparison is :func:`geometry.kernel.edges.edge_name_agreement` on the
+    candidate's two face names (aliases honoured). A split piece's qualifier
+    hashes its neighbours, so widening a slot changes it while the edge is the
+    same: such a ``split_drift`` candidate is kept unless ANOTHER edge of the body
+    holds the stored name exactly (that one is the picked edge). An unnamed
+    reference, or an edge the body cannot name, passes as before."""
+    name = target.topo_name
+    if name is None or naming is None or not records:
+        return records
+    verdicts = [_agreement(r.index, name, naming) for r in records]
+    same = [r for r, v in zip(records, verdicts, strict=True) if v == "same"]
+    drift = [r for r, v in zip(records, verdicts, strict=True) if v == "split_drift"]
+    if not drift:
+        return same
+    # A holder must actually HOLD the name: an edge the body cannot name is not
+    # evidence that the picked edge is elsewhere.
+    held = any(
+        pair is not None and edge_name_agreement(pair, name) == "same"
+        for pair in naming.face_pairs
+    )
+    if same or held:
+        return same
+    return drift
 
 
 def _current_signature(record: EdgeRecord, naming: BodyNaming | None) -> EdgeSignature:
@@ -404,12 +433,15 @@ def _durable_resolve(
             "re-anchor on. Re-pick the edge, or edit the upstream feature back to a "
             "state where it resolves."
         )
-    matches = [
-        record
-        for record in enumerate_edges(body)
-        if _durable_match(record.signature, target)
-        and _same_name(record, target, naming)
-    ]
+    matches = _name_guard(
+        [
+            record
+            for record in enumerate_edges(body)
+            if _durable_match(record.signature, target)
+        ],
+        target,
+        naming,
+    )
     if not matches:
         raise SubshapeUnresolvedError(
             "No edge of the current body matches the stored edge signature, and none "
@@ -458,14 +490,17 @@ def _translated_resolve(
     Still refuses rather than guesses: zero candidates is ``subshape_unresolved`` (the
     caller's message), two or more (two congruent rims genuinely both drawn in one
     view) is ``subshape_ambiguous``."""
-    matches = [
-        record
-        for record in enumerate_edges(body)
-        if record.signature.curve == "circle"
-        and any(edge_signatures_match(record.signature, sig) for sig in drawn)
-        and _translated_circle(record.signature, record.edge, target)
-        and _same_name(record, target, naming)
-    ]
+    matches = _name_guard(
+        [
+            record
+            for record in enumerate_edges(body)
+            if record.signature.curve == "circle"
+            and any(edge_signatures_match(record.signature, sig) for sig in drawn)
+            and _translated_circle(record.signature, record.edge, target)
+        ],
+        target,
+        naming,
+    )
     if len(matches) > 1:
         raise SubshapeAmbiguousError(
             f"{len(matches)} circular edges drawn in this view are equally valid "
@@ -547,7 +582,7 @@ def resolve_anchor_edge(
     the caller supplied the body's *naming*: the kernel's durable resolver with the
     part's face names, which follows an edge CARRIED elsewhere by a resize. With a
     *naming*, a NAMED reference also refuses a tier-2/3 re-anchor onto an edge the
-    body names differently (:func:`_same_name`).
+    body names differently (:func:`_name_guard`).
 
     Returns the edge, its CURRENT signature, and which tier matched. Both re-anchoring
     tiers report ``durable``: the wire distinction that matters to a client is exact

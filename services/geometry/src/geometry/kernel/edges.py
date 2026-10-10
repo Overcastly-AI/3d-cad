@@ -1067,6 +1067,15 @@ def _face_pairs(
     return out
 
 
+def edge_face_name_pairs(
+    body: BodyShape, face_names: Sequence[str | None]
+) -> list[tuple[str, str] | None]:
+    """Every edge's two face names, aligned with ``body.edges()`` — the
+    alias-preserving *held* form :func:`edge_name_agreement` prefers, for a
+    caller (the drawing anchor) that guards many candidates on one body."""
+    return _face_pairs(body, list(body.edges()), face_names)
+
+
 def _pair_matches(
     pair: tuple[str, str],
     stored: tuple[str, str],
