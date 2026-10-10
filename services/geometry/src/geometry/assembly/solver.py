@@ -33,10 +33,13 @@ Jacobian rank (``6·n_free - rank(J)``); a redundant *mate* is one whose residua
 rows add no rank (greedy, in processing order); a conflict is a consistent
 stationary point with irreducible residual, naming the offending mates.
 
-**Joints (S4a, RESEARCH §21)** compile through :mod:`geometry.assembly.joint_math`.
+**Joints (RESEARCH §21, §22)** compile through :mod:`geometry.assembly.joint_math`.
 The fast path snaps a joint's child onto its parent's frame (driven axes at the
-value, free axes at the seed), and a joint's DRIVING row (its set value) is left
-out of the remaining-DOF and redundancy ranks, so a driven hinge reports 1 DOF.
+value, free axes at the seed). The residual stacks every HARD row first and the
+joints' DRIVING rows (set values, pinned limits) after them; the driving rows
+are left out of the remaining-DOF and redundancy ranks, so a driven hinge
+reports 1 DOF. Limits run as a fixed-order active set around the solve: an axis
+the solve leaves past a bound is pinned there and the assembly re-solved.
 """
 
 from __future__ import annotations
@@ -179,11 +182,33 @@ def _scaled_grad_inf(jac: Matrix, r: Vector) -> float:
 
 
 def _residual_vector(mates: list[CompiledMate], poses: list[Pose]) -> Vector:
-    """Stack every mate's world-frame residual (mates in processing order)."""
+    """Stack the world-frame residual in two stages, mates in processing order.
+
+    Stage 1 is every mate's HARD rows; stage 2 is the joints' DRIVING rows (set
+    values and pinned limits), again in ``(order_index, id)`` order. With no
+    driving row this is every mate's residual in order, as before joints.
+    """
     if not mates:
         return np.zeros(0, dtype=np.float64)
-    blocks = [m.residual(poses[m.idx_a], poses[m.idx_b]) for m in mates]
+    blocks = [m.hard_residual(poses[m.idx_a], poses[m.idx_b]) for m in mates]
+    blocks.extend(
+        m.drive_residual(poses[m.idx_a], poses[m.idx_b]) for m in mates if m.drive_rows
+    )
     return np.concatenate(blocks)
+
+
+def _mate_row_indices(mates: list[CompiledMate]) -> list[list[int]]:
+    """Each mate's rows in :func:`_residual_vector`: its hard rows in stage 1,
+    then its driving rows in stage 2."""
+    owned: list[list[int]] = []
+    offset = 0
+    for m in mates:
+        owned.append(list(range(offset, offset + m.hard_rows)))
+        offset += m.hard_rows
+    for m, rows in zip(mates, owned, strict=True):
+        rows.extend(range(offset, offset + m.drive_rows))
+        offset += m.drive_rows
+    return owned
 
 
 def _jacobian(
@@ -463,18 +488,14 @@ def _hard_system(mates: list[CompiledMate], jac: Matrix) -> tuple[Matrix, list[i
     A joint's driving row (its set value) places the joint but does not remove
     a degree of freedom: a driven hinge still has 1 DOF, as in Fusion (RESEARCH
     §21). Remaining DOF and redundancy are therefore read from the hard rows
-    only; conflicts still see every row (the residual). With no driving rows
-    this returns ``jac`` itself, so legacy assemblies are untouched.
+    only, stage 1 of :func:`_residual_vector`; conflicts still see every row
+    (the residual). With no driving rows this returns ``jac`` itself, so legacy
+    assemblies are untouched.
     """
-    counts = [m.rows - m.drive_rows for m in mates]
+    counts = [m.hard_rows for m in mates]
     if all(m.drive_rows == 0 for m in mates):
         return jac, counts
-    keep: list[int] = []
-    offset = 0
-    for m, count in zip(mates, counts, strict=True):
-        keep.extend(range(offset, offset + count))
-        offset += m.rows
-    return jac[keep], counts
+    return jac[: sum(counts)], counts
 
 
 def _redundant_mates(
@@ -522,21 +543,30 @@ def _diagnose(
                 message="the solver did not converge to tolerance",
                 suggested_fix="Loosen or remove conflicting mates and retry",
             )
-        offending: list[uuid.UUID] = []
-        offset = 0
-        for m in mates:
-            seg = r[offset : offset + m.rows]
-            offset += m.rows
-            if float(np.linalg.norm(seg)) > SATISFIED_TOL:
-                offending.append(m.mate_id)
-        if not offending:  # residual spread thinly across mates
-            offending = [m.mate_id for m in mates]
+        culprits = [
+            m
+            for m, rows in zip(mates, _mate_row_indices(mates), strict=True)
+            if float(np.linalg.norm(r[rows])) > SATISFIED_TOL
+        ]
+        if not culprits:  # residual spread thinly across mates
+            culprits = list(mates)
+        offending = [m.mate_id for m in culprits]
+        message = f"mates {offending} are mutually unsatisfiable"
+        if any(m.joint is not None for m in culprits):
+            # Name each side by kind, so a joint fighting a legacy mate reads
+            # "rigid joint <id> and coincident mate <id> ..." (RESEARCH §22).
+            named = [f"{m.label} {m.mate_id}" for m in culprits]
+            message = (
+                f"{', '.join(named[:-1])} and {named[-1]} cannot all be satisfied"
+                if len(named) > 1
+                else f"{named[0]} cannot be satisfied"
+            )
         return "conflicting", AssemblySolveDiagnosis(
             classification="conflicting",
             removable=False,
             remaining_dof=0,
             conflicting_mates=offending,
-            message=f"mates {offending} are mutually unsatisfiable",
+            message=message,
             suggested_fix=f"Remove or relax mate {offending[0]}",
         )
 
@@ -574,6 +604,41 @@ def _diagnose(
     return "well_constrained", None
 
 
+def _place(
+    instances: list[SolverInstance],
+    mates: list[CompiledMate],
+    seed_poses: list[Pose],
+    free_indices: list[int],
+) -> tuple[list[Pose], AssemblySolveMethod, bool]:
+    """One solve: the closed-form tree path when it applies, else the LM."""
+    fast = _try_fast_path(instances, mates, seed_poses, free_indices)
+    if fast is not None:
+        return fast, "closed_form", True
+    poses, converged = _lm_solve(mates, seed_poses, free_indices)
+    return poses, "numeric", converged
+
+
+def _pin_limits(
+    mates: list[CompiledMate], poses: list[Pose]
+) -> list[CompiledMate] | None:
+    """``mates`` with every joint axis past a limit pinned to its bound, in
+    processing order, or ``None`` when no axis is past one."""
+    out: list[CompiledMate] = []
+    changed = False
+    for m in mates:
+        pinned = (
+            None
+            if m.joint is None
+            else m.joint.pin_limits(poses[m.idx_a], poses[m.idx_b])
+        )
+        if pinned is None:
+            out.append(m)
+        else:
+            out.append(m.with_joint(pinned))
+            changed = True
+    return out if changed else None
+
+
 class RigidBodyAssemblySolver:
     """Deterministic rigid-body mate solver (design §2.2). See the module docs."""
 
@@ -606,13 +671,19 @@ class RigidBodyAssemblySolver:
         compiled = [compile_mate(sm, index_of, seed_poses) for sm in ordered]
         free_indices = [i for i, inst in enumerate(instances) if not inst.grounded]
 
-        method: AssemblySolveMethod
-        fast = _try_fast_path(instances, compiled, seed_poses, free_indices)
-        if fast is not None:
-            poses, method, converged = fast, "closed_form", True
-        else:
-            poses, converged = _lm_solve(compiled, seed_poses, free_indices)
-            method = "numeric"
+        poses, method, converged = _place(instances, compiled, seed_poses, free_indices)
+        # Joint limits: a fixed-order active set (RESEARCH §22). Measure every
+        # free limited axis at the solved poses, pin each one past a bound to
+        # that bound (a driving row), re-solve from the solved poses, repeat.
+        # Pins are never released, so each pass pins at least one more axis and
+        # the loop ends within the count of limited axes.
+        passes = sum(m.joint.limited_axes() for m in compiled if m.joint is not None)
+        for _ in range(passes):
+            pinned = _pin_limits(compiled, poses)
+            if pinned is None:
+                break
+            compiled = pinned
+            poses, method, converged = _place(instances, compiled, poses, free_indices)
 
         status, diagnosis = _diagnose(compiled, poses, free_indices, converged)
         joint_states = [

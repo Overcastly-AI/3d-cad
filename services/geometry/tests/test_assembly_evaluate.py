@@ -24,6 +24,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+import pytest
 from build123d import GeomType, Solid
 from geometry.assembly import evaluate_assembly
 from geometry.features import evaluate_tree
@@ -380,15 +381,15 @@ def test_self_mate_is_a_per_mate_error_not_a_500() -> None:
     assert all(inst.part_mesh_glb_id is not None for inst in result.instances)
 
 
-def test_joint_mate_is_a_clean_unsupported_mate_not_a_500() -> None:
-    """The solver places rigid, revolute and slider joints (S4a) but not yet a
-    cylindrical, planar or ball one. Such a joint must be DROPPED as a typed
-    ``mate_unsupported`` per-mate error naming its motion inside a 200, the
-    other mates still solve, and the result carries no ``joint_states`` (so it
-    dumps as before)."""
+def test_cylindrical_joint_repeating_the_bolted_mates_is_redundant() -> None:
+    """Every joint motion solves (S4b): a cylindrical joint through hole 1
+    (A's top rim to B's bottom rim) agrees with the bolted coincident and
+    concentrics, adds no rank, and is named redundant; no per-mate error, and
+    the joint reports its state (turn 0, travel 0)."""
     body = _plate_body()
     top, bottom = _face_sig(body, 1.0), _face_sig(body, -1.0)
     h1 = _hole_sig(body, *HOLE_1, TOP_Z)
+    h1_bottom = _hole_sig(body, *HOLE_1, 0.0)
     h2 = _hole_sig(body, *HOLE_2, TOP_Z)
     joint = EvaluatedMate(
         mate_id=iid(1004),
@@ -396,7 +397,9 @@ def test_joint_mate_is_a_clean_unsupported_mate_not_a_500() -> None:
         mate=JointMate(
             motion="cylindrical",
             a=JointOrigin(instance_id=iid(1), kind="circle_centre", signature=h1),
-            b=JointOrigin(instance_id=iid(2), kind="face_centre", signature=bottom),
+            b=JointOrigin(
+                instance_id=iid(2), kind="circle_centre", signature=h1_bottom
+            ),
         ),
     )
     result = evaluate_assembly(
@@ -409,13 +412,14 @@ def test_joint_mate_is_a_clean_unsupported_mate_not_a_500() -> None:
             ]
         )
     )
-    assert [me.mate_id for me in result.mate_errors] == [iid(1004)]
-    assert result.mate_errors[0].error.code == "mate_unsupported"
-    assert "cylindrical joint" in result.mate_errors[0].error.message
-    assert result.status == "well_constrained"
+    assert result.mate_errors == []
+    assert result.status == "over_constrained"
+    assert result.diagnosis is not None
+    assert result.diagnosis.redundant_mates == [iid(1004)]
     assert all(inst.error is None for inst in result.instances)
-    assert result.joint_states == []
-    assert "joint_states" not in result.model_dump(mode="json")
+    (state,) = result.joint_states
+    assert state.rot_deg == pytest.approx(0.0, abs=1e-6)
+    assert state.lin_mm == pytest.approx(0.0, abs=1e-6)
 
 
 def test_duplicate_instance_id_is_a_clean_assembly_error_not_a_500() -> None:

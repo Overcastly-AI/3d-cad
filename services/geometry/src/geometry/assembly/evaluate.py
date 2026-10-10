@@ -70,9 +70,8 @@ from loft_wire.geometry import (
     TopologyCounts,
     Vec3,
 )
-from loft_wire.joints import JointMate, JointState
+from loft_wire.joints import JointState
 
-from geometry.assembly.joint_math import SOLVED_MOTIONS
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,
     AssemblySolveInput,
@@ -189,25 +188,6 @@ def _mate_self_reference_error(
     )
 
 
-def _mate_unsupported_error(mate_id: uuid.UUID, motion: str) -> MateEvaluationError:
-    """A per-mate error for a joint motion the solver does not place yet.
-
-    Rigid, revolute and slider joints solve (S4a); cylindrical, planar and ball
-    joints are stored and edited by documents before the solver learns them
-    (S4b). Until then one is DROPPED as a typed ``mate_unsupported`` error, so
-    the rest of the assembly still solves and nothing 500s (§4).
-    """
-    return MateEvaluationError(
-        mate_id=mate_id,
-        error=FeatureError(
-            code="mate_unsupported",
-            message=f"mate {mate_id} is a {motion} joint, which the solver does "
-            "not support yet (rigid, revolute and slider joints solve); it was "
-            "ignored",
-        ),
-    )
-
-
 def _evaluate_unique_parts(request: EvaluateAssemblyRequest) -> dict[str, _PartResult]:
     """Evaluate each UNIQUE part exactly once, keyed by ``part_key`` (§4 step 1).
 
@@ -268,14 +248,6 @@ def _resolve_mates(
             # per-mate resolve guard) but the solver rejects it — drop it here as
             # a typed per-mate error instead of letting it raise (§4).
             mate_errors.append(_mate_self_reference_error(evaluated.mate_id, ids[0]))
-            continue
-        if (
-            isinstance(evaluated.mate, JointMate)
-            and evaluated.mate.motion not in SOLVED_MOTIONS
-        ):
-            mate_errors.append(
-                _mate_unsupported_error(evaluated.mate_id, evaluated.mate.motion)
-            )
             continue
         resolvable = ResolvableMate(
             mate_id=evaluated.mate_id,

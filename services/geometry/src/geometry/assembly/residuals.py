@@ -35,8 +35,9 @@ Residuals (world frame, design §2.3):
 - ``lock(A, B)`` → ``[tB - t*, log(qB ⊗ q*⁻¹)]`` where ``(t*, q*) = A ∘ rel`` and
   ``rel`` is the authored seed relative pose — B rigidly fixed to A.
 - ``joint(A, B)`` → frame-to-frame rows from :mod:`geometry.assembly.joint_math`
-  (6 hard rows, plus one DRIVING row when the joint's value is set; the last
-  ``drive_rows`` rows of the block are the driving ones).
+  (the motion's hard rows, plus one DRIVING row per set or limit-pinned value;
+  the solver stacks every hard row first and the driving rows after them,
+  :meth:`CompiledMate.hard_residual` / :meth:`CompiledMate.drive_residual`).
 """
 
 from __future__ import annotations
@@ -44,7 +45,7 @@ from __future__ import annotations
 import math
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 import numpy as np
@@ -61,7 +62,6 @@ from loft_wire.joints import JointMate
 from numpy.typing import NDArray
 
 from geometry.assembly.joint_math import (
-    SOLVED_MOTIONS,
     CompiledJoint,
     LocalFrame,
     compile_joint,
@@ -108,6 +108,7 @@ class CompiledMate:
     authored relative pose for a lock mate (``None`` otherwise). ``joint`` is the
     compiled joint for a ``joint`` mate (``None`` otherwise), whose last
     ``drive_rows`` residual rows are driving rows, not hard constraints.
+    ``label`` names the mate in a diagnosis ("rigid joint", "coincident mate").
     """
 
     mate_id: uuid.UUID
@@ -127,6 +128,27 @@ class CompiledMate:
     lock_rel: Pose | None
     joint: CompiledJoint | None = None
     drive_rows: int = 0
+    label: str = ""
+
+    @property
+    def hard_rows(self) -> int:
+        return self.rows - self.drive_rows
+
+    def hard_residual(self, pose_a: Pose, pose_b: Pose) -> Vector:
+        """The constraint rows (every row of a legacy mate)."""
+        if self.joint is not None:
+            return self.joint.hard_residual(pose_a, pose_b)
+        return self.residual(pose_a, pose_b)
+
+    def drive_residual(self, pose_a: Pose, pose_b: Pose) -> Vector:
+        """A joint's driving rows (set values, pinned limits); empty otherwise."""
+        if self.joint is not None and self.drive_rows:
+            return self.joint.drive_residual(pose_a, pose_b)
+        return np.zeros(0, dtype=np.float64)
+
+    def with_joint(self, joint: CompiledJoint) -> CompiledMate:
+        """This joint mate re-compiled around ``joint`` (a limit pinned)."""
+        return replace(self, joint=joint, rows=joint.rows, drive_rows=joint.drive_rows)
 
     def residual(self, pose_a: Pose, pose_b: Pose) -> Vector:
         if self.kind == "joint":
@@ -233,10 +255,6 @@ def _local_frame(geom: ResolvedMateGeometry, motion: str, slot: str) -> LocalFra
 
 
 def _compile_joint(solver_mate: SolverMate, mate: JointMate) -> CompiledJoint:
-    if mate.motion not in SOLVED_MOTIONS:
-        raise AssemblyDefinitionError(
-            f"a {mate.motion} joint is not supported by the solver yet"
-        )
     geometry = _require_geometry(solver_mate)
     return compile_joint(
         mate,
@@ -361,4 +379,7 @@ def compile_mate(
         lock_rel=lock_rel,
         joint=joint,
         drive_rows=joint.drive_rows if joint is not None else 0,
+        label=f"{mate.motion} joint"
+        if isinstance(mate, JointMate)
+        else f"{mate.type} mate",
     )

@@ -71,7 +71,6 @@ from loft_wire.geometry import Vec3
 from loft_wire.joints import JointMate, JointOrigin
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 
-from geometry.assembly.joint_math import SOLVED_MOTIONS
 from geometry.assembly.joint_origins import resolve_joint_origin
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,
@@ -233,11 +232,6 @@ def _resolve_mate_pair(
                 )
         return None
     if isinstance(mate, JointMate):
-        if mate.motion not in SOLVED_MOTIONS:
-            # Cylindrical / planar / ball are stored and edited before the
-            # solver places them (S4b); refuse one cleanly (evaluate drops it
-            # as `mate_unsupported`).
-            raise AssemblyDefinitionError(f"{mate.motion} joints are not solved yet")
         return (
             resolve_joint_origin(_body_for(mate.a, body_of), mate.a),
             resolve_joint_origin(_body_for(mate.b, body_of), mate.b),

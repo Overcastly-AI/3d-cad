@@ -7,8 +7,9 @@ the hard rows only, the snap of either side, the numeric fallback). The
 PIPELINE is exercised on the two joint goldens' real plates
 (``goldens-assembly/assembly-hinge-revolute`` and ``assembly-slider``): the
 hinge's far edge distance from its axis, the slider's exact 80 mm travel, a
-joint conflicting with a legacy mate named in the diagnosis, and the motions
-S4a does not solve dropped as ``mate_unsupported``.
+joint conflicting with a legacy mate named in the diagnosis, and the S4b
+motions solving through the same origins (their own suite is
+``test_assembly_joints_solver.py``).
 """
 
 from __future__ import annotations
@@ -463,18 +464,31 @@ def test_hinge_conflicting_with_a_legacy_concentric_is_named() -> None:
     assert set(result.diagnosis.conflicting_mates) == {iid(0x3E9), iid(0x3EA)}
 
 
-@pytest.mark.parametrize("motion", ["cylindrical", "planar", "ball"])
-def test_s4b_motions_are_dropped_as_unsupported(motion: JointMotion) -> None:
+@pytest.mark.parametrize(
+    ("motion", "dof"), [("cylindrical", 2), ("planar", 3), ("ball", 3)]
+)
+def test_s4b_motions_solve_on_the_hinge_plates(motion: JointMotion, dof: int) -> None:
+    """Once dropped as ``mate_unsupported``, the S4b motions now solve through
+    the same hole-1 rim origins: no per-mate error, their DOF, B's hole-1
+    bottom rim centre on A's hole-1 top rim centre (both lie on the shared
+    point, axis or plane at the seed's free position)."""
     request = _golden("assembly-hinge-revolute")
     joint = request.mates[0].mate
     assert isinstance(joint, JointMate)
-    unsupported = JointMate(motion=motion, a=joint.a, b=joint.b)
-    mate = request.mates[0].model_copy(update={"mate": unsupported})
+    moved = JointMate(motion=motion, a=joint.a, b=joint.b)
+    mate = request.mates[0].model_copy(update={"mate": moved})
     result = evaluate_assembly(request.model_copy(update={"mates": [mate]}))
-    assert [e.mate_id for e in result.mate_errors] == [iid(0x3E9)]
-    assert result.mate_errors[0].error.code == "mate_unsupported"
-    assert f"{motion} joint" in result.mate_errors[0].error.message
-    assert result.joint_states == []
+    assert result.mate_errors == []
+    assert result.diagnosis is not None and result.diagnosis.remaining_dof == dof
+    (state,) = result.joint_states
+    assert state.mate_id == iid(0x3E9)
+    rim_b = _placed(result, 2).apply_point(np.array([12.0, 12.5, 0.0]))
+    if motion == "ball":
+        assert rim_b == pytest.approx(np.array([12.0, 12.5, 10.0]), abs=EXACT_TOL)
+    elif motion == "cylindrical":
+        assert rim_b[:2] == pytest.approx(np.array([12.0, 12.5]), abs=EXACT_TOL)
+    else:
+        assert rim_b[2] == pytest.approx(10.0, abs=EXACT_TOL)
 
 
 def test_unresolvable_joint_origin_is_a_per_mate_error() -> None:

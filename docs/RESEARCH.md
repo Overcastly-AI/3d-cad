@@ -1311,10 +1311,79 @@ you can drag it.
   damped LM, which also anchors free axes near the seed.
 - **State.** `rot_deg = wrap(atan2(x_B·y_A, x_B·x_A) - angle_deg)` in
   (-180, 180]; `lin_mm = (p_B - p_A)·z_A - offset_mm`; `axis_world` is A's Z.
-  A value of 270 reads back -90. `at_limit` is false until limits (S4b).
-- **Not yet.** Cylindrical, planar and ball joints are dropped as
-  `mate_unsupported`, naming the motion, until S4b.
+  A value of 270 reads back -90. `at_limit` came with limits (§22).
+- **S4a scope.** Cylindrical, planar and ball joints were dropped as
+  `mate_unsupported` until S4b (§22), which solves them.
 - **Truth.** Goldens `assembly-hinge-revolute` (90° hinge through hole
   circle centres, DOF 1, far edge 28.000 from the axis along A's +Y) and
   `assembly-slider` (edge-point carriage, flipped B, value 80 moves B exactly
   80.000); `test_assembly_joint_origins.py`, `test_assembly_joints.py`.
+
+## 22. Assembly joints: the remaining motions, drives and limits (S4b)
+
+**What mainstream CAD does.** Fusion 360's joint motions are rigid, revolute,
+slider, cylindrical, pin-slot, planar and ball; Onshape's mates match all but
+pin-slot (fastened, revolute, slider, cylindrical, planar, ball), and so does
+Loft. A cylindrical
+joint turns and slides on one axis; a planar joint keeps two faces together
+and lets the part slide in that plane and turn about its normal; a ball keeps
+two points together. Joint limits are a min and max per axis; a dragged part
+stops at a limit, and a value outside the limits is refused when typed. A
+limit stops motion; it does not remove the degree of freedom.
+
+**Decisions** (`geometry/assembly/joint_math.py`, `solver.py`).
+
+- **Rows.** Cylindrical: B's origin on A's axis line, `w - (w·z_A) z_A`
+  (rank 2), plus `z_B + z_A` (rank 2): 4, leaving 2 DOF. Planar: `z_B + z_A`
+  (rank 2) plus the normal distance `(p_B - p_A)·z_A - offset` (1): 3, leaving
+  3. Ball: `p_B - (p_A + offset·z_A)`: 3, leaving 3. `offset_mm` on a planar
+  joint is the gap between the planes; on a ball it shifts the centre along
+  A's Z; a ball ignores `angle_deg`.
+- **Drives.** `rot_deg` drives cylindrical and planar (as revolute), `lin_mm`
+  drives cylindrical (as slider). A planar joint's in-plane slide has no
+  single scalar, so it has no value (the wire refuses one). Remaining DOF
+  still reads the hard rows only.
+- **Stages.** The residual stacks every mate's HARD rows first (stage 1), then
+  every DRIVING row (set values, then pinned limits within a joint, rot before
+  lin) in `(order_index, id)` order (stage 2). The hard system is then a
+  prefix of the Jacobian. Without driving rows the vector is exactly the S4a /
+  legacy one, so the five earlier goldens are byte-identical (result-JSON
+  sha256 checked against 35e6461).
+- **Snap.** Planar keeps the seed's in-plane position `(u, v)`, measured
+  along A's frame X and Y. Its turn comes from the value, or from the seed.
+  It discards the seed's tilt and height. Ball keeps the child's seed
+  orientation exactly (its quaternion) and translates the child onto the
+  centre.
+- **Limits: a fixed-order active set.** Solve, then measure every FREE axis
+  that has a limit, joints in `(order_index, id)` order and rot before lin.
+  Pin each axis past a bound by more than `LIMIT_TOL` (1e-9 rad or mm) to
+  that bound as a driving row, then re-solve from the solved poses. Repeat
+  until no axis is past a bound. Pins are never released, so the loop ends
+  within the count of limited axes, and the order is deterministic. A pinned
+  axis that other mates hold elsewhere becomes a conflict that names both.
+  `at_limit` is true when an axis is driven onto a bound, pinned, or a free
+  axis sits within `LIMIT_TOL` of a bound.
+- **Driven values.** Documents refuses a value outside its limits
+  (`joint_value_out_of_limits`, raw degrees against raw bounds). A request
+  that carries one anyway is clamped to the bound when it compiles, so
+  geometry never places a joint past a limit.
+- **Seam rule (rotation limits).** A measured angle is known only modulo
+  360°, so it is read on a branch `(c - 180°, c + 180°]`. With both bounds,
+  `c` is their midpoint. An angle outside the limits then goes to the
+  NEARER bound around the circle; the point exactly opposite the midpoint
+  falls on the closed end and goes to the max. Limits of [150°, 210°]
+  therefore accept 190° (reported as -170°), and 0° goes to 210° (reported
+  as -150°). With [-90°, 90°], 180° goes to 90° and -179° to -90°. With one
+  bound, `c` is the point of the allowed side nearest 0: a lone `max 90°`
+  reads on (-180°, 180°], so 120° stops at 90° and -120° is free. A span of
+  360° or more never clamps. `rot_deg` is still reported on (-180°, 180°].
+- **Diagnosis.** When a conflict involves a joint, the message names each
+  culprit by kind and id ("rigid joint … and coincident mate … cannot all be
+  satisfied"). `conflicting_mates` lists both. Legacy-only conflicts keep
+  their message.
+- **Truth.** Golden `assembly-ball-planar`: planar driven onto its 90° max
+  (at_limit) keeps the seed's in-plane (5, -3) and drops its half-turn tilt;
+  a ball keeps C's quarter turn about X and puts its rim centre on
+  (25, 17.5, 20); DOF 6; all hand-derived, tolerance 1e-9.
+  `test_assembly_joints_solver.py` covers DOF 0/1/1/2/3/3, the stops, the
+  seam, the numeric limit path and named conflicts.
