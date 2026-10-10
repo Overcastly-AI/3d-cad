@@ -79,13 +79,15 @@ class ExpectedTopology(BaseModel):
 
 class ExpectedJointState(BaseModel):
     """One joint's expected solved state (S4a). ``rot_deg`` / ``lin_mm`` must be
-    null exactly when the motion has no such value."""
+    null exactly when the motion has no such value; ``at_limit`` (S4b) is
+    checked exactly when given."""
 
     model_config = ConfigDict(extra="forbid")
 
     mate_id: str
     rot_deg: float | None
     lin_mm: float | None
+    at_limit: bool | None = None
     axis_world: Vec3
 
 
@@ -227,6 +229,8 @@ def test_dof_joint_states_and_probes_match_hand_values(
             js.mate_id for js in expected.joint_states
         ], f"{case.name}: joint_states mate ids"
         for got, want in zip(got_states, expected.joint_states, strict=True):
+            if want.at_limit is not None:
+                assert got.at_limit is want.at_limit, f"{case.name}: at_limit"
             for label, g, w in (
                 ("rot_deg", got.rot_deg, want.rot_deg),
                 ("lin_mm", got.lin_mm, want.lin_mm),
