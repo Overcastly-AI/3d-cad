@@ -522,14 +522,35 @@ class Sketch:
 
         Idempotent in the useful direction: creates on first call, PATCHes the
         whole param envelope afterwards (the re-save of the live parametric
-        loop).
+        loop). A re-save replaces only ``params``: the envelope fields the
+        script did not author (``suppressed``, ``expressions``) are read back
+        from the stored feature and kept, so a suppressed sketch stays
+        suppressed. A suppressed sketch is not built, so it is saved but not
+        solved, as the sketcher leaves it.
         """
         if self.feature_id is None:
             created = self.part.create_feature(self.name, self.feature())
             self.feature_id = created.feature.id
             self.name = created.feature.name
         else:
-            self.part.update_feature(self.feature_id, feature=self.feature())
+            stored = self.part.feature(self.feature_id).feature
+            if not isinstance(stored, SketchFeature):
+                raise TypeError(
+                    f"feature {self.feature_id} is a {stored.type!r}, not a sketch"
+                )
+            self.part.update_feature(
+                self.feature_id,
+                feature=SketchFeature(
+                    type="sketch",
+                    version=1,
+                    params=self.params(),
+                    suppressed=stored.suppressed,
+                    expressions=stored.expressions,
+                ),
+            )
+            if stored.suppressed:
+                self._solved = None
+                return self
         self.solve()
         return self
 
@@ -547,6 +568,12 @@ class Sketch:
             return self._solved
         evaluation = self.part.evaluate()
         result = evaluation.feature(self.feature_id)
+        if result is not None and result.status == "suppressed":
+            raise SketchNotSolved(
+                f"sketch {self.name!r} is suppressed, so it is not built",
+                solve_status="suppressed",
+                details={"feature_id": str(self.feature_id)},
+            )
         if result is not None and result.status == "error" and result.error is not None:
             # A CONTRADICTORY sketch is a feature ERROR carrying a typed
             # diagnosis, not a solved payload with a `conflicting` status — the

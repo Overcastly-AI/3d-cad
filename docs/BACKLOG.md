@@ -248,7 +248,6 @@ One line each. The founder triages weekly; most are closed without work.
 - PARAM-DRAFT-PREVIEW: the web's edit preview sends an UNSAVED draft; geometry drops a draft dimension's `= W` and uses whatever `value_mm` the draft carries until it is saved (step 8 should resolve drafts on the server).
 - PARAM-LEGACY-TYPO: a sketch stored before step 4 whose dimension formula names an unknown name now builds from its stored `value_mm` (the geometry boundary drops the formula) instead of failing `sketch_invalid`.
 - PARAM-POINTER-REMINT: `.loft` import re-mints ids inside params but not inside `expressions` pointers; no drivable field is keyed by a feature id today.
-- SCRIPT-SKETCH-RESAVE-SUPPRESS: loft-script `Sketch.save()` PATCHes `{type, version, params}` without `suppressed`, so re-saving a suppressed sketch unsuppresses it (extrude/sweep updates now carry it).
 - SCRIPT-PARAM-DOC-UNIT: loft-script reads a bare number in a formula as mm whatever the part's display unit; the web appends the document unit (`2` -> `2 in`).
 - SCRIPT-PARAM-VERBS: only extrude, sweep twist, plane at angle and the sketch dimension helpers take formulas; `create_feature` with `expressions` covers every other field.
 - `scripts/e2e.sh` does not derive `GATEWAY_ORIGIN` from `GATEWAY_PORT`, so specs on non-default ports fail with a register 500 (local only; CI uses the defaults).
