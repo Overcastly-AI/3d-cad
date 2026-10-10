@@ -19,6 +19,8 @@ import { lengthInputValue } from "../units/length";
 import { RailDock } from "./ChromeRail";
 
 const FIRST: Record<string, string> = {
+  joint:
+    "Pick origin A on the first component: hover a face, then a centre or edge point.",
   coincident: "Pick a flat face on the first part.",
   concentric: "Pick a hole edge on the first part.",
   lock: "Pick the first part to anchor to.",
@@ -26,6 +28,7 @@ const FIRST: Record<string, string> = {
   angle: "Pick a flat face on the first part.",
 };
 const SECOND: Record<string, string> = {
+  joint: "Now pick origin B on the OTHER component — it snaps to A.",
   coincident: "Now pick the mating face on the OTHER part — they snap flush.",
   concentric: "Now pick the mating hole edge on the OTHER part — axes align.",
   lock: "Now pick the OTHER part to lock it rigidly.",
@@ -79,6 +82,8 @@ export function MateHud({ submitError, submitting, onCommit }: MateHudProps) {
   }, [needsValue, isDistance, docUnit]);
 
   if (tool === null) return null;
+  // Both joint origins picked: the Joint dialog has the floor.
+  if (tool === "joint" && picks.length === 2) return null;
 
   const onDraftChange = (next: string) => {
     setDraft(next);
@@ -108,7 +113,7 @@ export function MateHud({ submitError, submitting, onCommit }: MateHudProps) {
         className="border border-brass bg-anvil px-3 py-2"
       >
         <span className="block font-display text-2xs uppercase tracking-[0.18em] text-brass">
-          {`${mateToolLabel(tool)} mate`}
+          {tool === "joint" ? "Joint" : `${mateToolLabel(tool)} mate`}
         </span>
         {needsValue && !submitting ? (
           <div className="mt-2 flex items-end gap-2">

@@ -217,6 +217,19 @@ export async function waitForSolved(page: Page): Promise<string> {
   return (await page.getByTestId("assembly-solve-status").innerText()).trim();
 }
 
+/**
+ * Arm one of the relation mates. Joint leads the band's Mate group; the five
+ * relation mates live under its More menu (Fusion's Assemble panel layout),
+ * so arming one is two clicks: open More, take the row.
+ */
+export async function armMate(
+  page: Page,
+  tool: "coincident" | "concentric" | "distance" | "angle" | "lock",
+): Promise<void> {
+  await page.getByTestId("mate-more").click();
+  await page.getByTestId(`mate-${tool}`).click();
+}
+
 /** Dispatch a click straight to a pick node (bypasses in-canvas occlusion). */
 export async function pickDispatch(
   page: Page,
@@ -308,7 +321,7 @@ export async function authorBoltMates(
   idA: string,
   idB: string,
 ): Promise<void> {
-  await page.getByTestId("mate-coincident").click();
+  await armMate(page, "coincident");
   await expect(page.getByTestId("mate-hud")).toBeVisible();
   await pickDispatch(
     page,
@@ -323,7 +336,7 @@ export async function authorBoltMates(
   });
   await waitForSolved(page);
 
-  await page.getByTestId("mate-concentric").click();
+  await armMate(page, "concentric");
   await expect(page.getByTestId("mate-hud")).toBeVisible();
   await pickDispatch(page, `[data-testid^="mate-axis-${idA}-"]`);
   await pickDispatch(page, `[data-testid^="mate-axis-${idB}-"]`);
@@ -351,7 +364,7 @@ export async function authorConflictingMates(
   idA: string,
   idB: string,
 ): Promise<void> {
-  await page.getByTestId("mate-coincident").click();
+  await armMate(page, "coincident");
   await expect(page.getByTestId("mate-hud")).toBeVisible();
   await pickDispatch(
     page,
@@ -366,7 +379,7 @@ export async function authorConflictingMates(
   });
   await waitForSolved(page);
 
-  await page.getByTestId("mate-distance").click();
+  await armMate(page, "distance");
   await expect(page.getByTestId("mate-hud")).toBeVisible();
   await pickDispatch(
     page,

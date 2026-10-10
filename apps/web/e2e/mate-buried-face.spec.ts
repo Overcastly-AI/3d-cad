@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 import { seedSession, SCREENSHOT_DIR } from "./support";
-import { waitForSolved } from "./assemblyFlow";
+import { armMate, waitForSolved } from "./assemblyFlow";
 
 /**
  * MATE-1 — reaching a BURIED mate face, driven through the real UI with a real
@@ -292,7 +292,7 @@ test.describe("MATE-1 — a mate face buried between two parts", () => {
       await seatedBracketAssembly(page);
     const viewport = page.getByTestId("viewport");
 
-    await page.getByTestId("mate-coincident").click();
+    await armMate(page, "coincident");
     await expect(page.getByTestId("mate-hud")).toBeVisible();
     await expect(
       page.locator(`[data-testid^="mate-face-${bracketInstance}-"]`).first(),

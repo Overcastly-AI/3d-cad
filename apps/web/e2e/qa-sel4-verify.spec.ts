@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 
-import { setupTwoInstances } from "./assemblyFlow";
+import { armMate, setupTwoInstances } from "./assemblyFlow";
 import {
   createFeature,
   seedDenseHolePlate,
@@ -964,7 +964,7 @@ test.describe("SEL-4 QA — the recede rider, stated per overlay", () => {
 
   test("assembly mate marks recede too", async ({ page }) => {
     await setupTwoInstances(page);
-    await page.getByTestId("mate-coincident").click();
+    await armMate(page, "coincident");
     const face = page.locator('[data-testid^="mate-face-"]').first();
     await expect(face).toBeVisible({ timeout: 20_000 });
     const faceId = (await face.getAttribute("data-testid")) ?? "";
@@ -972,7 +972,7 @@ test.describe("SEL-4 QA — the recede rider, stated per overlay", () => {
       "0.6",
     );
 
-    await page.getByTestId("mate-concentric").click();
+    await armMate(page, "concentric");
     const axis = page.locator('[data-testid^="mate-axis-"]').first();
     await expect(axis).toBeVisible({ timeout: 20_000 });
     const axisId = (await axis.getAttribute("data-testid")) ?? "";

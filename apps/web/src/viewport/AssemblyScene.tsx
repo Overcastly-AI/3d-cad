@@ -11,6 +11,7 @@
 import { PinIcon } from "@loft/design";
 import { assembly as assemblyTokens, viewport } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
+import type { ThreeEvent } from "@react-three/fiber";
 import {
   useCallback,
   useEffect,
@@ -33,6 +34,7 @@ import { useMateAuthoringStore } from "../assembly/mateStore";
 import { faceLabel, isPickableFace } from "../features/face";
 import { groundShadowTexture } from "./groundShadow";
 import { InstanceMateOverlay } from "./InstanceMateOverlay";
+import { JointOriginLayer } from "./JointOriginLayer";
 import { InstanceMesh } from "./InstanceMesh";
 import type { VisibilityMode } from "./instanceVisibility";
 import { mateDepthStack, type DepthHit } from "./mateDepthStack";
@@ -93,6 +95,15 @@ export interface AssemblySceneProps {
    * manipulator on top of the model for the same reason).
    */
   bodiesPickable?: boolean;
+  /**
+   * A press on a body, offered first to the workspace: a jointed part's press
+   * starts a drag along its joint (`JointDragLayer`). True consumes it, so the
+   * press does not also toggle the selection.
+   */
+  onBodyPress?: (
+    instanceId: string,
+    event: ThreeEvent<PointerEvent>,
+  ) => boolean;
 }
 
 /** How much the last interference check actually knows about an instance. */
@@ -341,6 +352,7 @@ export function AssemblyScene({
   unverifiedInstanceIds,
   onPoseDrawn,
   bodiesPickable = true,
+  onBodyPress,
 }: AssemblySceneProps) {
   const { pools, floor } = useInstancePools(instances);
   const tool = useMateAuthoringStore((s) => s.tool);
@@ -348,13 +360,14 @@ export function AssemblyScene({
   const pickFace = useMateAuthoringStore((s) => s.pickFace);
   const pickAxis = useMateAuthoringStore((s) => s.pickAxis);
   const pickInstance = useMateAuthoringStore((s) => s.pickInstance);
+  const pickOrigin = useMateAuthoringStore((s) => s.pickOrigin);
 
   // Distance / angle pick two planar faces like coincident, so they reuse the
   // face overlay; concentric picks circular-edge axes; lock picks the body.
   const overlayTool: "coincident" | "concentric" | null =
     tool === "concentric"
       ? "concentric"
-      : tool !== null && tool !== "lock"
+      : tool !== null && tool !== "lock" && tool !== "joint"
         ? "coincident"
         : null;
 
@@ -599,10 +612,12 @@ export function AssemblyScene({
             reducedMotion={reducedMotion}
             onSelect={
               bodiesPickable
-                ? () =>
-                    tool === "lock"
-                      ? pickInstance(inst.id)
-                      : onSelectInstance(inst.id)
+                ? (event) => {
+                    if (tool === "lock") pickInstance(inst.id);
+                    else if (onBodyPress?.(inst.id, event) !== true) {
+                      onSelectInstance(inst.id);
+                    }
+                  }
                 : undefined
             }
           />
@@ -635,6 +650,16 @@ export function AssemblyScene({
             ) : null,
           )
         : null}
+
+      {/* Joint origins: the hovered face's snap points (Fusion's Joint). */}
+      {tool === "joint" && picks.length < 2 ? (
+        <JointOriginLayer
+          instances={instances.filter(isDrawn)}
+          overlaysByInstance={overlaysByInstance}
+          picked={picks.flatMap((p) => (p.kind === "origin" ? [p.origin] : []))}
+          onPick={pickOrigin}
+        />
+      ) : null}
 
       {overlayTool
         ? instances.map((inst) => {

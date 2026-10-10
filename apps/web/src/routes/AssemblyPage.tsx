@@ -66,6 +66,7 @@ import {
 } from "../components/HistoryErrorAlert";
 import { DocumentUnitSelect } from "../components/DocumentUnitSelect";
 import { DocumentUnitProvider } from "../units/documentUnit";
+import { JointHud } from "../components/JointHud";
 import { MateHud } from "../components/MateHud";
 import { MoveInstancePanel } from "../components/MoveInstancePanel";
 import { TopBar } from "../components/TopBar";
@@ -82,6 +83,13 @@ import {
   useMateAuthoringStore,
 } from "../assembly/mateStore";
 import { placementToScene } from "../assembly/placement";
+import {
+  useJointDialog,
+  useReleaseJointHold,
+} from "../assembly/useJointDialog";
+import * as jointDrive from "../assembly/useJointDrive";
+import { useJointHandles } from "../assembly/useJointHandles";
+import { JointDragLayer } from "../viewport/JointDragLayer";
 import {
   useMoveSession,
   useReleaseWhenSolved,
@@ -428,12 +436,38 @@ export function AssemblyPage() {
     () => new Map((evaluation?.instances ?? []).map((i) => [i.instance_id, i])),
     [evaluation],
   );
+  // Joints: the dialog (server-solved preview, one write on OK) and dragging
+  // a jointed part along its free axis (local preview, one PATCH on release).
+  const jointDialog = useJointDialog({
+    assemblyId,
+    docVersion,
+    unit: lengthUnit,
+    mates,
+    evaluateRequest,
+    refreshGraph,
+  });
+  const drive = jointDrive.useJointDrive({
+    assemblyId,
+    docVersion,
+    mates,
+    instances,
+    solvedById,
+    evaluation,
+    refreshGraph,
+    onError: setActionError,
+  });
+  const driveOverride = drive.overrideFor;
+  const jointPreview = jointDialog.previewFor;
   const sceneInstances = useMemo<SceneInstance[]>(
     () =>
       instances.map((instance, index) => {
         const solved = solvedById.get(instance.id);
         const placement =
-          moveOverride(instance.id) ?? solved?.placement ?? instance.placement;
+          moveOverride(instance.id) ??
+          driveOverride(instance.id) ??
+          jointPreview(instance.id) ??
+          solved?.placement ??
+          instance.placement;
         const meshGlbId = solved?.part_mesh_glb_id ?? null;
         return {
           id: instance.id,
@@ -445,7 +479,15 @@ export function AssemblyPage() {
           visibility: visibilityModeOf(visibility, instance.id),
         };
       }),
-    [instances, solvedById, byMeshId, visibility, moveOverride],
+    [
+      instances,
+      solvedById,
+      byMeshId,
+      visibility,
+      moveOverride,
+      driveOverride,
+      jointPreview,
+    ],
   );
 
   // The pose each balloon has actually DRAWN (MATE-OBS-3,
@@ -466,6 +508,9 @@ export function AssemblyPage() {
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(
     null,
   );
+  const selectInstance = useCallback((id: string) => {
+    setSelectedInstanceId((current) => (current === id ? null : id));
+  }, []);
   const tool = useMateAuthoringStore((s) => s.tool);
   const picks = useMateAuthoringStore((s) => s.picks);
   const mateValue = useMateAuthoringStore((s) => s.value);
@@ -738,7 +783,13 @@ export function AssemblyPage() {
   const canRedo = graph?.can_redo ?? false;
   /** Any graph mutation in flight — history must never race its version. */
   const mutationInFlight =
-    busy || submitting || unitBusy || addingPartId !== null || move.committing;
+    busy ||
+    submitting ||
+    unitBusy ||
+    addingPartId !== null ||
+    move.committing ||
+    jointDialog.submitting ||
+    drive.committing;
   /** Which step is in flight (drives the honest hold caption), or null. */
   const [historyStep, setHistoryStep] = useState<HistoryStep | null>(null);
   const historyInFlight = useRef(false);
@@ -828,17 +879,30 @@ export function AssemblyPage() {
   const selectedInstance =
     instances.find((i) => i.id === selectedInstanceId) ?? null;
   const startSession = move.start;
+  const { targetFor: driveTargetFor, arm: armDrive } = drive;
   const startMove = useCallback(
     (instance: InstanceResponse) => {
       if (instance.grounded) return;
       setTool(null);
       setAddOpen(false);
       setSelectedInstanceId(instance.id);
-      startSession(instance.id);
+      // A jointed part moves only along its joint: Move puts up the joint's
+      // handle instead of the free triad.
+      if (driveTargetFor(instance.id) !== null) armDrive(instance.id);
+      else startSession(instance.id);
     },
-    [setTool, startSession],
+    [setTool, startSession, driveTargetFor, armDrive],
   );
   const movingId = move.session?.instanceId ?? null;
+  // The joint the selected (or Move-armed) part can be dragged along.
+  const handles = useJointHandles({
+    drive,
+    idle: tool === null && !jointDialog.open && movingId === null,
+    selectedInstanceId,
+    selectInstance,
+    select: setSelectedInstanceId,
+  });
+  const driveTarget = handles.target;
   const movingInstance = instances.find((i) => i.id === movingId) ?? null;
   const movingScene = sceneInstances.find((i) => i.id === movingId) ?? null;
   // What the drop is compared with — the pose the part had before the drag.
@@ -872,6 +936,10 @@ export function AssemblyPage() {
         if (movingId !== null) {
           event.preventDefault();
           cancelMove();
+        } else if (jointDialog.open || drive.armed !== null) {
+          event.preventDefault();
+          if (jointDialog.open) jointDialog.cancel();
+          else armDrive(null);
         } else if (useMateAuthoringStore.getState().tool !== null) {
           event.preventDefault();
           setTool(null);
@@ -913,7 +981,9 @@ export function AssemblyPage() {
         return;
       }
       if (!canMate) return;
+      if (jointDialog.open) return;
       const map: Record<string, MateTool> = {
+        j: "joint",
         f: "coincident",
         n: "concentric",
         k: "lock",
@@ -944,6 +1014,9 @@ export function AssemblyPage() {
     cancelMove,
     selectedInstance,
     startMove,
+    jointDialog,
+    drive.armed,
+    armDrive,
   ]);
 
   // One predicate owns "who holds Ctrl+Z right now": an armed mate tool or the
@@ -951,13 +1024,15 @@ export function AssemblyPage() {
   // reason read THIS value, so the keys and the buttons can never disagree (a
   // third owning state added to one and not the other was the drift risk).
   const historyLockReason: string | null =
-    movingId !== null
+    movingId !== null || drive.dragging
       ? "Finish the move first"
-      : tool !== null
-        ? `Finish the ${mateToolLabel(tool)} mate first`
-        : addOpen
-          ? "Close the part picker first"
-          : null;
+      : jointDialog.open || tool === "joint"
+        ? "Finish the joint first"
+        : tool !== null
+          ? `Finish the ${mateToolLabel(tool)} mate first`
+          : addOpen
+            ? "Close the part picker first"
+            : null;
 
   // Undo/redo keyboard grammar: Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, Ctrl+Y — assembly
   // idle only. An armed mate tool owns the session (a mid-pick Ctrl+Z must
@@ -979,10 +1054,6 @@ export function AssemblyPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [historyLockReason, triggerUndo, triggerRedo]);
-
-  const selectInstance = useCallback((id: string) => {
-    setSelectedInstanceId((current) => (current === id ? null : id));
-  }, []);
 
   // ---------------------------------------------------------------------
   // The component row's right-click menu (UI-W2). Isolate is a VERB, not an
@@ -1110,6 +1181,8 @@ export function AssemblyPage() {
     evaluation,
   });
   useReleaseWhenSolved(move, docVersion, !solve.stale);
+  useReleaseJointHold(jointDialog, docVersion, !solve.stale);
+  jointDrive.useReleaseDriveWhenSolved(drive, docVersion, !solve.stale);
 
   // Camera fit inputs for the shared Viewport rig. The fit key is the set of
   // instances whose mesh has LOADED — the fit fires when geometry actually
@@ -1163,12 +1236,14 @@ export function AssemblyPage() {
               onRedo={triggerRedo}
               canAddPart={graph !== undefined}
               onAddPart={() => setAddOpen((open) => !open)}
-              moveActive={movingId !== null}
+              moveActive={movingId !== null || drive.armed !== null}
               moveBlocker={moveBlocker(selectedInstance)}
               onMove={() =>
                 movingId !== null
                   ? cancelMove()
-                  : selectedInstance !== null && startMove(selectedInstance)
+                  : drive.armed !== null
+                    ? armDrive(null)
+                    : selectedInstance !== null && startMove(selectedInstance)
               }
               canMate={canMate}
               activeTool={tool}
@@ -1236,6 +1311,13 @@ export function AssemblyPage() {
                   submitError={submitError}
                   submitting={submitting}
                   onCommit={commitMate}
+                />
+                <JointHud
+                  dialog={jointDialog}
+                  drive={drive}
+                  driveTarget={driveTarget}
+                  instances={instances}
+                  mates={mates}
                 />
                 {movingInstance !== null && movingBase !== null ? (
                   <MoveInstancePanel
@@ -1317,6 +1399,14 @@ export function AssemblyPage() {
               unverifiedInstanceIds={clashIds.unverifiedOnly}
               onPoseDrawn={onPoseDrawn}
               bodiesPickable={movingId === null}
+              onBodyPress={handles.onBodyPress}
+            />
+            <JointDragLayer
+              target={driveTarget}
+              showHandle={drive.armed !== null}
+              pressRef={handles.pressRef}
+              onPreview={drive.preview}
+              onRelease={handles.onRelease}
             />
             {movingScene !== null && movingBase !== null ? (
               <MoveTriad
@@ -1345,6 +1435,8 @@ export function AssemblyPage() {
               onToggleGrounded={handleToggleGrounded}
               onDeleteInstance={handleDeleteInstance}
               onDeleteMate={handleDeleteMate}
+              onEditJoint={jointDialog.openEdit}
+              jointProbes={drive.probes}
               // The panel's writes also hold while a history step restores
               // (the mutual exclusion's visible half — runHistoryStep guards
               // the other direction).

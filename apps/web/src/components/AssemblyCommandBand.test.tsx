@@ -7,7 +7,7 @@
  * the panel. Export now rides the band here too — same primitive, same last
  * position, same disabled-with-a-reason grammar (EXPORT-1).
  */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AssemblyCommandBand } from "./AssemblyCommandBand";
@@ -78,6 +78,40 @@ describe("AssemblyCommandBand — move", () => {
     expect(button).toHaveAccessibleDescription("Grounded components stay put.");
     button.click();
     expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it("leads the Mate group with Joint (J) and arms it", () => {
+    const onToggleTool = vi.fn();
+    renderBand({ canMate: true, onToggleTool });
+    const joint = screen.getByTestId("mate-joint");
+    expect(joint).toHaveAccessibleName(/Joint/);
+    joint.click();
+    expect(onToggleTool).toHaveBeenCalledWith("joint");
+  });
+
+  it("keeps the five relation mates, with their keys, under More", () => {
+    const onToggleTool = vi.fn();
+    renderBand({ canMate: true, onToggleTool });
+    expect(screen.queryByTestId("mate-coincident")).toBeNull();
+    fireEvent.click(screen.getByTestId("mate-more"));
+    for (const tool of ["coincident", "concentric", "distance", "angle"]) {
+      expect(screen.getByTestId(`mate-${tool}`)).toBeEnabled();
+    }
+    expect(screen.getByTestId("mate-lock")).toHaveTextContent("K");
+    fireEvent.click(screen.getByTestId("mate-lock"));
+    expect(onToggleTool).toHaveBeenCalledWith("lock");
+  });
+
+  it("marks More armed while one of its mates is the active tool", () => {
+    renderBand({ canMate: true, activeTool: "distance" });
+    expect(screen.getByTestId("mate-more")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    expect(screen.getByTestId("mate-joint")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 
   it("reads armed while a move is open, and a press ends it", () => {

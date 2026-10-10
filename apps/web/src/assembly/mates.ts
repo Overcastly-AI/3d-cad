@@ -8,11 +8,14 @@
 import { formatLength, type LengthUnit } from "@loft/design";
 
 import type { Mate } from "../api/assemblies";
+import { jointDetail, jointLabels } from "./joints";
 import type { MatePick, MateTool } from "./mateStore";
 
 /** A short human label for a mate kind — the tree + readout share it. */
 export function mateToolLabel(tool: MateTool): string {
   switch (tool) {
+    case "joint":
+      return "Joint";
     case "coincident":
       return "Coincident";
     case "concentric":
@@ -108,10 +111,12 @@ export interface MateIdentity {
 export function mateNamesById(
   mates: readonly { readonly id: string; readonly mate: Mate }[],
 ): Map<string, MateIdentity> {
+  const joints = jointLabels(mates);
   return new Map(
     mates.map((row, index) => {
       const tag = mateTag(index);
-      return [row.id, { tag, name: `${tag} ${mateLabel(row.mate)}` }];
+      const label = joints.get(row.id) ?? mateLabel(row.mate);
+      return [row.id, { tag, name: `${tag} ${label}` }];
     }),
   );
 }
@@ -127,6 +132,7 @@ export function mateDetail(mate: Mate, unit: LengthUnit): string | null {
     const deg = Object.is(mate.angle_deg, -0) ? 0 : mate.angle_deg;
     return `${deg}°`;
   }
+  if (mate.type === "joint") return jointDetail(mate, unit);
   return null;
 }
 
@@ -158,6 +164,8 @@ export function buildMate(
   picks: readonly MatePick[],
   value?: number | null,
 ): Mate | null {
+  // A joint is built by its dialog (`buildJointMate`), never from picks alone.
+  if (tool === "joint") return null;
   const [a, b] = picks;
   if (a === undefined || b === undefined) return null;
   if (a.instanceId === b.instanceId) return null;

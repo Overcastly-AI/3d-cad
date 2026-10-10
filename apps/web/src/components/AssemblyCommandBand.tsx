@@ -14,11 +14,15 @@ import {
   ConcentricIcon,
   DistanceIcon,
   FixedIcon,
+  Flyout,
+  JointIcon,
   MeasureIcon,
+  MoreIcon,
   MoveIcon,
   ToolButton,
   ToolGroup,
 } from "@loft/design";
+import type { ReactNode } from "react";
 
 import type { ExportedFile, ExportFormat } from "../api/exportPart";
 import type { MateTool } from "../assembly/mateStore";
@@ -72,6 +76,35 @@ export interface AssemblyCommandBandProps {
   /** Why export is inert (no assembly / no body), or undefined when ready. */
   exportDisabledReason?: string;
 }
+
+/** The relation mates under More, in their band order and with their keys. */
+const LEGACY_MATES: readonly {
+  tool: Exclude<MateTool, "joint">;
+  label: string;
+  shortcut: string;
+  icon: ReactNode;
+}[] = [
+  {
+    tool: "coincident",
+    label: "Coincident",
+    shortcut: "F",
+    icon: <CoincidentIcon />,
+  },
+  {
+    tool: "concentric",
+    label: "Concentric",
+    shortcut: "N",
+    icon: <ConcentricIcon />,
+  },
+  {
+    tool: "distance",
+    label: "Distance",
+    shortcut: "D",
+    icon: <DistanceIcon />,
+  },
+  { tool: "angle", label: "Angle", shortcut: "G", icon: <AngleIcon /> },
+  { tool: "lock", label: "Lock", shortcut: "K", icon: <FixedIcon /> },
+];
 
 export function AssemblyCommandBand({
   historyReady,
@@ -130,61 +163,36 @@ export function AssemblyCommandBand({
           onClick={onMove}
         />
       </ToolGroup>
+      {/* Joint leads, as in Fusion's Assemble panel: one command that brings
+          two origins together and names the motion left free. The five
+          relation mates stay a keystroke away under More, shortcuts intact. */}
       <ToolGroup eyebrow="Mate">
         <ToolButton
-          icon={<CoincidentIcon />}
-          label="Coincident"
+          icon={<JointIcon />}
+          label="Joint"
           showLabel
-          shortcut="F"
-          active={activeTool === "coincident"}
+          shortcut="J"
+          active={activeTool === "joint"}
           disabled={!canMate}
           caption={mateReason}
-          data-testid="mate-coincident"
-          onClick={() => onToggleTool("coincident")}
+          data-testid="mate-joint"
+          onClick={() => onToggleTool("joint")}
         />
-        <ToolButton
-          icon={<ConcentricIcon />}
-          label="Concentric"
-          showLabel
-          shortcut="N"
-          active={activeTool === "concentric"}
-          disabled={!canMate}
-          caption={mateReason}
-          data-testid="mate-concentric"
-          onClick={() => onToggleTool("concentric")}
-        />
-        <ToolButton
-          icon={<DistanceIcon />}
-          label="Distance"
-          showLabel
-          shortcut="D"
-          active={activeTool === "distance"}
-          disabled={!canMate}
-          caption={mateReason}
-          data-testid="mate-distance"
-          onClick={() => onToggleTool("distance")}
-        />
-        <ToolButton
-          icon={<AngleIcon />}
-          label="Angle"
-          showLabel
-          shortcut="G"
-          active={activeTool === "angle"}
-          disabled={!canMate}
-          caption={mateReason}
-          data-testid="mate-angle"
-          onClick={() => onToggleTool("angle")}
-        />
-        <ToolButton
-          icon={<FixedIcon />}
-          label="Lock"
-          showLabel
-          shortcut="K"
-          active={activeTool === "lock"}
-          disabled={!canMate}
-          caption={mateReason}
-          data-testid="mate-lock"
-          onClick={() => onToggleTool("lock")}
+        <Flyout
+          label="More"
+          icon={<MoreIcon />}
+          eyebrow="Mates"
+          active={activeTool !== null && activeTool !== "joint"}
+          data-testid="mate-more"
+          items={LEGACY_MATES.map((mate) => ({
+            key: mate.tool,
+            icon: mate.icon,
+            label: mate.label,
+            shortcut: mate.shortcut,
+            disabled: !canMate,
+            "data-testid": `mate-${mate.tool}`,
+            onSelect: () => onToggleTool(mate.tool),
+          }))}
         />
       </ToolGroup>
       <ToolGroup eyebrow="Inspect">
