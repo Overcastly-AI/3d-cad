@@ -103,6 +103,9 @@ test.describe("parameters drive the model", () => {
   test("an extrude typed as H/2 and a sketch dimension typed as W follow the table", async ({
     page,
   }) => {
+    // One story (a table, an extrude, a sketch, undo) with seven rebuilds:
+    // ~55 s on a dev box, too close to the 60 s default.
+    test.slow();
     const account = await seedSession(page);
     const part = await createPartViaApi(page, account.token, "Driven plate");
     await createFeature(page, account.token, part.id, {

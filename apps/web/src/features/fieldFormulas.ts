@@ -383,3 +383,15 @@ export function clearFormulaSession(): void {
     fieldErrors: NONE,
   });
 }
+
+/**
+ * The open editor is now `key` (null: none). Another editor's formulas and
+ * refusals go; `key`'s own are KEPT. The workspace calls this from an effect,
+ * and React runs the fields' effects (a formula a gauge drops, a seed adopted)
+ * BEFORE their parent's, so an unconditional clear here would erase the new
+ * editor's first edits. Keyed, the order of the two effects cannot matter.
+ */
+export function enterFormulaSession(key: string | null): void {
+  if (key !== null && useFormulaSessionStore.getState().key === key) return;
+  clearFormulaSession();
+}

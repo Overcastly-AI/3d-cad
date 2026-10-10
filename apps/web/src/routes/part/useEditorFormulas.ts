@@ -17,8 +17,8 @@ import { useEffect, useMemo } from "react";
 import { fetchPartParameters } from "../../api/parameters";
 import type { FeatureResponse } from "../../api/parts";
 import {
-  clearFormulaSession,
   describeInputError,
+  enterFormulaSession,
   type FormulaSession,
   INPUT_ERROR_CODES,
   inputErrorPointer,
@@ -118,9 +118,11 @@ export function useEditorFormulas({
     [key, seed, inputErrorMessage],
   );
 
-  // Another editor (or none): the last one's formulas and refusals go.
+  // Another editor (or none): the last one's formulas and refusals go, and
+  // this one's survive whatever its fields wrote first (`enterFormulaSession`;
+  // pinned by `useEditorFormulas.test.tsx`).
   useEffect(() => {
-    clearFormulaSession();
+    enterFormulaSession(key);
   }, [key]);
 
   // The input_error the editor's footer carries when no field on screen
