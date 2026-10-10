@@ -35,7 +35,7 @@ import pytest
 from geometry.harness import evaluate_model
 from geometry.rebuild_cache import prefix_keys
 from geometry.schemas import BoundingBox, TopologyCounts, Vec3
-from loft_wire.feature_resolve import evaluation_input, normalize, parameter_values
+from loft_wire.feature_resolve import evaluation_input, parameter_values
 from loft_wire.features import (
     FEATURE_REGISTRY,
     EvaluatedFeatureInput,
@@ -156,12 +156,22 @@ def test_the_stored_tree_resolves_to_model_json(case: Case) -> None:
 
 
 @each_case
-def test_the_stored_tree_is_in_stored_form(case: Case) -> None:
-    """Formulas that read a parameter live in ``expressions``; params hold
-    numbers, as documents stores them (``normalize`` changes nothing)."""
-    for item in case.golden.tree:
-        _, envelope = _stored(item)
-        assert normalize(envelope) is envelope
+def test_the_stored_tree_sent_as_is_keys_like_the_resolved_request(case: Case) -> None:
+    """The web builds measure and pick requests from the STORED tree (``GET
+    /features``), formulas and all. Geometry's input model strips every
+    formula that names a parameter, so that request is the committed
+    model.json too: same numbers, same rebuild-cache key."""
+    web = case.model.model_copy(
+        update={
+            "features": [
+                EvaluatedFeatureInput.model_validate(item) for item in case.golden.tree
+            ]
+        }
+    )
+    assert web.model_dump_json() == case.model.model_dump_json()
+    assert prefix_keys(web, capture_scope=()) == prefix_keys(
+        case.model, capture_scope=()
+    )
 
 
 def _redriven(case: Case) -> list[tuple[RedriveStep, EvaluateTreeRequest]]:

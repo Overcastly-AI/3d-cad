@@ -293,11 +293,9 @@ def test_a_sketch_dimension_reads_its_sketch_then_the_parameters(
     feature = response.json()["feature"]["feature"]
     stored = feature["params"]["constraints"]
     assert [c["value_mm"] for c in stored] == [60.0, 15.0]
-    # Stored form: a formula that reads a parameter moves to the value's
-    # pointer, so params hold a number any client can hand geometry; a formula
-    # over the sketch's own dimensions stays where it was written.
-    assert [c["expression"] for c in stored] == [None, "len / 4"]
-    assert feature["expressions"] == {"/constraints/0/value_mm": "W"}
+    # Each formula stays on its dimension, with its resolved number beside it.
+    assert [c["expression"] for c in stored] == ["W", "len / 4"]
+    assert "expressions" not in feature
     # Geometry gets the number where the formula read a parameter, and the
     # formula over the sketch's own dimensions as before.
     sent = part.request()["features"][0]["feature"]["params"]["constraints"]
@@ -370,7 +368,7 @@ def test_a_rename_rewrites_every_reference_token_by_token(client: TestClient) ->
     response = part.put([{**d, "name": "Depth"}, dd])
     assert response.status_code == 200, response.text
     assert part.feature(1)["expressions"] == {"/distance_mm": "Depth+DD"}
-    assert part.feature(0)["expressions"] == {"/constraints/0/value_mm": "Depth * 4"}
+    assert part.feature(0)["params"]["constraints"][0]["expression"] == "Depth * 4"
     assert "input_error" not in part.request()["features"][1]
     # A swap is a swap.
     response = part.put([{**d, "name": "DD"}, {**dd, "name": "Depth"}])
@@ -395,13 +393,22 @@ def test_a_rename_past_the_formula_cap_is_a_422_that_stores_nothing(
     if where == "extrude":
         sketch_id = part.add(_sketch(), "S").json()["feature"]["id"]
         made = part.add(_extrude(sketch_id, {"/distance_mm": "W+W+W+W+W"}), "E")
-        pointer, index = "/distance_mm", 1
+        pointer = "/distance_mm"
     else:
         dims = [{"kind": "distance", "entity": "e1", "value_mm": 40.0,
                  "expression": "W+W+W+W+W"}]  # fmt: skip
         made = part.add(_sketch(dims), "S")
-        pointer, index = "/constraints/0/value_mm", 0
+        pointer = "/constraints/0/expression"
     assert made.status_code == 201, made.text
+
+    def formula() -> str | None:
+        feature = part.feature(1 if where == "extrude" else 0)
+        if where == "extrude":
+            text: str | None = feature["expressions"]["/distance_mm"]
+        else:
+            text = feature["params"]["constraints"][0]["expression"]
+        return text
+
     before = (part.tree(), part.rows())
 
     response = part.put([{**w, "name": LONG}])
@@ -411,7 +418,7 @@ def test_a_rename_past_the_formula_cap_is_a_422_that_stores_nothing(
     assert error["details"]["pointer"] == pointer
     assert error["details"]["feature_id"] == made.json()["feature"]["id"]
     assert (part.tree(), part.rows()) == before
-    assert part.feature(index)["expressions"] == {pointer: "W+W+W+W+W"}
+    assert formula() == "W+W+W+W+W"
     for path in ("loft-tree", "evaluation-request"):
         got = client.get(f"/api/v1/parts/{part.id}/{path}", headers=HEADERS)
         assert got.status_code == 200, got.text
@@ -421,23 +428,85 @@ def test_a_rename_past_the_formula_cap_is_a_422_that_stores_nothing(
     assert saved.status_code == 201, saved.text
     # A name that fits is fine.
     assert part.put([{**w, "name": "Width"}]).status_code == 200
-    renamed = {pointer: "Width+Width+Width+Width+Width"}
-    assert part.feature(index)["expressions"] == renamed
+    assert formula() == "Width+Width+Width+Width+Width"
 
 
-def test_a_dimension_with_a_pointer_and_its_own_formula_is_a_422(
-    client: TestClient,
-) -> None:
-    """One of the two would be silently ignored; refuse it at write."""
+def test_a_pointer_into_a_sketchs_constraints_is_a_422(client: TestClient) -> None:
+    """Constraints are addressed by position, so a pointer would silently
+    re-target another dimension when the sketch is edited."""
     part = Part(client)
     assert part.put([_row("W", "60")]).status_code == 200
-    sketch = _sketch(
-        [{"kind": "distance", "entity": "e1", "value_mm": 40.0, "expression": "30"}]
-    )
+    sketch = _sketch([{"kind": "distance", "entity": "e1", "value_mm": 40.0}])
     sketch["expressions"] = {"/constraints/0/value_mm": "W"}
     response = part.add(sketch)
     assert response.status_code == 422, response.text
-    assert "own expression" in response.text
+    assert "driven by its dimensions" in response.text
+
+
+def _web_save(part: Part, feature_id: str, params: dict[str, Any]) -> None:
+    """What apps/web/src/api/parts.ts `sketchFeatureEnvelope` sends on every
+    debounced sketch edit: `{type, version, params}`, nothing else."""
+    response = part.patch(
+        feature_id, {"type": "sketch", "version": 1, "params": params}
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_a_web_style_sketch_save_keeps_the_parameter_formulas(
+    client: TestClient,
+) -> None:
+    """Re-review blocker: with formulas moved to the envelope, a save that
+    sends only params erased them, and after W = 80 the part still built 50."""
+    part = Part(client)
+    w = _row("W", "50")
+    assert part.put([w]).status_code == 200
+    dims = [
+        {"kind": "distance", "entity": "e1", "value_mm": 40.0, "expression": "W"},
+        {"kind": "distance", "entity": "e2", "value_mm": 25.0, "expression": "W/2",
+         "name": "H2"},
+    ]  # fmt: skip
+    made = part.add(_sketch(dims), "S")
+    assert made.status_code == 201, made.text
+    _web_save(part, made.json()["feature"]["id"], part.feature(0)["params"])
+    constraints = part.feature(0)["params"]["constraints"]
+    assert [c["expression"] for c in constraints] == ["W", "W/2"]
+
+    assert part.put([{**w, "expression": "80"}]).status_code == 200
+    sent = part.request()["features"][0]["feature"]["params"]["constraints"]
+    assert [(c["value_mm"], c["expression"]) for c in sent] == [
+        (80.0, None),
+        (40.0, None),
+    ]
+
+
+@pytest.mark.parametrize("edit", ["delete", "reorder"])
+def test_a_constraint_edit_keeps_each_formula_on_its_own_dimension(
+    client: TestClient, edit: str
+) -> None:
+    part = Part(client)
+    assert part.put([_row("W", "60"), _row("H", "20")]).status_code == 200
+    dims = [
+        {"kind": "horizontal", "entity": "e1"},
+        {"kind": "distance", "entity": "e1", "value_mm": 40.0, "expression": "W"},
+        {"kind": "distance", "entity": "e2", "value_mm": 25.0, "expression": "H"},
+    ]
+    made = part.add(_sketch(dims), "S")
+    assert made.status_code == 201, made.text
+    params = part.feature(0)["params"]
+    constraints = params["constraints"]
+    params["constraints"] = (
+        constraints[1:]
+        if edit == "delete"
+        else [constraints[2], constraints[0], constraints[1]]
+    )
+    _web_save(part, made.json()["feature"]["id"], params)
+    stored = part.feature(0)["params"]["constraints"]
+    by_entity = {
+        c["entity"]: (c["expression"], c["value_mm"])
+        for c in stored
+        if c["kind"] == "distance"
+    }
+    assert by_entity == {"e1": ("W", 60.0), "e2": ("H", 20.0)}
 
 
 def test_deleting_a_parameter_in_use_is_a_409_naming_the_features(

@@ -7,6 +7,7 @@ part's parameters, the geometry form, renames), plus the parameter-aware
 :func:`loft_wire.expr.rename_references`.
 """
 
+import uuid
 from typing import Any
 
 import pytest
@@ -16,12 +17,12 @@ from loft_wire.expr import (
     evaluate_driving_dimensions,
     rename_references,
 )
+from loft_wire.feature_expressions import PointerError, locate
 from loft_wire.feature_resolve import (
     FeatureExpressionError,
     check_dimension_names,
     evaluation_input,
     for_geometry,
-    normalize,
     parameter_references,
     parameter_values,
     rename_parameters,
@@ -133,14 +134,12 @@ def test_a_pointer_must_hit_an_int_or_float_leaf(pointer: str) -> None:
         _extrude({pointer: "D"})
 
 
-def test_list_pointers_are_checked_like_rfc_6901() -> None:
-    sketch = _sketch(_dim("e1", 10.0))
-    data = sketch.model_dump(mode="json")
-    for pointer in ("/constraints/0/value_mm", "/entities/1/end/y"):
-        type(sketch).model_validate({**data, "expressions": {pointer: "D"}})
-    for pointer in ("/constraints/1/value_mm", "/constraints/00/value_mm"):
-        with pytest.raises(ValidationError):
-            type(sketch).model_validate({**data, "expressions": {pointer: "D"}})
+def test_list_tokens_are_checked_like_rfc_6901() -> None:
+    params = {"items": [{"x_mm": 1.0}, {"x_mm": 2.0}]}
+    assert locate(params, ["items", "1", "x_mm"])[2] == 2.0
+    for tokens in (["items", "2", "x_mm"], ["items", "01", "x_mm"], ["items", "a"]):
+        with pytest.raises(PointerError):
+            locate(params, tokens)
 
 
 def test_the_field_is_bounded() -> None:
@@ -316,62 +315,78 @@ def test_parameter_values_reads_stored_rows() -> None:
     assert parameter_values(rows) == {"W": Quantity(40.0, "length")}
 
 
-# --- the stored form (review of step 4) -------------------------------------------
+# --- the geometry boundary (review of step 4) ------------------------------------
 
 
-def test_normalize_moves_a_parameter_formula_to_its_value_pointer() -> None:
+def test_a_sketch_formula_stays_on_its_dimension_with_its_number_beside_it() -> None:
+    """A client that saves the sketch's params (the web sketcher sends only
+    ``{type, version, params}``) carries every formula through untouched."""
     sketch = _sketch(
         _dim("e1", 10.0, "W / 2", name="len"),
         _dim("e2", 10.0, "len / 4"),
         {"kind": "angle", "a": "e1", "b": "e2", "value_deg": 45.0, "expression": "A"},
     )
-    stored = normalize(sketch)
-    assert stored.expressions == {
-        "/constraints/0/value_mm": "W / 2",
-        "/constraints/2/value_deg": "A",
-    }
-    assert [c.get("expression") for c in _p(stored)["constraints"]] == [
-        None,
-        "len / 4",
-        None,
+    resolved = resolve_feature(sketch, TABLE)
+    assert resolved.expressions is None
+    constraints = _p(resolved)["constraints"]
+    assert [c["expression"] for c in constraints] == ["W / 2", "len / 4", "A"]
+    assert [c.get("value_mm", c.get("value_deg")) for c in constraints] == [
+        20.0,
+        5.0,
+        30.0,
     ]
-    assert normalize(stored) is stored
-    assert parameter_references(stored) == {"W", "A"}
-    # Resolution reads the moved formula with the sketch, as before.
-    resolved = resolve_feature(stored, TABLE)
-    assert [c["value_mm"] for c in _p(resolved)["constraints"][:2]] == [20.0, 5.0]
-    assert _p(resolved)["constraints"][2]["value_deg"] == 30.0
-    legacy = _p(resolve_feature(sketch, TABLE))["constraints"]
-    assert [c.get("value_mm", c.get("value_deg")) for c in legacy] == [20.0, 5.0, 30.0]
-    sent = for_geometry(resolved)
-    assert sent.expressions is None
-    assert [c.get("expression") for c in _p(sent)["constraints"]] == [
-        None,
-        "len / 4",
-        None,
+
+
+def test_geometry_drops_every_formula_that_names_a_parameter() -> None:
+    """Decided from the sketch alone; the resolved number then stands, and a
+    formula over the sketch's own dimensions still goes to geometry."""
+    stored = resolve_feature(
+        _sketch(_dim("e1", 10.0, "W / 2", name="len"), _dim("e2", 1.0, "len / 4")),
+        TABLE,
+    )
+    sent = EvaluatedFeatureInput(id=uuid.UUID(SKETCH_ID), feature=stored)
+    constraints = _p(sent.feature)["constraints"]
+    assert [(c["value_mm"], c["expression"]) for c in constraints] == [
+        (20.0, None),
+        (5.0, "len / 4"),
     ]
-    # A sketch over its own dimensions only has nothing to move.
+    # The documents path (resolve, then strip) and the web path (the stored
+    # tree as-is) key the rebuild cache identically.
+    documents = EvaluatedFeatureInput(
+        id=uuid.UUID(SKETCH_ID),
+        feature=evaluation_input(stored, TABLE)[0],
+    )
+    assert documents.model_dump_json() == sent.model_dump_json()
+    extrude = EvaluatedFeatureInput(
+        id=uuid.UUID(SKETCH_ID), feature=_extrude({"/distance_mm": "D"})
+    )
+    assert (
+        extrude.model_dump_json()
+        == (
+            EvaluatedFeatureInput(id=uuid.UUID(SKETCH_ID), feature=_extrude())
+        ).model_dump_json()
+    )
+    # A sketch over its own dimensions only is untouched.
     own = _sketch(_dim("e1", 10.0, name="len"), _dim("e2", 5.0, "len / 2"))
-    assert normalize(own) is own
+    assert for_geometry(own) is own
 
 
-def test_a_pointer_on_a_dimension_with_its_own_formula_is_refused() -> None:
-    data = _sketch(_dim("e1", 10.0, "5")).model_dump(mode="json")
-    data["expressions"] = {"/constraints/0/value_mm": "W"}
-    with pytest.raises(ValidationError, match="own expression"):
+@pytest.mark.parametrize("pointer", ["/constraints/0/value_mm", "/entities/0/end/x"])
+def test_a_pointer_into_a_sketchs_lists_is_refused(pointer: str) -> None:
+    """Positions move when the sketch is edited; a pointer would re-target."""
+    data = _sketch(_dim("e1", 10.0)).model_dump(mode="json")
+    data["expressions"] = {pointer: "W"}
+    with pytest.raises(ValidationError, match="driven by its dimensions"):
         type(_sketch()).model_validate(data)
 
 
-@pytest.mark.parametrize("where", ["envelope", "moved", "own"])
+@pytest.mark.parametrize("where", ["envelope", "dimension"])
 def test_a_rename_past_the_cap_is_refused_naming_the_pointer(where: str) -> None:
     long = "x" * 60
     if where == "envelope":
         feature = _extrude({"/distance_mm": "W+W+W+W+W"})
         pointer = "/distance_mm"
-    elif where == "moved":
-        feature = normalize(_sketch(_dim("e1", 10.0, "W+W+W+W+W")))
-        pointer = "/constraints/0/value_mm"
-    else:  # a tree stored before normalize: the dimension's own expression
+    else:
         feature = _sketch(_dim("e1", 10.0, "W+W+W+W+W"))
         pointer = "/constraints/0/expression"
     with pytest.raises(FeatureExpressionError) as caught:
@@ -382,16 +397,3 @@ def test_a_rename_past_the_cap_is_refused_naming_the_pointer(where: str) -> None
     )
     renamed = rename_parameters(feature, {"W": "Width"})
     assert "Width+Width" in renamed.model_dump_json()
-
-
-def test_geometry_never_receives_formulas() -> None:
-    """A request built from a stored tree keys the cache like documents'."""
-    stored = _extrude({"/distance_mm": "D"})
-    sent = EvaluatedFeatureInput(id=SKETCH_ID, feature=stored)  # type: ignore[arg-type]
-    assert sent.feature.expressions is None
-    assert (
-        sent.model_dump_json()
-        == (
-            EvaluatedFeatureInput(id=SKETCH_ID, feature=_extrude())  # type: ignore[arg-type]
-        ).model_dump_json()
-    )

@@ -27,7 +27,6 @@ from loft_wire.feature_resolve import (
     FeatureExpressionError,
     check_dimension_names,
     evaluation_input,
-    normalize,
     parameter_references,
     parameter_values,
     rename_parameters,
@@ -54,11 +53,10 @@ def _api_error(exc: FeatureExpressionError) -> ValidationApiError:
 
 
 def resolve_for_write(part: db.Part, envelope: FeatureEnvelope) -> FeatureEnvelope:
-    """*envelope* in its stored form (:func:`~loft_wire.feature_resolve.
-    normalize`: params hold numbers, formulas live in ``expressions``) with
-    every formula resolved against the part's table, or 422."""
+    """*envelope* with every formula resolved against the part's table (the
+    numbers stored in ``params``, formulas kept where they were written), or
+    422."""
     try:
-        envelope = normalize(envelope)
         check_dimension_names(envelope, (row["name"] for row in part.parameters))
         return resolve_feature(envelope, parameter_values(part.parameters))
     except FeatureExpressionError as exc:

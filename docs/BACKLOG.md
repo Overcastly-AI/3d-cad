@@ -243,7 +243,8 @@ One line each. The founder triages weekly; most are closed without work.
 - PARAM-SKETCH-TYPO-422: a sketch dimension formula naming an unknown name (a typo, not a parameter) is now a 422 `expression_unknown_name` at save instead of a `sketch_invalid` at rebuild.
 - PARAM-INT-REF-FIELDS: an int formula is accepted on any int leaf, including reference fields such as `index`/`constraint_index`; restrict int pointers to counts.
 - PARAM-STALE-MEASURE: a feature whose formula no longer resolves keeps its last good numbers; the web's measure/pick requests build it from them with no `input_error`, so a pick can land on a body the viewport shows as failed.
-- PARAM-DRAFT-PREVIEW: the web's edit preview sends an UNSAVED draft; a draft sketch dimension typed `= W` reaches geometry as text until step 8 routes drafts through the server.
+- PARAM-DRAFT-PREVIEW: the web's edit preview sends an UNSAVED draft; geometry drops a draft dimension's `= W` and uses whatever `value_mm` the draft carries until it is saved (step 8 should resolve drafts on the server).
+- PARAM-LEGACY-TYPO: a sketch stored before step 4 whose dimension formula names an unknown name now builds from its stored `value_mm` (the geometry boundary drops the formula) instead of failing `sketch_invalid`.
 - PARAM-POINTER-REMINT: `.loft` import re-mints ids inside params but not inside `expressions` pointers; no drivable field is keyed by a feature id today.
 - `scripts/e2e.sh` does not derive `GATEWAY_ORIGIN` from `GATEWAY_PORT`, so specs on non-default ports fail with a register 500 (local only; CI uses the defaults).
 - `scripts/e2e-teardown.sh --self-test` flakes under load (a polite process takes over 5 s to exit), turning `just lint` red locally.

@@ -8,7 +8,12 @@ check from here. Resolution against a part's parameter table lives in
 ``expressions`` maps a JSON pointer (RFC 6901) into the feature's ``params``
 to the formula that drives that number: ``{"/distance_mm": "D"}``. Documents
 evaluates every formula on each write and stores the resolved number at the
-pointer, so ``params`` always holds numbers and geometry never sees a formula.
+pointer, so ``params`` always holds numbers. A sketch dimension's formula
+stays in the dimension's own ``expression`` (the sketcher round-trips it), with
+its resolved number beside it in ``value_mm``/``value_deg``; pointers into a
+sketch's entities or constraints are refused. :func:`strip_for_geometry`, on
+every feature geometry is sent, drops every formula that names a parameter,
+so geometry never sees one.
 
 A pointer must land on an int or float leaf whose unit the field name says:
 ``*_deg`` is an angle (degrees), ``*_mm`` and point/vector coordinates are
@@ -21,7 +26,7 @@ from typing import Annotated, Any, Final, Literal, cast
 
 from pydantic import AfterValidator, Field, StringConstraints
 
-from loft_wire.expr import MAX_EXPRESSION_LENGTH
+from loft_wire.expr import MAX_EXPRESSION_LENGTH, DimensionLike, ExpressionError, parse
 from loft_wire.twist import is_none
 
 #: Most expressions one feature may carry, and the longest pointer.
@@ -90,38 +95,81 @@ def leaf_kind(tokens: list[str], leaf: Any) -> FieldKind:
     raise PointerError(f"field {name!r} cannot be driven by an expression")
 
 
+#: A sketch's own lists: addressed by position, so a pointer into one would
+#: silently re-target another item when the sketch is edited. A sketch's
+#: numbers are driven by its dimensions' own ``expression`` instead.
+_SKETCH_LISTS: Final = frozenset({"constraints", "entities"})
+
+
 def check_expressions(params: Any, expressions: dict[str, str] | None) -> None:
     """Refuse (``ValueError``) a pointer that misses an int or float leaf, or
-    that drives a sketch dimension's number while the dimension has its own
-    ``expression`` (one of the two would be silently ignored)."""
+    that points into a sketch's entities or constraints."""
     for pointer in expressions or {}:
         tokens = parse_pointer(pointer)
         try:
-            parent, _, leaf = locate(params, tokens)
-            leaf_kind(tokens, leaf)
-            if (
-                tokens[0] == "constraints"
-                and isinstance(parent, dict)
-                and cast(dict[str, Any], parent).get("expression") is not None
-            ):
+            if tokens[0] in _SKETCH_LISTS:
                 raise PointerError(
-                    "this dimension has its own expression; give it one formula"
+                    "a sketch's numbers are driven by its dimensions: give the "
+                    "dimension the formula"
                 )
+            _, _, leaf = locate(params, tokens)
+            leaf_kind(tokens, leaf)
         except PointerError as exc:
             raise ValueError(f"expressions[{pointer!r}]: {exc}") from exc
 
 
-def _strip(feature: Any) -> Any:
-    """Geometry reads numbers only: a feature it is sent loses its formulas,
-    so a request built from a stored tree keys the rebuild cache exactly as
-    documents' evaluation request does."""
-    if getattr(feature, "expressions", None) is None:
+def outside_dimension_names(feature: Any) -> dict[int, frozenset[str]]:
+    """Driving dimension index -> the names its ``expression`` reads that are
+    NOT dimensions of the same sketch (part parameters). Decided from the
+    sketch alone. Text that does not parse is left to geometry, which reports
+    it as it always has (``sketch_invalid``). Empty for any other feature."""
+    if getattr(feature, "type", None) != "sketch":
+        return {}
+    constraints = cast(list[object], getattr(feature.params, "constraints", []))
+    dims = [(i, c) for i, c in enumerate(constraints) if isinstance(c, DimensionLike)]
+    names = frozenset(c.name for _, c in dims if c.name is not None)
+    out: dict[int, frozenset[str]] = {}
+    for index, dim in dims:
+        if dim.expression is None or not dim.is_driving:
+            continue
+        try:
+            refs = parse(dim.expression, names=names, legacy_text=True).references()
+        except ExpressionError:
+            continue
+        if refs - names:
+            out[index] = refs - names
+    return out
+
+
+def strip_for_geometry(feature: Any) -> Any:
+    """What geometry receives: numbers only. ``expressions`` is dropped, and
+    so is the ``expression`` of every sketch dimension that names anything
+    outside its sketch, so the resolved ``value_mm``/``value_deg`` documents
+    stored beside it stands. A formula over the sketch's own dimensions stays.
+
+    Applied to EVERY feature geometry is sent (``EvaluatedFeatureInput``), so a
+    request the web builds from ``GET /features`` and documents' evaluation
+    request key the rebuild cache identically. Returns the same object when
+    there is nothing to strip, so every other tree keeps its bytes."""
+    outside = outside_dimension_names(feature)
+    if getattr(feature, "expressions", None) is None and not outside:
         return feature
-    return feature.model_copy(update={"expressions": None})
+    update: dict[str, Any] = {"expressions": None}
+    if outside:
+        constraints = cast(list[Any], feature.params.constraints)
+        update["params"] = feature.params.model_copy(
+            update={
+                "constraints": [
+                    c.model_copy(update={"expression": None}) if i in outside else c
+                    for i, c in enumerate(constraints)
+                ]
+            }
+        )
+    return feature.model_copy(update=update)
 
 
 #: ``Annotated`` metadata on ``EvaluatedFeatureInput.feature``.
-STRIP_EXPRESSIONS: Final = AfterValidator(_strip)
+STRIP_EXPRESSIONS: Final = AfterValidator(strip_for_geometry)
 
 
 def _none_if_empty(value: dict[str, str] | None) -> dict[str, str] | None:

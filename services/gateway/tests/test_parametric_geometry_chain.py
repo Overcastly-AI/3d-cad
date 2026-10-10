@@ -4,9 +4,11 @@ The evaluation request is not the only way a stored tree reaches geometry:
 the web builds its measure and pick (overlay) requests from ``GET
 /features`` (apps/web/src/measure/geometry.ts ``buildEvaluateTree``), and
 the reference backfill builds its own from the stored rows
-(:mod:`documents.ref_backfill`). Before the stored form was normalized, a
-sketch dimension ``= W`` reached geometry as the text ``W`` on those paths and
-failed ``sketch_invalid: unknown dimension name 'W'``.
+(:mod:`documents.ref_backfill`). A sketch dimension ``= W`` used to reach
+geometry as the text ``W`` on those paths and fail ``sketch_invalid: unknown
+dimension name 'W'``. The formula stays on the dimension in storage (the
+sketcher round-trips it); geometry's input model drops it at the boundary
+and the resolved ``value_mm`` stands.
 
 Real documents and geometry apps, in process (no ports): the part is a
 rectangle whose width dimension is ``= W`` (written as the sketcher writes
@@ -31,6 +33,8 @@ from gateway.main import GatewaySettings
 from gateway.main import build_app as build_gateway_app
 from geometry.main import GeometrySettings
 from geometry.main import build_app as build_geometry_app
+from geometry.rebuild_cache import prefix_keys
+from loft_wire.features import EvaluateTreeRequest
 from loft_wire.parts import PRINCIPAL_HEADER
 from py_kit.db import async_dsn
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -160,11 +164,16 @@ def _parameters(version: int) -> Any:
     }
 
 
-def _no_parameter_text(feature: Any) -> None:
-    """What a web client builds a geometry request from: params that geometry
-    can read without the part's parameter table."""
-    for constraint in feature["params"].get("constraints", []):
-        assert constraint.get("expression") in (None,), constraint
+def _web_request(tree: Any) -> dict[str, Any]:
+    """apps/web/src/measure/geometry.ts ``buildEvaluateTree``, verbatim."""
+    return {
+        "part_id": tree["part_id"],
+        "tree_version": tree["tree_version"],
+        "linear_deflection": 0.1,
+        "features": [
+            {"id": f["id"], "feature": f["feature"]} for f in tree["features"]
+        ],
+    }
 
 
 @contextlib.asynccontextmanager
@@ -234,19 +243,10 @@ def test_measure_and_pick_requests_built_from_the_tree_solve(tmp_path: Path) -> 
 
             tree = (await client.get(f"{base}/features")).json()
             sketch = tree["features"][0]["feature"]
-            _no_parameter_text(sketch)
-            # The formula is kept, in the stored form: at the value's pointer.
-            assert sketch["expressions"] == {"/constraints/9/value_mm": "W"}
-            assert sketch["params"]["constraints"][9]["value_mm"] == W
-            # apps/web/src/measure/geometry.ts buildEvaluateTree, verbatim.
-            request = {
-                "part_id": tree["part_id"],
-                "tree_version": tree["tree_version"],
-                "linear_deflection": 0.1,
-                "features": [
-                    {"id": f["id"], "feature": f["feature"]} for f in tree["features"]
-                ],
-            }
+            # Stored: the formula on its dimension, the resolved number beside it.
+            width = sketch["params"]["constraints"][9]
+            assert (width["expression"], width["value_mm"]) == ("W", W)
+            request = _web_request(tree)
             overlay = await client.post(
                 "/api/v1/geometry/overlay", json={"tree": request}
             )
@@ -318,7 +318,8 @@ def test_the_reference_backfill_request_builds_in_geometry(tmp_path: Path) -> No
         assert need.status_code == 200, need.text
         assert need.json()["needed"] is True
         request = need.json()["request"]
-        _no_parameter_text(request["features"][0]["feature"])
+        width = request["features"][0]["feature"]["params"]["constraints"][9]
+        assert (width["expression"], width["value_mm"]) == (None, W)
         assert "expressions" not in request["features"][1]["feature"]
         assert request["features"][1]["feature"]["params"]["distance_mm"] == 10.0
 
@@ -326,3 +327,14 @@ def test_the_reference_backfill_request_builds_in_geometry(tmp_path: Path) -> No
         assert report.status_code == 200, report.text
         [outcome] = report.json()["outcomes"]
         assert outcome["outcome"] == "named", outcome
+
+        # The rebuild-cache key of a request the web builds from GET /features
+        # equals that of documents' own evaluation request: the same prefix.
+        tree = documents.get(f"{base}/features").json()
+        web = EvaluateTreeRequest.model_validate(_web_request(tree))
+        ours = EvaluateTreeRequest.model_validate(
+            documents.get(f"{base}/evaluation-request").json()
+        )
+        assert prefix_keys(web, capture_scope=()) == prefix_keys(
+            ours.model_copy(update={"linear_deflection": 0.1}), capture_scope=()
+        )

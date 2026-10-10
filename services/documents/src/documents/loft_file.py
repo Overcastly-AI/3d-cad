@@ -43,7 +43,6 @@ import uuid
 from typing import Any, NoReturn, cast
 
 from fastapi import APIRouter, status
-from loft_wire.feature_resolve import normalize
 from loft_wire.features import (
     FEATURE_REGISTRY,
     FeatureCreate,
@@ -312,7 +311,6 @@ def validated_rows(
         create = _feature_create(
             feature, version, cast(JsonObject, remap_loft_params(params, mapping))
         )
-        stored = normalize(create.feature)
         try:
             reject_import_with_prior_body(create.feature, position, rows)
             targets = validate_references(create.feature, position, by_id)
@@ -325,11 +323,9 @@ def validated_rows(
             name=create.name,
             type=create.feature.type,
             param_version=create.feature.version,
-            # The stored form: a sketch formula naming a parameter moves to
-            # `expressions`, so the params handed to geometry are numbers.
-            params=stored.params.model_dump(mode="json"),
+            params=create.feature.params.model_dump(mode="json"),
             suppressed=create.feature.suppressed,
-            expressions=stored.expressions,
+            expressions=create.feature.expressions,
         )
         rows.append(row)
         by_id[row.id] = row

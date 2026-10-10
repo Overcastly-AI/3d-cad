@@ -1,5 +1,5 @@
 {
-  "description": "FIRST PARAMETRIC GOLDEN (PART-PARAMETERS step 4, RESEARCH §20): a box driven by a parameter table, the way a Fusion 360 user builds one -- W = 40, H = W - 15, D = 10 -- with the sketch's two driving dimensions = W and = H and the extrude depth = D. `tree` is the part as documents STORES it: every number resolved in params at the table below, every formula in the feature's `expressions` (a sketch dimension that reads a parameter keeps its formula at its value pointer). model.json beside it is exactly what documents SENDS geometry for that table (asserted by the runner: loft_wire.feature_resolve turns this tree into that request byte for byte). Each step re-drives the table and rebuilds from the STORED entities, which still sit at the 40 x 25 drawing: the solver must move them to the new dimensions, as it does when a user edits a parameter. Steps are cumulative.",
+  "description": "FIRST PARAMETRIC GOLDEN (PART-PARAMETERS step 4, RESEARCH §20): a box driven by a parameter table, the way a Fusion 360 user builds one -- W = 40, H = W - 15, D = 10 -- with the sketch's two driving dimensions = W and = H and the extrude depth = D. `tree` is the part as documents STORES it: every formula kept, every number resolved at the table below. model.json beside it is exactly what documents SENDS geometry for that table (asserted by the runner: loft_wire.feature_resolve turns this tree into that request byte for byte). Each step re-drives the table and rebuilds from the STORED entities, which still sit at the 40 x 25 drawing: the solver must move them to the new dimensions, as it does when a user edits a parameter. Steps are cumulative.",
   "parameters": [
     {
       "id": "00000000-0000-4000-8000-0000000002a1",
@@ -83,13 +83,19 @@
             { "kind": "horizontal", "entity": "e3" },
             { "kind": "vertical", "entity": "e2" },
             { "kind": "vertical", "entity": "e4" },
-            { "kind": "distance", "entity": "e1", "value_mm": 40.0 },
-            { "kind": "distance", "entity": "e2", "value_mm": 25.0 }
+            {
+              "kind": "distance",
+              "entity": "e1",
+              "value_mm": 40.0,
+              "expression": "W"
+            },
+            {
+              "kind": "distance",
+              "entity": "e2",
+              "value_mm": 25.0,
+              "expression": "H"
+            }
           ]
-        },
-        "expressions": {
-          "/constraints/9/value_mm": "W",
-          "/constraints/10/value_mm": "H"
         }
       }
     },
