@@ -375,3 +375,8 @@ One line each. The founder triages weekly; most are closed without work.
 - INPUT-ERROR-REF-CODE (step 2 review): a face/edge reference on a feature skipped for `input_error` fails as `subshape_unresolved`, not `reference_unresolved` naming the sick feature.
 - ASM-MOVE-PREVIEW (Move build): each triad drag step re-renders the assembly page (~1.2 s per step under software GL); a scene-only preview store is the fix.
 - ENV-GATEWAY-ORIGIN: `scripts/e2e.sh` with a custom `GATEWAY_PORT` also needs `GATEWAY_ORIGIN` (Vite proxies to :8000), else register returns 500; belongs in docs/ENVIRONMENT.md.
+- JOINT-EDIT-MOTION (S5b): `MateUpdate` has no `motion`, so the dialog locks the motion of a stored joint; Fusion lets you change it in Edit Joint (needs the field, or delete-and-recreate as one undo step).
+- JOINT-DRAG-A-SIDE (S5b): dragging drives a joint from its B part only; pressing A when B is grounded selects instead of turning A.
+- JOINT-POSITIONED-COUNT (S5b): "Positioned by Revolute 1" is a count (remaining DOF == driven joint axes); the solver could report which DOF are driven instead.
+- JOINT-PREVIEW-COST (S5b): every settled dialog edit runs an evaluate AND an interference check (the Flip hint); a solve-only interference on the two parts would be cheaper.
+- JOINT-ORIGIN-FACE-CENTRE (S5b): the drag axis point uses the stored face centroid, while the solver follows a resized face's current centre; harmless to the value, the handle sits off-centre until the parts are re-picked.
