@@ -1309,6 +1309,35 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   `GET /parts/{id}/evaluation-request` (new gateway route), so a sick feature
   builds nothing there either. Assembly overlays and drawings still build
   from `GET /features`.
+- **Step 9, as built.** Three reference parts carry a table and re-drive from
+  one `set_parameter`. The gear (`helical-gear.py`, default route) has 5
+  inputs (`module`, `teeth`, `alpha_n`, `beta`, `face_width`) and 11 ISO
+  21771 formulas over them (`rp`, `rbase`, `ra`, `rf`, `t_out`, `inv_t`,
+  `gap0`, `twist`, ...). Its tooth gap places every vertex and involute fit
+  point by a horizontal and a vertical `point_distance` from a fixed origin
+  point, each a formula over the table: fit point i sits at radius
+  `rbase*sqrt(1+t^2)` and half-gap angle `gap0 + deg(t) - atan(t)`, with
+  `t = t_out*i/11`. The sketch is fully constrained without redundancy: the
+  upper flank's outer point and the root arc's upper end take only their y,
+  and the arc through them fixes x. The sweep twist is `twist`, the pattern
+  count `teeth`, and depths are `face_width`. `--edit` is
+  `set_parameter("beta", "20 deg")`. The ruled-loft route (`--ruled`) draws
+  its rotated sections and refuses `--edit`. Ladder 2c (`manifold.py`, 27
+  rows, edit `H` 50 -> 60) cuts each drilled hole as a revolve of its
+  half-section on an offset datum through its axis. P's depth is
+  `H - pass_z`, the stand-in for Hole "To" (BACKLOG HOLE-DRILL-POINT). Ladder
+  3d (`knob.py`, 13 rows, edit `flutes` 18 -> 24) builds body 2 as an
+  annulus plus a patterned flute fill (BOOLEAN-KEEP-TOOLS). The shared
+  helper is `formula_sketch.py`. Each script's expected volumes are pure
+  Python: closed-form solids of revolution, and 1D integrals of
+  closed-form chord areas for the overlaps. Measured (2026-10-10): gear
+  36470.392 / 38685.979 mm³ against 36470.374 / 38685.960 (+4.7e-7);
+  manifold 229390.6201 / 276369.9166 (1e-11); knob 33498.2060 / 33324.8390
+  (1e-11). The STEP re-reads agree to 1.3e-7: one connected P + A + plug
+  cavity with four M6 holes on their grid points, two knob bodies with zero
+  common volume, and the gear's twist on the true helix after the edit.
+  `packages/loft-script/tests/test_reference_parts.py` runs all three builds
+  and edits to 1e-4 in CI (about 40 s).
 - **Truth.** `packages/loft-wire/tests/test_expr.py` (grammar, units,
   functions, cycles, depth, hostile strings, off-whitelist names); golden
   `sketch-trig-expression-40x20tan15x10` (step 1); a new golden kind

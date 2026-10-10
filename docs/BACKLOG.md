@@ -55,9 +55,12 @@ byte-identical; RESEARCH §15a).
   - [x] 8. Web `<ValueField>` in every numeric editor, with autocomplete.
         _Accept:_ e2e: Extrude = H/2; editing H re-drives it
         (`parameters-drive.spec.ts`; RESEARCH §20 "Step 8, as built").
-  - [ ] 9. Reference parts parametric (helical gear, ladder 2c/3d).
+  - [x] 9. Reference parts parametric (helical gear, ladder 2c/3d).
         _Accept:_ the gear's `--edit` is one `set_parameter("beta", "20 deg")`
         and its volume matches `expected_volume(Gear(20))` to 1e-4.
+        (`docs/reference-parts/{helical-gear,manifold,knob}.py`, run in CI by
+        `packages/loft-script/tests/test_reference_parts.py`; RESEARCH §20
+        "Step 9, as built".)
 - [ ] **DATUM-PLANE-ANGLE** (moto frame steering head, tube-frame gap): there
       is no tilted datum plane (only offset, on-face, offset-from and
       midplane), so the 25° steering head is a revolve about a sketch axis.
@@ -433,3 +436,8 @@ One line each. The founder triages weekly; most are closed without work.
 - JOINT-ORIGIN-FACE-CENTRE (S5b): the drag axis point uses the stored face centroid, while the solver follows a resized face's current centre; harmless to the value, the handle sits off-centre until the parts are re-picked.
 - JOINT-ONE-SIDED-LIMIT (S4b): with only a max of 90°, a hinge driven to 170° is pinned to 90° (a lone bound reads on (-180°, 180°], RESEARCH §22); check against Fusion's one-sided limits.
 - JOINT-BALL-DRAG (S4b web): a ball joint has no joint drag; Move's free triad turns it (the solver keeps a ball's authored orientation, and its translation snaps back on the re-solve).
+- HOLE-DRILL-POINT (ladder 2c, PART-PARAMETERS step 9): Hole has no drill point angle, no "To" (up-to-object) extent and no pipe (G) thread, so 2c's ports and M6 holes are revolve cuts of their half-sections and P's depth is the formula `H - pass_z`; Fusion's Hole has all three.
+- SCRIPT-FACE-PICK (step 9): loft-script cannot pick a face, so a script cannot place a Hole (or a thread callout) without hand-building a face signature; 2c's M6 holes carry no M6 callout.
+- BOOLEAN-KEEP-TOOLS (ladder 3d, step 9): a Boolean always consumes its tool body; Fusion's Combine has "Keep Tools". 3d's body 2 is an annulus plus a patterned flute fill instead of band minus body 1.
+- SCRIPT-POINT-DIMS (step 9): loft-script's Sketch has no sugar for point dimensions (`point_distance`, `point_line_distance`); the parametric reference parts place vertices through `docs/reference-parts/formula_sketch.py`.
+- LADDER-3D-BORE (step 9): read literally, "band minus body 1" fills the D-bore from Z 6 to 15 with a second lump; `knob.py` reads the band as round body 1, and ladder.md should say which is meant.

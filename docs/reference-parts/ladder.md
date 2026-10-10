@@ -20,7 +20,10 @@ otherwise.
 
 **Status (2026-10-01):** level 1 is built 5/5 but has not passed.
 EDGE-MARK-OVERLAP and SHELL-WRONG-SOLID are open wrong-geometry findings, and
-the gear's edit is unchecked (no PARAMETERS). The hard-parts run (moulded
+the gear's edit is unchecked in the UI. The gear script re-drives from one
+parameter (2026-10-10). So do the parametric scripts for 2c and 3d
+(`manifold.py`, `knob.py`). They are not passes: their workarounds are
+filed. The hard-parts run (moulded
 enclosure, sheet-metal bracket, duct transition, turned shaft, impeller)
 probes levels 2-4 early. Its findings are filed, but it does not pass a
 level.
