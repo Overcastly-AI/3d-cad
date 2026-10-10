@@ -372,6 +372,10 @@ One line each. The founder triages weekly; most are closed without work.
 - SPLIT-WIRE-FEATURES (was a Next item): `loft_wire/features.py` is 4,419 lines; one module per family, re-exported, `just gen-verify` zero diff.
 - Sweep self-check (`BRepAlgoAPI_Check`, SWEEP-CLOSED-PATH review): costs 0.8 s of the moto frame's 5.7 s rebuild (0.30 s + 0.51 s on its two rail sweeps); 0.5-28 ms on the other sweep goldens.
 - Sketcher: `0` is a view shortcut, so a typed coordinate cannot start with 0 (`OPENS_A_COORDINATE` is `[1-9.-]`); a centre at x = 0 must be clicked or typed as `-0`.
+- PROPOSAL-REFIT-AFTER-ORBIT (CRAFT-12 review): if the modeler orbited before the proposal appeared, a later layout change does not re-check the proposal against the narrower rect; the chrome event should set `refitDue` itself.
+- PROPOSAL-FIT-DOUBLE-MOVE: Fit while an overrunning proposal is live frames the body, then eases out to the proposal (two moves).
+- CRAFT12-NEGATIVE-SETTLE: preview-overrun.spec.ts:281's negative case still settles with waitForCameraRest; use waitForCameraStill.
+- ENV-E2E-PORT: Playwright reuses an existing server on :5173 (`reuseExistingServer`), so parallel agents test each other's code unless each sets its own web port.
 - JOINT-PLANAR-PARENT (motions review): a planar slide PATCHes B's placement; when B is the solve parent rather than the child the slide may not stick. Unverified.
 - JOINT-CARD-OVERLAP: the joint drive card overlaps the inspector's DOF text (revolute and planar).
 - MEASURE-FROM-EVAL-REQUEST (step 4 review): the web builds measure/pick requests from GET features, so a feature that is sick (`parameter_unresolved`, or out of range after a PUT) shows a phantom body built from its last good numbers in those tools; build them from `/evaluation-request` (step 8).
