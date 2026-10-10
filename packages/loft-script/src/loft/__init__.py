@@ -51,18 +51,23 @@ at a time never depends on state it cannot reconstruct.
 from __future__ import annotations
 
 from loft_wire.geometry import ExportFormat, ShapeProperties
+from loft_wire.parameters import PartParameter
 from loft_wire.sketch import Point2D, SolvedSketch
 
+from loft import expr
 from loft._operation import Operation
 from loft.errors import (
     AuthenticationError,
     Conflict,
     ContractMismatch,
     FeatureFailed,
+    InvalidExpression,
     InvalidRequest,
     LoftError,
     NoBody,
     NotFound,
+    ParameterInUse,
+    ParameterNotFound,
     PermissionDenied,
     RateLimited,
     SketchNotSolved,
@@ -70,6 +75,7 @@ from loft.errors import (
     UpstreamError,
 )
 from loft.files import LoftArchive, LoftFileError, open
+from loft.parameters import Numeric
 from loft.part import Evaluation, Part
 from loft.session import Session, connect, register
 from loft.sketch import XY, XZ, YZ, Rect, Sketch
@@ -86,14 +92,19 @@ __all__ = [
     "Evaluation",
     "ExportFormat",
     "FeatureFailed",
+    "InvalidExpression",
     "InvalidRequest",
     "LoftArchive",
     "LoftError",
     "LoftFileError",
     "NoBody",
     "NotFound",
+    "Numeric",
     "Operation",
+    "ParameterInUse",
+    "ParameterNotFound",
     "Part",
+    "PartParameter",
     "PermissionDenied",
     "Point2D",
     "RateLimited",
@@ -107,6 +118,7 @@ __all__ = [
     "UpstreamError",
     "__version__",
     "connect",
+    "expr",
     "open",
     "register",
 ]

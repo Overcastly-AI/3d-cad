@@ -29,15 +29,30 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from loft_wire.expr import (
+    ExpressionCycleError,
+    ExpressionDomainError,
+    ExpressionError,
+    ExpressionLimitError,
+    ExpressionNameError,
+    ExpressionReferenceError,
+    ExpressionSyntaxError,
+    ExpressionUnitError,
+)
+from loft_wire.feature_input import PARAMETER_UNRESOLVED, PARAMETER_VALUE_INVALID
+
 __all__ = [
     "AuthenticationError",
     "Conflict",
     "ContractMismatch",
     "FeatureFailed",
+    "InvalidExpression",
     "InvalidRequest",
     "LoftError",
     "NoBody",
     "NotFound",
+    "ParameterInUse",
+    "ParameterNotFound",
     "PermissionDenied",
     "RateLimited",
     "SketchNotSolved",
@@ -193,6 +208,81 @@ class StaleDocument(LoftError):
     default_code = "stale_tree_version"
 
 
+def _detail(details: Any, key: str) -> Any:
+    """``details[key]`` when the envelope's details are a mapping, else None."""
+    return cast(dict[str, Any], details).get(key) if isinstance(details, dict) else None
+
+
+def _names(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(str(v) for v in cast(list[Any], value))
+
+
+class InvalidExpression(InvalidRequest):
+    """A formula or a parameter table was refused (422, or client-side).
+
+    ``code`` is the shared expression library's stable id
+    (``expression_syntax``, ``expression_unknown_name``, ``expression_cycle``,
+    ``expression_units``, ``expression_domain``, ``expression_too_complex``,
+    ``expression_name_invalid``) or ``parameter_value_invalid`` /
+    ``parameter_id_duplicate``. The server's verdict arrives with its own code
+    and message. A formula a builder can already see is wrong (an unknown
+    name, bad syntax) is refused with the SAME code before anything is sent,
+    because the builder evaluates it to fill the number stored beside it.
+    """
+
+    default_code = ExpressionError.code
+
+    @property
+    def parameter(self) -> str | None:
+        """The parameter row at fault, when one is."""
+        value = _detail(self.details, "parameter")
+        return str(value) if value is not None else None
+
+    @property
+    def chain(self) -> tuple[str, ...]:
+        """The loop of a cycle, first name repeated last (``a -> b -> a``)."""
+        return _names(_detail(self.details, "chain"))
+
+    @property
+    def pointer(self) -> str | None:
+        """The feature field (a JSON pointer into params) at fault, when one is."""
+        value = _detail(self.details, "pointer")
+        return str(value) if value is not None else None
+
+
+class ParameterInUse(Conflict):
+    """A parameter some feature still reads cannot be deleted (409).
+
+    :attr:`features` lists them as the server names them, ``{"id", "name",
+    "parameters"}`` each, so a caller can repoint those formulas first (Fusion
+    360 refuses to delete a parameter in use the same way).
+    """
+
+    default_code = "parameter_in_use"
+
+    @property
+    def parameters(self) -> tuple[str, ...]:
+        """The parameter names that are still read."""
+        return _names(_detail(self.details, "parameters"))
+
+    @property
+    def features(self) -> tuple[dict[str, Any], ...]:
+        """The features that read them: ``{"id", "name", "parameters"}``."""
+        value = _detail(self.details, "features")
+        if not isinstance(value, list):
+            return ()
+        rows = cast(list[Any], value)
+        return tuple(cast(dict[str, Any], f) for f in rows if isinstance(f, dict))
+
+
+class ParameterNotFound(NotFound):
+    """The part has no parameter of that name. Raised before anything is sent."""
+
+    default_code = "parameter_not_found"
+
+
 class RateLimited(LoftError):
     """Too many requests (429). ``retry_after`` is seconds, when the server said."""
 
@@ -318,6 +408,26 @@ _CODE_ERRORS: dict[str, type[LoftError]] = {
     # own 422, re-surfaced verbatim by the gateway, so the library's refusal is
     # the server's verdict rather than a client-side second opinion.
     "tree_export_failed": NoBody,
+    # PART-PARAMETERS (RESEARCH §20): parameter-table and feature-formula
+    # refusals, keyed on the shared library's own codes, not copied strings.
+    **{
+        error.code: InvalidExpression
+        for error in (
+            ExpressionError,
+            ExpressionSyntaxError,
+            ExpressionLimitError,
+            ExpressionUnitError,
+            ExpressionDomainError,
+            ExpressionReferenceError,
+            ExpressionCycleError,
+            ExpressionNameError,
+        )
+    },
+    PARAMETER_VALUE_INVALID: InvalidExpression,
+    PARAMETER_UNRESOLVED: InvalidExpression,
+    # documents/parameters.py: two rows with one id (``resolve_parameters``).
+    "parameter_id_duplicate": InvalidExpression,
+    "parameter_in_use": ParameterInUse,
 }
 
 #: Status -> error class. 4xx codes the gateway actually uses; anything else

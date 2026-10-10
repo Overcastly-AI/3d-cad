@@ -89,11 +89,14 @@ def plane_at_angle_feature(
     *,
     reference: ReferenceLike | None = None,
     flip: bool = False,
+    expressions: dict[str, str] | None = None,
 ) -> DatumFeature:
     """The ``datum`` feature for a plane through *line* at *angle_deg* from
     *reference* (positive turns the reference normal right-handed about the
-    line's direction; RESEARCH §18)."""
+    line's direction; RESEARCH §18). *expressions* is the envelope's formulas
+    (``{"/angle_deg": "A"}``), with *angle_deg* their resolved number."""
     return DatumFeature(
+        expressions=expressions,
         type="datum",
         version=1,
         params=DatumAngleParams(

@@ -25,6 +25,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeVar
 
+from loft_wire.expr import Quantity
 from loft_wire.extrude_extent import ExtrudeExtent
 from loft_wire.features import (
     EvaluateTreeResult,
@@ -50,6 +51,13 @@ from loft_wire.legacy_twist import (
     EXTRUDE_TWIST_DEPRECATED_MESSAGE,
 )
 from loft_wire.loft_file import LOFT_SUFFIX, LoftWarning
+from loft_wire.parameters import (
+    ParameterUnit,
+    PartParameter,
+    PartParameterInput,
+    PartParametersResponse,
+    PartParametersUpdate,
+)
 from loft_wire.parts import PartCreate, PartListResponse, PartResponse, PartUpdate
 from loft_wire.units import LengthUnit
 from loft_wire.versions import (
@@ -60,8 +68,10 @@ from loft_wire.versions import (
 )
 
 from loft import _operations as ops
+from loft import parameters as table
 from loft.datum import LineLike, ReferenceLike, plane_at_angle_feature
 from loft.errors import FeatureFailed, InvalidRequest, NoBody, StaleDocument
+from loft.parameters import Numeric, field_numbers
 from loft.sketch import Sketch, resolve_plane
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -269,6 +279,86 @@ class Part:
         self._tree_version = after(result)
         return result
 
+    # -- parameters (RESEARCH §20) -------------------------------------------
+
+    def parameter_table(self) -> PartParametersResponse:
+        """The parameter table with its concurrency token, in stored order."""
+        response = self.session.transport.call(
+            ops.GET_PARTS_PART_ID_PARAMETERS,
+            PartParametersResponse,
+            path_params={"part_id": self.id},
+        )
+        self._tree_version = response.tree_version
+        return response
+
+    def parameters(self) -> list[PartParameter]:
+        """Each parameter's name, expression, unit kind, resolved value and
+        comment (``value`` is mm for a length, degrees for an angle)."""
+        return self.parameter_table().parameters
+
+    def parameter_values(self) -> dict[str, Quantity]:
+        """name -> typed value, ready for :func:`loft.expr.evaluate`."""
+        return table.quantities(self.parameters())
+
+    def _put_parameters(
+        self, edit: Callable[[list[PartParameter]], list[PartParameterInput]]
+    ) -> list[PartParameter]:
+        """Read the table, edit it, PUT it whole: one undoable tree edit.
+
+        The edit is re-applied to a fresh read if the part moved in between
+        (one retry, as every write). A 422 or 409 from the server is a typed
+        :class:`~loft.errors.InvalidExpression` or
+        :class:`~loft.errors.ParameterInUse` with its code and message.
+        """
+
+        def send(_version: int) -> PartParametersResponse:
+            current = self.parameter_table()
+            return self.session.transport.call(
+                ops.PUT_PARTS_PART_ID_PARAMETERS,
+                PartParametersResponse,
+                path_params={"part_id": self.id},
+                body=PartParametersUpdate(
+                    expected_tree_version=current.tree_version,
+                    parameters=edit(current.parameters),
+                ),
+            )
+
+        return self._write(send, after=lambda r: r.tree_version).parameters
+
+    def set_parameter(
+        self,
+        name: str,
+        expression: str,
+        comment: str | None = None,
+        *,
+        unit: ParameterUnit | None = None,
+    ) -> PartParameter:
+        """Create or update the parameter *name*; returns the stored row.
+
+        ``part.set_parameter("D", "25")`` re-drives every feature that reads
+        ``D``, in one undo step. A new row is a length unless its formula says
+        otherwise (``"30 deg"`` is an angle), as in Fusion 360; an existing row
+        keeps its unit kind and, when *comment* is None, its comment. Pass
+        ``unit="unitless"`` for a count or a ratio. A bare number is mm.
+        """
+        rows = self._put_parameters(
+            lambda current: table.with_parameter(
+                current, name, expression, comment=comment, unit=unit
+            )
+        )
+        return next(row for row in rows if row.name == name)
+
+    def rename_parameter(self, old: str, new: str) -> PartParameter:
+        """Rename a parameter. The row keeps its id, so the server rewrites
+        every formula that reads *old*, token by token."""
+        rows = self._put_parameters(lambda current: table.renamed(current, old, new))
+        return next(row for row in rows if row.name == new)
+
+    def delete_parameter(self, name: str) -> None:
+        """Delete a parameter. One that a feature still reads is refused with
+        :class:`~loft.errors.ParameterInUse`, whose ``features`` names them."""
+        self._put_parameters(lambda current: table.without(current, name))
+
     # -- feature tree ------------------------------------------------------
 
     def tree(self) -> FeatureTreeResponse:
@@ -417,7 +507,7 @@ class Part:
     def extrude(
         self,
         profile: Sketch | FeatureRef | uuid.UUID,
-        distance_mm: float,
+        distance_mm: Numeric,
         *,
         operation: Literal["add", "cut"] = "add",
         direction: Literal["normal", "reverse"] = "normal",
@@ -449,6 +539,10 @@ class Part:
         :class:`~loft.errors.InvalidRequest` (``extrude_twist_deprecated``)
         before anything is sent.
 
+        ``distance_mm`` may be a formula over the part's parameters
+        (``part.extrude(sk, "D")``): it is stored as the extrude's
+        ``expressions["/distance_mm"]`` and follows ``D`` from then on.
+
         A non-positive ``distance_mm`` or a non-finite value is refused
         CLIENT-side by the shared DTO (a ``ValueError``, the same validator the
         server runs), so no payload the server would reject is ever sent. An
@@ -457,6 +551,9 @@ class Part:
         """
         if twist_angle_deg is not None or twist_center is not None:
             _refuse_extrude_twist()
+        distance, formulas = table.field_number(
+            "distance_mm", distance_mm, self.parameter_values
+        )
         created = self.create_feature(
             name,
             ExtrudeFeature(
@@ -464,12 +561,13 @@ class Part:
                 version=1,
                 params=ExtrudeParamsV1(
                     profile=_sketch_ref(profile),
-                    distance_mm=distance_mm,
+                    distance_mm=distance,
                     operation=operation,
                     direction=direction,
                     extent=extent,
                     merge=merge,
                 ),
+                expressions=formulas,
             ),
         )
         return created.feature
@@ -477,7 +575,7 @@ class Part:
     def plane_at_angle(
         self,
         line: LineLike,
-        angle_deg: float,
+        angle_deg: Numeric,
         *,
         reference: ReferenceLike | None = None,
         flip: bool = False,
@@ -491,11 +589,17 @@ class Part:
         datum's ref or a face ref, and defaults to a sketch line's own sketch
         plane. The line must be parallel to the reference. Returns the datum's
         ref, ready for ``part.sketch(on=...)``. The plane follows both inputs
-        on every rebuild (:mod:`loft.datum`; RESEARCH §18).
+        on every rebuild (:mod:`loft.datum`; RESEARCH §18). *angle_deg* may be
+        a formula over the part's parameters (``"A"``, ``"90 - A"``).
         """
+        angle, formulas = table.field_number(
+            "angle_deg", angle_deg, self.parameter_values
+        )
         created = self.create_feature(
             name,
-            plane_at_angle_feature(line, angle_deg, reference=reference, flip=flip),
+            plane_at_angle_feature(
+                line, angle, reference=reference, flip=flip, expressions=formulas
+            ),
         )
         return FeatureRef(kind="feature", feature_id=created.feature.id)
 
@@ -506,7 +610,7 @@ class Part:
         *,
         operation: Literal["add", "cut"] = "add",
         merge: bool = True,
-        twist_angle_deg: float | None = None,
+        twist_angle_deg: Numeric | None = None,
         name: str = "Sweep",
     ) -> FeatureResponse:
         """Sweep an earlier sketch's closed profile along another sketch's path.
@@ -530,8 +634,12 @@ class Part:
         feature error, and a twist with too many turns for the profile a
         ``twist_failed`` one, both raised by :meth:`evaluate`. ``None`` or ``0``
         is the plain sweep. A non-finite twist, or one beyond ten turns, is
-        refused client-side by the shared DTO (a ``ValueError``).
+        refused client-side by the shared DTO (a ``ValueError``). The twist may
+        be a formula over the part's parameters.
         """
+        numbers, formulas = field_numbers(
+            {"twist_angle_deg": twist_angle_deg}, self.parameter_values
+        )
         created = self.create_feature(
             name,
             SweepFeature(
@@ -542,14 +650,15 @@ class Part:
                     path=_sketch_ref(path),
                     operation=operation,
                     merge=merge,
-                    twist_angle_deg=twist_angle_deg,
+                    twist_angle_deg=numbers["twist_angle_deg"],
                 ),
+                expressions=formulas,
             ),
         )
         return created.feature
 
     def set_sweep_twist(
-        self, feature_id: uuid.UUID, twist_angle_deg: float | None
+        self, feature_id: uuid.UUID, twist_angle_deg: Numeric | None
     ) -> FeatureResponse:
         """Change an existing sweep's twist (``None``/``0`` removes it).
 
@@ -562,23 +671,35 @@ class Part:
         stored = record.feature
         if not isinstance(stored, SweepFeature):
             raise TypeError(f"feature {feature_id} is a {stored.type!r}, not a sweep")
-        params = SweepParamsV1.model_validate(
-            {**stored.params.model_dump(), "twist_angle_deg": twist_angle_deg}
+        numbers, formulas = field_numbers(
+            {"twist_angle_deg": twist_angle_deg},
+            self.parameter_values,
+            kept=stored.expressions,
         )
+        params = SweepParamsV1.model_validate({**stored.params.model_dump(), **numbers})
         updated = self.update_feature(
-            feature_id, feature=SweepFeature(type="sweep", version=1, params=params)
+            feature_id,
+            feature=SweepFeature(
+                type="sweep",
+                version=1,
+                params=params,
+                suppressed=stored.suppressed,
+                expressions=formulas,
+            ),
         )
         return updated.feature
 
     def set_extrude_distance(
-        self, feature_id: uuid.UUID, distance_mm: float
+        self, feature_id: uuid.UUID, distance_mm: Numeric
     ) -> FeatureResponse:
         """Re-parametrize an existing extrude — the live parametric loop.
 
         Replaces the whole param envelope, like the workspace's distance field,
         keeping every other parameter as stored (a PATCH that dropped
         ``operation`` would silently turn a cut into an add, and one that
-        dropped a stored legacy twist would straighten the part).
+        dropped a stored legacy twist would straighten the part). A number
+        replaces a formula that drove the distance; a string is a new formula.
+        The feature's suppress flag and its other formulas are kept.
         """
         return self._update_extrude(feature_id, distance_mm=distance_mm)
 
@@ -595,7 +716,7 @@ class Part:
         _refuse_extrude_twist()
 
     def _update_extrude(
-        self, feature_id: uuid.UUID, **changes: object
+        self, feature_id: uuid.UUID, **changes: Numeric | None
     ) -> FeatureResponse:
         record = self.feature(feature_id)
         stored = record.feature
@@ -608,12 +729,24 @@ class Part:
         # DTO. Without it (measured, review of d823af9) a NaN is carried by the
         # unvalidated copy into the request and dies in the HTTP client's JSON
         # encoder with an opaque "Out of range float values" error.
+        numbers, formulas = field_numbers(
+            changes, self.parameter_values, kept=stored.expressions
+        )
         params = type(stored.params).model_validate(
-            {**stored.params.model_dump(), **changes}
+            {**stored.params.model_dump(), **numbers}
         )
         updated = self.update_feature(
             feature_id,
-            feature=ExtrudeFeature(type="extrude", version=1, params=params),
+            # The suppress flag and the other formulas ride the envelope, not
+            # params: a replacement that dropped them would un-suppress the
+            # feature and turn its other driven fields back into numbers.
+            feature=ExtrudeFeature(
+                type="extrude",
+                version=1,
+                params=params,
+                suppressed=stored.suppressed,
+                expressions=formulas,
+            ),
         )
         return updated.feature
 
