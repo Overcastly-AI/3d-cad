@@ -382,6 +382,26 @@ One line each. The founder triages weekly; most are closed without work.
 - ENV-E2E-PORT: Playwright reuses an existing server on :5173 (`reuseExistingServer`), so parallel agents test each other's code unless each sets its own web port.
 - LOFT-DIMEXPR-INDEX (step 5 review): `dimension_expressions` pointers are keyed by constraint index; a hand edit that moves a plain dimension to that index silently moves the formula (warning `loft_tree_edited` only). Store the dimension's name in the entry and check it on read.
 - LOFT-COMMENT-PIN: golden-v1.2.loft has only empty parameter comments, so a non-empty comment's round trip is not pinned.
+- QA-RECT-BOX-NAMES (QA 2026-10-10, major): the rectangle's draw-time size boxes accept `W`/`H` then silently apply nothing; typing `W` mid-drag switches to the Point tool and drops the rectangle. Boxes must take formulas (ValueField) and letters typed in a box must not fire tool shortcuts.
+- QA-PROJECTED-PROFILE (major): projected edges count as profile geometry, so a cut's preview passes then the commit fails PROFILE_NOT_CLOSED until they are made construction; Fusion leaves projected lines out of profile closure.
+- QA-DRAWING-CENTRE-MARKS (major): drawings have no centre marks or hole-centre picks, so hole positions cannot be dimensioned (a circle offers only diameter/radius).
+- QA-DRAWING-DIMS-DURABLE (major): drawing dimensions go "unresolved" after a part edit even when their edge only moved; the PDF then prints overlapping "REFERENCE LOST" labels.
+- QA-FILLET-PICK-REFRAME (minor): the camera sometimes reframes on a fillet edge pick, so the next click picks the wrong edge.
+- QA-FILLET-DEFAULT-MODE: fillet opens in "By rule, all edges"; Fusion opens in edge-pick.
+- QA-SKETCH-PLANE-REFRAME: the sketch plane pick reframes before the click, so a face click aimed from the old view lands on a datum plane.
+- QA-SKETCH-ON-FACE-DATUM: sketching on a face adds a Plane1 datum and puts the sketch origin at the face centre, not the part origin.
+- QA-CIRCLE-DIAMETER-BOX: the circle's draw-time box asks for radius; Fusion's centre-diameter circle asks for diameter.
+- QA-JOINT-PICK-LABELS: the joint picker labels fillet-arc centres "Hole centre", and overlapping markers from two parts take the topmost.
+- QA-JOINT-RESET-ON-ADD: adding a second joint reset the first from 11 deg to its 0 deg limit.
+- QA-JOINT-ANGLE-LIVE: the joint angle in the tree updates only on drag release.
+- QA-JOINT-PICK-FREEZE: one ~30 s freeze on the joint origin-B pick (not reproduced; 0.67 s next try).
+- QA-CREATE-OPENS: creating an assembly or drawing leaves you on the register; creating a part opens it.
+- QA-PART-DRAWING-CMD: the part editor has no Drawing command; the assembly editor does.
+- QA-DRAWING-SCALE: auto-layout drew at 1:2 though the setup showed 1:1.
+- QA-DRAWING-OVERALL-DIM: a linear dimension on a filleted edge gives 90/40, not overall; "Distance to edge" asks for the type in two menus in a row.
+- QA-DRAWING-DECIMALS: drawing dimensions show 3 decimals (diameter 8.000).
+- QA-SKETCH-LABEL-OVERLAP: dimension labels overlap at a small hole near a corner.
+- QA-1280-LAYOUT: at 1280x800 the Parameters table scrolls sideways, the fillet radius popup covers the Material panel, and Fit sketch leaves part of the profile under the position readout.
 - JOINT-PLANAR-PARENT (motions review): a planar slide PATCHes B's placement; when B is the solve parent rather than the child the slide may not stick. Unverified.
 - JOINT-CARD-OVERLAP: the joint drive card overlaps the inspector's DOF text (revolute and planar).
 - MEASURE-FROM-EVAL-REQUEST, rest (step 8 did the part's measure and pick): assembly overlays (`AssemblyPage.tsx` `buildEvaluateTree`) and drawing requests (`useDrawingData.ts`) still build from GET features, so a sick feature still shows its last good body there.
