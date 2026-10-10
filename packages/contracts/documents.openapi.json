@@ -4353,6 +4353,46 @@
         "title": "ImportedProduct",
         "type": "object"
       },
+      "InstanceCopy": {
+        "description": "Copy one instance within its assembly (Fusion's Copy and Paste).\n\nThe copy references the same document as the source, keeps its\norientation, and sits at the source's position plus ``offset`` (assembly\naxes, mm). It is never grounded, and mates and joints are not copied.",
+        "properties": {
+          "expected_version": {
+            "description": "Optimistic-concurrency guard (design \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "offset": {
+            "description": "[x, y, z] mm added to the source's position, in the assembly's axes. Absent reads [20, 0, 0].",
+            "maxItems": 3,
+            "minItems": 3,
+            "prefixItems": [
+              {
+                "maximum": 100000.0,
+                "minimum": -100000.0,
+                "type": "number"
+              },
+              {
+                "maximum": 100000.0,
+                "minimum": -100000.0,
+                "type": "number"
+              },
+              {
+                "maximum": 100000.0,
+                "minimum": -100000.0,
+                "type": "number"
+              }
+            ],
+            "title": "Offset",
+            "type": "array"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "title": "InstanceCopy",
+        "type": "object"
+      },
       "InstanceCreate": {
         "description": "Add an instance referencing a part/sub-assembly by id (design \u00a71.2).\n\n``ref_document_id`` is a cross-document reference, not an FK (design \u00a71.2):\ndocuments enforces its integrity at write time (existence, acyclicity), not\nthe DB. ``placement`` defaults to identity; ``grounded`` fixes the instance\nat its placement (0 DOF) \u2014 the solver's anchor (v1 wants at least one\ngrounded instance per assembly, \u00a71.2). ``order_index`` is a stable\ndisplay/BOM order, appended at the tip when omitted.",
         "properties": {
@@ -10704,6 +10744,88 @@
           }
         },
         "summary": "Update Instance",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/instances/{instance_id}/copy": {
+      "post": {
+        "description": "Copy one instance of the assembly and return the copy (201).\n\nSee the module docstring for what the copy carries. Refusals: another\nuser's assembly, or an instance of a different assembly, is a uniform 404;\na stale ``expected_version`` is 422 ``stale_assembly_version``; a source\nwhose referenced document has been deleted is 422\n``ref_document_not_found``; a full assembly is 422\n``instance_limit_exceeded``.",
+        "operationId": "copy_instance_api_v1_assemblies__assembly_id__instances__instance_id__copy_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "instance_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Instance Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstanceCopy"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Copy Instance",
         "tags": [
           "assemblies"
         ]

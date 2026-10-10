@@ -137,6 +137,16 @@ PATCH_ASSEMBLIES_ASSEMBLY_ID_INSTANCES_INSTANCE_ID: Final = Operation(
     required_query=(),
 )
 
+POST_ASSEMBLIES_ASSEMBLY_ID_INSTANCES_INSTANCE_ID_COPY: Final = Operation(
+    operation_id="copy_instance_api_v1_assemblies__assembly_id__instances__instance_id__copy_post",
+    method="POST",
+    path="/api/v1/assemblies/{assembly_id}/instances/{instance_id}/copy",
+    request_model="InstanceCopy",
+    response_model="InstanceMutationResponse",
+    path_params=("assembly_id", "instance_id",),
+    required_query=(),
+)
+
 POST_ASSEMBLIES_ASSEMBLY_ID_MATES: Final = Operation(
     operation_id="create_mate_api_v1_assemblies__assembly_id__mates_post",
     method="POST",
@@ -994,6 +1004,7 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "create_instance_api_v1_assemblies__assembly_id__instances_post": POST_ASSEMBLIES_ASSEMBLY_ID_INSTANCES,
         "delete_instance_api_v1_assemblies__assembly_id__instances__instance_id__delete": DELETE_ASSEMBLIES_ASSEMBLY_ID_INSTANCES_INSTANCE_ID,
         "update_instance_api_v1_assemblies__assembly_id__instances__instance_id__patch": PATCH_ASSEMBLIES_ASSEMBLY_ID_INSTANCES_INSTANCE_ID,
+        "copy_instance_api_v1_assemblies__assembly_id__instances__instance_id__copy_post": POST_ASSEMBLIES_ASSEMBLY_ID_INSTANCES_INSTANCE_ID_COPY,
         "create_mate_api_v1_assemblies__assembly_id__mates_post": POST_ASSEMBLIES_ASSEMBLY_ID_MATES,
         "delete_mate_api_v1_assemblies__assembly_id__mates__mate_id__delete": DELETE_ASSEMBLIES_ASSEMBLY_ID_MATES_MATE_ID,
         "update_mate_api_v1_assemblies__assembly_id__mates__mate_id__patch": PATCH_ASSEMBLIES_ASSEMBLY_ID_MATES_MATE_ID,

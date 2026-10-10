@@ -240,6 +240,31 @@ export interface paths {
         patch: operations["update_instance_api_v1_assemblies__assembly_id__instances__instance_id__patch"];
         trace?: never;
     };
+    "/api/v1/assemblies/{assembly_id}/instances/{instance_id}/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy Instance
+         * @description Copy one instance within its assembly and return the copy (201).
+         *
+         *     Fusion's Copy and Paste: same referenced document, next free ``<n>`` name,
+         *     the source's pose offset by ``offset`` (+20 mm X by default), not
+         *     grounded, no mates or joints copied. Bumps ``doc_version`` and records one
+         *     undo step; documents' 404 / 422 envelopes are re-surfaced verbatim.
+         */
+        post: operations["copy_instance_api_v1_assemblies__assembly_id__instances__instance_id__copy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}/mates": {
         parameters: {
             query?: never;
@@ -6578,6 +6603,30 @@ export interface components {
             kind: "inline";
         };
         /**
+         * InstanceCopy
+         * @description Copy one instance within its assembly (Fusion's Copy and Paste).
+         *
+         *     The copy references the same document as the source, keeps its
+         *     orientation, and sits at the source's position plus ``offset`` (assembly
+         *     axes, mm). It is never grounded, and mates and joints are not copied.
+         */
+        InstanceCopy: {
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §1.2)
+             */
+            expected_version: number;
+            /**
+             * Offset
+             * @description [x, y, z] mm added to the source's position, in the assembly's axes. Absent reads [20, 0, 0].
+             */
+            offset?: [
+                number,
+                number,
+                number
+            ];
+        };
+        /**
          * InstanceCreate
          * @description Add an instance referencing a part/sub-assembly by id (design §1.2).
          *
@@ -11545,6 +11594,42 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstanceMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    copy_instance_api_v1_assemblies__assembly_id__instances__instance_id__copy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+                instance_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstanceCopy"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
