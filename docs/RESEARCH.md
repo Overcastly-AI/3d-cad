@@ -1253,8 +1253,17 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   resolution documents runs on write, per evaluation request and on a table
   PUT (shared with the golden harness). A field's unit comes from its name.
   A sketch is resolved only when a driving dimension names something outside
-  the sketch; a dimension that reads a parameter reaches geometry as its
-  number, one that reads only its sketch keeps its formula. A table PUT
+  the sketch. **Stored form: `params` hold numbers wherever a parameter is
+  read.** A dimension formula that names one is moved on write (and on import
+  and restore) from the dimension's `expression` into the envelope's
+  `expressions` at `/constraints/i/value_mm|value_deg`. A formula over the
+  sketch's own dimensions stays. So every request built from stored params
+  solves in geometry: the evaluation request, the web's measure, pick, preview
+  and drawing requests (built from `GET /features`) and the reference
+  backfill. `EvaluatedFeatureInput` drops `expressions`, so all of them key
+  the rebuild cache alike. A dimension may not carry both a pointer formula
+  and its own (422). A rename that would push a formula past 256 characters
+  is a 422 naming the feature and pointer, with nothing stored. A table PUT
   keeps going when a dependent feature goes out of range: the feature keeps
   its last good numbers and is sick on evaluation. The same table again is a
   no-op. Golden kind `parametric.json` (`test_parametric_goldens.py`).
