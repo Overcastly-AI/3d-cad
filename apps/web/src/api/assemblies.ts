@@ -31,6 +31,7 @@ export type AssemblyGraphResponse =
 export type InstanceResponse = components["schemas"]["InstanceResponse"];
 export type InstanceCreate = components["schemas"]["InstanceCreate"];
 export type InstanceUpdate = components["schemas"]["InstanceUpdate"];
+export type InstanceCopy = components["schemas"]["InstanceCopy"];
 export type InstanceMutationResponse =
   components["schemas"]["InstanceMutationResponse"];
 export type MateResponse = components["schemas"]["MateResponse"];
@@ -336,6 +337,33 @@ export async function updateInstance(
   return data;
 }
 
+/**
+ * Copy one instance within its assembly (Fusion's Copy/Paste of an
+ * occurrence; 201). The copy references the same part, keeps the source's
+ * orientation, is never grounded, and is named with the next free "<n>".
+ * `offset` is mm in the assembly's axes; the server defaults it to +20 X.
+ * One undo step. A stale version throws the typed `StaleAssemblyVersionError`
+ * so the caller can resync before the user retries.
+ */
+export async function copyInstance(
+  assemblyId: string,
+  instanceId: string,
+  body: InstanceCopy,
+  client: GatewayClient = gatewayClient,
+): Promise<InstanceMutationResponse> {
+  const { data, error } = await client.POST(
+    "/api/v1/assemblies/{assembly_id}/instances/{instance_id}/copy",
+    {
+      params: { path: { assembly_id: assemblyId, instance_id: instanceId } },
+      body,
+    },
+  );
+  if (error !== undefined) {
+    throw historyStepError(error, "The component could not be copied.");
+  }
+  return data;
+}
+
 /** Remove an instance; returns the renumbered graph + new version. */
 export async function deleteInstance(
   assemblyId: string,
@@ -465,7 +493,7 @@ export async function redoAssembly(
   return data;
 }
 
-/** Shared undo/redo failure mapping: stale → typed, everything else verbatim. */
+/** Shared graph-write failure mapping: stale → typed, everything else verbatim. */
 function historyStepError(error: unknown, fallback: string): Error {
   const message = envelopeMessage(error, fallback);
   return envelopeCode(error) === "stale_assembly_version"

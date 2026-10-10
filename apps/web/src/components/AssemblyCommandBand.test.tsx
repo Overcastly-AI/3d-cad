@@ -28,6 +28,8 @@ function renderBand(
       moveActive={false}
       moveBlocker={null}
       onMove={vi.fn()}
+      copyBlocker={null}
+      onCopy={vi.fn()}
       canMate={false}
       activeTool={null}
       onToggleTool={vi.fn()}
@@ -121,5 +123,36 @@ describe("AssemblyCommandBand — move", () => {
     expect(button).toHaveAttribute("aria-pressed", "true");
     button.click();
     expect(onMove).toHaveBeenCalledOnce();
+  });
+});
+
+describe("AssemblyCommandBand — copy", () => {
+  it("sits next to Move with its chord, and copies on a press", () => {
+    const onCopy = vi.fn();
+    renderBand({ onCopy });
+    const button = screen.getByTestId("copy-instance");
+    expect(button).toHaveAccessibleName(/^Copy — (Ctrl\+D|⌘D)$/);
+    const move = screen.getByTestId("move-instance");
+    const cells = [...document.querySelectorAll("[data-testid]")].map((el) =>
+      el.getAttribute("data-testid"),
+    );
+    expect(cells.indexOf("copy-instance")).toBeGreaterThan(
+      cells.indexOf(move.getAttribute("data-testid")),
+    );
+    expect(cells.indexOf("copy-instance")).toBeLessThan(
+      cells.indexOf("mate-coincident"),
+    );
+    button.click();
+    expect(onCopy).toHaveBeenCalledOnce();
+  });
+
+  it("says why it is unavailable with nothing selected", () => {
+    const onCopy = vi.fn();
+    renderBand({ copyBlocker: "Select a component to copy", onCopy });
+    const button = screen.getByTestId("copy-instance");
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).toHaveAccessibleDescription("Select a component to copy");
+    button.click();
+    expect(onCopy).not.toHaveBeenCalled();
   });
 });

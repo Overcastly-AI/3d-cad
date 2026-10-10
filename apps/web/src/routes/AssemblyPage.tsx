@@ -3,9 +3,11 @@ import {
   ContextMenu,
   type ContextMenuSection,
   DrawingSheetIcon,
+  DuplicateIcon,
   EyeIcon,
   EyeOffIcon,
   FixedIcon,
+  formatChord,
   IsolateIcon,
   MoveIcon,
   ToolButton,
@@ -94,6 +96,7 @@ import {
   useMoveSession,
   useReleaseWhenSolved,
 } from "../assembly/useMoveSession";
+import { copyBlocker, useCopyComponent } from "../assembly/useCopyComponent";
 import {
   type DrawnPoses,
   NO_DRAWN_POSES,
@@ -107,6 +110,11 @@ import { executeHistoryStep, signedInUserId } from "../lib/historyStep";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { useReducedMotion } from "../lib/useReducedMotion";
+import {
+  CHORD_COPY_INSTANCE,
+  KEY_COPY_INSTANCE,
+  KEY_MOVE_INSTANCE,
+} from "../shortcuts/registry";
 import { assemblyRoute } from "../router";
 import {
   assemblyBounds,
@@ -421,9 +429,16 @@ export function AssemblyPage() {
     [queryClient, assemblyId],
   );
 
-  // Move (Fusion's Move/Copy, minus Copy — ASM-COPY): a session previews a
-  // pose in place of the solve and commits it as ONE PATCH (`useMoveSession`).
+  // Move (Fusion's Move): a session previews a pose in place of the solve and
+  // commits it as ONE PATCH (`useMoveSession`). Copy (`useCopyComponent`) is
+  // one POST, then Move opens on the copy, as Fusion's paste does.
   const move = useMoveSession({
+    assemblyId,
+    docVersion,
+    refreshGraph,
+    onError: setActionError,
+  });
+  const { copying, copy } = useCopyComponent({
     assemblyId,
     docVersion,
     refreshGraph,
@@ -784,6 +799,7 @@ export function AssemblyPage() {
   /** Any graph mutation in flight — history must never race its version. */
   const mutationInFlight =
     busy ||
+    copying ||
     submitting ||
     unitBusy ||
     addingPartId !== null ||
@@ -915,6 +931,18 @@ export function AssemblyPage() {
     movingId !== null &&
     mates.some((m) => mateInstanceIds(m.mate).includes(movingId));
   const cancelMove = move.cancel;
+  // Copy the component, then select the copy and open Move on it.
+  const copyWriting = mutationInFlight || historyStep !== null;
+  const copyComponent = useCallback(
+    (instance: InstanceResponse) => {
+      if (copyWriting) return;
+      setTool(null);
+      setAddOpen(false);
+      cancelMove();
+      void copy(instance.id).then((created) => created && startMove(created));
+    },
+    [copyWriting, setTool, cancelMove, copy, startMove],
+  );
   // A session ends when its part is grounded, removed, or a mate tool arms.
   useEffect(() => {
     if (movingId === null) return;
@@ -929,9 +957,22 @@ export function AssemblyPage() {
   const canCheckInterference = evaluateRequest !== null && canMate;
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
       const key = event.key.toLowerCase();
+      // Ctrl/⌘+D copies the selected component (the browser's bookmark chord
+      // is the workspace's here, selection or not).
+      const chord = event.ctrlKey || event.metaKey;
+      if (
+        chord &&
+        !event.altKey &&
+        !event.shiftKey &&
+        key === KEY_COPY_INSTANCE
+      ) {
+        event.preventDefault();
+        if (selectedInstance !== null) copyComponent(selectedInstance);
+        return;
+      }
+      if (chord || event.altKey) return;
       if (event.key === "Escape") {
         if (movingId !== null) {
           event.preventDefault();
@@ -955,7 +996,7 @@ export function AssemblyPage() {
         return;
       }
       // M moves the selected component (Fusion's accelerator).
-      if (key === "m" && !event.shiftKey) {
+      if (key === KEY_MOVE_INSTANCE && !event.shiftKey) {
         event.preventDefault();
         if (selectedInstance !== null && moveBlocker(selectedInstance) === null)
           startMove(selectedInstance);
@@ -1017,6 +1058,7 @@ export function AssemblyPage() {
     jointDialog,
     drive.armed,
     armDrive,
+    copyComponent,
   ]);
 
   // One predicate owns "who holds Ctrl+Z right now": an armed mate tool or the
@@ -1112,11 +1154,21 @@ export function AssemblyPage() {
             key: "move",
             label: "Move",
             icon: <MoveIcon />,
-            shortcut: "M",
+            shortcut: KEY_MOVE_INSTANCE.toUpperCase(),
             disabled: moveBlocker(instance) !== null,
             disabledReason: moveBlocker(instance) ?? undefined,
             onSelect: () => startMove(instance),
             "data-testid": "instance-ctx-move",
+          },
+          {
+            key: "copy",
+            label: "Copy",
+            icon: <DuplicateIcon />,
+            shortcut: formatChord(CHORD_COPY_INSTANCE),
+            disabled: copyBlocker(instance, copyWriting) !== null,
+            disabledReason: copyBlocker(instance, copyWriting) ?? undefined,
+            onSelect: () => copyComponent(instance),
+            "data-testid": "instance-ctx-copy",
           },
           {
             key: "ground",
@@ -1244,6 +1296,10 @@ export function AssemblyPage() {
                   : drive.armed !== null
                     ? armDrive(null)
                     : selectedInstance !== null && startMove(selectedInstance)
+              }
+              copyBlocker={copyBlocker(selectedInstance, copyWriting)}
+              onCopy={() =>
+                selectedInstance !== null && copyComponent(selectedInstance)
               }
               canMate={canMate}
               activeTool={tool}

@@ -13,8 +13,10 @@ import {
   CoincidentIcon,
   ConcentricIcon,
   DistanceIcon,
+  DuplicateIcon,
   FixedIcon,
   Flyout,
+  formatChord,
   JointIcon,
   MeasureIcon,
   MoreIcon,
@@ -26,6 +28,7 @@ import type { ReactNode } from "react";
 
 import type { ExportedFile, ExportFormat } from "../api/exportPart";
 import type { MateTool } from "../assembly/mateStore";
+import { CHORD_COPY_INSTANCE } from "../shortcuts/registry";
 import type { HistoryStep } from "../lib/undoRedoShortcut";
 import { ExportToolGroup } from "./ExportToolGroup";
 import { HistoryGroup } from "./HistoryGroup";
@@ -54,6 +57,13 @@ export interface AssemblyCommandBandProps {
   /** Why Move is unavailable (nothing selected / grounded), or null. */
   moveBlocker: string | null;
   onMove: () => void;
+  /**
+   * Why Copy is unavailable (nothing selected / a write in flight), or null.
+   * A grounded component CAN be copied: the copy is never grounded.
+   */
+  copyBlocker: string | null;
+  /** Copy the selected component, then open Move on the copy (Ctrl+D). */
+  onCopy: () => void;
   /** A mate needs two instances; the tools stay disabled until then. */
   canMate: boolean;
   activeTool: MateTool | null;
@@ -120,6 +130,8 @@ export function AssemblyCommandBand({
   moveActive,
   moveBlocker,
   onMove,
+  copyBlocker,
+  onCopy,
   canMate,
   activeTool,
   onToggleTool,
@@ -161,6 +173,16 @@ export function AssemblyCommandBand({
           caption={moveActive ? undefined : (moveBlocker ?? undefined)}
           data-testid="move-instance"
           onClick={onMove}
+        />
+        <ToolButton
+          icon={<DuplicateIcon />}
+          label="Copy"
+          showLabel
+          shortcut={formatChord(CHORD_COPY_INSTANCE)}
+          disabled={copyBlocker !== null}
+          caption={copyBlocker ?? undefined}
+          data-testid="copy-instance"
+          onClick={onCopy}
         />
       </ToolGroup>
       {/* Joint leads, as in Fusion's Assemble panel: one command that brings
