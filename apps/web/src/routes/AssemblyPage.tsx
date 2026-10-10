@@ -95,6 +95,10 @@ import {
   recordDrawnPose,
 } from "../assembly/posePublication";
 import { buildEvaluateTree } from "../measure/geometry";
+import {
+  assemblyExporter,
+  assemblyExportGate,
+} from "../features/assemblyExport";
 import { deriveAssemblySolve } from "../features/assemblySolve";
 import { FloatingPanel } from "../components/FloatingPanel";
 import { executeHistoryStep, signedInUserId } from "../lib/historyStep";
@@ -1143,6 +1147,15 @@ export function AssemblyPage() {
     evaluation,
   });
   useReleaseWhenSolved(move, docVersion, !solve.stale);
+  // A solve that dropped or could not satisfy a mate still places every part
+  // it can, so the file is writable but misplaced: "Partial", named, `-partial`
+  // in the filename, and one confirm before it writes (QA 2026-10-10).
+  const exportGate = assemblyExportGate(solve, mates);
+  const exportPartial = exportGate.partial;
+  const gatedExporter = useMemo(
+    () => assemblyExporter(exporter, exportPartial),
+    [exporter, exportPartial],
+  );
   useReleaseJointHold(jointDialog, docVersion, !solve.stale);
   jointDrive.useReleaseDriveWhenSolved(drive, docVersion, !solve.stale);
 
@@ -1220,8 +1233,9 @@ export function AssemblyPage() {
               // Export is a document-level ACTION, so it rides the band as well
               // as the Inspect panel's strip — the panel can be collapsed, and
               // the file has to stay reachable when it is (EXPORT-1).
-              exporter={exporter}
+              exporter={gatedExporter}
               exportDisabledReason={exportDisabledReason}
+              exportGate={exportGate}
             />
             {/* The way OUT of the assembly and onto paper. It sits on the band
                 rather than in a menu because drafting is what a solved
@@ -1425,8 +1439,9 @@ export function AssemblyPage() {
               clashResult={clashResult}
               clashBusy={clashBusy}
               clashError={clashError}
-              exporter={exporter}
+              exporter={gatedExporter}
               exportDisabledReason={exportDisabledReason}
+              exportGate={exportGate}
             />
           </FloatingPanel>
         </main>

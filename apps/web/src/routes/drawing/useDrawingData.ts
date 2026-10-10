@@ -26,7 +26,11 @@ import {
   fetchDrawingBom,
 } from "../../api/drawings";
 import { fetchFeatureTree, fetchParts } from "../../api/parts";
-import { fetchAssemblies } from "../../api/assemblies";
+import { fetchAssemblies, fetchAssemblyGraph } from "../../api/assemblies";
+import {
+  assemblyFaultSummary,
+  assemblySolveFaults,
+} from "../../features/assemblyExport";
 import {
   STANDARD_VIEWS,
   type OrientationFit,
@@ -252,6 +256,33 @@ export function useDrawingData(drawingId: string) {
     ),
     enabled: measuredSourceId !== null,
   });
+  // An assembly sheet is projected from the same solve the extents came from:
+  // a joint or mate that did not solve puts a part where nobody put it, on the
+  // paper as in a STEP (QA 2026-10-10). The kinds come from the graph — read
+  // only when there is something to name, and named only once it has landed,
+  // so the sentence never flips from "1 mate" to "1 joint".
+  const assemblySolveFacts =
+    hasLayout && draftedSourceKind === "assembly"
+      ? (sourceExtentsQuery.data?.assemblySolve ?? null)
+      : null;
+  const assemblyAtFault =
+    assemblySolveFacts !== null &&
+    assemblyFaultSummary(assemblySolveFaults(assemblySolveFacts, [])) !== null;
+  const draftedAssemblyQuery = useQuery({
+    queryKey: ["assembly", draftedSourceId],
+    queryFn: () => fetchAssemblyGraph(draftedSourceId as string),
+    enabled: assemblyAtFault && draftedSourceId !== null,
+  });
+  const draftedAssemblyMates = draftedAssemblyQuery.data?.mates;
+  const assemblyPartial = useMemo(
+    () =>
+      assemblySolveFacts === null || draftedAssemblyMates === undefined
+        ? null
+        : assemblyFaultSummary(
+            assemblySolveFaults(assemblySolveFacts, draftedAssemblyMates),
+          ),
+    [assemblySolveFacts, draftedAssemblyMates],
+  );
   // Fitted against the paper the sheet is ACTUALLY on (`effectiveSize`), not the
   // picker's value: a laid-out A3 sheet whose picker still reads A4 would have
   // had its header cell quote A4's fits.
@@ -404,6 +435,7 @@ export function useDrawingData(drawingId: string) {
     annotations,
     hasLayout,
     draftedSourceId,
+    assemblyPartial,
     parts,
     sources,
     selectedSourceId,

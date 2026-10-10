@@ -27,6 +27,7 @@ import {
 import type { ReactNode } from "react";
 
 import type { ExportedFile, ExportFormat } from "../api/exportPart";
+import type { AssemblyExportGate } from "../features/assemblyExport";
 import type { MateTool } from "../assembly/mateStore";
 import { CHORD_COPY_INSTANCE } from "../shortcuts/registry";
 import type { HistoryStep } from "../lib/undoRedoShortcut";
@@ -85,6 +86,11 @@ export interface AssemblyCommandBandProps {
   exporter?: (format: ExportFormat) => Promise<ExportedFile>;
   /** Why export is inert (no assembly / no body), or undefined when ready. */
   exportDisabledReason?: string;
+  /**
+   * The solve did not honour every mate (QA 2026-10-10): the cells say the file
+   * would be partial and a click asks once before writing.
+   */
+  exportGate?: AssemblyExportGate;
 }
 
 /** The relation mates under More, in their band order and with their keys. */
@@ -140,6 +146,7 @@ export function AssemblyCommandBand({
   onCheckInterference,
   exporter,
   exportDisabledReason,
+  exportGate,
 }: AssemblyCommandBandProps) {
   const mateReason = canMate ? undefined : "Add two parts first";
   return (
@@ -250,6 +257,10 @@ export function AssemblyCommandBand({
           labelPriority={40}
           exporter={exporter}
           disabledReason={exportDisabledReason}
+          partial={exportGate?.partial ?? false}
+          partialQualifier={exportGate?.qualifier ?? undefined}
+          confirmReason={exportGate?.confirmReason ?? null}
+          state={exportGate?.state}
         />
       ) : null}
     </div>

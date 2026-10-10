@@ -11,6 +11,7 @@ import {
   type ExportFormatEntry,
   useExportAction,
 } from "../features/exportAction";
+import { ExportConfirm } from "./ExportConfirm";
 
 /** The catalogue in rows of two — the strip's 2x2 block (see the layout note). */
 const formatRows: ReadonlyArray<readonly ExportFormatEntry[]> =
@@ -53,6 +54,12 @@ export interface ExportRowProps {
    * than the sentence it produced.
    */
   state?: string;
+  /**
+   * Set = a format click asks once before it writes ("Export anyway — parts at
+   * their last solved or initial positions"); this is why, in a sentence. The
+   * assembly sets it while a mate or joint did not solve (QA 2026-10-10).
+   */
+  confirmReason?: string | null;
   /**
    * Writes the part as a `.loft` file (docs/FILE-FORMAT.md) — the parametric
    * tree, not a body, so the cell stays live when the formats above are
@@ -98,12 +105,14 @@ export function ExportRow({
   statusLabel,
   notice = null,
   state,
+  confirmReason = null,
   loftExporter,
   versionActions,
 }: ExportRowProps) {
   // The band's state machine, not a copy of it: one download path and one
   // table of failure copy for both export surfaces (MESH-TOO-DENSE-COPY-1).
-  const { busy, failed, failure, run } = useExportAction(exporter);
+  const { busy, failed, failure, request, armed, confirm, cancel } =
+    useExportAction(exporter, confirmReason !== null);
   const disabled = disabledReason !== undefined;
 
   const status = disabled
@@ -179,12 +188,21 @@ export function ExportRow({
               // 2026-07-30 P2).
               disabledReason={disabledReason}
               data-testid={`${testIdPrefix}-${format}`}
-              onClick={() => void run(format)}
+              onClick={() => request(format)}
             />
           ))}
         </div>
       ))}
-      {failure !== null ? (
+      {armed !== null && confirmReason !== null ? (
+        <ExportConfirm
+          format={armed}
+          reason={confirmReason}
+          testIdPrefix={testIdPrefix}
+          onConfirm={confirm}
+          onCancel={cancel}
+          className="border-t border-hairline px-3 py-2"
+        />
+      ) : failure !== null ? (
         <p
           role="alert"
           className="border-t border-hairline px-3 py-2 font-body text-xs text-flag"
