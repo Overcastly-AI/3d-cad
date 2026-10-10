@@ -373,6 +373,8 @@ One line each. The founder triages weekly; most are closed without work.
 - Sweep self-check (`BRepAlgoAPI_Check`, SWEEP-CLOSED-PATH review): costs 0.8 s of the moto frame's 5.7 s rebuild (0.30 s + 0.51 s on its two rail sweeps); 0.5-28 ms on the other sweep goldens.
 - Sketcher: `0` is a view shortcut, so a typed coordinate cannot start with 0 (`OPENS_A_COORDINATE` is `[1-9.-]`); a centre at x = 0 must be clicked or typed as `-0`.
 - ASM-COPY: Move ships without Fusion's Copy; copying a component needs `POST /assemblies/{id}/instances/{instance_id}/copy` in documents (none exists today; `duplicate.py` copies whole assemblies only).
+- JOINT-PLANAR-PARENT (motions review): a planar slide PATCHes B's placement; when B is the solve parent rather than the child the slide may not stick. Unverified.
+- JOINT-CARD-OVERLAP: the joint drive card overlaps the inspector's DOF text (revolute and planar).
 - MEASURE-FROM-EVAL-REQUEST (step 4 review): the web builds measure/pick requests from GET features, so a feature that is sick (`parameter_unresolved`, or out of range after a PUT) shows a phantom body built from its last good numbers in those tools; build them from `/evaluation-request` (step 8).
 - SKETCH-STAMP-UNRESOLVED: the sketcher's diagnostic stamp shows only `sketch_invalid`; a dimension formula naming an unknown name now reports `parameter_unresolved` and needs the same stamp.
 - JOINT-ESC-INFLIGHT (S5b review): Esc while the joint OK POST is in flight closes the dialog but the joint is still created (`useJointDialog.ts` cancel ignores `submitting`).
