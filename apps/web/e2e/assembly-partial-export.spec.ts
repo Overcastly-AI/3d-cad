@@ -109,7 +109,8 @@ test.describe("a partial assembly export", () => {
     });
     await page.route("**/api/v1/geometry/assembly/evaluate", async (route) => {
       await held;
-      await route.continue();
+      // The reload below may cancel a request still in flight here.
+      await route.continue().catch(() => {});
     });
     await moveHole(page, auth, assemblyId);
     await page.getByTestId(`instance-ground-${idB}`).click();
@@ -119,6 +120,10 @@ test.describe("a partial assembly export", () => {
     await expect(page.getByTestId("assembly-export-step")).toBeDisabled();
     await expect(page.getByTestId("assembly-export-band-step")).toBeDisabled();
     release();
+    await expect(page.getByTestId("assembly-export-status")).not.toHaveText(
+      "Solving…",
+      { timeout: 60_000 },
+    );
     await page.unroute("**/api/v1/geometry/assembly/evaluate");
 
     await page.reload();
