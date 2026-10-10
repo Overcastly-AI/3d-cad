@@ -2331,6 +2331,13 @@ export interface components {
             assembly_id: string;
             /** @description World-mm AABB of the SOLVED compound (union of each instance's part bbox at its solved pose); null when no instance produced a body */
             bounding_box: components["schemas"]["BoundingBox"] | null;
+            /** @description The solve's diagnosis (conflicting mates by id), as on EvaluateAssemblyResult. Omitted while null. A drawing of this assembly reads it to say its parts are not where the mates put them. */
+            diagnosis?: components["schemas"]["AssemblySolveDiagnosis"] | null;
+            /**
+             * Mate Errors
+             * @description Mates the solve could not resolve and dropped, as on EvaluateAssemblyResult. Omitted while empty.
+             */
+            mate_errors?: components["schemas"]["MateEvaluationError"][];
             /**
              * Status
              * @description The solve these extents came out of. Anything other than `well_constrained` means the poses are a best fit, not a determined result (§2.4)

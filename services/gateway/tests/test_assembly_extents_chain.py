@@ -517,6 +517,41 @@ def test_status_cannot_tell_the_two_apart(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+def test_extents_carry_the_solve_diagnosis_a_drawing_warns_from(
+    tmp_path: Path,
+) -> None:
+    """The drawing's "Partial" warning reads the solve off this route (QA
+    2026-10-10), so the diagnosis and the dropped mates must be the SOLVE's.
+
+    Measured by the one number that differs between the two assemblies: the
+    mated one has 3 remaining DOF, the unmated control 6. No mate was dropped in
+    either, and an empty ``mate_errors`` is omitted from the body entirely, so
+    an assembly that solved cleanly reads exactly as it did before the field.
+    """
+
+    async def scenario() -> None:
+        async with _chain(tmp_path) as chain:
+            fixture = await _build(chain.client, "extents-diag@example.com")
+            mated = await _extents(
+                chain.client, fixture.headers, fixture.mated.assembly_id
+            )
+            unmated = await _extents(
+                chain.client, fixture.headers, fixture.unmated.assembly_id
+            )
+            assert mated.diagnosis is not None and unmated.diagnosis is not None
+            assert mated.diagnosis.remaining_dof == 3, mated.diagnosis
+            assert unmated.diagnosis.remaining_dof == 6, unmated.diagnosis
+            assert mated.mate_errors == [] == unmated.mate_errors
+
+            raw = await chain.client.get(
+                f"/api/v1/assemblies/{fixture.mated.assembly_id}/extents",
+                headers=fixture.headers,
+            )
+            assert "mate_errors" not in raw.json(), raw.text
+
+    asyncio.run(scenario())
+
+
 def test_the_mate_is_in_the_solve_it_removes_three_degrees_of_freedom(
     tmp_path: Path,
 ) -> None:

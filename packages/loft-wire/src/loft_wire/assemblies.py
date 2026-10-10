@@ -55,6 +55,11 @@ def _is_empty(value: object) -> bool:
     return value == []
 
 
+def _is_none(value: object) -> bool:
+    """``exclude_if`` predicate: an absent optional field is not serialized."""
+    return value is None
+
+
 def _drop_schema_default(schema: dict[str, Any]) -> None:
     """Keep a defaulted field OPTIONAL in the generated ts-client (see
     :func:`loft_wire.features._drop_schema_default`)."""
@@ -987,6 +992,21 @@ class AssemblyExtentsResponse(BaseModel):
         description="The solve these extents came out of. Anything other than "
         "`well_constrained` means the poses are a best fit, not a determined "
         "result (§2.4)"
+    )
+    diagnosis: AssemblySolveDiagnosis | None = Field(
+        default=None,
+        exclude_if=_is_none,
+        json_schema_extra=_drop_schema_default,
+        description="The solve's diagnosis (conflicting mates by id), as on "
+        "EvaluateAssemblyResult. Omitted while null. A drawing of this assembly "
+        "reads it to say its parts are not where the mates put them.",
+    )
+    mate_errors: list[MateEvaluationError] = Field(
+        default_factory=list["MateEvaluationError"],
+        exclude_if=_is_empty,
+        json_schema_extra=_drop_schema_default,
+        description="Mates the solve could not resolve and dropped, as on "
+        "EvaluateAssemblyResult. Omitted while empty.",
     )
 
 
