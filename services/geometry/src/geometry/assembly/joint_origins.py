@@ -8,8 +8,10 @@ signature resolvers the legacy mates use (exactly one match or an honest
 chained so evaluation can name ``subshape_unresolved`` / ``subshape_ambiguous``).
 Rules, as in Fusion 360 joint origins and Onshape mate connectors (RESEARCH §21):
 
-- ``face_centre``: the planar face's area centroid (the point the ``on_face``
-  datum and the coincident mate use), Z its OUTWARD normal.
+- ``face_centre``: the matched planar face's own area centroid, Z its OUTWARD
+  normal. After a resilient re-match (the face was resized or moved) the
+  origin follows the face's CURRENT centre, unlike a sketch plane, which stays
+  at the stored centroid.
 - ``circle_centre``: the ``gp_Circ`` centre, Z along the circle's axis, pointing
   OUT of the body: when the circle bounds a planar face perpendicular to its axis
   (a hole rim, a shaft end), Z is that face's outward normal. A circle with no
@@ -52,7 +54,8 @@ from geometry.kernel.edges import resolve_edge
 from geometry.kernel.faces import (
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
-    resolve_face_plane,
+    planar_face_signature,
+    resolve_faces,
 )
 from geometry.kernel.types import BodyShape
 
@@ -90,17 +93,27 @@ def _resolve_edge(body: BodyShape, origin: JointOrigin) -> Edge:
 
 
 def _face_centre(body: BodyShape, origin: JointOrigin) -> tuple[Vector, Vector]:
+    """The matched face's OWN area centroid and outward normal.
+
+    Deliberately not :func:`resolve_face_plane`'s origin: after a resilient
+    re-match (the face grew, shrank or moved) that plane is re-anchored at the
+    STORED centroid, which keeps a sketch where it was drawn, while a joint
+    origin at a face centre follows the face's current centre, as a Fusion /
+    Onshape face-centre origin does.
+    """
     signature = origin.signature
     assert isinstance(signature, PlanarFaceSignature)
     try:
-        plane = resolve_face_plane(body, signature, 0.0)
+        (face,) = resolve_faces(body, [signature])
     except _SUBSHAPE_ERRORS as exc:
         raise AssemblyDefinitionError(
             f"joint origin on instance {origin.instance_id} did not resolve to "
             f"exactly one planar face: {exc}"
         ) from exc
-    o, z = plane.origin, plane.z_dir
-    return _arr(o.X, o.Y, o.Z), _arr(z.X, z.Y, z.Z)
+    measured = planar_face_signature(face)
+    assert measured is not None  # resolve_faces matches planar faces only
+    normal, centroid, _area = measured
+    return _arr(centroid.X, centroid.Y, centroid.Z), _arr(normal.X, normal.Y, normal.Z)
 
 
 def _outward_planar_normal(body: BodyShape, edge: Edge, axis: Vector) -> Vector | None:

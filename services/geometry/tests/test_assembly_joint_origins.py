@@ -127,6 +127,20 @@ def test_face_centre_is_the_centroid_with_the_outward_normal(body: Solid) -> Non
     )
 
 
+def test_face_centre_follows_a_resized_face(body: Solid) -> None:
+    """Picked on the 40-wide plate, resolved on the part widened to 60: the
+    top face re-matches (coplanar tier) and the origin is its NEW centre
+    (30, 12.5, 10), as a Fusion face-centre origin moves with the face, not
+    the stored (20, 12.5, 10) a sketch plane keeps."""
+    widened = Solid.make_box(60.0, 25.0, 10.0)
+    origin = JointOrigin(
+        instance_id=iid(1), kind="face_centre", signature=_face_sig(body, 1.0)
+    )
+    _assert_frame(
+        resolve_joint_origin(widened, origin), (30, 12.5, 10), (0, 0, 1), (1, 0, 0)
+    )
+
+
 def test_circle_centre_axis_points_out_of_the_face_it_bounds(body: Solid) -> None:
     """The top and bottom rims of one hole share a gp_Circ axis line, but a
     joint origin's Z points OUT of the body: +Z on the top rim, -Z on the

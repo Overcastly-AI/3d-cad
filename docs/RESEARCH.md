@@ -1273,8 +1273,10 @@ you can drag it.
 
 **Decisions** (`geometry/assembly/joint_origins.py`, `joint_math.py`).
 
-- **Origins.** `face_centre`: the face's area centroid (the point the
-  `on_face` datum and the coincident mate use), Z its outward normal.
+- **Origins.** `face_centre`: the matched face's own area centroid, Z its
+  outward normal. After a resilient re-match (the face was resized or moved)
+  it follows the face's current centre, as Fusion's does, where a sketch
+  plane stays at the stored centroid.
   `circle_centre`: the `gp_Circ` centre, Z along its axis, signed to the
   outward normal of a planar face the circle bounds perpendicular to that
   axis; a circle between two curved faces keeps the `gp_Circ` sense.
