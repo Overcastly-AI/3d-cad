@@ -48,6 +48,7 @@ from loft_wire.features import (
     SketchFeature,
 )
 from loft_wire.geometry import Vec3
+from loft_wire.joints import JointMate, JointOrigin
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 
 TOL = 1e-6
@@ -377,6 +378,42 @@ def test_self_mate_is_a_per_mate_error_not_a_500() -> None:
     # The rest of the assembly still evaluated — every instance renders.
     assert all(inst.error is None for inst in result.instances)
     assert all(inst.part_mesh_glb_id is not None for inst in result.instances)
+
+
+def test_joint_mate_is_a_clean_unsupported_mate_not_a_500() -> None:
+    """The solver does not understand ``type="joint"`` yet. A joint must be
+    DROPPED as a typed ``mate_unsupported`` per-mate error inside a 200, the
+    other mates still solve, and the result carries no ``joint_states`` (so it
+    dumps as before)."""
+    body = _plate_body()
+    top, bottom = _face_sig(body, 1.0), _face_sig(body, -1.0)
+    h1 = _hole_sig(body, *HOLE_1, TOP_Z)
+    h2 = _hole_sig(body, *HOLE_2, TOP_Z)
+    joint = EvaluatedMate(
+        mate_id=iid(1004),
+        order_index=3,
+        mate=JointMate(
+            motion="revolute",
+            a=JointOrigin(instance_id=iid(1), kind="circle_centre", signature=h1),
+            b=JointOrigin(instance_id=iid(2), kind="face_centre", signature=bottom),
+        ),
+    )
+    result = evaluate_assembly(
+        _bolted_request(
+            [
+                _coincident(1001, 0, top, bottom, 1, 2),
+                _concentric(1002, 1, h1, h1, 1, 2),
+                _concentric(1003, 2, h2, h2, 1, 2),
+                joint,
+            ]
+        )
+    )
+    assert [me.mate_id for me in result.mate_errors] == [iid(1004)]
+    assert result.mate_errors[0].error.code == "mate_unsupported"
+    assert result.status == "well_constrained"
+    assert all(inst.error is None for inst in result.instances)
+    assert result.joint_states == []
+    assert "joint_states" not in result.model_dump(mode="json")
 
 
 def test_duplicate_instance_id_is_a_clean_assembly_error_not_a_500() -> None:

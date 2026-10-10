@@ -41,6 +41,7 @@ from loft_wire.assemblies import (
     Mate,
     MateCreate,
     MateMutationResponse,
+    MateParams,
     MateResponse,
     Placement,
     RefDocumentKind,
@@ -64,6 +65,7 @@ from documents.assembly_history import (
 from documents.features import evaluation_prefix, part_materials
 from documents.filing import resolve_destination
 from documents.history_core import Direction
+from documents.joint_rules import reject_out_of_limits
 from documents.parts import (
     Principal,
     get_owned_assembly,
@@ -76,13 +78,13 @@ _logger = get_logger("documents.assemblies")
 router = APIRouter(prefix="/api/v1/assemblies", tags=["assemblies"])
 
 #: Reconstruct a stored mate row's params into the discriminated union.
-_MATE_ADAPTER: TypeAdapter[Mate] = TypeAdapter(Mate)
+MATE_ADAPTER: TypeAdapter[Mate] = TypeAdapter(Mate)
 
 
 # --- shared plumbing --------------------------------------------------------------
 
 
-def _ensure_fresh(assembly: db.Assembly, expected_version: int) -> None:
+def ensure_fresh(assembly: db.Assembly, expected_version: int) -> None:
     """Optimistic-concurrency gate: stale writes are 422 (design §1.2).
 
     422 — NOT 409 — so the two write-failure modes are distinguishable by
@@ -109,7 +111,7 @@ async def _get_instance(
     return instance
 
 
-async def _get_mate(
+async def get_mate(
     session: AsyncSession, assembly: db.Assembly, mate_id: uuid.UUID
 ) -> db.Mate:
     """A mate of *assembly*, or 404 (unknown id == another assembly's id)."""
@@ -117,6 +119,33 @@ async def _get_mate(
     if mate is None or mate.assembly_id != assembly.id:
         raise NotFoundError("Mate not found.", code="mate_not_found")
     return mate
+
+
+async def ensure_mate_members(
+    session: AsyncSession, assembly_id: uuid.UUID, mate: MateParams
+) -> None:
+    """Every instance *mate* names is a distinct member of this assembly.
+
+    A mate is a constraint EDGE between two DISTINCT instances; naming one
+    instance on both sides is degenerate (``mate_self_reference`` 422), and an
+    instance of another assembly is refused (``mate_instance_unknown`` 422).
+    """
+    named_ids = mate_instance_ids(mate)
+    if named_ids[0] == named_ids[1]:
+        raise ValidationApiError(
+            "A mate cannot constrain an instance to itself.",
+            code="mate_self_reference",
+            details={"instance_id": str(named_ids[0])},
+        )
+    member_ids = {row.id for row in await ordered_instances(session, assembly_id)}
+    for named_id in named_ids:
+        if named_id not in member_ids:
+            raise ValidationApiError(
+                f"Mate references instance {named_id}, which is not part of this "
+                "assembly.",
+                code="mate_instance_unknown",
+                details={"instance_id": str(named_id)},
+            )
 
 
 async def _count(
@@ -231,13 +260,13 @@ def _instance_response(instance: db.Instance) -> InstanceResponse:
     return InstanceResponse.model_validate(instance)
 
 
-def _mate_response(mate: db.Mate) -> MateResponse:
+def mate_response(mate: db.Mate) -> MateResponse:
     """Row → DTO: the params JSONB reassembled into the discriminated union."""
     return MateResponse(
         id=mate.id,
         assembly_id=mate.assembly_id,
         order_index=mate.order_index,
-        mate=_MATE_ADAPTER.validate_python(mate.params),
+        mate=MATE_ADAPTER.validate_python(mate.params),
     )
 
 
@@ -251,7 +280,7 @@ async def graph_response(
         assembly=AssemblyResponse.model_validate(assembly),
         doc_version=assembly.doc_version,
         instances=[_instance_response(row) for row in instances],
-        mates=[_mate_response(row) for row in mates],
+        mates=[mate_response(row) for row in mates],
         can_undo=can_undo,
         can_redo=can_redo,
     )
@@ -353,7 +382,7 @@ async def build_evaluate_assembly_request(
             EvaluatedMate(
                 mate_id=mate.id,
                 order_index=mate.order_index,
-                mate=_MATE_ADAPTER.validate_python(mate.params),
+                mate=MATE_ADAPTER.validate_python(mate.params),
             )
             for mate in mates
         ],
@@ -560,7 +589,7 @@ async def update_assembly(
             code="empty_assembly_update",
         )
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
-    _ensure_fresh(assembly, request.expected_version)
+    ensure_fresh(assembly, request.expected_version)
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
     if request.name is not None:
         assembly.name = request.name
@@ -626,7 +655,7 @@ async def create_instance(
     walked here, never a stack overflow at eval).
     """
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
-    _ensure_fresh(assembly, request.expected_version)
+    ensure_fresh(assembly, request.expected_version)
 
     # Only a sub-assembly edge can close a cycle; serialize those per owner
     # (Postgres) before the read-then-write acyclicity walk so two concurrent
@@ -720,7 +749,7 @@ async def update_instance(
             code="empty_instance_update",
         )
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
-    _ensure_fresh(assembly, request.expected_version)
+    ensure_fresh(assembly, request.expected_version)
     instance = await _get_instance(session, assembly, instance_id)
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
 
@@ -800,13 +829,13 @@ async def delete_instance(
     mates are renumbered dense. Returns the updated graph (the client's new
     ``doc_version``)."""
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
-    _ensure_fresh(assembly, expected_version)
+    ensure_fresh(assembly, expected_version)
     instance = await _get_instance(session, assembly, instance_id)
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
 
     # Cascade-remove mates that reference this instance (§1.2 graph integrity).
     for mate in await ordered_mates(session, assembly_id):
-        if instance_id in mate_instance_ids(_MATE_ADAPTER.validate_python(mate.params)):
+        if instance_id in mate_instance_ids(MATE_ADAPTER.validate_python(mate.params)):
             deleted_mate_index = mate.order_index
             await session.delete(mate)
             await session.flush()
@@ -841,28 +870,9 @@ async def create_mate(
     """Add a mate (append at the tip). Every instance it names must belong to
     this assembly (``mate_instance_unknown`` 422 otherwise)."""
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
-    _ensure_fresh(assembly, request.expected_version)
-
-    named_ids = mate_instance_ids(request.mate)
-    # A mate is a constraint EDGE between two DISTINCT instances; naming one
-    # instance on both sides (lock a==b, or a face/axis mate whose two refs
-    # share an instance) is degenerate — it constrains an instance to itself.
-    if named_ids[0] == named_ids[1]:
-        raise ValidationApiError(
-            "A mate cannot constrain an instance to itself.",
-            code="mate_self_reference",
-            details={"instance_id": str(named_ids[0])},
-        )
-
-    member_ids = {row.id for row in await ordered_instances(session, assembly_id)}
-    for named_id in named_ids:
-        if named_id not in member_ids:
-            raise ValidationApiError(
-                f"Mate references instance {named_id}, which is not part of this "
-                "assembly.",
-                code="mate_instance_unknown",
-                details={"instance_id": str(named_id)},
-            )
+    ensure_fresh(assembly, request.expected_version)
+    await ensure_mate_members(session, assembly_id, request.mate)
+    await reject_out_of_limits(session, assembly_id, request.mate, None)
 
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
     position = await _count(session, db.Mate, assembly_id)
@@ -894,7 +904,7 @@ async def create_mate(
         doc_version=assembly.doc_version,
     )
     return MateMutationResponse(
-        mate=_mate_response(mate), doc_version=assembly.doc_version
+        mate=mate_response(mate), doc_version=assembly.doc_version
     )
 
 
@@ -911,8 +921,8 @@ async def delete_mate(
 ) -> AssemblyGraphResponse:
     """Remove a mate; renumbers the rest dense (bumps ``doc_version``)."""
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
-    _ensure_fresh(assembly, expected_version)
-    mate = await _get_mate(session, assembly, mate_id)
+    ensure_fresh(assembly, expected_version)
+    mate = await get_mate(session, assembly, mate_id)
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
 
     deleted_index = mate.order_index
@@ -1029,7 +1039,7 @@ async def _restore_history_step(
     ``assembly_restore_conflict``).
     """
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
-    _ensure_fresh(assembly, request.expected_version)
+    ensure_fresh(assembly, request.expected_version)
     if await ASSEMBLY_HISTORY.restore_adjacent(session, assembly, direction):
         try:
             # Inside the try: the pass's first SELECT autoflushes the restored

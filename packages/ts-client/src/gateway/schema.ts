@@ -278,7 +278,17 @@ export interface paths {
         delete: operations["delete_mate_api_v1_assemblies__assembly_id__mates__mate_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Mate
+         * @description Edit a joint's value / limits / offsets / B orientation (bumps
+         *     ``doc_version``, one undo step). Documents refuses a value outside the
+         *     limits with 422 ``joint_value_out_of_limits``, resurfaced verbatim.
+         *
+         *     Forwarded with ``exclude_unset``: an explicit ``limits: null`` removes the
+         *     limits while an absent ``limits`` keeps them, and a full dump would turn
+         *     every absent field into an explicit null.
+         */
+        patch: operations["update_mate_api_v1_assemblies__assembly_id__mates__mate_id__patch"];
         trace?: never;
     };
     "/api/v1/assemblies/{assembly_id}/move": {
@@ -5140,6 +5150,11 @@ export interface components {
              */
             instances: components["schemas"]["InstancePlacementResult"][];
             /**
+             * Joint States
+             * @description Solved position of each joint mate. Omitted while empty, so an assembly without joints dumps exactly as before joints existed.
+             */
+            joint_states?: components["schemas"]["JointState"][];
+            /**
              * Mate Errors
              * @description Per-mate resolution failures (dropped from the solve, §4)
              */
@@ -5410,7 +5425,7 @@ export interface components {
              * Mate
              * @description The mate (discriminated on `type`)
              */
-            mate: components["schemas"]["CoincidentMate"] | components["schemas"]["ConcentricMate"] | components["schemas"]["DistanceMate"] | components["schemas"]["AngleMate"] | components["schemas"]["LockMate"];
+            mate: components["schemas"]["CoincidentMate"] | components["schemas"]["ConcentricMate"] | components["schemas"]["DistanceMate"] | components["schemas"]["AngleMate"] | components["schemas"]["LockMate"] | components["schemas"]["JointMate"];
             /**
              * Mate Id
              * Format: uuid
@@ -6756,6 +6771,168 @@ export interface components {
             standard: "iso_metric";
         };
         /**
+         * JointLimits
+         * @description Optional travel limits. Each bound is optional; a min may not exceed
+         *     its max. Which bounds apply depends on the motion (see :class:`JointMate`).
+         */
+        JointLimits: {
+            /**
+             * Lin Max Mm
+             * @description Highest offset
+             */
+            lin_max_mm?: number | null;
+            /**
+             * Lin Min Mm
+             * @description Lowest offset
+             */
+            lin_min_mm?: number | null;
+            /**
+             * Rot Max Deg
+             * @description Highest angle
+             */
+            rot_max_deg?: number | null;
+            /**
+             * Rot Min Deg
+             * @description Lowest angle
+             */
+            rot_min_deg?: number | null;
+        };
+        /**
+         * JointMate
+         * @description A joint between two instance frames (``type="joint"``).
+         *
+         *     ``offset_mm`` / ``angle_deg`` are the fixed relation between the two frames
+         *     (B's frame sits ``offset_mm`` along A's Z and turned ``angle_deg`` about
+         *     it) at a zero ``value``. Limits and value fields must suit the motion:
+         *     rotation for revolute / cylindrical / planar, translation for slider /
+         *     cylindrical; rigid and ball take neither. A value outside its limits is
+         *     refused by the documents service (``joint_value_out_of_limits``), not here,
+         *     so a stored row always parses.
+         */
+        JointMate: {
+            /** @description Frame on the first (anchor) instance */
+            a: components["schemas"]["JointOrigin"];
+            /**
+             * Angle Deg
+             * @description Fixed turn of B's frame about A's Z axis (deg)
+             * @default 0
+             */
+            angle_deg: number;
+            /** @description Frame on the second (moving) instance */
+            b: components["schemas"]["JointOrigin"];
+            /** @description Optional travel limits; null = unlimited */
+            limits?: components["schemas"]["JointLimits"] | null;
+            /**
+             * Motion
+             * @description The motion left free between A and B
+             * @enum {string}
+             */
+            motion: "rigid" | "revolute" | "slider" | "cylindrical" | "planar" | "ball";
+            /**
+             * Offset Mm
+             * @description Fixed offset of B's frame along A's Z axis (mm)
+             * @default 0
+             */
+            offset_mm: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "joint";
+            /** @description Current position along the free axes (the persisted truth) */
+            value?: components["schemas"]["JointValue"];
+        };
+        /**
+         * JointOrigin
+         * @description One side of a joint: a frame on an instance's part body.
+         *
+         *     The origin is a point on picked geometry; the frame's Z axis is the face
+         *     normal (``face_centre``), the circle's axis (``circle_centre``) or the edge
+         *     direction (``edge_point``). ``flip`` reverses Z, and ``quarter_turns``
+         *     rotates the frame about Z in 90 degree steps (Onshape's "reorient").
+         */
+        JointOrigin: {
+            /**
+             * At
+             * @description Which point of the edge, for `edge_point` only (required there, rejected on the other kinds)
+             */
+            at?: ("start" | "mid" | "end") | null;
+            /**
+             * Flip
+             * @description Reverse the frame's Z axis
+             * @default false
+             */
+            flip: boolean;
+            /**
+             * Instance Id
+             * Format: uuid
+             * @description The instance whose part body carries this origin
+             */
+            instance_id: string;
+            /**
+             * Kind
+             * @description `face_centre` (a planar face, `signature` is a face signature), `circle_centre` (a circular edge) or `edge_point` (any edge, at `at`)
+             * @enum {string}
+             */
+            kind: "face_centre" | "circle_centre" | "edge_point";
+            /**
+             * Quarter Turns
+             * @description Rotate the frame about its Z axis by 90 degree steps (0-3)
+             * @default 0
+             */
+            quarter_turns: number;
+            /**
+             * Signature
+             * @description Stage-1 signature of the picked face or edge (reused from features)
+             */
+            signature: components["schemas"]["PlanarFaceSignature"] | components["schemas"]["EdgeSignature"];
+        };
+        /**
+         * JointState
+         * @description A solved joint's position, reported with an assembly evaluation.
+         */
+        JointState: {
+            /**
+             * At Limit
+             * @description True when the joint sits on one of its limits
+             * @default false
+             */
+            at_limit: boolean;
+            /** @description The joint Z axis in world coordinates */
+            axis_world: components["schemas"]["Vec3"];
+            /**
+             * Lin Mm
+             * @description Solved translation; null when the motion has none
+             */
+            lin_mm?: number | null;
+            /**
+             * Mate Id
+             * Format: uuid
+             */
+            mate_id: string;
+            /**
+             * Rot Deg
+             * @description Solved rotation; null when the motion has none
+             */
+            rot_deg?: number | null;
+        };
+        /**
+         * JointValue
+         * @description A joint's current position along its free axes (the persisted truth).
+         */
+        JointValue: {
+            /**
+             * Lin Mm
+             * @description Translation along the joint Z axis (mm)
+             */
+            lin_mm?: number | null;
+            /**
+             * Rot Deg
+             * @description Rotation about the joint Z axis (degrees)
+             */
+            rot_deg?: number | null;
+        };
+        /**
          * LinearDimensionParams
          * @description A linear dimension — an edge length, a point-to-point or an edge-to-edge
          *     perpendicular distance (§3.1).
@@ -7000,7 +7177,7 @@ export interface components {
              * Mate
              * @description The mate (discriminated on `type`)
              */
-            mate: components["schemas"]["CoincidentMate"] | components["schemas"]["ConcentricMate"] | components["schemas"]["DistanceMate"] | components["schemas"]["AngleMate"] | components["schemas"]["LockMate"];
+            mate: components["schemas"]["CoincidentMate"] | components["schemas"]["ConcentricMate"] | components["schemas"]["DistanceMate"] | components["schemas"]["AngleMate"] | components["schemas"]["LockMate"] | components["schemas"]["JointMate"];
         };
         /**
          * MateEvaluationError
@@ -7074,12 +7251,54 @@ export interface components {
              */
             id: string;
             /** Mate */
-            mate: components["schemas"]["CoincidentMate"] | components["schemas"]["ConcentricMate"] | components["schemas"]["DistanceMate"] | components["schemas"]["AngleMate"] | components["schemas"]["LockMate"];
+            mate: components["schemas"]["CoincidentMate"] | components["schemas"]["ConcentricMate"] | components["schemas"]["DistanceMate"] | components["schemas"]["AngleMate"] | components["schemas"]["LockMate"] | components["schemas"]["JointMate"];
             /**
              * Order Index
              * @description Stable order (determinism, §2.2); relative position only
              */
             order_index: number;
+        };
+        /**
+         * MateUpdate
+         * @description Edit a joint in place: its value, limits, B-side orientation or offsets.
+         *
+         *     Every field but ``expected_version`` is optional and at least one must be
+         *     given. ``limits`` distinguishes absent (unchanged) from an explicit null
+         *     (remove the limits). ``flip`` / ``quarter_turns`` set origin B's, the
+         *     Onshape "flip primary axis" / "reorient" on an existing joint. Bumps
+         *     ``doc_version`` and records one undo step. Legacy mates are not editable
+         *     here (delete and recreate).
+         */
+        MateUpdate: {
+            /**
+             * Angle Deg
+             * @description New fixed angle
+             */
+            angle_deg?: number | null;
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §1.2)
+             */
+            expected_version: number;
+            /**
+             * Flip
+             * @description New flip of origin B
+             */
+            flip?: boolean | null;
+            /** @description New limits; an explicit null removes them, absent keeps them */
+            limits?: components["schemas"]["JointLimits"] | null;
+            /**
+             * Offset Mm
+             * @description New fixed offset
+             */
+            offset_mm?: number | null;
+            /**
+             * Quarter Turns
+             * @description New quarter turns of origin B
+             */
+            quarter_turns?: number | null;
+            /** @description New joint value */
+            value?: components["schemas"]["JointValue"] | null;
         };
         /**
          * Material
@@ -11265,6 +11484,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssemblyGraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_mate_api_v1_assemblies__assembly_id__mates__mate_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+                mate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MateUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MateMutationResponse"];
                 };
             };
             /** @description Validation Error */

@@ -19,7 +19,7 @@ as :mod:`loft_wire.geometry` does.
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -45,8 +45,21 @@ from loft_wire.geometry import (
     ShapeProperties,
     Vec3,
 )
+from loft_wire.joints import JointMate, JointState
 from loft_wire.materials import MaterialAssignment
 from loft_wire.units import DEFAULT_LENGTH_UNIT, LengthUnit
+
+
+def _is_empty(value: object) -> bool:
+    """``exclude_if`` predicate: an empty list is not serialized."""
+    return value == []
+
+
+def _drop_schema_default(schema: dict[str, Any]) -> None:
+    """Keep a defaulted field OPTIONAL in the generated ts-client (see
+    :func:`loft_wire.features._drop_schema_default`)."""
+    schema.pop("default", None)
+
 
 #: Upper bound for a user-facing assembly name ("Gearbox", "Bracket Stack").
 ASSEMBLY_NAME_MAX_LENGTH = 200
@@ -284,29 +297,32 @@ class LockMate(BaseModel):
     b_instance_id: uuid.UUID = Field(description="Second (locked) instance")
 
 
-#: Discriminated v1 mate union (design §1.5). All five kinds are present; the v1
-#: solver evaluates `lock`/`coincident`/`concentric`, with `distance`/`angle`
-#: the immediate additive fast-follow (§5). A richer axis source / new mate kind
-#: joins additively (the feature-tree.md §1.4 rule) with no version churn.
+#: Discriminated mate union (design §1.5). The five legacy kinds, plus the
+#: ``joint`` (:mod:`loft_wire.joints`), which joined additively (the
+#: feature-tree.md §1.4 rule): legacy rows parse and dump unchanged.
 Mate = Annotated[
-    CoincidentMate | ConcentricMate | DistanceMate | AngleMate | LockMate,
+    CoincidentMate | ConcentricMate | DistanceMate | AngleMate | LockMate | JointMate,
     Field(discriminator="type"),
 ]
 
 #: Plain (non-annotated) union alias for type annotations of validated values.
-MateParams = CoincidentMate | ConcentricMate | DistanceMate | AngleMate | LockMate
+MateParams = (
+    CoincidentMate | ConcentricMate | DistanceMate | AngleMate | LockMate | JointMate
+)
 
 
 def mate_instance_ids(mate: MateParams) -> tuple[uuid.UUID, ...]:
     """The instance ids a mate constrains — for write-time membership checks.
 
     A :class:`LockMate` names two instances directly; every geometry-ref mate
-    names them through its two :class:`MateGeometryRef` slots. Centralised here
+    names them through its two :class:`MateGeometryRef` slots, and a
+    :class:`~loft_wire.joints.JointMate` through its two origins. Centralised here
     (beside the schema) so documents validates mate membership from one place
     and can never drift from a new mate kind's shape.
     """
     if isinstance(mate, LockMate):
         return (mate.a_instance_id, mate.b_instance_id)
+    # JointOrigin and both MateGeometryRef kinds all carry `instance_id`.
     return (mate.a.instance_id, mate.b.instance_id)
 
 
@@ -878,6 +894,13 @@ class EvaluateAssemblyResult(BaseModel):
     )
     bounding_box: BoundingBox | None = Field(
         default=None, description="Combined assembly AABB (transformed-bbox union)"
+    )
+    joint_states: list[JointState] = Field(
+        default_factory=list["JointState"],
+        exclude_if=_is_empty,
+        json_schema_extra=_drop_schema_default,
+        description="Solved position of each joint mate. Omitted while empty, "
+        "so an assembly without joints dumps exactly as before joints existed.",
     )
 
 

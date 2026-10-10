@@ -8,6 +8,7 @@ re-surfaced verbatim.
 """
 
 import asyncio
+import json
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -178,6 +179,9 @@ def _echo_documents(seen: list[httpx.Request]) -> Handler:
                 201, content=_assembly(owner_id, name).model_dump_json()
             )
         if request.method == "PATCH":
+            if "/mates/" in path:
+                body_mu = MateMutationResponse(mate=_mate(), doc_version=5)
+                return httpx.Response(200, content=body_mu.model_dump_json())
             if "/instances/" in path:
                 body_i = InstanceMutationResponse(
                     instance=_instance(INSTANCE_A), doc_version=1
@@ -238,6 +242,7 @@ def _envelope(body: dict[str, Any]) -> dict[str, Any]:
             "DELETE",
             f"/api/v1/assemblies/{ASSEMBLY}/mates/{uuid.uuid4()}?expected_version=0",
         ),
+        ("PATCH", f"/api/v1/assemblies/{ASSEMBLY}/mates/{uuid.uuid4()}"),
         ("POST", f"/api/v1/assemblies/{ASSEMBLY}/undo"),
         ("POST", f"/api/v1/assemblies/{ASSEMBLY}/redo"),
     ],
@@ -452,6 +457,87 @@ def test_undo_redo_forward_principal_and_body(
         assert upstream.headers[PRINCIPAL_HEADER] == user_id
         parsed = AssemblyUndoRedoRequest.model_validate_json(upstream.content)
         assert parsed.expected_version == version
+
+
+def test_patch_mate_forwards_only_the_fields_sent(
+    db_url: str, seen: list[httpx.Request]
+) -> None:
+    """PATCH /mates/{id} forwards the principal and exactly the fields the
+    client sent: an explicit ``limits: null`` (remove the limits) survives the
+    hop, and an absent field is not turned into an explicit null."""
+    mate_id = uuid.uuid4()
+    with make_client(db_url, _echo_documents(seen)) as client:
+        user_id, bearer = _register(client)
+        response = client.patch(
+            f"/api/v1/assemblies/{ASSEMBLY}/mates/{mate_id}",
+            json={"expected_version": 4, "value": {"rot_deg": 90.0}, "limits": None},
+            headers=bearer,
+        )
+
+    assert response.status_code == 200, response.text
+    assert MateMutationResponse.model_validate(response.json()).doc_version == 5
+    [upstream] = seen
+    assert upstream.method == "PATCH"
+    assert upstream.url.path == f"/api/v1/assemblies/{ASSEMBLY}/mates/{mate_id}"
+    assert upstream.headers[PRINCIPAL_HEADER] == user_id
+    assert json.loads(upstream.content) == {
+        "expected_version": 4,
+        "value": {"rot_deg": 90.0},
+        "limits": None,
+    }
+
+
+@pytest.mark.parametrize(
+    ("status_code", "code", "message"),
+    [
+        (422, "joint_value_out_of_limits", "Revolute 1: 200° exceeds max 180°"),
+        (404, "assembly_not_found", "Assembly not found."),
+    ],
+)
+def test_patch_mate_upstream_refusals_are_resurfaced(
+    db_url: str, status_code: int, code: str, message: str
+) -> None:
+    """The limit refusal (naming the limit) and another owner's 404 pass
+    through verbatim."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code,
+            json={
+                "error": {
+                    "code": code,
+                    "message": message,
+                    "details": None,
+                    "request_id": "upstream-id",
+                }
+            },
+        )
+
+    with make_client(db_url, handler) as client:
+        _, bearer = _register(client)
+        response = client.patch(
+            f"/api/v1/assemblies/{ASSEMBLY}/mates/{uuid.uuid4()}",
+            json={"expected_version": 0, "value": {"rot_deg": 200.0}},
+            headers=bearer,
+        )
+
+    assert response.status_code == status_code
+    error = _envelope(response.json())
+    assert (error["code"], error["message"]) == (code, message)
+
+
+def test_patch_mate_bad_body_rejected_at_the_gateway(
+    db_url: str, seen: list[httpx.Request]
+) -> None:
+    with make_client(db_url, _echo_documents(seen)) as client:
+        _, bearer = _register(client)
+        response = client.patch(
+            f"/api/v1/assemblies/{ASSEMBLY}/mates/{uuid.uuid4()}",
+            json={"expected_version": 0, "quarter_turns": 4},
+            headers=bearer,
+        )
+    assert response.status_code == 422
+    assert seen == []
 
 
 def test_undo_stale_version_envelope_is_resurfaced(db_url: str) -> None:

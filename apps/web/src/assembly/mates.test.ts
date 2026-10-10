@@ -159,6 +159,31 @@ describe("mateLabel", () => {
       mateLabel({ type: "lock", a_instance_id: "a", b_instance_id: "b" }),
     ).toBe("Lock");
   });
+
+  it("names a joint by its motion and reads its two origins", () => {
+    const joint = {
+      type: "joint" as const,
+      motion: "revolute" as const,
+      a: {
+        instance_id: "a",
+        kind: "face_centre" as const,
+        signature: faceSig,
+        flip: false,
+        quarter_turns: 0,
+      },
+      b: {
+        instance_id: "b",
+        kind: "circle_centre" as const,
+        signature: axisSig,
+        flip: true,
+        quarter_turns: 1,
+      },
+      offset_mm: 0,
+      angle_deg: 0,
+    };
+    expect(mateLabel(joint)).toBe("Revolute");
+    expect(mateInstanceIds(joint)).toEqual(["a", "b"]);
+  });
 });
 
 describe("mateToolLabel", () => {

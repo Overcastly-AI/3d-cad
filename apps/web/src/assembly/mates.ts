@@ -51,8 +51,23 @@ export function mateLabel(mate: Mate): string {
       return "Distance";
     case "angle":
       return "Angle";
+    case "joint":
+      return JOINT_MOTION_LABELS[mate.motion];
   }
 }
+
+/** A joint's label is its motion ("Revolute"), as Onshape and Fusion name them. */
+const JOINT_MOTION_LABELS: Record<
+  Extract<Mate, { type: "joint" }>["motion"],
+  string
+> = {
+  rigid: "Rigid",
+  revolute: "Revolute",
+  slider: "Slider",
+  cylindrical: "Cylindrical",
+  planar: "Planar",
+  ball: "Ball",
+};
 
 /**
  * THE MATE'S HANDLE — the tag the panel prints on its row and the ONLY name any
@@ -123,6 +138,7 @@ export function mateInstanceIds(mate: Mate): [string, string] {
     case "angle":
       return [mate.a.instance_id, mate.b.instance_id];
     case "concentric":
+    case "joint":
       return [mate.a.instance_id, mate.b.instance_id];
     case "lock":
       return [mate.a_instance_id, mate.b_instance_id];

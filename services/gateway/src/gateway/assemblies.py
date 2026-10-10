@@ -38,6 +38,7 @@ from loft_wire.assemblies import (
     MateCreate,
     MateMutationResponse,
 )
+from loft_wire.joints import MateUpdate
 
 from gateway.affinity import forward_geometry
 from gateway.auth import CurrentUser
@@ -399,3 +400,31 @@ async def delete_mate(
     if upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(upstream, service=_SERVICE)
     return AssemblyGraphResponse.model_validate_json(upstream.content)
+
+
+@router.patch("/{assembly_id}/mates/{mate_id}")
+async def update_mate(
+    assembly_id: uuid.UUID,
+    mate_id: uuid.UUID,
+    request: MateUpdate,
+    user: CurrentUser,
+    http_request: Request,
+) -> MateMutationResponse:
+    """Edit a joint's value / limits / offsets / B orientation (bumps
+    ``doc_version``, one undo step). Documents refuses a value outside the
+    limits with 422 ``joint_value_out_of_limits``, resurfaced verbatim.
+
+    Forwarded with ``exclude_unset``: an explicit ``limits: null`` removes the
+    limits while an absent ``limits`` keeps them, and a full dump would turn
+    every absent field into an explicit null.
+    """
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "PATCH",
+        f"/api/v1/assemblies/{assembly_id}/mates/{mate_id}",
+        request.model_dump_json(exclude_unset=True),
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return MateMutationResponse.model_validate_json(upstream.content)
