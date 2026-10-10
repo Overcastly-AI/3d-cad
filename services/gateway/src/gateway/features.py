@@ -328,6 +328,39 @@ async def record_last_evaluation(
         )
 
 
+@router.get("/{part_id}/evaluation-request")
+async def get_part_evaluation_request(
+    part_id: uuid.UUID,
+    user: CurrentUser,
+    http_request: Request,
+    before: Annotated[
+        uuid.UUID | None, Query(description=EVALUATE_BEFORE_DESCRIPTION)
+    ] = None,
+) -> EvaluateTreeRequest:
+    """The part's evaluation-ready feature list, exactly as ``evaluate`` sends
+    it to geometry: rollback bar applied, params upcast, every formula
+    resolved, and a feature whose formula no longer resolves carrying its
+    ``input_error`` (PART-PARAMETERS, RESEARCH §20).
+
+    The web builds its measure and pick (overlay) requests from this rather
+    than from ``GET /features``, so those tools see the body the viewport
+    shows: a sick feature builds nothing there either, instead of a phantom
+    body from its last good numbers (MEASURE-FROM-EVAL-REQUEST). ``before``
+    is the Edit-feature cut, as on ``evaluate``. A read: nothing is evaluated
+    or recorded.
+    """
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "GET",
+        f"/api/v1/parts/{part_id}/evaluation-request",
+        params=None if before is None else {"before": str(before)},
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return EvaluateTreeRequest.model_validate_json(upstream.content)
+
+
 @router.post("/{part_id}/evaluate", dependencies=[COMPUTE_RATE_LIMIT])
 async def evaluate_part(
     part_id: uuid.UUID,

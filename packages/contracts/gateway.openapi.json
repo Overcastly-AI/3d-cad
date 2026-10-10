@@ -17483,6 +17483,74 @@
         ]
       }
     },
+    "/api/v1/parts/{part_id}/evaluation-request": {
+      "get": {
+        "description": "The part's evaluation-ready feature list, exactly as ``evaluate`` sends\nit to geometry: rollback bar applied, params upcast, every formula\nresolved, and a feature whose formula no longer resolves carrying its\n``input_error`` (PART-PARAMETERS, RESEARCH \u00a720).\n\nThe web builds its measure and pick (overlay) requests from this rather\nthan from ``GET /features``, so those tools see the body the viewport\nshows: a sick feature builds nothing there either, instead of a phantom\nbody from its last good numbers (MEASURE-FROM-EVAL-REQUEST). ``before``\nis the Edit-feature cut, as on ``evaluate``. A read: nothing is evaluated\nor recorded.",
+        "operationId": "get_part_evaluation_request_api_v1_parts__part_id__evaluation_request_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Evaluate only the features BEFORE this one (the feature itself excluded), ignoring the stored rollback bar: the same body a rollback bar on the preceding feature would give. Read-only: the bar and tree_version do not move and the evaluation is not recorded. Omit to evaluate the part as stored. An id that is not a feature of this part is a 404 feature_not_found.",
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Evaluate only the features BEFORE this one (the feature itself excluded), ignoring the stored rollback bar: the same body a rollback bar on the preceding feature would give. Read-only: the bar and tree_version do not move and the evaluation is not recorded. Omit to evaluate the part as stored. An id that is not a feature of this part is a 404 feature_not_found.",
+              "title": "Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluateTreeRequest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Part Evaluation Request",
+        "tags": [
+          "features"
+        ]
+      }
+    },
     "/api/v1/parts/{part_id}/export": {
       "post": {
         "description": "Export the part's current evaluated body as a downloadable CAD file.\n\nThe export twin of :func:`evaluate_part` and the same two-hop aggregation:\ndocuments serves the evaluation-ready feature list (rollback bar applied,\nparams upcast \u2014 \u00a74.2), the gateway wraps it with the requested format into\nan ``ExportTreeRequest`` and relays it to the stateless geometry service's\ntree-export route, and the file bytes stream back byte-exact. Auth-scoped\nlike every parts route (the principal reaches documents, never geometry).\nA tree with no body is the geometry service's 422 ``tree_export_failed``\nenvelope, re-surfaced verbatim.",

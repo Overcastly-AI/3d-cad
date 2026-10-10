@@ -1628,6 +1628,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/evaluation-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Part Evaluation Request
+         * @description The part's evaluation-ready feature list, exactly as ``evaluate`` sends
+         *     it to geometry: rollback bar applied, params upcast, every formula
+         *     resolved, and a feature whose formula no longer resolves carrying its
+         *     ``input_error`` (PART-PARAMETERS, RESEARCH §20).
+         *
+         *     The web builds its measure and pick (overlay) requests from this rather
+         *     than from ``GET /features``, so those tools see the body the viewport
+         *     shows: a sick feature builds nothing there either, instead of a phantom
+         *     body from its last good numbers (MEASURE-FROM-EVAL-REQUEST). ``before``
+         *     is the Edit-feature cut, as on ``evaluate``. A read: nothing is evaluated
+         *     or recorded.
+         */
+        get: operations["get_part_evaluation_request_api_v1_parts__part_id__evaluation_request_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/export": {
         parameters: {
             query?: never;
@@ -13714,6 +13744,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvaluateTreeResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_part_evaluation_request_api_v1_parts__part_id__evaluation_request_get: {
+        parameters: {
+            query?: {
+                /** @description Evaluate only the features BEFORE this one (the feature itself excluded), ignoring the stored rollback bar: the same body a rollback bar on the preceding feature would give. Read-only: the bar and tree_version do not move and the evaluation is not recorded. Omit to evaluate the part as stored. An id that is not a feature of this part is a 404 feature_not_found. */
+                before?: string | null;
+            };
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluateTreeRequest"];
                 };
             };
             /** @description Validation Error */

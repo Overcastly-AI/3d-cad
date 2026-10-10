@@ -273,6 +273,96 @@ def test_measure_and_pick_requests_built_from_the_tree_solve(tmp_path: Path) -> 
     asyncio.run(scenario())
 
 
+def test_measure_and_pick_from_the_evaluation_request_build_no_phantom(
+    tmp_path: Path,
+) -> None:
+    """MEASURE-FROM-EVAL-REQUEST: a feature whose formula goes out of range
+    keeps its last good numbers in storage, so a request built from ``GET
+    /features`` still builds it. The gateway's ``evaluation-request`` carries
+    its ``input_error``, and geometry builds nothing for it, as on evaluate."""
+
+    async def scenario() -> None:
+        async with _gateway(tmp_path) as client:
+            part = (await client.post("/api/v1/parts", json={"name": "P"})).json()
+            base = f"/api/v1/parts/{part['id']}"
+            assert (
+                await client.put(f"{base}/parameters", json=_parameters(0))
+            ).status_code == 200
+            made = await client.post(
+                f"{base}/features",
+                json={"name": "S", "feature": _sketch(), "expected_tree_version": 1},
+            )
+            sketch_id = made.json()["feature"]["id"]
+            made = await client.post(
+                f"{base}/features",
+                json={
+                    "name": "E",
+                    "feature": _extrude(sketch_id),
+                    "expected_tree_version": 2,
+                },
+            )
+            assert made.status_code == 201, made.text
+            extrude_id = made.json()["feature"]["id"]
+
+            # D = -5: the PUT stands, the extrude keeps 10 mm and is sick.
+            table = (await client.get(f"{base}/parameters")).json()
+            rows = [
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "expression": "-5" if row["name"] == "D" else row["expression"],
+                    "unit": row["unit"],
+                }
+                for row in table["parameters"]
+            ]
+            put = await client.put(
+                f"{base}/parameters",
+                json={
+                    "expected_tree_version": table["tree_version"],
+                    "parameters": rows,
+                },
+            )
+            assert put.status_code == 200, put.text
+
+            response = await client.get(f"{base}/evaluation-request")
+            assert response.status_code == 200, response.text
+            request = response.json()
+            sketch, extrude = request["features"]
+            assert sketch.get("input_error") is None
+            assert extrude["input_error"]["code"] == "parameter_value_invalid"
+            assert extrude["feature"]["params"]["distance_mm"] == 10.0
+
+            def tops(overlay: Any) -> list[float]:
+                return [v["z"] for v in overlay["vertices"] if v["z"] > 0]
+
+            stored = _web_request((await client.get(f"{base}/features")).json())
+            phantom = await client.post(
+                "/api/v1/geometry/overlay", json={"tree": stored}
+            )
+            assert phantom.status_code == 200, phantom.text
+            assert tops(phantom.json()) == [10.0] * 4
+            sick = await client.post(
+                "/api/v1/geometry/overlay",
+                json={"tree": {**request, "linear_deflection": 0.1}},
+            )
+            # No body to pick from: the tools say so instead of drawing one.
+            assert sick.status_code == 422, sick.text
+            error = sick.json()["error"]
+            assert error["code"] == "tree_overlay_failed"
+            assert error["details"]["feature_error"]["code"] == (
+                "parameter_value_invalid"
+            )
+
+            # `before` is the Edit-feature cut, as on evaluate.
+            cut = await client.get(
+                f"{base}/evaluation-request", params={"before": extrude_id}
+            )
+            assert cut.status_code == 200, cut.text
+            assert [f["id"] for f in cut.json()["features"]] == [sketch_id]
+
+    asyncio.run(scenario())
+
+
 @contextlib.contextmanager
 def _documents_and_geometry(
     tmp_path: Path,

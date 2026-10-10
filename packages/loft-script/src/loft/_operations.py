@@ -777,6 +777,16 @@ POST_PARTS_PART_ID_EVALUATE: Final = Operation(
     required_query=(),
 )
 
+GET_PARTS_PART_ID_EVALUATION_REQUEST: Final = Operation(
+    operation_id="get_part_evaluation_request_api_v1_parts__part_id__evaluation_request_get",
+    method="GET",
+    path="/api/v1/parts/{part_id}/evaluation-request",
+    request_model=None,
+    response_model="EvaluateTreeRequest",
+    path_params=("part_id",),
+    required_query=(),
+)
+
 POST_PARTS_PART_ID_EXPORT: Final = Operation(
     operation_id="export_part_api_v1_parts__part_id__export_post",
     method="POST",
@@ -1068,6 +1078,7 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "update_part_api_v1_parts__part_id__patch": PATCH_PARTS_PART_ID,
         "duplicate_part_api_v1_parts__part_id__duplicate_post": POST_PARTS_PART_ID_DUPLICATE,
         "evaluate_part_api_v1_parts__part_id__evaluate_post": POST_PARTS_PART_ID_EVALUATE,
+        "get_part_evaluation_request_api_v1_parts__part_id__evaluation_request_get": GET_PARTS_PART_ID_EVALUATION_REQUEST,
         "export_part_api_v1_parts__part_id__export_post": POST_PARTS_PART_ID_EXPORT,
         "export_part_loft_api_v1_parts__part_id__export_loft_get": GET_PARTS_PART_ID_EXPORT_LOFT,
         "get_feature_tree_api_v1_parts__part_id__features_get": GET_PARTS_PART_ID_FEATURES,

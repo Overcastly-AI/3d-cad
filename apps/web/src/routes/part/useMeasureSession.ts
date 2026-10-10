@@ -6,10 +6,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
-import { fetchOverlay, measureTargets } from "../../api/measure";
-import { buildEvaluateTree, buildMeasureRequest } from "../../measure/geometry";
+import {
+  fetchEvaluationRequest,
+  fetchPartOverlay,
+  measureTargets,
+} from "../../api/measure";
+import { buildMeasureRequest } from "../../measure/geometry";
 import { useMeasureStore } from "../../measure/store";
-import { type FeatureTreeResponse } from "../../api/parts";
 import type { PartDocument } from "./usePartDocument";
 import type { PartBody } from "./usePartBody";
 
@@ -41,10 +44,12 @@ export function useMeasureSession({
   const setMeasureResult = useMeasureStore((s) => s.setResult);
   const setMeasureFailure = useMeasureStore((s) => s.setMeasureError);
 
+  // Both requests are built from the part's evaluation request, so a feature
+  // whose formula no longer resolves builds nothing here either
+  // (MEASURE-FROM-EVAL-REQUEST).
   const overlayQuery = useQuery({
     queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    queryFn: () => fetchPartOverlay(partId),
     enabled: measureActive && tree.data !== undefined && meshGlbId !== null,
     staleTime: Infinity,
     retry: false,
@@ -72,7 +77,6 @@ export function useMeasureSession({
     if (!measureActive || measurePicks.length !== 2) return;
     if (measureResult !== null || measureFailure !== null) return;
     if (measureInFlight.current || tree.data === undefined) return;
-    const currentTree = tree.data;
     const [a, b] = measurePicks;
     if (a === undefined || b === undefined) return;
     measureInFlight.current = true;
@@ -81,7 +85,7 @@ export function useMeasureSession({
         const request = buildMeasureRequest(
           a,
           b,
-          buildEvaluateTree(currentTree),
+          await fetchEvaluationRequest(partId),
         );
         setMeasureResult(await measureTargets(request));
       } catch (error) {
@@ -95,6 +99,7 @@ export function useMeasureSession({
       }
     })();
   }, [
+    partId,
     measureActive,
     measurePicks,
     measureResult,
