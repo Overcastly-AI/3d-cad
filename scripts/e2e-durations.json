@@ -11,6 +11,7 @@
     "assembly-import.spec.ts": 42.3,
     "assembly-inspect.spec.ts": 59.8,
     "assembly-joint-hinge.spec.ts": 90.4,
+    "assembly-joint-motions.spec.ts": 84.0,
     "assembly-mass.spec.ts": 13.0,
     "assembly-move.spec.ts": 92.4,
     "assembly-solve-provenance.spec.ts": 76.8,

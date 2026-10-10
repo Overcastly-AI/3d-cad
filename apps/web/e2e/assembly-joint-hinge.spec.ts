@@ -19,93 +19,18 @@
  * face to the screen itself — then makes the real pointer gesture. The solved
  * joint is read off its tree row's `data-joint-*` attributes (full precision).
  */
-import { expect, test, type Page } from "./fixtures";
+import { expect, test } from "./fixtures";
 
-import { pickDispatch, setupTwoInstances, waitForSolved } from "./assemblyFlow";
-
-type V3 = [number, number, number];
-
-interface DriveStamp {
-  canvas: [number, number, number, number];
-  viewProj: number[];
-  mateId: string;
-  point: V3;
-  dir: V3;
-  value: number;
-}
-
-/** World (scene) point → page pixels through the stamp's view-projection. */
-function toScreen(t: DriveStamp, p: V3): { x: number; y: number } {
-  const [left, top, width, height] = t.canvas;
-  const e = t.viewProj;
-  const at = (i: number) => e[i] as number;
-  const [x, y, z] = p;
-  const cx = at(0) * x + at(4) * y + at(8) * z + at(12);
-  const cy = at(1) * x + at(5) * y + at(9) * z + at(13);
-  const cw = at(3) * x + at(7) * y + at(11) * z + at(15);
-  return {
-    x: left + ((cx / cw + 1) / 2) * width,
-    y: top + ((1 - cy / cw) / 2) * height,
-  };
-}
-
-/** Kernel (Z-up) → scene (Y-up): (x, y, z) → (x, z, −y). */
-const scene = (x: number, y: number, z: number): V3 => [x, z, -y];
-
-/** The drive stamp once it has held still (camera at rest). */
-async function settledStamp(page: Page): Promise<DriveStamp> {
-  let last = "";
-  await expect
-    .poll(
-      async () => {
-        const raw =
-          (await page
-            .getByTestId("viewport")
-            .getAttribute("data-joint-drag")) ?? "";
-        const still = raw !== "" && raw === last;
-        last = raw;
-        return still;
-      },
-      {
-        timeout: 20_000,
-        intervals: [300],
-        message: "the joint drive stamp never appeared / settled",
-      },
-    )
-    .toBe(true);
-  return JSON.parse(last) as DriveStamp;
-}
-
-interface JointReadout {
-  rot: number;
-  originA: V3;
-  originB: V3;
-  axis: V3;
-}
-
-/** The settled solve's joint readout off its tree row. */
-async function readJoint(page: Page): Promise<JointReadout> {
-  await waitForSolved(page);
-  const row = page.getByTestId("mate-row").first();
-  await expect(row).toHaveAttribute("data-joint-rot", /.+/);
-  const attr = async (name: string) => (await row.getAttribute(name)) ?? "";
-  return {
-    rot: Number(await attr("data-joint-rot")),
-    originA: JSON.parse(await attr("data-joint-origin-a")) as V3,
-    originB: JSON.parse(await attr("data-joint-origin-b")) as V3,
-    axis: JSON.parse(await attr("data-joint-axis")) as V3,
-  };
-}
-
-const gap = (a: V3, b: V3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-
-async function openEditor(page: Page) {
-  await page.getByTestId("mate-row").first().dblclick();
-  await expect(page.getByTestId("joint-dialog")).toHaveAttribute(
-    "data-joint-mode",
-    "edit",
-  );
-}
+import { setupTwoInstances, waitForSolved } from "./assemblyFlow";
+import {
+  gap,
+  openEditor,
+  pickHoleCentres,
+  readJoint,
+  scene,
+  settledStamp,
+  toScreen,
+} from "./jointFlow";
 
 test.describe("assembly joint — hinge", () => {
   test("revolute through the hole centres: DOF 1, drag about a fixed axis, limits, reload, undo", async ({
@@ -115,23 +40,8 @@ test.describe("assembly joint — hinge", () => {
     const { idA, idB } = await setupTwoInstances(page);
 
     // ——— 1. Joint: pick the two hole centres, choose Revolute, OK ————————
-    await page.keyboard.press("j");
-    await expect(page.getByTestId("mate-joint")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    await expect(page.getByTestId("mate-hud")).toBeVisible();
-    await pickDispatch(
-      page,
-      `[data-testid^="joint-origin-${idA}-circle-"][aria-label$="at 20, 12.5, 10 millimetres"]`,
-    );
-    await pickDispatch(
-      page,
-      `[data-testid^="joint-origin-${idB}-circle-"][aria-label$="at 20, 12.5, 0 millimetres"]`,
-    );
+    await pickHoleCentres(page, idA, idB);
     const dialog = page.getByTestId("joint-dialog");
-    await expect(dialog).toBeVisible();
-    await expect(page.getByTestId("joint-motion-ball")).toBeDisabled();
     await page.getByTestId("joint-motion-revolute").click();
     await expect(page.getByTestId("joint-rotMax")).toBeVisible();
 
