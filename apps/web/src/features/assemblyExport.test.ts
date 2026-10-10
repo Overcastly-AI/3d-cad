@@ -89,6 +89,17 @@ describe("assemblyExportGate", () => {
     );
   });
 
+  it("names a joint that resolves but conflicts (a moved hole, both grounded)", () => {
+    // Joints follow a moved hole now, so that edit can leave a joint resolved
+    // but unsatisfiable — the tree's "conflict" badge, and still Partial.
+    const gate = assemblyExportGate(
+      facts({ status: "conflicting", conflictingMates: [JOINT_A] }),
+      mates,
+    );
+    expect(gate.statusLabel).toBe("Partial · 1 joint conflicting");
+    expect(gate.confirmReason).toBe("1 joint conflicting.");
+  });
+
   it("flags a solve that gave up without naming a mate", () => {
     expect(
       assemblyExportGate(facts({ status: "not_converged" }), mates).statusLabel,

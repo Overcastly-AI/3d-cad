@@ -15,7 +15,8 @@ import { pickHoleCentres } from "./jointFlow";
  * it has not seen.
  *
  * Same fixture as QA's spec: two hole plates, a revolute joint through the
- * hole centres, then the hole moved 2 mm in the part's sketch.
+ * hole centres, then the hole deleted from the part's sketch (joints follow a
+ * MOVED hole, so only removing it leaves the joint genuinely unresolved).
  */
 
 /** Two plates joined by a solved revolute joint; returns the ids to edit. */
@@ -34,8 +35,8 @@ async function solvedHinge(
   return { auth: { Authorization: `Bearer ${token}` }, assemblyId, idB };
 }
 
-/** Move the plate's hole 2 mm: the joint's origin no longer resolves. */
-async function moveHole(
+/** Delete the plate's hole: the joint's origin edge no longer exists. */
+async function deleteHole(
   page: Page,
   auth: Record<string, string>,
   assemblyId: string,
@@ -56,19 +57,17 @@ async function moveHole(
       id: string;
       feature: {
         params: {
-          entities: Array<{ kind: string; center?: { x: number } }>;
+          entities: Array<{ kind: string }>;
         };
       };
     }>;
   };
   const sketch = tree.features[0];
-  const circle = sketch?.feature.params.entities.find(
-    (e) => e.kind === "circle",
-  );
-  if (sketch === undefined || circle?.center === undefined) {
+  const entities = sketch?.feature.params.entities ?? [];
+  if (sketch === undefined || !entities.some((e) => e.kind === "circle")) {
     throw new Error("the plate has no hole circle");
   }
-  circle.center.x += 2;
+  sketch.feature.params.entities = entities.filter((e) => e.kind !== "circle");
   const patch = await page.request.patch(
     `/api/v1/parts/${partId}/features/${sketch.id}`,
     {
@@ -112,7 +111,7 @@ test.describe("a partial assembly export", () => {
       // The reload below may cancel a request still in flight here.
       await route.continue().catch(() => {});
     });
-    await moveHole(page, auth, assemblyId);
+    await deleteHole(page, auth, assemblyId);
     await page.getByTestId(`instance-ground-${idB}`).click();
     await expect(page.getByTestId("assembly-export-status")).toHaveText(
       "Solving…",
@@ -196,7 +195,7 @@ test.describe("a partial assembly export", () => {
     // Edit the part, then re-project: the paper is recomposed from the new
     // solve, and the warning must be read from that solve, not a cached one
     // (review 2026-10-10).
-    await moveHole(page, auth, assemblyId);
+    await deleteHole(page, auth, assemblyId);
     await page.getByTestId("drawing-reproject").click();
     await expect(notice).toBeVisible({ timeout: 60_000 });
     await expect(notice).toContainText("1 joint unresolved");

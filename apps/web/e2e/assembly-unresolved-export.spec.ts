@@ -16,9 +16,10 @@ import { pickHoleCentres } from "./jointFlow";
  * feature; an assembly export says nothing.
  *
  * Here: two hole plates, a revolute joint through the hole centres, then the
- * hole is moved 2 mm in the part's sketch. Joint origins resolve on the strict
- * signature tier only (`geometry/assembly/joint_origins.py::_resolve_edge`),
- * so the joint goes unresolved. The export must then say so.
+ * hole is deleted from the part's sketch. (QA first MOVED it 2 mm; joints now
+ * follow a moved hole, so that edit no longer breaks one.) With the hole gone
+ * the joint's origin edge no longer exists and the joint goes unresolved. The
+ * export must then say so.
  */
 test.describe("assembly export after an upstream edit", () => {
   test("an unresolved joint is not exported as Ready", async ({ page }) => {
@@ -40,7 +41,7 @@ test.describe("assembly export after an upstream edit", () => {
       "Ready",
     );
 
-    // Move the hole 2 mm in the part (the plate's Sketch1 circle).
+    // Delete the hole from the part (the plate's Sketch1 circle).
     const instances = (await (
       await page.request.get(`/api/v1/assemblies/${assemblyId}`, {
         headers: auth,
@@ -69,11 +70,13 @@ test.describe("assembly export after an upstream edit", () => {
     };
     const sketch = tree.features[0];
     if (sketch === undefined) throw new Error("the plate has no sketch");
-    const circle = sketch.feature.params.entities.find(
-      (e) => e.kind === "circle",
+    const entities = sketch.feature.params.entities;
+    if (!entities.some((e) => e.kind === "circle")) {
+      throw new Error("no hole circle");
+    }
+    sketch.feature.params.entities = entities.filter(
+      (e) => e.kind !== "circle",
     );
-    if (circle?.center === undefined) throw new Error("no hole circle");
-    circle.center.x += 2;
     const patch = await page.request.patch(
       `/api/v1/parts/${partId}/features/${sketch.id}`,
       {
@@ -86,7 +89,7 @@ test.describe("assembly export after an upstream edit", () => {
     );
     expect(patch.ok(), await patch.text()).toBe(true);
 
-    // Reopen the assembly: the joint no longer resolves (today's behaviour).
+    // Reopen the assembly: the joint's hole is gone, so it cannot resolve.
     await page.reload();
     await waitForSolved(page);
     await expect(page.getByTestId("mate-row").first()).toContainText(
