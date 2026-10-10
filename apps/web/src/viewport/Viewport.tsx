@@ -67,6 +67,7 @@ import { sketchWorldBox } from "./sketchFit";
 import { OriginGeometry } from "./OriginGeometry";
 import { MateColumnStrip } from "./MateColumnStrip";
 import { ViewCube } from "./ViewCube";
+import { RenderProbe } from "./RenderProbe";
 import {
   hiddenBodyCount,
   isolatedBodyLabel,
@@ -230,7 +231,7 @@ function CameraRig({
   /** Has the modeler moved the camera by hand since the last fit? */
   const userMoved = useRef(false);
   /**
-   * The proposal watch's state — see the `useFrame` that reads it. All four are
+   * The proposal watch's state — see the `useFrame` that reads it. All five are
    * refs and two are REUSED Box3s, because this runs on every rendered frame
    * and the viewport rule is that the render loop allocates nothing.
    */
@@ -239,6 +240,12 @@ function CameraRig({
   const handedLastFrame = useRef(false);
   /** Has the modeler navigated since the CURRENT proposal appeared? */
   const movedSinceProposal = useRef(false);
+  /**
+   * A re-fit check is owed and has not been made yet. Held across frames, so
+   * a trigger that arrives while a pose is in flight is still served once it
+   * lands rather than spent on a frame that could not act on it.
+   */
+  const refitDue = useRef(false);
   /**
    * A Fit asked for while the SKETCHER owns the camera, waiting for it to be
    * still — see the `useFrame` that serves it. `-1` = no Fit waiting; otherwise
@@ -272,6 +279,13 @@ function CameraRig({
 
   const applyPose = useCallback(
     (pose: CameraGoal, instant: boolean) => {
+      // A model fit frames the BODY and knows nothing of a live proposal, so
+      // it can land short of one (a chrome change mid-way through the
+      // proposal's own re-fit replaces that ease outright). Owe the proposal
+      // watch a look once it lands; its own predicate stays outward-only.
+      if (pose.view === "fit" || pose.view === "fit-auto") {
+        refitDue.current = true;
+      }
       if (instant) {
         camera.position.copy(pose.position);
         camera.up.copy(pose.up);
@@ -699,6 +713,7 @@ function CameraRig({
       seenProposal.current.makeEmpty();
       movedSinceProposal.current = false;
       handedLastFrame.current = false;
+      refitDue.current = false;
       return;
     }
     if (seenProposal.current.isEmpty()) {
@@ -711,12 +726,18 @@ function CameraRig({
     handedLastFrame.current = handed;
     // The trigger is a CHANGE, not a clock: the subject moved, or a hand came
     // off it. A timer would either poll a demand-rendered scene awake or miss
-    // the frame the ghost arrived on.
+    // the frame the ghost arrived on. A model fit landing is the third trigger
+    // (see `applyPose`).
     const moved = !seenProposal.current.equals(box);
     seenProposal.current.copy(box);
-    if (!moved && !justReleased) return;
+    if (moved || justReleased) refitDue.current = true;
+    if (!refitDue.current) return;
     if (handed || movedSinceProposal.current) return;
-    if (goal.current !== null) return; // a pose is already in flight
+    // A pose is in flight: decide once it lands. Returning WITHOUT clearing
+    // the debt is the point — the change was recorded above, so dropping it
+    // here left a proposal that grew during any ease out of frame for good.
+    if (goal.current !== null) return;
+    refitDue.current = false;
 
     const body = boundsRef.current;
     const subject = refitSubject.current.copy(box);
@@ -1010,66 +1031,6 @@ function ProjectionRig({
     );
   }, [camera, onProjection]);
 
-  return null;
-}
-
-/** What the render probe publishes to the page (QA hook — see RenderProbe). */
-interface RenderProbeWindow extends Window {
-  /** Monotonic count of r3f RENDERS since load. */
-  __loftRenderTick?: number;
-  /** WebGL context loss/restore, in order, with `performance.now()` stamps. */
-  __loftGlEvents?: { kind: "lost" | "restored"; at: number }[];
-}
-
-/**
- * THE RENDER CLOCK — the one number the browser does not already expose, and
- * the reason CI-4 could not be diagnosed.
- *
- * The canvas is `frameloop="demand"`, so `requestAnimationFrame` counts BROWSER
- * frames, not renders: the page can tick 30 rAFs while this scene has not
- * re-rendered once. Every e2e pixel census waited on rAFs and then read the
- * drawing buffer, which `preserveDrawingBuffer` happily serves from the LAST
- * render — a perfectly valid STALE frame. That is the exact shape of the CI red
- * on `c6b6c6d` (sketch ink = 0 with the frame correctly fitted), and no
- * evidence in the run could distinguish it from a rendering regression.
- *
- * `useFrame` runs inside the demand loop, so incrementing here counts renders
- * and nothing else. Default priority deliberately: a positive priority takes
- * over rendering from r3f. One integer write per rendered frame, no allocation.
- *
- * The context listeners are not only instrumentation. three's own handler
- * preventDefaults the loss (so the browser restores) and reinitialises on
- * restore — but under `demand` nothing invalidates afterwards, so a restored
- * context would sit on an empty canvas until the user happened to orbit.
- * `invalidate()` repaints it. Loss was entirely silent before this: nothing in
- * `apps/web/src` listened, so "the viewport went blank" had no signal at all,
- * in CI or in front of a user.
- */
-function RenderProbe(): null {
-  const gl = useThree((state) => state.gl);
-  const invalidate = useThree((state) => state.invalidate);
-  useFrame(() => {
-    const w = window as RenderProbeWindow;
-    w.__loftRenderTick = (w.__loftRenderTick ?? 0) + 1;
-  });
-  useEffect(() => {
-    const w = window as RenderProbeWindow;
-    const events = (w.__loftGlEvents ??= []);
-    const canvas = gl.domElement;
-    const onLost = (): void => {
-      events.push({ kind: "lost", at: performance.now() });
-    };
-    const onRestored = (): void => {
-      events.push({ kind: "restored", at: performance.now() });
-      invalidate();
-    };
-    canvas.addEventListener("webglcontextlost", onLost);
-    canvas.addEventListener("webglcontextrestored", onRestored);
-    return () => {
-      canvas.removeEventListener("webglcontextlost", onLost);
-      canvas.removeEventListener("webglcontextrestored", onRestored);
-    };
-  }, [gl, invalidate]);
   return null;
 }
 

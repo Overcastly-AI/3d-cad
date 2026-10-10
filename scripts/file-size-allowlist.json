@@ -11,7 +11,7 @@
     "apps/web/src/sketch/store.ts": 2073,
     "apps/web/src/viewport/ParametricGauge.tsx": 1523,
     "apps/web/src/viewport/SketchScene.tsx": 2833,
-    "apps/web/src/viewport/Viewport.tsx": 1880,
+    "apps/web/src/viewport/Viewport.tsx": 1841,
     "packages/design/src/gauge.ts": 1538,
     "packages/loft-wire/src/loft_wire/drawings.py": 2129,
     "packages/loft-wire/src/loft_wire/features.py": 4363,
