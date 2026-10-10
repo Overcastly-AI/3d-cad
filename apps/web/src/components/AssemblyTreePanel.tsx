@@ -43,6 +43,7 @@ import {
   PanelSection,
   PinIcon,
   SegmentedControl,
+  Stamp,
 } from "@loft/design";
 
 import type {
@@ -485,6 +486,18 @@ export function AssemblyTreePanel({
                             </span>
                           ) : null;
                         })()}
+                        {jointName !== undefined &&
+                        !solve.stale &&
+                        jointProbes?.get(mate.id)?.atLimit === true ? (
+                          <Stamp
+                            tone="brass"
+                            className="ml-1.5 align-middle"
+                            data-testid="mate-at-limit"
+                            title={`${label} sits on one of its limits`}
+                          >
+                            at limit
+                          </Stamp>
+                        ) : null}
                       </span>
                       <span className="block font-data text-2xs tabular-nums text-gauge">
                         ①{balloonById.get(a) ?? "?"} · ②

@@ -3,11 +3,14 @@
  *
  * A press — on the jointed part's own body (routed here by `AssemblyScene`)
  * or on the drive handle Move puts up — starts a drag whose every pointer
- * position is PROJECTED onto the joint's axis (`assembly/jointDrag`): the
- * swept angle about it for a revolute, the closest approach along it for a
- * slider. The camera's orbit is held off for the length of the drag and
- * handed back on release, even if the layer unmounts mid-drag (the same
- * hand-back `MoveTriad` makes).
+ * position is PROJECTED onto the joint's free motion (`assembly/jointDrag`):
+ * the swept angle about the axis for a turn, the closest approach along it for
+ * a slide, the hit on the plane normal to it for a planar joint's in-plane
+ * slide. On the body, a plain drag turns and Shift+drag slides
+ * (`driveModeFor`); on the handle, each part does one thing (the ring turns,
+ * the arrow slides along, the square slides across). The camera's orbit is
+ * held off for the length of the drag and handed back on release, even if the
+ * layer unmounts mid-drag (the same hand-back `MoveTriad` makes).
  *
  * QA STAMP. The axis and the camera's view-projection are published on the
  * viewport as `data-joint-drag`, so a spec can project a point of the part to
@@ -25,6 +28,7 @@ import {
   useRef,
 } from "react";
 import {
+  DoubleSide,
   type Group,
   Matrix4,
   Quaternion,
@@ -35,17 +39,28 @@ import {
 
 import {
   beginJointDrag,
-  type JointDrag,
+  beginPlaneDrag,
+  type DriveMode,
+  driveModeFor,
+  type Ray,
   sceneRayToKernel,
 } from "../assembly/jointDrag";
 import { occtPointToScene, scenePointToOcct } from "../assembly/placement";
-import type { DriveTarget } from "../assembly/useJointDrive";
+import type {
+  DriveAxis,
+  DriveGesture,
+  DriveTarget,
+} from "../assembly/useJointDrive";
 
-/** Start a drag of `target` from this press; `fromBody` vs. the handle. */
+/**
+ * Start a drag of `target` from this press; `fromBody` vs. the handle. A
+ * handle part names its `mode`; a body press reads it from Shift.
+ */
 export type JointPress = (
   event: ThreeEvent<PointerEvent>,
   target: DriveTarget,
   fromBody: boolean,
+  mode?: DriveMode,
 ) => void;
 
 export interface JointDragLayerProps {
@@ -55,14 +70,14 @@ export interface JointDragLayerProps {
   showHandle: boolean;
   /** Filled with the press handler, for the body press `AssemblyScene` routes. */
   pressRef: MutableRefObject<JointPress | null>;
-  onPreview: (target: DriveTarget, value: number) => void;
+  onPreview: (target: DriveTarget, gesture: DriveGesture) => void;
   /**
-   * The pointer came up: at `value`, or null when it never moved (a body
+   * The pointer came up: at `gesture`, or null when it never moved (a body
    * press that never moved is a click, and the page selects).
    */
   onRelease: (
     target: DriveTarget,
-    value: number | null,
+    gesture: DriveGesture | null,
     fromBody: boolean,
   ) => void;
 }
@@ -72,6 +87,28 @@ const VP = new Matrix4();
 const DEFAULT_FOV_DEG = 45;
 /** Pointer travel below which a press is a click (the OS drag threshold). */
 const DRAG_THRESHOLD_PX = 3;
+
+function sameGesture(a: DriveGesture | null, b: DriveGesture): boolean {
+  if (a === null || a.mode !== b.mode) return false;
+  if (a.mode === "plane" && b.mode === "plane") {
+    return (
+      a.shift.x === b.shift.x &&
+      a.shift.y === b.shift.y &&
+      a.shift.z === b.shift.z
+    );
+  }
+  return a.mode !== "plane" && b.mode !== "plane" && a.value === b.value;
+}
+
+/** The axis a stamp reports: its value and the bounds the drag stops at. */
+const stampAxis = (axis: DriveAxis | null) =>
+  axis === null
+    ? null
+    : {
+        value: axis.value,
+        min: Number.isFinite(axis.min) ? axis.min : null,
+        max: Number.isFinite(axis.max) ? axis.max : null,
+      };
 
 export function JointDragLayer({
   target,
@@ -86,9 +123,9 @@ export function JointDragLayer({
   const controls = useThree((s) => s.controls) as { enabled?: boolean } | null;
 
   const active = useRef<{
-    drag: JointDrag;
+    read: (ray: Ray) => DriveGesture | null;
     target: DriveTarget;
-    value: number | null;
+    gesture: DriveGesture | null;
     cleanup: () => void;
   } | null>(null);
 
@@ -111,20 +148,48 @@ export function JointDragLayer({
   );
 
   const press = useCallback<JointPress>(
-    (event, target, fromBody) => {
+    (event, target, fromBody, forced) => {
       if (active.current !== null) return;
       if (event.button !== 0) return;
       event.stopPropagation();
-      const drag = beginJointDrag({
-        motion: target.motion,
-        axis: target.axis,
-        value: target.value,
-        min: target.min,
-        max: target.max,
-        ray: rayAt(event.clientX, event.clientY),
-        grab: scenePointToOcct([event.point.x, event.point.y, event.point.z]),
-      });
-      if (drag === null) return;
+      const mode = forced ?? driveModeFor(target.motion, event.shiftKey);
+      const ray = rayAt(event.clientX, event.clientY);
+      const grab = scenePointToOcct([
+        event.point.x,
+        event.point.y,
+        event.point.z,
+      ]);
+      let read: ((ray: Ray) => DriveGesture | null) | null = null;
+      if (mode === "plane") {
+        const drag = beginPlaneDrag({ axis: target.axis, ray, grab });
+        if (drag !== null) {
+          read = (r) => {
+            const shift = drag.move(r);
+            return shift === null ? null : { mode, shift };
+          };
+        }
+      } else {
+        const axis = mode === "turn" ? target.rot : target.lin;
+        const drag =
+          axis === null
+            ? null
+            : beginJointDrag({
+                mode,
+                axis: target.axis,
+                value: axis.value,
+                min: axis.min,
+                max: axis.max,
+                ray,
+                grab,
+              });
+        if (drag !== null) {
+          read = (r) => {
+            const value = drag.move(r);
+            return value === null ? null : { mode, value };
+          };
+        }
+      }
+      if (read === null) return;
       if (controls !== null) controls.enabled = false;
       const pressed = { x: event.clientX, y: event.clientY };
       let travelled = false;
@@ -136,17 +201,17 @@ export function JointDragLayer({
           Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) >
           DRAG_THRESHOLD_PX;
         if (!travelled) return;
-        const value = session.drag.move(rayAt(e.clientX, e.clientY));
-        if (value === null || value === session.value) return;
-        session.value = value;
-        onPreview(session.target, value);
+        const gesture = session.read(rayAt(e.clientX, e.clientY));
+        if (gesture === null || sameGesture(session.gesture, gesture)) return;
+        session.gesture = gesture;
+        onPreview(session.target, gesture);
         invalidate();
       };
       const onUp = () => {
         const session = active.current;
         if (session === null) return;
         session.cleanup();
-        onRelease(session.target, session.value, fromBody);
+        onRelease(session.target, session.gesture, fromBody);
       };
       const cleanup = () => {
         window.removeEventListener("pointermove", onMove);
@@ -158,7 +223,7 @@ export function JointDragLayer({
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onUp);
-      active.current = { drag, target, value: null, cleanup };
+      active.current = { read, target, gesture: null, cleanup };
     },
     [rayAt, controls, onPreview, onRelease, invalidate],
   );
@@ -212,6 +277,7 @@ export function JointDragLayer({
       state.camera.projectionMatrix,
       state.camera.matrixWorldInverse,
     );
+    const primary = stampAxis(target.rot ?? target.lin);
     const stamp = JSON.stringify({
       canvas: [rect.left, rect.top, rect.width, rect.height].map(Math.round),
       viewProj: VP.elements.map((n) => Math.round(n * 1e6) / 1e6),
@@ -221,9 +287,13 @@ export function JointDragLayer({
       // Scene frame (Y up), like the move triad's stamp.
       point: frame.point,
       dir: [frame.dir.x, frame.dir.y, frame.dir.z],
-      value: target.value,
-      min: Number.isFinite(target.min) ? target.min : null,
-      max: Number.isFinite(target.max) ? target.max : null,
+      // The plain drag's axis (the turn wherever there is one).
+      value: primary?.value ?? null,
+      min: primary?.min ?? null,
+      max: primary?.max ?? null,
+      rot: stampAxis(target.rot),
+      lin: stampAxis(target.lin),
+      atLimit: target.atLimit,
     });
     if (stamp !== lastStamp.current) {
       lastStamp.current = stamp;
@@ -244,6 +314,15 @@ export function JointDragLayer({
 
   if (frame === null || target === null || !showHandle) return null;
   const tokens = assemblyTokens.jointHandle;
+  const material = (
+    <meshBasicMaterial
+      color={tokens.color}
+      depthTest={false}
+      transparent
+      toneMapped={false}
+      side={DoubleSide}
+    />
+  );
   return (
     <group
       ref={handleRef}
@@ -263,38 +342,31 @@ export function JointDragLayer({
         gapSize={0.06}
         depthTest={false}
       />
-      {target.motion === "revolute" ? (
-        <mesh onPointerDown={(e) => press(e, target, false)}>
+      {target.rot !== null ? (
+        <mesh onPointerDown={(e) => press(e, target, false, "turn")}>
           <torusGeometry args={[0.7, 0.05, 8, 64]} />
-          <meshBasicMaterial
-            color={tokens.color}
-            depthTest={false}
-            transparent
-            toneMapped={false}
-          />
+          {material}
         </mesh>
-      ) : (
-        <group onPointerDown={(e) => press(e, target, false)}>
+      ) : null}
+      {target.lin !== null ? (
+        <group onPointerDown={(e) => press(e, target, false, "slide")}>
           <mesh position={[0, 0, 0.5]} rotation={[Math.PI / 2, 0, 0]}>
             <cylinderGeometry args={[0.04, 0.04, 1, 8]} />
-            <meshBasicMaterial
-              color={tokens.color}
-              depthTest={false}
-              transparent
-              toneMapped={false}
-            />
+            {material}
           </mesh>
           <mesh position={[0, 0, 1.08]} rotation={[Math.PI / 2, 0, 0]}>
             <coneGeometry args={[0.12, 0.25, 12]} />
-            <meshBasicMaterial
-              color={tokens.color}
-              depthTest={false}
-              transparent
-              toneMapped={false}
-            />
+            {material}
           </mesh>
         </group>
-      )}
+      ) : null}
+      {target.motion === "planar" ? (
+        // The in-plane slide: a small square lying in the joint plane.
+        <mesh onPointerDown={(e) => press(e, target, false, "plane")}>
+          <planeGeometry args={[0.36, 0.36]} />
+          {material}
+        </mesh>
+      ) : null}
     </group>
   );
 }

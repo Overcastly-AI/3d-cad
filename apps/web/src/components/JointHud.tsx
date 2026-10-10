@@ -43,7 +43,7 @@ export function JointHud({
   return (
     <JointDriveCard
       target={driveTarget}
-      dragValue={drive.dragValue}
+      gesture={drive.gesture}
       committing={drive.committing}
       onDone={() => drive.arm(null)}
       onEdit={() => {

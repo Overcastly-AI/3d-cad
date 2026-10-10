@@ -30,21 +30,16 @@ export type JointValue = NonNullable<JointMate["value"]>;
 export interface JointMotionOption {
   motion: JointMotion;
   label: string;
-  /** The solver handles it today; the rest are offered but disabled. */
-  supported: boolean;
 }
 
-/**
- * Fusion's order. Cylindrical, planar and ball are shown so the vocabulary is
- * learnable, but disabled: the solver returns `mate_unsupported` for them.
- */
+/** Fusion's order; the solver takes every one of them (S4b). */
 export const JOINT_MOTIONS: readonly JointMotionOption[] = [
-  { motion: "rigid", label: "Rigid", supported: true },
-  { motion: "revolute", label: "Revolute", supported: true },
-  { motion: "slider", label: "Slider", supported: true },
-  { motion: "cylindrical", label: "Cylindrical", supported: false },
-  { motion: "planar", label: "Planar", supported: false },
-  { motion: "ball", label: "Ball", supported: false },
+  { motion: "rigid", label: "Rigid" },
+  { motion: "revolute", label: "Revolute" },
+  { motion: "slider", label: "Slider" },
+  { motion: "cylindrical", label: "Cylindrical" },
+  { motion: "planar", label: "Planar" },
+  { motion: "ball", label: "Ball" },
 ];
 
 const MOTION_LABEL = new Map(JOINT_MOTIONS.map((m) => [m.motion, m.label]));
@@ -93,17 +88,21 @@ export function formatDegrees(deg: number): string {
   return `${rounded === 0 ? 0 : rounded}°`;
 }
 
-/** The value echo on a joint's tree row, or null while it is undriven. */
+/**
+ * The value echo on a joint's tree row, or null while it is undriven: each
+ * driven axis, rotation first ("30° · 12 mm" on a cylindrical joint).
+ */
 export function jointDetail(joint: JointMate, unit: LengthUnit): string | null {
   const value = joint.value;
   if (value === undefined) return null;
+  const parts: string[] = [];
   if (rotates(joint.motion) && value.rot_deg != null) {
-    return formatDegrees(value.rot_deg);
+    parts.push(formatDegrees(value.rot_deg));
   }
   if (slides(joint.motion) && value.lin_mm != null) {
-    return formatLength(value.lin_mm, unit);
+    parts.push(formatLength(value.lin_mm, unit));
   }
-  return null;
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 /** A joint's free axes are all driven: it fixes B, though DOF still counts them. */
@@ -468,14 +467,28 @@ export function applyJointEdit(
   };
 }
 
-/** A drive value on the joint's one free axis, the other axis explicitly null. */
+/** A joint's driveable axis: its rotation (degrees) or translation (mm). */
+export type JointAxisKind = "rot" | "lin";
+
+/**
+ * The value PATCH for driving one axis to `value`. BOTH axes are sent
+ * (JOINT-VALUE-MERGE: a PATCH value replaces both): the other axis keeps the
+ * joint's stored value, or null where the motion has no such axis or leaves
+ * it free.
+ */
 export function driveValue(
-  motion: JointMotion,
+  joint: JointMate,
+  axis: JointAxisKind,
   value: number,
 ): { rot_deg: number | null; lin_mm: number | null } {
-  return rotates(motion)
-    ? { rot_deg: value, lin_mm: null }
-    : { rot_deg: null, lin_mm: value };
+  const stored = joint.value;
+  const keep = (frees: boolean, n: number | null | undefined) =>
+    frees ? (n ?? null) : null;
+  return {
+    rot_deg:
+      axis === "rot" ? value : keep(rotates(joint.motion), stored?.rot_deg),
+    lin_mm: axis === "lin" ? value : keep(slides(joint.motion), stored?.lin_mm),
+  };
 }
 
 /** The wire's own bounds on any joint angle / length (`loft_wire.joints`). */
@@ -483,12 +496,15 @@ const MAX_JOINT_ANGLE_DEG = 3600;
 const MAX_JOINT_LENGTH_MM = 100_000;
 
 /**
- * The [min, max] the drag stops at for the joint's free axis: the joint's
- * limits where it has them, the wire's outer bounds where it does not.
+ * The [min, max] the drag stops at on one axis: the joint's limits where it
+ * has them, the wire's outer bounds where it does not.
  */
-export function driveLimits(joint: JointMate): [number, number] {
+export function driveLimits(
+  joint: JointMate,
+  axis: JointAxisKind,
+): [number, number] {
   const limits = joint.limits;
-  const turning = rotates(joint.motion);
+  const turning = axis === "rot";
   const outer = turning ? MAX_JOINT_ANGLE_DEG : MAX_JOINT_LENGTH_MM;
   const [lo, hi] = turning
     ? [limits?.rot_min_deg, limits?.rot_max_deg]

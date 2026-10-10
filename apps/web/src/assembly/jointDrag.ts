@@ -2,7 +2,10 @@
  * Dragging a jointed part along its free DOF: the pointer is projected onto
  * the joint's axis, never moved freely. A revolute turns about the axis by the
  * angle the pointer sweeps on the plane through the axis point normal to it; a
- * slider runs along the axis by the pointer ray's closest approach to it.
+ * slider runs along the axis by the pointer ray's closest approach to it; a
+ * planar joint's in-plane slide follows the pointer's hit on the plane normal
+ * to the axis. A cylindrical or planar joint picks one of these per drag
+ * (`driveMode`).
  *
  * Everything here is in the KERNEL world frame (Z up, mm): `axis_world` from
  * the solve is in it, and so are the placements. The viewport's rays are
@@ -115,7 +118,8 @@ export function clamp(value: number, min: number, max: number): number {
 }
 
 export interface JointDragStart {
-  motion: "revolute" | "slider";
+  /** Turn about the axis (degrees) or slide along it (mm). */
+  mode: "turn" | "slide";
   axis: JointAxis;
   /** The joint's value at the press (degrees or mm). */
   value: number;
@@ -148,7 +152,7 @@ const snapValue = (n: number) => {
  * not be read (an edge-on plane): there is nothing to drag from.
  */
 export function beginJointDrag(start: JointDragStart): JointDrag | null {
-  if (start.motion === "revolute") {
+  if (start.mode === "turn") {
     // The sweep is read on the plane through the GRABBED point, so the point
     // pressed stays under the cursor as the part turns — the plane through the
     // axis origin would let it drift on a part that stands proud of it.
@@ -186,6 +190,90 @@ export function beginJointDrag(start: JointDragStart): JointDrag | null {
   };
 }
 
+/** The motions a part can be dragged along (a ball turns with Move instead). */
+export type DrivableMotion = "revolute" | "slider" | "cylindrical" | "planar";
+
+/** What one drag does: turn about the axis, slide along it, or slide across it. */
+export type DriveMode = "turn" | "slide" | "plane";
+
+/**
+ * One scheme for every joint: a plain drag TURNS about the joint axis
+ * wherever the joint turns, Shift+drag SLIDES (along the axis for a
+ * cylindrical joint, in the plane for a planar one). A revolute only turns and
+ * a slider only slides, Shift or not.
+ */
+export function driveModeFor(
+  motion: DrivableMotion,
+  shift: boolean,
+): DriveMode {
+  if (motion === "revolute") return "turn";
+  if (motion === "slider") return "slide";
+  if (!shift) return "turn";
+  return motion === "cylindrical" ? "slide" : "plane";
+}
+
+export interface PlaneDrag {
+  /** The in-plane shift since the press, or null while it cannot be read. */
+  move: (ray: Ray) => Vec3 | null;
+}
+
+/** The ray's hit on the plane through `point` normal to `normal`, or null. */
+function rayPlaneHit(
+  point: Vector3,
+  normal: Vector3,
+  ray: Ray,
+): Vector3 | null {
+  const d = v(ray.dir);
+  const denom = d.dot(normal);
+  if (Math.abs(denom) < EDGE_ON) return null;
+  const t = point.clone().sub(v(ray.origin)).dot(normal) / denom;
+  if (t < 0) return null;
+  return v(ray.origin).addScaledVector(d, t);
+}
+
+/**
+ * Begin a planar joint's in-plane slide: the shift is the pointer's travel on
+ * the plane normal to the joint axis through the point pressed, so that point
+ * stays under the cursor. Null when the plane is edge-on at the press.
+ */
+export function beginPlaneDrag(start: {
+  axis: JointAxis;
+  ray: Ray;
+  grab?: Vec3;
+}): PlaneDrag | null {
+  const normal = v(start.axis.dir).normalize();
+  const through = v(start.grab ?? start.axis.point);
+  const from = rayPlaneHit(through, normal, start.ray);
+  if (from === null) return null;
+  return {
+    move: (ray) => {
+      const hit = rayPlaneHit(through, normal, ray);
+      if (hit === null) return null;
+      const shift = hit.sub(from);
+      // Exactly in the plane: float dust along the normal would tilt nothing,
+      // but it would move the part off its plane until the re-solve.
+      shift.addScaledVector(normal, -shift.dot(normal));
+      return {
+        x: snapValue(shift.x),
+        y: snapValue(shift.y),
+        z: snapValue(shift.z),
+      };
+    },
+  };
+}
+
+/** The placement shifted by `delta` (mm, kernel frame), orientation kept. */
+export function placementAfterShift(base: Placement, delta: Vec3): Placement {
+  return {
+    position: {
+      x: base.position.x + delta.x,
+      y: base.position.y + delta.y,
+      z: base.position.z + delta.z,
+    },
+    orientation: base.orientation,
+  };
+}
+
 /**
  * The placement a part takes when its joint moves by `delta` from `base`: a
  * turn of `delta` degrees about the axis, or a run of `delta` mm along it. The
@@ -193,7 +281,7 @@ export function beginJointDrag(start: JointDragStart): JointDrag | null {
  */
 export function placementAfterDrive(
   base: Placement,
-  motion: "revolute" | "slider",
+  mode: "turn" | "slide",
   axis: JointAxis,
   delta: number,
 ): Placement {
@@ -201,7 +289,7 @@ export function placementAfterDrive(
   const position = v(base.position);
   const q = base.orientation;
   let orientation = new Quaternion(q.x, q.y, q.z, q.w).normalize();
-  if (motion === "slider") {
+  if (mode === "slide") {
     position.addScaledVector(dir, delta);
   } else {
     const turn = new Quaternion().setFromAxisAngle(

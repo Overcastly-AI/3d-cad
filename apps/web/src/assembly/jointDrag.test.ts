@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { OverlayResult } from "../api/measure";
 import {
   beginJointDrag,
+  beginPlaneDrag,
+  driveModeFor,
   type JointAxis,
   placementAfterDrive,
+  placementAfterShift,
   rayAngleAbout,
   rayParamAlong,
   type Ray,
@@ -51,7 +54,7 @@ describe("projecting the pointer onto a revolute's axis", () => {
 
   it("winds past ±180° and stops at the limits", () => {
     const drag = beginJointDrag({
-      motion: "revolute",
+      mode: "turn",
       axis: hinge,
       value: 0,
       min: -3600,
@@ -86,7 +89,7 @@ describe("the grabbed point stays under an oblique cursor", () => {
       return { x: 20 + 15 * Math.cos(r), y: 12.5 + 15 * Math.sin(r), z: 20 };
     };
     const drag = beginJointDrag({
-      motion: "revolute",
+      mode: "turn",
       axis: hinge,
       value: 0,
       min: -3600,
@@ -113,7 +116,7 @@ describe("projecting the pointer onto a slider's axis", () => {
 
   it("moves by the pointer's travel from the press, clamped", () => {
     const drag = beginJointDrag({
-      motion: "slider",
+      mode: "slide",
       axis: rail,
       value: 10,
       min: 0,
@@ -126,9 +129,49 @@ describe("projecting the pointer onto a slider's axis", () => {
   });
 });
 
+describe("one drag scheme for every motion", () => {
+  it("turns on a plain drag and slides on Shift where both are free", () => {
+    expect(driveModeFor("revolute", true)).toBe("turn");
+    expect(driveModeFor("slider", false)).toBe("slide");
+    expect(driveModeFor("cylindrical", false)).toBe("turn");
+    expect(driveModeFor("cylindrical", true)).toBe("slide");
+    expect(driveModeFor("planar", false)).toBe("turn");
+    expect(driveModeFor("planar", true)).toBe("plane");
+  });
+
+  it("slides a planar joint across its plane, never off it", () => {
+    // The plane z = 10 (normal +Z), pressed at (20, 12.5) from an oblique eye.
+    const eye = { x: 60, y: -40, z: 80 };
+    const toward = (x: number, y: number): Ray => {
+      const d = { x: x - eye.x, y: y - eye.y, z: 10 - eye.z };
+      const n = Math.hypot(d.x, d.y, d.z);
+      return { origin: eye, dir: { x: d.x / n, y: d.y / n, z: d.z / n } };
+    };
+    const drag = beginPlaneDrag({
+      axis: hinge,
+      ray: toward(20, 12.5),
+      grab: { x: 20, y: 12.5, z: 10 },
+    });
+    if (drag === null) throw new Error("press should be readable");
+    const shift = drag.move(toward(27, 9.5));
+    expect(shift?.x).toBeCloseTo(7, 3);
+    expect(shift?.y).toBeCloseTo(-3, 3);
+    expect(shift?.z).toBe(0);
+    // Edge-on, the plane cannot be read: no shift is invented.
+    const sideways: Ray = {
+      origin: { x: -100, y: 12.5, z: 10 },
+      dir: { x: 1, y: 0, z: 0 },
+    };
+    expect(drag.move(sideways)).toBeNull();
+    const moved = placementAfterShift(identity, { x: 7, y: -3, z: 0 });
+    expect(moved.position).toEqual({ x: 7, y: -3, z: 10 });
+    expect(moved.orientation).toEqual(identity.orientation);
+  });
+});
+
 describe("the local preview pose", () => {
   it("turns a part about the axis, leaving every point on the axis fixed", () => {
-    const turned = placementAfterDrive(identity, "revolute", hinge, 90);
+    const turned = placementAfterDrive(identity, "turn", hinge, 90);
     // B's own origin sits on the axis: it does not move at all.
     const origin = worldPoint(turned, { x: 20, y: 12.5, z: 0 });
     expect(origin.x).toBeCloseTo(20, 12);
@@ -141,7 +184,7 @@ describe("the local preview pose", () => {
   });
 
   it("slides a part along the axis without turning it", () => {
-    const slid = placementAfterDrive(identity, "slider", hinge, 7);
+    const slid = placementAfterDrive(identity, "slide", hinge, 7);
     expect(slid.position).toEqual({ x: 0, y: 0, z: 17 });
     expect(slid.orientation).toEqual(identity.orientation);
   });

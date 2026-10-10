@@ -109,6 +109,18 @@ describe("joint names", () => {
     expect(
       jointDetail(joint({ motion: "slider", value: { lin_mm: 25.4 } }), "in"),
     ).toBe("1 in");
+    expect(
+      jointDetail(
+        joint({ motion: "cylindrical", value: { rot_deg: 30, lin_mm: 12 } }),
+        "mm",
+      ),
+    ).toBe("30° · 12 mm");
+    expect(
+      jointDetail(
+        joint({ motion: "cylindrical", value: { lin_mm: 12 } }),
+        "mm",
+      ),
+    ).toBe("12 mm");
   });
 });
 
@@ -184,6 +196,16 @@ describe("the dialog draft", () => {
     expect(visibleFields("revolute").has("linMax")).toBe(false);
     expect(visibleFields("slider").has("linValue")).toBe(true);
     expect(visibleFields("slider").has("rotValue")).toBe(false);
+    // The wire's `_check_applies`: cylindrical both axes, planar the turn
+    // only, ball neither.
+    for (const f of ["rotMin", "rotMax", "rotValue", "linMin", "linMax"]) {
+      expect(visibleFields("cylindrical").has(f as "rotMin")).toBe(true);
+    }
+    expect(visibleFields("planar").has("rotMax")).toBe(true);
+    expect(visibleFields("planar").has("rotValue")).toBe(true);
+    expect(visibleFields("planar").has("linMax")).toBe(false);
+    expect(visibleFields("planar").has("linValue")).toBe(false);
+    expect([...visibleFields("ball")]).toEqual(["offset", "angle"]);
   });
 
   it("flips and turns B a quarter at a time, wrapping at a full turn", () => {
@@ -255,14 +277,41 @@ describe("the dialog draft", () => {
     });
   });
 
-  it("drives the free axis only, and stops at the limits or the wire's bound", () => {
-    expect(driveValue("slider", 12)).toEqual({ rot_deg: null, lin_mm: 12 });
-    expect(driveLimits(joint({ limits: { rot_max_deg: 180 } }))).toEqual([
-      -3600, 180,
-    ]);
-    expect(driveLimits(joint({ motion: "slider" }))).toEqual([
+  it("drives one axis, sends both, and stops at the limits or the wire's bound", () => {
+    expect(driveValue(joint({ motion: "slider" }), "lin", 12)).toEqual({
+      rot_deg: null,
+      lin_mm: 12,
+    });
+    // JOINT-VALUE-MERGE: a cylindrical drag of one axis keeps the other's
+    // stored value, and a free axis stays free.
+    const cyl = joint({
+      motion: "cylindrical",
+      value: { rot_deg: 30, lin_mm: 12 },
+    });
+    expect(driveValue(cyl, "rot", 75)).toEqual({ rot_deg: 75, lin_mm: 12 });
+    expect(driveValue(cyl, "lin", 4)).toEqual({ rot_deg: 30, lin_mm: 4 });
+    expect(
+      driveValue(joint({ motion: "cylindrical", value: {} }), "rot", 5),
+    ).toEqual({ rot_deg: 5, lin_mm: null });
+    expect(driveValue(joint({ motion: "planar" }), "rot", 90)).toEqual({
+      rot_deg: 90,
+      lin_mm: null,
+    });
+    expect(driveLimits(joint({ limits: { rot_max_deg: 180 } }), "rot")).toEqual(
+      [-3600, 180],
+    );
+    expect(driveLimits(joint({ motion: "slider" }), "lin")).toEqual([
       -100_000, 100_000,
     ]);
+    expect(
+      driveLimits(
+        joint({
+          motion: "cylindrical",
+          limits: { rot_min_deg: -10, lin_max_mm: 40 },
+        }),
+        "lin",
+      ),
+    ).toEqual([-100_000, 40]);
   });
 });
 

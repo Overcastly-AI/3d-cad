@@ -8,10 +8,10 @@
  * where the joint will put it before anything is stored; OK sends one write,
  * Cancel drops it. Keyboard-first: Enter is OK, Esc is Cancel.
  *
- * Cylindrical, planar and ball are on the picker so the vocabulary is all
- * there, but disabled and labelled "coming soon": the solver does not take
- * them yet, and an enabled button for a joint that cannot solve would be a
- * promise the next click breaks.
+ * The fields follow the wire's rule (`loft_wire.joints._check_applies`): a
+ * cylindrical joint limits and drives both its turn and its slide, a planar
+ * joint only its turn about the normal (its in-plane slide has no single
+ * value), and a ball neither.
  */
 import {
   Button,
@@ -198,20 +198,17 @@ export function JointDialog({
               // A joint's motion is fixed once stored (the edit has no motion
               // field): delete and add it again to change it.
               const locked = editing && !checked;
-              const disabled = !m.supported || locked;
               return (
                 <button
                   key={m.motion}
                   type="button"
                   role="radio"
                   aria-checked={checked}
-                  disabled={disabled}
+                  disabled={locked}
                   title={
-                    !m.supported
-                      ? `${m.label} joints are coming soon`
-                      : locked
-                        ? "Delete and add the joint again to change its motion"
-                        : undefined
+                    locked
+                      ? "Delete and add the joint again to change its motion"
+                      : undefined
                   }
                   data-testid={`joint-motion-${m.motion}`}
                   onClick={() => dispatch({ type: "motion", motion: m.motion })}
@@ -221,7 +218,7 @@ export function JointDialog({
                     checked
                       ? "border-brass text-brass"
                       : "border-etch text-mist hover:border-brass",
-                    disabled
+                    locked
                       ? "cursor-not-allowed opacity-40 hover:border-etch"
                       : "",
                   ].join(" ")}
@@ -229,11 +226,6 @@ export function JointDialog({
                   <span className="font-display text-2xs uppercase tracking-[0.12em]">
                     {m.label}
                   </span>
-                  {!m.supported ? (
-                    <span className="font-body text-2xs text-gauge">
-                      coming soon
-                    </span>
-                  ) : null}
                 </button>
               );
             })}
@@ -280,16 +272,17 @@ export function JointDialog({
         {turning || sliding ? (
           <Section title="Limits">
             <div className="grid grid-cols-2 gap-2">
+              {/* A cylindrical joint limits both axes: name which is which. */}
               {turning ? (
                 <>
-                  {field("rotMin", "Min", "°", "none")}
-                  {field("rotMax", "Max", "°", "none")}
+                  {field("rotMin", sliding ? "Min angle" : "Min", "°", "none")}
+                  {field("rotMax", sliding ? "Max angle" : "Max", "°", "none")}
                 </>
               ) : null}
               {sliding ? (
                 <>
-                  {field("linMin", "Min", unit, "none")}
-                  {field("linMax", "Max", unit, "none")}
+                  {field("linMin", turning ? "Min dist." : "Min", unit, "none")}
+                  {field("linMax", turning ? "Max dist." : "Max", unit, "none")}
                 </>
               ) : null}
             </div>
@@ -306,6 +299,14 @@ export function JointDialog({
               Empty leaves it free to drag.
             </p>
           </Section>
+        ) : draft.motion === "ball" ? (
+          <p
+            data-testid="joint-ball-note"
+            className="border-b border-hairline px-3 py-2 font-body text-2xs text-gauge"
+          >
+            A ball turns freely about its centre: it takes no limits or value.
+            Move (M) turns it.
+          </p>
         ) : null}
 
         {previewProblem ? (

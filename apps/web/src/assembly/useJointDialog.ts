@@ -28,7 +28,6 @@ import {
   applyJointEdit,
   buildJointMate,
   isJoint,
-  JOINT_MOTIONS,
   jointLabels,
   jointUpdate,
   parseJointDraft,
@@ -85,8 +84,6 @@ export function useJointDialog({
   useEffect(() => () => useJointDialogStore.getState().close(), []);
 
   const parsed = useMemo(() => parseJointDraft(draft, unit), [draft, unit]);
-  const supported =
-    JOINT_MOTIONS.find((m) => m.motion === draft.motion)?.supported ?? false;
 
   /** The joint the dialog describes right now, or null while it cannot. */
   const draftJoint = useMemo<JointMate | null>(() => {
@@ -98,7 +95,7 @@ export function useJointDialog({
 
   const previewRequest = useMemo<EvaluateAssemblyRequest | null>(() => {
     if (evaluateRequest === null || target === null) return null;
-    if (draftJoint === null || !supported) return null;
+    if (draftJoint === null) return null;
     const base = evaluateRequest.mates ?? [];
     const next =
       target.mode === "create"
@@ -115,7 +112,7 @@ export function useJointDialog({
             m.mate_id === target.mateId ? { ...m, mate: draftJoint } : m,
           );
     return { ...evaluateRequest, mates: next };
-  }, [evaluateRequest, target, draftJoint, supported]);
+  }, [evaluateRequest, target, draftJoint]);
 
   // Debounced: a keystroke in a field is not a solve.
   const [settledRequest, setSettledRequest] =

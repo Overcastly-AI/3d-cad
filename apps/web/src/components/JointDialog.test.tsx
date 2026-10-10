@@ -1,6 +1,6 @@
 /**
- * The Joint dialog's DOM contract: the motion picker offers all six but only
- * the three the solver takes, limits and the drive appear per motion, the Flip
+ * The Joint dialog's DOM contract: the motion picker offers all six, limits
+ * and the drive appear per motion (the wire's rule), the Flip
  * hint shows only when the preview drives one body through the other, and a
  * server refusal is printed in the server's own words. The preview and the
  * writes live in `useJointDialog`; this renders the instrument.
@@ -65,15 +65,29 @@ describe("JointDialog", () => {
     expect(screen.queryByTestId("joint-rotMax")).toBeNull();
   });
 
-  it("offers the unsolved motions disabled, labelled coming soon", () => {
+  it("offers every motion, with the fields the wire lets each one take", () => {
     useJointDialogStore.getState().openCreate(pick("a"), pick("b"));
     renderDialog();
     for (const motion of ["cylindrical", "planar", "ball"]) {
       const button = screen.getByTestId(`joint-motion-${motion}`);
-      expect(button).toBeDisabled();
-      expect(button).toHaveTextContent("coming soon");
+      expect(button).toBeEnabled();
+      expect(button).not.toHaveTextContent("coming soon");
     }
-    expect(screen.getByTestId("joint-motion-slider")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("joint-motion-cylindrical"));
+    for (const f of ["rotMin", "rotMax", "rotValue", "linMin", "linMax"]) {
+      expect(screen.getByTestId(`joint-${f}`)).toBeInTheDocument();
+    }
+    expect(screen.getByTestId("joint-linValue")).toBeInTheDocument();
+    expect(screen.getByLabelText("Max angle")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("joint-motion-planar"));
+    expect(screen.getByTestId("joint-rotMax")).toBeInTheDocument();
+    expect(screen.getByTestId("joint-rotValue")).toBeInTheDocument();
+    expect(screen.queryByTestId("joint-linMax")).toBeNull();
+    expect(screen.queryByTestId("joint-linValue")).toBeNull();
+    fireEvent.click(screen.getByTestId("joint-motion-ball"));
+    expect(screen.queryByTestId("joint-rotMax")).toBeNull();
+    expect(screen.queryByTestId("joint-rotValue")).toBeNull();
+    expect(screen.getByTestId("joint-ball-note")).toBeInTheDocument();
   });
 
   it("reveals the free axis's limits and drive per motion", () => {

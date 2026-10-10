@@ -6,21 +6,35 @@
  * the anchor origin's point on A at A's solved pose. The preview is LOCAL: the
  * part is redrawn turned / slid from its solved pose, no request is made while
  * the pointer moves, and the drag stops at the joint's limits. Release sends
- * ONE `PATCH` of the value, with both axes (JOINT-VALUE-MERGE), which the
- * documents service records as one undo step; the dragged pose is held until
- * the re-solve is drawn, as Move does.
+ * ONE write, which the documents service records as one undo step: a value
+ * `PATCH` with both axes (JOINT-VALUE-MERGE) for a turn or a slide along the
+ * axis, or, for a planar joint's in-plane slide (which has no value), the
+ * part's placement, whose in-plane position the solver keeps. The dragged
+ * pose is held until the re-solve is drawn, as Move does.
+ *
+ * One scheme for every motion (`driveModeFor`): drag turns, Shift+drag
+ * slides. A ball joint has no drag here: Move's free triad turns it, and the
+ * solver keeps a ball's authored orientation.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   type EvaluateAssemblyResult,
+  type InstancePlacementResult,
   type InstanceResponse,
+  type JointMate,
   type JointState,
   type MateResponse,
-  type InstancePlacementResult,
+  updateInstance,
   updateMate,
 } from "../api/assemblies";
-import { type JointAxis, placementAfterDrive, worldPoint } from "./jointDrag";
+import {
+  type DrivableMotion,
+  type JointAxis,
+  placementAfterDrive,
+  placementAfterShift,
+  worldPoint,
+} from "./jointDrag";
 import {
   driveLimits,
   driveValue,
@@ -28,8 +42,19 @@ import {
   jointLabels,
   originLocalPoint,
   rotates,
+  slides,
 } from "./joints";
 import type { Placement, Vec3 } from "./placement";
+
+/** One driveable axis of a joint: where it is and where it stops. */
+export interface DriveAxis {
+  /** The joint's value now (degrees or mm). */
+  value: number;
+  min: number;
+  max: number;
+  /** Which of min / max is a limit the user set (else the wire's bound). */
+  limited: [boolean, boolean];
+}
 
 /** A joint a part can be dragged along. */
 export interface DriveTarget {
@@ -38,16 +63,72 @@ export interface DriveTarget {
   label: string;
   /** The moving component (the joint's B side). */
   instanceId: string;
-  motion: "revolute" | "slider";
+  motion: DrivableMotion;
+  /** The stored joint: the other axis of a value PATCH comes from it. */
+  joint: JointMate;
   axis: JointAxis;
   /** B's solved pose: the preview turns / slides it. */
   base: Placement;
-  /** The joint's value now (degrees or mm). */
-  value: number;
-  min: number;
-  max: number;
-  /** Which of min / max is a limit the user set (else the wire's bound). */
-  limited: [boolean, boolean];
+  /** The turn about the axis, for a revolute, cylindrical or planar joint. */
+  rot: DriveAxis | null;
+  /** The slide along the axis, for a slider or cylindrical joint. */
+  lin: DriveAxis | null;
+  /** The solve has the joint on one of its limits. */
+  atLimit: boolean;
+}
+
+/** One drag's reading: a value on an axis, or a planar joint's in-plane shift. */
+export type DriveGesture =
+  { mode: "turn" | "slide"; value: number } | { mode: "plane"; shift: Vec3 };
+
+/** The axis a value gesture moves. */
+export function gestureAxis(
+  target: DriveTarget,
+  mode: "turn" | "slide",
+): DriveAxis | null {
+  return mode === "turn" ? target.rot : target.lin;
+}
+
+/** The value gesture sits on a limit the user set. */
+export function gestureAtLimit(
+  target: DriveTarget,
+  gesture: DriveGesture,
+): boolean {
+  if (gesture.mode === "plane") return target.atLimit;
+  const axis = gestureAxis(target, gesture.mode);
+  if (axis === null) return false;
+  const [hasMin, hasMax] = axis.limited;
+  return (
+    (hasMin && Math.abs(gesture.value - axis.min) < 1e-9) ||
+    (hasMax && Math.abs(gesture.value - axis.max) < 1e-9)
+  );
+}
+
+/** Where the gesture puts the part, locally. */
+export function placementForGesture(
+  target: DriveTarget,
+  gesture: DriveGesture,
+): Placement {
+  if (gesture.mode === "plane") {
+    return placementAfterShift(target.base, gesture.shift);
+  }
+  const from = gestureAxis(target, gesture.mode)?.value ?? 0;
+  return placementAfterDrive(
+    target.base,
+    gesture.mode,
+    target.axis,
+    gesture.value - from,
+  );
+}
+
+/** The gesture moved nothing (a value back where it was, a zero shift). */
+function unmoved(target: DriveTarget, gesture: DriveGesture): boolean {
+  if (gesture.mode === "plane") {
+    const s = gesture.shift;
+    return Math.hypot(s.x, s.y, s.z) < 1e-9;
+  }
+  const axis = gestureAxis(target, gesture.mode);
+  return axis === null || Math.abs(gesture.value - axis.value) < 1e-9;
 }
 
 /** What a joint's row publishes for QA: the solve, at full precision. */
@@ -75,6 +156,21 @@ export interface UseJointDriveOptions {
   evaluation: EvaluateAssemblyResult | undefined;
   refreshGraph: () => Promise<unknown>;
   onError: (message: string) => void;
+}
+
+function driveAxis(
+  joint: JointMate,
+  kind: "rot" | "lin",
+  solved: number | null | undefined,
+): DriveAxis {
+  const stored = kind === "rot" ? joint.value?.rot_deg : joint.value?.lin_mm;
+  const [min, max] = driveLimits(joint, kind);
+  const limits = joint.limits;
+  const limited: [boolean, boolean] =
+    kind === "rot"
+      ? [limits?.rot_min_deg != null, limits?.rot_max_deg != null]
+      : [limits?.lin_min_mm != null, limits?.lin_max_mm != null];
+  return { value: stored ?? solved ?? 0, min, max, limited };
 }
 
 export function useJointDrive({
@@ -126,31 +222,23 @@ export function useJointDrive({
       for (const row of mates) {
         const joint = row.mate;
         if (!isJoint(joint) || joint.b.instance_id !== instanceId) continue;
-        if (joint.motion !== "revolute" && joint.motion !== "slider") continue;
+        const motion = joint.motion;
+        if (motion === "rigid" || motion === "ball") continue;
         const state = statesById.get(row.id);
         const probe = probes.get(row.id);
         const base = solvedById.get(instanceId)?.placement;
         if (state === undefined || probe === undefined || !base) continue;
-        const turning = rotates(joint.motion);
-        const value = turning
-          ? (joint.value?.rot_deg ?? state.rot_deg ?? 0)
-          : (joint.value?.lin_mm ?? state.lin_mm ?? 0);
-        const [min, max] = driveLimits(joint);
-        const limits = joint.limits;
-        const limited: [boolean, boolean] = turning
-          ? [limits?.rot_min_deg != null, limits?.rot_max_deg != null]
-          : [limits?.lin_min_mm != null, limits?.lin_max_mm != null];
         return {
-          limited,
           mateId: row.id,
           label: labels.get(row.id) ?? "Joint",
           instanceId,
-          motion: joint.motion,
+          motion,
+          joint,
           axis: { point: probe.originA, dir: state.axis_world },
           base,
-          value,
-          min,
-          max,
+          rot: rotates(motion) ? driveAxis(joint, "rot", state.rot_deg) : null,
+          lin: slides(motion) ? driveAxis(joint, "lin", state.lin_mm) : null,
+          atLimit: state.at_limit,
         };
       }
       return null;
@@ -158,10 +246,10 @@ export function useJointDrive({
     [instances, mates, statesById, probes, solvedById],
   );
 
-  /** The live drag: its joint and the value the pointer is at. */
+  /** The live drag: its joint and where the pointer has it. */
   const [drag, setDrag] = useState<{
     target: DriveTarget;
-    value: number;
+    gesture: DriveGesture;
   } | null>(null);
   /** A released value held on screen until its re-solve lands. */
   const [held, setHeld] = useState<{
@@ -173,30 +261,35 @@ export function useJointDrive({
   /** Move on a jointed part: the joint's handle is up for this instance. */
   const [armed, setArmed] = useState<string | null>(null);
 
-  const preview = useCallback((target: DriveTarget, value: number) => {
-    setDrag({ target, value });
+  const preview = useCallback((target: DriveTarget, gesture: DriveGesture) => {
+    setDrag({ target, gesture });
   }, []);
 
-  /** The pointer came up at `value` (null: it never moved). One PATCH. */
+  /** The pointer came up at `gesture` (null: it never moved). One write. */
   const release = useCallback(
-    (target: DriveTarget, value: number | null) => {
+    (target: DriveTarget, gesture: DriveGesture | null) => {
       setDrag(null);
-      if (value === null || Math.abs(value - target.value) < 1e-9) return;
+      if (gesture === null || unmoved(target, gesture)) return;
       if (committing) return;
-      const placement = placementAfterDrive(
-        target.base,
-        target.motion,
-        target.axis,
-        value - target.value,
-      );
+      const placement = placementForGesture(target, gesture);
       setCommitting(true);
       setHeld({ instanceId: target.instanceId, placement, version: Infinity });
       void (async () => {
         try {
-          const reply = await updateMate(assemblyId, target.mateId, {
-            expected_version: docVersion,
-            value: driveValue(target.motion, value),
-          });
+          const reply =
+            gesture.mode === "plane"
+              ? await updateInstance(assemblyId, target.instanceId, {
+                  expected_version: docVersion,
+                  placement,
+                })
+              : await updateMate(assemblyId, target.mateId, {
+                  expected_version: docVersion,
+                  value: driveValue(
+                    target.joint,
+                    gesture.mode === "turn" ? "rot" : "lin",
+                    gesture.value,
+                  ),
+                });
           setHeld({
             instanceId: target.instanceId,
             placement,
@@ -221,12 +314,7 @@ export function useJointDrive({
   const overrideFor = useCallback(
     (instanceId: string): Placement | null => {
       if (drag !== null && drag.target.instanceId === instanceId) {
-        return placementAfterDrive(
-          drag.target.base,
-          drag.target.motion,
-          drag.target.axis,
-          drag.value - drag.target.value,
-        );
+        return placementForGesture(drag.target, drag.gesture);
       }
       if (held !== null && held.instanceId === instanceId) {
         return held.placement;
@@ -242,8 +330,8 @@ export function useJointDrive({
   return {
     probes,
     targetFor,
-    /** The value under the pointer while dragging, or null. */
-    dragValue: drag?.value ?? null,
+    /** Where the pointer has the joint while dragging, or null. */
+    gesture: drag?.gesture ?? null,
     dragging: drag !== null,
     committing,
     busy: committing || held !== null,

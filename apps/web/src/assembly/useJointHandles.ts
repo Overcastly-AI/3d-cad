@@ -10,7 +10,7 @@ import type { ThreeEvent } from "@react-three/fiber";
 import { useCallback, useEffect, useRef } from "react";
 
 import type { JointPress } from "../viewport/JointDragLayer";
-import type { DriveTarget, JointDriveApi } from "./useJointDrive";
+import type { DriveGesture, DriveTarget, JointDriveApi } from "./useJointDrive";
 
 export interface UseJointHandlesOptions {
   drive: JointDriveApi;
@@ -46,10 +46,10 @@ export function useJointHandles({
   );
 
   const onRelease = useCallback(
-    (dragged: DriveTarget, value: number | null, fromBody: boolean) => {
-      if (value === null && fromBody) selectInstance(dragged.instanceId);
-      else if (value !== null) select(dragged.instanceId);
-      release(dragged, value);
+    (dragged: DriveTarget, gesture: DriveGesture | null, fromBody: boolean) => {
+      if (gesture === null && fromBody) selectInstance(dragged.instanceId);
+      else if (gesture !== null) select(dragged.instanceId);
+      release(dragged, gesture);
     },
     [release, selectInstance, select],
   );
