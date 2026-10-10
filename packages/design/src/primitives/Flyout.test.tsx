@@ -78,6 +78,26 @@ describe("Flyout trigger — measured label tier", () => {
   });
 });
 
+describe("Flyout trigger — armed", () => {
+  it("draws the armed scribe while one of its tools is active", () => {
+    const { rerender } = renderFlyout();
+    const trigger = screen.getByTestId("constraint-group-relational");
+    expect(trigger).not.toHaveAttribute("data-active");
+    expect(trigger.querySelector("[data-scribe]")).toBeNull();
+    rerender(
+      <Flyout
+        label="Relational"
+        icon={<svg aria-hidden />}
+        active
+        data-testid="constraint-group-relational"
+        items={[]}
+      />,
+    );
+    expect(trigger).toHaveAttribute("data-active", "true");
+    expect(trigger.querySelector("[data-scribe]")).not.toBeNull();
+  });
+});
+
 describe("Flyout rows — availability", () => {
   function renderAvailability() {
     return render(

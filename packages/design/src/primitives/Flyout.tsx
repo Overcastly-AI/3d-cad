@@ -70,6 +70,12 @@ export interface FlyoutProps {
   items: readonly FlyoutItem[];
   /** Tracked-caps header inside the menu. */
   eyebrow?: string;
+  /**
+   * One of the menu's tools is armed. The trigger then reads like an armed
+   * `ToolButton` — brass ink and the active scribe — so a tool chosen from the
+   * menu does not vanish from the band once the menu closes.
+   */
+  active?: boolean;
   "data-testid"?: string;
 }
 
@@ -96,6 +102,7 @@ export function Flyout({
   icon,
   items,
   eyebrow,
+  active = false,
   "data-testid": testid,
 }: FlyoutProps) {
   const [open, setOpen] = useState(false);
@@ -238,8 +245,10 @@ export function Flyout({
           "min-h-8 px-2.5 [[data-labels=off]_&]:px-1.5",
           "transition-colors duration-fast hover:bg-carbide",
           "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
-          open ? "bg-carbide text-mist" : "text-mist",
+          open && "bg-carbide",
+          active ? "text-brass" : "text-mist",
         )}
+        data-active={active ? "true" : undefined}
       >
         <span className="flex shrink-0 items-center">{icon}</span>
         <span className="font-display text-2xs uppercase tracking-[0.12em] [[data-labels=off]_&]:hidden">
@@ -257,6 +266,14 @@ export function Flyout({
         {/* Not while the menu is down: the stamp and the menu occupy the same
             strip of viewport, and a tooltip over an open menu is noise. */}
         {open ? null : <ToolStamp label={label} />}
+        {/* The armed scribe, the same line `ToolButton` draws. */}
+        {active ? (
+          <span
+            aria-hidden
+            data-scribe
+            className="pointer-events-none absolute inset-x-1.5 bottom-0.5 h-px bg-brass"
+          />
+        ) : null}
       </button>
 
       {open ? (
