@@ -3,7 +3,7 @@
  * turns about, or runs along, its joint's axis and nowhere else.
  *
  * The axis comes from the solve (`joint_states[].axis_world`, A's Z) through
- * the anchor origin's point on A at A's solved pose. The preview is LOCAL: the
+ * the moving origin's point on B at B's solved pose. The preview is LOCAL: the
  * part is redrawn turned / slid from its solved pose, no request is made while
  * the pointer moves, and the drag stops at the joint's limits. Release sends
  * ONE write, which the documents service records as one undo step: a value
@@ -234,7 +234,10 @@ export function useJointDrive({
           instanceId,
           motion,
           joint,
-          axis: { point: probe.originA, dir: state.axis_world },
+          // Through B's origin: a planar joint turns B about its OWN origin
+          // (it keeps its in-plane seat), and every other motion holds B's
+          // origin on A's axis, where it is the same line.
+          axis: { point: probe.originB, dir: state.axis_world },
           base,
           rot: rotates(motion) ? driveAxis(joint, "rot", state.rot_deg) : null,
           lin: slides(motion) ? driveAxis(joint, "lin", state.lin_mm) : null,
