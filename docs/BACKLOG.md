@@ -395,3 +395,5 @@ One line each. The founder triages weekly; most are closed without work.
 - JOINT-POSITIONED-COUNT (S5b): "Positioned by Revolute 1" is a count (remaining DOF == driven joint axes); the solver could report which DOF are driven instead.
 - JOINT-PREVIEW-COST (S5b): every settled dialog edit runs an evaluate AND an interference check (the Flip hint); a solve-only interference on the two parts would be cheaper.
 - JOINT-ORIGIN-FACE-CENTRE (S5b): the drag axis point uses the stored face centroid, while the solver follows a resized face's current centre; harmless to the value, the handle sits off-centre until the parts are re-picked.
+- JOINT-ONE-SIDED-LIMIT (S4b): with only a max of 90°, a hinge driven to 170° is pinned to 90° (a lone bound reads on (-180°, 180°], RESEARCH §22); check against Fusion's one-sided limits.
+- JOINT-BALL-DRAG (S4b web): a ball joint has no joint drag; Move's free triad turns it (the solver keeps a ball's authored orientation, and its translation snaps back on the re-solve).
