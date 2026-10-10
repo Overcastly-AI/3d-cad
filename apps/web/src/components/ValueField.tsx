@@ -26,15 +26,19 @@
  * when something other than typing changed what it should show.
  */
 import {
+  DimensionTagCell,
   NumberField,
   type NumberFieldProps,
   SuggestionList,
   suggestionOptionId,
 } from "@loft/design";
 import {
+  type ChangeEvent,
   type CSSProperties,
   createContext,
+  type FocusEvent,
   type KeyboardEvent,
+  type ReactNode,
   type Ref,
   useCallback,
   useContext,
@@ -104,6 +108,13 @@ export interface ValueFieldProps extends Omit<
   inputRef?: Ref<HTMLInputElement>;
   /** The cell's test hook; its hint and list take `-hint`, `-suggestions`. */
   "data-testid"?: string;
+  /**
+   * Render as a drafting tag cell (`DimensionTagCell`, this many characters
+   * wide) instead of a form field: the sketcher's draw-time boxes, which hang
+   * on the shape being drawn (QA-RECT-BOX-NAMES). Same formula engine, same
+   * autocomplete; the error is shown by the cell's flag and by its strip.
+   */
+  tagWidth?: number;
 }
 
 /**
@@ -153,6 +164,7 @@ export function ValueField({
   onKeyDown,
   onBlur,
   "data-testid": testId,
+  tagWidth,
   ...rest
 }: ValueFieldProps) {
   const unit = useDocumentLengthUnit();
@@ -246,12 +258,23 @@ export function ValueField({
 
   // --- the uncontrolled cell ---------------------------------------------------
   const domText = useRef(display);
+  /**
+   * What typing has handed the caller since the field last showed someone
+   * else's text. In the sketcher the caller ECHOES each text back as `value`,
+   * and an echo can land after the typist has moved on (the draw boxes live in
+   * drei's own React root, so their owner renders a frame behind): `2` coming
+   * back after `23` was typed is old news, not a write, and writing it is a
+   * lost keystroke (DIM-1's class).
+   */
+  const echoes = useRef<string[]>([]);
   useLayoutEffect(() => {
     const node = input.current;
     if (node === null || display === domText.current) return;
+    if (pointer === undefined && echoes.current.includes(display)) return;
+    echoes.current = [];
     domText.current = display;
     if (node.value !== display) node.value = display;
-  }, [display]);
+  }, [display, pointer]);
 
   const setRefs = useCallback(
     (node: HTMLInputElement | null) => {
@@ -288,6 +311,7 @@ export function ValueField({
   const take = (text: string) => {
     domText.current = text;
     if (pointer === undefined) {
+      echoes.current = [...echoes.current.slice(-31), text];
       onValueChange(text);
       return;
     }
@@ -330,7 +354,18 @@ export function ValueField({
         );
         return;
       }
-      if (event.key === "Enter" || event.key === "Tab") {
+      const option = completion.options[active];
+      // The word already IS the highlighted name (`D`, with `deg` below it):
+      // taking it changes nothing, so the key keeps its own meaning, Tab
+      // to the next cell and Enter to apply (QA-RECT-BOX-NAMES: `W` Tab `H`
+      // Enter must not need two Tabs and two Enters).
+      const complete =
+        option !== undefined &&
+        option.source !== "function" &&
+        option.name === completion.prefix;
+      if ((event.key === "Enter" || event.key === "Tab") && complete) {
+        setCompletion(null);
+      } else if (event.key === "Enter" || event.key === "Tab") {
         event.preventDefault();
         event.stopPropagation();
         accept(active);
@@ -381,38 +416,56 @@ export function ValueField({
             : null;
 
   const open = completion !== null && listStyle !== null;
+  const cellProps = {
+    ref: setRefs,
+    "data-testid": testId,
+    "data-formula": textFormula !== null ? "" : undefined,
+    defaultValue: display,
+    inputMode: "text",
+    autoCapitalize: "off",
+    role: "combobox",
+    "aria-autocomplete": "list",
+    "aria-expanded": open,
+    "aria-controls": open ? listId : undefined,
+    "aria-activedescendant": open
+      ? suggestionOptionId(listId, active)
+      : undefined,
+    formula: textFormula !== null,
+    hint: hint ?? undefined,
+    ...(testId !== undefined ? { hintTestId: `${testId}-hint` } : {}),
+    onChange: (event: ChangeEvent<HTMLInputElement>) => {
+      const node = event.target;
+      take(node.value);
+      suggest(node.value, node.selectionStart ?? node.value.length);
+    },
+    onKeyDown: handleKeyDown,
+    onBlur: (event: FocusEvent<HTMLInputElement>) => {
+      setCompletion(null);
+      onBlur?.(event);
+    },
+  } as const;
+  let cell: ReactNode;
+  if (tagWidth === undefined) {
+    cell = <NumberField {...rest} {...cellProps} error={shownError} />;
+  } else {
+    // A tag cell has no caption row: the unit is the strip's, and the
+    // reason for an error is written under the strip by its owner.
+    const tag = { ...rest };
+    delete tag.unit;
+    delete tag.emphasis;
+    delete tag.layout;
+    cell = (
+      <DimensionTagCell
+        {...tag}
+        {...cellProps}
+        width={tagWidth}
+        aria-invalid={shownError !== null || undefined}
+      />
+    );
+  }
   return (
     <>
-      <NumberField
-        {...rest}
-        ref={setRefs}
-        data-testid={testId}
-        data-formula={textFormula !== null ? "" : undefined}
-        defaultValue={display}
-        inputMode="text"
-        autoCapitalize="off"
-        role="combobox"
-        aria-autocomplete="list"
-        aria-expanded={open}
-        aria-controls={open ? listId : undefined}
-        aria-activedescendant={
-          open ? suggestionOptionId(listId, active) : undefined
-        }
-        formula={textFormula !== null}
-        hint={hint ?? undefined}
-        {...(testId !== undefined ? { hintTestId: `${testId}-hint` } : {})}
-        error={shownError}
-        onChange={(event) => {
-          const node = event.target;
-          take(node.value);
-          suggest(node.value, node.selectionStart ?? node.value.length);
-        }}
-        onKeyDown={handleKeyDown}
-        onBlur={(event) => {
-          setCompletion(null);
-          onBlur?.(event);
-        }}
-      />
+      {cell}
       {open && completion !== null
         ? createPortal(
             <SuggestionList

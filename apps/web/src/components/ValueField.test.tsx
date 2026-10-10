@@ -218,6 +218,19 @@ describe("ValueField autocomplete", () => {
     expect(submit).toHaveBeenCalledTimes(1);
   });
 
+  it("lets Enter and Tab through when the word already is the name", () => {
+    // `H` with `Height` below it: taking `H` would change nothing, so the
+    // key is the editor's (QA-RECT-BOX-NAMES: `W` Tab `H` Enter).
+    const keys = vi.fn();
+    const f = mount({ onKeyDown: keys });
+    f.type("H");
+    expect(screen.getByTestId("field-suggestions")).toBeInTheDocument();
+    fireEvent.keyDown(f.input, { key: "Tab" });
+    expect(keys).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("field-suggestions")).toBeNull();
+    expect(f.input.value).toBe("H");
+  });
+
   it("takes a name with a click, keeping focus in the cell", () => {
     const f = mount();
     f.type("2*He");
@@ -346,5 +359,34 @@ describe("ValueField in the sketcher (no pointer)", () => {
     expect(seen.at(-1)).toBe("width/2");
     expect(screen.getByTestId("dim-hint").textContent).toBe("= 20 mm");
     expect(mark(input)).not.toBeNull();
+  });
+
+  it("never writes a late echo of its own typing over newer keys", () => {
+    // A draw box's owner renders a frame behind (drei's own React root): its
+    // echo of `2` can land after `23` was typed, and must not undo the `3`.
+    let echo: (text: string) => void = () => undefined;
+    function Box() {
+      const [text, setText] = useState("");
+      echo = setText;
+      return (
+        <ValueField
+          label="X"
+          kind="length"
+          value={text}
+          dimensions={[]}
+          data-testid="x"
+          onValueChange={() => undefined}
+        />
+      );
+    }
+    render(<Box />);
+    const input = screen.getByTestId<HTMLInputElement>("x");
+    fireEvent.change(input, { target: { value: "2" } });
+    fireEvent.change(input, { target: { value: "23" } });
+    act(() => echo("2"));
+    expect(input.value).toBe("23");
+    // Someone else's text still lands.
+    act(() => echo("7"));
+    expect(input.value).toBe("7");
   });
 });

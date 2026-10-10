@@ -375,7 +375,7 @@ One line each. The founder triages weekly; most are closed without work.
 - CHAIN-CLOSE-MOVED-START: closing compares against the stored chainStart, so if the solver moved the first vertex, a click there joins it but does not end the chain.
 - CHAIN-PRESS-DRAG: a press-drag mid-chain places only the press point.
 - SHELL-HEAL-VOLUME-GUARD (was a Next item): `conform_solid` measures volume after `split_pinched_faces`, so the split itself is never volume-checked (shell_heal.py claims it is).
-- SPLIT-SKETCHSCENE (was a Next item): `SketchScene.tsx` is 2,847 lines; split into modules and hooks with no behaviour change when it next blocks work.
+- SPLIT-SKETCHSCENE (was a Next item): `SketchScene.tsx` is 2,182 lines (the draw boxes moved out); split into modules and hooks with no behaviour change when it next blocks work.
 - SPLIT-WIRE-FEATURES (was a Next item): `loft_wire/features.py` is 4,419 lines; one module per family, re-exported, `just gen-verify` zero diff.
 - Sweep self-check (`BRepAlgoAPI_Check`, SWEEP-CLOSED-PATH review): costs 0.8 s of the moto frame's 5.7 s rebuild (0.30 s + 0.51 s on its two rail sweeps); 0.5-28 ms on the other sweep goldens.
 - Sketcher: `0` is a view shortcut, so a typed coordinate cannot start with 0 (`OPENS_A_COORDINATE` is `[1-9.-]`); a centre at x = 0 must be clicked or typed as `-0`.
@@ -385,7 +385,10 @@ One line each. The founder triages weekly; most are closed without work.
 - ENV-E2E-PORT: Playwright reuses an existing server on :5173 (`reuseExistingServer`), so parallel agents test each other's code unless each sets its own web port.
 - LOFT-DIMEXPR-INDEX (step 5 review): `dimension_expressions` pointers are keyed by constraint index; a hand edit that moves a plain dimension to that index silently moves the formula (warning `loft_tree_edited` only). Store the dimension's name in the entry and check it on read.
 - LOFT-COMMENT-PIN: golden-v1.2.loft has only empty parameter comments, so a non-empty comment's round trip is not pinned.
-- QA-RECT-BOX-NAMES (QA 2026-10-10, major): the rectangle's draw-time size boxes accept `W`/`H` then silently apply nothing; typing `W` mid-drag switches to the Point tool and drops the rectangle. Boxes must take formulas (ValueField) and letters typed in a box must not fire tool shortcuts.
+- DRAW-BOX-LINE-ANGLE (after QA-RECT-BOX-NAMES): a line's draw box has length only; Fusion also asks for an angle, which needs an angle-to-axis dimension (a datum-axis `angle` constraint).
+- DRAW-BOX-LINE-LETTERS: mid-line (a chain is always mid-gesture) letters are still tool shortcuts and digits open X / Y; only a rectangle's and circle's size box owns the keyboard mid-drag.
+- DRAW-BOX-PREVIEW: a size typed mid-drag is not previewed on the rubber band, and a click while typing places at the cursor and drops the typed text.
+- DRAW-BOX-MODIFY-FIELDS: the sketcher's offset and corner (fillet/chamfer) value boxes still take numbers only.
 - QA-PROJECTED-PROFILE (major): projected edges count as profile geometry, so a cut's preview passes then the commit fails PROFILE_NOT_CLOSED until they are made construction; Fusion leaves projected lines out of profile closure.
 - QA-DRAWING-CENTRE-MARKS (major): drawings have no centre marks or hole-centre picks, so hole positions cannot be dimensioned (a circle offers only diameter/radius).
 - QA-DRAWING-DIMS-DURABLE (major): drawing dimensions go "unresolved" after a part edit even when their edge only moved; the PDF then prints overlapping "REFERENCE LOST" labels.
@@ -393,7 +396,6 @@ One line each. The founder triages weekly; most are closed without work.
 - QA-FILLET-DEFAULT-MODE: fillet opens in "By rule, all edges"; Fusion opens in edge-pick.
 - QA-SKETCH-PLANE-REFRAME: the sketch plane pick reframes before the click, so a face click aimed from the old view lands on a datum plane.
 - QA-SKETCH-ON-FACE-DATUM: sketching on a face adds a Plane1 datum and puts the sketch origin at the face centre, not the part origin.
-- QA-CIRCLE-DIAMETER-BOX: the circle's draw-time box asks for radius; Fusion's centre-diameter circle asks for diameter.
 - QA-JOINT-PICK-LABELS: the joint picker labels fillet-arc centres "Hole centre", and overlapping markers from two parts take the topmost.
 - QA-JOINT-RESET-ON-ADD: adding a second joint reset the first from 11 deg to its 0 deg limit.
 - QA-JOINT-ANGLE-LIVE: the joint angle in the tree updates only on drag release.

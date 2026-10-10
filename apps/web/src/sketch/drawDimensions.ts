@@ -61,7 +61,7 @@ import type { SketchConstraint } from "./constraints";
 export type DrawShape = "rect" | "line" | "circle";
 
 /** Which measurement a cell drives. */
-export type DrawDimensionKey = "width" | "height" | "length" | "radius";
+export type DrawDimensionKey = "width" | "height" | "length" | "diameter";
 
 /**
  * The tools that offer draw-time dimensions. Arc and spline are deliberately
@@ -84,7 +84,7 @@ export function drawShapeOf(tool: SketchTool): DrawShape | null {
 
 export interface DrawDimensionField {
   key: DrawDimensionKey;
-  /** Terse drafting label on the cell — W / H / L / R. */
+  /** Terse drafting label on the cell — W / H / L / Ø. */
   label: string;
   /** Spoken name, for the accessible label. */
   name: string;
@@ -95,7 +95,7 @@ export interface DrawDimensionField {
    * dragged (nothing has an id until the gesture commits).
    */
   entity: string | null;
-  kind: "distance" | "radius";
+  kind: "distance" | "diameter";
 }
 
 const distance = (a: Point2D, b: Point2D): number =>
@@ -109,6 +109,9 @@ const distance = (a: Point2D, b: Point2D): number =>
  * A rectangle's WIDTH is the bottom edge and its HEIGHT the right edge: the two
  * adjacent edges of the corner the drag ends on, so the pair the user is
  * looking at is the pair they can type into.
+ *
+ * A circle is sized by its DIAMETER (QA-CIRCLE-DIAMETER-BOX): Fusion's
+ * centre-diameter circle asks for one, and a hole is called out by one.
  */
 export function drawDimensionFields(
   shape: DrawShape,
@@ -150,12 +153,12 @@ export function drawDimensionFields(
     case "circle":
       return [
         {
-          key: "radius",
-          label: "R",
-          name: "Radius",
-          measuredMm: distance(from, to),
+          key: "diameter",
+          label: "Ø",
+          name: "Diameter",
+          measuredMm: 2 * distance(from, to),
           entity: ids[0] ?? null,
-          kind: "radius",
+          kind: "diameter",
         },
       ];
   }
@@ -164,8 +167,26 @@ export function drawDimensionFields(
 /** Typed values (mm), keyed by cell. Absent/undefined = "leave as drawn". */
 export type DrawDimensionValues = Partial<Record<DrawDimensionKey, number>>;
 
+/**
+ * The formula a typed value came from (`W`, `W/2`), keyed by cell: it rides
+ * on the dimension as its `expression`, so the shape follows the parameter.
+ */
+export type DrawDimensionExpressions = Partial<
+  Record<DrawDimensionKey, string>
+>;
+
 /** Signed unit step: keeps the drag's direction when a magnitude is retyped. */
 const sign = (delta: number): number => (delta < 0 ? -1 : 1);
+
+/** `length` along the ray from `from` through `to`; +x when they coincide. */
+function along(from: Point2D, to: Point2D, length: number): Point2D {
+  const drawn = distance(from, to);
+  if (drawn === 0) return { x: from.x + length, y: from.y };
+  return {
+    x: from.x + ((to.x - from.x) / drawn) * length,
+    y: from.y + ((to.y - from.y) / drawn) * length,
+  };
+}
 
 /**
  * The second gesture point, moved so the typed values hold. The FIRST point
@@ -187,24 +208,12 @@ export function resizedTo(
         y: from.y + sign(to.y - from.y) * height,
       };
     }
-    case "line": {
-      const length = values.length;
-      const drawn = distance(from, to);
-      if (length === undefined || drawn === 0) return to;
-      return {
-        x: from.x + ((to.x - from.x) / drawn) * length,
-        y: from.y + ((to.y - from.y) / drawn) * length,
-      };
-    }
-    case "circle": {
-      const radius = values.radius;
-      const drawn = distance(from, to);
-      if (radius === undefined || drawn === 0) return to;
-      return {
-        x: from.x + ((to.x - from.x) / drawn) * radius,
-        y: from.y + ((to.y - from.y) / drawn) * radius,
-      };
-    }
+    case "line":
+      return values.length === undefined ? to : along(from, to, values.length);
+    case "circle":
+      return values.diameter === undefined
+        ? to
+        : along(from, to, values.diameter / 2);
   }
 }
 
@@ -307,7 +316,9 @@ function rectangleRigidity(ids: readonly string[]): SketchConstraint[] {
 
 /**
  * One driving dimension per typed cell, and nothing else. Returns nothing when
- * nothing was typed.
+ * nothing was typed. A cell typed as a formula carries it as the dimension's
+ * `expression`, as the dimension box does (PART-PARAMETERS step 8): the value
+ * is what it resolves to now, the formula is what drives it from then on.
  *
  * The shape's rigidity set is NOT here: it is authored at placement by
  * {@link shapeRigidity}, so by the time this runs the rectangle is already a
@@ -321,6 +332,7 @@ export function drawDimensionConstraints(
   _ids: readonly string[],
   fields: readonly DrawDimensionField[],
   values: DrawDimensionValues,
+  expressions: DrawDimensionExpressions = {},
 ): SketchConstraint[] {
   const typed = fields.filter(
     (field) => field.entity !== null && values[field.key] !== undefined,
@@ -328,13 +340,48 @@ export function drawDimensionConstraints(
   if (typed.length === 0) return [];
   const constraints: SketchConstraint[] = [];
   for (const field of typed) {
+    const expression = expressions[field.key];
     constraints.push({
       kind: field.kind,
       entity: field.entity as string,
       value_mm: values[field.key] as number,
+      ...(expression === undefined ? {} : { expression }),
     });
   }
   return constraints;
+}
+
+/**
+ * What a commit of a draft's cells authors: the values worth applying (only
+ * positive, finite values for cells this draft actually offers; a cell left
+ * alone is not a dimension, it is a decision to leave it free) and the
+ * dimensions that record them.
+ */
+export function sizeDraft(
+  draft: {
+    shape: DrawShape;
+    ids: readonly string[];
+    fields: readonly DrawDimensionField[];
+  },
+  values: DrawDimensionValues,
+  expressions: DrawDimensionExpressions = {},
+): { typed: DrawDimensionValues; added: SketchConstraint[] } {
+  const typed: DrawDimensionValues = {};
+  for (const field of draft.fields) {
+    const value = values[field.key];
+    if (value !== undefined && Number.isFinite(value) && value > 0) {
+      typed[field.key] = value;
+    }
+  }
+  const { shape, ids, fields } = draft;
+  const added = drawDimensionConstraints(
+    shape,
+    ids,
+    fields,
+    typed,
+    expressions,
+  );
+  return { typed, added };
 }
 
 /**

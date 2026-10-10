@@ -37,6 +37,11 @@
  * the contract the armed strip has always advertised ("typing a DIGIT anywhere
  * puts it in the first cell", not "typing anything"). Auto-focusing the cell
  * instead would have taken every key and quietly broken that.
+ *
+ * Two exceptions, both QA-RECT-BOX-NAMES: once a value has begun, the rest of
+ * it (letters included: `2*W`) is the value's, not the tools'; and while a
+ * rectangle or circle is still being dragged its size box owns the keyboard
+ * outright, as Fusion's does, so `W` is the parameter and not the Point tool.
  */
 
 /** Characters that open a value — the same set the mounted strip accepts. */
@@ -44,6 +49,19 @@ const VALUE_CHARACTER = /^[0-9.]$/;
 
 /** ...and a coordinate, which can be negative (typed X / Y, G2). */
 const SIGNED_VALUE_CHARACTER = /^[-0-9.]$/;
+
+/**
+ * Characters of a FORMULA (`W/2 + 5`, QA-RECT-BOX-NAMES): a parameter or
+ * dimension name, an operator, a bracket. A letter is a tool shortcut until a
+ * value has begun (or a gesture's size box owns the keyboard, `formula:
+ * "always"`); after that it is part of the value and never reaches the tools.
+ */
+const FORMULA_CHARACTER = /^[-+*/^()A-Za-z0-9_. ]$/;
+
+/** Does `key` start a value in a size box that takes formulas outright? */
+export function startsAFormula(key: string): boolean {
+  return /^[A-Za-z0-9_.(]$/.test(key);
+}
 
 /** Typing captured before the size cells existed, addressed by cell index. */
 export interface DrawKeyBuffer {
@@ -110,9 +128,20 @@ export function bufferDrawKey(
     shiftKey?: boolean;
     /** The cells take a signed value (a coordinate), so a minus is ours. */
     signed?: boolean;
+    /**
+     * When a formula's letters are ours: `"started"` once the cell being
+     * typed holds text, `"always"` while a gesture's size box owns the keys.
+     */
+    formula?: "started" | "always";
   },
 ): DrawKeyOutcome {
-  const { draftId, fieldCount, shiftKey = false, signed = false } = options;
+  const {
+    draftId,
+    fieldCount,
+    shiftKey = false,
+    signed = false,
+    formula = "started",
+  } = options;
   if (fieldCount < 1) return IGNORED;
   const current = buffer !== null && buffer.draftId === draftId ? buffer : null;
   if (current !== null && current.apply) return IGNORED;
@@ -147,11 +176,15 @@ export function bufferDrawKey(
     };
   }
 
-  if (!(signed ? SIGNED_VALUE_CHARACTER : VALUE_CHARACTER).test(key)) {
-    return IGNORED;
-  }
   const base = current ?? empty(draftId, fieldCount);
   const text = base.text[base.index] ?? "";
+  const started = formula === "always" ? true : text !== "";
+  const opens = (signed ? SIGNED_VALUE_CHARACTER : VALUE_CHARACTER).test(key);
+  const continues =
+    started &&
+    FORMULA_CHARACTER.test(key) &&
+    (text !== "" || startsAFormula(key));
+  if (!opens && !continues) return IGNORED;
   return { kind: "buffered", buffer: withText(base, base.index, text + key) };
 }
 

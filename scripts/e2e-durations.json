@@ -169,6 +169,7 @@
     "sketch-dimension-pick.spec.ts": 19.6,
     "sketch-dimension-typing.spec.ts": 137.8,
     "sketch-drag-draw.spec.ts": 106.4,
+    "sketch-draw-box-formulas.spec.ts": 25.0,
     "sketch-dro-footprint.spec.ts": 37.3,
     "sketch-escape-select.spec.ts": 81.7,
     "sketch-exit-guard.spec.ts": 89.5,

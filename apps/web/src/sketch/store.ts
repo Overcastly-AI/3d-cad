@@ -78,11 +78,12 @@ import {
   withDatums,
 } from "./datum";
 import {
-  drawDimensionConstraints,
   drawDimensionFields,
   drawShapeOf,
   resizeDrawn,
   shapeRigidity,
+  sizeDraft,
+  type DrawDimensionExpressions,
   type DrawDimensionField,
   type DrawDimensionKey,
   type DrawDimensionValues,
@@ -597,10 +598,13 @@ export interface SketchState {
   failCorner: (message: string) => void;
   /**
    * Commit the draw-time size cells (Enter): rewrite the drawn geometry to the
-   * typed values and record them as driving dimensions. Typing nothing is a
-   * valid outcome — the draft closes and the shape stays exactly as drawn.
+   * typed values and record them as driving dimensions (a formula rides as
+   * the dimension's `expression`). Typing nothing is a valid outcome.
    */
-  commitDrawDimensions: (values: DrawDimensionValues) => void;
+  commitDrawDimensions: (
+    values: DrawDimensionValues,
+    expressions?: DrawDimensionExpressions,
+  ) => void;
   /** Dismiss the draw-time size cells, keeping the shape undimensioned. */
   dismissDrawDimensions: () => void;
   /** Open the typed X / Y cells (see `pointEntry` and `pointEntryOpening`). */
@@ -1099,21 +1103,12 @@ const createSketchState = (
     });
   },
 
-  commitDrawDimensions: (values) => {
+  commitDrawDimensions: (values, expressions) => {
     const { drawDimension, entities, constraints, revision, tool, pending } =
       get();
     if (drawDimension === null) return;
-    const { shape, ids, from, to, fields } = drawDimension;
-    // Only positive, finite values for cells this draft actually offers; a
-    // cell left alone is not a dimension, it is a decision to leave it free.
-    const typed: DrawDimensionValues = {};
-    for (const field of fields) {
-      const value = values[field.key];
-      if (value !== undefined && Number.isFinite(value) && value > 0) {
-        typed[field.key] = value;
-      }
-    }
-    const added = drawDimensionConstraints(shape, ids, fields, typed);
+    const { shape, ids, from, to } = drawDimension;
+    const { typed, added } = sizeDraft(drawDimension, values, expressions);
     if (added.length === 0) {
       set({ drawDimension: null, drawDimensionFocus: null });
       return;
