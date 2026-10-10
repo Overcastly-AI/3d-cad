@@ -21,12 +21,17 @@ from loft_wire.feature_resolve import (
     check_dimension_names,
     evaluation_input,
     for_geometry,
+    normalize,
     parameter_references,
     parameter_values,
     rename_parameters,
     resolve_feature,
 )
-from loft_wire.features import FEATURE_REGISTRY, FeatureEnvelope
+from loft_wire.features import (
+    FEATURE_REGISTRY,
+    EvaluatedFeatureInput,
+    FeatureEnvelope,
+)
 from pydantic import ValidationError
 
 SKETCH_ID = "00000000-0000-0000-0000-0000000001b1"
@@ -309,3 +314,84 @@ def test_a_rename_reaches_expressions_and_dimension_formulas() -> None:
 def test_parameter_values_reads_stored_rows() -> None:
     rows = [{"name": "W", "value": 40, "unit": "length"}]
     assert parameter_values(rows) == {"W": Quantity(40.0, "length")}
+
+
+# --- the stored form (review of step 4) -------------------------------------------
+
+
+def test_normalize_moves_a_parameter_formula_to_its_value_pointer() -> None:
+    sketch = _sketch(
+        _dim("e1", 10.0, "W / 2", name="len"),
+        _dim("e2", 10.0, "len / 4"),
+        {"kind": "angle", "a": "e1", "b": "e2", "value_deg": 45.0, "expression": "A"},
+    )
+    stored = normalize(sketch)
+    assert stored.expressions == {
+        "/constraints/0/value_mm": "W / 2",
+        "/constraints/2/value_deg": "A",
+    }
+    assert [c.get("expression") for c in _p(stored)["constraints"]] == [
+        None,
+        "len / 4",
+        None,
+    ]
+    assert normalize(stored) is stored
+    assert parameter_references(stored) == {"W", "A"}
+    # Resolution reads the moved formula with the sketch, as before.
+    resolved = resolve_feature(stored, TABLE)
+    assert [c["value_mm"] for c in _p(resolved)["constraints"][:2]] == [20.0, 5.0]
+    assert _p(resolved)["constraints"][2]["value_deg"] == 30.0
+    legacy = _p(resolve_feature(sketch, TABLE))["constraints"]
+    assert [c.get("value_mm", c.get("value_deg")) for c in legacy] == [20.0, 5.0, 30.0]
+    sent = for_geometry(resolved)
+    assert sent.expressions is None
+    assert [c.get("expression") for c in _p(sent)["constraints"]] == [
+        None,
+        "len / 4",
+        None,
+    ]
+    # A sketch over its own dimensions only has nothing to move.
+    own = _sketch(_dim("e1", 10.0, name="len"), _dim("e2", 5.0, "len / 2"))
+    assert normalize(own) is own
+
+
+def test_a_pointer_on_a_dimension_with_its_own_formula_is_refused() -> None:
+    data = _sketch(_dim("e1", 10.0, "5")).model_dump(mode="json")
+    data["expressions"] = {"/constraints/0/value_mm": "W"}
+    with pytest.raises(ValidationError, match="own expression"):
+        type(_sketch()).model_validate(data)
+
+
+@pytest.mark.parametrize("where", ["envelope", "moved", "own"])
+def test_a_rename_past_the_cap_is_refused_naming_the_pointer(where: str) -> None:
+    long = "x" * 60
+    if where == "envelope":
+        feature = _extrude({"/distance_mm": "W+W+W+W+W"})
+        pointer = "/distance_mm"
+    elif where == "moved":
+        feature = normalize(_sketch(_dim("e1", 10.0, "W+W+W+W+W")))
+        pointer = "/constraints/0/value_mm"
+    else:  # a tree stored before normalize: the dimension's own expression
+        feature = _sketch(_dim("e1", 10.0, "W+W+W+W+W"))
+        pointer = "/constraints/0/expression"
+    with pytest.raises(FeatureExpressionError) as caught:
+        rename_parameters(feature, {"W": long})
+    assert (caught.value.code, caught.value.pointer) == (
+        "expression_too_complex",
+        pointer,
+    )
+    renamed = rename_parameters(feature, {"W": "Width"})
+    assert "Width+Width" in renamed.model_dump_json()
+
+
+def test_geometry_never_receives_formulas() -> None:
+    """A request built from a stored tree keys the cache like documents'."""
+    stored = _extrude({"/distance_mm": "D"})
+    sent = EvaluatedFeatureInput(id=SKETCH_ID, feature=stored)  # type: ignore[arg-type]
+    assert sent.feature.expressions is None
+    assert (
+        sent.model_dump_json()
+        == (
+            EvaluatedFeatureInput(id=SKETCH_ID, feature=_extrude())  # type: ignore[arg-type]
+        ).model_dump_json()
+    )

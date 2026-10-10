@@ -47,7 +47,6 @@ from typing import Annotated, Any, cast
 from fastapi import APIRouter, Query
 from loft_wire.features import (
     FEATURE_REGISTRY,
-    EvaluatedFeatureInput,
     EvaluateTreeRequest,
     FeatureEnvelope,
     feature_references,
@@ -72,6 +71,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db, history
+from documents.feature_expressions import evaluation_features
 from documents.parts import Principal, get_owned_part
 
 _logger = get_logger("documents.ref_backfill")
@@ -250,10 +250,9 @@ async def get_ref_names_request(
             ref_names_checked_version=part.ref_names_checked_version,
             backoff_until=until if backing_off else None,
         )
-    features = [
-        EvaluatedFeatureInput(id=row.id, feature=_load(row))
-        for row in await _features(session, part.id)
-    ]
+    # Through the same resolver as the evaluation request, so a part whose
+    # numbers are driven by its parameters is sent numbers (RESEARCH §20).
+    features = evaluation_features(part, await _features(session, part.id))
     needed = tree_needs_ref_names(features)
     return RefNamesRequestResponse(
         needed=needed,

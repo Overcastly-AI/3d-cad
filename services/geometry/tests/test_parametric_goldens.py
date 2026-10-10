@@ -26,6 +26,7 @@ feature formulas -> numbers -> planegcs re-solve -> prism -> GProp.
 """
 
 import json
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -34,8 +35,13 @@ import pytest
 from geometry.harness import evaluate_model
 from geometry.rebuild_cache import prefix_keys
 from geometry.schemas import BoundingBox, TopologyCounts, Vec3
-from loft_wire.feature_resolve import evaluation_input, parameter_values
-from loft_wire.features import EvaluatedFeatureInput, EvaluateTreeRequest
+from loft_wire.feature_resolve import evaluation_input, normalize, parameter_values
+from loft_wire.features import (
+    FEATURE_REGISTRY,
+    EvaluatedFeatureInput,
+    EvaluateTreeRequest,
+    FeatureEnvelope,
+)
 from loft_wire.parameters import PartParameterInput, resolve_parameters
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -77,6 +83,19 @@ class ParametricGolden(BaseModel):
     steps: list[RedriveStep] = Field(min_length=1)
 
 
+def _stored(item: dict[str, Any]) -> tuple[uuid.UUID, FeatureEnvelope]:
+    """One stored tree entry, formulas included (an ``EvaluatedFeatureInput``
+    would drop them: geometry never reads formulas)."""
+    feature = item["feature"]
+    return uuid.UUID(item["id"]), FEATURE_REGISTRY.load(
+        feature["type"],
+        feature["version"],
+        feature["params"],
+        suppressed=feature.get("suppressed", False),
+        expressions=feature.get("expressions"),
+    )
+
+
 @dataclass(frozen=True)
 class Case:
     name: str
@@ -91,10 +110,10 @@ class Case:
         )
         features: list[EvaluatedFeatureInput] = []
         for stored in self.golden.tree:
-            item = EvaluatedFeatureInput.model_validate(stored)
-            feature, error = evaluation_input(item.feature, values)
-            assert error is None, f"{self.name}: {item.id}: {error}"
-            features.append(EvaluatedFeatureInput(id=item.id, feature=feature))
+            feature_id, envelope = _stored(stored)
+            feature, error = evaluation_input(envelope, values)
+            assert error is None, f"{self.name}: {feature_id}: {error}"
+            features.append(EvaluatedFeatureInput(id=feature_id, feature=feature))
         return self.model.model_copy(update={"features": features})
 
 
@@ -134,6 +153,15 @@ def test_the_stored_tree_resolves_to_model_json(case: Case) -> None:
     assert "expression" not in json.dumps(sent.model_dump(mode="json")).replace(
         '"expression": null', ""
     )
+
+
+@each_case
+def test_the_stored_tree_is_in_stored_form(case: Case) -> None:
+    """Formulas that read a parameter live in ``expressions``; params hold
+    numbers, as documents stores them (``normalize`` changes nothing)."""
+    for item in case.golden.tree:
+        _, envelope = _stored(item)
+        assert normalize(envelope) is envelope
 
 
 def _redriven(case: Case) -> list[tuple[RedriveStep, EvaluateTreeRequest]]:

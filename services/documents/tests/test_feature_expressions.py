@@ -290,9 +290,14 @@ def test_a_sketch_dimension_reads_its_sketch_then_the_parameters(
     ]  # fmt: skip
     response = part.add(_sketch(dims))
     assert response.status_code == 201, response.text
-    stored = response.json()["feature"]["feature"]["params"]["constraints"]
+    feature = response.json()["feature"]["feature"]
+    stored = feature["params"]["constraints"]
     assert [c["value_mm"] for c in stored] == [60.0, 15.0]
-    assert [c["expression"] for c in stored] == ["W", "len / 4"]
+    # Stored form: a formula that reads a parameter moves to the value's
+    # pointer, so params hold a number any client can hand geometry; a formula
+    # over the sketch's own dimensions stays where it was written.
+    assert [c["expression"] for c in stored] == [None, "len / 4"]
+    assert feature["expressions"] == {"/constraints/0/value_mm": "W"}
     # Geometry gets the number where the formula read a parameter, and the
     # formula over the sketch's own dimensions as before.
     sent = part.request()["features"][0]["feature"]["params"]["constraints"]
@@ -365,12 +370,74 @@ def test_a_rename_rewrites_every_reference_token_by_token(client: TestClient) ->
     response = part.put([{**d, "name": "Depth"}, dd])
     assert response.status_code == 200, response.text
     assert part.feature(1)["expressions"] == {"/distance_mm": "Depth+DD"}
-    assert part.feature(0)["params"]["constraints"][0]["expression"] == "Depth * 4"
+    assert part.feature(0)["expressions"] == {"/constraints/0/value_mm": "Depth * 4"}
     assert "input_error" not in part.request()["features"][1]
     # A swap is a swap.
     response = part.put([{**d, "name": "DD"}, {**dd, "name": "Depth"}])
     assert response.status_code == 200, response.text
     assert part.feature(1)["expressions"] == {"/distance_mm": "DD+Depth"}
+
+
+#: 57 characters: renaming W to it grows "W+W+W+W+W" to 289, past the 256 cap.
+LONG = "Overall_width_of_the_mounting_bracket_including_flanges_x"
+
+
+@pytest.mark.parametrize("where", ["extrude", "sketch dimension"])
+def test_a_rename_past_the_formula_cap_is_a_422_that_stores_nothing(
+    client: TestClient, where: str
+) -> None:
+    """Review blocker: the rename used to store a formula no read could load
+    (GET dropped it, /loft-tree and /versions answered 500, a sketch's PUT
+    500'd). It must be refused, naming the feature and the pointer."""
+    part = Part(client)
+    w = _row("W", "10")
+    assert part.put([w]).status_code == 200
+    if where == "extrude":
+        sketch_id = part.add(_sketch(), "S").json()["feature"]["id"]
+        made = part.add(_extrude(sketch_id, {"/distance_mm": "W+W+W+W+W"}), "E")
+        pointer, index = "/distance_mm", 1
+    else:
+        dims = [{"kind": "distance", "entity": "e1", "value_mm": 40.0,
+                 "expression": "W+W+W+W+W"}]  # fmt: skip
+        made = part.add(_sketch(dims), "S")
+        pointer, index = "/constraints/0/value_mm", 0
+    assert made.status_code == 201, made.text
+    before = (part.tree(), part.rows())
+
+    response = part.put([{**w, "name": LONG}])
+    assert response.status_code == 422, response.text
+    error = response.json()["error"]
+    assert error["code"] == "expression_too_complex"
+    assert error["details"]["pointer"] == pointer
+    assert error["details"]["feature_id"] == made.json()["feature"]["id"]
+    assert (part.tree(), part.rows()) == before
+    assert part.feature(index)["expressions"] == {pointer: "W+W+W+W+W"}
+    for path in ("loft-tree", "evaluation-request"):
+        got = client.get(f"/api/v1/parts/{part.id}/{path}", headers=HEADERS)
+        assert got.status_code == 200, got.text
+    saved = client.post(
+        f"/api/v1/parts/{part.id}/versions", json={"name": "v"}, headers=HEADERS
+    )
+    assert saved.status_code == 201, saved.text
+    # A name that fits is fine.
+    assert part.put([{**w, "name": "Width"}]).status_code == 200
+    renamed = {pointer: "Width+Width+Width+Width+Width"}
+    assert part.feature(index)["expressions"] == renamed
+
+
+def test_a_dimension_with_a_pointer_and_its_own_formula_is_a_422(
+    client: TestClient,
+) -> None:
+    """One of the two would be silently ignored; refuse it at write."""
+    part = Part(client)
+    assert part.put([_row("W", "60")]).status_code == 200
+    sketch = _sketch(
+        [{"kind": "distance", "entity": "e1", "value_mm": 40.0, "expression": "30"}]
+    )
+    sketch["expressions"] = {"/constraints/0/value_mm": "W"}
+    response = part.add(sketch)
+    assert response.status_code == 422, response.text
+    assert "own expression" in response.text
 
 
 def test_deleting_a_parameter_in_use_is_a_409_naming_the_features(

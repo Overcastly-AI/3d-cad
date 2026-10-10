@@ -27,6 +27,7 @@ from loft_wire.feature_resolve import (
     FeatureExpressionError,
     check_dimension_names,
     evaluation_input,
+    normalize,
     parameter_references,
     parameter_values,
     rename_parameters,
@@ -53,8 +54,11 @@ def _api_error(exc: FeatureExpressionError) -> ValidationApiError:
 
 
 def resolve_for_write(part: db.Part, envelope: FeatureEnvelope) -> FeatureEnvelope:
-    """*envelope* with its formulas resolved against the part's table, or 422."""
+    """*envelope* in its stored form (:func:`~loft_wire.feature_resolve.
+    normalize`: params hold numbers, formulas live in ``expressions``) with
+    every formula resolved against the part's table, or 422."""
     try:
+        envelope = normalize(envelope)
         check_dimension_names(envelope, (row["name"] for row in part.parameters))
         return resolve_feature(envelope, parameter_values(part.parameters))
     except FeatureExpressionError as exc:
@@ -137,11 +141,12 @@ def apply_table_change(
     """Carry a parameter-table replacement into the features (*rows*).
 
     Refuses (409 ``parameter_in_use``) deleting a parameter a feature reads,
-    and (422) a parameter that takes a sketch dimension's name. Renames (same
-    id, new name) are rewritten token by token. Every feature that reads the
-    table is re-resolved; one that no longer resolves keeps its last good
-    numbers and is reported by the next evaluation, as Fusion keeps a red
-    feature rather than refusing the parameter edit.
+    and (422) a parameter that takes a sketch dimension's name or a rename
+    that would push a formula past its length cap (naming the feature and the
+    pointer). Renames (same id, new name) are rewritten token by token. Every
+    feature that reads the table is re-resolved; one that no longer resolves
+    keeps its last good numbers and is reported by the next evaluation, as
+    Fusion keeps a red feature rather than refusing the parameter edit.
     """
     new_ids = {row["id"] for row in new_rows}
     new_names = {str(row["name"]) for row in new_rows}
@@ -179,10 +184,24 @@ def apply_table_change(
             ) from exc
     values: dict[str, Quantity] = parameter_values(new_rows)
     renames = _renames(old_rows, new_rows)
+    # Every change is computed before any row is touched: a rename that a
+    # feature cannot take refuses the whole PUT.
+    changes: list[tuple[db.Feature, FeatureEnvelope]] = []
     for row, envelope in loaded:
         if row.expressions is not None and envelope.expressions is None:
             continue  # formulas that no longer load are kept as stored
-        renamed = rename_parameters(envelope, renames)
+        try:
+            renamed = rename_parameters(envelope, renames)
+        except FeatureExpressionError as exc:
+            raise ValidationApiError(
+                f"Feature {row.name!r}: {exc.message}",
+                code=exc.code,
+                details={
+                    "feature_id": str(row.id),
+                    "feature_name": row.name,
+                    "pointer": exc.pointer,
+                },
+            ) from exc
         if not uses_parameters(renamed):
             continue
         try:
@@ -190,4 +209,6 @@ def apply_table_change(
         except FeatureExpressionError:
             resolved = renamed
         if resolved.model_dump(mode="json") != envelope.model_dump(mode="json"):
-            _store(row, resolved)
+            changes.append((row, resolved))
+    for row, resolved in changes:
+        _store(row, resolved)

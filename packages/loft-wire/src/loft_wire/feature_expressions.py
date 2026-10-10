@@ -91,14 +91,37 @@ def leaf_kind(tokens: list[str], leaf: Any) -> FieldKind:
 
 
 def check_expressions(params: Any, expressions: dict[str, str] | None) -> None:
-    """Refuse (``ValueError``) a pointer that misses an int or float leaf."""
+    """Refuse (``ValueError``) a pointer that misses an int or float leaf, or
+    that drives a sketch dimension's number while the dimension has its own
+    ``expression`` (one of the two would be silently ignored)."""
     for pointer in expressions or {}:
         tokens = parse_pointer(pointer)
         try:
-            _, _, leaf = locate(params, tokens)
+            parent, _, leaf = locate(params, tokens)
             leaf_kind(tokens, leaf)
+            if (
+                tokens[0] == "constraints"
+                and isinstance(parent, dict)
+                and cast(dict[str, Any], parent).get("expression") is not None
+            ):
+                raise PointerError(
+                    "this dimension has its own expression; give it one formula"
+                )
         except PointerError as exc:
             raise ValueError(f"expressions[{pointer!r}]: {exc}") from exc
+
+
+def _strip(feature: Any) -> Any:
+    """Geometry reads numbers only: a feature it is sent loses its formulas,
+    so a request built from a stored tree keys the rebuild cache exactly as
+    documents' evaluation request does."""
+    if getattr(feature, "expressions", None) is None:
+        return feature
+    return feature.model_copy(update={"expressions": None})
+
+
+#: ``Annotated`` metadata on ``EvaluatedFeatureInput.feature``.
+STRIP_EXPRESSIONS: Final = AfterValidator(_strip)
 
 
 def _none_if_empty(value: dict[str, str] | None) -> dict[str, str] | None:

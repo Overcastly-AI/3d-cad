@@ -37,6 +37,7 @@ from loft_wire.datum_angle import DatumSketchLineRef as DatumSketchLineRef
 from loft_wire.extrude_extent import EXTRUDE_EXTENT_FIELD, ExtrudeExtent
 from loft_wire.feature_expressions import (
     EXPRESSIONS_FIELD,
+    STRIP_EXPRESSIONS,
     FeatureExpressions,
     check_expressions,
 )
@@ -3060,10 +3061,8 @@ class FeatureTypeRegistry[ModelT: BaseModel]:
         needed → validate. The rest of the system only ever sees
         current-version params.
 
-        ``suppressed`` and ``expressions`` are ENVELOPE-level
-        (:class:`FeatureEnvelopeBase`): documents persists each in its own
-        column and passes the stored value BACK through here on every read
-        path. Absent reads ``False`` / ``None``.
+        ``suppressed`` and ``expressions`` are ENVELOPE-level: documents stores
+        each in its own column and passes it BACK here on every read path.
         """
         current = self.current_version(feature_type)
         upcast = self.upcast_params(feature_type, version, params)
@@ -3793,7 +3792,7 @@ class EvaluatedFeatureInput(BaseModel):
     """One ordered entry of an evaluation request."""
 
     id: uuid.UUID = Field(description="Feature identity for refs + result keying")
-    feature: Feature
+    feature: Annotated[Feature, STRIP_EXPRESSIONS]
     input_error: Annotated["FeatureError | None", INPUT_ERROR_CHECK] = INPUT_ERROR_FIELD
 
 
