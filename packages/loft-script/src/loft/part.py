@@ -282,14 +282,18 @@ class Part:
     # -- parameters (RESEARCH §20) -------------------------------------------
 
     def parameter_table(self) -> PartParametersResponse:
-        """The parameter table with its concurrency token, in stored order."""
-        response = self.session.transport.call(
+        """The parameter table with its concurrency token, in stored order.
+
+        Deliberately does NOT update this handle's cached ``tree_version``: a
+        builder reads the table in the middle of a feature write (to evaluate a
+        formula), and a newer token picked up there would let that write
+        overwrite a concurrent edit of the feature it read before.
+        """
+        return self.session.transport.call(
             ops.GET_PARTS_PART_ID_PARAMETERS,
             PartParametersResponse,
             path_params={"part_id": self.id},
         )
-        self._tree_version = response.tree_version
-        return response
 
     def parameters(self) -> list[PartParameter]:
         """Each parameter's name, expression, unit kind, resolved value and
@@ -667,27 +671,29 @@ class Part:
         stored, and a NaN or infinite twist is a pydantic ``ValidationError``
         naming the field before anything is sent.
         """
-        record = self.feature(feature_id)
-        stored = record.feature
-        if not isinstance(stored, SweepFeature):
-            raise TypeError(f"feature {feature_id} is a {stored.type!r}, not a sweep")
-        numbers, formulas = field_numbers(
-            {"twist_angle_deg": twist_angle_deg},
-            self.parameter_values,
-            kept=stored.expressions,
-        )
-        params = SweepParamsV1.model_validate({**stored.params.model_dump(), **numbers})
-        updated = self.update_feature(
-            feature_id,
-            feature=SweepFeature(
+
+        def build(stored: Feature) -> Feature:
+            if not isinstance(stored, SweepFeature):
+                raise TypeError(
+                    f"feature {feature_id} is a {stored.type!r}, not a sweep"
+                )
+            numbers, formulas = field_numbers(
+                {"twist_angle_deg": twist_angle_deg},
+                self.parameter_values,
+                kept=stored.expressions,
+            )
+            params = SweepParamsV1.model_validate(
+                {**stored.params.model_dump(), **numbers}
+            )
+            return SweepFeature(
                 type="sweep",
                 version=1,
                 params=params,
                 suppressed=stored.suppressed,
                 expressions=formulas,
-            ),
-        )
-        return updated.feature
+            )
+
+        return self._replace_feature(feature_id, build)
 
     def set_extrude_distance(
         self, feature_id: uuid.UUID, distance_mm: Numeric
@@ -718,37 +724,61 @@ class Part:
     def _update_extrude(
         self, feature_id: uuid.UUID, **changes: Numeric | None
     ) -> FeatureResponse:
-        record = self.feature(feature_id)
-        stored = record.feature
-        if not isinstance(stored, ExtrudeFeature):
-            raise TypeError(
-                f"feature {feature_id} is a {stored.type!r}, not an extrude"
+        def build(stored: Feature) -> Feature:
+            if not isinstance(stored, ExtrudeFeature):
+                raise TypeError(
+                    f"feature {feature_id} is a {stored.type!r}, not an extrude"
+                )
+            # Re-VALIDATE the merged envelope; model_copy(update=...) does not.
+            # That is the same client-side refusal `extrude` gets from
+            # constructing the DTO. Without it (measured, review of d823af9) a
+            # NaN is carried by the unvalidated copy into the request and dies
+            # in the HTTP client's JSON encoder with an opaque "Out of range
+            # float values" error.
+            numbers, formulas = field_numbers(
+                changes, self.parameter_values, kept=stored.expressions
             )
-        # Re-VALIDATE the merged envelope; model_copy(update=...) does not. That
-        # is the same client-side refusal `extrude` gets from constructing the
-        # DTO. Without it (measured, review of d823af9) a NaN is carried by the
-        # unvalidated copy into the request and dies in the HTTP client's JSON
-        # encoder with an opaque "Out of range float values" error.
-        numbers, formulas = field_numbers(
-            changes, self.parameter_values, kept=stored.expressions
-        )
-        params = type(stored.params).model_validate(
-            {**stored.params.model_dump(), **numbers}
-        )
-        updated = self.update_feature(
-            feature_id,
+            params = type(stored.params).model_validate(
+                {**stored.params.model_dump(), **numbers}
+            )
             # The suppress flag and the other formulas ride the envelope, not
             # params: a replacement that dropped them would un-suppress the
             # feature and turn its other driven fields back into numbers.
-            feature=ExtrudeFeature(
+            return ExtrudeFeature(
                 type="extrude",
                 version=1,
                 params=params,
                 suppressed=stored.suppressed,
                 expressions=formulas,
-            ),
-        )
-        return updated.feature
+            )
+
+        return self._replace_feature(feature_id, build)
+
+    def _replace_feature(
+        self, feature_id: uuid.UUID, build: Callable[[Feature], Feature]
+    ) -> FeatureResponse:
+        """Replace a feature's envelope with ``build(stored)``, never over a
+        concurrent edit.
+
+        Each attempt fixes its ``expected_tree_version`` BEFORE it reads the
+        feature, so an edit that lands after the read makes the write stale
+        rather than lost, and the one retry re-reads and rebuilds from the
+        fresh feature instead of re-sending the old envelope. ``build`` may
+        read the parameter table, which leaves the cached version alone.
+        """
+
+        def send(version: int) -> FeatureMutationResponse:
+            stored = self.feature(feature_id).feature
+            return self.session.transport.call(
+                ops.PATCH_PARTS_PART_ID_FEATURES_FEATURE_ID,
+                FeatureMutationResponse,
+                path_params={"part_id": self.id, "feature_id": feature_id},
+                body=FeatureUpdate(
+                    feature=build(stored), name=None, expected_tree_version=version
+                ),
+            )
+
+        return self._write(send, after=lambda response: response.tree_version).feature
 
     # -- evaluation, measurement, export -----------------------------------
 
