@@ -14,7 +14,7 @@
     "apps/web/src/viewport/Viewport.tsx": 1880,
     "packages/design/src/gauge.ts": 1538,
     "packages/loft-wire/src/loft_wire/drawings.py": 2129,
-    "packages/loft-wire/src/loft_wire/features.py": 4364,
+    "packages/loft-wire/src/loft_wire/features.py": 4363,
     "scripts/e2e-shard-plan.py": 1585,
     "services/geometry/src/geometry/sheet_metal/unfold.py": 2489,
     "services/geometry/src/geometry/sketch/planegcs_solver.py": 1898,
