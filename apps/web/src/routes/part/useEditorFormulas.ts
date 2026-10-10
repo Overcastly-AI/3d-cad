@@ -3,9 +3,13 @@
  * docs/RESEARCH.md §20): the parameter table every `<ValueField>` reads, and
  * the open feature editor's formula session.
  *
- *  - The table is read whenever something can type a formula (an editor or
- *    the sketcher is open), under the Parameters panel's own query key, so the
- *    two share one cache entry and an undo (a new `tree_version`) re-reads it.
+ *  - The table is read with the part, at every `tree_version`, under the
+ *    Parameters panel's own query key, so the two share one cache entry and an
+ *    undo re-reads it. NOT on opening an editor: that made the click on a
+ *    command the first authed request, so a session revoked elsewhere ended
+ *    as the editor opened, before the user had done anything
+ *    (auth.spec "when renewal truly fails"). Read ahead, the editor opens on
+ *    the cached table and the command's own write meets the expiry.
  *  - The session is keyed by the open editor (`extrude:<id>`, `extrude:new`)
  *    and seeded with the feature's stored `expressions`; it carries the
  *    feature's `input_error`, so a sick feature's editor opens with the reason
@@ -31,7 +35,7 @@ import type { PartDocument } from "./usePartDocument";
 
 type EditorFormulasParams = Pick<
   PartDocument,
-  "partId" | "treeVersion" | "evaluation" | "mode"
+  "partId" | "treeVersion" | "evaluation"
 > & {
   editor: OpenEditor | null;
   features: readonly FeatureResponse[];
@@ -48,15 +52,13 @@ export function useEditorFormulas({
   partId,
   treeVersion,
   evaluation,
-  mode,
   editor,
   features,
 }: EditorFormulasParams) {
-  const wanted = editor !== null || mode !== "off";
   const query = useQuery({
     queryKey: ["part-parameters", partId, treeVersion],
     queryFn: () => fetchPartParameters(partId),
-    enabled: wanted && treeVersion !== undefined,
+    enabled: treeVersion !== undefined,
     staleTime: Infinity,
     // A sketch saves (and moves `tree_version`) as it is edited: keep this
     // part's last table on screen while the next one loads, never another

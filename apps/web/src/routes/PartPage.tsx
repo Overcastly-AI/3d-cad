@@ -287,7 +287,6 @@ export function PartPage() {
     partId,
     treeVersion,
     evaluation,
-    mode,
     editor,
     features,
   });

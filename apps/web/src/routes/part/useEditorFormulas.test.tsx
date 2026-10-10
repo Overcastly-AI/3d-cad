@@ -67,7 +67,6 @@ function Workspace({
     partId: "p-1",
     treeVersion: undefined,
     evaluation: NO_EVALUATION,
-    mode: "off",
     editor: open,
     features: [],
   });
