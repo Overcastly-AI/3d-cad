@@ -132,15 +132,20 @@ describe("AssemblyCommandBand — copy", () => {
     renderBand({ onCopy });
     const button = screen.getByTestId("copy-instance");
     expect(button).toHaveAccessibleName(/^Copy — (Ctrl\+D|⌘D)$/);
-    const move = screen.getByTestId("move-instance");
+    // In the Component group, the cell right after Move, and before the
+    // Mate group (Joint, then the legacy mates under More).
+    const component = screen.getByRole("group", { name: "Component" });
+    expect(component).toContainElement(button);
+    expect(component).toContainElement(screen.getByTestId("move-instance"));
     const cells = [...document.querySelectorAll("[data-testid]")].map((el) =>
       el.getAttribute("data-testid"),
     );
-    expect(cells.indexOf("copy-instance")).toBeGreaterThan(
-      cells.indexOf(move.getAttribute("data-testid")),
-    );
-    expect(cells.indexOf("copy-instance")).toBeLessThan(
-      cells.indexOf("mate-coincident"),
+    const copyAt = cells.indexOf("copy-instance");
+    expect(copyAt).toBe(cells.indexOf("move-instance") + 1);
+    expect(copyAt).toBeLessThan(cells.indexOf("mate-joint"));
+    expect(copyAt).toBeLessThan(cells.indexOf("mate-more"));
+    expect(screen.getByRole("group", { name: "Mate" })).not.toContainElement(
+      button,
     );
     button.click();
     expect(onCopy).toHaveBeenCalledOnce();

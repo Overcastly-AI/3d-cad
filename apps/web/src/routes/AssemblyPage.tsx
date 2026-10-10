@@ -1,15 +1,6 @@
 import {
-  CloseIcon,
   ContextMenu,
-  type ContextMenuSection,
   DrawingSheetIcon,
-  DuplicateIcon,
-  EyeIcon,
-  EyeOffIcon,
-  FixedIcon,
-  formatChord,
-  IsolateIcon,
-  MoveIcon,
   ToolButton,
   ToolGroup,
 } from "@loft/design";
@@ -110,11 +101,8 @@ import { executeHistoryStep, signedInUserId } from "../lib/historyStep";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { useReducedMotion } from "../lib/useReducedMotion";
-import {
-  CHORD_COPY_INSTANCE,
-  KEY_COPY_INSTANCE,
-  KEY_MOVE_INSTANCE,
-} from "../shortcuts/registry";
+import { KEY_COPY_INSTANCE, KEY_MOVE_INSTANCE } from "../shortcuts/registry";
+import { instanceMenuSections, moveBlocker } from "../components/instanceMenu";
 import { assemblyRoute } from "../router";
 import {
   assemblyBounds,
@@ -139,15 +127,6 @@ import { Viewport } from "../viewport/Viewport";
 import { VisibilityStamp } from "../components/VisibilityStamp";
 
 const IDENTITY_QUAT = { w: 1, x: 0, y: 0, z: 0 };
-
-/** Why Move is unavailable for `instance`, or null when it can move. */
-function moveBlocker(instance: InstanceResponse | null): string | null {
-  return instance === null
-    ? "Select a component to move"
-    : instance.grounded
-      ? "Grounded components stay put. Unground it to move it."
-      : null;
-}
 
 /**
  * The assembly workspace — the sibling of the part editor. The tree (left) is a
@@ -1097,102 +1076,33 @@ export function AssemblyPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [historyLockReason, triggerUndo, triggerRedo]);
 
-  // ---------------------------------------------------------------------
-  // The component row's right-click menu (UI-W2). Isolate is a VERB, not an
-  // icon — infrequent, destructive to view state — so it lives here with its
-  // accelerator rather than adding a third control to every row. Built on open
-  // so each row reads the freshest state; every item is a wired action.
-  // ---------------------------------------------------------------------
+  // The component row's right-click menu (`components/instanceMenu`).
   const [instanceMenu, setInstanceMenu] = useState<{
     instance: InstanceResponse;
     x: number;
     y: number;
   } | null>(null);
-
-  const buildInstanceSections = (
-    instance: InstanceResponse,
-  ): ContextMenuSection[] => {
-    const hidden = visibilityModeOf(visibility, instance.id) === "hidden";
-    return [
+  const buildInstanceSections = (instance: InstanceResponse) =>
+    instanceMenuSections(
+      instance,
       {
-        key: "view",
-        label: instance.name,
-        items: [
-          {
-            key: "hide",
-            label: hidden ? "Show" : "Hide",
-            icon: hidden ? <EyeIcon /> : <EyeOffIcon />,
-            shortcut: "V",
-            onSelect: () => toggleVisibility(instance.id),
-            "data-testid": "instance-ctx-hide",
-          },
-          {
-            key: "isolate",
-            label: "Isolate",
-            icon: <IsolateIcon />,
-            shortcut: "⇧V",
-            disabled: instances.length < 2,
-            disabledReason: "Add a second part before isolating one",
-            onSelect: () => isolate(instance.id),
-            "data-testid": "instance-ctx-isolate",
-          },
-          {
-            key: "show-all",
-            label: "Show all",
-            icon: <EyeIcon />,
-            disabled: hiddenCount === 0,
-            disabledReason: "Every component is already shown",
-            onSelect: showAll,
-            "data-testid": "instance-ctx-show-all",
-          },
-        ],
+        hidden: visibilityModeOf(visibility, instance.id) === "hidden",
+        canIsolate: instances.length >= 2,
+        hiddenCount,
+        moveBlocker: moveBlocker(instance),
+        copyBlocker: copyBlocker(instance, copyWriting),
+        busy,
       },
       {
-        key: "edit",
-        items: [
-          {
-            key: "move",
-            label: "Move",
-            icon: <MoveIcon />,
-            shortcut: KEY_MOVE_INSTANCE.toUpperCase(),
-            disabled: moveBlocker(instance) !== null,
-            disabledReason: moveBlocker(instance) ?? undefined,
-            onSelect: () => startMove(instance),
-            "data-testid": "instance-ctx-move",
-          },
-          {
-            key: "copy",
-            label: "Copy",
-            icon: <DuplicateIcon />,
-            shortcut: formatChord(CHORD_COPY_INSTANCE),
-            disabled: copyBlocker(instance, copyWriting) !== null,
-            disabledReason: copyBlocker(instance, copyWriting) ?? undefined,
-            onSelect: () => copyComponent(instance),
-            "data-testid": "instance-ctx-copy",
-          },
-          {
-            key: "ground",
-            label: instance.grounded ? "Unground" : "Ground",
-            icon: <FixedIcon />,
-            disabled: busy,
-            disabledReason: "Waiting for the current edit…",
-            onSelect: () => void handleToggleGrounded(instance),
-            "data-testid": "instance-ctx-ground",
-          },
-          {
-            key: "remove",
-            label: "Remove",
-            icon: <CloseIcon />,
-            danger: true,
-            disabled: busy,
-            disabledReason: "Waiting for the current edit…",
-            onSelect: () => void handleDeleteInstance(instance),
-            "data-testid": "instance-ctx-remove",
-          },
-        ],
+        toggleVisibility: () => toggleVisibility(instance.id),
+        isolate: () => isolate(instance.id),
+        showAll,
+        move: () => startMove(instance),
+        copy: () => copyComponent(instance),
+        toggleGrounded: () => void handleToggleGrounded(instance),
+        remove: () => void handleDeleteInstance(instance),
       },
-    ];
-  };
+    );
 
   // ---------------------------------------------------------------------
   // WHAT MAY BE CLAIMED ABOUT THE SOLVE ON SCREEN (`features/assemblySolve`).
