@@ -60,6 +60,7 @@ the boundary honest.
 # pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
 
 import math
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import cached_property
@@ -889,7 +890,9 @@ def match_face_records_tiered(
       twin took its place, or two swapped; JOINT-STRICT-WRONG-HOLE). It is
       dropped, and when that leaves no strict hit, the geometric tiers below
       run with every differently named face dropped too, so the name finds
-      the picked face or nothing resolves. A face the body cannot name passes;
+      the picked face or nothing resolves. A face the body cannot name passes,
+      and so does a piece of a split face whose qualifier alone differs (its
+      neighbours changed) unless another face holds the exact name (:func:`_may_be`);
     * a stored ``topo_name`` held by EXACTLY ONE current face wins when the
       geometric tiers 2-4 find nothing (the drafted wall that moved within its
       own plane) or find several including it (the name breaks the tie);
@@ -932,14 +935,14 @@ def _tiered(
     ]
     refused = False
     if strict and name is not None:
-        agreeing = [p for p in strict if _not_named_other(names[p], name)]
+        agreeing = [p for p in strict if _may_be(names, p, name)]
         refused = len(agreeing) < len(strict)
         strict = agreeing
     if strict:
         return strict, "exact"
     geometric = _geometric_matches(signatures, record, target)
     if refused:
-        geometric = [p for p in geometric if _not_named_other(names[p], name)]
+        geometric = [p for p in geometric if _may_be(names, p, name)]
     named = _named_position(names, name)
     if named is not None and (
         not geometric or any(indices[p] == indices[named] for p in geometric)
@@ -966,10 +969,47 @@ def _named_position(names: Sequence[str | None], name: str | None) -> int | None
     return held[0] if len(held) == 1 else None
 
 
-def _not_named_other(held: str | None, name: str | None) -> bool:
-    """Whether a face named *held* may stand for a reference stored as *name*:
-    the body cannot name it, or it answers to *name* (:func:`_answers_to`)."""
-    return held is None or name is None or _answers_to(held, name)
+#: The qualifier a split-face piece carries after its base name
+#: (:func:`geometry.kernel.naming._split_name`): a digest of its neighbours.
+_SPLIT_QUALIFIER = re.compile(r"/[0-9a-f]{32}$")
+
+
+def base_face_name(name: str) -> str:
+    """*name* without its split qualifier: the face a piece was cut from."""
+    return _SPLIT_QUALIFIER.sub("", name)
+
+
+def same_face_base(held: str, name: str) -> bool:
+    """Whether a face named *held* is, up to the split qualifier, the face a
+    stored *name* designates: it answers to *name* (aliases included), or its
+    name or one of its aliases has the same base. A piece's qualifier hashes
+    its NEIGHBOURS' names, so an edit that only changes what borders a face (a
+    wider slot, a hole added beside it) changes it; the base does not."""
+    if _answers_to(held, name):
+        return True
+    stored = base_face_name(name)
+    aliases: frozenset[str] = getattr(held, "aliases", frozenset[str]())
+    return any(base_face_name(n) == stored for n in (held, *aliases))
+
+
+def _may_be(names: Sequence[str | None], position: int, name: str | None) -> bool:
+    """Whether the face at *position* may stand for a reference stored as
+    *name* (the strict tier's name check, JOINT-STRICT-WRONG-HOLE): the body
+    cannot name it, it answers to *name*, or it has *name*'s base and no OTHER
+    face answers to *name* exactly (then that other face is the picked one)."""
+    held = names[position]
+    if held is None or name is None or _answers_to(held, name):
+        return True
+    if not same_face_base(held, name):
+        return False
+    return not any(
+        _answers_to(other, name) for p, other in enumerate(names) if p != position
+    )
+
+
+def answers_to(held: str, name: str) -> bool:
+    """:func:`_answers_to` for the edge resolver, which pairs face names."""
+    return _answers_to(held, name)
 
 
 def _answers_to(held: str | None, name: str) -> bool:

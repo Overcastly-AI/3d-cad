@@ -36,12 +36,19 @@ from build123d import CenterOf, GeomType
 from geometry.assembly import evaluate_assembly
 from geometry.assembly.transform import Pose
 from geometry.features import evaluate_tree
-from geometry.kernel.edges import resolve_edge_durable
+from geometry.kernel.edges import (
+    edge_name_agreement,
+    edge_names_agree,
+    resolve_edge_durable,
+)
 from geometry.kernel.faces import (
     SubshapeUnresolvedError,
+    match_face_records_tiered,
+    planar_faces,
     resolve_face_plane,
     resolve_faces,
 )
+from geometry.kernel.naming import FaceName, edge_name
 from geometry.kernel.overlay import selection_overlay
 from loft_wire.assemblies import EvaluateAssemblyRequest, EvaluateAssemblyResult
 from loft_wire.features import EdgeSignature, EvaluateTreeRequest
@@ -275,6 +282,145 @@ def test_a_chamfer_on_h2s_rim_fails_when_h2_is_gone() -> None:
     assert result.error.code == "subshape_unresolved"
 
 
+# --- split faces: a changed qualifier is the same face --------------------------
+#
+# A 5 mm-deep underside cut through both ends at y 12..18 splits the plate's
+# bottom face in two. Each piece is named "<base>/<digest of its neighbours>",
+# so widening the cut or adding a hole changes the digest of the front piece,
+# though the bottom-front edge, (0..100, 0, 0), never moves. The strict hit
+# must stay exact (4fe3162 resolved it so; the first name check refused it).
+# r2 fillet on a straight convex edge of length L removes (4 - pi) * L mm^3.
+
+_CUT_SKETCH = "00000000-0000-0000-0000-0000000000d1"
+_CUT = "00000000-0000-0000-0000-0000000000d2"
+_FILLET = "00000000-0000-0000-0000-0000000000e1"
+_FILLET_REMOVES = (4.0 - np.pi) * 100.0
+
+
+def _undercut(y0: float, y1: float, prefix: str = "s") -> list[dict[str, Any]]:
+    return [
+        {
+            "id": _CUT_SKETCH,
+            "feature": {
+                "type": "sketch",
+                "version": 1,
+                "params": {
+                    "entities": _rect(prefix, -10.0, y0, 110.0, y1),
+                    "constraints": [],
+                    "plane": {"kind": "datum_plane", "plane": "XY"},
+                },
+            },
+        },
+        {
+            "id": _CUT,
+            "feature": {
+                "type": "extrude",
+                "version": 1,
+                "params": {
+                    "profile": {"kind": "feature", "feature_id": _CUT_SKETCH},
+                    "distance_mm": 5.0,
+                    "operation": "cut",
+                    "direction": "normal",
+                },
+            },
+        },
+    ]
+
+
+def _bottom_front(features: list[dict[str, Any]]) -> EdgeSignature:
+    (sig,) = (
+        e.signature
+        for e in _overlay(features).edges
+        if e.signature.curve == "line"
+        and (e.signature.midpoint.x, e.signature.midpoint.y, e.signature.midpoint.z)
+        == (50.0, 0.0, 0.0)
+    )
+    assert sig.topo_name is not None and "/" in sig.topo_name  # a split piece
+    return sig
+
+
+SPLIT_EDITS = {
+    "slot-widened": plate(AUTHORED) + _undercut(11.0, 19.0),
+    "hole-added": plate([*AUTHORED, ("h4", 65.0)]) + _undercut(12.0, 18.0),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(SPLIT_EDITS))
+def test_an_edge_on_a_split_face_stays_exact_when_its_neighbours_change(
+    edit: str,
+) -> None:
+    picked = _bottom_front(plate(AUTHORED) + _undercut(12.0, 18.0))
+    edited = SPLIT_EDITS[edit]
+    evaluation = _evaluate(edited)
+    resolved = resolve_edge_durable(
+        evaluation.body, picked, face_names=evaluation.face_names()
+    )
+    assert resolved.tier == "exact"
+    mid = resolved.signature.midpoint
+    assert (mid.x, mid.y, mid.z) == (50.0, 0.0, 0.0)
+    assert _bottom_front(edited).topo_name != picked.topo_name  # the drift
+    fillet = {
+        "id": _FILLET,
+        "feature": {
+            "type": "fillet",
+            "version": 1,
+            "params": {
+                "edges": {
+                    "kind": "edges",
+                    "refs": [
+                        {
+                            "kind": "subshape",
+                            "feature_id": _EXTRUDE,
+                            "subshape_type": "edge",
+                            "selector": {
+                                "selector_version": 1,
+                                "signature": picked.model_dump(mode="json"),
+                            },
+                        }
+                    ],
+                },
+                "radius_mm": 2.0,
+            },
+        },
+    }
+    filleted = _evaluate([*edited, fillet])
+    (result,) = (r for r in filleted.result.features if str(r.feature_id) == _FILLET)
+    assert result.status == "ok", result.error
+    assert result.subshape_resolution.worst_tier == "exact"
+    removed = evaluation.body.volume - filleted.body.volume
+    assert removed == pytest.approx(_FILLET_REMOVES, rel=1e-7)
+
+
+def test_a_split_face_piece_stays_exact_when_its_neighbours_are_renamed() -> None:
+    """The face twin. Widening the cut or adding a hole also reshapes the
+    bottom face's front piece (y 0..12), so its strict signature misses for a
+    geometric reason. Redrawing the cut's rectangle (new sketch entity ids)
+    renames only the piece's neighbour, the cut wall: same geometry, new
+    qualifier."""
+
+    def front_piece(features: list[dict[str, Any]]) -> PlanarFaceSignature:
+        (sig,) = (
+            f.signature
+            for f in _overlay(features).faces
+            if f.signature is not None
+            and f.signature.normal.z < -0.99
+            and f.signature.centroid.z == 0.0
+            and f.signature.centroid.y < 10.0
+        )
+        return sig
+
+    picked = front_piece(plate(AUTHORED) + _undercut(12.0, 18.0))
+    assert picked.topo_name is not None and "/" in picked.topo_name
+    redrawn = plate(AUTHORED) + _undercut(12.0, 18.0, prefix="t")
+    assert front_piece(redrawn).topo_name != picked.topo_name  # the drift
+    evaluation = _evaluate(redrawn)
+    records = planar_faces(evaluation.body, evaluation.face_names())
+    matches, tier = match_face_records_tiered(records, picked)
+    assert tier == "exact"
+    (match,) = matches
+    assert match.signature.centroid == picked.centroid
+
+
 # --- the shared face resolver ---------------------------------------------------
 
 
@@ -409,3 +555,45 @@ def test_the_followed_joint_is_deterministic() -> None:
     first = evaluate_assembly(_joint_assembly(MOVED_AND_ADDED)).model_dump_json()
     again = evaluate_assembly(_joint_assembly(MOVED_AND_ADDED)).model_dump_json()
     assert again == first
+
+
+# --- the shared edge-name comparison --------------------------------------------
+
+_Q1, _Q2 = "/" + "a" * 32, "/" + "b" * 32
+
+
+def test_edge_name_agreement_reads_faces_qualifiers_and_aliases() -> None:
+    stored = edge_name("F:side:h2", "F:end")
+    # Exact, either face order, string or face pair.
+    assert edge_name_agreement(stored, stored) == "same"
+    assert edge_name_agreement(("F:end", "F:side:h2"), stored) == "same"
+    # Another hole's rim is another edge.
+    h9 = edge_name("F:side:h9", "F:end")
+    assert edge_name_agreement(h9, stored) == "different"
+    # A split piece whose neighbours changed: only the qualifier differs.
+    piece = edge_name("F:side:e1", "F:start" + _Q1)
+    redigested = edge_name("F:side:e1", "F:start" + _Q2)
+    assert edge_name_agreement(redigested, piece) == "split_drift"
+    unsplit = edge_name("F:side:e1", "F:start")
+    assert edge_name_agreement(unsplit, piece) == "split_drift"
+    other = edge_name("F:side:e2", "F:start" + _Q1)
+    assert edge_name_agreement(other, piece) == "different"
+    # A face a clean merged the stored face into answers to it by alias.
+    merged = FaceName("F:side:k", frozenset({"F:side:h2"}))
+    assert edge_name_agreement((merged, "F:end"), stored) == "same"
+    # A name that is not a face pair compares by equality.
+    assert edge_name_agreement("legacy", "legacy") == "same"
+    assert edge_name_agreement(("a", "b"), "legacy") == "different"
+
+
+def test_edge_names_agree_is_the_boolean_guard() -> None:
+    stored = edge_name("F:side:h2", "F:end")
+    assert edge_names_agree(stored, stored)
+    assert edge_names_agree(stored, ("F:end", "F:side:h2"))
+    assert not edge_names_agree(stored, edge_name("F:side:h1", "F:end"))
+    piece = edge_name("F:side:e1", "F:start" + _Q1)
+    assert edge_names_agree(piece, edge_name("F:side:e1", "F:start" + _Q2))
+    assert not edge_names_agree(piece, edge_name("F:side:e3", "F:start" + _Q1))
+    merged = FaceName("F:side:k", frozenset({"F:side:h2"}))
+    assert edge_names_agree(stored, (merged, "F:end"))
+    assert not edge_names_agree(stored, ("F:side:k", "F:end"))  # no alias

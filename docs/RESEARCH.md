@@ -510,6 +510,11 @@ tiers below run with every differently named subshape dropped too (the edge
 guard already worked this way; for faces it applies only after such a refusal).
 The name then finds the picked subshape or nothing (`subshape_unresolved`). A
 hit the body cannot name passes, and a ref without a name resolves as before.
+Names are compared face by face, with aliases, as a face resolves. A split
+piece's qualifier (`/<digest>`) is ignored unless another subshape holds the
+exact stored name: the digest hashes the piece's neighbours, so widening a cut
+or adding a hole on a split face changes it while the edge stays put. An
+edge that did not move still resolves `exact`.
 Edges name only the strict hits (`edge_names`' few-edges path), so an
 unedited rebuild still never names the whole body. One change in the shared
 resolvers covers features and assembly origins alike
