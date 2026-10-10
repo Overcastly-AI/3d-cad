@@ -1274,7 +1274,12 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   `<ValueField>` with `parseFieldEntry` (`units/length.ts`) in every numeric
   editor, with an fx mark and autocomplete. `loft-script`: `parameters()`,
   `set_parameter`, `rename_parameter`, `delete_parameter`, numeric arguments
-  accept `float | str`, and `loft.expr.evaluate`. `.loft` 1.2 carries the
+  accept `float | str`, and `loft.expr.evaluate`. Step 6 as built: a
+  builder evaluates a str with the shared library against the part's table
+  (read only when the formula names something) to fill the number the DTO
+  needs beside it; documents re-resolves on write, so its number is the one
+  stored. Table edits re-read and PUT the whole table, retried once on a
+  stale version. `.loft` 1.2 carries the
   table and per-feature expressions in `tree.json` and version trees; 1.1
   readers degrade to numbers; frozen fixture `golden-v1.2.loft`.
 - **Step 5, as built.** A dimension formula that names a parameter is
