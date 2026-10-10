@@ -11,7 +11,9 @@
  * fills one slot. Keyboard-first: the profile select autofocuses, Enter
  * commits, Escape cancels — the sketcher's dimension grammar. There is no
  * numeric handle here (the geometry lives in the two referenced sketches), so
- * the honest scope note carries the v1 limits: the path must be one open wire.
+ * the honest scope note carries the limits: the path is one chain, open or
+ * closed, and a closed path must be tangent-continuous at every joint
+ * (SWEEP-CLOSED-PATH; a corner is the rebuild error `sweep_path_not_tangent`).
  *
  * TWIST ALONG PATH (TWIST-TO-SWEEP) is the one number: the total turn of the
  * section over the sweep, in signed degrees (the document's angle convention,
@@ -179,13 +181,13 @@ export function SweepEditor({
   // ONE computation, two readings (REASON-GATE-1): `canSubmit` is DEFINED as
   // "nothing is blocking", so a grey Create with an empty reason line is
   // unreachable rather than merely absent. Null while saving — the label says
-  // that already. "No open sketch exists at all" is asked FIRST and lives here
+  // that already. "No other sketch exists at all" is asked FIRST and lives here
   // rather than in `sweepSubmitBlocker`: it is a fact about the part, and
   // asking for a path the tree cannot supply is a dead end, not a next step.
   const blocker = saving
     ? null
     : paths.length === 0
-      ? "Draw an open sketch to sweep along."
+      ? "Draw a path sketch to sweep along."
       : sweepSubmitBlocker(form);
   const canSubmit = blocker === null && !saving;
   useCommandBridge(submit, canSubmit);
@@ -278,7 +280,7 @@ export function SweepEditor({
                 data-testid="sweep-path-empty"
                 role="status"
               >
-                No other sketch to sweep along. Draw an open path sketch.
+                No other sketch to sweep along. Draw a path sketch.
               </p>
             )}
 
@@ -341,8 +343,9 @@ export function SweepEditor({
               className="-mt-0.5 font-body text-xs text-gauge"
               data-testid="sweep-path-note"
             >
-              The path sketch must be one open chain — a closed sketch can't be
-              a path. The section rides the path from the profile.
+              The path sketch is one chain, open or closed. A closed path must
+              be tangent at every joint, and the section rides it from the
+              profile.
             </p>
           </div>
         </div>

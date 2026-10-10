@@ -1,0 +1,27 @@
+{
+  "description": "CLOSED-PATH SWEEP OF A MULTI-ENTITY LOOP (SWEEP-CLOSED-PATH): a 10 x 6 mm rectangular section swept once around a rounded-rectangle loop, 140 x 100 mm with R20 corners (4 lines + 4 tangent arcs on XY), into a closed rectangular-section band (a bumper or ring frame). The section is drawn on the YZ datum plane at the MIDDLE of the bottom straight, not where the path's first entity starts, so the build exercises the closed sweep's seating: the profile is carried from its seat on the path to the wire's start by the rigid motion of the fixed-binormal frame, and the band must not depend on where the loop starts. The rectangle is not rotationally symmetric, so a frame that rolled about the path, or a binormal that flipped, would move the band's +-3 mm top and bottom or its 10 mm width and change the bounds. Locks: the eight G1 joints pass the tangent check, the sweep closes with no seam gap or overlap, coplanar top and bottom faces unify into one ring each, and the volume is the hand-summed prisms plus quarter-annulus corners. The independent twin (an extruded 2D ring, no sweep) and an empty two-way difference are in tests/test_sweep_closed.py.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values. Path (XY, z = 0): l1 (-50,-50)->(50,-50), arc a1 centre (50,-30) to (70,-30), l2 up x = 70, a2 centre (50,30), l3 back along y = 50, a3 centre (-50,30), l4 down x = -70, a4 centre (-50,-30) back to the start: straights 100 and 60 mm, corner radius Rc = 20, every joint tangent. Fully constrained (horizontal/vertical lines, 8 tangents, 4 radii, a fixed start and two lengths) at the drawn solution with zero residual.",
+    "Section (YZ datum plane, sketch (x, y) -> world (0, x, y)): the rectangle sketch x in [-55, -45], y in [-3, 3], i.e. world y in [-55, -45], z in [-3, 3] around the path point (0, -50, 0), where the path tangent is +-X, normal to the section. Width w = 10 across the path (in the path plane), height h = 6 along Z. Fully constrained by coincidences, horizontal/vertical, a fixed corner and two lengths.",
+    "path length L = 2 * 100 + 2 * 60 + 4 * (pi/2) * 20 = 320 + 40 pi = 445.66370614359175 mm.",
+    "volume (prism sum): the four straights are boxes w * h * len = 60 * (2 * 100 + 2 * 60) = 19200; each corner is a quarter annulus between radii 15 and 25, extruded h: h * (pi/4)(25^2 - 15^2) = 6 * 100 pi = 600 pi, four of them 2400 pi. Total 19200 + 2400 pi = 26739.822368615503 mm^3 = w h L, Pappus with the section centroid on the path.",
+    "surface_area: top + bottom are two flat rings of width w along the path, 2 * w * L; the outer side is h times the outer perimeter 320 + 2 pi * 25 and the inner side h times 320 + 2 pi * 15, together h * 2L. Total 2L(w + h) = 32 L = 14261.238596594936 mm^2.",
+    "centroid = (0, 0, 0) by symmetry (the band is symmetric about the XZ, YZ and XY planes).",
+    "bounding_box = [-75, -55, -3]..[75, 55, 3]: the outer offset reaches x = 70 + 5 and y = 50 + 5, and z = +-h/2.",
+    "topology: 18 faces = 1 top ring + 1 bottom ring (each path segment's planar top and bottom face are coplanar and unify) + 8 outer and 8 inner side faces (4 planes and 4 quarter cylinders each, which do not unify: a plane and a cylinder are different surfaces). 48 edges = 2 loops of 8 on the top ring + 2 loops of 8 on the bottom + 16 vertical edges at the 8 joints, inner and outer. 32 vertices (8 joints x 4 section corners). 1 shell. The pipe starts at a wire vertex (a joint), so the start/end section adds no edge of its own.",
+    "mesh (linear 0.1 / angular 0.1 rad): each quarter arc takes 2 * ceil((pi/2) / 0.1) = 32 segments (the cylinder golden's rule; angular-dominated on both R25 and R15). Each quarter cylinder: 2 x 33 nodes, 64 triangles; x 8 = 528 nodes, 512 triangles. Each planar side: 4 nodes, 2 triangles; x 8 = 32, 16. Each ring face meshes its boundary only: each loop has 8 joint nodes + 4 arcs x 31 interior nodes = 132, so 264 nodes and (nodes + 2 * holes - 2) = 264 triangles; x 2 = 528, 528. Totals: 528 + 32 + 528 = 1088 vertices, 512 + 16 + 528 = 1056 triangles."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured, then set (2026-10-09, build123d 0.11.1 / OCCT 7.9): volume 2.2e-11 mm^3, area 4e-12 mm^2 and centroid 6e-13 mm off the closed forms, AABB exact. 1e-9 is the curved-geometry ceiling the sweep and fillet goldens use, ~45x the observed worst case, for libm/platform variation in GProp's quadrature across CI hosts. Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 26739.822368615503,
+    "surface_area": 14261.238596594936,
+    "centroid": { "x": 0.0, "y": 0.0, "z": 0.0 },
+    "bounding_box": {
+      "min": { "x": -75.0, "y": -55.0, "z": -3.0 },
+      "max": { "x": 75.0, "y": 55.0, "z": 3.0 }
+    }
+  },
+  "topology": { "faces": 18, "edges": 48, "shells": 1 },
+  "mesh": { "vertices": 1088, "triangles": 1056 }
+}

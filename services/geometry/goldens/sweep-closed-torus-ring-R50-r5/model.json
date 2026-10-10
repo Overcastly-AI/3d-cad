@@ -1,0 +1,101 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000c1",
+  "tree_version": 3,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-000000c10001",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XZ"
+          },
+          "entities": [
+            {
+              "id": "c1",
+              "kind": "circle",
+              "center": {
+                "x": 50.0,
+                "y": 0.0
+              },
+              "radius": 5.0
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "fixed",
+              "point": {
+                "entity": "c1",
+                "point": "center"
+              }
+            },
+            {
+              "kind": "radius",
+              "entity": "c1",
+              "value_mm": 5.0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000c10002",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          },
+          "entities": [
+            {
+              "id": "p1",
+              "kind": "circle",
+              "center": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "radius": 50.0
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "fixed",
+              "point": {
+                "entity": "p1",
+                "point": "center"
+              }
+            },
+            {
+              "kind": "radius",
+              "entity": "p1",
+              "value_mm": 50.0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000c10003",
+      "feature": {
+        "type": "sweep",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000c10001"
+          },
+          "path": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000c10002"
+          },
+          "operation": "add"
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

@@ -57,6 +57,7 @@ from pydantic import (
     ValidationError,
 )
 
+from loft_wire.expr import MAX_PARAMETERS
 from loft_wire.features import (
     MAX_INLINE_STEP_CHARS,
     MAX_TREE_FEATURES,
@@ -66,6 +67,7 @@ from loft_wire.features import (
 )
 from loft_wire.geometry import BoundingBox
 from loft_wire.materials import MaterialAssignment
+from loft_wire.parameters import PartParameter
 from loft_wire.parts import PartName, PartResponse
 from loft_wire.units import LengthUnit
 from loft_wire.versions import (
@@ -298,6 +300,14 @@ class LoftTree(BaseModel):
     materials: MaterialAssignment | None = None
     rollback_feature_id: uuid.UUID | None = None
     features: list[LoftTreeFeature] = Field(max_length=MAX_TREE_FEATURES)
+    #: The part's parameter table (PART-PARAMETERS, RESEARCH §20). Left out of
+    #: the dump while empty, so every tree without parameters keeps its bytes
+    #: (and its version ``tree_sha256``); a reader that predates it ignores it.
+    parameters: list[PartParameter] = Field(
+        default_factory=list[PartParameter],
+        max_length=MAX_PARAMETERS,
+        exclude_if=lambda rows: not rows,
+    )
 
 
 def _utc(value: datetime) -> datetime:

@@ -140,7 +140,7 @@ export function useFeatureOpeners({
     });
   }, [tree.data]);
 
-  // A sweep references TWO earlier sketches (a closed profile + an open path),
+  // A sweep references TWO earlier sketches (a closed profile + a path),
   // so it seeds both slots from the tree — the first sketch as the profile, the
   // first other sketch as the path — and the user retargets either in the form.
   const openCreateSweep = useCallback(() => {

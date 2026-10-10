@@ -10,8 +10,8 @@ whole life in ``part_versions`` (never pruned; :class:`documents.db.PartVersion`
   :data:`~loft_wire.versions.MAX_PART_VERSIONS` versions or
   :data:`~loft_wire.versions.MAX_PART_VERSIONS_TOTAL_BYTES` is refused (409
   ``part_version_limit``), never made room for by dropping an old one.
-* **Restore** writes the version's features, their order and suppression and
-  the rollback bar back as ONE edit through the part's history ring
+* **Restore** writes the version's features, their order and suppression, the
+  rollback bar and the parameter table back as ONE edit through the part's history ring
   (:data:`documents.history.PART_HISTORY`): the pre-restore tree is the undo
   step, ``tree_version`` bumps under the usual stale guard, and no version is
   deleted. The whole tree is validated first with the ``.loft`` import's
@@ -69,6 +69,7 @@ from documents.loft_file import (
     validated_rows,
     version_row,
 )
+from documents.parameters import resolved_rows
 from documents.parts import Principal, get_owned_part
 
 _logger = get_logger("documents.versions")
@@ -282,6 +283,7 @@ async def _version_state(
             for feature_id, targets in edges
             for target in sorted(set(targets))
         ],
+        "parameters": resolved_rows(list(tree.parameters)),
     }
 
 

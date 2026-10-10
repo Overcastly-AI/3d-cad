@@ -250,6 +250,16 @@ class Part(Base):
     materials: Mapped[dict[str, Any] | None] = mapped_column(
         _JSON_VARIANT, nullable=True
     )
+    #: The parameter table (PART-PARAMETERS, RESEARCH §20): ordered
+    #: :class:`~loft_wire.parameters.PartParameter` rows, each with its resolved
+    #: ``value``. Always the output of ``resolve_parameters``; '[]' for every
+    #: part older than migration 0018. Tree state: undo and versions carry it.
+    parameters: Mapped[list[dict[str, Any]]] = mapped_column(
+        _JSON_VARIANT,
+        nullable=False,
+        default=list,
+        server_default=sa.text("'[]'"),
+    )
     #: Monotonic optimistic-concurrency counter — bumped in the same
     #: transaction as ANY tree mutation (feature-tree.md §1.2).
     tree_version: Mapped[int] = mapped_column(
@@ -402,6 +412,11 @@ class Feature(Base):
     #: default; ``metadata.create_all`` renders it too — the native/e2e path).
     suppressed: Mapped[bool] = mapped_column(
         sa.Boolean(), nullable=False, default=False, server_default=sa.text("false")
+    )
+    #: JSON pointer into ``params`` -> the expression driving that number
+    #: (PART-PARAMETERS step 4; migration 0018). NULL: every field is a number.
+    expressions: Mapped[dict[str, str] | None] = mapped_column(
+        _JSON_VARIANT, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),

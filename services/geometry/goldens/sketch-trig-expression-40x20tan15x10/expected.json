@@ -1,0 +1,33 @@
+{
+  "description": "FIRST TRIG + UNIT EXPRESSION GOLDEN (PART-PARAMETERS step 1, closes SKETCH-EXPR-TRIG): a rectangle whose two driving dimensions are EXPRESSIONS in the shared language (loft_wire.expr) -- width = \"1in + 14.6\" (a unit suffix joined by a bare number read as mm) and height = \"20*tan(15)\" (tan in degrees) -- extruded 10 mm. Both dimensions store a stale placeholder value_mm of 1.0, so if the expression were ignored the solve would move the geometry to a 1 x 1 square and every number below would fail; the entities are drawn at the analytic solution, so the solver starts at zero residual and returns them. Locks the evaluate-tree path end to end: loft_wire.expr parse -> units -> tan -> planegcs solve -> profile -> prism -> GProp -> tessellation.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill).",
+    "width: 1 in = 25.4 mm exactly; 25.4 + 14.6 = 40 mm.",
+    "height: tan(15 deg) = 2 - sqrt(3) (half-angle identity tan(x/2) = (1 - cos x)/sin x at x = 30 deg: (1 - sqrt(3)/2)/(1/2)); h = 20*(2 - sqrt(3)) = 40 - 34.64101615137754587 = 5.35898384862245413 mm (nearest double 5.358983848622454).",
+    "profile area = 40 * h = 214.3593539448981652 mm^2",
+    "volume = 10 * 40 * h = 400 h = 2143.593539448981652 mm^3",
+    "surface_area = 2 caps (2 * 40h) + walls 2*(40*10) + 2*(h*10) = 100 h + 800 = 1335.898384862245413 mm^2",
+    "centroid = (40/2, h/2, 10/2) = (20, 2.679491924311227065, 5) by symmetry of the box",
+    "bounding_box = [0,0,0]..[40,h,10]: e1 starts at the origin, the prism runs +Z on the XY datum",
+    "topology: a box is 6 planar faces, 12 straight edges, 1 closed shell",
+    "mesh: 6 rectangular faces * 2 triangles = 12; faceted per-face normals share no vertices, 6 * 4 = 24 vertices",
+    "no material is assigned, so mass and centre of mass must be reported ABSENT (null), never 0 g"
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill). Measured deviations vs the analytic values (2026-10-09, build123d 0.11.1 / OCCT 7.9 / planegcs 0.8.0): volume 4.5e-13 mm^3, surface_area 2.3e-13 mm^2, centroid and AABB exactly 0.0 against the nearest doubles. The sibling sketch-extrude-40x25x10 golden's 1e-9 ceiling is ~2000x the worst observed here, the same planar wire->face->prism construction, and the expression contributes no error of its own: tan(15) evaluates to the nearest double of 2 - sqrt(3) times 20 and the solver starts at zero residual. Loosening this bound requires a reviewed kernel-level justification.",
+  "properties": {
+    "volume": 2143.5935394489816,
+    "surface_area": 1335.8983848622454,
+    "centroid": {
+      "x": 20.0,
+      "y": 2.679491924311227,
+      "z": 5.0
+    },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 5.358983848622454, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 6, "edges": 12, "shells": 1 },
+  "mesh": { "vertices": 24, "triangles": 12 }
+}

@@ -1104,3 +1104,159 @@ additive: no stored datum changes shape or bytes.
   twin (`tests/test_datum_angle.py`), and
   `datum-angle-head-tube-od50-id32-l160-25deg` is derived by hand and against
   a plain `Solid.make_cylinder` tube.
+
+## 19. Closed-path sweep: G1 loop, fixed binormal, seated at the profile
+
+**What mainstream CAD does.** Fusion 360 (Sweep, "Path" a closed chain),
+SolidWorks (Swept Boss/Base along a closed sketch) and Onshape (Sweep along a
+closed path) sweep a profile once around a loop into one closed solid with no
+end caps: a ring of tube, a frame rail loop, a bumper. A closed path with a
+sharp corner is refused or needs a fillet; the section's twist follows the
+path's orientation options, with no flip on a planar path.
+
+**Decision (SWEEP-CLOSED-PATH).** `sweep_path_closed` is gone: a closed path
+wire sweeps through `kernel/sweep_closed.py::sweep_closed_profile`; an open one
+is unchanged, byte for byte. No wire field was needed.
+
+- **G1 at every joint, or a typed refusal.** OCCT's pipe shell around a sharp
+  corner of a CLOSED spine returns a "valid" zero-volume solid (a 100 mm
+  square loop: 3e-13 mm^3), so a joint that turns more than 1e-6 rad
+  (`G1_ANGLE_TOLERANCE_RAD`; solved tangencies close to ~1e-12) is the
+  per-feature error `sweep_path_not_tangent`, pinned to the path sketch, whose
+  message names the two entities and the sketch point of the first bad joint
+  in entity order.
+- **Fixed binormal.** A sketch path is planar, so the section's frame keeps
+  its binormal on the path sketch's normal (`MakePipeShell::SetMode(gp_Dir)`,
+  OCCT's BinormalMode): a pure function of the tangent, so it cannot flip at
+  an inflection (OCCT's Frenet sweep of an offset section around a peanut
+  loop swings it to the other side of the plane and is invalid), and it
+  returns to itself after one loop, so the end section lands on the start.
+- **Seated at the profile.** OCCT starts the pipe at the wire's first vertex;
+  the section is moved there from the path point nearest its centre by the
+  rigid motion between the two binormal frames. With a binormal frame every
+  section is that frame times the profile, so the solid does not depend on
+  where the loop's first entity begins (pinned by reordering and reversing the
+  rounded-rectangle loop).
+- **Refused rather than self-intersecting:** every sweep, open or closed, is
+  run through `BRepAlgoAPI_Check(shape, true, true)` (self-interference) before
+  it is cleaned (`kernel/sweep_check.py`); a path that crosses or comes back
+  on itself is `sweep_self_intersecting`. `BRepCheck_Analyzer` passes those
+  solids (a G1 figure eight swept r3 reads pi r^2 L, the crossing counted
+  twice). The check does not see a spindle torus, so every sweep, open or
+  closed, also refuses a bend tighter than the section reaches towards the
+  INSIDE of that bend (one-sided, measured from where the section sits on the
+  path; arcs and splines sampled) as `sweep_failed`; a closed sweep refuses a
+  section lying along the path likewise; a twist on a closed path stays
+  `twist_path_unsupported`.
+- **An open path's sharp corner is mitred** (`Transition.RIGHT`), as Fusion
+  360 and SolidWorks build it. OCCT's default transformed transition folded
+  the next leg back through the last (an r3 L of 20 + 15: 565.5 mm^3, BRepCheck
+  valid, against the mitre's 315 pi = 989.6). Only a path with a non-G1 joint
+  takes the mitre, so every G1 sweep keeps its bytes (every sweep golden's
+  BRep and GLB hashes equal dbae8f9's). A closed path still needs G1.
+- Truth: `sweep-closed-torus-ring-R50-r5` (2 pi^2 R r^2, against
+  `Solid.make_torus`) and `sweep-closed-rounded-rect-loop-140x100-rc20-rect10x6`
+  (the prism sum, against an extruded 2D ring), each with an empty two-way
+  difference (`tests/test_sweep_closed.py`); the moto frame's rail loop swept
+  in one piece equals the golden's two open halves and the independent
+  one-piece ring (`tests/test_moto_frame.py`). OCCT's cut of two fully
+  coincident copies of the rail (same face splits and seam) is unreliable
+  (4.06e5 mm^3 one way, 0 the other), so that pair is compared through the
+  independent twin.
+
+## 20. Part parameters and the one expression language
+
+**What mainstream CAD does.** Fusion 360 (Modify > Change Parameters),
+SolidWorks (Global Variables in the Equations dialog) and Onshape (Variable
+features, `#name`) give a part a table of named values whose formulas any
+dimension or feature field may use. Each value has a unit; a bare number takes
+the document unit; trig works in degrees; a dependency loop is refused by
+name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
+
+**Decisions.**
+
+- **One grammar, standard-library only** (`loft_wire/expr.py`, step 1):
+  the tokenizer, recursive-descent parser and `evaluate_driving_dimensions`
+  moved out of `geometry/sketch/expression.py`, which keeps `measure_*` and
+  maps every `ExpressionError` to `SketchExpressionError` (`sketch_invalid`).
+  Documents, geometry and `loft-script` evaluate the same string to the same
+  float. Never `eval`: anything outside the grammar is a typed error
+  (`ExpressionSyntaxError`, `...LimitError`, `...UnitError`,
+  `...DomainError`, `...ReferenceError`, `...CycleError`, `...NameError`, each
+  with a stable `code`).
+- **Language.** `+ - * /`, unary sign, parentheses, ASCII decimals (no
+  exponent form), `pi`, unit suffixes on a number (`mm cm m in ft deg rad`),
+  and calls on a closed whitelist: `sin cos tan` (degrees in), `asin acos atan
+  atan2` (degrees out), `sqrt abs min max round floor ceil`, `rad()` (degrees
+  to a plain number of radians) and `deg()` (radians to an angle). `round` is
+  half away from zero, as in a spreadsheet. `tan` of an odd multiple of 90
+  and `atan2(0, 0)` are domain errors, not 1.6e16 and 0.
+- **Units.** Kinds are length (mm), angle (degrees) and unitless; unitless
+  joins either, so a bare number is mm or degrees by its field (the web
+  appends the document unit's suffix in a non-mm document). Errors: length
+  plus angle, a product of two unit-carrying values, a number over a length,
+  trig of a length, a length in an angle field and the reverse. Int fields
+  take a unitless value within 1e-9 of an integer, rounded.
+- **Limits.** 256 characters, nesting depth 150 (parser and evaluator), 200
+  parameters per part, finite results only. Names match
+  `^[A-Za-z_][A-Za-z0-9_]{0,63}$` and are not a function, unit or constant
+  word.
+- **Sketch compatibility: every stored sketch evaluates as before.** A
+  sketch dimension referenced by another reads its NUMBER, unitless
+  (`angle = half*2` over a 20 mm `half` is still 40 degrees). Dimension names
+  keep their old pattern, and a dimension's name wins over a reserved word in
+  reference position (not after a number, not before `(`), where older valid
+  text could only ever have put it: a dimension `rad` makes `rad*2` read it,
+  and a dimension `pi` beats the constant. Sketch text keeps the old
+  tokenizer (Unicode digits and whitespace, `\f`, no-break spaces) and the
+  wire field's 256 cap; new parameter text is ASCII. Proven by a differential
+  fuzz against the fcf0590 evaluator: 120k trials, every input it accepted
+  gives the same value bit for bit, 0 crashes.
+- **Where it is evaluated.** In documents, once per evaluation-request build
+  (`documents/features.py`, shared by part and assembly) and on every write,
+  with the resolved numbers stored back in `params`. Geometry receives
+  numbers only (`expression` cleared), so rebuild-cache keys reflect resolved
+  values with no kernel-boundary change.
+- **Namespaces and cycles.** Parameters see parameters; feature fields see
+  parameters; a sketch dimension sees its own sketch's dimensions, then
+  parameters, and may not take a parameter's name (422). Ordering is an
+  ITERATIVE memoised DFS (a 200-long chain never meets the recursion limit)
+  that reports a loop as its chain, `a -> b -> a`.
+- **Storage** (step 3, alembic `0018_part_parameters`): `parts.parameters`
+  JSONB NOT NULL default `[]`, ordered `{id, name, expression, unit, comment,
+  value}`; `features.expressions` JSONB nullable, JSON pointer to expression,
+  where the pointer must hit an int or float leaf (else 422). The wire
+  envelope gains `expressions: dict[str, str] | None`, excluded when None so
+  existing dumps stay byte-identical. `loft_wire/parameters.py` holds
+  `PartParameter`, `PartParametersUpdate{expected_tree_version,
+  parameters}` and the response; `EvaluatedFeatureInput.input_error:
+  FeatureError | None`, excluded when None.
+- **Undo and versions.** `PUT /parts/{id}/parameters` replaces the whole
+  table under optimistic concurrency: one tree mutation, one history
+  snapshot. Snapshots carry parameters and expressions (an old snapshot reads
+  `[]`); named versions carry parameters.
+- **Errors.** Syntax, unknown name, cycle, unresolvable or colliding name:
+  422 at write. Deleting a referenced parameter: 409 `parameter_in_use`
+  listing the features; a rename rewrites references token by token. A
+  resolved value that fails its field's validation, or an unresolved import,
+  makes that feature sick with `input_error` (`parameter_value_invalid` /
+  `parameter_unresolved`), keeps the last good value, and answers 200 with
+  per-feature errors. Geometry (step 2, `features/tree.py::_dispatch_one`)
+  builds nothing for such a feature and reports the error verbatim; it is NOT
+  a strict-prefix stop: the body carries forward exactly as past a suppressed
+  feature, so later features build, as Fusion and Onshape keep regenerating
+  past a red feature. A later feature that references its output fails with
+  the existing `reference_unresolved` (upstream id pinned), which does stop
+  the prefix. Only those two codes are accepted on the wire.
+- **UI, script, file.** A Parameters panel on the command band; one
+  `<ValueField>` with `parseFieldEntry` (`units/length.ts`) in every numeric
+  editor, with an fx mark and autocomplete. `loft-script`: `parameters()`,
+  `set_parameter`, `rename_parameter`, `delete_parameter`, numeric arguments
+  accept `float | str`, and `loft.expr.evaluate`. `.loft` 1.2 carries the
+  table and per-feature expressions in `tree.json` and version trees; 1.1
+  readers degrade to numbers; frozen fixture `golden-v1.2.loft`.
+- **Truth.** `packages/loft-wire/tests/test_expr.py` (grammar, units,
+  functions, cycles, depth, hostile strings, off-whitelist names); golden
+  `sketch-trig-expression-40x20tan15x10` (step 1); a new golden kind
+  `parametric.json` with re-drive steps (step 4); a cache-key test;
+  documents route, undo, migration and `.loft` tests; web vitest and one e2e.

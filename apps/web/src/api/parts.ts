@@ -564,7 +564,7 @@ function sweepFeatureEnvelope(params: SweepParams): SweepFeature {
 
 /**
  * The create payload for a sweep feature: sweep an EARLIER sketch's closed
- * profile along a SECOND earlier sketch's open path (design §4.3, the
+ * profile along a SECOND earlier sketch's path, open or closed (design §4.3, the
  * revolve sibling — but with a second `FeatureRef`). Pure — unit-tested
  * against the generated types, matching `revolveFeatureCreate`.
  */

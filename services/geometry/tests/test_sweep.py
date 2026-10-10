@@ -6,7 +6,7 @@ Covers the BACKLOG #7 acceptance criteria beyond the golden harness (the golden
 mass properties and a fetchable content-addressed mesh; ``add``/``cut`` and a
 bent (multi-segment) path are numerically checked; and every sweep error path —
 ``profile_not_closed``, ``reference_unresolved`` (bad profile OR bad path),
-``sweep_path_closed``, ``sweep_path_not_connected``, ``sweep_path_empty``,
+``sweep_path_not_tangent``, ``sweep_path_not_connected``, ``sweep_path_empty``,
 ``no_prior_body`` — is a per-feature error pinned under the strict-prefix rule
 (design §4.3), never a transport failure.
 
@@ -181,9 +181,41 @@ def test_evaluate_response_with_body_is_byte_deterministic() -> None:
 
 
 def test_bent_path_sweeps_a_valid_single_solid() -> None:
-    """A two-segment (L-shaped) path sweeps a circle around a bend into ONE
-    connected solid — the non-prismatic capability the feature exists for."""
-    # Path: up +Z 20, then over +X 15 (on XZ, sketch (x,y)->world (x,0,y)).
+    """A filleted (G1) L-shaped path sweeps a circle around a bend into ONE
+    valid solid of Pappus volume — the capability the feature exists for."""
+    # On XZ, sketch (x,y)->world (x,0,y): up 15, an R5 quarter bend, over 10.
+    bend = {
+        "id": "b1",
+        "kind": "arc",
+        "center": {"x": 5.0, "y": 15.0},
+        "start": {"x": 5.0, "y": 20.0},
+        "end": {"x": 0.0, "y": 15.0},
+    }
+    path = _sketch(
+        PATH_ID,
+        "XZ",
+        [
+            _line("p1", (0.0, 0.0), (0.0, 15.0)),
+            bend,
+            _line("p2", (5.0, 20.0), (15.0, 20.0)),
+        ],
+    )
+    result = _post(_request([profile_sketch(r=3.0), path, sweep_input()]))
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(
+        math.pi * 9.0 * (15.0 + 2.5 * math.pi + 10.0), rel=1e-9
+    )
+
+
+def test_a_sharp_cornered_path_sweeps_a_mitred_elbow() -> None:
+    """A SHARP 90 deg L (up 20, over 15) is MITRED, as Fusion 360 and
+    SolidWorks build it. The mitre plane bisects the corner through the path,
+    so each leg is a cylinder cut obliquely through its axis end, which keeps
+    its volume: pi r^2 (20 + 15) = 315 pi = 989.6017 mm^3. (OCCT's default
+    transformed transition folded the second leg back: 565.5 mm^3, a solid
+    BRepCheck passes and the self-check refuses.)"""
     path = _sketch(
         PATH_ID,
         "XZ",
@@ -193,7 +225,54 @@ def test_bent_path_sweeps_a_valid_single_solid() -> None:
 
     assert [r.status for r in result.features] == ["ok", "ok", "ok"]
     assert result.properties is not None
-    assert result.properties.volume > 0.0
+    # 1.4e-12 relative off the closed form (the mitre faces are integrated, not
+    # analytic), above the cylinder golden's absolute 1e-9 at this size.
+    assert result.properties.volume == pytest.approx(315.0 * math.pi, rel=1e-9)
+
+
+def test_an_obtuse_sharp_corner_is_mitred_too() -> None:
+    """A 60 deg turn (up 20, then 15 along 30 deg from vertical): the same
+    oblique-cut argument, pi r^2 (20 + 15) at any mitre angle."""
+    end = (
+        15.0 * math.sin(math.radians(30.0)),
+        20.0 + 15.0 * math.cos(math.radians(30.0)),
+    )
+    path = _sketch(
+        PATH_ID,
+        "XZ",
+        [_line("p1", (0.0, 0.0), (0.0, 20.0)), _line("p2", (0.0, 20.0), end)],
+    )
+    result = _post(_request([profile_sketch(r=3.0), path, sweep_input()]))
+
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(315.0 * math.pi, rel=1e-9)
+
+
+def test_an_open_bend_tighter_than_the_section_is_refused() -> None:
+    """r3 round an R2 bend would fold the inner wall through itself (a
+    spindle, which the self-check cannot see): the one-sided bend check."""
+    bend = {
+        "id": "b1",
+        "kind": "arc",
+        "center": {"x": 2.0, "y": 10.0},
+        "start": {"x": 2.0, "y": 12.0},
+        "end": {"x": 0.0, "y": 10.0},
+    }
+    path = _sketch(
+        PATH_ID,
+        "XZ",
+        [
+            _line("p1", (0.0, 0.0), (0.0, 10.0)),
+            bend,
+            _line("p2", (2.0, 12.0), (10.0, 12.0)),
+        ],
+    )
+    result = _post(_request([profile_sketch(r=3.0), path, sweep_input()]))
+
+    error = result.features[2].error
+    assert error is not None
+    assert error.code == "sweep_failed"
+    assert "bends at radius 2 mm" in error.message
 
 
 def test_sweep_cut_removes_a_swept_channel() -> None:
@@ -240,16 +319,30 @@ def test_open_profile_is_profile_not_closed() -> None:
     assert error.upstream_feature_id == PROFILE_ID
 
 
-def test_closed_path_is_sweep_path_closed() -> None:
-    """A CLOSED path (a circle) → sweep_path_closed pinned to the path sketch."""
-    closed_path = _sketch(PATH_ID, "XZ", [_circle("p1", 0.0, 20.0, 10.0)])
-    result = _post(_request([profile_sketch(), closed_path, sweep_input()]))
+def test_closed_path_with_a_corner_is_sweep_path_not_tangent() -> None:
+    """A CLOSED path with a sharp corner → sweep_path_not_tangent, pinned to
+    the path sketch and naming the joint (SWEEP-CLOSED-PATH: a closed path must
+    be G1; tests/test_sweep_closed.py covers the closed sweeps that build)."""
+    square = _sketch(
+        PATH_ID,
+        "XZ",
+        [
+            _line("p1", (0.0, 0.0), (40.0, 0.0)),
+            _line("p2", (40.0, 0.0), (40.0, 40.0)),
+            _line("p3", (40.0, 40.0), (0.0, 40.0)),
+            _line("p4", (0.0, 40.0), (0.0, 0.0)),
+        ],
+    )
+    result = _post(_request([profile_sketch(), square, sweep_input()]))
 
     assert result.features[2].status == "error"
     error = result.features[2].error
     assert error is not None
-    assert error.code == "sweep_path_closed"
+    assert error.code == "sweep_path_not_tangent"
     assert error.upstream_feature_id == PATH_ID
+    assert "90 deg" in error.message
+    assert "'p1' and 'p4'" in error.message
+    assert "(0, 0)" in error.message
     assert result.mesh_glb_id is None
 
 

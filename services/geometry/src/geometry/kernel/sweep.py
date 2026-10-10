@@ -1,4 +1,4 @@
-"""Sketch closed profile + open path wire → swept solid → boolean.
+"""Sketch closed profile + path wire → swept solid → boolean.
 
 The kernel half of the sweep feature (feature-tree design §4.3; BACKLOG #7) —
 the first NON-PRISMATIC body-affecting feature. The feature layer hands in the
@@ -21,13 +21,15 @@ sweep-along-path step.
 Path contract (v1 DESIGN DECISION, docs/design/feature-tree.md §2.1/§2.2): the
 path is a whole earlier SKETCH feature (referenced by id at the feature layer)
 whose entities
-form a single OPEN wire — never a picked sub-edge, so this is independent of
+form a single wire — never a picked sub-edge, so this is independent of
 topological naming (#1). Construction geometry is excluded from the path exactly
-as it is from the profile. A closed path (:class:`PathClosedError`), disjoint
-loops (:class:`PathNotConnectedError`), or a path with no curve entities
-(:class:`PathEmptyError`) are rejected up front. The sweep is anchored at the
-profile: build123d applies the path as a relative trajectory from the profile's
-location (its absolute position is unused in v1).
+as it is from the profile. Disjoint loops (:class:`PathNotConnectedError`) or a
+path with no curve entities (:class:`PathEmptyError`) are rejected up front. An
+OPEN path is anchored at the profile: build123d applies the path as a relative
+trajectory from the profile's location (its absolute position is unused in v1).
+A CLOSED path (SWEEP-CLOSED-PATH) must be tangent-continuous at every joint
+(:class:`~geometry.kernel.sweep_closed.PathCornerError` otherwise) and sweeps
+through :func:`~geometry.kernel.sweep_closed.sweep_closed_profile`.
 
 Determinism (RESEARCH §9): path edges are built in entity list order, wire
 assembly is a pure OCCT algorithm on identical inputs, and the sweep + boolean
@@ -36,7 +38,7 @@ are pure functions of their inputs — no unordered iteration participates.
 
 from collections.abc import Sequence
 
-from build123d import Face, Plane, Solid, Wire
+from build123d import Face, Plane, Solid, Transition, Wire
 from loft_wire.sketch import SketchEntity
 
 from geometry.kernel.extrude import (
@@ -44,6 +46,14 @@ from geometry.kernel.extrude import (
     entity_edges,
 )
 from geometry.kernel.healing import clean_shape
+from geometry.kernel.sweep_check import check_not_self_intersecting
+from geometry.kernel.sweep_closed import (
+    ClosedSweepError,
+    check_closed_path_tangent,
+    check_open_bends,
+    has_sharp_joint,
+    sweep_closed_profile,
+)
 
 
 class PathEmptyError(ValueError):
@@ -56,29 +66,26 @@ class PathNotConnectedError(ValueError):
     single connected chain in v1."""
 
 
-class PathClosedError(ValueError):
-    """The path wire is closed; a sweep path must be an OPEN wire in v1 (a
-    closed path would sweep the profile back onto itself)."""
-
-
 class SweepError(RuntimeError):
     """The OCCT sweep failed or produced an unsupported result (e.g. a path
     corner tighter than the profile, sweeping material through itself)."""
 
 
 def build_path_wire(plane: Plane, entities: Sequence[SketchEntity]) -> Wire:
-    """Assemble a path sketch's solved entities into a single OPEN wire.
+    """Assemble a path sketch's solved entities into a single wire.
 
-    The open-wire sibling of :func:`geometry.kernel.extrude.build_profile_face`:
+    The path sibling of :func:`geometry.kernel.extrude.build_profile_face`:
     it collects edges through the SAME per-entity builder (construction geometry
     excluded, input order preserved for determinism) but requires the result to
-    be exactly one **open** chain — the sweep trajectory. *plane* is the resolved
-    sketch plane (origin datum or offset ``datum`` feature).
+    be exactly one chain — the sweep trajectory, open or closed. A closed chain
+    must be tangent-continuous at every joint. *plane* is the resolved sketch
+    plane (origin datum or offset ``datum`` feature).
 
     Raises:
         PathEmptyError: no curve entities (only construction geometry/points).
         PathNotConnectedError: the edges form more than one disjoint wire.
-        PathClosedError: the single wire is closed (a sweep path must be open).
+        PathCornerError: the wire is closed and a joint is not G1 (it names
+            the joint).
     """
     edges = [
         edge
@@ -96,22 +103,24 @@ def build_path_wire(plane: Plane, entities: Sequence[SketchEntity]) -> Wire:
     if len(wires) > 1:
         raise PathNotConnectedError(
             f"Path sketch forms {len(wires)} separate wires; a sweep path is a "
-            "single connected open chain in v1."
+            "single connected chain."
         )
     wire = wires[0]
     if wire.is_closed:
-        raise PathClosedError(
-            "Path sketch forms a closed loop; a sweep path must be an OPEN wire "
-            "in v1 (open the loop, or use a revolve for a closed sweep)."
-        )
+        check_closed_path_tangent(plane, entities)
     return wire
 
 
-def sweep_profile(face: Face, path: Wire) -> Solid:
-    """Sweep the closed profile *face* along the open *path* wire.
+def sweep_profile(face: Face, path: Wire, path_plane: Plane) -> Solid:
+    """Sweep the closed profile *face* along the *path* wire.
 
-    Anchored at the profile (build123d applies *path* as a relative trajectory
-    from the profile's location — its absolute position is unused). ``clean()``
+    An open path is anchored at the profile (build123d applies *path* as a
+    relative trajectory from the profile's location — its absolute position is
+    unused); a sharp joint is mitred, and a bend tighter than the section
+    reaches towards its inside is refused. A closed path sweeps once around the
+    loop, seated where it passes nearest the profile, with *path_plane*'s
+    normal as the fixed binormal
+    (:func:`~geometry.kernel.sweep_closed.sweep_closed_profile`). ``clean()``
     collapses the redundant seams the operation leaves behind, keeping topology
     counts meaningful (and golden-assertable).
 
@@ -119,9 +128,26 @@ def sweep_profile(face: Face, path: Wire) -> Solid:
         SweepError: the OCCT sweep failed or left other than exactly one solid
             (single body chain per part in v1, design §7.6) — e.g. a path corner
             tighter than the profile, sweeping material through itself.
+        SweepSelfIntersectingError: the swept solid passes through itself (a
+            path that crosses itself); the feature layer's
+            ``sweep_self_intersecting``.
     """
+    if path.is_closed:
+        try:
+            return sweep_closed_profile(face, path, path_plane.z_dir)
+        except ClosedSweepError as exc:
+            raise SweepError(str(exc)) from exc
     try:
-        result = Solid.sweep(face, path)
+        check_open_bends(face, path, path_plane.z_dir)
+    except ClosedSweepError as exc:
+        raise SweepError(str(exc)) from exc
+    # A sharp (non-G1) joint is MITRED, as Fusion 360 and SolidWorks build it:
+    # OCCT's default transformed transition folds the next leg back through the
+    # last (an r3 L of 20 + 15 read 565.5 mm^3 against the mitre's 989.6). A
+    # G1 path takes the default call exactly as before (byte-identical).
+    transition = Transition.RIGHT if has_sharp_joint(path) else Transition.TRANSFORMED
+    try:
+        result = Solid.sweep(face, path, transition=transition)
         solids = result.solids()
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise SweepError(
@@ -134,4 +160,5 @@ def sweep_profile(face: Face, path: Wire) -> Solid:
             f"Sweep produced {len(solids)} solids; parts are a single body in "
             "v1 (design §7.6)."
         )
+    check_not_self_intersecting(solids[0])
     return clean_shape(solids[0])

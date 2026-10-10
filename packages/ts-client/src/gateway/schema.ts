@@ -1858,6 +1858,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/parameters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Part Parameters
+         * @description The part's parameter table, in order, with each resolved value.
+         */
+        get: operations["get_part_parameters_api_v1_parts__part_id__parameters_get"];
+        /**
+         * Put Part Parameters
+         * @description Replace the whole parameter table, as one undoable edit.
+         *
+         *     A stale `expected_tree_version` is a 422 `stale_tree_version`. A table
+         *     that does not evaluate is a 422 carrying the expression error's code
+         *     (`expression_syntax`, `expression_unknown_name`, `expression_cycle` with
+         *     its `chain`, `expression_name_invalid`, `expression_units`,
+         *     `expression_domain`, `expression_too_complex`).
+         */
+        put: operations["put_part_parameters_api_v1_parts__part_id__parameters_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/redo": {
         parameters: {
             query?: never;
@@ -5302,6 +5332,8 @@ export interface components {
              * @description Feature identity for refs + result keying
              */
             id: string;
+            /** @description Set by documents when this feature's inputs could not be resolved (`parameter_value_invalid`, `parameter_unresolved`). Geometry does not build the feature: its result is this error, and later features build against the body before it. Null (omitted) for a buildable feature. */
+            input_error?: components["schemas"]["FeatureError"] | null;
         };
         /**
          * EvaluatedInstance
@@ -5824,11 +5856,11 @@ export interface components {
         };
         /**
          * FeatureResult
-         * @description Per-feature evaluation status. Strict-prefix rule (§4.3): the first
-         *     failure is ``error``, every subsequent feature ``skipped``. A feature marked
-         *     ``suppressed`` (§4.3a) is neither: it is deliberately skipped from the
-         *     rebuild — distinct from a downstream ``skipped`` (which means an earlier
-         *     feature failed) — so the tree UI can show it dimmed rather than red.
+         * @description Per-feature evaluation status. Strict-prefix rule (§4.3): the first build
+         *     failure is ``error``, every later feature ``skipped``; a feature sent with an
+         *     ``input_error`` is ``error`` and the later ones still build. ``suppressed``
+         *     (§4.3a) is a deliberate skip, distinct from a downstream ``skipped``, so the
+         *     tree UI can show it dimmed rather than red.
          */
         FeatureResult: {
             /** @description Typed per-feature payload for ok features that produce one (§7.10): solved sketch geometry today; future feature types add kind-tagged variants additively. */
@@ -7668,6 +7700,100 @@ export interface components {
         PartListResponse: {
             /** Parts */
             parts: components["schemas"]["PartResponse"][];
+        };
+        /**
+         * PartParameter
+         * @description One stored row with its resolved value. Unknown keys are ignored, as
+         *     everywhere in a ``.loft`` tree, so an older reader takes a newer file.
+         */
+        PartParameter: {
+            /**
+             * Comment
+             * @description Free note
+             * @default
+             */
+            comment: string;
+            /**
+             * Expression
+             * @description A number or formula, e.g. '40', '0.5 in', 'width/2 + 3'
+             */
+            expression: string;
+            /**
+             * Id
+             * Format: uuid
+             * @description Stable identity of the row; a rename keeps it. A new row carries a fresh UUID minted by the client.
+             */
+            id: string;
+            /**
+             * Name
+             * @description What formulas call it: a letter or _, then up to 63 letters, digits or _; not a function, unit or constant word
+             */
+            name: string;
+            /**
+             * Unit
+             * @description What the value measures: length (mm), angle (degrees) or unitless
+             * @enum {string}
+             */
+            unit: "length" | "angle" | "unitless";
+            /**
+             * Value
+             * @description The evaluated expression: mm for a length, degrees for an angle, a plain number for unitless. Computed by the server.
+             */
+            value: number;
+        };
+        /**
+         * PartParameterInput
+         * @description One row as a client writes it: everything but the resolved value.
+         */
+        PartParameterInput: {
+            /**
+             * Comment
+             * @description Free note
+             * @default
+             */
+            comment: string;
+            /**
+             * Expression
+             * @description A number or formula, e.g. '40', '0.5 in', 'width/2 + 3'
+             */
+            expression: string;
+            /**
+             * Id
+             * Format: uuid
+             * @description Stable identity of the row; a rename keeps it. A new row carries a fresh UUID minted by the client.
+             */
+            id: string;
+            /**
+             * Name
+             * @description What formulas call it: a letter or _, then up to 63 letters, digits or _; not a function, unit or constant word
+             */
+            name: string;
+            /**
+             * Unit
+             * @description What the value measures: length (mm), angle (degrees) or unitless
+             * @enum {string}
+             */
+            unit: "length" | "angle" | "unitless";
+        };
+        /**
+         * PartParametersResponse
+         * @description A part's parameter table, in its stored order, with the tree version.
+         */
+        PartParametersResponse: {
+            /** Parameters */
+            parameters: components["schemas"]["PartParameter"][];
+            /** Tree Version */
+            tree_version: number;
+        };
+        /**
+         * PartParametersUpdate
+         * @description ``PUT /api/v1/parts/{id}/parameters``: replace the whole table.
+         */
+        PartParametersUpdate: {
+            /** Expected Tree Version */
+            expected_tree_version: number;
+            /** Parameters */
+            parameters: components["schemas"]["PartParameterInput"][];
         };
         /**
          * PartResponse
@@ -10103,16 +10229,16 @@ export interface components {
         };
         /**
          * SweepParamsV1
-         * @description Sweep an earlier sketch's closed profile along an earlier sketch's open path.
+         * @description Sweep an earlier sketch's closed profile along an earlier sketch's path.
          *
          *     The first NON-PRISMATIC body-affecting feature (design §4.3): where extrude
          *     sweeps a profile along the plane normal and revolve about an axis, sweep
-         *     follows an arbitrary open PATH wire — the shaft / pipe / rib primitive named
+         *     follows an arbitrary PATH wire — the shaft / pipe / rib primitive named
          *     in the Part-modeling scorecard notes. It consumes the SAME ``profile``
          *     FeatureRef to an earlier sketch (a single closed wire, built by the shared
          *     ``build_profile_face``) and the SAME ``add``/``cut`` boolean against the body
          *     chain as extrude/revolve; the new ingredient is ``path``, a SECOND
-         *     FeatureRef to an earlier sketch whose entities form a single OPEN wire.
+         *     FeatureRef to an earlier sketch whose entities form one wire, open or closed.
          *
          *     Path representation (v1 DESIGN DECISION — docs/design/feature-tree.md
          *     §2.1/§2.2, docs/GEOMETRY-QA.md 2026-07-12): the path is a whole earlier
@@ -10124,12 +10250,12 @@ export interface components {
          *
          *     v1 limits (stated plainly — documented scope, not bugs):
          *
-         *     * the path must resolve to a single **open** wire; a closed path is a
-         *       ``sweep_path_closed`` rebuild error, disjoint path loops are
+         *     * the path must resolve to a single connected wire; disjoint path loops are
          *       ``sweep_path_not_connected``, and a path with no curve entities is
-         *       ``sweep_path_empty`` (construction geometry is excluded from the path
-         *       exactly as it is from the profile);
-         *     * the sweep is **anchored at the profile** — build123d applies the path as a
+         *       ``sweep_path_empty`` (construction geometry excluded, as from the profile);
+         *     * a CLOSED path sweeps once around into one capless solid; every joint must
+         *       be G1, else ``sweep_path_not_tangent`` names it (docs/RESEARCH.md §19);
+         *     * an open sweep is **anchored at the profile** — build123d applies the path as a
          *       relative trajectory from the profile's own location, so the path's
          *       absolute position is not used. Author the path starting at the profile
          *       origin, with its first segment perpendicular to the profile plane, for a
@@ -10166,7 +10292,7 @@ export interface components {
              * @enum {string}
              */
             operation: "add" | "cut";
-            /** @description Must resolve to an EARLIER sketch feature whose entities form a single OPEN wire — the sweep trajectory (design §2.2) */
+            /** @description Must resolve to an EARLIER sketch feature whose entities form one wire, open or closed and G1 — the sweep trajectory (§2.2) */
             path: components["schemas"]["FeatureRef"];
             /** @description Must resolve to an EARLIER sketch feature whose entities form the single CLOSED profile wire (design §2.2) */
             profile: components["schemas"]["FeatureRef"];
@@ -13570,6 +13696,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_part_parameters_api_v1_parts__part_id__parameters_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartParametersResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_part_parameters_api_v1_parts__part_id__parameters_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartParametersUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartParametersResponse"];
                 };
             };
             /** @description Validation Error */

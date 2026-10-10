@@ -864,7 +864,7 @@ export function CreateStrip({
             data-testid="new-sweep"
             aria-label={
               canSweep
-                ? "Sweep — carry a profile sketch along an open path sketch (S)"
+                ? "Sweep — carry a profile sketch along a path sketch, open or closed (S)"
                 : "Sweep — draw a profile sketch and a path sketch first"
             }
             caption={captionFor(

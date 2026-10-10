@@ -41,6 +41,7 @@ import {
   EyeOffIcon,
   Panel,
   PanelSection,
+  PinIcon,
   SegmentedControl,
 } from "@loft/design";
 
@@ -261,7 +262,7 @@ export function AssemblyTreePanel({
                               : "border-etch text-gauge"
                           }`}
                         >
-                          {instance.grounded ? "⏚" : balloon}
+                          {instance.grounded ? <PinIcon size={11} /> : balloon}
                         </span>
                         <span
                           // A hidden component's name recedes to `gauge` (7.3:1

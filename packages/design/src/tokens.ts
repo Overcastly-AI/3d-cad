@@ -543,6 +543,23 @@ export const assembly = {
     /** Ghost B-rep edge opacity — the silhouette stays readable through it. */
     edgeOpacity: viewport.preview.edgeOpacity,
   },
+  /**
+   * The Move triad (drei `PivotControls`). Its axes are the one place the
+   * product speaks the universal X red / Y green / Z blue: every CAD tool a
+   * modeller has used colours its move handle that way, and a brass-only triad
+   * would make them read the axis label before every drag. The kernel frame
+   * (Z up) is what the colours name — the triad is turned so blue points up.
+   * Softened to sit on the carbide ground without glowing; a grabbed handle
+   * turns brass, the product's one "this is live" accent.
+   */
+  moveTriad: {
+    axisColors: ["#E06A6A", "#6CC47A", "#5E9BE8"],
+    hovered: color.brassHover,
+    /** Fixed on-screen size of an arrow, in CSS px (zoom-independent). */
+    sizePx: 104,
+    /** Handle stroke width, in CSS px. */
+    lineWidth: 3,
+  },
 } as const;
 
 /**

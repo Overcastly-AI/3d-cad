@@ -7,6 +7,7 @@ import {
   EyeOffIcon,
   FixedIcon,
   IsolateIcon,
+  MoveIcon,
   ToolButton,
   ToolGroup,
 } from "@loft/design";
@@ -66,6 +67,7 @@ import {
 import { DocumentUnitSelect } from "../components/DocumentUnitSelect";
 import { DocumentUnitProvider } from "../units/documentUnit";
 import { MateHud } from "../components/MateHud";
+import { MoveInstancePanel } from "../components/MoveInstancePanel";
 import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
 import {
@@ -73,13 +75,17 @@ import {
   uniquePartDocumentIds,
 } from "../assembly/evaluateRequest";
 import { clashInstanceIds } from "../assembly/clash";
-import { buildMate, mateToolLabel } from "../assembly/mates";
+import { buildMate, mateInstanceIds, mateToolLabel } from "../assembly/mates";
 import {
   isParametricMate,
   type MateTool,
   useMateAuthoringStore,
 } from "../assembly/mateStore";
 import { placementToScene } from "../assembly/placement";
+import {
+  useMoveSession,
+  useReleaseWhenSolved,
+} from "../assembly/useMoveSession";
 import {
   type DrawnPoses,
   NO_DRAWN_POSES,
@@ -112,10 +118,20 @@ import {
   type VisibilityState,
 } from "../viewport/instanceVisibility";
 import { useInstanceGeometries } from "../viewport/useInstanceGeometries";
+import { MoveTriad } from "../viewport/MoveTriad";
 import { Viewport } from "../viewport/Viewport";
 import { VisibilityStamp } from "../components/VisibilityStamp";
 
 const IDENTITY_QUAT = { w: 1, x: 0, y: 0, z: 0 };
+
+/** Why Move is unavailable for `instance`, or null when it can move. */
+function moveBlocker(instance: InstanceResponse | null): string | null {
+  return instance === null
+    ? "Select a component to move"
+    : instance.grounded
+      ? "Grounded components stay put. Unground it to move it."
+      : null;
+}
 
 /**
  * The assembly workspace — the sibling of the part editor. The tree (left) is a
@@ -389,6 +405,24 @@ export function AssemblyPage() {
     setVisibility((state) => showAllInstances(state, instanceIds));
   }, [instanceIds]);
 
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const refreshGraph = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ["assembly", assemblyId] }),
+    [queryClient, assemblyId],
+  );
+
+  // Move (Fusion's Move/Copy, minus Copy — ASM-COPY): a session previews a
+  // pose in place of the solve and commits it as ONE PATCH (`useMoveSession`).
+  const move = useMoveSession({
+    assemblyId,
+    docVersion,
+    refreshGraph,
+    onError: setActionError,
+  });
+  const moveOverride = move.overrideFor;
+
   // The scene instances: graph identity + solved pose + shared geometry.
   const solvedById = useMemo(
     () => new Map((evaluation?.instances ?? []).map((i) => [i.instance_id, i])),
@@ -398,7 +432,8 @@ export function AssemblyPage() {
     () =>
       instances.map((instance, index) => {
         const solved = solvedById.get(instance.id);
-        const placement = solved?.placement ?? instance.placement;
+        const placement =
+          moveOverride(instance.id) ?? solved?.placement ?? instance.placement;
         const meshGlbId = solved?.part_mesh_glb_id ?? null;
         return {
           id: instance.id,
@@ -410,7 +445,7 @@ export function AssemblyPage() {
           visibility: visibilityModeOf(visibility, instance.id),
         };
       }),
-    [instances, solvedById, byMeshId, visibility],
+    [instances, solvedById, byMeshId, visibility, moveOverride],
   );
 
   // The pose each balloon has actually DRAWN (MATE-OBS-3,
@@ -479,14 +514,6 @@ export function AssemblyPage() {
   // Mutations — each reads the freshest doc_version and invalidates the graph
   // (its new version cascades to part-trees + evaluate + meshes).
   // ---------------------------------------------------------------------
-  const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-
-  const refreshGraph = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: ["assembly", assemblyId] }),
-    [queryClient, assemblyId],
-  );
-
   const runMutation = useCallback(
     async (fn: () => Promise<unknown>, fallback: string) => {
       setBusy(true);
@@ -711,7 +738,7 @@ export function AssemblyPage() {
   const canRedo = graph?.can_redo ?? false;
   /** Any graph mutation in flight — history must never race its version. */
   const mutationInFlight =
-    busy || submitting || unitBusy || addingPartId !== null;
+    busy || submitting || unitBusy || addingPartId !== null || move.committing;
   /** Which step is in flight (drives the honest hold caption), or null. */
   const [historyStep, setHistoryStep] = useState<HistoryStep | null>(null);
   const historyInFlight = useRef(false);
@@ -797,6 +824,41 @@ export function AssemblyPage() {
     if (canRedo) runHistoryStep("redo");
   }, [canRedo, runHistoryStep]);
 
+  // Move is offered for the selected component; a grounded one says why not.
+  const selectedInstance =
+    instances.find((i) => i.id === selectedInstanceId) ?? null;
+  const startSession = move.start;
+  const startMove = useCallback(
+    (instance: InstanceResponse) => {
+      if (instance.grounded) return;
+      setTool(null);
+      setAddOpen(false);
+      setSelectedInstanceId(instance.id);
+      startSession(instance.id);
+    },
+    [setTool, startSession],
+  );
+  const movingId = move.session?.instanceId ?? null;
+  const movingInstance = instances.find((i) => i.id === movingId) ?? null;
+  const movingScene = sceneInstances.find((i) => i.id === movingId) ?? null;
+  // What the drop is compared with — the pose the part had before the drag.
+  const movingBase =
+    movingInstance === null
+      ? null
+      : (solvedById.get(movingInstance.id)?.placement ??
+        movingInstance.placement);
+  const movingMated =
+    movingId !== null &&
+    mates.some((m) => mateInstanceIds(m.mate).includes(movingId));
+  const cancelMove = move.cancel;
+  // A session ends when its part is grounded, removed, or a mate tool arms.
+  useEffect(() => {
+    if (movingId === null) return;
+    if (movingInstance === null || movingInstance.grounded || tool !== null) {
+      cancelMove();
+    }
+  }, [movingId, movingInstance, tool, cancelMove]);
+
   // Keyboard-first: A opens the picker; I runs the clash check; F/N/K arm the
   // mate tools; Escape disarms the tool / closes the picker.
   const canMate = instances.length >= 2;
@@ -807,7 +869,10 @@ export function AssemblyPage() {
       if (isTypingTarget(event.target)) return;
       const key = event.key.toLowerCase();
       if (event.key === "Escape") {
-        if (useMateAuthoringStore.getState().tool !== null) {
+        if (movingId !== null) {
+          event.preventDefault();
+          cancelMove();
+        } else if (useMateAuthoringStore.getState().tool !== null) {
           event.preventDefault();
           setTool(null);
         } else if (addOpen) {
@@ -819,6 +884,13 @@ export function AssemblyPage() {
       if (key === "a") {
         event.preventDefault();
         setAddOpen((open) => !open);
+        return;
+      }
+      // M moves the selected component (Fusion's accelerator).
+      if (key === "m" && !event.shiftKey) {
+        event.preventDefault();
+        if (selectedInstance !== null && moveBlocker(selectedInstance) === null)
+          startMove(selectedInstance);
         return;
       }
       if (key === "i" && !event.shiftKey && canCheckInterference) {
@@ -868,6 +940,10 @@ export function AssemblyPage() {
     isolate,
     showAll,
     toggleVisibility,
+    movingId,
+    cancelMove,
+    selectedInstance,
+    startMove,
   ]);
 
   // One predicate owns "who holds Ctrl+Z right now": an armed mate tool or the
@@ -875,11 +951,13 @@ export function AssemblyPage() {
   // reason read THIS value, so the keys and the buttons can never disagree (a
   // third owning state added to one and not the other was the drift risk).
   const historyLockReason: string | null =
-    tool !== null
-      ? `Finish the ${mateToolLabel(tool)} mate first`
-      : addOpen
-        ? "Close the part picker first"
-        : null;
+    movingId !== null
+      ? "Finish the move first"
+      : tool !== null
+        ? `Finish the ${mateToolLabel(tool)} mate first`
+        : addOpen
+          ? "Close the part picker first"
+          : null;
 
   // Undo/redo keyboard grammar: Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, Ctrl+Y — assembly
   // idle only. An armed mate tool owns the session (a mid-pick Ctrl+Z must
@@ -960,6 +1038,16 @@ export function AssemblyPage() {
         key: "edit",
         items: [
           {
+            key: "move",
+            label: "Move",
+            icon: <MoveIcon />,
+            shortcut: "M",
+            disabled: moveBlocker(instance) !== null,
+            disabledReason: moveBlocker(instance) ?? undefined,
+            onSelect: () => startMove(instance),
+            "data-testid": "instance-ctx-move",
+          },
+          {
             key: "ground",
             label: instance.grounded ? "Unground" : "Ground",
             icon: <FixedIcon />,
@@ -1021,6 +1109,7 @@ export function AssemblyPage() {
     drawing,
     evaluation,
   });
+  useReleaseWhenSolved(move, docVersion, !solve.stale);
 
   // Camera fit inputs for the shared Viewport rig. The fit key is the set of
   // instances whose mesh has LOADED — the fit fires when geometry actually
@@ -1074,6 +1163,13 @@ export function AssemblyPage() {
               onRedo={triggerRedo}
               canAddPart={graph !== undefined}
               onAddPart={() => setAddOpen((open) => !open)}
+              moveActive={movingId !== null}
+              moveBlocker={moveBlocker(selectedInstance)}
+              onMove={() =>
+                movingId !== null
+                  ? cancelMove()
+                  : selectedInstance !== null && startMove(selectedInstance)
+              }
               canMate={canMate}
               activeTool={tool}
               onToggleTool={toggleTool}
@@ -1141,6 +1237,18 @@ export function AssemblyPage() {
                   submitting={submitting}
                   onCommit={commitMate}
                 />
+                {movingInstance !== null && movingBase !== null ? (
+                  <MoveInstancePanel
+                    instanceName={movingInstance.name}
+                    seed={move.session?.seed ?? 0}
+                    placement={moveOverride(movingInstance.id) ?? movingBase}
+                    mated={movingMated}
+                    committing={move.committing}
+                    onPreview={(placement) => move.preview(placement, false)}
+                    onCommit={() => move.commit(movingBase, true)}
+                    onCancel={cancelMove}
+                  />
+                ) : null}
                 {addOpen ? (
                   <AddInstancePanel
                     addingPartId={addingPartId}
@@ -1208,7 +1316,16 @@ export function AssemblyPage() {
               clashingInstanceIds={clashIds.measured}
               unverifiedInstanceIds={clashIds.unverifiedOnly}
               onPoseDrawn={onPoseDrawn}
+              bodiesPickable={movingId === null}
             />
+            {movingScene !== null && movingBase !== null ? (
+              <MoveTriad
+                transform={movingScene.transform}
+                enabled={!move.committing}
+                onDrag={(placement) => move.preview(placement, true)}
+                onDragEnd={() => move.commit(movingBase, false)}
+              />
+            ) : null}
           </Viewport>
           <FloatingPanel side="left" title="Components" id="tree">
             <AssemblyTreePanel

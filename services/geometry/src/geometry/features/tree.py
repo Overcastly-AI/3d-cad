@@ -595,7 +595,9 @@ def _dispatch_prefix(
             results.append(FeatureResult(feature_id=item.id, status="skipped"))
             continue
         _dispatch_one(item, state, results, suppressed_ids, observer)
-        if results[-1].status == "error":
+        # A feature sent with an input error built nothing and touched no state,
+        # so it is no strict-prefix failure: the features after it build on.
+        if results[-1].status == "error" and item.input_error is None:
             failed = True
             continue
         if results[-1].status == "ok":
@@ -627,6 +629,13 @@ def _dispatch_one(
         # forward as the last non-suppressed body (§4.3a).
         suppressed_ids.add(item.id)
         results.append(FeatureResult(feature_id=item.id, status="suppressed"))
+        return
+    if item.input_error is not None:
+        # Documents could not resolve this feature's inputs (RESEARCH §19): build
+        # nothing and report its error. As with suppress, the body carries on.
+        results.append(
+            FeatureResult(feature_id=item.id, status="error", error=item.input_error)
+        )
         return
     ref_error = _suppressed_reference_error(item.feature, suppressed_ids)
     if ref_error is not None:

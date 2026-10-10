@@ -35,6 +35,7 @@ from loft_wire.datum_angle import DatumAngleParams as DatumAngleParams
 from loft_wire.datum_angle import DatumOriginAxisRef as DatumOriginAxisRef
 from loft_wire.datum_angle import DatumSketchLineRef as DatumSketchLineRef
 from loft_wire.extrude_extent import EXTRUDE_EXTENT_FIELD, ExtrudeExtent
+from loft_wire.feature_input import INPUT_ERROR_CHECK, INPUT_ERROR_FIELD
 from loft_wire.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
@@ -786,16 +787,16 @@ class RevolveParamsV1(BaseModel):
 
 
 class SweepParamsV1(BaseModel):
-    """Sweep an earlier sketch's closed profile along an earlier sketch's open path.
+    """Sweep an earlier sketch's closed profile along an earlier sketch's path.
 
     The first NON-PRISMATIC body-affecting feature (design §4.3): where extrude
     sweeps a profile along the plane normal and revolve about an axis, sweep
-    follows an arbitrary open PATH wire — the shaft / pipe / rib primitive named
+    follows an arbitrary PATH wire — the shaft / pipe / rib primitive named
     in the Part-modeling scorecard notes. It consumes the SAME ``profile``
     FeatureRef to an earlier sketch (a single closed wire, built by the shared
     ``build_profile_face``) and the SAME ``add``/``cut`` boolean against the body
     chain as extrude/revolve; the new ingredient is ``path``, a SECOND
-    FeatureRef to an earlier sketch whose entities form a single OPEN wire.
+    FeatureRef to an earlier sketch whose entities form one wire, open or closed.
 
     Path representation (v1 DESIGN DECISION — docs/design/feature-tree.md
     §2.1/§2.2, docs/GEOMETRY-QA.md 2026-07-12): the path is a whole earlier
@@ -807,12 +808,12 @@ class SweepParamsV1(BaseModel):
 
     v1 limits (stated plainly — documented scope, not bugs):
 
-    * the path must resolve to a single **open** wire; a closed path is a
-      ``sweep_path_closed`` rebuild error, disjoint path loops are
+    * the path must resolve to a single connected wire; disjoint path loops are
       ``sweep_path_not_connected``, and a path with no curve entities is
-      ``sweep_path_empty`` (construction geometry is excluded from the path
-      exactly as it is from the profile);
-    * the sweep is **anchored at the profile** — build123d applies the path as a
+      ``sweep_path_empty`` (construction geometry excluded, as from the profile);
+    * a CLOSED path sweeps once around into one capless solid; every joint must
+      be G1, else ``sweep_path_not_tangent`` names it (docs/RESEARCH.md §19);
+    * an open sweep is **anchored at the profile** — build123d applies the path as a
       relative trajectory from the profile's own location, so the path's
       absolute position is not used. Author the path starting at the profile
       origin, with its first segment perpendicular to the profile plane, for a
@@ -844,7 +845,7 @@ class SweepParamsV1(BaseModel):
     )
     path: FeatureRef = Field(
         description="Must resolve to an EARLIER sketch feature whose entities "
-        "form a single OPEN wire — the sweep trajectory (design §2.2)"
+        "form one wire, open or closed and G1 — the sweep trajectory (§2.2)"
     )
     operation: Literal["add", "cut"]
     merge: bool = MERGE_FIELD
@@ -3793,6 +3794,7 @@ class EvaluatedFeatureInput(BaseModel):
 
     id: uuid.UUID = Field(description="Feature identity for refs + result keying")
     feature: Feature
+    input_error: Annotated["FeatureError | None", INPUT_ERROR_CHECK] = INPUT_ERROR_FIELD
 
 
 class EvaluateTreeRequest(BaseModel):
@@ -4108,11 +4110,9 @@ def export_tree_filename(request: ExportTreeRequest) -> str:
 # unregistered observer is a flat line, which is this same defect one step
 # removed) and the two things that hold it down.
 #
-# The rationale lives in a COMMENT, not the docstring, on purpose: a model
-# docstring is the ``description`` of this schema in ``packages/contracts`` and
-# in the generated TS client, and instrumentation trivia is not something an API
-# consumer should have to read. (Written as a docstring first; `just gen-check`
-# showed the whole essay landing in `schema.ts`.)
+# The rationale is a COMMENT on purpose: a model docstring is this schema's
+# ``description`` in ``packages/contracts`` and the TS client, where an API
+# consumer should not have to read instrumentation trivia.
 class FeatureError(BaseModel):
     """Why one feature failed to evaluate (§4.3)."""
 
@@ -4263,11 +4263,11 @@ class SubshapeResolutionSummary(BaseModel):
 
 
 class FeatureResult(BaseModel):
-    """Per-feature evaluation status. Strict-prefix rule (§4.3): the first
-    failure is ``error``, every subsequent feature ``skipped``. A feature marked
-    ``suppressed`` (§4.3a) is neither: it is deliberately skipped from the
-    rebuild — distinct from a downstream ``skipped`` (which means an earlier
-    feature failed) — so the tree UI can show it dimmed rather than red."""
+    """Per-feature evaluation status. Strict-prefix rule (§4.3): the first build
+    failure is ``error``, every later feature ``skipped``; a feature sent with an
+    ``input_error`` is ``error`` and the later ones still build. ``suppressed``
+    (§4.3a) is a deliberate skip, distinct from a downstream ``skipped``, so the
+    tree UI can show it dimmed rather than red."""
 
     feature_id: uuid.UUID
     status: Literal["ok", "error", "skipped", "suppressed"]

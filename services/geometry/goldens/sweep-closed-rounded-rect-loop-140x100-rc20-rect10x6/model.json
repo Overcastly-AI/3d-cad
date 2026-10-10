@@ -1,0 +1,405 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000c2",
+  "tree_version": 3,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-000000c20001",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "YZ"
+          },
+          "entities": [
+            {
+              "id": "r1",
+              "kind": "line",
+              "start": {
+                "x": -55.0,
+                "y": -3.0
+              },
+              "end": {
+                "x": -45.0,
+                "y": -3.0
+              }
+            },
+            {
+              "id": "r2",
+              "kind": "line",
+              "start": {
+                "x": -45.0,
+                "y": -3.0
+              },
+              "end": {
+                "x": -45.0,
+                "y": 3.0
+              }
+            },
+            {
+              "id": "r3",
+              "kind": "line",
+              "start": {
+                "x": -45.0,
+                "y": 3.0
+              },
+              "end": {
+                "x": -55.0,
+                "y": 3.0
+              }
+            },
+            {
+              "id": "r4",
+              "kind": "line",
+              "start": {
+                "x": -55.0,
+                "y": 3.0
+              },
+              "end": {
+                "x": -55.0,
+                "y": -3.0
+              }
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "r1",
+                "point": "end"
+              },
+              "b": {
+                "entity": "r2",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "r2",
+                "point": "end"
+              },
+              "b": {
+                "entity": "r3",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "r3",
+                "point": "end"
+              },
+              "b": {
+                "entity": "r4",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "r4",
+                "point": "end"
+              },
+              "b": {
+                "entity": "r1",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "horizontal",
+              "entity": "r1"
+            },
+            {
+              "kind": "horizontal",
+              "entity": "r3"
+            },
+            {
+              "kind": "vertical",
+              "entity": "r2"
+            },
+            {
+              "kind": "vertical",
+              "entity": "r4"
+            },
+            {
+              "kind": "fixed",
+              "point": {
+                "entity": "r1",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "distance",
+              "entity": "r1",
+              "value_mm": 10.0
+            },
+            {
+              "kind": "distance",
+              "entity": "r2",
+              "value_mm": 6.0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000c20002",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          },
+          "entities": [
+            {
+              "id": "l1",
+              "kind": "line",
+              "start": {
+                "x": -50.0,
+                "y": -50.0
+              },
+              "end": {
+                "x": 50.0,
+                "y": -50.0
+              }
+            },
+            {
+              "id": "a1",
+              "kind": "arc",
+              "center": {
+                "x": 50.0,
+                "y": -30.0
+              },
+              "start": {
+                "x": 50.0,
+                "y": -50.0
+              },
+              "end": {
+                "x": 70.0,
+                "y": -30.0
+              }
+            },
+            {
+              "id": "l2",
+              "kind": "line",
+              "start": {
+                "x": 70.0,
+                "y": -30.0
+              },
+              "end": {
+                "x": 70.0,
+                "y": 30.0
+              }
+            },
+            {
+              "id": "a2",
+              "kind": "arc",
+              "center": {
+                "x": 50.0,
+                "y": 30.0
+              },
+              "start": {
+                "x": 70.0,
+                "y": 30.0
+              },
+              "end": {
+                "x": 50.0,
+                "y": 50.0
+              }
+            },
+            {
+              "id": "l3",
+              "kind": "line",
+              "start": {
+                "x": 50.0,
+                "y": 50.0
+              },
+              "end": {
+                "x": -50.0,
+                "y": 50.0
+              }
+            },
+            {
+              "id": "a3",
+              "kind": "arc",
+              "center": {
+                "x": -50.0,
+                "y": 30.0
+              },
+              "start": {
+                "x": -50.0,
+                "y": 50.0
+              },
+              "end": {
+                "x": -70.0,
+                "y": 30.0
+              }
+            },
+            {
+              "id": "l4",
+              "kind": "line",
+              "start": {
+                "x": -70.0,
+                "y": 30.0
+              },
+              "end": {
+                "x": -70.0,
+                "y": -30.0
+              }
+            },
+            {
+              "id": "a4",
+              "kind": "arc",
+              "center": {
+                "x": -50.0,
+                "y": -30.0
+              },
+              "start": {
+                "x": -70.0,
+                "y": -30.0
+              },
+              "end": {
+                "x": -50.0,
+                "y": -50.0
+              }
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "horizontal",
+              "entity": "l1"
+            },
+            {
+              "kind": "horizontal",
+              "entity": "l3"
+            },
+            {
+              "kind": "vertical",
+              "entity": "l2"
+            },
+            {
+              "kind": "vertical",
+              "entity": "l4"
+            },
+            {
+              "kind": "tangent",
+              "a": "l1",
+              "b": "a1",
+              "a_point": "end",
+              "b_point": "start"
+            },
+            {
+              "kind": "tangent",
+              "a": "l2",
+              "b": "a1",
+              "a_point": "start",
+              "b_point": "end"
+            },
+            {
+              "kind": "tangent",
+              "a": "l2",
+              "b": "a2",
+              "a_point": "end",
+              "b_point": "start"
+            },
+            {
+              "kind": "tangent",
+              "a": "l3",
+              "b": "a2",
+              "a_point": "start",
+              "b_point": "end"
+            },
+            {
+              "kind": "tangent",
+              "a": "l3",
+              "b": "a3",
+              "a_point": "end",
+              "b_point": "start"
+            },
+            {
+              "kind": "tangent",
+              "a": "l4",
+              "b": "a3",
+              "a_point": "start",
+              "b_point": "end"
+            },
+            {
+              "kind": "tangent",
+              "a": "l4",
+              "b": "a4",
+              "a_point": "end",
+              "b_point": "start"
+            },
+            {
+              "kind": "tangent",
+              "a": "l1",
+              "b": "a4",
+              "a_point": "start",
+              "b_point": "end"
+            },
+            {
+              "kind": "radius",
+              "entity": "a1",
+              "value_mm": 20.0
+            },
+            {
+              "kind": "radius",
+              "entity": "a2",
+              "value_mm": 20.0
+            },
+            {
+              "kind": "radius",
+              "entity": "a3",
+              "value_mm": 20.0
+            },
+            {
+              "kind": "radius",
+              "entity": "a4",
+              "value_mm": 20.0
+            },
+            {
+              "kind": "fixed",
+              "point": {
+                "entity": "l1",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "distance",
+              "entity": "l1",
+              "value_mm": 100.0
+            },
+            {
+              "kind": "distance",
+              "entity": "l4",
+              "value_mm": 60.0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000c20003",
+      "feature": {
+        "type": "sweep",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000c20001"
+          },
+          "path": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000c20002"
+          },
+          "operation": "add"
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

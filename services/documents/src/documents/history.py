@@ -5,7 +5,8 @@ lazy baseline, redo-tail truncation, bounded pruning, verbatim adjacent-
 snapshot restore — live ONCE in :mod:`documents.history_core` (shared with
 assembly history since UR3); this module contributes only what is
 part-specific: how a part's mutable child state (ordered features +
-``feature_dependencies`` edges + the rollback bar) serializes and restores.
+``feature_dependencies`` edges + the rollback bar + the parameter table)
+serializes and restores.
 
 The load-bearing decision (stated in full in the core's docstring): restore
 is **verbatim** — every feature id, dependency edge, order_index and
@@ -101,6 +102,8 @@ async def _serialize_state(session: AsyncSession, part: db.Part) -> dict[str, An
             }
             for edge in edges
         ],
+        # The parameter table (PART-PARAMETERS): tree state, so a PUT undoes.
+        "parameters": copy.deepcopy(part.parameters),
     }
 
 
@@ -150,6 +153,8 @@ async def _apply_state(
     await session.flush()
     bar = state["rollback_feature_id"]
     part.rollback_feature_id = uuid.UUID(bar) if bar is not None else None
+    # A snapshot taken before migration 0018 has no table: the part had none.
+    part.parameters = copy.deepcopy(state.get("parameters", []))
 
 
 def _make_snapshot(

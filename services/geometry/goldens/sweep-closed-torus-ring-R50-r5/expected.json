@@ -1,0 +1,26 @@
+{
+  "description": "FIRST CLOSED-PATH SWEEP GOLDEN (SWEEP-CLOSED-PATH): an r=5 mm circular profile on the XZ datum plane, centred at world (50, 0, 0), swept once around a CLOSED path, an R=50 mm circle on the XY datum plane centred at the origin, into a full ring torus (a loop of tube). Three features (profile sketch -> path sketch -> sweep), evaluated through evaluate-tree: the path assembles into one CLOSED wire, the single-edge loop passes the G1 joint check (its own two ends meet tangent), the profile is seated at the path point nearest its centre (here the circle's own start vertex, so no rigid move), and OCCT's pipe shell sweeps it with a FIXED BINORMAL (the path sketch normal, +Z) and closes it on itself. Locks: closed paths are swept instead of refused (sweep_path_closed is gone), the result is one closed solid with no cap faces and no seam gap or overlap (1 torus face, 1 shell), and the volume is the analytic torus volume 2 pi^2 R r^2. The independent twin (Solid.make_torus, no sweep at all) and an empty two-way boolean difference are in tests/test_sweep_closed.py.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output. The profile is a circle of radius r = 5 on the XZ datum plane (sketch (x, y) -> world (x, 0, y), normal -Y) centred at sketch (50, 0) = world (50, 0, 0). The path is a circle of radius R = 50 on the XY datum plane centred at the origin; at (50, 0, 0) its tangent is +-Y, normal to the profile plane, and the profile centre lies on the path. Sweeping the disc once around the circle generates the ring torus with major radius R = 50 and minor radius r = 5 (R > r: no self-intersection; the bend check sees reach 5 < radius 50).",
+    "Both sketches are FULLY constrained at their solution with zero residual: each circle by a fixed centre + radius. The start position is the solution, so planegcs returns the input bitwise.",
+    "volume (Pappus) = (pi r^2)(2 pi R) = 2 pi^2 R r^2 = 2 pi^2 * 50 * 25 = 2500 pi^2 = 24674.011002723397 mm^3.",
+    "surface_area (Pappus) = (2 pi r)(2 pi R) = 4 pi^2 R r = 4 pi^2 * 250 = 1000 pi^2 = 9869.604401089358 mm^2.",
+    "centroid = (0, 0, 0) by symmetry (the torus is symmetric about the XY plane and about the Z axis).",
+    "bounding_box = [-(R + r), -(R + r), -r]..[R + r, R + r, r] = [-55, -55, -5]..[55, 55, 5].",
+    "topology: one closed toroidal face, periodic in both directions, so it carries two seam edges (the r5 section circle where the sweep starts and ends, and the R55 outer equator traced by the profile circle's start point, where its own parametrisation closes), meeting at the one vertex (55, 0, 0); 1 face, 2 edges, 1 shell. No cap faces: the end section is the start section.",
+    "mesh (linear 0.1 mm / angular 0.1 rad): both periodic directions are angular-dominated (sagitta R(1 - cos(theta/2)) at theta = 2 pi/126 is 0.0078 mm on the R55 equator, under 0.1), and the cylinder golden's rule 2 * ceil(2 pi / 0.1) = 126 segments applies to each. The parametric grid duplicates its seam row and column: 127 x 127 = 16129 vertices, and 126 x 126 quads x 2 = 31752 triangles."
+  ],
+  "tolerance": 2e-7,
+  "tolerance_rationale": "Measured, then set (2026-10-09, build123d 0.11.1 / OCCT 7.9): volume 1.1e-11 mm^3, area 0.0 mm^2 and centroid 1.2e-14 mm off the closed forms, and the reported AABB exactly 1.0e-7 mm outside +-55 / +-5 on all six sides. That 1e-7 is the torus face's own tolerance (Precision::Confusion, set by the pipe shell on the face and both seam edges): OCCT's optimal box (BRepBndLib::AddOptimal with shape tolerances) adds it to the exact extremes, before and after meshing alike. It is a reporting enlargement of a known constant, not geometry error. 2e-7 is the loft-spline golden's bound, twice that constant; volume and area agree with the closed forms ~1e4x tighter. Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 24674.011002723397,
+    "surface_area": 9869.604401089358,
+    "centroid": { "x": 0.0, "y": 0.0, "z": 0.0 },
+    "bounding_box": {
+      "min": { "x": -55.0, "y": -55.0, "z": -5.0 },
+      "max": { "x": 55.0, "y": 55.0, "z": 5.0 }
+    }
+  },
+  "topology": { "faces": 1, "edges": 2, "shells": 1 },
+  "mesh": { "vertices": 16129, "triangles": 31752 }
+}

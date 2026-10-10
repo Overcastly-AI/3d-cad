@@ -88,6 +88,16 @@ describe("friendlyFeatureError", () => {
     expect(path).toMatch(/set the twist to 0/i);
   });
 
+  it("shows the kernel's own words for a closed path's sharp corner (SWEEP-CLOSED-PATH)", () => {
+    // The server message names the joint (its two entities and the sketch
+    // point); a generic friendly string would hide which corner to fix.
+    const named =
+      "The closed path has a sharp corner of 90 deg where 'l1' and 'l4' meet at (0, 0).";
+    expect(friendlyFeatureError("sweep_path_not_tangent", named, "sweep")).toBe(
+      named,
+    );
+  });
+
   it("advises what cures the kernel's cost refusal: fewer turns or fewer edges (F4)", () => {
     // Since 4c49218 the commonest twist_failed is the pre-sweep cost guard
     // ("...too many turns for this profile to build in reasonable time...;

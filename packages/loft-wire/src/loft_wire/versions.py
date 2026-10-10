@@ -15,9 +15,10 @@ are NEVER pruned and survive a ``.loft`` round trip.
   with a version or sent on the wire, because a ``.loft`` carries its versions
   to whoever the file is given to.
 
-What a restore covers: the features, their order and suppression, and the
-rollback bar — the state undo covers. The part's name, display unit and
-materials are document settings, not tree state, and are left as they are.
+What a restore covers: the features, their order and suppression, the
+rollback bar and the parameter table — the state undo covers. The part's name,
+display unit and materials are document settings, not tree state, and are left
+as they are.
 """
 
 from datetime import datetime

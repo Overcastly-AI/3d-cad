@@ -28,6 +28,34 @@ byte-identical; RESEARCH §15a).
       26.16 s); step 3 refused, because a cache keyed on TShape misses
       OCCT's in-place rewrites (§15a); step 2 waits on the founder: may we
       fetch the OCCT `BRepCheck` source?
+- [ ] **PART-PARAMETERS** (was PARAMETERS; absorbs SKETCH-EXPR-TRIG; the
+      gear is not parametric): named part parameters shared by sketches and
+      features, as Fusion's Change Parameters and Onshape's Variables.
+      Decisions: RESEARCH §20. Each step merges alone:
+  - [x] 1. Expression library in `loft_wire/expr.py`; the sketch evaluator
+        delegates (sketch trig). _Accept:_ existing sketch-expression tests
+        unchanged; `20*tan(15)` solves in a sketch dimension and round-trips;
+        all goldens byte-identical.
+  - [x] 2. `input_error` wire field; geometry fails such a feature.
+        _Accept:_ unit test, later features build; goldens unchanged.
+  - [x] 3. Parameter table: wire, migration 0018, documents GET/PUT,
+        gateway, history, versions, `just gen`. _Accept:_ migration
+        up/down/up; cycle/unknown 422; PUT+undo restores byte-for-byte.
+  - [ ] 4. Feature-field and sketch-dimension expressions: resolve on write
+        and in the evaluation request, `parameter_in_use`, rename, a
+        parametric golden. _Accept:_ the golden re-drives to hand values;
+        cache test; out-of-range is a sick feature, not a 500.
+  - [ ] 5. `.loft` 1.2. _Accept:_ export/import/re-export gives identical
+        bytes; the 1.0 and 1.1 fixtures import.
+  - [ ] 6. loft-script API. _Accept:_ a script builds the step-4 part;
+        `set_parameter` alone changes the volume as expected.
+  - [ ] 7. Web Parameters panel. _Accept:_ e2e: adding and editing a
+        parameter rebuilds the body; Ctrl+Z restores.
+  - [ ] 8. Web `<ValueField>` in every numeric editor, with autocomplete.
+        _Accept:_ e2e: Extrude = H/2; editing H re-drives it.
+  - [ ] 9. Reference parts parametric (helical gear, ladder 2c/3d).
+        _Accept:_ the gear's `--edit` is one `set_parameter("beta", "20 deg")`
+        and its volume matches `expected_volume(Gear(20))` to 1e-4.
 - [ ] **DATUM-PLANE-ANGLE** (moto frame steering head, tube-frame gap): there
       is no tilted datum plane (only offset, on-face, offset-from and
       midplane), so the 25° steering head is a revolve about a sketch axis.
@@ -73,12 +101,6 @@ byte-identical; RESEARCH §15a).
       Fusion keeps the edges that still resolve and warns about the rest.
       _Accept:_ the fillet builds on the resolved edges with a per-edge
       warning; nothing resolves to an unpicked edge.
-- [ ] **PARAMETERS** (takes over SKETCH-EXPR-TRIG; the gear is not
-      parametric): named user parameters shared across sketches and features
-      (Fusion's Change Parameters, SolidWorks Global Variables), and
-      `sin`/`cos`/`tan` in degrees in expressions. _Accept:_ changing the
-      gear's helix angle or tooth count in one place rebuilds the whole part,
-      and `20*tan(15)` solves and round-trips through save and reload.
 - [ ] **MULTI-PROFILE-EXTRUDE**: one sketch with 4 boss circles and 4 rib
       rectangles is refused PROFILE_UNSUPPORTED ("8 closed loops not enclosed
       by a single outer boundary"). Fusion extrudes every selected profile.
@@ -339,3 +361,10 @@ One line each. The founder triages weekly; most are closed without work.
 - SHELL-HEAL-VOLUME-GUARD (was a Next item): `conform_solid` measures volume after `split_pinched_faces`, so the split itself is never volume-checked (shell_heal.py claims it is).
 - SPLIT-SKETCHSCENE (was a Next item): `SketchScene.tsx` is 2,847 lines; split into modules and hooks with no behaviour change when it next blocks work.
 - SPLIT-WIRE-FEATURES (was a Next item): `loft_wire/features.py` is 4,419 lines; one module per family, re-exported, `just gen-verify` zero diff.
+- Sweep self-check (`BRepAlgoAPI_Check`, SWEEP-CLOSED-PATH review): costs 0.8 s of the moto frame's 5.7 s rebuild (0.30 s + 0.51 s on its two rail sweeps); 0.5-28 ms on the other sweep goldens.
+- Sketcher: `0` is a view shortcut, so a typed coordinate cannot start with 0 (`OPENS_A_COORDINATE` is `[1-9.-]`); a centre at x = 0 must be clicked or typed as `-0`.
+- ASM-COPY: Move ships without Fusion's Copy; copying a component needs `POST /assemblies/{id}/instances/{instance_id}/copy` in documents (none exists today; `duplicate.py` copies whole assemblies only).
+- INPUT-ERROR-NO-BODY (step 2 review): `tree_no_body_error` and the assembly/drawings `_part_no_body_error` report the first `error`, which may be a parameter `input_error` rather than the build failure that left no body.
+- INPUT-ERROR-REF-CODE (step 2 review): a face/edge reference on a feature skipped for `input_error` fails as `subshape_unresolved`, not `reference_unresolved` naming the sick feature.
+- ASM-MOVE-PREVIEW (Move build): each triad drag step re-renders the assembly page (~1.2 s per step under software GL); a scene-only preview store is the fix.
+- ENV-GATEWAY-ORIGIN: `scripts/e2e.sh` with a custom `GATEWAY_PORT` also needs `GATEWAY_ORIGIN` (Vite proxies to :8000), else register returns 500; belongs in docs/ENVIRONMENT.md.

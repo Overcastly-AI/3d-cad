@@ -224,6 +224,8 @@ async def duplicate_part(
         folder_id=source.folder_id,
         name=copy_name(source.name, taken, max_length=PART_NAME_MAX_LENGTH),
         length_unit=source.length_unit,
+        # Parameter rows are flat and hold no feature ids: they copy as they are.
+        parameters=[dict(row) for row in source.parameters],
     )
     session.add(copy)
     await session.flush()

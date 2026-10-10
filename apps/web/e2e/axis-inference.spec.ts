@@ -123,6 +123,24 @@ const clickPlane = async (page: Page, map: PlaneMap, pt: Plane2D) => {
   await page.mouse.click(px.x, px.y);
 };
 
+/**
+ * Hover `pt` through `map` until the DRO (grid on, so it reads whole mm) says
+ * `pt` — i.e. the viewport framing is the one `map` was calibrated against.
+ */
+async function waitForPlaneMap(page: Page, map: PlaneMap, pt: Plane2D) {
+  const px = map.at(pt);
+  await expect
+    .poll(async () => {
+      await page.mouse.move(px.x + 2, px.y);
+      await page.mouse.move(px.x, px.y);
+      return [
+        Number.parseFloat(await page.getByTestId("dro-x").innerText()),
+        Number.parseFloat(await page.getByTestId("dro-y").innerText()),
+      ];
+    })
+    .toEqual([pt.x, pt.y]);
+}
+
 const glyph = (page: Page, kind: string) =>
   page.locator(`[data-testid^="glyph-"][data-kind="${kind}"]`);
 
@@ -280,6 +298,11 @@ test.describe("SNAP-5 — line-by-line drawing states its axes", () => {
       path: `${SCREENSHOT_DIR}/sketch-axis-inference-before-1280.png`,
     });
     await page.setViewportSize({ width: 1600, height: 1000 });
+    // The canvas and camera re-frame on the resize asynchronously; `map` was
+    // calibrated at 1600 x 1000, so clicking before the viewport has settled
+    // back lands the first point where the 1280 framing puts it (a sloped
+    // first edge, no H). Wait until the DRO reads `map` true again.
+    await waitForPlaneMap(page, map, { x: 10, y: 4 });
 
     // AFTER: the identical gesture with snapping live. One H and one V appear
     // on geometry no rectangle tool ever touched, and the strip says which was

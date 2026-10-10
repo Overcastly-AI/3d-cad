@@ -4439,6 +4439,17 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "input_error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeatureError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set by documents when this feature's inputs could not be resolved (`parameter_value_invalid`, `parameter_unresolved`). Geometry does not build the feature: its result is this error, and later features build against the body before it. Null (omitted) for a buildable feature."
           }
         },
         "required": [
@@ -5312,7 +5323,7 @@
         "type": "object"
       },
       "FeatureResult": {
-        "description": "Per-feature evaluation status. Strict-prefix rule (\u00a74.3): the first\nfailure is ``error``, every subsequent feature ``skipped``. A feature marked\n``suppressed`` (\u00a74.3a) is neither: it is deliberately skipped from the\nrebuild \u2014 distinct from a downstream ``skipped`` (which means an earlier\nfeature failed) \u2014 so the tree UI can show it dimmed rather than red.",
+        "description": "Per-feature evaluation status. Strict-prefix rule (\u00a74.3): the first build\nfailure is ``error``, every later feature ``skipped``; a feature sent with an\n``input_error`` is ``error`` and the later ones still build. ``suppressed``\n(\u00a74.3a) is a deliberate skip, distinct from a downstream ``skipped``, so the\ntree UI can show it dimmed rather than red.",
         "properties": {
           "data": {
             "anyOf": [
@@ -7854,6 +7865,161 @@
           "parts"
         ],
         "title": "PartListResponse",
+        "type": "object"
+      },
+      "PartParameter": {
+        "description": "One stored row with its resolved value. Unknown keys are ignored, as\neverywhere in a ``.loft`` tree, so an older reader takes a newer file.",
+        "properties": {
+          "comment": {
+            "default": "",
+            "description": "Free note",
+            "maxLength": 500,
+            "title": "Comment",
+            "type": "string"
+          },
+          "expression": {
+            "description": "A number or formula, e.g. '40', '0.5 in', 'width/2 + 3'",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Expression",
+            "type": "string"
+          },
+          "id": {
+            "description": "Stable identity of the row; a rename keeps it. A new row carries a fresh UUID minted by the client.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "What formulas call it: a letter or _, then up to 63 letters, digits or _; not a function, unit or constant word",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "unit": {
+            "description": "What the value measures: length (mm), angle (degrees) or unitless",
+            "enum": [
+              "length",
+              "angle",
+              "unitless"
+            ],
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "description": "The evaluated expression: mm for a length, degrees for an angle, a plain number for unitless. Computed by the server.",
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "expression",
+          "unit",
+          "value"
+        ],
+        "title": "PartParameter",
+        "type": "object"
+      },
+      "PartParameterInput": {
+        "additionalProperties": false,
+        "description": "One row as a client writes it: everything but the resolved value.",
+        "properties": {
+          "comment": {
+            "default": "",
+            "description": "Free note",
+            "maxLength": 500,
+            "title": "Comment",
+            "type": "string"
+          },
+          "expression": {
+            "description": "A number or formula, e.g. '40', '0.5 in', 'width/2 + 3'",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Expression",
+            "type": "string"
+          },
+          "id": {
+            "description": "Stable identity of the row; a rename keeps it. A new row carries a fresh UUID minted by the client.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "What formulas call it: a letter or _, then up to 63 letters, digits or _; not a function, unit or constant word",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "unit": {
+            "description": "What the value measures: length (mm), angle (degrees) or unitless",
+            "enum": [
+              "length",
+              "angle",
+              "unitless"
+            ],
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "expression",
+          "unit"
+        ],
+        "title": "PartParameterInput",
+        "type": "object"
+      },
+      "PartParametersResponse": {
+        "description": "A part's parameter table, in its stored order, with the tree version.",
+        "properties": {
+          "parameters": {
+            "items": {
+              "$ref": "#/components/schemas/PartParameter"
+            },
+            "title": "Parameters",
+            "type": "array"
+          },
+          "tree_version": {
+            "minimum": 0.0,
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tree_version",
+          "parameters"
+        ],
+        "title": "PartParametersResponse",
+        "type": "object"
+      },
+      "PartParametersUpdate": {
+        "additionalProperties": false,
+        "description": "``PUT /api/v1/parts/{id}/parameters``: replace the whole table.",
+        "properties": {
+          "expected_tree_version": {
+            "minimum": 0.0,
+            "title": "Expected Tree Version",
+            "type": "integer"
+          },
+          "parameters": {
+            "items": {
+              "$ref": "#/components/schemas/PartParameterInput"
+            },
+            "maxItems": 200,
+            "title": "Parameters",
+            "type": "array"
+          }
+        },
+        "required": [
+          "expected_tree_version",
+          "parameters"
+        ],
+        "title": "PartParametersUpdate",
         "type": "object"
       },
       "PartResponse": {
@@ -11494,7 +11660,7 @@
         "type": "object"
       },
       "SweepParamsV1": {
-        "description": "Sweep an earlier sketch's closed profile along an earlier sketch's open path.\n\nThe first NON-PRISMATIC body-affecting feature (design \u00a74.3): where extrude\nsweeps a profile along the plane normal and revolve about an axis, sweep\nfollows an arbitrary open PATH wire \u2014 the shaft / pipe / rib primitive named\nin the Part-modeling scorecard notes. It consumes the SAME ``profile``\nFeatureRef to an earlier sketch (a single closed wire, built by the shared\n``build_profile_face``) and the SAME ``add``/``cut`` boolean against the body\nchain as extrude/revolve; the new ingredient is ``path``, a SECOND\nFeatureRef to an earlier sketch whose entities form a single OPEN wire.\n\nPath representation (v1 DESIGN DECISION \u2014 docs/design/feature-tree.md\n\u00a72.1/\u00a72.2, docs/GEOMETRY-QA.md 2026-07-12): the path is a whole earlier\nSKETCH feature referenced by id (option A \u2014 the most general model, matching\nhow production CAD names a sweep path, and reusing the tree's stable feature\nids exactly as the ``profile`` slot does). This is NOT topological naming\n(#1): it references a whole feature's evaluated wire, never a picked\nsub-edge \u2014 the same mechanism extrude/revolve already use for their profile.\n\nv1 limits (stated plainly \u2014 documented scope, not bugs):\n\n* the path must resolve to a single **open** wire; a closed path is a\n  ``sweep_path_closed`` rebuild error, disjoint path loops are\n  ``sweep_path_not_connected``, and a path with no curve entities is\n  ``sweep_path_empty`` (construction geometry is excluded from the path\n  exactly as it is from the profile);\n* the sweep is **anchored at the profile** \u2014 build123d applies the path as a\n  relative trajectory from the profile's own location, so the path's\n  absolute position is not used. Author the path starting at the profile\n  origin, with its first segment perpendicular to the profile plane, for a\n  predictable result (as the golden's vertical path over an XY circle is);\n* NO scale-along-path, NO multi-section, NO guide rails, NO per-segment\n  transition control \u2014 one profile swept along one path (all later,\n  additive params \u2014 no ``param_version`` bump);\n* a self-intersecting path, or a corner tighter than the profile can turn\n  without sweeping through itself, is a kernel ``sweep_failed`` rebuild\n  error, never a silently bad body.\n\n**Twist along the path** (``twist_angle_deg``, TWIST-TO-SWEEP; Fusion 360's\nand SolidWorks' \"twist along path\"): the profile turns uniformly about the\nPATH as it travels, so every point of it traces a true helix \u2014 a helical\ngear's tooth gap, a twisted column. v1 twists along a STRAIGHT path that is\nperpendicular to the profile's sketch plane and does not pass through it\n(it starts on the profile, or lies wholly to one side of it); that sweep is\nexact (docs/design/twisted-extrude.md). Any other path with a twist \u2014 an\narc, a bend, a slanted line, a line through the profile \u2014 is the typed\nrebuild error ``twist_path_unsupported``, never an approximated body.\nAdditive-optional and omitted from a dump while null, so every untwisted\nsweep serializes and rebuilds byte-for-byte as before (no ``param_version``\nbump).",
+        "description": "Sweep an earlier sketch's closed profile along an earlier sketch's path.\n\nThe first NON-PRISMATIC body-affecting feature (design \u00a74.3): where extrude\nsweeps a profile along the plane normal and revolve about an axis, sweep\nfollows an arbitrary PATH wire \u2014 the shaft / pipe / rib primitive named\nin the Part-modeling scorecard notes. It consumes the SAME ``profile``\nFeatureRef to an earlier sketch (a single closed wire, built by the shared\n``build_profile_face``) and the SAME ``add``/``cut`` boolean against the body\nchain as extrude/revolve; the new ingredient is ``path``, a SECOND\nFeatureRef to an earlier sketch whose entities form one wire, open or closed.\n\nPath representation (v1 DESIGN DECISION \u2014 docs/design/feature-tree.md\n\u00a72.1/\u00a72.2, docs/GEOMETRY-QA.md 2026-07-12): the path is a whole earlier\nSKETCH feature referenced by id (option A \u2014 the most general model, matching\nhow production CAD names a sweep path, and reusing the tree's stable feature\nids exactly as the ``profile`` slot does). This is NOT topological naming\n(#1): it references a whole feature's evaluated wire, never a picked\nsub-edge \u2014 the same mechanism extrude/revolve already use for their profile.\n\nv1 limits (stated plainly \u2014 documented scope, not bugs):\n\n* the path must resolve to a single connected wire; disjoint path loops are\n  ``sweep_path_not_connected``, and a path with no curve entities is\n  ``sweep_path_empty`` (construction geometry excluded, as from the profile);\n* a CLOSED path sweeps once around into one capless solid; every joint must\n  be G1, else ``sweep_path_not_tangent`` names it (docs/RESEARCH.md \u00a719);\n* an open sweep is **anchored at the profile** \u2014 build123d applies the path as a\n  relative trajectory from the profile's own location, so the path's\n  absolute position is not used. Author the path starting at the profile\n  origin, with its first segment perpendicular to the profile plane, for a\n  predictable result (as the golden's vertical path over an XY circle is);\n* NO scale-along-path, NO multi-section, NO guide rails, NO per-segment\n  transition control \u2014 one profile swept along one path (all later,\n  additive params \u2014 no ``param_version`` bump);\n* a self-intersecting path, or a corner tighter than the profile can turn\n  without sweeping through itself, is a kernel ``sweep_failed`` rebuild\n  error, never a silently bad body.\n\n**Twist along the path** (``twist_angle_deg``, TWIST-TO-SWEEP; Fusion 360's\nand SolidWorks' \"twist along path\"): the profile turns uniformly about the\nPATH as it travels, so every point of it traces a true helix \u2014 a helical\ngear's tooth gap, a twisted column. v1 twists along a STRAIGHT path that is\nperpendicular to the profile's sketch plane and does not pass through it\n(it starts on the profile, or lies wholly to one side of it); that sweep is\nexact (docs/design/twisted-extrude.md). Any other path with a twist \u2014 an\narc, a bend, a slanted line, a line through the profile \u2014 is the typed\nrebuild error ``twist_path_unsupported``, never an approximated body.\nAdditive-optional and omitted from a dump while null, so every untwisted\nsweep serializes and rebuilds byte-for-byte as before (no ``param_version``\nbump).",
         "properties": {
           "merge": {
             "default": true,
@@ -11512,7 +11678,7 @@
           },
           "path": {
             "$ref": "#/components/schemas/FeatureRef",
-            "description": "Must resolve to an EARLIER sketch feature whose entities form a single OPEN wire \u2014 the sweep trajectory (design \u00a72.2)"
+            "description": "Must resolve to an EARLIER sketch feature whose entities form one wire, open or closed and G1 \u2014 the sweep trajectory (\u00a72.2)"
           },
           "profile": {
             "$ref": "#/components/schemas/FeatureRef",
@@ -17156,6 +17322,112 @@
         "summary": "Move Part",
         "tags": [
           "parts"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/parameters": {
+      "get": {
+        "description": "The part's parameter table, in order, with each resolved value.",
+        "operationId": "get_part_parameters_api_v1_parts__part_id__parameters_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartParametersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Part Parameters",
+        "tags": [
+          "parameters"
+        ]
+      },
+      "put": {
+        "description": "Replace the whole parameter table, as one undoable edit.\n\nA stale `expected_tree_version` is a 422 `stale_tree_version`. A table\nthat does not evaluate is a 422 carrying the expression error's code\n(`expression_syntax`, `expression_unknown_name`, `expression_cycle` with\nits `chain`, `expression_name_invalid`, `expression_units`,\n`expression_domain`, `expression_too_complex`).",
+        "operationId": "put_part_parameters_api_v1_parts__part_id__parameters_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartParametersUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartParametersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Part Parameters",
+        "tags": [
+          "parameters"
         ]
       }
     },
