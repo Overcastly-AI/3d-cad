@@ -134,7 +134,11 @@ export function ExtrudePreview({
   const centreY = twistCentre?.y ?? 0;
 
   // The profile → solid regions depend only on the geometry, not the depth.
-  const regions = useMemo(() => profileRegions(layer.entities), [layer]);
+  // Only the curves the commit builds the profile from (QA-PROJECTED-PROFILE).
+  const regions = useMemo(
+    () => profileRegions(layer.entities, layer.profileEntityIds),
+    [layer],
+  );
 
   // One extruded BufferGeometry per region, in local plane (u,v,+normal) space,
   // and the ink over each.

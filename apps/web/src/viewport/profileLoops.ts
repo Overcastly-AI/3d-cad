@@ -71,16 +71,25 @@ function centroid(loop: readonly Point2D[]): Point2D {
 
 /**
  * Stitch the profile entities (non-construction curves) into closed loops in
- * plane space. Circles and any already-closed polyline are loops on their own;
+ * plane space. `profileIds`, when given, is the geometry service's own profile
+ * selection (`SolvedSketchData.profile_entities`): only those curves are
+ * stitched, so a projected edge that closes nothing is left out here exactly
+ * as the commit leaves it out (QA-PROJECTED-PROFILE: the ghost and Save must
+ * agree on which curves bound the profile). Circles and any already-closed polyline are loops on their own;
  * open edges (lines, arcs, splines) are chained end-to-end by matching
  * endpoints. Dangling chains that never close are dropped (an open profile has
  * no face — the same rule the kernel's `profile_not_closed` enforces).
  */
-export function profileLoops(entities: readonly SketchEntity[]): Point2D[][] {
+export function profileLoops(
+  entities: readonly SketchEntity[],
+  profileIds?: readonly string[],
+): Point2D[][] {
   const open: Point2D[][] = [];
   const closed: Point2D[][] = [];
+  const selected = profileIds === undefined ? null : new Set(profileIds);
   for (const entity of entities) {
     if (entity.construction) continue;
+    if (selected !== null && !selected.has(entity.id)) continue;
     for (const polyline of entityPolylines(entity)) {
       if (polyline.length < 2) continue;
       const first = polyline[0] as Point2D;
@@ -141,8 +150,9 @@ export function profileLoops(entities: readonly SketchEntity[]): Point2D[][] {
  */
 export function profileRegions(
   entities: readonly SketchEntity[],
+  profileIds?: readonly string[],
 ): ProfileRegion[] {
-  const loops = profileLoops(entities);
+  const loops = profileLoops(entities, profileIds);
   if (loops.length === 0) return [];
 
   const centroids = loops.map(centroid);

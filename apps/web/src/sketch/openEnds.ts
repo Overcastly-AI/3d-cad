@@ -21,12 +21,18 @@
  *    through its start. A stored end that "snapped" onto a line's end but is a
  *    few microns off that circle leaves a gap the stored coordinates hide,
  *    which is exactly the gear test's 0.285 um;
- *  - two ends join when they are within the kernel's wire tolerance.
+ *  - two ends join when they are within the kernel's wire tolerance;
+ *  - a PROJECTED curve's end is never reported: the kernel uses a projected
+ *    edge only where it helps close a region and drops it otherwise, so its
+ *    free end is reference ink, not a gap (QA-PROJECTED-PROFILE). It still
+ *    meets a sketch curve's end, so a line drawn to a projected corner is not
+ *    flagged.
  *
  * Pure: no three.js, no store.
  */
 import { arcFrame, arcPointAt } from "./geometry";
 import { isDatumId } from "./datum";
+import { isProjected } from "./project";
 import type { Point2D } from "./plane";
 import type { SketchEntity } from "./tools";
 
@@ -99,11 +105,16 @@ function curveEnds(entity: SketchEntity): CurveEnd[] {
 
 /** Every profile curve end no other profile curve end meets. */
 export function openEnds(entities: readonly SketchEntity[]): OpenEnd[] {
-  const ends = entities
-    .filter((entity) => !entity.construction && !isDatumId(entity.id))
-    .flatMap(curveEnds);
+  const profile = entities.filter(
+    (entity) => !entity.construction && !isDatumId(entity.id),
+  );
+  const projected = new Set(
+    profile.filter((entity) => isProjected(entity)).map((entity) => entity.id),
+  );
+  const ends = profile.flatMap(curveEnds);
   const open: OpenEnd[] = [];
   ends.forEach((end, index) => {
+    if (projected.has(end.entity)) return;
     let nearest: number | null = null;
     ends.forEach((other, otherIndex) => {
       if (otherIndex === index) return;

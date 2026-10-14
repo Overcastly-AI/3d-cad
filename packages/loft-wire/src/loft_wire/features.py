@@ -62,6 +62,12 @@ from loft_wire.refs import MidplaneSide as MidplaneSide
 from loft_wire.refs import Selector as Selector
 from loft_wire.refs import SelectorV1 as SelectorV1
 from loft_wire.refs import SubshapeRef as SubshapeRef
+from loft_wire.resolution_tiers import (
+    SUBSHAPE_RESOLUTION_TIERS as SUBSHAPE_RESOLUTION_TIERS,
+)
+from loft_wire.resolution_tiers import SketchProjectionReason as SketchProjectionReason
+from loft_wire.resolution_tiers import SketchProjectionStatus as SketchProjectionStatus
+from loft_wire.resolution_tiers import SubshapeResolutionTier as SubshapeResolutionTier
 from loft_wire.shell import SHELL_TYPE_FIELD, ShellType
 from loft_wire.signatures import EdgeSelectorV1 as EdgeSelectorV1
 from loft_wire.signatures import EdgeSignature as EdgeSignature
@@ -4137,63 +4143,6 @@ class FeatureError(BaseModel):
         notify_feature_error(self.code)
 
 
-#: Which tier of the stage-1 matcher re-found a picked subshape reference on a
-#: rebuild (docs/design/topological-naming.md §13/§14), best to worst:
-#: ``exact`` - the stored signature matched verbatim, the subshape is where the
-#: user left it; ``durable`` - it moved or changed shape and was re-found on a
-#: rebuild invariant (an edge's supporting line or circle station; a face's
-#: plane, area/in-plane centroid or outer boundary); ``adjacent`` - an EDGE that
-#: left every coordinate it was stored at, re-found as the one edge its two
-#: stored neighbouring faces still share; ``named`` - re-found by its stored
-#: history-based ``topo_name`` (DESIGN-INTENT-REFS), ranked just below exact
-#: because it is a fact of the feature history, not a geometric guess. The words
-#: exact and durable are the drawings vocabulary
-#: (:data:`~loft_wire.drawings.DimensionAnchorTier`).
-SubshapeResolutionTier = Literal["exact", "named", "durable", "adjacent"]
-
-#: :data:`SubshapeResolutionTier` ordered BEST to WORST - the one ordering a
-#: "worst tier" is taken over, kept beside the alias it ranks.
-SUBSHAPE_RESOLUTION_TIERS: tuple[SubshapeResolutionTier, ...] = (
-    "exact",
-    "named",
-    "durable",
-    "adjacent",
-)
-
-
-#: Why a projected sketch entity is sick (SKETCH-PROJECT-EDGES): its edge
-#: did not resolve, or resolved to more than one edge, there is no body at the
-#: sketch, the edge projects to a curve the sketch has no entity for (an
-#: ellipse, a B-spline), it projects to nothing (seen end-on), or it projects
-#: to another kind than the entity holds.
-SketchProjectionReason = Literal[
-    "unresolved",
-    "ambiguous",
-    "no_body",
-    "unsupported_curve",
-    "degenerate",
-    "kind_changed",
-]
-
-
-class SketchProjectionStatus(BaseModel):
-    """How one projected entity re-projected on this rebuild.
-
-    ``sick`` is Fusion 360's sick projection: the sketch keeps the entity's
-    stored coordinates (the last good projection) and stays ``ok``; this says
-    why it could not follow its edge.
-    """
-
-    entity: EntityId
-    state: Literal["ok", "sick"]
-    tier: SubshapeResolutionTier | None = Field(
-        default=None, description="The tier that re-found the edge; None if sick."
-    )
-    reason: SketchProjectionReason | None = Field(
-        default=None, description="Why the entity is sick; None when ok."
-    )
-
-
 class SolvedSketchData(SolvedSketch):
     """Per-feature solved-sketch payload (§7.10): the solver's solved entity
     positions, status, and DOF diagnosis for an ``ok`` sketch feature — what
@@ -4213,6 +4162,15 @@ class SolvedSketchData(SolvedSketch):
         description="One status per projected entity, in entity order: whether "
         "it followed its body edge on this rebuild, and why not when sick. "
         "Empty for a sketch with no projected entities.",
+    )
+    profile_entities: list[EntityId] = Field(
+        default_factory=list[EntityId],
+        description="Ids of the curves that bound the sketch's profile, in "
+        "entity order: the exact selection every body feature (extrude, "
+        "revolve, sweep, loft) builds its profile from, so a live preview "
+        "stitches the same curves the commit will. Construction entities and "
+        "points are never in it; a projected curve is in it only where it "
+        "helps close a region (Fusion 360's rule, QA-PROJECTED-PROFILE).",
     )
 
 

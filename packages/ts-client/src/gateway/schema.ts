@@ -10555,6 +10555,11 @@ export interface components {
              */
             kind: "solved_sketch";
             /**
+             * Profile Entities
+             * @description Ids of the curves that bound the sketch's profile, in entity order: the exact selection every body feature (extrude, revolve, sweep, loft) builds its profile from, so a live preview stitches the same curves the commit will. Construction entities and points are never in it; a projected curve is in it only where it helps close a region (Fusion 360's rule, QA-PROJECTED-PROFILE).
+             */
+            profile_entities?: string[];
+            /**
              * Projections
              * @description One status per projected entity, in entity order: whether it followed its body edge on this rebuild, and why not when sick. Empty for a sketch with no projected entities.
              */

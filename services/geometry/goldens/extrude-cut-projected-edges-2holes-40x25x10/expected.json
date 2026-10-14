@@ -1,0 +1,26 @@
+{
+  "description": "QA-PROJECTED-PROFILE: QA's face sketch. A 40 x 25 x 10 block (Extrude1 of a centred rectangle on XY), an on_face datum on its top face, and a sketch on it holding THREE PROJECTED edges of that face (bottom, right and top; an open U, each linked to its body edge and re-projected on the rebuild) plus two circles, r4 at (-10, 0) and r3 at (10, 0) in the face frame. Extrude2 cuts 10 mm reverse (into the block). Before the fix the cut failed profile_not_closed (the kernel counted the U as an open profile chain) while the web ghost showed two holes. As in Fusion 360, a projected edge bounds a profile only where it helps close a region, so the U is reference ink and the cut bores two through-holes. model.json was generated from the overlay picks the way tests/_lip_builder.py captures them (every signature from the selection overlay of the features before it).",
+  "derivation": [
+    "Expectations are HAND-DERIVED closed forms, then compared with the harness. The face frame's origin is the top face's centroid (0, 0, 10) with x along world +X, so the hole axes are x = -10 and x = +10, y = 0.",
+    "volume = 40*25*10 - pi*(4^2 + 3^2)*10 = 10000 - 250 pi = 9214.601836602551 mm^3; harness 9214.601836602553 (+1.8e-12).",
+    "surface_area = 2*(40*25 + 40*10 + 25*10) [block] - 2*pi*(16 + 9) [two caps pierced, top and bottom] + 2*pi*(4 + 3)*10 [hole walls] = 3300 + 90 pi = 3582.7433388230816 mm^2; harness 3582.7433388230806 (-1e-12).",
+    "centroid: the block's is (0, 0, 5); the r4 hole removes 160 pi at x = -10 and the r3 hole 90 pi at x = +10, so x = (0*10000 - 160 pi*(-10) - 90 pi*10) / (10000 - 250 pi) = 700 pi / (10000 - 250 pi) = 0.2386554401924842; harness 0.2386554401924831 (-1.1e-15). y = 0 and z = 5 by symmetry (harness 4e-16 and 5 + 1e-15).",
+    "bounding_box = [-20, -12.5, 0]..[20, 12.5, 10]: both holes are interior.",
+    "topology: 8 faces (6 block faces, 2 hole cylinders), 18 edges (12 block edges, 2 circles and 1 seam per hole), 1 shell; the same as sketch-extrude-plate-2holes-40x25x10, whose plate is the same size with two interior holes.",
+    "mesh (linear 0.1 mm, angular 0.1 rad): each hole circle is 126 segments (the angular rule, as in the plate golden: r4 and r3 both reach it before the linear one). Cylinders 2 x (254 nodes, 252 tris); caps 2 x (4 + 2*126 = 256 nodes, 258 tris); four side walls 4 x (4, 2). Totals 1036 vertices / 1028 triangles, the plate golden's counts, as the derivation predicts.",
+    "GLB byte size is deliberately not pinned; the runner asserts it is byte-identical across rebuilds and processes."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Curved geometry (two cylindrical hole walls): the bound of sketch-extrude-plate-2holes-40x25x10, which this golden mirrors. The harness agrees with the closed forms to 2e-12, over two orders inside the bound; the failure this guards is a refusal or a missing hole (>= 282 mm^3). Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 9214.601836602551,
+    "surface_area": 3582.7433388230816,
+    "centroid": { "x": 0.2386554401924842, "y": 0.0, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": -20.0, "y": -12.5, "z": 0.0 },
+      "max": { "x": 20.0, "y": 12.5, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 8, "edges": 18, "shells": 1 },
+  "mesh": { "vertices": 1036, "triangles": 1028 }
+}

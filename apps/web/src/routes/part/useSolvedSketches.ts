@@ -100,6 +100,7 @@ export function useSolvedSketches({
         featureId: feature.id,
         basis,
         entities: result.data.entities,
+        profileEntityIds: result.data.profile_entities,
       });
     }
     return layers;

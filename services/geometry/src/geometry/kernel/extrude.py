@@ -17,7 +17,9 @@ v1 profile rules (documented limits, not accidents):
 - Entities flagged ``construction`` are reference-only (centerlines, symmetry
   axes, diagonals): they solve and can be constrained/referenced upstream, but
   are **excluded here** — the single profile-exclusion point for every
-  body-affecting feature. ``point`` entities never bound a profile either.
+  body-affecting feature. ``point`` entities never bound a profile either, and
+  a projected curve counts only where it helps close a region
+  (:mod:`geometry.kernel.profile_edges`, Fusion's rule).
 - All remaining curve entities must form **one or more closed wires**. A
   single closed wire is a plain face (the original path, byte-identical). Two
   or more closed wires are a **face with holes**: the loop of largest area is
@@ -64,6 +66,7 @@ from geometry.kernel.boolean_guard import (
 from geometry.kernel.healing import BodyReading, clean_and_read, shape_volume
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.naming import OpHistory
+from geometry.kernel.profile_edges import profile_entities
 from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.types import BodyShape
 
@@ -414,18 +417,19 @@ def _profile_wires(plane: Plane, entities: Sequence[SketchEntity]) -> list[Wire]
         ProfileNotClosedError: no curve entities, or some loop does not close.
     """
     edges: list[Edge] = []
-    for entity in entities:
-        # THE single profile-exclusion point (design §2.4 semantics): every
-        # body-affecting feature that consumes a sketch profile builds it
-        # through here, so construction geometry is dropped exactly once.
-        if entity.construction:
-            continue
+    # THE single profile-exclusion point (design §2.4 semantics): every
+    # body-affecting feature that consumes a sketch profile builds it through
+    # here, so construction geometry, points and projected curves that close
+    # nothing are dropped exactly once — by the same selection the rebuild
+    # reports to the web's live preview (QA-PROJECTED-PROFILE).
+    for entity in profile_entities(entities):
         edges.extend(entity_edges(plane, entity))
 
     if not edges:
         raise ProfileNotClosedError(
-            "Sketch contains no profile curves (only construction geometry "
-            "and/or points); nothing to extrude."
+            "Sketch contains no profile curves (only construction geometry, "
+            "points and/or projected edges that close no region); nothing to "
+            "extrude."
         )
 
     wires = Wire.combine(edges, tol=PROFILE_WIRE_TOLERANCE)

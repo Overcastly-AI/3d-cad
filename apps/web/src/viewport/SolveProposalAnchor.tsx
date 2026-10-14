@@ -53,7 +53,7 @@ const scratch = new Vector3();
  * would run a leader from, whether or not the plate is bored.
  */
 function noteLoop(layer: SolvedSketchLayer): [number, number, number][] | null {
-  const regions = profileRegions(layer.entities);
+  const regions = profileRegions(layer.entities, layer.profileEntityIds);
   if (regions.length === 0) return null;
   let best: readonly Point2D[] | null = null;
   let bestArea = -1;

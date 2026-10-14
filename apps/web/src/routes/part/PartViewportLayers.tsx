@@ -226,6 +226,7 @@ export function PartViewportLayers({
         <RevolveGauge
           basis={revolveGaugeLayer.basis}
           entities={revolveGaugeLayer.entities}
+          profileEntityIds={revolveGaugeLayer.profileEntityIds}
           axis={revolveGauge.axis}
           angleDeg={revolveGauge.angleDeg}
           onAngleChange={handleRevolveDrag}

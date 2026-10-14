@@ -58,6 +58,7 @@ from geometry.features.state import (
     FeatureHandler,
     InvalidBodyError,
 )
+from geometry.kernel.profile_edges import profile_entities
 
 #: Feature types whose ok evaluation mutates the body set (§MB-0). The
 #: main loop records the last such feature's id as ``state.prev_body_feature_id``
@@ -164,6 +165,11 @@ def _feature_data(feature_id: uuid.UUID, state: EvaluationState) -> FeatureData 
             "projections": [
                 status.model_dump()
                 for status in state.sketch_projections.get(feature_id, [])
+            ],
+            # The one profile selection (QA-PROJECTED-PROFILE): the ids the
+            # web's live preview stitches are the curves the commit builds.
+            "profile_entities": [
+                entity.id for entity in profile_entities(solved.entities)
             ],
         }
     )

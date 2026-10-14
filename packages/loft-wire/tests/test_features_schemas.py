@@ -838,6 +838,9 @@ def _solved_sketch_data() -> dict[str, Any]:
         # Per projected entity re-projection status (SKETCH-PROJECT-EDGES);
         # additive, [] for a sketch with no projected entity.
         "projections": [],
+        # The curves the profile is built from (QA-PROJECTED-PROFILE);
+        # additive, [] read from a payload stored before it existed.
+        "profile_entities": [],
     }
 
 

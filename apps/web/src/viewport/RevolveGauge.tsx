@@ -70,6 +70,8 @@ export interface RevolveGaugeProps {
   basis: PlaneBasis;
   /** The profile sketch's solved entities — the loops the turn sweeps. */
   entities: readonly SketchEntity[];
+  /** The service's profile selection; absent is every non-construction curve. */
+  profileEntityIds?: readonly string[];
   /**
    * The axis the form currently holds, exactly as it will be persisted. A
    * PROP — see the note above on W4.
@@ -107,6 +109,7 @@ const MIN_ARC_RADIUS_MM = 0.5;
 export function RevolveGauge({
   basis,
   entities,
+  profileEntityIds,
   axis,
   angleDeg,
   onAngleChange,
@@ -115,7 +118,10 @@ export function RevolveGauge({
     () => revolveAxisAnchor(axis, basis, entities),
     [axis, basis, entities],
   );
-  const regions = useMemo(() => profileRegions(entities), [entities]);
+  const regions = useMemo(
+    () => profileRegions(entities, profileEntityIds),
+    [entities, profileEntityIds],
+  );
 
   /**
    * The profile's loops as scene-space polylines — the ONE lift from sketch

@@ -34,6 +34,30 @@ describe("openEnds", () => {
     expect(openEnds(square())).toEqual([]);
   });
 
+  it("a projected edge's free end is reference ink, never an open end", () => {
+    // QA-PROJECTED-PROFILE: three projected face edges beside a hole circle.
+    // The kernel drops them from the profile, so they flag nothing.
+    const projected = (e: SketchEntity): SketchEntity =>
+      ({ ...e, projection: { edge: {} } }) as unknown as SketchEntity;
+    const entities: SketchEntity[] = [
+      ...square().slice(0, 3).map(projected),
+      {
+        id: "c",
+        kind: "circle",
+        construction: false,
+        center: { x: 5, y: 5 },
+        radius: 2,
+      },
+    ];
+    expect(openEnds(entities)).toEqual([]);
+    // A sketch line drawn on to a projected corner meets it there; its other
+    // end, left loose, is still the user's open end.
+    const loose = [...entities, line("s", [0, 10], [-5, 10])];
+    expect(openEnds(loose).map((end) => [end.entity, end.point])).toEqual([
+      ["s", "end"],
+    ]);
+  });
+
   it("an end a sub-micron short of its neighbour is open, and says by how much", () => {
     // The gear test's own gap: 0.285 um = 2.85e-4 mm, wider than the kernel's
     // 1e-4 mm wire tolerance, invisible at any zoom.

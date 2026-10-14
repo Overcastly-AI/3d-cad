@@ -12368,6 +12368,16 @@
             "title": "Kind",
             "type": "string"
           },
+          "profile_entities": {
+            "description": "Ids of the curves that bound the sketch's profile, in entity order: the exact selection every body feature (extrude, revolve, sweep, loft) builds its profile from, so a live preview stitches the same curves the commit will. Construction entities and points are never in it; a projected curve is in it only where it helps close a region (Fusion 360's rule, QA-PROJECTED-PROFILE).",
+            "items": {
+              "description": "Sketch-local entity id, e.g. 'e1'",
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "Profile Entities",
+            "type": "array"
+          },
           "projections": {
             "description": "One status per projected entity, in entity order: whether it followed its body edge on this rebuild, and why not when sick. Empty for a sketch with no projected entities.",
             "items": {

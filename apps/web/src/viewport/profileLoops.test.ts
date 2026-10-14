@@ -150,3 +150,36 @@ describe("regionsCentroid", () => {
     expect(regionsCentroid([])).toBeNull();
   });
 });
+
+describe("profileRegions with the service's profile selection", () => {
+  // QA-PROJECTED-PROFILE: the ghost stitches only the curves the commit
+  // builds from (`profile_entities`), never a superset or a subset.
+  const plate = rectLines(-20, -12.5, 20, 12.5, "p");
+  const bore: SketchEntity = {
+    id: "c1",
+    kind: "circle",
+    center: { x: -10, y: 0 },
+    radius: 4,
+    construction: false,
+  };
+
+  it("stitches only the selected ids", () => {
+    const regions = profileRegions([...plate, bore], ["c1"]);
+    expect(regions).toHaveLength(1);
+    expect(regions[0]?.holes).toHaveLength(0);
+    expect(Math.abs(signedArea(regions[0]?.outer ?? []))).toBeCloseTo(
+      Math.PI * 16,
+      0,
+    );
+  });
+
+  it("keeps every non-construction curve when no selection is given", () => {
+    const regions = profileRegions([...plate, bore]);
+    expect(regions).toHaveLength(1);
+    expect(regions[0]?.holes).toHaveLength(1);
+  });
+
+  it("an empty selection is no profile at all", () => {
+    expect(profileRegions([...plate, bore], [])).toHaveLength(0);
+  });
+});

@@ -118,6 +118,8 @@ import {
   type SketchEntity,
 } from "../sketch/tools";
 import { AdaptiveGrid } from "./AdaptiveGrid";
+import type { SolvedSketchLayer } from "./solvedSketchLayer";
+export type { SolvedSketchLayer } from "./solvedSketchLayer";
 import { bluingRadiusMm, bluingWash } from "./bluingWash";
 import { cameraEaseStep } from "./cameraEase";
 import { ConstraintGlyphs } from "./ConstraintGlyphs";
@@ -318,13 +320,6 @@ function gestureOf(event: {
     travelPx: event.delta,
     durationMs: start === null ? null : event.nativeEvent.timeStamp - start,
   };
-}
-
-/** One solved sketch feature, ready to render (on its resolved plane basis). */
-export interface SolvedSketchLayer {
-  featureId: string;
-  basis: PlaneBasis;
-  entities: SketchEntity[];
 }
 
 /** Quaternion orienting local XY (+Z normal) onto the plane basis. */
