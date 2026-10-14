@@ -50,8 +50,9 @@ byte-identical; RESEARCH §15a).
   - [x] 6. loft-script API. _Accept:_ a script builds the step-4 part;
         `set_parameter` alone changes the volume as expected.
         (`packages/loft-script/tests/test_parameters.py`.)
-  - [ ] 7. Web Parameters panel. _Accept:_ e2e: adding and editing a
+  - [x] 7. Web Parameters panel. _Accept:_ e2e: adding and editing a
         parameter rebuilds the body; Ctrl+Z restores.
+        (`parameters-panel.spec.ts`; merged to main in b8f4c62.)
   - [x] 8. Web `<ValueField>` in every numeric editor, with autocomplete.
         _Accept:_ e2e: Extrude = H/2; editing H re-drives it
         (`parameters-drive.spec.ts`; RESEARCH §20 "Step 8, as built").
