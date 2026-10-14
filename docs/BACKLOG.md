@@ -421,7 +421,6 @@ One line each. The founder triages weekly; most are closed without work.
 - JOINT-PLANAR-PARENT (motions review): a planar slide PATCHes B's placement; when B is the solve parent rather than the child the slide may not stick. Unverified.
 - JOINT-CARD-OVERLAP: the joint drive card overlaps the inspector's DOF text (revolute and planar).
 - MEASURE-FROM-EVAL-REQUEST, rest (step 8 did the part's measure and pick): assembly overlays (`AssemblyPage.tsx` `buildEvaluateTree`) and drawing requests (`useDrawingData.ts`) still build from GET features, so a sick feature still shows its last good body there.
-- HOLE-POSITION-FORMULA: the hole's X/Y cells take numbers only; the stored `position` is a world point derived from face-local X/Y, so no pointer can hold a face-local formula (Fusion drives it with sketch dimensions).
 - VALUEFIELD-PARITY: `apps/web/src/features/expr.ts` is a TS port of `loft_wire/expr.py` for the field's hint and preview; nothing checks the two agree beyond the vitest cases (the server re-resolves on write, so a drift shows as a 422 on the field, never as stored geometry).
 - SKETCH-UNKNOWN-NAME-APPLY: the sketcher's dimension box applies a formula naming an unknown name; documents refuses the sketch sync (422, since step 4) and the diagnostic stamp now says why, but the box could refuse it before Apply as the feature editors do.
 - JOINT-ESC-INFLIGHT (S5b review): Esc while the joint OK POST is in flight closes the dialog but the joint is still created (`useJointDialog.ts` cancel ignores `submitting`).

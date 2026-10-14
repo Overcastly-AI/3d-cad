@@ -1367,9 +1367,8 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   on write. A gauge drag writes a number and drops the formula, as Fusion's
   manipulators do. A 422 naming a pointer goes on that field. A feature's
   `input_error` reads `Width: parameter 'W' not found.` in the tree, the
-  editor and the sketch stamp. The hole's X/Y cells stay numbers, because the
-  stored position is a world point and has no pointer for a face-local
-  formula. The part's measure and pick requests come from
+  editor and the sketch stamp. The hole's X/Y cells take formulas too (see
+  HOLE-POSITION-FORMULA below). The part's measure and pick requests come from
   `GET /parts/{id}/evaluation-request` (new gateway route), so a sick feature
   builds nothing there either. Assembly overlays and drawings still build
   from `GET /features`.
@@ -1402,6 +1401,19 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   common volume, and the gear's twist on the true helix after the edit.
   `packages/loft-script/tests/test_reference_parts.py` runs all three builds
   and edits to 1e-4 in CI (about 40 s).
+- **HOLE-POSITION-FORMULA, as built.** A hole's stored `position` is a
+  world point, so no pointer could hold a formula for its face-frame X or Y.
+  `HoleParamsV1` gains optional `face_x_mm`/`face_y_mm` (set together,
+  omitted from a dump while null), and its after-validator derives `position`
+  from them (`loft_wire/hole_placement.py`): the web's frame, kernel on-face
+  axes and the part origin projected onto the face plane, from the stored
+  face signature alone. Every write, table PUT and evaluation request
+  validates the resolved params, so `{"/face_x_mm": "W - 20"}` moves the hole
+  with W; geometry still reads only `position`. A hole stored before keeps
+  its position and bytes, and a no-op Save of one sends neither field; the
+  editor writes them once its placement is typed, picked or loaded that way.
+  A picked point keeps full precision rather than the cell's rounding. Golden
+  `parametric-hole-x-follows-w-120x40x10` (W 100 -> 80, hole x 80 -> 60).
 - **Truth.** `packages/loft-wire/tests/test_expr.py` (grammar, units,
   functions, cycles, depth, hostile strings, off-whitelist names); golden
   `sketch-trig-expression-40x20tan15x10` (step 1); a new golden kind
