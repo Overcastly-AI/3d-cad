@@ -1186,6 +1186,16 @@ additive: no stored datum changes shape or bytes.
   (`reference_unresolved`, `subshape_unresolved`/`subshape_ambiguous`,
   `datum_line_invalid` for a curved or zero-length line); a sketch on it then
   fails, nothing crashes.
+- **The angle is a formula like any other number** (§20): `angle_deg` is
+  drivable through the envelope's `expressions` (`{"/angle_deg": "A"}`), so a
+  table edit turns the plane, the sketch on it and every body after it
+  (`services/gateway/tests/test_datum_angle_parameter_chain.py`), and undo
+  turns them back.
+- **Authoring follows Fusion's order:** Datum > "Plane at angle", then the
+  line from the dropdown (axis, sketch line) or by "Pick an edge" in the
+  viewport (a single-select edge pick; a curved edge is refused at the
+  click), then the angle. A straight edge selected before the command still
+  seeds it.
 - Truth: the moto frame's steering head, sketched on a 25 deg plane about a
   construction line and extruded symmetric 160, gives the frame golden's
   volume with an empty two-way difference against the golden's independent

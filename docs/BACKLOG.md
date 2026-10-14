@@ -62,7 +62,9 @@ byte-identical; RESEARCH §15a).
         (`docs/reference-parts/{helical-gear,manifold,knob}.py`, run in CI by
         `packages/loft-script/tests/test_reference_parts.py`; RESEARCH §20
         "Step 9, as built".)
-- [ ] **DATUM-PLANE-ANGLE** (moto frame steering head, tube-frame gap): there
+- [x] **DATUM-PLANE-ANGLE** (done 13ed52f..2f585fe, 16361fe; edge pick and
+      formula angle in this change; goldens `datum-angle-*`; e2e
+      `datum-plane-angle{,-edge}.spec.ts`; RESEARCH §18) (moto frame steering head, tube-frame gap): there
       is no tilted datum plane (only offset, on-face, offset-from and
       midplane), so the 25° steering head is a revolve about a sketch axis.
       Fusion (Plane at Angle), SolidWorks (Plane, "At angle" about an edge or
