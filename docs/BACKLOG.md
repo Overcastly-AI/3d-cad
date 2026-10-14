@@ -419,7 +419,6 @@ One line each. The founder triages weekly; most are closed without work.
 - PROFILE-SKETCH-ACROSS-PROJECTED (projected-profile review): a sketch line drawn across a projected rectangle still fails profile_not_closed; Fusion gives two regions.
 - PROFILE-ENTITIES-DEFAULT: `SolvedSketchData.profile_entities` defaults to [] rather than absent, so a payload without it shows no ghost instead of the old fallback.
 - PROFILE-JUNCTION-TOL: profile_edges junction grouping is first-come per axis and can differ from Wire.combine when several ends sit within ~1e-4 mm.
-- HOLE-FRAME-PARITY (hole-formula review): the face frame exists three times (loft_wire hole_placement.py, kernel faces.deterministic_x_dir, web facePlacement.faceFrame), matched only by docstrings; add one shared test vector over angled normals run by all three.
 - HOLE-POSITION-EXPR-CLASH: a hole with both a /position/x expression and face_x/y lets face_x/y silently win; the validator should reject the combination.
 - HOLE-FACE-NORMAL-CHANGE: if an edit changes a hole face's normal, the hole keeps the stale stored frame (as before).
 - CENTRE-MARK-PICK-REFUSED (centre-marks review): section and flat-pattern views draw pickable centre marks but measure refuses centre dimensions there, so the error only shows after placing.
