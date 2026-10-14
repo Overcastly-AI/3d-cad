@@ -413,6 +413,7 @@ One line each. The founder triages weekly; most are closed without work.
 - DRAWBOX-CLICK-DROPS: a click instead of Enter mid-drag drops the typed value; Fusion keeps it.
 - DRAWBOX-STALE-TEXT: a cancelled drag restarted at the same first point shows the old typed text.
 - JOINT-SPLIT-CROSS (strict-name re-review): a hole moved across a slot onto the other piece of a split face comes back unresolved rather than followed (loud, not a wrong pick).
+- DRAWING-TIER1-SWAP (drawings re-review): drawing anchor tier 1 has no name check, so if a dimensioned hole moves and another hole now sits exactly where it was, the dimension lands on the new hole (value at that spot is correct; Fusion would follow the original). Pre-existing.
 - JOINT-PLANAR-PARENT (motions review): a planar slide PATCHes B's placement; when B is the solve parent rather than the child the slide may not stick. Unverified.
 - JOINT-CARD-OVERLAP: the joint drive card overlaps the inspector's DOF text (revolute and planar).
 - MEASURE-FROM-EVAL-REQUEST, rest (step 8 did the part's measure and pick): assembly overlays (`AssemblyPage.tsx` `buildEvaluateTree`) and drawing requests (`useDrawingData.ts`) still build from GET features, so a sick feature still shows its last good body there.
