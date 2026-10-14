@@ -28,7 +28,7 @@ byte-identical; RESEARCH §15a).
       26.16 s); step 3 refused, because a cache keyed on TShape misses
       OCCT's in-place rewrites (§15a); step 2 waits on the founder: may we
       fetch the OCCT `BRepCheck` source?
-- [ ] **PART-PARAMETERS** (was PARAMETERS; absorbs SKETCH-EXPR-TRIG; the
+- [x] **PART-PARAMETERS** (done 2026-10-14, all nine steps on main; was PARAMETERS; absorbs SKETCH-EXPR-TRIG; the
       gear is not parametric): named part parameters shared by sketches and
       features, as Fusion's Change Parameters and Onshape's Variables.
       Decisions: RESEARCH §20. Each step merges alone:
