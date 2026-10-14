@@ -389,7 +389,8 @@ One line each. The founder triages weekly; most are closed without work.
 - DRAW-BOX-LINE-LETTERS: mid-line (a chain is always mid-gesture) letters are still tool shortcuts and digits open X / Y; only a rectangle's and circle's size box owns the keyboard mid-drag.
 - DRAW-BOX-PREVIEW: a size typed mid-drag is not previewed on the rubber band, and a click while typing places at the cursor and drops the typed text.
 - DRAW-BOX-MODIFY-FIELDS: the sketcher's offset and corner (fillet/chamfer) value boxes still take numbers only.
-- QA-PROJECTED-PROFILE (major): projected edges count as profile geometry, so a cut's preview passes then the commit fails PROFILE_NOT_CLOSED until they are made construction; Fusion leaves projected lines out of profile closure.
+- PROFILE-PICK (after QA-PROJECTED-PROFILE): no profile/region picking, so a projected face outline drawn round circles is cut as a plate with holes, and a projected edge crossing a sketch loop never splits it into regions as in Fusion.
+- PREVIEW-OPEN-CHAIN (after QA-PROJECTED-PROFILE): the ghost still drops an open chain of SKETCH curves that the commit refuses `profile_not_closed`; the sketcher flags open ends, the editor does not.
 - QA-DRAWING-CENTRE-MARKS (major): drawings have no centre marks or hole-centre picks, so hole positions cannot be dimensioned (a circle offers only diameter/radius).
 - QA-FILLET-PICK-REFRAME (minor): the camera sometimes reframes on a fillet edge pick, so the next click picks the wrong edge.
 - QA-FILLET-DEFAULT-MODE: fillet opens in "By rule, all edges"; Fusion opens in edge-pick.
