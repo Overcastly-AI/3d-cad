@@ -407,13 +407,13 @@ One line each. The founder triages weekly; most are closed without work.
 - QA-DRAWING-DECIMALS: drawing dimensions show 3 decimals (diameter 8.000).
 - QA-SKETCH-LABEL-OVERLAP: dimension labels overlap at a small hole near a corner.
 - QA-1280-LAYOUT: at 1280x800 the Parameters table scrolls sideways, the fillet radius popup covers the Material panel, and Fit sketch leaves part of the profile under the position readout.
-- JOINT-STRICT-WRONG-HOLE (joints-follow-edits review): the strict first resolve tier ignores `topo_name`, so if another hole now sits exactly where a picked hole was (hole moved and a new one added at the old spot), the joint lands on that other hole. Pre-existing; the strict tier should check the name.
 - JOINT-LEGACY-SIGNATURES: joints saved before overlay names existed (no `topo_name`) still lose their joint when the hole moves.
 - JOINT-RESOLVE-PROVENANCE: assembly mates don't report when a reference was re-found by a fallback tier (features do).
 - DRAWING-NOTICE-RACE (export-warning review): a drawing's server compose and `/extents` are two solves, so a part edit landing between them can leave the Partial notice and the sheet out of step.
 - DRAWBOX-W-ONLY (draw-box review): typing only W before the pointer moves makes a zero-height rectangle that is silently not placed and the box clears.
 - DRAWBOX-CLICK-DROPS: a click instead of Enter mid-drag drops the typed value; Fusion keeps it.
 - DRAWBOX-STALE-TEXT: a cancelled drag restarted at the same first point shows the old typed text.
+- JOINT-SPLIT-CROSS (strict-name re-review): a hole moved across a slot onto the other piece of a split face comes back unresolved rather than followed (loud, not a wrong pick).
 - JOINT-PLANAR-PARENT (motions review): a planar slide PATCHes B's placement; when B is the solve parent rather than the child the slide may not stick. Unverified.
 - JOINT-CARD-OVERLAP: the joint drive card overlaps the inspector's DOF text (revolute and planar).
 - MEASURE-FROM-EVAL-REQUEST, rest (step 8 did the part's measure and pick): assembly overlays (`AssemblyPage.tsx` `buildEvaluateTree`) and drawing requests (`useDrawingData.ts`) still build from GET features, so a sick feature still shows its last good body there.

@@ -74,9 +74,11 @@ function, so the selected set and its order are a pure function of the body.
 # pyright: reportUnknownVariableType=false, reportAttributeAccessIssue=false
 # pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
 
+import json
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 from build123d import Edge, Face, GeomType, Vector
 from loft_wire.features import (
@@ -101,11 +103,14 @@ from geometry.kernel.faces import (
     PlanarFaceRecord,
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
+    answers_to,
     face_signature_dto,
     match_face_records_tiered,
     planar_faces,
+    same_face_base,
 )
-from geometry.kernel.naming import edge_names
+from geometry.kernel.naming import edge_name, edge_names
+from geometry.kernel.provenance import explore_faces
 from geometry.kernel.resolution import ResolutionTally
 
 # The two subshape-resolution errors are generic (defined alongside the face
@@ -866,12 +871,24 @@ def _match_edge_records(
     guard for every edge-ref consumer (fillet, chamfer, edge flange, hem, a
     sketch projection). An unnamed reference, or an edge the body cannot name,
     is matched as before.
+
+    THE STRICT NAME CHECK (JOINT-STRICT-WRONG-HOLE): the same guard applies to
+    the strict tier. Identical geometry is not identity: when the picked hole
+    moved and another hole now stands exactly where it was (or two holes
+    swapped places), the strict signature hits the OTHER hole. So a strict hit
+    the body names differently from a NAMED reference is dropped, and with no
+    strict hit left the tiers below run, where the guard drops that edge again
+    and the name finds the picked edge or nothing. A strict hit the body cannot
+    name, or an unnamed reference, is accepted as before, and so is one whose
+    faces differ only in a split piece's qualifier (:func:`_strict_agreeing`).
     """
+    name = target.topo_name
     strict = [r for r in records if edge_signatures_match(r.signature, target)]
+    if strict and name is not None:
+        strict = _strict_agreeing(body, records, strict, name, face_names)
     if strict:
         return strict, "exact"
     geometric, tier = _geometric_edge_matches(body, records, target, face_names)
-    name = target.topo_name
     if name is None:
         return geometric, tier
     names = _record_names(body, records, face_names)
@@ -882,6 +899,148 @@ def _match_edge_records(
     if named and (not geometric or any(r.index in held for r in geometric)):
         return named, "named"
     return geometric, tier
+
+
+def _strict_agreeing(
+    body: BodyShape,
+    records: list[EdgeRecord],
+    strict: list[EdgeRecord],
+    name: str,
+    face_names: Sequence[str | None] | None,
+) -> list[EdgeRecord]:
+    """The strict hits that may be the edge a reference stored as *name*
+    designates (JOINT-STRICT-WRONG-HOLE).
+
+    An edge's name pairs its two faces' names, and the check reads the pair,
+    face by face, with :func:`~geometry.kernel.faces.same_face_base`: a hit
+    passes when the body cannot name both its faces, when each answers to the
+    stored face (aliases included, as a face resolves), or when they differ
+    only in a split piece's qualifier. That qualifier hashes the piece's
+    neighbours, so a wider slot or a hole added on a split face changes it
+    while the edge stays put; such a hit is refused only when ANOTHER edge
+    holds the exact stored name, because that edge is the picked one. Only the
+    hits' own faces are looked up, and the whole body is named only in that
+    last case, so an unedited rebuild still never names every edge."""
+    if face_names is None:
+        return strict
+    pairs = _face_pairs(body, [r.edge for r in strict], face_names)
+    out: list[EdgeRecord] = []
+    drifted: list[EdgeRecord] = []
+    for record, pair in zip(strict, pairs, strict=True):
+        agreement = "same" if pair is None else edge_name_agreement(pair, name)
+        if agreement == "same":
+            out.append(record)
+        elif agreement == "split_drift":
+            drifted.append(record)
+    if drifted:
+        names = edge_names(body, face_names, runs=True)
+        if len(names) == len(records):
+            held = {r.index for r, n in zip(records, names, strict=True) if n == name}
+            drifted = [r for r in drifted if not held - {r.index}]
+        out += drifted
+        out.sort(key=lambda r: r.index)
+    return out
+
+
+#: How a current edge's name compares with a stored one
+#: (:func:`edge_name_agreement`).
+EdgeNameAgreement = Literal["same", "split_drift", "different"]
+
+
+def edge_names_agree(stored: str, candidate: str | tuple[str, str]) -> bool:
+    """Whether an edge named *candidate* may be the edge stored as *stored*:
+    :func:`edge_name_agreement` is ``"same"`` or ``"split_drift"``.
+
+    The stable boolean form for a name guard. A split drift is the picked edge
+    only if no OTHER edge holds *stored* exactly; a caller that can see the
+    whole body checks that too (as :func:`_strict_agreeing` does), and one
+    that cannot accepts the drift, as a strict hit would be accepted."""
+    return edge_name_agreement(candidate, stored) != "different"
+
+
+def edge_name_agreement(held: str | tuple[str, str], stored: str) -> EdgeNameAgreement:
+    """Whether an edge named *held* is the edge a stored name designates.
+
+    THE one edge-name comparison (JOINT-STRICT-WRONG-HOLE): every consumer
+    that checks a resolved edge against a stored ``topo_name`` calls this.
+    *held* is the current edge's name (:func:`~geometry.kernel.naming.edge_name`),
+    or better its two face names, which keep a ``clean``-merged face's aliases;
+    *stored* is the reference's name. Compared face by face, in either order:
+
+    * ``"same"``: each face answers to the stored one, aliases included, as a
+      face resolves (:func:`~geometry.kernel.faces.answers_to`);
+    * ``"split_drift"``: they differ only in a split piece's qualifier
+      (:func:`~geometry.kernel.faces.same_face_base`). The qualifier hashes the
+      piece's neighbours, so a wider slot or a hole added on a split face
+      changes it while the edge stays put. The caller accepts this unless
+      ANOTHER edge holds *stored* exactly (that one is the picked edge);
+    * ``"different"``: another edge (h9's rim where h2's was).
+
+    A name that is not a face pair compares by equality, same or different."""
+    pair = _stored_pair(held) if isinstance(held, str) else held
+    stored_pair = _stored_pair(stored)
+    if pair is None or stored_pair is None:
+        whole = held if isinstance(held, str) else edge_name(*held)
+        return "same" if whole == stored else "different"
+    if _pair_matches(pair, stored_pair, answers_to):
+        return "same"
+    if _pair_matches(pair, stored_pair, same_face_base):
+        return "split_drift"
+    return "different"
+
+
+def _stored_pair(name: str) -> tuple[str, str] | None:
+    """The two face names an edge name (:func:`edge_name`) pairs, or ``None``
+    for a name that is not such a pair."""
+    try:
+        pair = json.loads(name)
+    except ValueError:
+        return None
+    if (
+        isinstance(pair, list)
+        and len(pair) == 2
+        and all(isinstance(n, str) for n in pair)
+    ):
+        return pair[0], pair[1]
+    return None
+
+
+def _face_pairs(
+    body: BodyShape, edges: Sequence[Edge], face_names: Sequence[str | None]
+) -> list[tuple[str, str] | None]:
+    """For each of *edges*, the names of the two distinct faces it bounds, or
+    ``None`` when it does not bound exactly two or either is unnamed."""
+    faces = explore_faces(body)
+    if len(faces) != len(face_names):
+        return [None] * len(edges)
+    face_index = TopTools_IndexedMapOfShape()
+    for face in faces:
+        face_index.Add(face)
+    ancestors = TopTools_IndexedDataMapOfShapeListOfShape()
+    TopExp.MapShapesAndAncestors_s(body.wrapped, TopAbs_EDGE, TopAbs_FACE, ancestors)
+    out: list[tuple[str, str] | None] = []
+    for edge in edges:
+        pair: tuple[str, str] | None = None
+        if ancestors.Contains(edge.wrapped):
+            incident = list(ancestors.FindFromKey(edge.wrapped))
+            if len(incident) == 2 and not incident[0].IsSame(incident[1]):
+                at = [face_index.FindIndex(f) for f in incident]
+                a, b = (face_names[i - 1] if i > 0 else None for i in at)
+                if a is not None and b is not None:
+                    pair = (a, b)
+        out.append(pair)
+    return out
+
+
+def _pair_matches(
+    pair: tuple[str, str],
+    stored: tuple[str, str],
+    same: Callable[[str, str], bool],
+) -> bool:
+    """Whether the faces *pair* are the stored ones under *same*, in either
+    order."""
+    (a, b), (s, t) = pair, stored
+    return (same(a, s) and same(b, t)) or (same(a, t) and same(b, s))
 
 
 def _record_names(
