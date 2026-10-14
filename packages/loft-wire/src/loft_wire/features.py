@@ -53,6 +53,7 @@ from loft_wire.geometry import (
     ShapeProperties,
     Vec3,
 )
+from loft_wire.hole_placement import FACE_X_FIELD, FACE_Y_FIELD, derive_hole_position
 from loft_wire.instrument import notify_feature_error
 from loft_wire.materials import MaterialAssignment, MaterialKey
 from loft_wire.refs import DatumPlaneRef as DatumPlaneRef
@@ -1352,11 +1353,9 @@ class HoleParamsV1(BaseModel):
     ``feature_dependencies`` (deleting that body feature is a 409-with-dependents;
     a reorder re-checks strict-backward).
 
-    ``position`` is a WORLD-space point; the geometry service projects it onto the
-    resolved face plane to fix the drill axis (a pick that lands a hair off-plane
-    still drills clean and perpendicular). A point that projects OUTSIDE the body
-    — or a resolved direction into empty space — removes no material and is a
-    ``hole_off_body`` rebuild error, never a silent no-op.
+    ``position`` is a WORLD point, projected onto the resolved face plane to fix
+    the drill axis; with ``face_x_mm``/``face_y_mm`` it is derived from them
+    (:mod:`loft_wire.hole_placement`). Off the body is ``hole_off_body``.
 
     ``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;
     ``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the
@@ -1373,11 +1372,9 @@ class HoleParamsV1(BaseModel):
 
     ``thread`` (optional, ``None`` = an untapped hole) makes the hole TAPPED: a
     cosmetic :class:`IsoMetricThread` callout over the tap-drill bore, ORTHOGONAL
-    to ``type`` (a counterbored tapped hole sets both). It adds NO geometry — the
-    solid is byte-identical to the same hole without it — so a tapped hole
-    mirrors, patterns, shells and exports exactly as its bore does. An unknown
-    designation is ``hole_thread_unsupported``; a bore the thread cannot be tapped
-    in is ``hole_thread_mismatch``.
+    to ``type`` (a counterbored tapped hole sets both). It adds NO geometry, so a
+    tapped hole mirrors, patterns, shells and exports exactly as its bore does.
+    ``hole_thread_unsupported`` / ``hole_thread_mismatch`` refuse a bad callout.
     """
 
     face: SubshapeRef = Field(
@@ -1405,6 +1402,9 @@ class HoleParamsV1(BaseModel):
         "callouts; adds no geometry — `diameter_mm` is the tap-drill bore "
         "(:class:`IsoMetricThread`)",
     )
+    face_x_mm: float | None = FACE_X_FIELD
+    face_y_mm: float | None = FACE_Y_FIELD
+    _derive_position = model_validator(mode="after")(derive_hole_position)
 
 
 # --- Pattern params (linear / circular) -----------------------------------------

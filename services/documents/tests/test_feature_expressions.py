@@ -352,6 +352,77 @@ def test_an_out_of_range_value_is_a_sick_feature_not_a_500(client: TestClient) -
     assert entry["feature"]["params"]["distance_mm"] == 12.0
 
 
+def _hole(extrude_id: str, **placement: Any) -> dict[str, Any]:
+    """A through hole on the 40 x 25 x 10 box's top face (z = 10)."""
+    face = {
+        "kind": "subshape",
+        "feature_id": extrude_id,
+        "subshape_type": "face",
+        "selector": {
+            "selector_version": 1,
+            "signature": {
+                "subshape_type": "face",
+                "surface": "plane",
+                "normal": {"x": 0.0, "y": 0.0, "z": 1.0},
+                "centroid": {"x": 20.0, "y": 12.5, "z": 10.0},
+                "area_mm2": 1000.0,
+            },
+        },
+    }
+    params = {
+        "face": face,
+        "position": {"x": 20.0, "y": 12.5, "z": 10.0},
+        "diameter_mm": 5.0,
+        "depth": {"kind": "through_all"},
+    }
+    params.update(placement.pop("params", {}))
+    return {"type": "hole", "version": 1, "params": params, **placement}
+
+
+def test_a_hole_x_formula_moves_the_hole_with_its_parameter(
+    client: TestClient,
+) -> None:
+    """HOLE-POSITION-FORMULA: X = W - 20 on the top face; W 100 -> 80 moves
+    the stored world position from x = 80 to x = 60."""
+    part, _, extrude_id = _box(client)
+    rows = part.rows()
+    assert part.put([*rows, _row("W", "100")]).status_code == 200
+    hole = _hole(
+        extrude_id,
+        params={"face_x_mm": 0.0, "face_y_mm": 12.5},
+        expressions={"/face_x_mm": "W - 20"},
+    )
+    response = part.add(hole, "Hole1")
+    assert response.status_code == 201, response.text
+    stored = part.feature(2)
+    assert stored["params"]["face_x_mm"] == 80.0
+    assert stored["params"]["position"] == {"x": 80.0, "y": 12.5, "z": 10.0}
+    assert stored["expressions"] == {"/face_x_mm": "W - 20"}
+
+    rows = part.rows()
+    w = next(r for r in rows if r["name"] == "W")
+    others = [r for r in rows if r["name"] != "W"]
+    assert part.put([*others, {**w, "expression": "80"}]).status_code == 200
+    assert part.feature(2)["params"]["position"] == {"x": 60.0, "y": 12.5, "z": 10.0}
+    sent = part.request()["features"][2]["feature"]
+    assert sent["params"]["position"]["x"] == 60.0
+    assert "expressions" not in sent
+
+
+def test_a_hole_placed_by_world_position_alone_is_stored_unchanged(
+    client: TestClient,
+) -> None:
+    part, _, extrude_id = _box(client)
+    response = part.add(_hole(extrude_id), "Hole1")
+    assert response.status_code == 201, response.text
+    params = part.feature(2)["params"]
+    assert params["position"] == {"x": 20.0, "y": 12.5, "z": 10.0}
+    assert "face_x_mm" not in params and "face_y_mm" not in params
+    # A formula needs the coordinate it drives to be stored.
+    refused = part.add(_hole(extrude_id, expressions={"/face_x_mm": "D"}))
+    assert refused.status_code == 422, refused.text
+
+
 # --- parameter PUT ----------------------------------------------------------------
 
 

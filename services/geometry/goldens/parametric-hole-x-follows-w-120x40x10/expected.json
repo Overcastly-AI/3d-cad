@@ -1,0 +1,26 @@
+{
+  "description": "HOLE-POSITION-FORMULA: a 120 x 40 x 10 plate with a Ø10 through hole whose face-frame X is the formula W - 20, as documents sends it to geometry for W = 100 -- numbers only, the formula resolved and stripped, the world position derived from (face_x_mm, face_y_mm) = (80, 20). parametric.json beside it holds the stored tree (formula kept) and the re-drive W = 80 that moves the hole to x = 60; test_parametric_goldens.py proves this model.json IS that tree resolved, and rebuilds the re-drive.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill).",
+    "parameters: W = 100 mm; hole face X = W - 20 = 80, face Y = 20. The top face (normal +Z, z = 10) has its frame origin at the part origin projected onto it, (0, 0, 10), and axes +X / +Y, so the bore axis is x = 80, y = 20",
+    "volume = 120*40*10 - pi*5^2*10 = 48000 - 250*pi = 47214.60183660255 mm^3",
+    "surface_area = 2*(120*40 + 120*10 + 40*10) - 2*(25*pi) + 2*pi*5*10 = 12800 + 50*pi = 12957.07963267949 mm^2",
+    "centroid x = (48000*60 - 250*pi*80) / (48000 - 250*pi) = 59.667307090244876; y = 20 and z = 5 by symmetry; bounding_box = [0,0,0]..[120,40,10] (the bore is interior)",
+    "topology: 6 block faces + 1 bore face = 7 faces; 12 block edges + 2 bore circles + 1 seam = 15 edges; 1 shell (as hole-through-r5-40x25x10)",
+    "mesh (linear_deflection 0.1): 530 vertices / 520 triangles, the same counts as hole-through-r5-40x25x10 (the same Ø10 x 10 bore in a box); the re-drive only translates the bore and keeps them",
+    "no material is assigned, so mass and centre of mass must be reported ABSENT (null), never 0 g"
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill). Measured deviations vs the analytic values (2026-10-10, build123d / OCCT 7.9): volume, area and centroid x equal their closed forms as doubles; centroid y, z within 4e-15 mm; AABB exactly 0.0. The re-drive (W = 80) is held to the same bound by test_parametric_goldens.py. 1e-9 is the sibling hole-through-r5-40x25x10 ceiling. The parameter path adds no error: W - 20 resolves to exact doubles. Loosening this bound requires a reviewed kernel-level justification.",
+  "properties": {
+    "volume": 47214.60183660255,
+    "surface_area": 12957.07963267949,
+    "centroid": { "x": 59.667307090244876, "y": 20.0, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 120.0, "y": 40.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 7, "edges": 15, "shells": 1 },
+  "mesh": { "vertices": 530, "triangles": 520 }
+}
