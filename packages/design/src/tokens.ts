@@ -705,6 +705,19 @@ export const drawing = {
   /** Section crosshatch stroke weight (mm) — the lightest fill rule on the sheet. */
   hatchWeightMm: 0.25,
 
+  // --- Centre marks — the hole-position layer (QA-DRAWING-CENTRE-MARKS). ---
+  // Every circle seen end-on gets an ISO 128 / ASME Y14.2 centre mark: a thin
+  // chain-style cross carried past the circle. A thin line in the annotation
+  // graphite, the SAME ink + weight the server composer emits (`_CENTRE_INK` /
+  // `_CENTRE_W`), so screen and export read one mark. The centre is a
+  // dimension anchor, so a mark is also a pick target.
+  /** Centre-mark ink — the annotation graphite. */
+  centreMark: "#2A3542",
+  /** Centre-mark stroke weight (mm) — an ISO 128 thin line. */
+  centreMarkWeightMm: 0.25,
+  /** Pick radius (mm) of a centre mark's grab, capped to the circle's own. */
+  centreHitMm: 2.2,
+
   // --- Flat-pattern fold lines — the sheet-metal signature (sheet-metal.md §7). ---
   // A sheet-metal flat blank's defining mark is the FOLD LINE: where the shop
   // bends the cut sheet. A fold is neither a cut outline (a visible object edge)

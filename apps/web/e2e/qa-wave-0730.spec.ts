@@ -27,7 +27,12 @@ import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "./fixtures";
 
 import { createFeature, SQUARE_20 } from "./partSeed";
-import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
+import {
+  clickHoleRim,
+  createPartViaApi,
+  SCREENSHOT_DIR,
+  seedSession,
+} from "./support";
 
 /** Founder-shot tag: `SHOT_TAG=before` captures the pre-change pass. */
 const SHOT_TAG = process.env["SHOT_TAG"] ?? "after";
@@ -486,7 +491,7 @@ test.describe("B — a print survives a revision", () => {
         '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
       )
       .first();
-    await circle.click();
+    await clickHoleRim(circle);
     await page.getByTestId("dimension-type-diameter").click();
     // REACH-3: choosing the type now opens the PLACE stage (the ghost tracks
     // the pointer). Enter commits it UNMOVED, which sends no placement at all —
@@ -567,7 +572,7 @@ test.describe("B — a print survives a revision", () => {
         '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
       )
       .first();
-    await circle.click();
+    await clickHoleRim(circle);
     await page.getByTestId("dimension-type-diameter").click();
     await page.keyboard.press("Enter");
     await expect(
@@ -623,7 +628,7 @@ test.describe("B — a print survives a revision", () => {
         '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
       )
       .first();
-    await circle.click();
+    await clickHoleRim(circle);
     await page.getByTestId("dimension-type-diameter").click();
     await page.keyboard.press("Enter");
     await expect(

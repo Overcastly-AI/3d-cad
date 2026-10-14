@@ -128,6 +128,16 @@ SECTION_PROJECTION: ViewProjection = "section"
 _HATCH_ANGLE_DEG = 45.0
 _HATCH_SPACING_MM = 2.5
 
+# --- centre marks (QA-DRAWING-CENTRE-MARKS) — ISO 128-20 / ASME Y14.2 -------------
+#: Sheet-mm proportions of a centre mark: a 3 mm cross at the centre, a 1 mm gap, and
+#: long dashes carried 3 mm past the circle (ASME Y14.2's ~1/8 in; ISO 128-24 asks
+#: 2-3 mm). Below a 1.5 mm long dash the arm is one continuous thin line instead —
+#: the small-circle allowance. SHEET concerns, so they do not scale with the view.
+_CM_CROSS_HALF_MM = 1.5
+_CM_GAP_MM = 1.0
+_CM_OVERSHOOT_MM = 3.0
+_CM_MIN_DASH_MM = 1.5
+
 #: Bend-table block layout (mm) — the quiet top-left annotation block on a flat-pattern
 #: sheet (sheet-metal.md §7): a header row plus one row per bend. Anchored at the sheet
 #: margin corner (mirroring the bottom-right title block) so it stays clear of the

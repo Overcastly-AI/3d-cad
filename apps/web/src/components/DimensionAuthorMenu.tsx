@@ -75,6 +75,23 @@ const CHOICES: Record<DimensionAction, Choice> = {
     hint: "↔",
     icon: <DistanceIcon size={14} />,
   },
+  // Hole positions (QA-DRAWING-CENTRE-MARKS): measured square to the edge, or
+  // between centres horizontally / vertically as the dimension is placed.
+  start_edge_to_centre: {
+    label: "Distance to centre",
+    hint: "pick a centre",
+    icon: <DistanceIcon size={14} />,
+  },
+  edge_to_centre: {
+    label: "Edge to centre",
+    hint: "⟂ ⊕",
+    icon: <DistanceIcon size={14} />,
+  },
+  centre_to_centre: {
+    label: "Centre to centre",
+    hint: "⊕ ↔ ⊕",
+    icon: <DistanceIcon size={14} />,
+  },
 };
 
 export function DimensionAuthorMenu({

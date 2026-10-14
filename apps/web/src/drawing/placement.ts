@@ -112,6 +112,16 @@ export function perpendicularFoot(
 
 // --- what a PLACE stage is authoring --------------------------------------
 
+/** How a centre-to-centre dimension runs (mirrors the wire `orientation`). */
+export type CentreOrientation = "aligned" | "horizontal" | "vertical";
+
+/** The two centres a centre-to-centre placement measures between. */
+export interface CentrePair {
+  p: Point2D;
+  q: Point2D;
+  orientation: CentreOrientation;
+}
+
 /**
  * What the PLACE stage is authoring.
  *
@@ -129,6 +139,12 @@ export type PlaceTarget =
       viewAnchor: Point2D;
       /** The live signed offset (mm) — what `offset_mm` will carry. */
       offsetMm: number;
+      /**
+       * A centre-to-centre dimension's two hole centres and its live
+       * orientation (QA-DRAWING-CENTRE-MARKS): where the pointer goes decides
+       * horizontal or vertical, as in Fusion, and `span` follows it.
+       */
+      centres?: CentrePair;
     }
   | {
       mode: "text";
@@ -304,8 +320,73 @@ export function textGhost(
 /** Half-width (mm) of the ghost text crosshair — sized to the value stamp. */
 export const GHOST_TARGET_MM = drawing.dimensionTextMm * 0.7;
 
+/**
+ * The ghost of a HORIZONTAL / VERTICAL centre-to-centre dimension — the
+ * construction of compose.py `_place_linear_along` at an authored offset: the
+ * dimension line runs along the view axis `|offsetMm|` from the two centres'
+ * midpoint, and each witness line runs square to it from its own centre, so
+ * two holes at different heights get witness lines of different lengths.
+ * `span` is the pair flattened onto the midpoint level (`centreSpan` in
+ * `centres.ts`), which fixes the `away` side exactly as the composer does.
+ */
+export function alongGhost(
+  pair: CentrePair,
+  span: { a: Point2D; b: Point2D },
+  viewAnchor: Point2D,
+  offsetMm: number,
+): PlacementGhost | null {
+  const away = awayNormal(span.a, span.b, viewAnchor);
+  const d = unit(sub(span.b, span.a));
+  if (away === null || d === null) return null;
+  const n = offsetMm >= 0 ? away : neg(away);
+  const m = mid(pair.p, pair.q);
+  const level = dot(m, n) + Math.abs(offsetMm);
+  const lines: GhostLine[] = [];
+  const end = (pt: Point2D): Point2D => {
+    const reach = level - dot(pt, n);
+    const at = add(pt, mul(n, reach));
+    if (Math.abs(reach) > drawing.dimensionGapMm) {
+      const sense = reach > 0 ? 1 : -1;
+      lines.push(
+        line(
+          add(pt, mul(n, sense * drawing.dimensionGapMm)),
+          add(at, mul(n, sense * drawing.extensionOverrunMm)),
+          "extension",
+        ),
+      );
+    }
+    return at;
+  };
+  // Ordered as the span is, so the arrows point outward along `d`.
+  const dimA = end(dot(pair.p, d) <= dot(pair.q, d) ? pair.p : pair.q);
+  const dimB = end(dot(pair.p, d) <= dot(pair.q, d) ? pair.q : pair.p);
+  lines.push(line(dimA, dimB, "dimension"));
+  lines.push(line(m, mid(dimA, dimB), "rule"));
+  return {
+    lines,
+    arrows: [arrow(dimA, neg(d)), arrow(dimB, d)],
+    target: null,
+    figure: {
+      at: add(mid(dimA, dimB), mul(n, FIGURE_STANDOFF_MM)),
+      text: formatOffset(offsetMm),
+    },
+  };
+}
+
 /** The ghost for a live {@link PlaceTarget} — what the sheet draws, verbatim. */
 export function ghostFor(target: PlaceTarget): PlacementGhost | null {
+  if (
+    target.mode === "offset" &&
+    target.centres !== undefined &&
+    target.centres.orientation !== "aligned"
+  ) {
+    return alongGhost(
+      target.centres,
+      target.span,
+      target.viewAnchor,
+      target.offsetMm,
+    );
+  }
   return target.mode === "offset"
     ? linearGhost(
         target.span.a,

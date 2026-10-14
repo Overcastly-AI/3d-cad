@@ -32,6 +32,7 @@ from loft_wire.drawings import (
     AnnotationCreate,
     AnnotationMutationResponse,
     AnnotationResponse,
+    CentreToCentreMeasurement,
     DiameterDimensionParams,
     Dimension,
     DimensionCreate,
@@ -45,6 +46,7 @@ from loft_wire.drawings import (
     DrawingResponse,
     DrawingTreeResponse,
     DrawingUpdate,
+    EdgeToCentreMeasurement,
     EdgeToEdgeMeasurement,
     RadiusDimensionParams,
     SectionViewParams,
@@ -358,6 +360,31 @@ def _validate_dimension(dimension: DimensionParams) -> None:
             dimension.measurement.edge_a,
             dimension.measurement.edge_b,
         )
+    elif isinstance(dimension.measurement, EdgeToCentreMeasurement):
+        # QA-DRAWING-CENTRE-MARKS: a straight edge to a hole centre, the centre named
+        # through the hole's CIRCULAR rim.
+        if dimension.measurement.edge.curve != "line":
+            raise ValidationApiError(
+                "An edge-to-centre dimension measures from a straight edge; the "
+                f"referenced edge is '{dimension.measurement.edge.curve}'.",
+                code="dimension_requires_straight_edges",
+                details={"edge": dimension.measurement.edge.curve},
+            )
+        _require_centres(dimension.measurement.centre)
+    elif isinstance(dimension.measurement, CentreToCentreMeasurement):
+        _require_centres(dimension.measurement.a, dimension.measurement.b)
+
+
+def _require_centres(*edges: EdgeSignature) -> None:
+    """Every hole-centre reference must name a circular edge → 422."""
+    for edge in edges:
+        if edge.curve != "circle":
+            raise ValidationApiError(
+                "A hole-centre dimension names the centre through a circular edge; "
+                f"the referenced edge is '{edge.curve}'.",
+                code="dimension_requires_circular_edge",
+                details={"curve": edge.curve},
+            )
 
 
 def _require_straight_pair(

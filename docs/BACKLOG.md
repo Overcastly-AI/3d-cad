@@ -50,8 +50,9 @@ byte-identical; RESEARCH §15a).
   - [x] 6. loft-script API. _Accept:_ a script builds the step-4 part;
         `set_parameter` alone changes the volume as expected.
         (`packages/loft-script/tests/test_parameters.py`.)
-  - [ ] 7. Web Parameters panel. _Accept:_ e2e: adding and editing a
+  - [x] 7. Web Parameters panel. _Accept:_ e2e: adding and editing a
         parameter rebuilds the body; Ctrl+Z restores.
+        (`parameters-panel.spec.ts`; merged to main in b8f4c62.)
   - [x] 8. Web `<ValueField>` in every numeric editor, with autocomplete.
         _Accept:_ e2e: Extrude = H/2; editing H re-drives it
         (`parameters-drive.spec.ts`; RESEARCH §20 "Step 8, as built").
@@ -391,7 +392,8 @@ One line each. The founder triages weekly; most are closed without work.
 - DRAW-BOX-MODIFY-FIELDS: the sketcher's offset and corner (fillet/chamfer) value boxes still take numbers only.
 - PROFILE-PICK (after QA-PROJECTED-PROFILE): no profile/region picking, so a projected face outline drawn round circles is cut as a plate with holes, and a projected edge crossing a sketch loop never splits it into regions as in Fusion.
 - PREVIEW-OPEN-CHAIN (after QA-PROJECTED-PROFILE): the ghost still drops an open chain of SKETCH curves that the commit refuses `profile_not_closed`; the sketcher flags open ends, the editor does not.
-- QA-DRAWING-CENTRE-MARKS (major): drawings have no centre marks or hole-centre picks, so hole positions cannot be dimensioned (a circle offers only diameter/radius).
+- QA-DRAWING-CENTRE-LINES (after QA-DRAWING-CENTRE-MARKS): a hole seen side-on gets no centre line (Fusion draws one along its axis); centre marks have no per-view off switch, because views carry no display options yet.
+- CENTRE-DIM-SECTION-VIEW: hole-centre dimensions refuse in section and flat-pattern views (`dimension_not_placeable`), because measurement knows no projection frame for them; arcs (slot ends) get no centre mark.
 - QA-FILLET-PICK-REFRAME (minor): the camera sometimes reframes on a fillet edge pick, so the next click picks the wrong edge.
 - QA-FILLET-DEFAULT-MODE: fillet opens in "By rule, all edges"; Fusion opens in edge-pick.
 - QA-SKETCH-PLANE-REFRAME: the sketch plane pick reframes before the click, so a face click aimed from the old view lands on a datum plane.
@@ -418,9 +420,10 @@ One line each. The founder triages weekly; most are closed without work.
 - PROFILE-SKETCH-ACROSS-PROJECTED (projected-profile review): a sketch line drawn across a projected rectangle still fails profile_not_closed; Fusion gives two regions.
 - PROFILE-ENTITIES-DEFAULT: `SolvedSketchData.profile_entities` defaults to [] rather than absent, so a payload without it shows no ghost instead of the old fallback.
 - PROFILE-JUNCTION-TOL: profile_edges junction grouping is first-come per axis and can differ from Wire.combine when several ends sit within ~1e-4 mm.
-- HOLE-FRAME-PARITY (hole-formula review): the face frame exists three times (loft_wire hole_placement.py, kernel faces.deterministic_x_dir, web facePlacement.faceFrame), matched only by docstrings; add one shared test vector over angled normals run by all three.
 - HOLE-POSITION-EXPR-CLASH: a hole with both a /position/x expression and face_x/y lets face_x/y silently win; the validator should reject the combination.
 - HOLE-FACE-NORMAL-CHANGE: if an edit changes a hole face's normal, the hole keeps the stale stored frame (as before).
+- CENTRE-MARK-PICK-REFUSED (centre-marks review): section and flat-pattern views draw pickable centre marks but measure refuses centre dimensions there, so the error only shows after placing.
+- CENTRE-MARK-SVG-ATTRS: centre-mark `<g>` carries cx/cy attributes (not valid SVG); use data- attributes.
 - JOINT-PLANAR-PARENT (motions review): a planar slide PATCHes B's placement; when B is the solve parent rather than the child the slide may not stick. Unverified.
 - JOINT-CARD-OVERLAP: the joint drive card overlaps the inspector's DOF text (revolute and planar).
 - MEASURE-FROM-EVAL-REQUEST, rest (step 8 did the part's measure and pick): assembly overlays (`AssemblyPage.tsx` `buildEvaluateTree`) and drawing requests (`useDrawingData.ts`) still build from GET features, so a sick feature still shows its last good body there.

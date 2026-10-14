@@ -1292,6 +1292,32 @@ export interface components {
             z: number;
         };
         /**
+         * CentreToCentreMeasurement
+         * @description The distance between two hole centres, in the view.
+         *
+         *     ``orientation`` is the drafting choice the user makes by where they place the
+         *     dimension: ``horizontal`` / ``vertical`` measure along the view's x / y axis (the
+         *     hole-pattern pitch), ``aligned`` the straight distance between the centres.
+         */
+        CentreToCentreMeasurement: {
+            /** @description First circular model edge (its centre) */
+            a: components["schemas"]["EdgeSignature"];
+            /** @description Second circular model edge (its centre) */
+            b: components["schemas"]["EdgeSignature"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            mode: "centre_to_centre";
+            /**
+             * Orientation
+             * @description 'horizontal' / 'vertical' measure along the view's x / y axis; 'aligned' (default) the straight in-plane distance
+             * @default aligned
+             * @enum {string}
+             */
+            orientation: "aligned" | "horizontal" | "vertical";
+        };
+        /**
          * ChamferFeature
          * @description ``{"type": "chamfer", "version": 1, "params": {...}}`` envelope.
          */
@@ -1642,6 +1668,63 @@ export interface components {
              * @description Block top edge (mm, SVG space, y-down)
              */
             y: number;
+        };
+        /**
+         * ComposedCentreLine
+         * @description One drawn segment of a centre mark (final sheet-SVG space, mm).
+         */
+        ComposedCentreLine: {
+            /** X1 */
+            x1: number;
+            /** X2 */
+            x2: number;
+            /** Y1 */
+            y1: number;
+            /** Y2 */
+            y2: number;
+        };
+        /**
+         * ComposedCentreMark
+         * @description A placed centre mark on a circle seen end-on (ISO 128-20 / ASME Y14.2).
+         *
+         *     A thin chain-style cross: a short dash crossing at the centre, a gap, then a long
+         *     dash carried 3 mm past the circle on each of the four arms — or one continuous
+         *     thin line per axis on a circle too small for the gap to read (ISO 128-24 permits
+         *     it). The segments are explicit geometry, not a dash pattern, so SVG, PDF and DXF
+         *     draw the same marks.
+         *
+         *     One mark per distinct centre: the rims of a through hole and a counterbore's two
+         *     circles share one, sized to the largest. ``edge_index`` points into the view's
+         *     ``edges`` (and the canonically-aligned evaluate edges) at the circle the mark
+         *     stands for — a visible, dimensionable one where there is one — which is how the
+         *     sheet turns a pick on the mark into the circle's signature.
+         */
+        ComposedCentreMark: {
+            /**
+             * Cx
+             * @description Centre x (sheet-SVG mm)
+             */
+            cx: number;
+            /**
+             * Cy
+             * @description Centre y (sheet-SVG mm, y-down)
+             */
+            cy: number;
+            /**
+             * Edge Index
+             * @description Index into the view's `edges` of the circle it marks
+             */
+            edge_index: number;
+            /**
+             * Lines
+             * @description The mark's drawn segments, horizontal arm first
+             */
+            lines: components["schemas"]["ComposedCentreLine"][];
+            /**
+             * R
+             * @description Radius of the largest circle on this centre (mm)
+             */
+            r: number;
         };
         /**
          * ComposedCircleEdge
@@ -2183,6 +2266,11 @@ export interface components {
         ComposedView: {
             /** @description View-centre in SVG space */
             anchor: components["schemas"]["ComposedPoint"];
+            /**
+             * Centre Marks
+             * @description Automatic centre marks, one per circle centre seen end-on (QA-DRAWING-CENTRE-MARKS); empty for a view with no circles.
+             */
+            centre_marks?: components["schemas"]["ComposedCentreMark"][];
             /**
              * Dimensions
              * @description Placed dimensions
@@ -3215,6 +3303,28 @@ export interface components {
              * @enum {string}
              */
             kind: "edge";
+        };
+        /**
+         * EdgeToCentreMeasurement
+         * @description The perpendicular distance from a straight edge to a hole centre, in the view.
+         *
+         *     The hole-position dimension: the plate's left edge to the hole's centre. Measured
+         *     in the VIEW PLANE (the module docstring says why), perpendicular to the edge as
+         *     the view draws it, so a vertical edge gives a horizontal dimension and a
+         *     horizontal edge a vertical one — the Fusion behaviour for a line-to-point
+         *     dimension. An edge seen end-on in the view has no direction there, and is refused
+         *     as ``dimension_not_placeable`` rather than measured.
+         */
+        EdgeToCentreMeasurement: {
+            /** @description The circular model edge (a hole rim) whose CENTRE is measured to */
+            centre: components["schemas"]["EdgeSignature"];
+            /** @description The straight model edge measured from */
+            edge: components["schemas"]["EdgeSignature"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            mode: "edge_to_centre";
         };
         /**
          * EdgeToEdgeMeasurement
@@ -4888,9 +4998,9 @@ export interface components {
         LinearDimensionParams: {
             /**
              * Measurement
-             * @description What is measured (an edge's length, two endpoints, or the perpendicular distance between two parallel edges)
+             * @description What is measured (an edge's length, two endpoints, the perpendicular distance between two parallel edges, or a hole centre's)
              */
-            measurement: components["schemas"]["EdgeLengthMeasurement"] | components["schemas"]["PointToPointMeasurement"] | components["schemas"]["EdgeToEdgeMeasurement"];
+            measurement: components["schemas"]["EdgeLengthMeasurement"] | components["schemas"]["PointToPointMeasurement"] | components["schemas"]["EdgeToEdgeMeasurement"] | components["schemas"]["EdgeToCentreMeasurement"] | components["schemas"]["CentreToCentreMeasurement"];
             /** @description Authored 2D placement */
             placement?: components["schemas"]["DimensionPlacement"];
             /**

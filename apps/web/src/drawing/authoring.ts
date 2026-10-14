@@ -38,10 +38,18 @@ import type {
   SheetPoint,
   ViewProjection,
 } from "../api/drawings";
+import {
+  type CentreTarget,
+  centrePairTarget,
+  clearedOffset,
+  initialOrientation,
+  moveCentrePlacement,
+  sameCentre,
+} from "./centres";
 import type { Point2D } from "./layout";
 import { offsetAt, perpendicularFoot, type PlaceTarget } from "./placement";
 
-export type { PlaceTarget };
+export type { CentreTarget, PlaceTarget };
 
 /**
  * The composed sheet-mm geometry of a picked edge, carried on the pick so the
@@ -110,6 +118,12 @@ export type AuthoringState =
     }
   | { kind: "one-endpoint"; a: EndpointTarget }
   | { kind: "p2p-ready"; a: EndpointTarget; b: EndpointTarget }
+  // Hole centres (QA-DRAWING-CENTRE-MARKS): a centre mark pick waits for a
+  // second centre or a straight edge, in either order.
+  | { kind: "one-centre"; a: CentreTarget }
+  | { kind: "arming-centre"; edge: EdgeTarget }
+  | { kind: "centre-pair-ready"; a: CentreTarget; b: CentreTarget }
+  | { kind: "edge-centre-ready"; edge: EdgeTarget; centre: CentreTarget }
   | {
       kind: "placing";
       viewId: string;
@@ -147,9 +161,12 @@ export type DimensionAction =
   | "radius"
   | "start_angular"
   | "start_edge_to_edge"
+  | "start_edge_to_centre"
   | "angular"
   | "edge_to_edge"
-  | "point_to_point";
+  | "point_to_point"
+  | "edge_to_centre"
+  | "centre_to_centre";
 
 const sameEdge = (a: EdgeSignature, b: EdgeSignature): boolean =>
   a.end_a.x === b.end_a.x &&
@@ -183,8 +200,42 @@ export function pickEdge(
       intent: state.intent,
     };
   }
+  // A straight edge after a centre: the hole-position dimension.
+  if (
+    state.kind === "one-centre" &&
+    target.primitive === "line" &&
+    target.projection === state.a.projection
+  ) {
+    return { kind: "edge-centre-ready", edge: target, centre: state.a };
+  }
   // Any other edge pick starts fresh on that single edge.
   return { kind: "single-edge", target };
+}
+
+/**
+ * Fold a centre-mark pick into the authoring state (QA-DRAWING-CENTRE-MARKS).
+ * After a picked straight edge it completes an edge-to-centre pair; after a
+ * different centre in the same view, a centre-to-centre pair; otherwise it
+ * starts a fresh centre pick that waits for its partner.
+ */
+export function pickCentre(
+  state: AuthoringState,
+  target: CentreTarget,
+): AuthoringState {
+  if (
+    state.kind === "arming-centre" &&
+    state.edge.projection === target.projection
+  ) {
+    return { kind: "edge-centre-ready", edge: state.edge, centre: target };
+  }
+  if (
+    state.kind === "one-centre" &&
+    state.a.projection === target.projection &&
+    !sameCentre(state.a, target)
+  ) {
+    return { kind: "centre-pair-ready", a: state.a, b: target };
+  }
+  return { kind: "one-centre", a: target };
 }
 
 /**
@@ -198,6 +249,17 @@ export function armPair(
 ): AuthoringState {
   if (state.kind === "single-edge" && state.target.primitive === "line") {
     return { kind: "arming-pair", edgeA: state.target, intent };
+  }
+  return state;
+}
+
+/**
+ * Arm a hole-centre pick from a straight edge's menu ("Distance to centre"):
+ * the next centre-mark pick completes the edge-to-centre dimension.
+ */
+export function armCentre(state: AuthoringState): AuthoringState {
+  if (state.kind === "single-edge" && state.target.primitive === "line") {
+    return { kind: "arming-centre", edge: state.target };
   }
   return state;
 }
@@ -228,6 +290,10 @@ export function menuAnchor(
       return { x: state.edgeB.clientX, y: state.edgeB.clientY };
     case "p2p-ready":
       return { x: state.b.clientX, y: state.b.clientY };
+    case "centre-pair-ready":
+      return { x: state.b.clientX, y: state.b.clientY };
+    case "edge-centre-ready":
+      return { x: state.centre.clientX, y: state.centre.clientY };
     default:
       return null;
   }
@@ -243,7 +309,12 @@ export function menuActions(state: AuthoringState): DimensionAction[] {
         case "arc":
           return ["radius"];
         case "line":
-          return ["linear", "start_angular", "start_edge_to_edge"];
+          return [
+            "linear",
+            "start_angular",
+            "start_edge_to_edge",
+            "start_edge_to_centre",
+          ];
         default:
           return [];
       }
@@ -257,6 +328,10 @@ export function menuActions(state: AuthoringState): DimensionAction[] {
         : ["angular", "edge_to_edge"];
     case "p2p-ready":
       return ["point_to_point"];
+    case "centre-pair-ready":
+      return ["centre_to_centre"];
+    case "edge-centre-ready":
+      return ["edge_to_centre"];
     default:
       return [];
   }
@@ -271,6 +346,10 @@ export function pickHint(state: AuthoringState): string | null {
         : "Pick the second edge for the angle";
     case "one-endpoint":
       return "Pick the second point";
+    case "one-centre":
+      return "Pick a second centre, or an edge";
+    case "arming-centre":
+      return "Pick the hole centre";
     case "placing":
       // The pick is done; the sentence changes to the next thing to DO, in the
       // same chip, so the flow reads as one continued gesture rather than a new
@@ -313,10 +392,34 @@ export function armedSignatures(
           sourceEdge: state.edgeB.sourceEdge,
         },
       ];
+    case "arming-centre":
+    case "edge-centre-ready":
+      return [
+        {
+          projection: state.edge.projection,
+          sourceEdge: state.edge.sourceEdge,
+        },
+      ];
     // The picked geometry stays lit while you place against it — losing the
     // highlight the moment you start placing would read as a lost pick.
     case "placing":
       return armedSignatures(state.from);
+    default:
+      return [];
+  }
+}
+
+/** The centre marks selected by the current hole-centre pick. */
+export function selectedCentres(state: AuthoringState): CentreTarget[] {
+  switch (state.kind) {
+    case "one-centre":
+      return [state.a];
+    case "centre-pair-ready":
+      return [state.a, state.b];
+    case "edge-centre-ready":
+      return [state.centre];
+    case "placing":
+      return selectedCentres(state.from);
     default:
       return [];
   }
@@ -384,6 +487,39 @@ export function buildDimension(
           mode: "edge_to_edge",
           edge_a: state.edgeA.sourceEdge,
           edge_b: state.edgeB.sourceEdge,
+        },
+      },
+    };
+  }
+  if (state.kind === "edge-centre-ready" && action === "edge_to_centre") {
+    return {
+      viewId: state.edge.viewId,
+      params: {
+        type: "linear",
+        measurement: {
+          mode: "edge_to_centre",
+          edge: state.edge.sourceEdge,
+          centre: state.centre.sourceEdge,
+        },
+      },
+    };
+  }
+  if (state.kind === "centre-pair-ready" && action === "centre_to_centre") {
+    const { a, b } = state;
+    return {
+      viewId: a.viewId,
+      params: {
+        type: "linear",
+        measurement: {
+          mode: "centre_to_centre",
+          a: a.sourceEdge,
+          b: b.sourceEdge,
+          // The orientation the PLACE stage opens with; the pointer may change
+          // it (Fusion's rule) and the commit carries the final one.
+          orientation:
+            a.at !== undefined && b.at !== undefined
+              ? initialOrientation(a.at, b.at)
+              : "aligned",
         },
       },
     };
@@ -483,6 +619,35 @@ export function placementTarget(
     }
     return null;
   }
+  if (state.kind === "edge-centre-ready" && action === "edge_to_centre") {
+    const geom = state.edge.geometry;
+    const at = state.centre.at;
+    if (geom === undefined || geom.line === null || at === undefined) {
+      return null;
+    }
+    // Square from the edge's drawn line to the centre — the composer's span,
+    // seated clear of the part as the composer's auto placement seats it.
+    const foot = perpendicularFoot(at, geom.line.a, geom.line.b);
+    if (foot === null) return null;
+    const span = { a: foot, b: at };
+    return {
+      mode: "offset",
+      span,
+      viewAnchor: geom.viewAnchor,
+      offsetMm: clearedOffset(
+        span,
+        [foot, at],
+        geom.viewAnchor,
+        state.centre.bounds,
+      ),
+    };
+  }
+  if (state.kind === "centre-pair-ready" && action === "centre_to_centre") {
+    const { a, b } = state;
+    if (a.at === undefined || b.at === undefined) return null;
+    if (a.viewAnchor === undefined) return null;
+    return centrePairTarget(a.at, b.at, a.viewAnchor, a.bounds);
+  }
   if (state.kind === "p2p-ready" && action === "point_to_point") {
     const { at: a, viewAnchor } = state.a;
     const { at: b } = state.b;
@@ -516,6 +681,13 @@ export function movePlacement(
 ): AuthoringState {
   if (state.kind !== "placing") return state;
   const t = state.target;
+  if (t.mode === "offset" && t.centres !== undefined) {
+    return {
+      ...state,
+      target: moveCentrePlacement(t, t.centres, pointer),
+      moved: true,
+    };
+  }
   const target: PlaceTarget =
     t.mode === "offset"
       ? {
@@ -713,13 +885,40 @@ export function withPlacement(
 ): DimensionParams {
   if (target.mode === "offset") {
     const offset_mm = mm(target.offsetMm);
-    return offset_mm === 0 ? base : { ...base, placement: { offset_mm } };
+    const oriented = withOrientation(base, target);
+    return offset_mm === 0
+      ? oriented
+      : { ...oriented, placement: { offset_mm } };
   }
   return {
     ...base,
     placement: {
       offset_mm: 0,
       text_pos: { x_mm: mm(target.textPos.x), y_mm: mm(target.textPos.y) },
+    },
+  };
+}
+
+/**
+ * A centre-to-centre dimension carries the orientation its placement ended in
+ * (the pointer decides it, as in Fusion); every other dimension is unchanged.
+ */
+function withOrientation(
+  base: DimensionParams,
+  target: Extract<PlaceTarget, { mode: "offset" }>,
+): DimensionParams {
+  if (
+    target.centres === undefined ||
+    base.type !== "linear" ||
+    base.measurement.mode !== "centre_to_centre"
+  ) {
+    return base;
+  }
+  return {
+    ...base,
+    measurement: {
+      ...base.measurement,
+      orientation: target.centres.orientation,
     },
   };
 }

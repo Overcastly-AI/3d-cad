@@ -122,6 +122,43 @@ describe("healDimensionParams", () => {
     });
   });
 
+  it("heals hole-centre dimensions: edge then circle, circle then circle", () => {
+    const edgeToCentre: DimensionParams = {
+      type: "linear",
+      measurement: { mode: "edge_to_centre", edge: OLD, centre: OLD },
+      placement,
+    };
+    expect(healDimensionParams(edgeToCentre, anchor("durable"))).toEqual({
+      type: "linear",
+      measurement: { mode: "edge_to_centre", edge: NEW_A, centre: NEW_B },
+      placement,
+    });
+    const pitch: DimensionParams = {
+      type: "linear",
+      measurement: {
+        mode: "centre_to_centre",
+        a: OLD,
+        b: OLD,
+        orientation: "horizontal",
+      },
+      placement,
+    };
+    // The orientation (the drafter's horizontal) survives the heal.
+    expect(healDimensionParams(pitch, anchor("durable"))).toEqual({
+      type: "linear",
+      measurement: {
+        mode: "centre_to_centre",
+        a: NEW_A,
+        b: NEW_B,
+        orientation: "horizontal",
+      },
+      placement,
+    });
+    expect(
+      healDimensionParams(pitch, anchor("durable", NEW_A, null)),
+    ).toBeNull();
+  });
+
   it("refuses to half-heal an edge-to-edge — a wall needs BOTH faces", () => {
     expect(
       healDimensionParams(

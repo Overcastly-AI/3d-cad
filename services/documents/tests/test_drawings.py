@@ -485,6 +485,77 @@ def test_edge_to_edge_dimension_requires_straight_edges(client: TestClient) -> N
     assert _error(response.json())["code"] == "dimension_requires_straight_edges"
 
 
+def _post_centre_dimension(
+    client: TestClient, name: str, measurement: dict[str, object]
+) -> tuple[str, Any]:
+    part = _create_part(client, f"part-{name}")
+    drawing_id = _create_drawing(client, name)
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    view_id = _add_view(client, drawing_id, sheet_id, part, 1).json()["view"]["id"]
+    response = client.post(
+        f"/api/v1/drawings/{drawing_id}/views/{view_id}/dimensions",
+        json={
+            "expected_version": 2,
+            "dimension": {"type": "linear", "measurement": measurement},
+        },
+        headers=_headers(),
+    )
+    return drawing_id, response
+
+
+def test_hole_centre_dimensions_round_trip(client: TestClient) -> None:
+    """QA-DRAWING-CENTRE-MARKS: both hole-centre modes store and read back whole,
+    the centre-to-centre orientation included (additive union members)."""
+    drawing_id, response = _post_centre_dimension(
+        client,
+        "centre1",
+        {"mode": "edge_to_centre", "edge": _edge_sig(), "centre": _edge_sig("circle")},
+    )
+    assert response.status_code == 201, response.text
+    drawing_id2, response2 = _post_centre_dimension(
+        client,
+        "centre2",
+        {
+            "mode": "centre_to_centre",
+            "a": _edge_sig("circle"),
+            "b": _edge_sig("circle"),
+            "orientation": "vertical",
+        },
+    )
+    assert response2.status_code == 201, response2.text
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    stored = tree["sheets"][0]["dimensions"][0]["dimension"]["measurement"]
+    assert stored["mode"] == "edge_to_centre"
+    assert stored["centre"]["curve"] == "circle"
+    tree2 = client.get(f"/api/v1/drawings/{drawing_id2}", headers=_headers()).json()
+    stored2 = tree2["sheets"][0]["dimensions"][0]["dimension"]["measurement"]
+    assert stored2["mode"] == "centre_to_centre"
+    assert stored2["orientation"] == "vertical"
+
+
+def test_hole_centre_dimensions_name_circles(client: TestClient) -> None:
+    """A centre is named through a CIRCULAR edge and measured from a STRAIGHT one;
+    either mismatch is a typed 422, never a stored nonsense reference."""
+    _, not_a_circle = _post_centre_dimension(
+        client,
+        "centre3",
+        {"mode": "centre_to_centre", "a": _edge_sig("circle"), "b": _edge_sig()},
+    )
+    assert not_a_circle.status_code == 422
+    assert _error(not_a_circle.json())["code"] == "dimension_requires_circular_edge"
+    _, not_a_line = _post_centre_dimension(
+        client,
+        "centre4",
+        {
+            "mode": "edge_to_centre",
+            "edge": _edge_sig("circle"),
+            "centre": _edge_sig("circle"),
+        },
+    )
+    assert not_a_line.status_code == 422
+    assert _error(not_a_line.json())["code"] == "dimension_requires_straight_edges"
+
+
 # --- mutation + cascade -----------------------------------------------------------
 
 

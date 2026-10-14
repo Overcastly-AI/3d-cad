@@ -18,6 +18,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from loft_wire.drawings import (
     AngularDimensionParams,
+    CentreToCentreMeasurement,
     ComposedArrow,
     ComposedDimension,
     ComposedDimensionError,
@@ -27,6 +28,7 @@ from loft_wire.drawings import (
     ComposedPoint,
     DiameterDimensionParams,
     DimensionParams,
+    EdgeToCentreMeasurement,
     EdgeToEdgeMeasurement,
     LinearDimensionParams,
     MeasuredDimension,
@@ -46,6 +48,7 @@ from geometry.drawings.layout import (
     SvgRect,
     ToSvg,
     Vec2,
+    ViewBounds,
     _add,
     _dot,
     _hyp,
@@ -55,6 +58,7 @@ from geometry.drawings.layout import (
     _perp,
     _sub,
     _unit,
+    view_bounds,
 )
 
 
@@ -121,6 +125,10 @@ def dimension_edge_signature(params: DimensionParams) -> EdgeSignature | None:
             return measurement.edge
         if measurement.mode == "edge_to_edge":
             return measurement.edge_a
+        if measurement.mode == "edge_to_centre":
+            return measurement.edge
+        if measurement.mode == "centre_to_centre":
+            return measurement.a
         return measurement.a.signature
     if params.type == "angular":
         return params.edge_a  # type: ignore[union-attr]
@@ -468,8 +476,15 @@ def _place_linear_between(
     dim_type: str,
     dim_id: object,
     authored_offset: float | None = None,
+    clear_of: ViewBounds | None = None,
 ) -> ComposedMeasuredDimension | None:
     """A straight linear dimension between two projected points (dimensions.ts).
+
+    ``clear_of`` (hole-centre dimensions only, QA-DRAWING-CENTRE-MARKS): a centre
+    sits INSIDE the part, so the token offset from it would put the dimension line
+    across the part. With the view's bounds given, the auto offset on each side
+    clears them first — the dimension sits ``_O`` outside the part, where a drafter
+    puts it. ``None`` (every other dimension) keeps the auto offset unchanged.
 
     ``authored_offset`` wires the authored :class:`DimensionPlacement.offset_mm`
     (design §3.1) — the signed perpendicular distance of the dimension line from the
@@ -517,7 +532,116 @@ def _place_linear_between(
     if authored_offset is not None:
         n = away if authored_offset >= 0 else _neg(away)
         return place(n, abs(authored_offset))
+    if clear_of is not None:
+
+        def cleared(n: Vec2) -> ComposedMeasuredDimension:
+            level = max(_dot(p, n), _dot(q, n))
+            return place(n, _O + max(0.0, _reach(clear_of, n) - level))
+
+        return _choose_by_penalty(cleared(away), cleared(_neg(away)), obstacles, sheet)
     return _choose_by_penalty(place(away), place(_neg(away)), obstacles, sheet)
+
+
+def _reach(bounds: ViewBounds, n: Vec2) -> float:
+    """How far the view's bounds reach along ``n`` (the max corner projection)."""
+    return max(
+        _dot(Vec2(x, y), n)
+        for x in (bounds.min.x, bounds.max.x)
+        for y in (bounds.min.y, bounds.max.y)
+    )
+
+
+def _place_linear_along(
+    p: Vec2,
+    q: Vec2,
+    d: Vec2,
+    label: str,
+    foreshortened: bool,
+    view_center: Vec2,
+    to_svg: ToSvg,
+    obstacles: Sequence[SvgRect],
+    sheet: Vec2 | None,
+    dim_id: object,
+    authored_offset: float | None = None,
+    clear_of: ViewBounds | None = None,
+) -> ComposedMeasuredDimension | None:
+    """A linear dimension between two points measured ALONG a fixed direction ``d``.
+
+    The horizontal / vertical hole-centre dimension (QA-DRAWING-CENTRE-MARKS): the
+    dimension line runs along ``d`` (the view's x or y axis) and each witness line
+    runs square to it from its own point to the dimension line, so two holes at
+    different heights get witness lines of different lengths — the standard drafting
+    form, which :func:`_place_linear_between` cannot draw (it witnesses along the
+    normal of the span between the points).
+
+    Auto placement sets the dimension line ``_O`` beyond the OUTERMOST of the two
+    points — and of the view's bounds when ``clear_of`` is given, so it never runs
+    across the part — on the ``away`` side (or the opposite side, whichever reads
+    cleaner by :func:`_choose_by_penalty`). An authored ``offset_mm`` is measured
+    from the MIDPOINT of the two points along the normal, the same reference the
+    sheet's placement stage measures the pointer against (``placement.ts``
+    ``offsetAt``)."""
+    if abs(_dot(_sub(q, p), d)) < 1e-9:
+        return None
+    mid = _mul(_add(p, q), 0.5)
+    n0 = _perp(d)
+    away = n0 if _dot(n0, _sub(mid, view_center)) >= 0 else _neg(n0)
+
+    def place(n: Vec2, level: float) -> ComposedMeasuredDimension:
+        lines: list[ComposedDimLine] = []
+        ends: list[Vec2] = []
+        for point in (p, q):
+            reach = level - _dot(point, n)
+            end = _add(point, _mul(n, reach))
+            ends.append(end)
+            if abs(reach) > _GAP:
+                sense = 1.0 if reach > 0 else -1.0
+                lines.append(
+                    _svg_line(
+                        _add(point, _mul(n, sense * _GAP)),
+                        _add(end, _mul(n, sense * _OVER)),
+                        "extension",
+                        to_svg,
+                    )
+                )
+        dim_a, dim_b = ends
+        lines.append(_svg_line(dim_a, dim_b, "dimension", to_svg))
+        along = _unit(_sub(dim_b, dim_a))
+        arrows = [_arrow(dim_a, _neg(along), to_svg), _arrow(dim_b, along, to_svg)]
+        mid_dim = _mul(_add(dim_a, dim_b), 0.5)
+        anchor = to_svg(_add(mid_dim, _mul(n, _TXT * 0.5 + 0.6)))
+        angle = _upright_angle(to_svg(dim_a), to_svg(dim_b))
+        return _measured(
+            "linear",
+            dim_id,
+            lines,
+            arrows,
+            ComposedDimText(x=anchor.x, y=anchor.y, angle=angle, value=label),
+            foreshortened,
+        )
+
+    if authored_offset is not None:
+        n = away if authored_offset >= 0 else _neg(away)
+        return place(n, _dot(mid, n) + abs(authored_offset))
+
+    def auto(n: Vec2) -> ComposedMeasuredDimension:
+        level = max(_dot(p, n), _dot(q, n))
+        if clear_of is not None:
+            level = max(level, _reach(clear_of, n))
+        return place(n, level + _O)
+
+    return _choose_by_penalty(auto(away), auto(_neg(away)), obstacles, sheet)
+
+
+def _projected_centre(
+    edges: Sequence[ProjectedViewEdge], sig: EdgeSignature | None
+) -> Vec2 | None:
+    """The projected centre of the circle *sig* names, when this view draws it as a
+    circle or arc — the point a hole-centre dimension is drawn to."""
+    edge = find_matching_edge(edges, sig) if sig is not None else None
+    if edge is None or edge.center is None or edge.primitive not in ("circle", "arc"):
+        return None
+    return _p2(edge.center)
 
 
 def _line_intersection(a0: Vec2, a1: Vec2, b0: Vec2, b1: Vec2) -> Vec2 | None:
@@ -697,6 +821,80 @@ def _build_dimension_annotation_auto(
                 )
                 or unplaceable()
             )
+        if isinstance(measurement, EdgeToCentreMeasurement):
+            # Square from the edge's drawn line to the hole centre: the witness lines
+            # run parallel to the edge, the dimension line across — the hole-position
+            # callout (QA-DRAWING-CENTRE-MARKS).
+            line = primary_edge
+            centre = _projected_centre(
+                edges,
+                anchored_signature(measurement.centre, measured, secondary=True),
+            )
+            if line is None or line.primitive != "line" or centre is None:
+                return unplaceable()
+            foot = _perpendicular_foot(centre, _p2(line.start), _p2(line.end))
+            if foot is None:
+                return unplaceable()
+            return (
+                _place_linear_between(
+                    foot,
+                    centre,
+                    label,
+                    measured.foreshortened,
+                    view_center,
+                    to_svg,
+                    obstacles,
+                    sheet,
+                    dim_type,
+                    dim_id,
+                    authored_offset,
+                    view_bounds(edges),
+                )
+                or unplaceable()
+            )
+        if isinstance(measurement, CentreToCentreMeasurement):
+            p = _projected_centre(edges, primary_sig)
+            q = _projected_centre(
+                edges, anchored_signature(measurement.b, measured, secondary=True)
+            )
+            if p is None or q is None:
+                return unplaceable()
+            if measurement.orientation == "aligned":
+                placed = _place_linear_between(
+                    p,
+                    q,
+                    label,
+                    measured.foreshortened,
+                    view_center,
+                    to_svg,
+                    obstacles,
+                    sheet,
+                    dim_type,
+                    dim_id,
+                    authored_offset,
+                    view_bounds(edges),
+                )
+            else:
+                axis = (
+                    Vec2(1.0, 0.0)
+                    if measurement.orientation == "horizontal"
+                    else Vec2(0.0, 1.0)
+                )
+                placed = _place_linear_along(
+                    p,
+                    q,
+                    axis,
+                    label,
+                    measured.foreshortened,
+                    view_center,
+                    to_svg,
+                    obstacles,
+                    sheet,
+                    dim_id,
+                    authored_offset,
+                    view_bounds(edges),
+                )
+            return placed or unplaceable()
         if isinstance(measurement, PointToPointMeasurement):
             sig_b = anchored_signature(
                 measurement.b.signature, measured, secondary=True

@@ -20,6 +20,7 @@ Split out of :mod:`geometry.drawings.compose` (SPLIT-COMPOSE).
 from __future__ import annotations
 
 import io
+from collections.abc import Sequence
 from typing import NamedTuple
 
 import ezdxf
@@ -29,6 +30,7 @@ from ezdxf.enums import TextEntityAlignment
 from ezdxf.layouts import Modelspace
 from loft_wire.drawings import (
     ComposedBendTable,
+    ComposedCentreMark,
     ComposedCircleEdge,
     ComposedDimension,
     ComposedDimensionError,
@@ -203,6 +205,11 @@ _LYR_NOTE = "NOTES"
 #: added ONLY for a section sheet, so a non-section sheet's TABLES section (and DXF
 #: bytes) is byte-unchanged (the same additive-layer posture as `_LYR_BEND`).
 _LYR_HATCH = "HATCH"
+#: Centre marks (QA-DRAWING-CENTRE-MARKS) — the ISO 128 centre-line layer, its dashes
+#: REAL LINE entities (the composer's explicit segments, so the DXF matches the SVG and
+#: PDF dash for dash). Added ONLY when a view carries a mark, so a sheet without
+#: circles keeps its TABLES section (and DXF bytes) unchanged.
+_LYR_CENTRE = "CENTER"
 
 #: Mono text style — the consuming CAD supplies the Courier face (no embed).
 _DXF_STYLE = "LOFT_MONO"
@@ -440,6 +447,15 @@ def _dxf_hatch(msp: Modelspace, hatch: ComposedHatch, frame: _DxfFrame) -> None:
         _dxf_line(msp, frame, line.x1, line.y1, line.x2, line.y2, _LYR_HATCH)
 
 
+def _dxf_centre_marks(
+    msp: Modelspace, marks: Sequence[ComposedCentreMark], frame: _DxfFrame
+) -> None:
+    """Emit a view's centre marks as LINE entities on the CENTER layer."""
+    for mark in marks:
+        for line in mark.lines:
+            _dxf_line(msp, frame, line.x1, line.y1, line.x2, line.y2, _LYR_CENTRE)
+
+
 def _dxf_view(msp: Modelspace, view: ComposedView, frame: _DxfFrame) -> None:
     """Emit one placed view through ``frame`` (:func:`_dxf_view_frame` picks it).
 
@@ -477,6 +493,7 @@ def _dxf_view(msp: Modelspace, view: ComposedView, frame: _DxfFrame) -> None:
             _dxf_hatch(msp, view.hatch, frame)
         for edge in view.edges:
             _dxf_edge(msp, edge, frame)
+        _dxf_centre_marks(msp, view.centre_marks, frame)
         for dim in view.dimensions:
             _dxf_dimension(msp, dim, frame)
     _dxf_text_entity(
@@ -782,6 +799,9 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
         # (drawings-section.md §5, the same additive-layer posture as BEND/NOTES).
         if any(v.hatch is not None for v in composed.views):
             doc.layers.add(_LYR_HATCH, color=8)
+        # The CENTER layer likewise only when a view carries a centre mark.
+        if any(v.centre_marks for v in composed.views):
+            doc.layers.add(_LYR_CENTRE, color=3)
         doc.styles.add(_DXF_STYLE, font="cour.ttf")
         msp = doc.modelspace()
 

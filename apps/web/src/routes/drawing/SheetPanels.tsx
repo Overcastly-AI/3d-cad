@@ -618,7 +618,8 @@ export function DimensionsPanel({
         <p className="px-3 py-2.5 font-body text-2xs text-gauge">
           Click a highlighted edge on a view to add a dimension — a circle takes
           a diameter or radius, a straight edge a linear; pick a second edge for
-          an angle or the distance across (a wall thickness).
+          an angle or the distance across (a wall thickness). Pick a hole&apos;s
+          centre mark to dimension its position from an edge or another hole.
         </p>
       ) : (
         <>

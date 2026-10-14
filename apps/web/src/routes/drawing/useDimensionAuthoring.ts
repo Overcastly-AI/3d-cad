@@ -6,6 +6,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { drawing } from "@loft/design";
+
 import {
   type DimensionParams,
   createDimension,
@@ -18,10 +20,12 @@ import {
   edgeKey,
   vertexKey,
 } from "../../components/DrawingSheet";
+import { type CentrePickEvent, centreKey } from "../../components/CentreMarks";
 import {
   IDLE,
   type AuthoringState,
   type DimensionAction,
+  armCentre,
   armPair,
   armedSignatures,
   beginPlacement,
@@ -31,6 +35,7 @@ import {
   menuActions,
   menuAnchor,
   movePlacement,
+  pickCentre,
   pickEdge,
   pickEndpoint,
   pickHint,
@@ -38,9 +43,11 @@ import {
   placementOffsetMm,
   placementReplaces,
   placementTarget,
+  selectedCentres,
   selectedEndpoints,
   setPlacementOffset,
 } from "../../drawing/authoring";
+import { centrePlacementFromComposed } from "../../drawing/centres";
 import {
   healDimensionParams,
   reanchoredAnchor,
@@ -82,6 +89,10 @@ export function useDimensionAuthoring(
   const armedEdgeKeys = armed.map((a) => edgeKey(a.projection, a.sourceEdge));
   const selectedVertexKeys = selectedEndpoints(authoring).map((e) =>
     vertexKey(e.projection, e.sourceEdge, e.endpoint),
+  );
+  // The hole-centre marks in the current pick (QA-DRAWING-CENTRE-MARKS).
+  const selectedCentreKeys = selectedCentres(authoring).map((c) =>
+    centreKey(c.projection, c.sourceEdge),
   );
   // A point-to-point pick is in progress — reveal every endpoint handle (and put
   // it in the tab order) so the second vertex is reachable on any edge; at rest
@@ -125,6 +136,12 @@ export function useDimensionAuthoring(
     );
   }, []);
 
+  // A centre mark picked as a dimension anchor: waits for a second centre or a
+  // straight edge (either order), then offers the hole-position dimension.
+  const handlePickCentre = useCallback((event: CentrePickEvent) => {
+    setAuthoring((state) => pickCentre(state, { ...event }));
+  }, []);
+
   /** POST the authored dimension (with whatever placement it carries) + refresh. */
   const persistDimension = useCallback(
     (viewId: string, params: DimensionParams) => {
@@ -162,6 +179,11 @@ export function useDimensionAuthoring(
       if (action === "start_angular" || action === "start_edge_to_edge") {
         const intent = action === "start_angular" ? "angular" : "edge_to_edge";
         setAuthoring((state) => armPair(state, intent));
+        return;
+      }
+      // "Distance to centre" arms a centre-mark pick (QA-DRAWING-CENTRE-MARKS).
+      if (action === "start_edge_to_centre") {
+        setAuthoring(armCentre);
         return;
       }
       const built = buildDimension(authoring, action);
@@ -205,10 +227,27 @@ export function useDimensionAuthoring(
       if (dimBusy) return;
       const row = dimensions.find((d) => d.id === event.dimensionId);
       if (row === undefined) return;
+      const params = row.dimension;
+      // A horizontal / vertical centre-to-centre dimension witnesses square to
+      // its axis, not to the span, so it is read back by its own rule.
+      const along =
+        params.type === "linear" &&
+        params.measurement.mode === "centre_to_centre" &&
+        params.measurement.orientation !== undefined &&
+        params.measurement.orientation !== "aligned"
+          ? params.measurement.orientation
+          : null;
       const target =
-        event.dim.dimension_type === "linear"
-          ? offsetPlacementFromComposed(event.dim.lines, event.viewAnchor)
-          : textPlacementFromComposed(event.dim.lines, event.dim.text);
+        along !== null
+          ? centrePlacementFromComposed(
+              event.dim.lines,
+              event.viewAnchor,
+              along,
+              drawing.dimensionGapMm,
+            )
+          : event.dim.dimension_type === "linear"
+            ? offsetPlacementFromComposed(event.dim.lines, event.viewAnchor)
+            : textPlacementFromComposed(event.dim.lines, event.dim.text);
       if (target === null) return;
       setAuthoring(
         beginReplacement(row.id, row.view_id, row.dimension, target),
@@ -450,6 +489,7 @@ export function useDimensionAuthoring(
     selectedEdgeKey,
     armedEdgeKeys,
     selectedVertexKeys,
+    selectedCentreKeys,
     endpointPickActive,
     menuActionList,
     anchor,
@@ -458,6 +498,7 @@ export function useDimensionAuthoring(
     placingOffsetMm,
     handlePickEdge,
     handlePickEndpoint,
+    handlePickCentre,
     handleChooseAction,
     handlePlacePointer,
     handlePlaceClick,

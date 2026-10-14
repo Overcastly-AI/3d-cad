@@ -739,6 +739,42 @@
         "title": "BoundingBox",
         "type": "object"
       },
+      "CentreToCentreMeasurement": {
+        "description": "The distance between two hole centres, in the view.\n\n``orientation`` is the drafting choice the user makes by where they place the\ndimension: ``horizontal`` / ``vertical`` measure along the view's x / y axis (the\nhole-pattern pitch), ``aligned`` the straight distance between the centres.",
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "First circular model edge (its centre)"
+          },
+          "b": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "Second circular model edge (its centre)"
+          },
+          "mode": {
+            "const": "centre_to_centre",
+            "default": "centre_to_centre",
+            "title": "Mode",
+            "type": "string"
+          },
+          "orientation": {
+            "default": "aligned",
+            "description": "'horizontal' / 'vertical' measure along the view's x / y axis; 'aligned' (default) the straight in-plane distance",
+            "enum": [
+              "aligned",
+              "horizontal",
+              "vertical"
+            ],
+            "title": "Orientation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ],
+        "title": "CentreToCentreMeasurement",
+        "type": "object"
+      },
       "ChamferFeature": {
         "description": "``{\"type\": \"chamfer\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -2413,6 +2449,31 @@
           "selector"
         ],
         "title": "EdgeSubshapeRef",
+        "type": "object"
+      },
+      "EdgeToCentreMeasurement": {
+        "description": "The perpendicular distance from a straight edge to a hole centre, in the view.\n\nThe hole-position dimension: the plate's left edge to the hole's centre. Measured\nin the VIEW PLANE (the module docstring says why), perpendicular to the edge as\nthe view draws it, so a vertical edge gives a horizontal dimension and a\nhorizontal edge a vertical one \u2014 the Fusion behaviour for a line-to-point\ndimension. An edge seen end-on in the view has no direction there, and is refused\nas ``dimension_not_placeable`` rather than measured.",
+        "properties": {
+          "centre": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "The circular model edge (a hole rim) whose CENTRE is measured to"
+          },
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "The straight model edge measured from"
+          },
+          "mode": {
+            "const": "edge_to_centre",
+            "default": "edge_to_centre",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "edge",
+          "centre"
+        ],
+        "title": "EdgeToCentreMeasurement",
         "type": "object"
       },
       "EdgeToEdgeMeasurement": {
@@ -4915,10 +4976,12 @@
         "description": "A linear dimension \u2014 an edge length, a point-to-point or an edge-to-edge\nperpendicular distance (\u00a73.1).",
         "properties": {
           "measurement": {
-            "description": "What is measured (an edge's length, two endpoints, or the perpendicular distance between two parallel edges)",
+            "description": "What is measured (an edge's length, two endpoints, the perpendicular distance between two parallel edges, or a hole centre's)",
             "discriminator": {
               "mapping": {
+                "centre_to_centre": "#/components/schemas/CentreToCentreMeasurement",
                 "edge_length": "#/components/schemas/EdgeLengthMeasurement",
+                "edge_to_centre": "#/components/schemas/EdgeToCentreMeasurement",
                 "edge_to_edge": "#/components/schemas/EdgeToEdgeMeasurement",
                 "point_to_point": "#/components/schemas/PointToPointMeasurement"
               },
@@ -4933,6 +4996,12 @@
               },
               {
                 "$ref": "#/components/schemas/EdgeToEdgeMeasurement"
+              },
+              {
+                "$ref": "#/components/schemas/EdgeToCentreMeasurement"
+              },
+              {
+                "$ref": "#/components/schemas/CentreToCentreMeasurement"
               }
             ],
             "title": "Measurement"

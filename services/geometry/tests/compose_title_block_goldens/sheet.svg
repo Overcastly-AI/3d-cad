@@ -61,6 +61,24 @@
       <line x1="133.5190" y1="105.3506" x2="133.5190" y2="80.3506" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
       <circle cx="105.5190" cy="92.8506" r="5.0000" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
       <circle cx="121.5190" cy="92.8506" r="5.0000" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <g data-testid="drawing-centre-marks">
+        <g data-testid="drawing-centre-mark" cx="105.5190" cy="92.8506">
+          <line x1="97.5190" y1="92.8506" x2="103.0190" y2="92.8506" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="104.0190" y1="92.8506" x2="107.0190" y2="92.8506" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="108.0190" y1="92.8506" x2="113.5190" y2="92.8506" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="105.5190" y1="84.8506" x2="105.5190" y2="90.3506" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="105.5190" y1="91.3506" x2="105.5190" y2="94.3506" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="105.5190" y1="95.3506" x2="105.5190" y2="100.8506" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+        </g>
+        <g data-testid="drawing-centre-mark" cx="121.5190" cy="92.8506">
+          <line x1="113.5190" y1="92.8506" x2="119.0190" y2="92.8506" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="120.0190" y1="92.8506" x2="123.0190" y2="92.8506" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="124.0190" y1="92.8506" x2="129.5190" y2="92.8506" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="121.5190" y1="84.8506" x2="121.5190" y2="90.3506" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="121.5190" y1="91.3506" x2="121.5190" y2="94.3506" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="121.5190" y1="95.3506" x2="121.5190" y2="100.8506" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+        </g>
+      </g>
       <g data-testid="drawing-dimension" data-dimension-type="diameter" data-dimension-value="Ø10.000" data-foreshortened="false">
         <line x1="100.5190" y1="92.8506" x2="110.5190" y2="92.8506" stroke="#2A3542" stroke-width="0.3000" stroke-linecap="round"/>
         <polygon points="100.5190,92.8506 103.9190,93.7506 103.9190,91.9506" fill="#2A3542"/>

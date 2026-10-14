@@ -28,6 +28,18 @@ export async function persistArtifact(from: string, to: string): Promise<void> {
   await copyFile(from, to);
 }
 
+/**
+ * Pick a hole on the drawing sheet for a diameter / radius: click inside the
+ * disc near its rim. The disc's MIDDLE is the hole's centre mark, a separate
+ * pick (a hole-position anchor, QA-DRAWING-CENTRE-MARKS), so a bare `click()`
+ * — which aims at the box centre — would start a centre pick instead.
+ */
+export async function clickHoleRim(hole: Locator): Promise<void> {
+  const box = await hole.boundingBox();
+  if (!box) throw new Error("the hole pick target has no box");
+  await hole.click({ position: { x: box.width * 0.12, y: box.height / 2 } });
+}
+
 /** Meets the gateway's 8–256 char policy; not a secret (test-only). */
 export const TEST_PASSWORD = "loft-e2e-passw0rd";
 

@@ -1036,6 +1036,42 @@
         "title": "BoxParams",
         "type": "object"
       },
+      "CentreToCentreMeasurement": {
+        "description": "The distance between two hole centres, in the view.\n\n``orientation`` is the drafting choice the user makes by where they place the\ndimension: ``horizontal`` / ``vertical`` measure along the view's x / y axis (the\nhole-pattern pitch), ``aligned`` the straight distance between the centres.",
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "First circular model edge (its centre)"
+          },
+          "b": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "Second circular model edge (its centre)"
+          },
+          "mode": {
+            "const": "centre_to_centre",
+            "default": "centre_to_centre",
+            "title": "Mode",
+            "type": "string"
+          },
+          "orientation": {
+            "default": "aligned",
+            "description": "'horizontal' / 'vertical' measure along the view's x / y axis; 'aligned' (default) the straight in-plane distance",
+            "enum": [
+              "aligned",
+              "horizontal",
+              "vertical"
+            ],
+            "title": "Orientation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ],
+        "title": "CentreToCentreMeasurement",
+        "type": "object"
+      },
       "ChamferFeature": {
         "description": "``{\"type\": \"chamfer\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -1343,6 +1379,78 @@
           "rows"
         ],
         "title": "ComposedBendTable",
+        "type": "object"
+      },
+      "ComposedCentreLine": {
+        "description": "One drawn segment of a centre mark (final sheet-SVG space, mm).",
+        "properties": {
+          "x1": {
+            "title": "X1",
+            "type": "number"
+          },
+          "x2": {
+            "title": "X2",
+            "type": "number"
+          },
+          "y1": {
+            "title": "Y1",
+            "type": "number"
+          },
+          "y2": {
+            "title": "Y2",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x1",
+          "y1",
+          "x2",
+          "y2"
+        ],
+        "title": "ComposedCentreLine",
+        "type": "object"
+      },
+      "ComposedCentreMark": {
+        "description": "A placed centre mark on a circle seen end-on (ISO 128-20 / ASME Y14.2).\n\nA thin chain-style cross: a short dash crossing at the centre, a gap, then a long\ndash carried 3 mm past the circle on each of the four arms \u2014 or one continuous\nthin line per axis on a circle too small for the gap to read (ISO 128-24 permits\nit). The segments are explicit geometry, not a dash pattern, so SVG, PDF and DXF\ndraw the same marks.\n\nOne mark per distinct centre: the rims of a through hole and a counterbore's two\ncircles share one, sized to the largest. ``edge_index`` points into the view's\n``edges`` (and the canonically-aligned evaluate edges) at the circle the mark\nstands for \u2014 a visible, dimensionable one where there is one \u2014 which is how the\nsheet turns a pick on the mark into the circle's signature.",
+        "properties": {
+          "cx": {
+            "description": "Centre x (sheet-SVG mm)",
+            "title": "Cx",
+            "type": "number"
+          },
+          "cy": {
+            "description": "Centre y (sheet-SVG mm, y-down)",
+            "title": "Cy",
+            "type": "number"
+          },
+          "edge_index": {
+            "description": "Index into the view's `edges` of the circle it marks",
+            "minimum": 0.0,
+            "title": "Edge Index",
+            "type": "integer"
+          },
+          "lines": {
+            "description": "The mark's drawn segments, horizontal arm first",
+            "items": {
+              "$ref": "#/components/schemas/ComposedCentreLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "r": {
+            "description": "Radius of the largest circle on this centre (mm)",
+            "title": "R",
+            "type": "number"
+          }
+        },
+        "required": [
+          "cx",
+          "cy",
+          "r",
+          "edge_index",
+          "lines"
+        ],
+        "title": "ComposedCentreMark",
         "type": "object"
       },
       "ComposedCircleEdge": {
@@ -2095,6 +2203,14 @@
           "anchor": {
             "$ref": "#/components/schemas/ComposedPoint",
             "description": "View-centre in SVG space"
+          },
+          "centre_marks": {
+            "description": "Automatic centre marks, one per circle centre seen end-on (QA-DRAWING-CENTRE-MARKS); empty for a view with no circles.",
+            "items": {
+              "$ref": "#/components/schemas/ComposedCentreMark"
+            },
+            "title": "Centre Marks",
+            "type": "array"
           },
           "dimensions": {
             "description": "Placed dimensions",
@@ -3978,6 +4094,31 @@
           "index"
         ],
         "title": "EdgeTarget",
+        "type": "object"
+      },
+      "EdgeToCentreMeasurement": {
+        "description": "The perpendicular distance from a straight edge to a hole centre, in the view.\n\nThe hole-position dimension: the plate's left edge to the hole's centre. Measured\nin the VIEW PLANE (the module docstring says why), perpendicular to the edge as\nthe view draws it, so a vertical edge gives a horizontal dimension and a\nhorizontal edge a vertical one \u2014 the Fusion behaviour for a line-to-point\ndimension. An edge seen end-on in the view has no direction there, and is refused\nas ``dimension_not_placeable`` rather than measured.",
+        "properties": {
+          "centre": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "The circular model edge (a hole rim) whose CENTRE is measured to"
+          },
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "The straight model edge measured from"
+          },
+          "mode": {
+            "const": "edge_to_centre",
+            "default": "edge_to_centre",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "edge",
+          "centre"
+        ],
+        "title": "EdgeToCentreMeasurement",
         "type": "object"
       },
       "EdgeToEdgeMeasurement": {
@@ -7187,10 +7328,12 @@
         "description": "A linear dimension \u2014 an edge length, a point-to-point or an edge-to-edge\nperpendicular distance (\u00a73.1).",
         "properties": {
           "measurement": {
-            "description": "What is measured (an edge's length, two endpoints, or the perpendicular distance between two parallel edges)",
+            "description": "What is measured (an edge's length, two endpoints, the perpendicular distance between two parallel edges, or a hole centre's)",
             "discriminator": {
               "mapping": {
+                "centre_to_centre": "#/components/schemas/CentreToCentreMeasurement",
                 "edge_length": "#/components/schemas/EdgeLengthMeasurement",
+                "edge_to_centre": "#/components/schemas/EdgeToCentreMeasurement",
                 "edge_to_edge": "#/components/schemas/EdgeToEdgeMeasurement",
                 "point_to_point": "#/components/schemas/PointToPointMeasurement"
               },
@@ -7205,6 +7348,12 @@
               },
               {
                 "$ref": "#/components/schemas/EdgeToEdgeMeasurement"
+              },
+              {
+                "$ref": "#/components/schemas/EdgeToCentreMeasurement"
+              },
+              {
+                "$ref": "#/components/schemas/CentreToCentreMeasurement"
               }
             ],
             "title": "Measurement"

@@ -94,12 +94,13 @@ describe("authoring pick model", () => {
     expect(menuActions(state)).toEqual(["radius"]);
   });
 
-  it("a straight edge offers linear + both two-edge arms", () => {
+  it("a straight edge offers linear + both two-edge arms + a centre arm", () => {
     const state = pickEdge(IDLE, edge(lineSig(), "line"));
     expect(menuActions(state)).toEqual([
       "linear",
       "start_angular",
       "start_edge_to_edge",
+      "start_edge_to_centre",
     ]);
   });
 

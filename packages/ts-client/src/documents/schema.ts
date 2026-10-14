@@ -2065,6 +2065,32 @@ export interface components {
             min: components["schemas"]["Vec3"];
         };
         /**
+         * CentreToCentreMeasurement
+         * @description The distance between two hole centres, in the view.
+         *
+         *     ``orientation`` is the drafting choice the user makes by where they place the
+         *     dimension: ``horizontal`` / ``vertical`` measure along the view's x / y axis (the
+         *     hole-pattern pitch), ``aligned`` the straight distance between the centres.
+         */
+        CentreToCentreMeasurement: {
+            /** @description First circular model edge (its centre) */
+            a: components["schemas"]["EdgeSignature"];
+            /** @description Second circular model edge (its centre) */
+            b: components["schemas"]["EdgeSignature"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            mode: "centre_to_centre";
+            /**
+             * Orientation
+             * @description 'horizontal' / 'vertical' measure along the view's x / y axis; 'aligned' (default) the straight in-plane distance
+             * @default aligned
+             * @enum {string}
+             */
+            orientation: "aligned" | "horizontal" | "vertical";
+        };
+        /**
          * ChamferFeature
          * @description ``{"type": "chamfer", "version": 1, "params": {...}}`` envelope.
          */
@@ -3359,6 +3385,28 @@ export interface components {
              * @constant
              */
             subshape_type: "edge";
+        };
+        /**
+         * EdgeToCentreMeasurement
+         * @description The perpendicular distance from a straight edge to a hole centre, in the view.
+         *
+         *     The hole-position dimension: the plate's left edge to the hole's centre. Measured
+         *     in the VIEW PLANE (the module docstring says why), perpendicular to the edge as
+         *     the view draws it, so a vertical edge gives a horizontal dimension and a
+         *     horizontal edge a vertical one — the Fusion behaviour for a line-to-point
+         *     dimension. An edge seen end-on in the view has no direction there, and is refused
+         *     as ``dimension_not_placeable`` rather than measured.
+         */
+        EdgeToCentreMeasurement: {
+            /** @description The circular model edge (a hole rim) whose CENTRE is measured to */
+            centre: components["schemas"]["EdgeSignature"];
+            /** @description The straight model edge measured from */
+            edge: components["schemas"]["EdgeSignature"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            mode: "edge_to_centre";
         };
         /**
          * EdgeToEdgeMeasurement
@@ -4921,9 +4969,9 @@ export interface components {
         LinearDimensionParams: {
             /**
              * Measurement
-             * @description What is measured (an edge's length, two endpoints, or the perpendicular distance between two parallel edges)
+             * @description What is measured (an edge's length, two endpoints, the perpendicular distance between two parallel edges, or a hole centre's)
              */
-            measurement: components["schemas"]["EdgeLengthMeasurement"] | components["schemas"]["PointToPointMeasurement"] | components["schemas"]["EdgeToEdgeMeasurement"];
+            measurement: components["schemas"]["EdgeLengthMeasurement"] | components["schemas"]["PointToPointMeasurement"] | components["schemas"]["EdgeToEdgeMeasurement"] | components["schemas"]["EdgeToCentreMeasurement"] | components["schemas"]["CentreToCentreMeasurement"];
             /** @description Authored 2D placement */
             placement?: components["schemas"]["DimensionPlacement"];
             /**

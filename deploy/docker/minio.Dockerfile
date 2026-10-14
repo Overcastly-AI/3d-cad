@@ -74,11 +74,33 @@ ARG MC_VERSION=v0.0.0-20241121172154-1681e4497c09
 ARG MC_COMMIT=1681e4497c09d7438a34e846f76dbde972ab7daf
 ARG MC_SUM=h1:Yl/q8sHsBQwidLtZFN8UShYDiLeWvk6CXNsj9JjlOHM=
 
+# TRANSIENT NETWORK ERRORS. `go` does not retry a failed fetch, and a single
+# HTTP/2 reset from sum.golang.org kills the build (deploy-path run
+# 38630560409: `reading https://sum.golang.org/tile/8/0/x122/851: stream
+# error: stream ID 445; INTERNAL_ERROR`, on a tip that touched nothing here).
+# So every `go` call that reaches the network runs under `retry`: 3 attempts,
+# 10 s then 30 s apart. A real error (bad pin, compile failure) fails all three
+# and still stops the build, costing 40 s of sleep plus two re-runs (go's
+# build cache keeps what already compiled). Checksum verification stays ON: a retry
+# asks the same sumdb again, it never skips it. `retry` is defined in each RUN
+# because each RUN is its own shell.
+#
 # Refuse to build anything but the pinned bytes. `go mod download -json`
-# reports the h1 sum of the zip it verified; compare it to the pin.
+# reports the h1 sum of the zip it verified; compare it to the pin. The JSON
+# is captured first so a failed download fails here, not as an empty sum.
 RUN set -eu; \
+    retry() { \
+      n=1; \
+      until "$@"; do \
+        if [ "$n" -ge 3 ]; then echo "minio.Dockerfile: '$*' failed $n times" >&2; return 1; fi; \
+        d=$([ "$n" -eq 1 ] && echo 10 || echo 30); \
+        echo "minio.Dockerfile: '$1 $2' attempt $n failed, retrying in ${d}s" >&2; \
+        sleep "$d"; n=$((n + 1)); \
+      done; \
+    }; \
     check() { \
-      got=$(go mod download -json "$1@$2" | sed -n 's/.*"Sum": "\(.*\)".*/\1/p'); \
+      json=$(retry go mod download -json "$1@$2"); \
+      got=$(echo "$json" | sed -n 's/.*"Sum": "\(.*\)".*/\1/p'); \
       if [ "$got" != "$3" ]; then \
         echo "minio.Dockerfile: $1@$2 has sum '$got', pinned '$3' - REFUSING" >&2; \
         exit 1; \
@@ -92,15 +114,24 @@ RUN set -eu; \
 # so `minio --version` and the server's own version reporting name the real
 # release instead of DEVELOPMENT.GOGET.
 RUN set -eu; \
+    retry() { \
+      n=1; \
+      until "$@"; do \
+        if [ "$n" -ge 3 ]; then echo "minio.Dockerfile: '$*' failed $n times" >&2; return 1; fi; \
+        d=$([ "$n" -eq 1 ] && echo 10 || echo 30); \
+        echo "minio.Dockerfile: '$1 $2' attempt $n failed, retrying in ${d}s" >&2; \
+        sleep "$d"; n=$((n + 1)); \
+      done; \
+    }; \
     ts() { echo "$1" | sed -E 's/^RELEASE\.([0-9-]+)T([0-9]+)-([0-9]+)-([0-9]+)Z$/\1T\2:\3:\4Z/'; }; \
-    go install -ldflags "-s -w \
+    retry go install -ldflags "-s -w \
       -X github.com/minio/minio/cmd.Version=$(ts "$MINIO_RELEASE") \
       -X github.com/minio/minio/cmd.CopyrightYear=2024 \
       -X github.com/minio/minio/cmd.ReleaseTag=$MINIO_RELEASE \
       -X github.com/minio/minio/cmd.CommitID=$MINIO_COMMIT \
       -X github.com/minio/minio/cmd.ShortCommitID=$(echo "$MINIO_COMMIT" | cut -c1-12)" \
       "github.com/minio/minio@$MINIO_VERSION"; \
-    go install -ldflags "-s -w \
+    retry go install -ldflags "-s -w \
       -X github.com/minio/mc/cmd.Version=$(ts "$MC_RELEASE") \
       -X github.com/minio/mc/cmd.CopyrightYear=2024 \
       -X github.com/minio/mc/cmd.ReleaseTag=$MC_RELEASE \
