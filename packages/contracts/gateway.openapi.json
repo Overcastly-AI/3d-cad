@@ -1411,7 +1411,7 @@
         "type": "object"
       },
       "ComposedCentreMark": {
-        "description": "A placed centre mark on a circle seen end-on (ISO 128-20 / ASME Y14.2).\n\nA thin chain-style cross: a short dash crossing at the centre, a gap, then a long\ndash carried :data:`~geometry.drawings` ``_CM_OVERSHOOT_MM`` past the circle on\neach of the four arms \u2014 or one continuous thin line per axis on a circle too small\nfor the gap to read (ISO 128-24 permits it). The segments are explicit geometry,\nnot a dash pattern, so SVG, PDF and DXF draw the same marks.\n\nOne mark per distinct centre: the rims of a through hole and a counterbore's two\ncircles share one, sized to the largest. ``edge_index`` points into the view's\n``edges`` (and the canonically-aligned evaluate edges) at the circle the mark\nstands for \u2014 a visible, dimensionable one where there is one \u2014 which is how the\nsheet turns a pick on the mark into the circle's signature.",
+        "description": "A placed centre mark on a circle seen end-on (ISO 128-20 / ASME Y14.2).\n\nA thin chain-style cross: a short dash crossing at the centre, a gap, then a long\ndash carried 3 mm past the circle on each of the four arms \u2014 or one continuous\nthin line per axis on a circle too small for the gap to read (ISO 128-24 permits\nit). The segments are explicit geometry, not a dash pattern, so SVG, PDF and DXF\ndraw the same marks.\n\nOne mark per distinct centre: the rims of a through hole and a counterbore's two\ncircles share one, sized to the largest. ``edge_index`` points into the view's\n``edges`` (and the canonically-aligned evaluate edges) at the circle the mark\nstands for \u2014 a visible, dimensionable one where there is one \u2014 which is how the\nsheet turns a pick on the mark into the circle's signature.",
         "properties": {
           "cx": {
             "description": "Centre x (sheet-SVG mm)",
@@ -4097,7 +4097,7 @@
         "type": "object"
       },
       "EdgeToCentreMeasurement": {
-        "description": "The perpendicular distance from a straight edge to a hole centre, in the view.\n\nThe hole-position dimension: the plate's left edge to the hole's centre. Measured\nin the VIEW PLANE (the module docstring says why), perpendicular to the edge as\nthe view draws it, so a vertical edge gives a horizontal dimension and a\nhorizontal edge a vertical one \u2014 the Fusion behaviour for a line-to-point\ndimension. An edge seen end-on in the view has no direction there, and is refused\nas ``dimension_wrong_type`` rather than measured.",
+        "description": "The perpendicular distance from a straight edge to a hole centre, in the view.\n\nThe hole-position dimension: the plate's left edge to the hole's centre. Measured\nin the VIEW PLANE (the module docstring says why), perpendicular to the edge as\nthe view draws it, so a vertical edge gives a horizontal dimension and a\nhorizontal edge a vertical one \u2014 the Fusion behaviour for a line-to-point\ndimension. An edge seen end-on in the view has no direction there, and is refused\nas ``dimension_not_placeable`` rather than measured.",
         "properties": {
           "centre": {
             "$ref": "#/components/schemas/EdgeSignature",

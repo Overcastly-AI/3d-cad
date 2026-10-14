@@ -3204,10 +3204,10 @@ export interface components {
          * @description A placed centre mark on a circle seen end-on (ISO 128-20 / ASME Y14.2).
          *
          *     A thin chain-style cross: a short dash crossing at the centre, a gap, then a long
-         *     dash carried :data:`~geometry.drawings` ``_CM_OVERSHOOT_MM`` past the circle on
-         *     each of the four arms — or one continuous thin line per axis on a circle too small
-         *     for the gap to read (ISO 128-24 permits it). The segments are explicit geometry,
-         *     not a dash pattern, so SVG, PDF and DXF draw the same marks.
+         *     dash carried 3 mm past the circle on each of the four arms — or one continuous
+         *     thin line per axis on a circle too small for the gap to read (ISO 128-24 permits
+         *     it). The segments are explicit geometry, not a dash pattern, so SVG, PDF and DXF
+         *     draw the same marks.
          *
          *     One mark per distinct centre: the rims of a through hole and a counterbore's two
          *     circles share one, sized to the largest. ``edge_index`` points into the view's
@@ -5191,7 +5191,7 @@ export interface components {
          *     the view draws it, so a vertical edge gives a horizontal dimension and a
          *     horizontal edge a vertical one — the Fusion behaviour for a line-to-point
          *     dimension. An edge seen end-on in the view has no direction there, and is refused
-         *     as ``dimension_wrong_type`` rather than measured.
+         *     as ``dimension_not_placeable`` rather than measured.
          */
         EdgeToCentreMeasurement: {
             /** @description The circular model edge (a hole rim) whose CENTRE is measured to */

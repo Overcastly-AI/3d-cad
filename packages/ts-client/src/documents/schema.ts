@@ -3395,7 +3395,7 @@ export interface components {
          *     the view draws it, so a vertical edge gives a horizontal dimension and a
          *     horizontal edge a vertical one — the Fusion behaviour for a line-to-point
          *     dimension. An edge seen end-on in the view has no direction there, and is refused
-         *     as ``dimension_wrong_type`` rather than measured.
+         *     as ``dimension_not_placeable`` rather than measured.
          */
         EdgeToCentreMeasurement: {
             /** @description The circular model edge (a hole rim) whose CENTRE is measured to */
