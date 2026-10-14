@@ -142,7 +142,14 @@ export function FeatureEditorSeat({
     "onEdgeFlangeSpanChange" | "onReliefBendsChange"
   >;
   actionFlags: Pick<ActionFlags, "datumEditorRefs" | "datumSketchLines">;
-  datumFacePicking: Pick<DatumFacePicking, "toggleDatumFacePick">;
+  datumFacePicking: Pick<
+    DatumFacePicking,
+    | "toggleDatumFacePick"
+    | "toggleDatumEdgePick"
+    | "datumEdgePickArmed"
+    | "datumEdgePicked"
+    | "datumEdgePickError"
+  >;
 }) {
   const { mode } = partDocument;
   const { editor, hasBody } = partBody;
@@ -222,7 +229,13 @@ export function FeatureEditorSeat({
   const { toggleHolePick, onHolePreviewChange } = holePicking;
   const { onEdgeFlangeSpanChange, onReliefBendsChange } = pickSessions;
   const { datumEditorRefs, datumSketchLines } = actionFlags;
-  const { toggleDatumFacePick } = datumFacePicking;
+  const {
+    toggleDatumFacePick,
+    toggleDatumEdgePick,
+    datumEdgePickArmed,
+    datumEdgePicked,
+    datumEdgePickError,
+  } = datumFacePicking;
   const { formulaSession, editorInputError } = editorFormulas;
   // A save's refusal, else the feature's own `input_error` when no field on
   // screen carries it (PART-PARAMETERS step 8).
@@ -446,6 +459,10 @@ export function FeatureEditorSeat({
             facePick={datumFacePicked}
             onPlaneChange={setDatumGaugeSeed}
             onAnglePlaneChange={setDatumAnglePreview}
+            edgePickArmed={datumEdgePickArmed}
+            onToggleEdgePick={toggleDatumEdgePick}
+            edgePick={datumEdgePicked}
+            edgePickError={datumEdgePickError ?? null}
             offsetOverride={datumOffsetOverride}
             // …and the standing refusal is stated on the editor's
             // own (ungated) pick-error line rather than nowhere.
