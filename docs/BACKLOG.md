@@ -426,6 +426,8 @@ One line each. The founder triages weekly; most are closed without work.
 - HOLE-FACE-NORMAL-CHANGE: if an edit changes a hole face's normal, the hole keeps the stale stored frame (as before).
 - CENTRE-MARK-PICK-REFUSED (centre-marks review): section and flat-pattern views draw pickable centre marks but measure refuses centre dimensions there, so the error only shows after placing.
 - CENTRE-MARK-SVG-ATTRS: centre-mark `<g>` carries cx/cy attributes (not valid SVG); use data- attributes.
+- DATUM-PICK-STUCK (plane-at-angle review): if the datum editor's identity changes while open, the edge pick button stays on "Picking..." until clicked again; switching kind away from angle while armed leaves the pick armed (next click ignored).
+- DATUM-PICK-E2E-GAPS: the edge-pick e2e covers neither the curved-edge refusal nor Escape mid-pick.
 - JOINT-PLANAR-PARENT (motions review): a planar slide PATCHes B's placement; when B is the solve parent rather than the child the slide may not stick. Unverified.
 - JOINT-CARD-OVERLAP: the joint drive card overlaps the inspector's DOF text (revolute and planar).
 - MEASURE-FROM-EVAL-REQUEST, rest (step 8 did the part's measure and pick): assembly overlays (`AssemblyPage.tsx` `buildEvaluateTree`) and drawing requests (`useDrawingData.ts`) still build from GET features, so a sick feature still shows its last good body there.
