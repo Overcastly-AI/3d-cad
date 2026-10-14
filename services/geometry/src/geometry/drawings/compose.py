@@ -68,6 +68,7 @@ from geometry.drawings.dimensioning import (
     edge_signature_key,
     find_matching_edge,
     format_dimension_label,
+    stack_dimension_errors,
 )
 from geometry.drawings.dxf import (
     DXF_ENCODING,
@@ -251,6 +252,9 @@ def _compose_view(
                     inp.id,
                 )
             )
+        # Lost / unplaceable dimensions fall back to the view centre; stack them so
+        # their captions never print over one another (QA-DRAWING-DIMS-DURABLE).
+        dims = stack_dimension_errors(dims)
 
     return ComposedView(
         projection=projection,

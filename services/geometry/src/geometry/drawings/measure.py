@@ -79,6 +79,7 @@ from loft_wire.geometry import Vec3
 
 from geometry.drawings.anchor import (
     ANCHOR_DIRECTION_SIN_TOL,
+    BodyNaming,
     ResolvedAnchor,
     resolve_anchor_edge,
 )
@@ -241,7 +242,7 @@ def _cross(
 
 
 def _endpoint(
-    ref: DimensionEndpointRef, body: BodyShape
+    ref: DimensionEndpointRef, body: BodyShape, naming: BodyNaming | None = None
 ) -> tuple[Vec3, ResolvedAnchor]:
     """Resolve a point-to-point endpoint ref to a world point (design §3.3).
 
@@ -249,17 +250,20 @@ def _endpoint(
     the edge (two-tier, §11), then select its canonical ``end_a``/``end_b`` from the
     CURRENT signature, so the endpoint is the same canonical end of the same edge the
     signature was authored against even when that edge has since moved/grown."""
-    anchor = resolve_anchor_edge(body, ref.signature)
+    anchor = resolve_anchor_edge(body, ref.signature, naming=naming)
     sig = anchor.signature
     return (sig.end_a if ref.endpoint == "end_a" else sig.end_b), anchor
 
 
 def _measure_linear(
-    params: LinearDimensionParams, body: BodyShape, normal: tuple[float, float, float]
+    params: LinearDimensionParams,
+    body: BodyShape,
+    normal: tuple[float, float, float],
+    naming: BodyNaming | None = None,
 ) -> DimensionValue:
     source = params.measurement
     if isinstance(source, EdgeLengthMeasurement):
-        resolved = resolve_anchor_edge(body, source.edge)
+        resolved = resolve_anchor_edge(body, source.edge, naming=naming)
         edge = resolved.edge
         # Length is the EXACT B-rep arc length (an arc's length, a line's length) —
         # always model-true. Foreshortening only applies to a STRAIGHT edge (a
@@ -276,10 +280,10 @@ def _measure_linear(
             anchor=_anchor_dto(resolved),
         )
     if isinstance(source, EdgeToEdgeMeasurement):
-        return _measure_edge_to_edge(source, body, normal)
+        return _measure_edge_to_edge(source, body, normal, naming)
     assert isinstance(source, PointToPointMeasurement)
-    a, anchor_a = _endpoint(source.a, body)
-    b, anchor_b = _endpoint(source.b, body)
+    a, anchor_a = _endpoint(source.a, body, naming)
+    b, anchor_b = _endpoint(source.b, body, naming)
     distance = _dist(a, b)
     direction = _sub(b, a)
     foreshortened = distance > 0.0 and _linear_foreshortened(direction, normal)
@@ -295,6 +299,7 @@ def _measure_edge_to_edge(
     source: EdgeToEdgeMeasurement,
     body: BodyShape,
     normal: tuple[float, float, float],
+    naming: BodyNaming | None = None,
 ) -> DimensionValue:
     """The PERPENDICULAR distance between two parallel straight edges (FB-10).
 
@@ -317,8 +322,8 @@ def _measure_edge_to_edge(
     ``point_to_point`` judges it on ``b - a``: the thickness reads true-size when the
     across-the-wall direction lies in the view plane.
     """
-    resolved_a = resolve_anchor_edge(body, source.edge_a)
-    resolved_b = resolve_anchor_edge(body, source.edge_b)
+    resolved_a = resolve_anchor_edge(body, source.edge_a, naming=naming)
+    resolved_b = resolve_anchor_edge(body, source.edge_b, naming=naming)
     _require_line(resolved_a.edge, "the first edge", "An edge-to-edge")
     _require_line(resolved_b.edge, "the second edge", "An edge-to-edge")
     sig_a = resolved_a.signature
@@ -366,8 +371,9 @@ def _measure_diameter(
     body: BodyShape,
     normal: tuple[float, float, float],
     drawn: Sequence[EdgeSignature],
+    naming: BodyNaming | None = None,
 ) -> DimensionValue:
-    resolved = resolve_anchor_edge(body, params.edge, drawn)
+    resolved = resolve_anchor_edge(body, params.edge, drawn, naming)
     edge = resolved.edge
     _require_circle(edge, "diameter")
     return DimensionValue(
@@ -383,8 +389,9 @@ def _measure_radius(
     body: BodyShape,
     normal: tuple[float, float, float],
     drawn: Sequence[EdgeSignature],
+    naming: BodyNaming | None = None,
 ) -> DimensionValue:
-    resolved = resolve_anchor_edge(body, params.edge, drawn)
+    resolved = resolve_anchor_edge(body, params.edge, drawn, naming)
     edge = resolved.edge
     _require_circle(edge, "radius")
     return DimensionValue(
@@ -396,10 +403,13 @@ def _measure_radius(
 
 
 def _measure_angular(
-    params: AngularDimensionParams, body: BodyShape, normal: tuple[float, float, float]
+    params: AngularDimensionParams,
+    body: BodyShape,
+    normal: tuple[float, float, float],
+    naming: BodyNaming | None = None,
 ) -> DimensionValue:
-    resolved_a = resolve_anchor_edge(body, params.edge_a)
-    resolved_b = resolve_anchor_edge(body, params.edge_b)
+    resolved_a = resolve_anchor_edge(body, params.edge_a, naming=naming)
+    resolved_b = resolve_anchor_edge(body, params.edge_b, naming=naming)
     edge_a = resolved_a.edge
     edge_b = resolved_b.edge
     _require_line(edge_a, "the first edge")
@@ -454,6 +464,7 @@ def measure_dimension(
     dimension: DimensionParams,
     view: ViewProjection,
     drawn: Sequence[EdgeSignature] = (),
+    naming: BodyNaming | None = None,
 ) -> DimensionValue:
     """Measure *dimension* against *body* in *view* — model-true (design §3.1).
 
@@ -471,6 +482,12 @@ def measure_dimension(
     an older caller) keeps the pre-QA-3 behaviour exactly. It never affects a measured
     VALUE — the value is always taken off the 3-D edge that resolved.
 
+    *naming* (the part's face names + pick-side edge signatures,
+    :func:`geometry.drawings.anchor.body_naming`) enables the persistent-naming tier
+    (QA-DRAWING-DIMS-DURABLE): a reference whose edge a resize CARRIED elsewhere
+    follows it through the kernel's durable resolver, exactly as an assembly joint
+    does. Omitting it keeps the three geometric tiers only.
+
     Raises:
 
         SubshapeUnresolvedError: a ref no longer matches any edge (design §3.3).
@@ -482,13 +499,13 @@ def measure_dimension(
     """
     normal = view_normal(_as_direction(view))
     if isinstance(dimension, LinearDimensionParams):
-        return _measure_linear(dimension, body, normal)
+        return _measure_linear(dimension, body, normal, naming)
     if isinstance(dimension, DiameterDimensionParams):
-        return _measure_diameter(dimension, body, normal, drawn)
+        return _measure_diameter(dimension, body, normal, drawn, naming)
     if isinstance(dimension, RadiusDimensionParams):
-        return _measure_radius(dimension, body, normal, drawn)
+        return _measure_radius(dimension, body, normal, drawn, naming)
     assert isinstance(dimension, AngularDimensionParams)
-    return _measure_angular(dimension, body, normal)
+    return _measure_angular(dimension, body, normal, naming)
 
 
 def _as_direction(view: ViewProjection) -> ViewDirection:
@@ -509,6 +526,7 @@ def measure_dimension_dto(
     dimension: DimensionParams,
     view: ViewProjection,
     drawn: Sequence[EdgeSignature] = (),
+    naming: BodyNaming | None = None,
 ) -> MeasuredDimension:
     """:func:`measure_dimension` with the typed errors folded onto the neutral
     :class:`MeasuredDimension` error channel (design §3.3/§5) — never a raise for a
@@ -517,7 +535,7 @@ def measure_dimension_dto(
     *drawn* (the signatures of the model edges this view projects) is threaded through
     to the tier-3 circle re-anchor — see :func:`measure_dimension`."""
     try:
-        measured = measure_dimension(body, dimension, view, drawn)
+        measured = measure_dimension(body, dimension, view, drawn, naming)
     except SubshapeUnresolvedError as exc:
         return MeasuredDimension(
             error=FeatureError(code="subshape_unresolved", message=str(exc))

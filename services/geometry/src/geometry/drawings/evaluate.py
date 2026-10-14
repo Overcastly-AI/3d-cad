@@ -49,6 +49,7 @@ from loft_wire.features import (
     GeomRef,
 )
 
+from geometry.drawings.anchor import BodyNaming, body_naming
 from geometry.drawings.flat_pattern import FLAT_PATTERN_VIEW, flat_pattern_view_result
 from geometry.drawings.measure import measure_dimension_dto
 from geometry.drawings.project import (
@@ -158,6 +159,7 @@ def _measure_dimensions(
     body: BodyShape,
     request: EvaluateDrawingViewsRequest,
     drawn_by_view: dict[ViewProjection, list[EdgeSignature]],
+    naming: BodyNaming | None = None,
 ) -> list[MeasuredDimensionResult]:
     """Measure every requested dimension off the SAME exact body (design §3/§5).
 
@@ -171,14 +173,19 @@ def _measure_dimensions(
 
     ``drawn_by_view`` hands each dimension the model edges ITS OWN view draws
     (:func:`_drawn_edges_by_view`) — used only by the tier-3 circle re-anchor, and
-    never by a measured value.
+    never by a measured value. ``naming`` (the part's persistent names) lets a
+    reference follow an edge a resize carried elsewhere (QA-DRAWING-DIMS-DURABLE).
     """
     return [
         MeasuredDimensionResult(
             id=item.id,
             view=item.view,
             measured=measure_dimension_dto(
-                body, item.dimension, item.view, drawn_by_view.get(item.view, ())
+                body,
+                item.dimension,
+                item.view,
+                drawn_by_view.get(item.view, ()),
+                naming,
             ),
         )
         for item in request.dimensions
@@ -338,6 +345,11 @@ def evaluate_drawing_views(
         )
 
     body = evaluation.body
+    # The part's persistent naming, built ONCE: every standard view hands out the
+    # pick-side signature (adjacency + history name) as its edges' provenance, and
+    # every dimension resolves through it — so a dimension follows its edge through
+    # a resize the way a joint or a fillet does (QA-DRAWING-DIMS-DURABLE).
+    naming = body_naming(body, evaluation.face_names())
     views: list[DrawingViewResult] = []
     for index, view in enumerate(request.views):
         if view == FLAT_PATTERN_VIEW:
@@ -366,7 +378,9 @@ def evaluate_drawing_views(
             )
             continue
         try:
-            projection = project_view(body, view, scale=scale_value)
+            projection = project_view(
+                body, view, scale=scale_value, edge_signatures=naming.signatures
+            )
         except ViewProjectionError as exc:
             views.append(
                 DrawingViewResult(
@@ -389,6 +403,8 @@ def evaluate_drawing_views(
         part_id=request.part_id,
         tree_version=request.tree_version,
         views=views,
-        dimensions=_measure_dimensions(body, request, _drawn_edges_by_view(views)),
+        dimensions=_measure_dimensions(
+            body, request, _drawn_edges_by_view(views), naming
+        ),
         part_error=None,
     )

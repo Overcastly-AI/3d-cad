@@ -40,9 +40,9 @@ from loft_wire.signatures import EdgeSignature
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.GCPnts import GCPnts_QuasiUniformDeflection
 
-from geometry.kernel.edges import edge_adjacency, edge_signature_dto
+from geometry.kernel.edges import annotated_edge_signatures
 from geometry.kernel.faces import face_signature_dto
-from geometry.kernel.naming import EdgeEnds, edge_names
+from geometry.kernel.naming import EdgeEnds
 from geometry.kernel.types import BodyShape
 
 #: OCCT ``GeomType`` → overlay edge kind (a rendering hint only). Anything not a
@@ -132,8 +132,7 @@ def selection_overlay(
         face_signature_dto(face, None if face_names is None else face_names[index])
         for index, face in enumerate(faces_list)
     ]
-    adjacency = edge_adjacency(body, face_signatures)
-    names = edge_names(body, face_names) if face_names is not None else None
+    signatures = annotated_edge_signatures(body, face_names, face_signatures)
     ends = EdgeEnds(body, face_names) if face_names is not None else None
 
     edges: list[OverlayEdge] = []
@@ -157,15 +156,7 @@ def selection_overlay(
                 # edit that resizes the part (resolver tier 3); it is absent for
                 # an edge without two distinct planar neighbours, and the tiers
                 # above it do not read it.
-                signature=_with_end_anchor(
-                    edge_signature_dto(
-                        edge,
-                        adjacency.get(index),
-                        None if names is None else names[index],
-                    ),
-                    edge,
-                    ends,
-                ),
+                signature=_with_end_anchor(signatures[index], edge, ends),
             )
         )
 

@@ -295,6 +295,62 @@ test.describe("drawings — a resized part, said on screen", () => {
   });
 });
 
+/** The right-most vertical line pick-target in a view (the edge at x = W). */
+async function rightmostVerticalEdge(page: Page, view: string) {
+  const edges = page.locator(
+    `[data-testid="drawing-pick-edge"][data-view="${view}"][data-primitive="line"]`,
+  );
+  const count = await edges.count();
+  let best = 0;
+  let bestX = -Infinity;
+  for (let i = 0; i < count; i += 1) {
+    const box = await edges.nth(i).boundingBox();
+    if (!box) continue;
+    if (box.height > box.width && box.x > bestX) {
+      bestX = box.x;
+      best = i;
+    }
+  }
+  return edges.nth(best);
+}
+
+test.describe("drawings — a dimension follows an edge the edit MOVED", () => {
+  test("QA-DRAWING-DIMS-DURABLE: narrow the part, the moved edge keeps its dimension", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    const account = await seedSession(page);
+    const part = await createPlateViaApi(page, account.token, "Plate", 100);
+    await seedLaidOutDrawing(page, part.id, "Plate — moved edge");
+
+    // Dimension the 60 mm side at x = W in the top view. Narrowing the plate
+    // does not change it — it MOVES it 20 mm, off every absolute coordinate.
+    const edge = await rightmostVerticalEdge(page, "top");
+    await edge.click();
+    await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
+    await page.getByTestId("dimension-type-linear").click();
+    await page.keyboard.press("Enter");
+    const sixty = page.locator(
+      '[data-testid="drawing-dimension"][data-dimension-value="60.000"]',
+    );
+    await expect(sixty).toHaveCount(1, { timeout: 30_000 });
+
+    // W 100 -> 80, then re-project: the dimension is still there, still 60,
+    // and says it re-anchored — no "REFERENCE LOST" anywhere on the sheet.
+    await widenPlate(page, account.token, part, 80);
+    await page.getByTestId("drawing-reproject").click();
+    const row = page.locator(
+      '[data-testid="dimension-row"][data-dimension-type="linear"]',
+    );
+    await expect(row).toHaveAttribute("data-anchor-tier", "durable", {
+      timeout: 30_000,
+    });
+    await expect(row.getByTestId("dimension-row-value")).toHaveText("60.000");
+    await expect(sixty).toHaveCount(1);
+    await expect(page.getByTestId("drawing-dimension-error")).toHaveCount(0);
+  });
+});
+
 test.describe("drawings — an overlapping sheet says so", () => {
   test("colliding views raise the sheet check strip, and one click fixes it", async ({
     page,

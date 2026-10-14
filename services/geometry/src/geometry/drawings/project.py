@@ -48,6 +48,7 @@ canonical sort here, and coordinates are emitted through a fixed decimal formatt
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
@@ -708,6 +709,7 @@ def _model_edge_index(
     x_dir: tuple[float, float, float],
     y_dir: tuple[float, float, float],
     scale: float,
+    signatures: Sequence[EdgeSignature] | None = None,
 ) -> dict[tuple[object, ...], list[_ModelEdgeProjection]]:
     """Index every model edge by its projected ``geometry_key`` (design §3.3).
 
@@ -717,9 +719,20 @@ def _model_edge_index(
     signature the rest of the app resolves (no parallel taxonomy). A key collides
     ONLY when two model edges project to the same 2D edge (coincident faces); the
     list preserves both for the depth tie-break.
+
+    *signatures*, when given (aligned with ``shape.edges()``), is the PICK-side
+    signature of each edge (:func:`geometry.kernel.edges.annotated_edge_signatures`
+    — adjacency + history names), so a dimension authored on a projected edge
+    stores a reference that survives an edit which carries the edge elsewhere
+    (QA-DRAWING-DIMS-DURABLE). The stage-1 fields are identical either way.
     """
     index: dict[tuple[object, ...], list[_ModelEdgeProjection]] = {}
-    for record in enumerate_edges(shape):
+    records = enumerate_edges(shape)
+    if signatures is not None and len(signatures) == len(records):
+        records = [
+            replace(record, signature=signatures[record.index]) for record in records
+        ]
+    for record in records:
         projected = _project_model_edge(record, normal, x_dir, y_dir, scale)
         if projected is None:
             continue
@@ -770,6 +783,7 @@ def project_view(
     shape: BodyShape,
     view: ViewDirection,
     scale: float = 1.0,
+    edge_signatures: Sequence[EdgeSignature] | None = None,
 ) -> ViewProjection:
     """Project *shape* to canonically-ordered visible/hidden 2D edges (design §1).
 
@@ -782,6 +796,9 @@ def project_view(
     standard projection frame (§1.2); *scale* multiplies every emitted coordinate
     (model mm → sheet mm), and must be strictly positive so the canonical order is
     preserved (a positive scale is monotone on every coordinate).
+    *edge_signatures* (aligned with ``shape.edges()``) replaces the bare stage-1
+    provenance with the durable pick-side signature; it never changes a projected
+    coordinate or the canonical order.
 
     Returns a :class:`ViewProjection` whose ``edges`` are byte-deterministic across
     a fresh interpreter (§1.4 / RESEARCH §9). Raises :class:`ViewProjectionError`
@@ -825,7 +842,9 @@ def project_view(
             outline.append(_classify(curve, visible=False, scale=scale))
         # The model-edge provenance index also touches OCCT (BRepAdaptor on each
         # model edge), so it stays inside the guard (§1.5).
-        model_index = _model_edge_index(shape, normal, x_dir, y_dir, scale)
+        model_index = _model_edge_index(
+            shape, normal, x_dir, y_dir, scale, edge_signatures
+        )
     except Exception as exc:  # any OCCT throw is an honest per-view error (§1.5)
         raise ViewProjectionError(view, f"{type(exc).__name__}: {exc}") from exc
 

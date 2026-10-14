@@ -51,6 +51,25 @@ def _uid(n: int) -> str:
     return str(uuid.UUID(int=n))
 
 
+def _unnamed(edges: list[ProjectedViewEdge]) -> list[ProjectedViewEdge]:
+    """*edges* with the part's persistent-naming annotation dropped from each
+    ``source_edge`` (QA-DRAWING-DIMS-DURABLE): a PART view hands out the pick-side
+    signature (adjacency + history name), an assembly view the bare stage-1 one —
+    the projected geometry and the stage-1 provenance are what must be identical."""
+    return [
+        e
+        if e.source_edge is None
+        else e.model_copy(
+            update={
+                "source_edge": e.source_edge.model_copy(
+                    update={"adjacent_faces": None, "topo_name": None}
+                )
+            }
+        )
+        for e in edges
+    ]
+
+
 def _line(
     eid: str, start: tuple[float, float], end: tuple[float, float]
 ) -> dict[str, Any]:
@@ -329,7 +348,7 @@ def test_single_instance_assembly_projects_identically_to_the_part() -> None:
     for part_view, asm_view in zip(part.views, assembly.views, strict=True):
         assert asm_view.error is None
         # Byte-for-byte identical projected edges: single-instance assembly == part.
-        assert asm_view.edges == part_view.edges, (
+        assert asm_view.edges == _unnamed(part_view.edges), (
             f"single-instance assembly '{asm_view.view}' view diverged from the part"
         )
 
@@ -557,7 +576,7 @@ def test_single_instance_assembly_projects_identically_to_the_part_iso() -> None
     assert part.part_error is None
     assert assembly.assembly_error is None
     assert assembly.views[0].error is None
-    assert assembly.views[0].edges == part.views[0].edges, (
+    assert assembly.views[0].edges == _unnamed(part.views[0].edges), (
         "single-instance assembly iso view diverged from the standalone part"
     )
 
