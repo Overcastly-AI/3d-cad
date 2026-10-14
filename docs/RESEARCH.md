@@ -807,6 +807,33 @@ Goldens `revise-width-lip-projected-rim-130x80x35` and the inset variant
 (`point_line_distance` off the projected rim) agree with closed forms to
 2e-10 mm^3.
 
+**Projected edges in a profile (QA-PROJECTED-PROFILE, 2026-10-10).** A
+projected curve bounds a profile only where it helps close a region, as in
+Fusion 360, which shows a projected edge that closes nothing as reference ink.
+QA's two circles beside three projected face edges failed the cut
+`profile_not_closed` (the kernel chained the open U into the profile) while
+the web ghost, which drops chains that never close, showed two holes. One 2D
+selection, `geometry.kernel.profile_edges.profile_entities`, now feeds every
+profile wire builder and the revolve side test, and the rebuild reports its
+ids on `SolvedSketchData.profile_entities`, which the ghost stitches from, so
+the preview and the commit read the same curves. The rule: sketch curves
+always count (an open sketch chain is still the user's `profile_not_closed`);
+projected curves with a free end are pruned until none is left; then a
+connected group that still holds a projected curve keeps its projected curves
+only if every junction in it joins exactly two ends. So a dangling chain or a
+spur disappears, a projected diagonal across a closed sketch loop is left out
+(the loop keeps its region: v1 does not split regions at intersections), and
+a loop closed partly or wholly by projected curves is kept (Fusion's
+project-a-face profile). Junctions use the wire tolerance (1e-4 mm), entity
+order and first-come junctions make it deterministic, and a sketch with no
+projected curve selects exactly what it did, so every existing golden is
+byte-identical. *Rejected:* excluding projected curves outright (breaks a
+region closed by a projected edge) and a full planar arrangement (Fusion's
+region split at every crossing; needs profile picking first). The sketcher's
+live open-end marks (`openEnds.ts`, no kernel round trip) never flag a
+projected curve's end but still let it meet a sketch end. Golden
+`extrude-cut-projected-edges-2holes-40x25x10`.
+
 **Hole names (HOLE-NAMES, 2026-10-08).** EDGE-REF-CONCENTRIC left a
 resized hole's chamfered rim with no tier that could follow it: the geometric
 tiers keep a circle's radius and Hole faces had no name. Fusion 360 keeps a
@@ -1340,9 +1367,8 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   on write. A gauge drag writes a number and drops the formula, as Fusion's
   manipulators do. A 422 naming a pointer goes on that field. A feature's
   `input_error` reads `Width: parameter 'W' not found.` in the tree, the
-  editor and the sketch stamp. The hole's X/Y cells stay numbers, because the
-  stored position is a world point and has no pointer for a face-local
-  formula. The part's measure and pick requests come from
+  editor and the sketch stamp. The hole's X/Y cells take formulas too (see
+  HOLE-POSITION-FORMULA below). The part's measure and pick requests come from
   `GET /parts/{id}/evaluation-request` (new gateway route), so a sick feature
   builds nothing there either. Assembly overlays and drawings still build
   from `GET /features`.
@@ -1375,6 +1401,19 @@ name. PART-PARAMETERS (BACKLOG) builds that, and absorbs SKETCH-EXPR-TRIG.
   common volume, and the gear's twist on the true helix after the edit.
   `packages/loft-script/tests/test_reference_parts.py` runs all three builds
   and edits to 1e-4 in CI (about 40 s).
+- **HOLE-POSITION-FORMULA, as built.** A hole's stored `position` is a
+  world point, so no pointer could hold a formula for its face-frame X or Y.
+  `HoleParamsV1` gains optional `face_x_mm`/`face_y_mm` (set together,
+  omitted from a dump while null), and its after-validator derives `position`
+  from them (`loft_wire/hole_placement.py`): the web's frame, kernel on-face
+  axes and the part origin projected onto the face plane, from the stored
+  face signature alone. Every write, table PUT and evaluation request
+  validates the resolved params, so `{"/face_x_mm": "W - 20"}` moves the hole
+  with W; geometry still reads only `position`. A hole stored before keeps
+  its position and bytes, and a no-op Save of one sends neither field; the
+  editor writes them once its placement is typed, picked or loaded that way.
+  A picked point keeps full precision rather than the cell's rounding. Golden
+  `parametric-hole-x-follows-w-120x40x10` (W 100 -> 80, hole x 80 -> 60).
 - **Truth.** `packages/loft-wire/tests/test_expr.py` (grammar, units,
   functions, cycles, depth, hostile strings, off-whitelist names); golden
   `sketch-trig-expression-40x20tan15x10` (step 1); a new golden kind

@@ -33,7 +33,6 @@ import {
   cx,
   Disclosure,
   formatLength,
-  NumberField,
   Panel,
   PanelActionCell,
   SegmentedControl,
@@ -860,33 +859,33 @@ export function HoleEditor({
                   </span>
                 </div>
                 <div className="flex gap-2">
-                  <NumberField
+                  <ValueField
                     className="flex-1"
                     label="X"
                     unit={unit}
+                    kind="length"
+                    pointer="/face_x_mm"
                     data-testid="hole-position-x"
                     aria-label={axisAria("X")}
                     value={form.xInput}
                     error={xMsg}
-                    onChange={(e) =>
-                      setForm((f) =>
-                        applyHoleCoordinate(f, "x", e.target.value, unit),
-                      )
+                    onValueChange={(value) =>
+                      setForm((f) => applyHoleCoordinate(f, "x", value, unit))
                     }
                     onFocus={(e) => e.currentTarget.select()}
                   />
-                  <NumberField
+                  <ValueField
                     className="flex-1"
                     label="Y"
                     unit={unit}
+                    kind="length"
+                    pointer="/face_y_mm"
                     data-testid="hole-position-y"
                     aria-label={axisAria("Y")}
                     value={form.yInput}
                     error={yMsg}
-                    onChange={(e) =>
-                      setForm((f) =>
-                        applyHoleCoordinate(f, "y", e.target.value, unit),
-                      )
+                    onValueChange={(value) =>
+                      setForm((f) => applyHoleCoordinate(f, "y", value, unit))
                     }
                     onFocus={(e) => e.currentTarget.select()}
                   />

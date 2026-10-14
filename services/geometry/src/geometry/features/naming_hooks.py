@@ -27,6 +27,7 @@ from geometry.kernel.naming import (
     generated_names,
     modified_names,
 )
+from geometry.kernel.profile_edges import profile_entities
 from geometry.kernel.tolerances import KERNEL_LINEAR_TOL_MM
 from geometry.kernel.types import BodyShape
 
@@ -64,9 +65,7 @@ def _entity_ids(
     entities drawn on top of each other, leave the edge unnamed.
     """
     candidates: list[tuple[str, tuple[_Point, _Point, _Point, float]]] = []
-    for entity in entities:
-        if entity.construction:
-            continue
+    for entity in profile_entities(entities):
         candidates.extend((entity.id, _points(e)) for e in entity_edges(plane, entity))
     out: list[str | None] = []
     for edge in profile_edges:

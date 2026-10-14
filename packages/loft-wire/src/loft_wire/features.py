@@ -53,6 +53,7 @@ from loft_wire.geometry import (
     ShapeProperties,
     Vec3,
 )
+from loft_wire.hole_placement import FACE_X_FIELD, FACE_Y_FIELD, derive_hole_position
 from loft_wire.instrument import notify_feature_error
 from loft_wire.materials import MaterialAssignment, MaterialKey
 from loft_wire.refs import DatumPlaneRef as DatumPlaneRef
@@ -62,6 +63,12 @@ from loft_wire.refs import MidplaneSide as MidplaneSide
 from loft_wire.refs import Selector as Selector
 from loft_wire.refs import SelectorV1 as SelectorV1
 from loft_wire.refs import SubshapeRef as SubshapeRef
+from loft_wire.resolution_tiers import (
+    SUBSHAPE_RESOLUTION_TIERS as SUBSHAPE_RESOLUTION_TIERS,
+)
+from loft_wire.resolution_tiers import SketchProjectionReason as SketchProjectionReason
+from loft_wire.resolution_tiers import SketchProjectionStatus as SketchProjectionStatus
+from loft_wire.resolution_tiers import SubshapeResolutionTier as SubshapeResolutionTier
 from loft_wire.shell import SHELL_TYPE_FIELD, ShellType
 from loft_wire.signatures import EdgeSelectorV1 as EdgeSelectorV1
 from loft_wire.signatures import EdgeSignature as EdgeSignature
@@ -1346,11 +1353,9 @@ class HoleParamsV1(BaseModel):
     ``feature_dependencies`` (deleting that body feature is a 409-with-dependents;
     a reorder re-checks strict-backward).
 
-    ``position`` is a WORLD-space point; the geometry service projects it onto the
-    resolved face plane to fix the drill axis (a pick that lands a hair off-plane
-    still drills clean and perpendicular). A point that projects OUTSIDE the body
-    — or a resolved direction into empty space — removes no material and is a
-    ``hole_off_body`` rebuild error, never a silent no-op.
+    ``position`` is a WORLD point, projected onto the resolved face plane to fix
+    the drill axis; with ``face_x_mm``/``face_y_mm`` it is derived from them
+    (:mod:`loft_wire.hole_placement`). Off the body is ``hole_off_body``.
 
     ``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;
     ``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the
@@ -1367,11 +1372,9 @@ class HoleParamsV1(BaseModel):
 
     ``thread`` (optional, ``None`` = an untapped hole) makes the hole TAPPED: a
     cosmetic :class:`IsoMetricThread` callout over the tap-drill bore, ORTHOGONAL
-    to ``type`` (a counterbored tapped hole sets both). It adds NO geometry — the
-    solid is byte-identical to the same hole without it — so a tapped hole
-    mirrors, patterns, shells and exports exactly as its bore does. An unknown
-    designation is ``hole_thread_unsupported``; a bore the thread cannot be tapped
-    in is ``hole_thread_mismatch``.
+    to ``type`` (a counterbored tapped hole sets both). It adds NO geometry, so a
+    tapped hole mirrors, patterns, shells and exports exactly as its bore does.
+    ``hole_thread_unsupported`` / ``hole_thread_mismatch`` refuse a bad callout.
     """
 
     face: SubshapeRef = Field(
@@ -1399,6 +1402,9 @@ class HoleParamsV1(BaseModel):
         "callouts; adds no geometry — `diameter_mm` is the tap-drill bore "
         "(:class:`IsoMetricThread`)",
     )
+    face_x_mm: float | None = FACE_X_FIELD
+    face_y_mm: float | None = FACE_Y_FIELD
+    _derive_position = model_validator(mode="after")(derive_hole_position)
 
 
 # --- Pattern params (linear / circular) -----------------------------------------
@@ -4137,63 +4143,6 @@ class FeatureError(BaseModel):
         notify_feature_error(self.code)
 
 
-#: Which tier of the stage-1 matcher re-found a picked subshape reference on a
-#: rebuild (docs/design/topological-naming.md §13/§14), best to worst:
-#: ``exact`` - the stored signature matched verbatim, the subshape is where the
-#: user left it; ``durable`` - it moved or changed shape and was re-found on a
-#: rebuild invariant (an edge's supporting line or circle station; a face's
-#: plane, area/in-plane centroid or outer boundary); ``adjacent`` - an EDGE that
-#: left every coordinate it was stored at, re-found as the one edge its two
-#: stored neighbouring faces still share; ``named`` - re-found by its stored
-#: history-based ``topo_name`` (DESIGN-INTENT-REFS), ranked just below exact
-#: because it is a fact of the feature history, not a geometric guess. The words
-#: exact and durable are the drawings vocabulary
-#: (:data:`~loft_wire.drawings.DimensionAnchorTier`).
-SubshapeResolutionTier = Literal["exact", "named", "durable", "adjacent"]
-
-#: :data:`SubshapeResolutionTier` ordered BEST to WORST - the one ordering a
-#: "worst tier" is taken over, kept beside the alias it ranks.
-SUBSHAPE_RESOLUTION_TIERS: tuple[SubshapeResolutionTier, ...] = (
-    "exact",
-    "named",
-    "durable",
-    "adjacent",
-)
-
-
-#: Why a projected sketch entity is sick (SKETCH-PROJECT-EDGES): its edge
-#: did not resolve, or resolved to more than one edge, there is no body at the
-#: sketch, the edge projects to a curve the sketch has no entity for (an
-#: ellipse, a B-spline), it projects to nothing (seen end-on), or it projects
-#: to another kind than the entity holds.
-SketchProjectionReason = Literal[
-    "unresolved",
-    "ambiguous",
-    "no_body",
-    "unsupported_curve",
-    "degenerate",
-    "kind_changed",
-]
-
-
-class SketchProjectionStatus(BaseModel):
-    """How one projected entity re-projected on this rebuild.
-
-    ``sick`` is Fusion 360's sick projection: the sketch keeps the entity's
-    stored coordinates (the last good projection) and stays ``ok``; this says
-    why it could not follow its edge.
-    """
-
-    entity: EntityId
-    state: Literal["ok", "sick"]
-    tier: SubshapeResolutionTier | None = Field(
-        default=None, description="The tier that re-found the edge; None if sick."
-    )
-    reason: SketchProjectionReason | None = Field(
-        default=None, description="Why the entity is sick; None when ok."
-    )
-
-
 class SolvedSketchData(SolvedSketch):
     """Per-feature solved-sketch payload (§7.10): the solver's solved entity
     positions, status, and DOF diagnosis for an ``ok`` sketch feature — what
@@ -4213,6 +4162,15 @@ class SolvedSketchData(SolvedSketch):
         description="One status per projected entity, in entity order: whether "
         "it followed its body edge on this rebuild, and why not when sick. "
         "Empty for a sketch with no projected entities.",
+    )
+    profile_entities: list[EntityId] = Field(
+        default_factory=list[EntityId],
+        description="Ids of the curves that bound the sketch's profile, in "
+        "entity order: the exact selection every body feature (extrude, "
+        "revolve, sweep, loft) builds its profile from, so a live preview "
+        "stitches the same curves the commit will. Construction entities and "
+        "points are never in it; a projected curve is in it only where it "
+        "helps close a region (Fusion 360's rule, QA-PROJECTED-PROFILE).",
     )
 
 

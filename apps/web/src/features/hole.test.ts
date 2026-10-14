@@ -284,6 +284,58 @@ describe("buildHoleParams", () => {
   });
 });
 
+describe("face-frame X/Y on the wire (HOLE-POSITION-FORMULA)", () => {
+  it("a new hole stores its face X/Y beside the world point", () => {
+    const typed = applyHoleCoordinate(withFace(), "x", "-12.5", "mm");
+    const params = buildHoleParams(typed, "mm");
+    expect(params?.face_x_mm).toBe(-12.5);
+    expect(params?.face_y_mm).toBe(5);
+    expect(params?.position).toEqual({ x: -12.5, y: 5, z: 10 });
+  });
+
+  it("a hole stored by world point alone stays that way until it moves", () => {
+    const legacy = formFromHoleParams(
+      holeParamsAt({ x: 1.25, y: 2, z: 10 }, "extrude-1"),
+      "mm",
+    );
+    const untouched = buildHoleParams(legacy, "mm");
+    expect(untouched).not.toHaveProperty("face_x_mm");
+    expect(untouched).not.toHaveProperty("face_y_mm");
+    // Typing the same number (as a formula's value arrives) opts it in, so a
+    // formula's pointer has a number to land on.
+    const typed = buildHoleParams(
+      applyHoleCoordinate(legacy, "x", "1.25", "mm"),
+      "mm",
+    );
+    expect(typed?.face_x_mm).toBe(1.25);
+    expect(typed?.face_y_mm).toBe(2);
+  });
+
+  it("a stored face X/Y loads into the cells and saves back exactly", () => {
+    const stored: HoleParams = {
+      ...holeParamsAt({ x: 80, y: 12.5, z: 10 }, "extrude-1"),
+      face_x_mm: 80,
+      face_y_mm: 12.5,
+    };
+    const form = formFromHoleParams(stored, "mm");
+    expect(form.xInput).toBe("80");
+    expect(form.faceLocal).toBe(true);
+    expect(buildHoleParams(form, "mm")).toEqual(stored);
+  });
+
+  it("a picked point keeps its full precision, not the cell's rounding", () => {
+    const picked = applyHolePosition(
+      withFace(),
+      { x: 3.123456789, y: -4.987654321, z: 10 },
+      "mm",
+    );
+    expect(picked.xInput).toBe("3.12346");
+    const params = buildHoleParams(picked, "mm");
+    expect(params?.face_x_mm).toBe(3.123456789);
+    expect(params?.face_y_mm).toBe(-4.987654321);
+  });
+});
+
 describe("recessDiameterError", () => {
   it("flags a non-positive or not-wider-than-bore recess, passes a wider one", () => {
     expect(recessDiameterError("", "6", "mm")).toBeNull(); // pending

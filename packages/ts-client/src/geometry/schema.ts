@@ -4347,11 +4347,9 @@ export interface components {
          *     ``feature_dependencies`` (deleting that body feature is a 409-with-dependents;
          *     a reorder re-checks strict-backward).
          *
-         *     ``position`` is a WORLD-space point; the geometry service projects it onto the
-         *     resolved face plane to fix the drill axis (a pick that lands a hair off-plane
-         *     still drills clean and perpendicular). A point that projects OUTSIDE the body
-         *     — or a resolved direction into empty space — removes no material and is a
-         *     ``hole_off_body`` rebuild error, never a silent no-op.
+         *     ``position`` is a WORLD point, projected onto the resolved face plane to fix
+         *     the drill axis; with ``face_x_mm``/``face_y_mm`` it is derived from them
+         *     (:mod:`loft_wire.hole_placement`). Off the body is ``hole_off_body``.
          *
          *     ``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;
          *     ``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the
@@ -4368,11 +4366,9 @@ export interface components {
          *
          *     ``thread`` (optional, ``None`` = an untapped hole) makes the hole TAPPED: a
          *     cosmetic :class:`IsoMetricThread` callout over the tap-drill bore, ORTHOGONAL
-         *     to ``type`` (a counterbored tapped hole sets both). It adds NO geometry — the
-         *     solid is byte-identical to the same hole without it — so a tapped hole
-         *     mirrors, patterns, shells and exports exactly as its bore does. An unknown
-         *     designation is ``hole_thread_unsupported``; a bore the thread cannot be tapped
-         *     in is ``hole_thread_mismatch``.
+         *     to ``type`` (a counterbored tapped hole sets both). It adds NO geometry, so a
+         *     tapped hole mirrors, patterns, shells and exports exactly as its bore does.
+         *     ``hole_thread_unsupported`` / ``hole_thread_mismatch`` refuse a bad callout.
          */
         HoleParamsV1: {
             /**
@@ -4387,6 +4383,16 @@ export interface components {
             diameter_mm: number;
             /** @description Planar face of an earlier body-affecting feature to drill into (the SAME stage-1 signature reference the on_face datum uses) */
             face: components["schemas"]["SubshapeRef"];
+            /**
+             * Face X Mm
+             * @description Drill X in the face's frame (mm): origin at the part origin projected onto the face plane, axes the kernel's on-face axes. Set together with the other coordinate; `position` is then derived from them on every write, so an expression at `/face_x_mm` moves the hole. Omitted on holes placed by world `position` alone.
+             */
+            face_x_mm?: number | null;
+            /**
+             * Face Y Mm
+             * @description Drill Y in the face's frame (mm): origin at the part origin projected onto the face plane, axes the kernel's on-face axes. Set together with the other coordinate; `position` is then derived from them on every write, so an expression at `/face_y_mm` moves the hole. Omitted on holes placed by world `position` alone.
+             */
+            face_y_mm?: number | null;
             /** @description World-space placement point, projected onto the face plane to fix the drill axis (mm) */
             position: components["schemas"]["Vec3"];
             /** @description Optional COSMETIC thread callout making this a TAPPED hole (`null`/omitted = untapped). Carries the designation for drawing/BOM callouts; adds no geometry — `diameter_mm` is the tap-drill bore (:class:`IsoMetricThread`) */
@@ -7799,6 +7805,11 @@ export interface components {
              * @constant
              */
             kind: "solved_sketch";
+            /**
+             * Profile Entities
+             * @description Ids of the curves that bound the sketch's profile, in entity order: the exact selection every body feature (extrude, revolve, sweep, loft) builds its profile from, so a live preview stitches the same curves the commit will. Construction entities and points are never in it; a projected curve is in it only where it helps close a region (Fusion 360's rule, QA-PROJECTED-PROFILE).
+             */
+            profile_entities?: string[];
             /**
              * Projections
              * @description One status per projected entity, in entity order: whether it followed its body edge on this rebuild, and why not when sick. Empty for a sketch with no projected entities.

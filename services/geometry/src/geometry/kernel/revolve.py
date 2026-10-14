@@ -93,6 +93,7 @@ from geometry.kernel.extrude import (
 )
 from geometry.kernel.healing import clean_shape
 from geometry.kernel.naming import OpHistory
+from geometry.kernel.profile_edges import profile_entities
 
 #: Clearance tolerance (mm) for the axis-vs-profile side test, aligned with the
 #: kernel linear tolerance (1e-7 m; model units are mm). A profile point within
@@ -351,8 +352,9 @@ def _axis_side_bounds(
     """Min and max signed distance of the profile to the axis line (2D).
 
     Signed distance is measured in the sketch plane from the infinite line
-    through the axis segment. Construction geometry and points never bound the
-    profile (they are excluded from the wire), so they are skipped here too —
+    through the axis segment. Construction geometry, points and projected curves
+    that close nothing never bound the profile (they are excluded from the
+    wire by :func:`profile_entities`), so they are skipped here too —
     the test is against exactly the geometry that becomes the swept face.
     """
     ax0x, ax0y = axis.start.x, axis.start.y
@@ -367,9 +369,7 @@ def _axis_side_bounds(
 
     lo = math.inf
     hi = -math.inf
-    for entity in entities:
-        if entity.construction:
-            continue
+    for entity in profile_entities(entities):
         samples: list[float] = []
         match entity:
             case SketchLine():

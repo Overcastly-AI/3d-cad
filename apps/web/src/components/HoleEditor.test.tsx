@@ -23,6 +23,7 @@ import {
   type HoleForm,
   type HolePickTarget,
 } from "../features/hole";
+import { useParameterScopeStore } from "../features/fieldFormulas";
 import { DocumentUnitProvider } from "../units/documentUnit";
 import { HoleEditor, type HoleGaugeState } from "./HoleEditor";
 import type { LengthUnit } from "@loft/design";
@@ -606,6 +607,26 @@ describe("HoleEditor — dialling the position in (QA3-1)", () => {
     fireEvent.change(x(), { target: { value: "2" } });
     fireEvent.change(y(), { target: { value: "-3.5" } });
     expect(submitted(onSubmit).position).toEqual({ x: 2, y: -3.5, z: 10 });
+  });
+
+  it("takes a formula in X and drills at what it resolves to", () => {
+    // HOLE-POSITION-FORMULA: X = W - 20 with W = 100 places the hole at 80;
+    // the wire carries the face-frame X the formula's pointer drives.
+    useParameterScopeStore
+      .getState()
+      .setParameters([{ name: "W", value: 100, unit: "length" }]);
+    try {
+      const { onSubmit } = renderEditor({ initial: placed() });
+      fireEvent.change(x(), { target: { value: "W - 20" } });
+      expect(x()).toHaveValue("W - 20");
+      expect(screen.getByText("= 80 mm")).toBeInTheDocument();
+      const params = submitted(onSubmit);
+      expect(params.face_x_mm).toBe(80);
+      expect(params.face_y_mm).toBe(5);
+      expect(params.position).toEqual({ x: 80, y: 5, z: 10 });
+    } finally {
+      useParameterScopeStore.getState().setParameters(null);
+    }
   });
 
   it("says WHERE zero is and which way the axes run", () => {
