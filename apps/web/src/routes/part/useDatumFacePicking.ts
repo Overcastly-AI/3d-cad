@@ -170,18 +170,8 @@ export function useDatumFacePicking({
   useEffect(() => {
     if (datumFacePick !== null && datumEdgePickArmed) disarmEdgePick();
   }, [datumFacePick, datumEdgePickArmed, disarmEdgePick]);
-  // Escape disarms an armed edge pick, staying in the editor.
-  useEffect(() => {
-    if (!datumEdgePickArmed) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        disarmEdgePick();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [datumEdgePickArmed, disarmEdgePick]);
+  // Escape cancels the command, as during a fillet's edge pick (Fusion); the
+  // close below and `usePickSessions` end the session with it.
   useEffect(() => {
     if (editor?.kind !== "datum") {
       setDatumEdgePickArmed(false);
