@@ -2,7 +2,12 @@ import { readFile } from "node:fs/promises";
 
 import { expect, test, type Page } from "./fixtures";
 
-import { persistArtifact, SCREENSHOT_DIR, seedSession } from "./support";
+import {
+  clickHoleRim,
+  persistArtifact,
+  SCREENSHOT_DIR,
+  seedSession,
+} from "./support";
 
 /**
  * Drawings v1 #7 — the drawing canvas exit gate. Driven end to end through a
@@ -464,7 +469,7 @@ test("author a diameter on the hole and a linear on the 40 mm edge", async ({
       '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
     )
     .first();
-  await topCircle.click();
+  await clickHoleRim(topCircle);
 
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-diameter").click();
@@ -677,7 +682,7 @@ test("export the laid-out sheet as a standalone .svg", async ({ page }) => {
       '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
     )
     .first();
-  await topCircle.click();
+  await clickHoleRim(topCircle);
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-diameter").click();
   await page.keyboard.press("Enter");
@@ -737,7 +742,7 @@ test("export the laid-out sheet as a server-composed .pdf", async ({
       '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
     )
     .first();
-  await topCircle.click();
+  await clickHoleRim(topCircle);
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-diameter").click();
   await page.keyboard.press("Enter");
@@ -803,7 +808,7 @@ test("export the laid-out sheet as a server-composed .dxf", async ({
       '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
     )
     .first();
-  await topCircle.click();
+  await clickHoleRim(topCircle);
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-diameter").click();
   await page.keyboard.press("Enter");

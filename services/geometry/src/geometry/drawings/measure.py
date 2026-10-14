@@ -61,12 +61,14 @@ from dataclasses import dataclass
 from build123d import Edge, GeomType
 from loft_wire.drawings import (
     AngularDimensionParams,
+    CentreToCentreMeasurement,
     DiameterDimensionParams,
     DimensionAnchor,
     DimensionEndpointRef,
     DimensionParams,
     DimensionUnit,
     EdgeLengthMeasurement,
+    EdgeToCentreMeasurement,
     EdgeToEdgeMeasurement,
     LinearDimensionParams,
     MeasuredDimension,
@@ -83,7 +85,7 @@ from geometry.drawings.anchor import (
     ResolvedAnchor,
     resolve_anchor_edge,
 )
-from geometry.drawings.project import ViewDirection, view_normal
+from geometry.drawings.project import ViewDirection, view_frame_axes, view_normal
 from geometry.kernel.edges import circle_axis
 from geometry.kernel.faces import SubshapeAmbiguousError, SubshapeUnresolvedError
 from geometry.kernel.types import BodyShape
@@ -134,6 +136,17 @@ class DimensionNotParallelError(ValueError):
     refuse, in the same typed style as :class:`DimensionTypeError`; the boundary
     maps it onto the ``dimension_not_parallel`` code (never a 500, and never a
     number)."""
+
+
+class DimensionNotPlaceableError(ValueError):
+    """A hole-centre dimension that has no meaning in the view it was put on
+    (QA-DRAWING-CENTRE-MARKS).
+
+    A centre dimension is measured in the view plane, so it needs a view with a
+    known frame (a section or flat-pattern view is not one yet) and, for an
+    edge-to-centre dimension, an edge that the view draws as a line rather than a
+    point. The boundary maps it onto the composer's ``dimension_not_placeable`` code,
+    whose sheet caption already says the fix: re-pick it in a view that shows it."""
 
 
 @dataclass(frozen=True)
@@ -258,9 +271,11 @@ def _endpoint(
 def _measure_linear(
     params: LinearDimensionParams,
     body: BodyShape,
-    normal: tuple[float, float, float],
+    view: ViewProjection,
+    drawn: Sequence[EdgeSignature] = (),
     naming: BodyNaming | None = None,
 ) -> DimensionValue:
+    normal = view_normal(_as_direction(view))
     source = params.measurement
     if isinstance(source, EdgeLengthMeasurement):
         resolved = resolve_anchor_edge(body, source.edge, naming=naming)
@@ -281,6 +296,8 @@ def _measure_linear(
         )
     if isinstance(source, EdgeToEdgeMeasurement):
         return _measure_edge_to_edge(source, body, normal, naming)
+    if isinstance(source, EdgeToCentreMeasurement | CentreToCentreMeasurement):
+        return _measure_centre(source, body, view, drawn, naming)
     assert isinstance(source, PointToPointMeasurement)
     a, anchor_a = _endpoint(source.a, body, naming)
     b, anchor_b = _endpoint(source.b, body, naming)
@@ -439,6 +456,117 @@ def _measure_angular(
     )
 
 
+def _hole_centre(
+    sig: EdgeSignature,
+    body: BodyShape,
+    drawn: Sequence[EdgeSignature],
+    naming: BodyNaming | None,
+) -> tuple[tuple[float, float, float], ResolvedAnchor]:
+    """A hole centre: the CENTRE of a circular edge, through the durable anchor.
+
+    The reference is the circle (its rim), resolved exactly as a diameter dimension
+    resolves its circle — all four anchor tiers and the name guard — so the centre
+    follows the hole through an edit that moves or resizes it. The point is the
+    exact B-rep circle's centre, never a value derived from the stored signature."""
+    resolved = resolve_anchor_edge(body, sig, drawn, naming)
+    if resolved.edge.geom_type != GeomType.CIRCLE:
+        raise DimensionTypeError(
+            "A hole-centre dimension needs a circular edge, but the referenced edge "
+            f"is {resolved.edge.geom_type}. Re-pick the hole's centre mark."
+        )
+    centre = resolved.edge.arc_center
+    return (float(centre.X), float(centre.Y), float(centre.Z)), resolved
+
+
+def _measure_centre(
+    source: EdgeToCentreMeasurement | CentreToCentreMeasurement,
+    body: BodyShape,
+    view: ViewProjection,
+    drawn: Sequence[EdgeSignature],
+    naming: BodyNaming | None,
+) -> DimensionValue:
+    """A hole-centre distance, measured IN THE VIEW PLANE (QA-DRAWING-CENTRE-MARKS).
+
+    Both points are projected onto the view's own frame — the exact
+    (normal, x, y) triple the HLR projector draws with — and measured there:
+
+    * ``edge_to_centre``: the perpendicular distance from the centre to the edge's
+      projected line (Fusion's line-to-point dimension);
+    * ``centre_to_centre``: the in-plane distance, or its x / y component for a
+      ``horizontal`` / ``vertical`` orientation.
+
+    In-plane is the only well-defined value: a through hole's two rims project to the
+    same centre, and a user picking the centre mark cannot choose between them. For
+    the front/top/right views the frame axes are model axes, so the value is a true
+    model length; an iso view is drawn foreshortened and is flagged so (design §3.2).
+    """
+    if view in ("flat_pattern", "section"):
+        raise DimensionNotPlaceableError(
+            "Hole-centre dimensions are measured in a standard view (front, top, "
+            "right or iso); this view has no fixed projection frame yet. Re-pick "
+            "the centre in a standard view."
+        )
+    _, x_dir, y_dir = view_frame_axes(_as_direction(view))
+
+    def flat(p: tuple[float, float, float]) -> tuple[float, float]:
+        return (
+            p[0] * x_dir[0] + p[1] * x_dir[1] + p[2] * x_dir[2],
+            p[0] * y_dir[0] + p[1] * y_dir[1] + p[2] * y_dir[2],
+        )
+
+    foreshortened = view == "iso"
+    if isinstance(source, CentreToCentreMeasurement):
+        a, anchor_a = _hole_centre(source.a, body, drawn, naming)
+        b, anchor_b = _hole_centre(source.b, body, drawn, naming)
+        (ax, ay), (bx, by) = flat(a), flat(b)
+        if source.orientation == "horizontal":
+            value = abs(bx - ax)
+        elif source.orientation == "vertical":
+            value = abs(by - ay)
+        else:
+            value = math.hypot(bx - ax, by - ay)
+        return DimensionValue(
+            value=value,
+            unit="mm",
+            foreshortened=foreshortened,
+            anchor=_anchor_dto(anchor_a, anchor_b),
+        )
+
+    line = resolve_anchor_edge(body, source.edge, naming=naming)
+    if line.edge.geom_type != GeomType.LINE:
+        raise DimensionTypeError(
+            "An edge-to-centre dimension measures from a straight edge, but the "
+            f"referenced edge is {line.edge.geom_type}. Re-pick a straight edge."
+        )
+    centre, anchor_c = _hole_centre(source.centre, body, drawn, naming)
+    p0 = flat(_t3(line.signature.end_a))
+    p1 = flat(_t3(line.signature.end_b))
+    dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+    length = math.hypot(dx, dy)
+    if length <= _VERTEX_TOL_MM:
+        raise DimensionNotPlaceableError(
+            "An edge-to-centre dimension measures square to the edge as this view "
+            "draws it, but this view sees the edge end-on, as a point. Re-pick the "
+            "edge in a view that shows its length."
+        )
+    c = flat(centre)
+    value = abs((c[0] - p0[0]) * dy - (c[1] - p0[1]) * dx) / length
+    # The edge itself tilted out of the view plane draws shorter than it is, and
+    # the distance square to its drawn line is then not a model distance.
+    normal = view_normal(_as_direction(view))
+    tilted = _linear_foreshortened(_line_direction(line.signature), normal)
+    return DimensionValue(
+        value=value,
+        unit="mm",
+        foreshortened=foreshortened or tilted,
+        anchor=_anchor_dto(line, anchor_c),
+    )
+
+
+def _t3(p: Vec3) -> tuple[float, float, float]:
+    return (p.x, p.y, p.z)
+
+
 def _oriented_directions(
     sig_a: EdgeSignature, sig_b: EdgeSignature
 ) -> tuple[bool, tuple[float, float, float], tuple[float, float, float]]:
@@ -499,7 +627,7 @@ def measure_dimension(
     """
     normal = view_normal(_as_direction(view))
     if isinstance(dimension, LinearDimensionParams):
-        return _measure_linear(dimension, body, normal, naming)
+        return _measure_linear(dimension, body, view, drawn, naming)
     if isinstance(dimension, DiameterDimensionParams):
         return _measure_diameter(dimension, body, normal, drawn, naming)
     if isinstance(dimension, RadiusDimensionParams):
@@ -551,6 +679,10 @@ def measure_dimension_dto(
     except DimensionNotParallelError as exc:
         return MeasuredDimension(
             error=FeatureError(code="dimension_not_parallel", message=str(exc))
+        )
+    except DimensionNotPlaceableError as exc:
+        return MeasuredDimension(
+            error=FeatureError(code="dimension_not_placeable", message=str(exc))
         )
     return MeasuredDimension(
         value=measured.value,

@@ -14,6 +14,8 @@ import math
 from collections.abc import Sequence
 
 from loft_wire.drawings import (
+    ComposedCentreLine,
+    ComposedCentreMark,
     ComposedCircleEdge,
     ComposedEdge,
     ComposedHatch,
@@ -26,6 +28,10 @@ from loft_wire.drawings import (
 )
 
 from geometry.drawings.layout import (
+    _CM_CROSS_HALF_MM,
+    _CM_GAP_MM,
+    _CM_MIN_DASH_MM,
+    _CM_OVERSHOOT_MM,
     _HATCH_ANGLE_DEG,
     _HATCH_SPACING_MM,
     ToSvg,
@@ -207,3 +213,89 @@ def build_section_hatch(
             lines.append(ComposedHatchLine(x1=a0.x, y1=a0.y, x2=b0.x, y2=b0.y))
         v += spacing
     return ComposedHatch(lines=lines)
+
+
+#: Two projected circle centres closer than this (view mm) share one centre mark: the
+#: two rims of a through hole, a counterbore's two diameters. Far below anything a
+#: drawing can show, far above the projector's coordinate noise.
+_CM_SAME_CENTRE_MM = 1e-6
+
+
+def _centre_mark_lines(c: Vec2, r: float) -> list[ComposedCentreLine]:
+    """The segments of one centre mark (ISO 128-20 / ASME Y14.2), SVG space.
+
+    Per axis: a long dash, a gap, the short centre dash crossing the other axis's,
+    a gap, a long dash — carried :data:`_CM_OVERSHOOT_MM` past the circle. On a circle
+    too small for the long dashes to read (shorter than :data:`_CM_MIN_DASH_MM`), one
+    continuous thin line per axis, which ISO 128-24 permits for small circles. The
+    horizontal arm comes first, then the vertical, each from -x/-y to +x/+y."""
+    reach = r + _CM_OVERSHOOT_MM
+    inner = _CM_CROSS_HALF_MM + _CM_GAP_MM
+    if reach - inner < _CM_MIN_DASH_MM:
+        spans = [(-reach, reach)]
+    else:
+        spans = [
+            (-reach, -inner),
+            (-_CM_CROSS_HALF_MM, _CM_CROSS_HALF_MM),
+            (inner, reach),
+        ]
+    lines = [
+        ComposedCentreLine(x1=c.x + a, y1=c.y, x2=c.x + b, y2=c.y) for a, b in spans
+    ]
+    lines += [
+        ComposedCentreLine(x1=c.x, y1=c.y + a, x2=c.x, y2=c.y + b) for a, b in spans
+    ]
+    return lines
+
+
+def build_centre_marks(
+    edges: Sequence[ProjectedViewEdge], to_svg: ToSvg
+) -> list[ComposedCentreMark]:
+    """Automatic centre marks for every circle the view sees end-on.
+
+    QA-DRAWING-CENTRE-MARKS: Fusion 360, SolidWorks and Onshape mark every hole seen
+    end-on with a centre mark by default; it is what a hole's position is dimensioned
+    from. A circle projects as a ``circle`` primitive only when its axis is parallel
+    to the view normal (an inclined one is an ellipse, ``polyline``), so the
+    primitive alone says "seen end-on". Arcs (a rounded corner, a slot end) are not
+    marked: their centres are construction, not features a shop locates.
+
+    One mark per distinct centre, sized to the largest circle on it, in the order the
+    centres first occur in the canonically-ordered edge list — so the marks are a
+    pure function of the projection (RESEARCH §9). The mark points (``edge_index``) at
+    the circle a pick on it should name: the first visible dimensionable circle on
+    that centre, else the first dimensionable one, else the first."""
+    groups: list[tuple[Vec2, list[int]]] = []
+    centres: dict[int, Vec2] = {}
+    radii: dict[int, float] = {}
+    for i, edge in enumerate(edges):
+        if edge.primitive != "circle" or edge.center is None or edge.radius is None:
+            continue
+        centre = centres[i] = _p2(edge.center)
+        radii[i] = edge.radius
+        for at, members in groups:
+            if math.hypot(at.x - centre.x, at.y - centre.y) <= _CM_SAME_CENTRE_MM:
+                members.append(i)
+                break
+        else:
+            groups.append((centre, [i]))
+    marks: list[ComposedCentreMark] = []
+    for _, members in groups:
+        radius = max(radii[i] for i in members)
+        ranked = sorted(
+            members,
+            key=lambda i: (not edges[i].dimensionable, not edges[i].visible, i),
+        )
+        # The marked circle's OWN centre, mapped exactly as its composed circle is,
+        # so the sheet can match the two bit-for-bit.
+        c = to_svg(centres[ranked[0]])
+        marks.append(
+            ComposedCentreMark(
+                cx=c.x,
+                cy=c.y,
+                r=radius,
+                edge_index=ranked[0],
+                lines=_centre_mark_lines(c, radius),
+            )
+        )
+    return marks

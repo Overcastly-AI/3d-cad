@@ -43,6 +43,7 @@ from loft_wire.drawings import (
     Annotation,
     BendTableRow,
     ComposedBendTable,
+    ComposedCentreMark,
     ComposedDimension,
     ComposedNote,
     ComposedPoint,
@@ -131,6 +132,7 @@ from geometry.drawings.svg import (
     serialize_svg,
 )
 from geometry.drawings.views import (
+    build_centre_marks,
     build_section_hatch,
     sample_arc,
     view_to_svg_edges,
@@ -159,6 +161,7 @@ __all__ = [
     "arc_extent_points",
     "banner_lines",
     "bounds_aware_layout",
+    "build_centre_marks",
     "build_dimension_annotation",
     "build_section_hatch",
     "dimension_edge_signature",
@@ -230,8 +233,11 @@ def _compose_view(
     )
 
     dims: list[ComposedDimension] = []
+    marks: list[ComposedCentreMark] = []
     if not failed:
         to_svg = view_transform(edges, anchor, sheet_h)
+        # Automatic centre marks on every circle seen end-on (QA-DRAWING-CENTRE-MARKS).
+        marks = build_centre_marks(edges, to_svg)
         view_center = pinned_position_center(edges)
         sheet = Vec2(sheet_w, sheet_h)
         # EVERY authored dimension of this view lands on the sheet — as its drafting
@@ -268,6 +274,7 @@ def _compose_view(
         label_pos=ComposedPoint(x_mm=anchor_svg_x, y_mm=label_y),
         edges=svg_edges,
         dimensions=dims,
+        centre_marks=marks,
     )
 
 

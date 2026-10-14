@@ -37,6 +37,24 @@
       <line x1="168.5000" y1="117.5000" x2="168.5000" y2="92.5000" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
       <circle cx="140.5000" cy="105.0000" r="5.0000" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
       <circle cx="156.5000" cy="105.0000" r="5.0000" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <g data-testid="drawing-centre-marks">
+        <g data-testid="drawing-centre-mark" cx="140.5000" cy="105.0000">
+          <line x1="132.5000" y1="105.0000" x2="138.0000" y2="105.0000" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="139.0000" y1="105.0000" x2="142.0000" y2="105.0000" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="143.0000" y1="105.0000" x2="148.5000" y2="105.0000" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="140.5000" y1="97.0000" x2="140.5000" y2="102.5000" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="140.5000" y1="103.5000" x2="140.5000" y2="106.5000" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="140.5000" y1="107.5000" x2="140.5000" y2="113.0000" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+        </g>
+        <g data-testid="drawing-centre-mark" cx="156.5000" cy="105.0000">
+          <line x1="148.5000" y1="105.0000" x2="154.0000" y2="105.0000" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="155.0000" y1="105.0000" x2="158.0000" y2="105.0000" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="159.0000" y1="105.0000" x2="164.5000" y2="105.0000" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="156.5000" y1="97.0000" x2="156.5000" y2="102.5000" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="156.5000" y1="103.5000" x2="156.5000" y2="106.5000" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+          <line x1="156.5000" y1="107.5000" x2="156.5000" y2="113.0000" stroke="#2A3542" stroke-width="0.2500" stroke-linecap="butt"/>
+        </g>
+      </g>
       <text data-testid="drawing-view-label" x="148.5000" y="125.5000" text-anchor="middle" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.4" letter-spacing="0.6">SECTION A-A</text>
     </g>
     <g data-testid="drawing-title-block">

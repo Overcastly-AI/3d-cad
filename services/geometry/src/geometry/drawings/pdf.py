@@ -24,6 +24,7 @@ from collections.abc import Sequence
 
 from loft_wire.drawings import (
     ComposedBendTable,
+    ComposedCentreMark,
     ComposedCircleEdge,
     ComposedDimension,
     ComposedDimensionError,
@@ -62,6 +63,8 @@ from geometry.drawings.layout import (
 from geometry.drawings.sheet_style import (
     _BEND_W,
     _BORDER_W,
+    _CENTRE_INK,
+    _CENTRE_W,
     _DIM_FLAG,
     _DIM_INK,
     _DIM_TEXT,
@@ -254,6 +257,22 @@ def _pdf_hatch(c: Canvas, hatch: ComposedHatch) -> None:
         c.line(line.x1 * _MM, line.y1 * _MM, line.x2 * _MM, line.y2 * _MM)
 
 
+def _pdf_centre_marks(c: Canvas, marks: Sequence[ComposedCentreMark]) -> None:
+    """Draw a view's centre marks (QA-DRAWING-CENTRE-MARKS): thin solid segments with
+    BUTT caps, so each dash is exactly as long as the composer placed it."""
+    if not marks:
+        return
+    c.saveState()
+    c.setStrokeColor(_hex(_CENTRE_INK))
+    c.setLineWidth(_CENTRE_W * _MM)
+    c.setDash([])
+    c.setLineCap(0)
+    for mark in marks:
+        for line in mark.lines:
+            c.line(line.x1 * _MM, line.y1 * _MM, line.x2 * _MM, line.y2 * _MM)
+    c.restoreState()
+
+
 def _pdf_view(c: Canvas, view: ComposedView) -> None:
     if view.failed:
         ax = view.anchor.x_mm
@@ -289,6 +308,7 @@ def _pdf_view(c: Canvas, view: ComposedView) -> None:
             _pdf_hatch(c, view.hatch)
         for edge in view.edges:
             _pdf_edge(c, edge)
+        _pdf_centre_marks(c, view.centre_marks)
         for dim in view.dimensions:
             _pdf_dimension(c, dim)
     _pdf_text(

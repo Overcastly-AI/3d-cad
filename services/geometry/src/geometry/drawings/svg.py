@@ -14,6 +14,7 @@ from collections.abc import Sequence
 
 from loft_wire.drawings import (
     ComposedBendTable,
+    ComposedCentreMark,
     ComposedCircleEdge,
     ComposedDimension,
     ComposedDimensionError,
@@ -49,6 +50,8 @@ from geometry.drawings.sheet_style import (
     _BEND_DASH,
     _BEND_W,
     _BORDER_W,
+    _CENTRE_INK,
+    _CENTRE_W,
     _DIM_FLAG,
     _DIM_INK,
     _DIM_TEXT,
@@ -155,6 +158,30 @@ def _emit_hatch(hatch: ComposedHatch, out: list[str]) -> None:
             f'x2="{_fmt(line.x2)}" y2="{_fmt(line.y2)}" stroke="{_HATCH_INK}" '
             f'stroke-width="{_fmt(_HATCH_W)}" stroke-linecap="round"/>'
         )
+    out.append("      </g>")
+
+
+def _emit_centre_marks(marks: Sequence[ComposedCentreMark], out: list[str]) -> None:
+    """Render a view's centre marks (QA-DRAWING-CENTRE-MARKS) — thin explicit dashes.
+
+    Emitted after the edges and before the dimensions, so a dimension drawn to a
+    centre lands over its mark. A view with no circles emits nothing at all, so its
+    bytes are unchanged."""
+    if not marks:
+        return
+    out.append('      <g data-testid="drawing-centre-marks">')
+    for mark in marks:
+        out.append(
+            f'        <g data-testid="drawing-centre-mark" cx="{_fmt(mark.cx)}" '
+            f'cy="{_fmt(mark.cy)}">'
+        )
+        for line in mark.lines:
+            out.append(
+                f'          <line x1="{_fmt(line.x1)}" y1="{_fmt(line.y1)}" '
+                f'x2="{_fmt(line.x2)}" y2="{_fmt(line.y2)}" stroke="{_CENTRE_INK}" '
+                f'stroke-width="{_fmt(_CENTRE_W)}" stroke-linecap="butt"/>'
+            )
+        out.append("        </g>")
     out.append("      </g>")
 
 
@@ -267,6 +294,7 @@ def _emit_view(view: ComposedView, out: list[str]) -> None:
             _emit_hatch(view.hatch, out)
         for edge in view.edges:
             _emit_edge(edge, out)
+        _emit_centre_marks(view.centre_marks, out)
         for dim in view.dimensions:
             _emit_dimension(dim, out)
     out.append(

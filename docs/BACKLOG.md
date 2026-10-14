@@ -391,7 +391,8 @@ One line each. The founder triages weekly; most are closed without work.
 - DRAW-BOX-MODIFY-FIELDS: the sketcher's offset and corner (fillet/chamfer) value boxes still take numbers only.
 - PROFILE-PICK (after QA-PROJECTED-PROFILE): no profile/region picking, so a projected face outline drawn round circles is cut as a plate with holes, and a projected edge crossing a sketch loop never splits it into regions as in Fusion.
 - PREVIEW-OPEN-CHAIN (after QA-PROJECTED-PROFILE): the ghost still drops an open chain of SKETCH curves that the commit refuses `profile_not_closed`; the sketcher flags open ends, the editor does not.
-- QA-DRAWING-CENTRE-MARKS (major): drawings have no centre marks or hole-centre picks, so hole positions cannot be dimensioned (a circle offers only diameter/radius).
+- QA-DRAWING-CENTRE-LINES (after QA-DRAWING-CENTRE-MARKS): a hole seen side-on gets no centre line (Fusion draws one along its axis); centre marks have no per-view off switch, because views carry no display options yet.
+- CENTRE-DIM-SECTION-VIEW: hole-centre dimensions refuse in section and flat-pattern views (`dimension_not_placeable`), because measurement knows no projection frame for them; arcs (slot ends) get no centre mark.
 - QA-FILLET-PICK-REFRAME (minor): the camera sometimes reframes on a fillet edge pick, so the next click picks the wrong edge.
 - QA-FILLET-DEFAULT-MODE: fillet opens in "By rule, all edges"; Fusion opens in edge-pick.
 - QA-SKETCH-PLANE-REFRAME: the sketch plane pick reframes before the click, so a face click aimed from the old view lands on a datum plane.

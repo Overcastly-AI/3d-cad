@@ -41,6 +41,16 @@ from loft_wire.assemblies import (
     MateEvaluationError,
     RefDocumentKind,
 )
+
+# Split out (FILE-SIZE-RATCHET) and re-exported: `X as X` is the explicit re-export.
+from loft_wire.drawing_centres import (
+    CentreToCentreMeasurement as CentreToCentreMeasurement,
+)
+from loft_wire.drawing_centres import ComposedCentreLine as ComposedCentreLine
+from loft_wire.drawing_centres import ComposedCentreMark as ComposedCentreMark
+from loft_wire.drawing_centres import EdgeToCentreMeasurement as EdgeToCentreMeasurement
+from loft_wire.drawing_centres import LinearOrientation as LinearOrientation
+from loft_wire.drawing_section import SectionViewParams as SectionViewParams
 from loft_wire.features import (
     MAX_TREE_FEATURES,
     DocumentName,
@@ -48,7 +58,6 @@ from loft_wire.features import (
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
     FeatureError,
-    GeomRef,
     document_slug,
 )
 from loft_wire.folders import FOLDER_ID_DESCRIPTION
@@ -166,33 +175,6 @@ EdgeRole = Literal["body", "bend"]
 
 #: A bend's fold sense in a flat pattern's bend table (sheet-metal.md §1/§6).
 BendDirection = Literal["up", "down"]
-
-
-class SectionViewParams(BaseModel):
-    """The cutting plane + half selection of a section view (drawings-section.md §1).
-
-    v1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting
-    line (§1): ``plane`` is the shipped :data:`~loft_wire.features.GeomRef`
-    (``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to
-    an axis-aligned offset / midplane datum FEATURE in the referenced part) — the
-    EXACT union a sketch's plane reference uses, so no parallel plane taxonomy is
-    introduced (DRY). The geometry service resolves it, checks the v1 axis-aligned
-    precondition (a non-principal normal is a typed ``section_plane_not_principal``,
-    §7), cuts, and hatches. ``flip`` chooses which half is removed (§4): ``false``
-    (default) removes the eye-side material (the standard "cut away what is between
-    you and the plane"), ``true`` the far side.
-    """
-
-    plane: GeomRef = Field(
-        description="The cutting plane, as a datum reference (reused GeomRef): a "
-        "DatumPlaneRef (XY/XZ/YZ) or a FeatureRef to an axis-aligned offset/midplane "
-        "datum. A non-principal-axis normal is out of v1 (typed error, §7)."
-    )
-    flip: bool = Field(
-        default=False,
-        description="Which half is removed (§4): false (default) removes the eye-side "
-        "material; true the far side.",
-    )
 
 
 #: The v1 dimension set (design §3.1).
@@ -357,10 +339,15 @@ class EdgeToEdgeMeasurement(BaseModel):
 
 
 #: Discriminated linear-measurement source: a single edge's length, the distance
-#: between two edge-endpoints, OR the perpendicular distance between two parallel
-#: edges (design §3.1; the third joined additively for FB-10).
+#: between two edge-endpoints, the perpendicular distance between two parallel
+#: edges (FB-10), or a hole-centre distance (QA-DRAWING-CENTRE-MARKS), each joined
+#: additively.
 LinearMeasurement = Annotated[
-    EdgeLengthMeasurement | PointToPointMeasurement | EdgeToEdgeMeasurement,
+    EdgeLengthMeasurement
+    | PointToPointMeasurement
+    | EdgeToEdgeMeasurement
+    | EdgeToCentreMeasurement
+    | CentreToCentreMeasurement,
     Field(discriminator="mode"),
 ]
 
@@ -371,8 +358,8 @@ class LinearDimensionParams(BaseModel):
 
     type: Literal["linear"] = "linear"
     measurement: LinearMeasurement = Field(
-        description="What is measured (an edge's length, two endpoints, or the "
-        "perpendicular distance between two parallel edges)"
+        description="What is measured (an edge's length, two endpoints, the "
+        "perpendicular distance between two parallel edges, or a hole centre's)"
     )
     placement: DimensionPlacement = Field(
         default_factory=DimensionPlacement, description="Authored 2D placement"
@@ -1669,6 +1656,11 @@ class ComposedView(BaseModel):
         description="A section view's placed crosshatch (drawings-section.md §5); null "
         "for every non-section view — additive, so a standard/flat-pattern view "
         "composes byte-identically (the `bend_table` pattern).",
+    )
+    centre_marks: list[ComposedCentreMark] = Field(
+        default_factory=list["ComposedCentreMark"],
+        description="Automatic centre marks, one per circle centre seen end-on "
+        "(QA-DRAWING-CENTRE-MARKS); empty for a view with no circles.",
     )
 
 

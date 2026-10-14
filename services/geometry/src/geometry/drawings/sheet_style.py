@@ -82,6 +82,12 @@ _HIDDEN_DASH = "2 1.4"  # hiddenDashMm + hiddenGapMm
 _BEND_W = 0.4  # flat-pattern fold-line weight (sheet-metal.md §7)
 _BEND_DASH = "3 1.6"  # bend fold-line dash (distinct from the hidden-edge dash)
 _HATCH_W = 0.25  # section crosshatch stroke weight (drawings-section.md §5)
+#: Centre-mark ink + weight (QA-DRAWING-CENTRE-MARKS): an ISO 128 THIN line (half the
+#: 0.5 mm visible edge) in the annotation graphite, so a mark reads as drafting
+#: construction rather than part outline. Twins of `drawing.centreMark` /
+#: `drawing.centreMarkWeightMm` (packages/design/src/tokens.ts) — keep them in step.
+_CENTRE_INK = "#2A3542"
+_CENTRE_W = 0.25
 
 #: Monospace stack (font.data) — the drafting vernacular. Emitted with escaped
 #: quotes so the attribute stays valid standalone XML.

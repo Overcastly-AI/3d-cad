@@ -165,6 +165,7 @@ export function DrawingPage() {
     selectedEdgeKey,
     armedEdgeKeys,
     selectedVertexKeys,
+    selectedCentreKeys,
     endpointPickActive,
     menuActionList,
     anchor,
@@ -173,6 +174,7 @@ export function DrawingPage() {
     placingOffsetMm,
     handlePickEdge,
     handlePickEndpoint,
+    handlePickCentre,
     handleChooseAction,
     handlePlacePointer,
     handlePlaceClick,
@@ -485,6 +487,10 @@ export function DrawingPage() {
                 movingDimensionId={placementReplaces(authoring)}
                 onPickEdge={handlePickEdge}
                 onPickEndpoint={handlePickEndpoint}
+                centres={{
+                  selectedKeys: selectedCentreKeys,
+                  onPick: handlePickCentre,
+                }}
                 onPlaceView={handlePlaceView}
                 onPlacePointer={handlePlacePointer}
                 onPlaceCommit={handlePlaceClick}

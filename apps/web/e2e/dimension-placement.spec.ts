@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "./fixtures";
 
 import { createPlateWithHoleViaApi } from "./assemblyFlow";
-import { SCREENSHOT_DIR, seedSession } from "./support";
+import { clickHoleRim, SCREENSHOT_DIR, seedSession } from "./support";
 
 /**
  * REACH-3 — place a drawing dimension AS YOU CREATE IT.
@@ -752,7 +752,7 @@ test("drag a diameter's value off the hole and it stays there", async ({
       '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
     )
     .first();
-  await topCircle.click();
+  await clickHoleRim(topCircle);
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-diameter").click();
 

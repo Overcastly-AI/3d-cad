@@ -79,6 +79,20 @@ export function healDimensionParams(
           measurement: { ...measurement, edge_a: primary, edge_b: secondary },
         };
       }
+      // Hole-centre dimensions: the anchor's primary/secondary are the edge
+      // and the circle (edge-to-centre) or the two circles (centre-to-centre).
+      if (measurement.mode === "edge_to_centre") {
+        return {
+          ...params,
+          measurement: { ...measurement, edge: primary, centre: secondary },
+        };
+      }
+      if (measurement.mode === "centre_to_centre") {
+        return {
+          ...params,
+          measurement: { ...measurement, a: primary, b: secondary },
+        };
+      }
       return {
         ...params,
         measurement: {

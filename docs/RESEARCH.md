@@ -464,6 +464,30 @@ stored before this carry no names and keep the geometric tiers only, until
 they are healed. Errors with no edge to sit on (lost references fall back to
 the view centre) stack one row apart instead of printing over each other.
 
+**Centre marks and hole positions (2026-10-14, QA-DRAWING-CENTRE-MARKS).** As
+in Fusion 360, SolidWorks and Onshape, every circle a view sees end-on (an HLR
+`circle` primitive, which exists only when the axis is parallel to the view
+normal) gets an automatic centre mark, one per distinct centre and sized to
+the largest circle there. The mark follows ISO 128-20 / ASME Y14.2: a thin
+(0.25 mm) cross of a 3 mm centre dash, a 1 mm gap and a long dash carried 3 mm
+past the circle, or one continuous thin line per axis when the long dash
+would be under 1.5 mm. The dashes are explicit segments, not a dash pattern,
+so SVG, PDF and DXF (layer `CENTER`) draw the same mark. There is no per-view
+option to turn them off yet, because views carry no display options. A hole
+centre is a dimension anchor named through its circle edge, so it resolves by
+the same four tiers and name guard as every drawing reference and follows the
+hole through an edit. Two linear modes join the union: `edge_to_centre`
+(square to the edge as the view draws it) and `centre_to_centre`
+(`horizontal`, `vertical` or `aligned`; on the sheet, as in Fusion, dragging
+above or below the holes gives horizontal and to the side gives vertical).
+Both are measured in the view plane, on the projector's own frame. A through
+hole's two rims project to one centre and the user cannot choose between
+them, so the in-plane distance is the only value that does not depend on the
+rim. In front, top and right views it is a true model length; iso is flagged
+as foreshortened, and section or flat-pattern views refuse with
+`dimension_not_placeable`. Auto placement of these dimensions clears the
+view's outline, because a centre lies inside the part.
+
 ## 12. Datum-plane conventions (scripting trap)
 
 | Datum | x_dir | y_dir | normal (extrude direction) |

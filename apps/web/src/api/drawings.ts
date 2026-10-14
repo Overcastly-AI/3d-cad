@@ -93,6 +93,18 @@ export type ComposedNote = components["schemas"]["ComposedNote"];
 /** A section view's placed crosshatch — the ANSI 45° cut-face fill
  * (drawings-section.md §5); null for every non-section view. */
 export type ComposedHatch = components["schemas"]["ComposedHatch"];
+/** An automatic centre mark on a circle seen end-on (QA-DRAWING-CENTRE-MARKS). */
+export type ComposedCentreMark = components["schemas"]["ComposedCentreMark"];
+/** A hole-centre linear measurement: a straight edge to a centre. */
+export type EdgeToCentreMeasurement =
+  components["schemas"]["EdgeToCentreMeasurement"];
+/** A hole-centre linear measurement: centre to centre, with an orientation. */
+export type CentreToCentreMeasurement =
+  components["schemas"]["CentreToCentreMeasurement"];
+/** How a centre-to-centre dimension runs: aligned, horizontal or vertical. */
+export type LinearOrientation = NonNullable<
+  CentreToCentreMeasurement["orientation"]
+>;
 /** One bend-table fold row (bend id, angle, radius, direction, allowance). */
 export type BendTableRow = components["schemas"]["BendTableRow"];
 /** The typed per-view/-feature error envelope (code + human message). */
