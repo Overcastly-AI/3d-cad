@@ -322,6 +322,19 @@ for (const unit of UNITS) {
       expectUnchanged(buildHoleParams(form, unit), stored);
     });
 
+    it("hole: face-frame X and Y (HOLE-POSITION-FORMULA)", () => {
+      const stored: HoleParams = {
+        face: faceSubshapeRef(BODY, FACE),
+        position: { x: A, y: -B, z: 20 },
+        diameter_mm: 6,
+        depth: { kind: "through_all" },
+        face_x_mm: A,
+        face_y_mm: -B,
+      };
+      const form = formFromHoleParams(stored, unit);
+      expectUnchanged(buildHoleParams(form, unit), stored);
+    });
+
     it("hole: countersink diameter and angle", () => {
       const stored: HoleParams = {
         face: faceSubshapeRef(BODY, FACE),
@@ -546,6 +559,8 @@ for (const unit of UNITS) {
           nominal_diameter_mm: 10,
           pitch_mm: 1.5,
         },
+        face_x_mm: 1,
+        face_y_mm: 2,
       };
       expectOptionalKeysKept(stored, "HoleParamsV1", (row) =>
         buildHoleParams(formFromHoleParams(row, unit), unit),

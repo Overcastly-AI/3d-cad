@@ -182,6 +182,15 @@ export interface HoleForm {
    * re-pick changes the ANCHOR and nothing else.
    */
   placementAuthored: boolean;
+  /**
+   * The save stores the face-frame X/Y (`face_x_mm`/`face_y_mm`) beside the
+   * world `position`, which documents then derives from them, so a formula on
+   * X or Y (`/face_x_mm: "W - 20"`) moves the hole when its parameter does
+   * (HOLE-POSITION-FORMULA). True for every new hole and every hole stored
+   * that way; false for a hole stored by world point alone until its
+   * placement is touched, so a no-op Save of an old hole stays byte-identical.
+   */
+  faceLocal: boolean;
   /** The params as STORED, when editing (a no-op Save sends them back). */
   stored?: HoleParams;
 }
@@ -222,6 +231,7 @@ function emptyHoleForm(): HoleForm {
     threadNominalMm: DEFAULT_THREAD_NOMINAL_MM,
     threadPitchMm: DEFAULT_THREAD_PITCH_MM,
     placementAuthored: false,
+    faceLocal: true,
   };
 }
 
@@ -236,14 +246,21 @@ export function formFromHoleParams(
   const base = defaultHoleForm(null, unit);
   const signature = params.face.selector.signature;
   const point = toFacePoint(faceFrame(signature), params.position);
+  const faceX = params.face_x_mm;
+  const faceY = params.face_y_mm;
+  const faceLocal = faceX != null && faceY != null;
   return {
     face: {
       signature,
       anchorId: params.face.feature_id,
     },
     position: params.position,
-    xInput: lengthInputValue(point.x, unit),
-    yInput: lengthInputValue(point.y, unit),
+    xInput: faceLocal
+      ? storedLengthInput(faceX, unit)
+      : lengthInputValue(point.x, unit),
+    yInput: faceLocal
+      ? storedLengthInput(faceY, unit)
+      : lengthInputValue(point.y, unit),
     diameterInput: storedLengthInput(params.diameter_mm, unit),
     depthMode: depth.kind === "blind" ? "blind" : "through_all",
     depthInput:
@@ -279,6 +296,7 @@ export function formFromHoleParams(
     // A stored position IS the modeller's placement, whatever put it there, so
     // a later re-pick re-anchors it rather than re-seeding it (T-22).
     placementAuthored: true,
+    faceLocal,
     stored: params,
   };
 }
@@ -331,7 +349,11 @@ export function applyHolePosition(
 ): HoleForm {
   // A point picked in the viewport is the modeller's placement — a later
   // re-pick of the face must not throw it away (T-22).
-  return placeHole({ ...form, placementAuthored: true }, position, unit);
+  return placeHole(
+    { ...form, placementAuthored: true, faceLocal: true },
+    position,
+    unit,
+  );
 }
 
 /**
@@ -369,7 +391,11 @@ export function applyHoleCoordinate(
 ): HoleForm {
   // Typing a coordinate is authoring the placement, so a later face re-pick
   // re-anchors it instead of re-seeding to the new face's centroid (T-22).
-  const typed: HoleForm = { ...form, placementAuthored: true };
+  const typed: HoleForm = {
+    ...form,
+    placementAuthored: true,
+    faceLocal: true,
+  };
   const next: HoleForm =
     axis === "x" ? { ...typed, xInput: raw } : { ...typed, yInput: raw };
   if (next.face === null) return next;
@@ -733,7 +759,44 @@ export function buildHoleParams(
   };
   if (type !== undefined) params.type = type;
   if (thread !== undefined) params.thread = thread;
+  if (form.faceLocal) {
+    const exact = toFacePoint(faceFrame(form.face.signature), form.position);
+    params.face_x_mm = faceCoordinate(
+      form.xInput,
+      exact.x,
+      stored?.face_x_mm,
+      unit,
+    );
+    params.face_y_mm = faceCoordinate(
+      form.yInput,
+      exact.y,
+      stored?.face_y_mm,
+      unit,
+    );
+  }
   return params;
+}
+
+/**
+ * The face-frame coordinate a save stores: the STORED number while the cell
+ * still reads it; the typed number when the cell spells the point; and the
+ * point's own full-precision coordinate when the cell only shows its rounding
+ * (a viewport pick on a bore centre is `12.3457` in the cell and must not be
+ * drilled 4e-5 mm off-centre, QA3-2's eccentric ring).
+ */
+function faceCoordinate(
+  input: string,
+  exactMm: number,
+  storedMm: number | null | undefined,
+  unit: LengthUnit,
+): number {
+  const typed = storedLengthMm(input, unit, storedMm, parseSignedLengthMm);
+  if (typed === null) return exactMm;
+  if (typed === storedMm) return typed;
+  const shown = lengthInputValue(exactMm, unit);
+  return Math.abs(typed - exactMm) > 1e-9 && shown === input.trim()
+    ? exactMm
+    : typed;
 }
 
 /** True when the form can be submitted (all required fields present + valid). */
