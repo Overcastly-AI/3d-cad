@@ -25,8 +25,13 @@ as ASM-\* in `docs/BACKLOG.md`.
   roll-up, and assembly drawings with a top-level BOM. Assembly STEP export
   is instanced and holds every nested part, flattened to one level; STEP
   import keeps the product structure.
-- **Not built:** component patterns, mirror, in-context edits, exploded
-  views and a fastener library. Performance at scale has not been measured.
+- **Component patterns (ASM-A3-PATTERN):** linear, circular and on holes
+  (pattern-driven, Onshape's Replicate) of parts or sub-assemblies, one tree
+  entry each. Copies follow their seed after the solve; the BOM,
+  interference, STEP and the 500-component bound count them, and an on-holes
+  pattern's count follows its driving part.
+- **Not built:** mirror, in-context edits, exploded views and a fastener
+  library. Performance at scale has not been measured.
 
 ## The three assemblies
 
@@ -143,7 +148,7 @@ axes are X along the travel, and Z up. Screws are ISO 4762.
 | Connections    | Joints: rigid, revolute, slider, cylindrical, pin-slot, planar, ball | Standard, advanced (limit, width, symmetric, path) and mechanical (gear, screw, cam) mates | 5 mates; planar faces and circular edges only  |
 | Limits, motion | Joint limits, drive joints, motion links, motion study, contact sets | Limit mates, drag to test, Motion Study                                                    | None                                           |
 | Grouping       | Rigid groups, nested components                                      | Rigid or flexible sub-assemblies                                                           | Pairwise lock; rigid sub-assemblies            |
-| Patterns       | Pattern and mirror of components                                     | Linear, circular, pattern-driven and sketch-driven patterns; mirror components             | None                                           |
+| Patterns       | Pattern and mirror of components                                     | Linear, circular, pattern-driven and sketch-driven patterns; mirror components             | Linear, circular, on-holes patterns            |
 | Fasteners      | McMaster-Carr insert                                                 | Toolbox, Smart Fasteners into Hole Wizard holes                                            | Hand-modelled                                  |
 | In context     | Edit in place, cross-component references                            | Edit Part in the assembly, external references                                             | None                                           |
 | BOM            | Parts list and balloons in drawings                                  | Top-level, parts-only and indented BOM                                                     | Top-level, indented, parts-only; drawing BOM   |
