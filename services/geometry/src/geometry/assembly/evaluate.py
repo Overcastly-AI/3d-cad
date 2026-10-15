@@ -759,6 +759,10 @@ def _seed_occurrences(
     occurrences: list[Occurrence] = []
     for inst in request.instances:
         if inst.sub_assembly is None:
+            # Parts listed after a large sub-assembly count toward the same
+            # bound as its contents.
+            if len(occurrences) >= MAX_ASSEMBLY_INSTANCES:
+                raise assembly_too_large()
             part = parts[inst.part_key]
             occurrences.append(
                 Occurrence(
