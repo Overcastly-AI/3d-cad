@@ -485,7 +485,7 @@ def test_a_tree_past_the_bound_is_refused_fast_at_every_entry() -> None:
         .count
         == 36
     )
-    parent = {
+    parent: dict[str, Any] = {
         "assembly_id": str(uuid.UUID(int=0xFB)),
         "version": 1,
         "instances": [
