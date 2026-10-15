@@ -274,6 +274,24 @@ def test_step_export_holds_every_copy() -> None:
     assert len(_NAUO.findall(data)) == 13
 
 
+def test_named_step_export_does_not_carry_the_writer_counter() -> None:
+    """Named copies write long occurrence lines that OCCT wraps, and where it
+    wraps depended on the digits of its process-global occurrence counter: the
+    same request exported later in a worker came out with different bytes. The
+    wrap is joined before the counter is renumbered, so it no longer does."""
+    model = _model()
+    for n, inst in enumerate(model["instances"], start=1):
+        inst["name"] = f"Plate <{n}>"
+    request = ExportAssemblyRequest.model_validate(
+        {**model, "format": "step", "name": "Patterned plates"}
+    )
+    first = export_assembly(request)
+    # Push OCCT's counter through more digits (13 occurrences per write).
+    for _ in range(8):
+        export_assembly(request)
+    assert export_assembly(request) == first
+
+
 def test_the_counts_route_answers_every_pattern() -> None:
     response = TestClient(app).post(
         "/api/v1/assembly/pattern-counts", json=_MODEL.model_dump(mode="json")

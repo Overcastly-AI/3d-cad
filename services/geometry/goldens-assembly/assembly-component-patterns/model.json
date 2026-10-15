@@ -5,7 +5,7 @@
     {
       "instance_id": "00000000-0000-0000-0000-0000000000c1",
       "part_key": "part-plate-2holes@1",
-      "name": "Plate <1>",
+      "name": null,
       "features": [
         {
           "id": "00000000-0000-0000-0000-0000000000a1",
@@ -134,7 +134,7 @@
     {
       "instance_id": "00000000-0000-0000-0000-0000000000c5",
       "part_key": "part-plate-2holes@1",
-      "name": "Plate <2>",
+      "name": null,
       "features": [
         {
           "id": "00000000-0000-0000-0000-0000000000a1",
@@ -263,7 +263,7 @@
     {
       "instance_id": "00000000-0000-0000-0000-0000000000c2",
       "part_key": "part-plate-2holes@1",
-      "name": "Plate <3>",
+      "name": null,
       "features": [
         {
           "id": "00000000-0000-0000-0000-0000000000a1",
@@ -392,7 +392,7 @@
     {
       "instance_id": "00000000-0000-0000-0000-0000000000c3",
       "part_key": "part-plate-2holes@1",
-      "name": "Plate <4>",
+      "name": null,
       "features": [
         {
           "id": "00000000-0000-0000-0000-0000000000a1",
@@ -521,7 +521,7 @@
     {
       "instance_id": "00000000-0000-0000-0000-0000000000c4",
       "part_key": "part-plate-2holes@1",
-      "name": "Plate <5>",
+      "name": null,
       "features": [
         {
           "id": "00000000-0000-0000-0000-0000000000a1",
