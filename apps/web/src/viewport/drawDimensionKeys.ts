@@ -77,6 +77,12 @@ export interface DrawKeyBuffer {
   text: string[];
   /** Enter was pressed — apply as soon as there is something to apply to. */
   apply: boolean;
+  /**
+   * A ONE-cell box's text when Tab was pressed in it (LINE-LENGTH-TAB): there
+   * is no next cell, so what is typed after it is a second value, not more of
+   * the first (`secondValueTyped`).
+   */
+  tabbedAt?: string;
 }
 
 /** What the listener should do with a key. */
@@ -158,6 +164,13 @@ export function bufferDrawKey(
 
   if (key === "Tab") {
     const base = current ?? empty(draftId, fieldCount);
+    // One cell: Tab has nowhere to go. Note where the first value ended.
+    if (fieldCount === 1) {
+      return {
+        kind: "buffered",
+        buffer: { ...base, tabbedAt: bufferedText(base, 0) },
+      };
+    }
     const step = shiftKey ? -1 : 1;
     // Wrapping, because a dimension pair is a loop — tabbing out of the
     // viewport mid-value is the dead end the mounted strip already avoids.

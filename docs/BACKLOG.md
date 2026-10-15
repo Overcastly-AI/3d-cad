@@ -13,7 +13,10 @@ Done 2026-10-09: **EXTRUDE-SYMMETRIC** (204a575, 61377c0, e6aeebb; golden
 `extrude-cut-symmetric-pocket-offset-xz-40x40x20`), **LINE-CHAIN** (b3d1b92,
 398799f) and **PERF-REBUILD-200 pass 1** (505a361, 55c6150, 6cb2ebf: 200
 features 29.4 -> 25.3 s, 100 features 7.0 -> 6.3 s, every golden
-byte-identical; RESEARCH §15a).
+byte-identical; RESEARCH §15a). Done 2026-10-09..14 and dropped at the
+2026-10-15 triage: **PART-PARAMETERS** (§20), **DATUM-PLANE-ANGLE** (§18),
+**SKETCH-PLANE-PICK**, **SWEEP-CLOSED-PATH** (§19), **ASM-JOINTS**,
+**ASM-MOVE-DRAG** and **ASM-LIMITS** (§21, §22).
 
 - [ ] **PERF-REBUILD-200 pass 2** (the scorecard's ❌; RESEARCH §15a steps 2,
       3 and 5, none of which needs a founder decision): admission `BRepCheck`
@@ -27,75 +30,23 @@ byte-identical; RESEARCH §15a).
       RESEARCH §15a. _Status 2026-10-09:_ step 5 taken (25.98 s against
       26.16 s); step 3 refused, because a cache keyed on TShape misses
       OCCT's in-place rewrites (§15a); step 2 waits on the founder: may we
-      fetch the OCCT `BRepCheck` source?
-- [x] **PART-PARAMETERS** (done 2026-10-14, all nine steps on main; was PARAMETERS; absorbs SKETCH-EXPR-TRIG; the
-      gear is not parametric): named part parameters shared by sketches and
-      features, as Fusion's Change Parameters and Onshape's Variables.
-      Decisions: RESEARCH §20. Each step merges alone:
-  - [x] 1. Expression library in `loft_wire/expr.py`; the sketch evaluator
-        delegates (sketch trig). _Accept:_ existing sketch-expression tests
-        unchanged; `20*tan(15)` solves in a sketch dimension and round-trips;
-        all goldens byte-identical.
-  - [x] 2. `input_error` wire field; geometry fails such a feature.
-        _Accept:_ unit test, later features build; goldens unchanged.
-  - [x] 3. Parameter table: wire, migration 0018, documents GET/PUT,
-        gateway, history, versions, `just gen`. _Accept:_ migration
-        up/down/up; cycle/unknown 422; PUT+undo restores byte-for-byte.
-  - [x] 4. Feature-field and sketch-dimension expressions: resolve on write
-        and in the evaluation request, `parameter_in_use`, rename, a
-        parametric golden. _Accept:_ the golden re-drives to hand values;
-        cache test; out-of-range is a sick feature, not a 500.
-  - [x] 5. `.loft` 1.2. _Accept:_ export/import/re-export gives identical
-        bytes; the 1.0 and 1.1 fixtures import.
-  - [x] 6. loft-script API. _Accept:_ a script builds the step-4 part;
-        `set_parameter` alone changes the volume as expected.
-        (`packages/loft-script/tests/test_parameters.py`.)
-  - [x] 7. Web Parameters panel. _Accept:_ e2e: adding and editing a
-        parameter rebuilds the body; Ctrl+Z restores.
-        (`parameters-panel.spec.ts`; merged to main in b8f4c62.)
-  - [x] 8. Web `<ValueField>` in every numeric editor, with autocomplete.
-        _Accept:_ e2e: Extrude = H/2; editing H re-drives it
-        (`parameters-drive.spec.ts`; RESEARCH §20 "Step 8, as built").
-  - [x] 9. Reference parts parametric (helical gear, ladder 2c/3d).
-        _Accept:_ the gear's `--edit` is one `set_parameter("beta", "20 deg")`
-        and its volume matches `expected_volume(Gear(20))` to 1e-4.
-        (`docs/reference-parts/{helical-gear,manifold,knob}.py`, run in CI by
-        `packages/loft-script/tests/test_reference_parts.py`; RESEARCH §20
-        "Step 9, as built".)
-- [x] **DATUM-PLANE-ANGLE** (done 13ed52f..2f585fe, 16361fe; edge pick and
-      formula angle in this change; goldens `datum-angle-*`; e2e
-      `datum-plane-angle{,-edge}.spec.ts`; RESEARCH §18) (moto frame steering head, tube-frame gap): there
-      is no tilted datum plane (only offset, on-face, offset-from and
-      midplane), so the 25° steering head is a revolve about a sketch axis.
-      Fusion (Plane at Angle), SolidWorks (Plane, "At angle" about an edge or
-      axis) and Onshape (Plane, "Line angle") rotate a plane about a line by a
-      typed angle. _Accept:_ a Plane at Angle (a linear edge, sketch line or
-      axis plus an angle; wire field, `just gen`, editor and loft-script)
-      follows its line and angle on rebuild; the moto frame's steering-head
-      tube, sketched on a 25° plane and extruded symmetric, gives the frame
-      golden's volume (empty two-way difference); a new golden covers an
-      angled plane.
-- [x] **SKETCH-PLANE-PICK** (done bdefa48, 8aa421e; e2e `sketch-plane-pick.spec.ts`; enclosure: 5 sketches landed on a stale face;
-      bracket: a face click sketched on XY): New Sketch reuses a face
-      remembered from a cancelled Shell or Draft pick, and in plane-pick a
-      click on a body face picks the origin plane behind it. In Fusion, Create
-      Sketch uses the face selected now, else waits for a click on a plane or
-      planar face. _Accept:_ with nothing selected, New Sketch opens the plane
-      picker; a pick from a cancelled command is never a pre-selection; a
-      click on a visible planar face sketches on that face with no "Pick a
-      face" step; an e2e covers all three. This reverses UI-W3 for the
-      cancel case: a cancelled command's pick is forgotten (Fusion), and only
-      a saved pick seeds the next command.
+      fetch the OCCT `BRepCheck` source? _Status 2026-10-15:_ step 2 built,
+      measured and not merged. A wire-level check equal to the analyzer on
+      10823 admissions, every golden byte-identical, saved only 0.6-0.7 s at
+      N=200 (26.69 s against 27.40 s at d2f5777), inside the run-to-run
+      spread; the review judged it not worth re-verifying on every OCCT
+      upgrade (RESEARCH §15a). What is left needs step 1 (founder) or step 4
+      (new goldens).
+- [ ] **ASM-A3** (founder 2026-10-15: next, so a bike can be built; split it now): sub-assemblies from
+      the Add panel with an indented BOM, a component pattern that follows a
+      part's holes (Fusion pattern, Onshape Replicate, SolidWorks
+      pattern-driven), and in-context edits (Fusion Edit in Place).
+      _Accept:_ A3's BOM reads 16 lines and 73 instances (top level 11 and
+      45), its 28 rail screws follow the rail's hole count, and moving the
+      rails from ±40 to ±45 moves the carriage plate's holes.
 
 ## Next
 
-- [ ] **SWEEP-CLOSED-PATH** (moto frame rail loop, tube-frame gap): a sweep
-      along a closed, tangent-continuous path is refused `sweep_path_closed`,
-      so the golden sweeps two open halves. SolidWorks, Fusion and Onshape
-      sweep a closed path in one feature. _Accept:_
-      `test_closed_loop_rail_sweeps_in_one_piece` passes with its xfail
-      removed, and the one-piece rail matches the two-halves rail (empty
-      two-way difference); a golden covers a closed sweep.
 - [ ] **PERF-REBUILD-LOCAL** (RESEARCH §15a step 4, after pass 2; takes over
       BIG-PATTERN-COST): holes as `BRepFeat_MakeCylindricalHole` and pockets
       as `BRepFeat_MakePrism`, costing the faces they touch rather than the
@@ -152,24 +103,6 @@ byte-identical; RESEARCH §15a).
 
 ### Assemblies (ranked by what stops A1, then A2, then A3 in `docs/reference-parts/assemblies.md`)
 
-- [ ] **ASM-JOINTS** (stops A1; the other ASM items build on it): Fusion and
-      Onshape connect parts with a joint. It picks a joint origin (or mate
-      connector) on each part, at a circle centre, face centre or vertex,
-      plus a motion type: rigid, revolute, slider, cylindrical, planar or
-      ball. Loft has only pairwise mates. _Accept:_ the A1 hinge is one
-      revolute joint between two knuckle circles, with remaining DOF 1.
-      Every stored mate assembly opens and solves unchanged.
-- [ ] **ASM-MOVE-DRAG** (stops A1): instances cannot be moved. Each is placed
-      80 mm along +X, with no drag and no handle. Fusion and Onshape drag a
-      component, and its joints hold it to its free DOF. _Accept:_ in A1,
-      dragging leaf B turns it about the knuckle axis only (the axis moves
-      < 1e-6). An unmated instance moves 30 in Y and turns 90° about Z, by a
-      Move/Rotate handle and by typed values, and stays there after a
-      reload. e2e covers both.
-- [ ] **ASM-LIMITS** (stops A1): a joint has no min/max (Fusion and
-      Onshape joint limits). _Accept:_ the hinge
-      stops at 0° and 180° when dragged, a typed 200° is refused with the
-      limit named, and the limits survive a reload.
 - [ ] **ASM-CYL-FACE-ORIGIN** (A2): an axis comes only from a circular
       edge. Fusion and Onshape snap a joint origin to a cylindrical face's
       axis. _Accept:_ the A2 lead screw's joint is placed by clicking its face
@@ -178,25 +111,73 @@ byte-identical; RESEARCH §15a).
       clash among the real ones. SolidWorks lists fasteners in a separate
       folder. _Accept:_ at o = 0, 40 and 80, A2 lists exactly 5 threaded
       engagements apart from the real clashes, and there are none of those.
-- [ ] **ASM-A3** (after A2; split it when it is next): sub-assemblies from
-      the Add panel with an indented BOM, a component pattern that follows a
-      part's holes (Fusion pattern, Onshape Replicate, SolidWorks
-      pattern-driven), and in-context edits (Fusion Edit in Place).
-      _Accept:_ A3's BOM reads 16 lines and 73 instances (top level 11 and
-      45), its 28 rail screws follow the rail's hole count, and moving the
-      rails from ±40 to ±45 moves the carriage plate's holes.
+
+### Plugins and buildings (ranked by what stops B1, then B2 in `docs/reference-parts/buildings.md`; after ASM-A3)
+
+Founder, 2026-10-15: decks, sheds, rafters, windows and doors without drawing
+every member. A plugin registers a custom feature that expands into base
+features (RESEARCH §23). First-party plugins ship preinstalled; no install
+step. These replace PLUGINS-PACKAGE.
+
+- [ ] **PLUGIN-REGISTRY** (stops B1): a kernel-free `packages/loft-plugins`
+      registers custom features (manifest, typed inputs, a pure expand to base
+      features), pinned by version per feature and expanded by documents. The
+      deprecated extrude twist moves there as a Twisted prism that expands to
+      a straight-path Sweep with twist. _Accept:_ the twisted prism matches
+      the legacy twisted-extrude golden (empty two-way difference), every
+      stored twisted extrude rebuilds byte-identical, and publishing a test
+      plugin's v2 leaves its v1 feature's golden byte-identical.
+- [ ] **PLUGIN-UI** (stops B1): a custom feature is an ordinary tool in a
+      Build toolbar group. It opens a form generated from its input schema
+      (units and parameters accepted), is one tree node that unfolds into its
+      members, and edits like any feature (Onshape custom features). _Accept:_
+      an e2e inserts the twisted prism from the toolbar, edits its angle to
+      `twist*2` and sees it regenerate.
+- [ ] **LUMBER-MATERIALS** (stops B1): the material library gains SPF and
+      Douglas fir-larch lumber, pressure-treated southern pine, LVL, glulam,
+      structural steel and concrete, plus a profile library of nominal sizes
+      with actual dimensions (2x4 is 1.5 x 3.5 in; 5/4x6 decking 1 x 5.5 in).
+      _Accept:_ a unit test pins every profile's actual size and density, and
+      a 2x10 x 12 ft SPF member's mass matches the hand calculation to 1e-4.
+- [ ] **CUT-LIST** (stops B1): a part or assembly cut list groups members by
+      profile, material and length, with quantity, total length and stock
+      length (SolidWorks weldment cut list, Chief Architect materials list),
+      exported as CSV and placed on a drawing. _Accept:_ B1's cut list equals
+      the table in `buildings.md`, and every length is measured from its body.
+- [ ] **DECK** (stops B1): ledger, dropped beam, posts, joists at a spacing,
+      rim, decking boards with gap and overhang, and guard railing, from
+      width, projection, height, spacing and profiles. _Accept:_ B1 builds
+      from one Deck feature and matches its spec and script (volume, counts,
+      interference none); the 16 -> 20 ft edit regenerates to the spec.
+- [ ] **STUD-WALL** (stops B2): plates, studs on an o.c. layout, corners,
+      and openings framed with header, king, jack, sill and cripples (Medeek
+      Wall, Chief Architect auto framing). _Accept:_ B2's four walls match the
+      spec's member counts and lengths, and no member crosses an opening.
+- [ ] **WINDOW-DOOR** (stops B2): a window or door is placed in a wall by
+      offset and head height, cuts its opening and drives the wall's framing
+      (Revit hosted families). _Accept:_ moving B2's door 24 in along its wall
+      and widening the window 24 -> 30 in regenerate the framing to the spec;
+      deleting the door restores full studs.
+- [ ] **ROOF** (stops B2): a gable roof of common rafters at a pitch and
+      spacing, with ridge board, birdsmouth seat cuts and eave overhang,
+      bearing on the walls (Medeek Truss, Chief Architect Build Roof). Trusses
+      come later. _Accept:_ B2's 14 rafters measure 79.660 in with a 1.75 in
+      heel, and the 6/12 -> 8/12 edit regenerates to the spec.
 
 ## Later
 
-- [ ] **PLUGINS-PACKAGE**: niche and legacy features move out of base
-      tooling into a separate plugins package. Founder, 2026-10-09: "Old
-      features such as twist should be depreciated. We shouldn't invest
-      functions for our base tooling. If a part relies on it then rebuild the
-      part correctly. In the future we will add plugins as another package
-      that will handle this stuff." The extrude twist is deprecated now
-      (read-only legacy, `loft_wire.legacy_twist`). _Accept:_ a plugin package
-      can register a feature without touching base tooling, and the extrude
-      twist moves there with every stored part still rebuilding unchanged.
+- [ ] **TIMBER-FRAME**: posts and beams joined by mortise and tenon with
+      pegs, one placement cutting both members. _Accept:_ a golden two-member
+      joint whose tenon fills its mortise (interference none, volume by hand).
+- [ ] **HOUSE**: composes walls, floor platform and roof into an assembly of
+      sub-assemblies (needs ASM-A3), with one cut list. _Accept:_ B2 built as
+      wall, floor and roof sub-assemblies gives the same cut list as the
+      one-part build.
+- [ ] **PLUGIN-THIRD-PARTY**: install a Python plugin Loft did not ship,
+      run in a sandbox (founder 2026-10-15; RESEARCH §23). _Accept:_ an
+      installed example plugin expands and rebuilds like a first-party one,
+      and a plugin that opens a socket, reads a file, imports the kernel or
+      loops forever gets a typed error on its feature and nothing else.
 
 ## Founder decisions
 
@@ -219,6 +200,7 @@ byte-identical; RESEARCH §15a).
 
 One line each. The founder triages weekly; most are closed without work.
 
+- LINE-ENTRY-TAB review (90db343): a Tab left in a circle's drag box survives a click/canvas-Esc and refuses the next circle at the same centre ("10" Tab, later "100"; clear `tabbed` on draft change); "W" Tab "/2" is refused as a second value without saying why; the error text overlaps the X AXIS label; a line Angle cell (Fusion shows Length and Angle) needs an angle-to-axis dimension first.
 - APEX-BUTTONS: Extrude and Revolve enable with only an apex (point-only) sketch present; clicking does nothing.
 - APEX-SWEEP-PATH: `defaultSweepPathId` and the sweep path picker still offer apex sketches (the kernel refuses with a typed `PathEmptyError`).
 - APEX-OTHER-LISTS: the BaseFlange editor and the revolve axis map still list apex sketches (typed kernel refusal, no crash).

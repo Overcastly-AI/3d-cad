@@ -60,7 +60,12 @@ import {
   type DrawDimensionKey,
   type DrawDimensionValues,
 } from "../sketch/drawDimensions";
-import { drawCellsOk, resolveDrawCells } from "../sketch/drawEntry";
+import {
+  drawCellsOk,
+  oneValueMessage,
+  resolveDrawCells,
+  secondValueTyped,
+} from "../sketch/drawEntry";
 import { planeToWorld, type PlaneBasis, type Point2D } from "../sketch/plane";
 import { useSketchStore, type SketchState } from "../sketch/store";
 import { useDocumentLengthUnit } from "../units/documentUnit";
@@ -169,6 +174,11 @@ export function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
   const cellsDraft = useRef<string | null>(null);
   /** Keys typed before the cells existed, waiting for a commit to land in. */
   const buffered = useRef<DrawKeyBuffer | null>(null);
+  /**
+   * A one-cell box's text when Tab was pressed in it, for its draft
+   * (LINE-LENGTH-TAB): a number typed after it is a second value.
+   */
+  const tabbed = useRef<{ draft: string; text: string } | null>(null);
   /** The drag whose size box has begun taking keys (`dragSizing`). */
   const [typingIn, setTypingIn] = useState<string | null>(null);
   /** Each cell's text as React last saw it: it drives the `fx` mark and hint. */
@@ -234,6 +244,14 @@ export function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
       fields: readonly DrawDimensionField[],
       textOf: (index: number) => string,
     ): boolean => {
+      const only = fields.length === 1 ? fields[0] : undefined;
+      const at = tabbed.current?.draft === key ? tabbed.current.text : "";
+      if (only !== undefined && secondValueTyped(at, textOf(0))) {
+        // Two values typed into a one-value box: neither is applied.
+        setErrors({ draft: key, byKey: { [only.key]: oneValueMessage(only) } });
+        invalidate();
+        return false;
+      }
       const cells = resolveDrawCells(fields, textOf, unit, names);
       if (!drawCellsOk(cells)) {
         setErrors({ draft: key, byKey: cells.errors });
@@ -242,6 +260,7 @@ export function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
       }
       setErrors({ draft: "", byKey: {} });
       buffered.current = null;
+      tabbed.current = null;
       cellsDraft.current = null;
       if (useSketchStore.getState().drawDimension !== null) {
         commit(cells.values, cells.expressions);
@@ -254,6 +273,23 @@ export function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
     },
     [commit, invalidate, names, unit],
   );
+
+  /**
+   * Tab in a ONE-cell box (LINE-LENGTH-TAB): there is no next cell, so the
+   * keyboard stays and the box says what it takes. What was typed so far is
+   * remembered, so a second number typed after it is refused, not glued on.
+   */
+  const noteOneCellTab = (
+    key: string,
+    fields: readonly DrawDimensionField[],
+    text: string,
+  ) => {
+    const only = fields[0];
+    if (fields.length !== 1 || only === undefined) return;
+    tabbed.current = { draft: key, text };
+    setErrors({ draft: key, byKey: { [only.key]: oneValueMessage(only) } });
+    invalidate();
+  };
 
   /** The DOM's text for each cell (the browser owns it; see `ValueField`). */
   const readCells = useCallback(
@@ -334,6 +370,9 @@ export function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
           active.blur();
         }
         if (live === null) setTypingIn(draftId);
+        if (event.key === "Tab" && outcome.buffer.tabbedAt !== undefined) {
+          noteOneCellTab(draftId, fields, outcome.buffer.tabbedAt);
+        }
         if (outcome.buffer.apply) {
           // Enter applies IN THIS KEYDOWN, from the keys themselves, not when
           // the cells mount: the next keystroke must meet a store that has
@@ -421,6 +460,7 @@ export function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
       event.preventDefault();
       event.currentTarget.blur();
       buffered.current = null;
+      tabbed.current = null;
       setErrors({ draft: "", byKey: {} });
       if (armed) dismiss();
       else setTypingIn(null);
@@ -436,7 +476,14 @@ export function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
       if (applyTexts(draftKey, fields, readCells(fields))) cell.blur();
       return;
     }
-    if (event.key !== "Tab" || fields.length < 2) return;
+    if (event.key !== "Tab") return;
+    if (fields.length < 2) {
+      // Never out of the box: the next focusable is a constraint glyph, and
+      // the number typed next would be glued onto this one (LINE-LENGTH-TAB).
+      event.preventDefault();
+      noteOneCellTab(draftKey, fields, event.currentTarget.value);
+      return;
+    }
     const step = event.shiftKey ? -1 : 1;
     const next = fields[(index + step + fields.length) % fields.length];
     if (next === undefined) return;
@@ -484,7 +531,13 @@ export function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
                         [field.key]: text,
                       },
                     }));
-                    if (cellErrors[field.key] !== undefined) {
+                    // A one-cell box's Tab notice stays up while a second
+                    // number is typed after it; replacing the text ends it.
+                    const tab = tabbed.current;
+                    const afterTab =
+                      tab?.draft === draftKey && text.startsWith(tab.text);
+                    if (tab !== null && !afterTab) tabbed.current = null;
+                    if (cellErrors[field.key] !== undefined && !afterTab) {
                       setErrors({ draft: "", byKey: {} });
                     }
                   }}
@@ -525,7 +578,9 @@ export function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
                   "Click a size to change it"
                 : fields.length > 1
                   ? "Number or parameter · Tab switches · Enter applies"
-                  : "Number or parameter · Enter applies"}
+                  : // One value: say which (a line's box is its LENGTH,
+                    // never an X / Y pair; LINE-LENGTH-TAB).
+                    `${fields[0]?.name ?? "Size"} only · number or parameter · Enter applies`}
             </p>
           ) : null}
         </div>
