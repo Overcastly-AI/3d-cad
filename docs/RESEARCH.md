@@ -1765,3 +1765,83 @@ and reframe it, a material per member, and a cut list that is always current.
   walls, hosted windows and doors, and roof against
   `docs/reference-parts/buildings.md`; timber frame and the house assembly
   (sub-assemblies from ASM-A3) come later.
+
+## 24. In-context references (ASM-A3-IN-CONTEXT)
+
+**What working users do.** Fusion 360's Edit in Place activates one component
+inside the assembly; the others stay visible and pickable, and a sketch
+projection or an extent taken from another component is an associative
+cross-component reference. Moving or editing the referenced component
+recomputes the dependent one. Break Link turns the projected curve into plain
+sketch geometry where it last was. SolidWorks' Edit Part stores an external
+reference (`->`) that names the assembly it was made in (the context) and the
+referenced component; the part opened alone keeps the last values it was
+given (`->?`, "out of context") until that assembly is opened again; Lock
+freezes the values and Break removes the reference for good. A reference to a
+deleted component is reported as dangling, never re-attached to whatever is
+closest. Onshape keeps a snapshot of the assembly (an in-context "Context") in
+the Part Studio and updates it on demand. All three refuse, or report,
+circular references.
+
+**Decisions.**
+
+- **Edges first, through Project.** A sketch entity may be projected from an
+  edge of another component (a line, an arc or a circle seen face-on), using
+  the same Project tool and the same fixed, purple, Break-link-able entity as
+  SKETCH-PROJECT-EDGES. Face offsets and up-to-face extents from another
+  component come later (BACKLOG note); the link below is the shape they will
+  reuse.
+- **Storage: on the entity, in the sketch params.** A projected entity's
+  `projection` holds either the same-part `edge` (as before) or an
+  `in_context` link: the context `assembly_id`; `host_occurrence_id`, the
+  occurrence of the edited part that the sketch was drawn in; `occurrence_id`
+  and `part_id`, the referenced component and the part it was when picked;
+  `edge`, the edge signature in that part's own frame; and `resolved`, the
+  edge as last resolved, as a 3D line, circle or arc in the edited part's
+  frame. Occurrence ids are the ASM-A3 uuid5 chain, so a reference into or
+  out of a rigid sub-assembly needs no second id type. No table changes, so
+  no migration: stored parts and assemblies load unchanged, and an entity
+  without the link dumps byte for byte as before.
+- **Who resolves what.** Geometry, inside every assembly evaluation: after the
+  solve it re-finds each link's edge on the referenced occurrence's body,
+  carries it through that occurrence's solved pose and the inverse of the
+  host's into the host part's frame, writes it into the host's `resolved`
+  and rebuilds that part, then solves again; it repeats until nothing moves
+  (at most 8 passes; past that the link is `not_converged`). Only links
+  whose context is the assembly being evaluated are resolved, and a part
+  without links costs nothing extra. The sketch rebuild projects `resolved`
+  onto the sketch plane with the kernel projector the same-part projection
+  uses, so the part rebuilds the same way in and out of its context.
+  Documents owns the stored link: it validates it on every feature write (the
+  assembly is the caller's, the host occurrence places this part, the
+  referenced occurrence places `part_id`) and stores the resolved values.
+  The gateway joins the two: after `/geometry/assembly/evaluate` it writes
+  changed `resolved` values back to documents as metadata (no undo step, no
+  `tree_version` bump, the head history snapshot amended), the
+  DESIGN-INTENT-BACKFILL rule; a later save carrying an older `resolved`
+  keeps the stored one. The web talks only to the gateway.
+- **Out of context (the rule).** A part opened alone, or used in another
+  assembly, rebuilds from the `resolved` values its context assembly last
+  wrote, and its links are reported as out of context, never as errors; they
+  update the next time the context assembly is evaluated. That is
+  SolidWorks' rule. A link with no `resolved` yet keeps the coordinates it
+  was drawn with.
+- **Errors, never re-attachment.** A link whose referenced occurrence is gone
+  is `component_missing`; one whose occurrence now places another part is
+  `component_replaced`; an edge that no longer resolves is `edge_unresolved`
+  or `edge_ambiguous`. Each is a typed error on the dependent sketch in the
+  evaluation's `in_context` list, shown on the component and on the sketch.
+  The entity keeps its last resolved geometry, and nothing is ever matched
+  against a different occurrence.
+- **Break link** drops the link and keeps the entity where it last resolved
+  (Fusion's Break Link; the same action as for a same-part projection).
+- **Cycles.** A link whose referenced part is the edited part, or reaches it
+  through other parts' links, is refused at write time with
+  `in_context_cycle`, naming the chain. Geometry treats any cycle that gets
+  through (data written before a part was swapped) as a `cycle` error on
+  each link in it, and resolves none of them.
+- **Edit in Place** opens the part workspace with `?context=<assembly>` and
+  `&occurrence=<host>`: the other components are drawn ghosted around the
+  part at their solved poses relative to it, and Project offers their edges.
+  Onshape edits in-context the same way, in the part's own workspace. Fusion
+  stays in the assembly, but its tools are the part's tools there too.
