@@ -1667,10 +1667,12 @@ and reframe it, a material per member, and a cut list that is always current.
   and 2 s per custom feature); over a cap is a typed error on that feature.
 - **Security.** First-party plugins are reviewed code in the repo: no I/O, no
   imports beyond `loft-wire`, run in the documents process. Third-party
-  plugins are not loaded until the founder chooses between declarative
-  manifests (inputs plus a template in the §20 expression language, no code)
-  and Python in a sandbox (a separate process with no network, file system
-  or kernel, and time and memory caps).
+  plugins are Python too (founder, 2026-10-15: "It should be python code",
+  as Fusion add-ins are). Unlike a Fusion add-in, which runs on the user's
+  own desktop, a Loft plugin runs on a shared server, so it runs in a
+  sandbox: a separate process with no network, file system or kernel, and
+  time and memory caps. It gets its inputs and returns base features through
+  the same `expand` contract as a first-party plugin.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

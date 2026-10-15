@@ -167,8 +167,11 @@ step. These replace PLUGINS-PACKAGE.
       sub-assemblies (needs ASM-A3), with one cut list. _Accept:_ B2 built as
       wall, floor and roof sub-assemblies gives the same cut list as the
       one-part build.
-- [ ] **PLUGIN-THIRD-PARTY**: install a plugin Loft did not ship, sandboxed
-      (RESEARCH §23). _Accept:_ waits on the founder decision below.
+- [ ] **PLUGIN-THIRD-PARTY**: install a Python plugin Loft did not ship,
+      run in a sandbox (founder 2026-10-15; RESEARCH §23). _Accept:_ an
+      installed example plugin expands and rebuilds like a first-party one,
+      and a plugin that opens a socket, reads a file, imports the kernel or
+      loops forever gets a typed error on its feature and nothing else.
 
 ## Founder decisions
 
@@ -186,10 +189,9 @@ step. These replace PLUGINS-PACKAGE.
       (same counts and properties, no tolerance touched) and the CM-6
       later-pocket chain building the right body instead of `invalid_body`?
       Not scheduled until decided.
-- [ ] **Third-party plugins** (RESEARCH §23): declarative only (inputs plus
-      a template in the expression language, no code), or Python run in a
-      sandbox? And is US lumber (nominal inches) the first library, with
-      metric CLS/European sizes later?
+- [ ] **Lumber library** (RESEARCH §23): is US lumber (nominal inches) the
+      first library, with metric CLS/European sizes later? (Third-party
+      plugins: Python in a sandbox, founder 2026-10-15.)
 
 ## Notes
 
