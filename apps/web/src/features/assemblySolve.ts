@@ -51,6 +51,7 @@ import type {
   AssemblySolveDiagnosis,
   AssemblyStatus,
   EvaluateAssemblyResult,
+  InstancePlacementResult,
   MateEvaluationError,
 } from "../api/assemblies";
 
@@ -143,10 +144,18 @@ export interface AssemblySolve {
    * surface spends if it wants to say which.
    */
   readonly mateErrors: readonly MateEvaluationError[];
+  /**
+   * The result rows of parts that produced NO BODY (a failed feature tree):
+   * every occurrence, nested or patterned (BIKE2-FAILED-PART-KILLS-PICKS).
+   * Those occurrences are missing from the scene and from every exported
+   * file. Empty while stale, for the same reason as `mateErrors`.
+   */
+  readonly failedRows: readonly InstancePlacementResult[];
 }
 
 /** Nothing known — one frozen empty, so a stale solve allocates nothing. */
 const NO_MATE_ERRORS: readonly MateEvaluationError[] = [];
+const NO_FAILED_ROWS: readonly InstancePlacementResult[] = [];
 
 const STATUS_LABEL: Record<AssemblyStatus, string> = {
   well_constrained: "Well constrained",
@@ -196,6 +205,11 @@ export function deriveAssemblySolve({
     status: stale ? null : (evaluation?.status ?? null),
     diagnosis: stale ? null : (evaluation?.diagnosis ?? null),
     mateErrors: stale ? NO_MATE_ERRORS : (evaluation?.mate_errors ?? []),
+    failedRows: stale
+      ? NO_FAILED_ROWS
+      : (evaluation?.instances ?? []).filter(
+          (row) => row.part_mesh_glb_id === null,
+        ),
   };
 }
 

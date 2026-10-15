@@ -278,6 +278,7 @@ export function AssemblyCommandBand({
           partial={exportGate?.partial ?? false}
           partialQualifier={exportGate?.qualifier ?? undefined}
           confirmReason={exportGate?.confirmReason ?? null}
+          confirmLabel={exportGate?.confirmLabel ?? null}
           state={exportGate?.state}
         />
       ) : null}

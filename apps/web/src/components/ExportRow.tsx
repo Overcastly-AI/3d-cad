@@ -60,6 +60,8 @@ export interface ExportRowProps {
    * assembly sets it while a mate or joint did not solve (QA 2026-10-10).
    */
   confirmReason?: string | null;
+  /** The confirm button's words when they are not the pose default. */
+  confirmLabel?: string | null;
   /**
    * Writes the part as a `.loft` file (docs/FILE-FORMAT.md) — the parametric
    * tree, not a body, so the cell stays live when the formats above are
@@ -106,6 +108,7 @@ export function ExportRow({
   notice = null,
   state,
   confirmReason = null,
+  confirmLabel = null,
   loftExporter,
   versionActions,
 }: ExportRowProps) {
@@ -197,6 +200,7 @@ export function ExportRow({
         <ExportConfirm
           format={armed}
           reason={confirmReason}
+          label={confirmLabel}
           testIdPrefix={testIdPrefix}
           onConfirm={confirm}
           onCancel={cancel}

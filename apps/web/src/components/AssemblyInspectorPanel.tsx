@@ -65,6 +65,8 @@ export interface AssemblyInspectorPanelProps {
   exportGate?: AssemblyExportGate;
   /** Parts inside sub-assemblies, by occurrence id (clash names). */
   nested?: ReadonlyMap<string, NestedPart>;
+  /** Part documents that failed to build: the BOM flags their lines. */
+  failedDocumentIds?: ReadonlySet<string>;
 }
 
 const VIEW_OPTIONS = [
@@ -104,6 +106,7 @@ export function AssemblyInspectorPanel({
   exportDisabledReason,
   exportGate,
   nested,
+  failedDocumentIds,
 }: AssemblyInspectorPanelProps) {
   return (
     <div className="flex w-full flex-col gap-3">
@@ -124,7 +127,12 @@ export function AssemblyInspectorPanel({
           busy={busy}
         />
       ) : view === "bom" ? (
-        <AssemblyBomPanel bom={bom} loading={bomLoading} error={bomError} />
+        <AssemblyBomPanel
+          bom={bom}
+          loading={bomLoading}
+          error={bomError}
+          failedDocumentIds={failedDocumentIds}
+        />
       ) : (
         <AssemblyClashPanel
           instances={instances}
@@ -151,6 +159,7 @@ export function AssemblyInspectorPanel({
           }
           state={exportGate?.state}
           confirmReason={exportGate?.confirmReason ?? null}
+          confirmLabel={exportGate?.confirmLabel ?? null}
         />
       </div>
     </div>

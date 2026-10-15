@@ -44,6 +44,8 @@ export interface ExportToolGroupProps {
    * no notice line, so the confirm hangs under the group (`ExportConfirm`).
    */
   confirmReason?: string | null;
+  /** The confirm button's words when they are not the pose default. */
+  confirmLabel?: string | null;
 }
 
 /**
@@ -75,6 +77,7 @@ export function ExportToolGroup({
   state,
   labelPriority,
   confirmReason = null,
+  confirmLabel = null,
 }: ExportToolGroupProps) {
   const { busy, failed, failure, request, armed, confirm, cancel } =
     useExportAction(exporter, confirmReason !== null);
@@ -126,6 +129,7 @@ export function ExportToolGroup({
         <ExportConfirm
           format={armed}
           reason={confirmReason}
+          label={confirmLabel}
           testIdPrefix={testIdPrefix}
           onConfirm={confirm}
           onCancel={cancel}

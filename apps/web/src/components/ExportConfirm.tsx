@@ -9,7 +9,8 @@ export const EXPORT_ANYWAY_LABEL = `Export anyway — ${PARTIAL_POSE_CLAUSE}`;
 /**
  * THE ONE EXPLICIT CONFIRM before writing a file that misplaces parts
  * (QA 2026-10-10): the assembly's mates did not all solve, so the file would
- * hold components at their last solved or initial positions. Shared by the
+ * hold components at their last solved or initial positions — or a part
+ * failed to build, so the file would leave it out. Shared by the
  * Inspector's strip (in flow, under the cells) and the command band (hung
  * under the group), so both ask the same question in the same words.
  *
@@ -20,6 +21,7 @@ export const EXPORT_ANYWAY_LABEL = `Export anyway — ${PARTIAL_POSE_CLAUSE}`;
 export function ExportConfirm({
   format,
   reason,
+  label = null,
   testIdPrefix,
   onConfirm,
   onCancel,
@@ -28,6 +30,11 @@ export function ExportConfirm({
   format: ExportFormat;
   /** What is wrong, in a sentence ("1 joint unresolved."). */
   reason: string;
+  /**
+   * The confirm's words when the file is partial for another reason than a
+   * pose ("Export anyway — without Crank arm"); null = the pose default.
+   */
+  label?: string | null;
   testIdPrefix: string;
   onConfirm: () => void;
   onCancel: () => void;
@@ -64,7 +71,7 @@ export function ExportConfirm({
           onClick={onConfirm}
           className="min-h-target-dense text-left font-display text-2xs uppercase tracking-[0.14em] text-brass hover:text-brass-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
         >
-          {EXPORT_ANYWAY_LABEL}
+          {label ?? EXPORT_ANYWAY_LABEL}
         </button>
         <button
           type="button"

@@ -60,6 +60,7 @@ import {
   mateInstanceIds,
   mateTag,
 } from "../assembly/mates";
+import type { FailedPart } from "../assembly/partFailures";
 import type { NestedPart } from "../assembly/subAssemblies";
 import type { JointProbe } from "../assembly/useJointDrive";
 import type { AssemblySolve } from "../features/assemblySolve";
@@ -69,6 +70,7 @@ import {
   type VisibilityMode,
   type VisibilityState,
 } from "../viewport/instanceVisibility";
+import { FailedPartNotes } from "./FailedPartNote";
 
 export interface AssemblyTreePanelProps {
   graph: AssemblyGraphResponse | undefined;
@@ -126,6 +128,11 @@ export interface AssemblyTreePanelProps {
   busy: boolean;
   /** The PATTERNS section (ASM-A3), between the components and the mates. */
   patternSection?: ReactNode;
+  /**
+   * The parts that failed to build, by the top-level component holding them:
+   * the row says so and links to the part (BIKE2-FAILED-PART-KILLS-PICKS).
+   */
+  failedByComponent?: ReadonlyMap<string, readonly FailedPart[]>;
 }
 
 /** A probe's numbers as attributes (full precision; JSON for vectors). */
@@ -187,6 +194,7 @@ export function AssemblyTreePanel({
   jointProbes,
   busy,
   patternSection,
+  failedByComponent,
 }: AssemblyTreePanelProps) {
   const unit = useDocumentLengthUnit();
   const instances = graph?.instances ?? [];
@@ -360,6 +368,10 @@ export function AssemblyTreePanel({
                         Remove
                       </button>
                     </div>
+                    <FailedPartNotes
+                      componentId={instance.id}
+                      failures={failedByComponent?.get(instance.id)}
+                    />
                     {selected ? (
                       // The addressed component's opacity stops. Only one row
                       // renders this at a time, so the per-stop test ids need no

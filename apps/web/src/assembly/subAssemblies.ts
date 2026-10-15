@@ -49,7 +49,7 @@ export interface NestedPart {
 }
 
 /** The request instance a result path names, walking down sub-assemblies. */
-function instanceAt(
+export function instanceAt(
   instances: readonly EvaluatedInstance[],
   path: readonly string[],
 ): EvaluatedInstance | null {
