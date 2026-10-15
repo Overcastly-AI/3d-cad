@@ -3,7 +3,7 @@
 Owned by the `product-manager`. Summarised in `docs/VISION.md`. Gaps are filed
 as ASM-\* in `docs/BACKLOG.md`.
 
-## What exists today (code read, 2026-10-01)
+## What exists today (code read, 2026-10-01; sub-assemblies 2026-10-15)
 
 - **Documents:** an assembly is its own document. It holds instances of
   parts or rigid sub-assemblies (acyclic), and mates. Undo and redo work.
@@ -15,11 +15,16 @@ as ASM-\* in `docs/BACKLOG.md`.
 - **Solver:** our own deterministic solver. It reports the remaining DOF and
   names redundant or conflicting mates.
 - **Not there:** joint types, limits, drag along the free DOF, and motion.
-  The API accepts sub-assemblies, but the Add panel inserts parts only.
-- **Outputs:** an interference check (touching faces do not count), a flat
-  BOM (direct instances only, and a sub-assembly is one line), a mass
-  roll-up, and assembly drawings with a BOM. Assembly STEP export is
-  instanced, and STEP import keeps the product structure.
+- **Sub-assemblies (ASM-A3 step 1):** the Add panel inserts another assembly
+  as a rigid sub-assembly, to any depth. It is solved in its own frame, then
+  moves as one component. A joint in the parent can attach to a part inside
+  it (by occurrence id). Inserting an assembly into itself, directly or
+  through a chain, is refused.
+- **Outputs:** an interference check (touching faces do not count; nested
+  parts included), a top-level, indented and parts-only BOM, a mass
+  roll-up, and assembly drawings with a top-level BOM. Assembly STEP export
+  is instanced and holds every nested part, flattened to one level; STEP
+  import keeps the product structure.
 - **Not built:** component patterns, mirror, in-context edits, exploded
   views and a fastener library. Performance at scale has not been measured.
 
@@ -137,11 +142,11 @@ axes are X along the travel, and Z up. Screws are ISO 4762.
 | Positioning    | Move/Copy triad, drag, as-built joints                               | Drag, Move/Rotate Component, SmartMates (Alt-drag)                                         | Seeded 80 mm apart; no move, no drag           |
 | Connections    | Joints: rigid, revolute, slider, cylindrical, pin-slot, planar, ball | Standard, advanced (limit, width, symmetric, path) and mechanical (gear, screw, cam) mates | 5 mates; planar faces and circular edges only  |
 | Limits, motion | Joint limits, drive joints, motion links, motion study, contact sets | Limit mates, drag to test, Motion Study                                                    | None                                           |
-| Grouping       | Rigid groups, nested components                                      | Rigid or flexible sub-assemblies                                                           | Pairwise lock; rigid sub-assemblies (API only) |
+| Grouping       | Rigid groups, nested components                                      | Rigid or flexible sub-assemblies                                                           | Pairwise lock; rigid sub-assemblies            |
 | Patterns       | Pattern and mirror of components                                     | Linear, circular, pattern-driven and sketch-driven patterns; mirror components             | None                                           |
 | Fasteners      | McMaster-Carr insert                                                 | Toolbox, Smart Fasteners into Hole Wizard holes                                            | Hand-modelled                                  |
 | In context     | Edit in place, cross-component references                            | Edit Part in the assembly, external references                                             | None                                           |
-| BOM            | Parts list and balloons in drawings                                  | Top-level, parts-only and indented BOM                                                     | Flat top-level BOM; drawing BOM                |
+| BOM            | Parts list and balloons in drawings                                  | Top-level, parts-only and indented BOM                                                     | Top-level, indented, parts-only; drawing BOM   |
 | Interference   | Interference, with or without coincident faces                       | Interference detection, with a separate fasteners folder                                   | Clash pairs; touching is ignored               |
 | Explode        | Animation workspace                                                  | Exploded views                                                                             | None                                           |
 
