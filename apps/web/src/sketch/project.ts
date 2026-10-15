@@ -69,6 +69,33 @@ export function projectedSignatures(
   });
 }
 
+/** Every in-context link in this sketch (ASM-A3-IN-CONTEXT). */
+export function inContextLinks(
+  entities: readonly SketchEntity[],
+): NonNullable<SketchProjection["in_context"]>[] {
+  return entities.flatMap((entity) => {
+    const link = projectionOf(entity)?.in_context;
+    return link ? [link] : [];
+  });
+}
+
+/** `entity`, linked in context instead of to this part's body. */
+export function withInContextLink(
+  entity: SketchEntity,
+  link: NonNullable<SketchProjection["in_context"]>,
+): SketchEntity {
+  // Only a line, an arc or a circle can carry a projection (the server
+  // refuses any other kind), and those are all a projected edge becomes.
+  if (
+    entity.kind !== "line" &&
+    entity.kind !== "arc" &&
+    entity.kind !== "circle"
+  ) {
+    return entity;
+  }
+  return { ...entity, projection: { in_context: link } };
+}
+
 /** A sentence for each sick reason — the hazard's tooltip, in plain words. */
 export const SICK_REASON_TEXT: Readonly<Record<ProjectionSickReason, string>> =
   {

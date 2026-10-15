@@ -79,6 +79,9 @@ import { usePartParameters } from "./part/usePartParameters";
 import { useRebuildNotices } from "./part/useRebuildNotices";
 import { useViewportState } from "./part/useViewportState";
 import { useSketchProjectSession } from "./part/useSketchProjectSession";
+import { useInContext } from "./part/useInContext";
+import { InContextBanner } from "./part/InContextBanner";
+import { InContextLayer } from "../viewport/InContextLayer";
 
 /**
  * The part workspace: feature tree left, viewport hero, sketch mode inside
@@ -361,7 +364,16 @@ export function PartPage() {
     selectedFaceIndices,
     preselectedFaceIndices,
   } = pickOverlays;
-  useSketchProjectSession({ mode, anchorFeatureId: projectAnchorFeatureId });
+  const inContext = useInContext({
+    partId,
+    treeVersion,
+    drawing: mode === "draw",
+  });
+  useSketchProjectSession({
+    mode,
+    anchorFeatureId: projectAnchorFeatureId,
+    inContext: inContext !== null,
+  });
   const treeWrites = useTreeWrites({ partId, queryClient, lengthUnit, tree });
   const {
     freshTreeVersion,
@@ -1108,6 +1120,10 @@ export function PartPage() {
                     timelineHistory={timelineHistory}
                   />
                   <LoftImportNotice partId={partId} />
+                  <InContextBanner
+                    session={inContext}
+                    features={tree.data?.features ?? []}
+                  />
                   {/* The regeneration / rebuild / partial-body notices take the
                     SAME seat the feature editors do, so they dock the same way
                     — otherwise FB-7 would have been fixed for one surface and
@@ -1124,6 +1140,7 @@ export function PartPage() {
               }
             >
               <SketchScene solved={solved} facePicking={facePicking} />
+              <InContextLayer session={inContext} drawing={mode === "draw"} />
               <PartViewportLayers
                 partDocument={partDocument}
                 partBody={partBody}

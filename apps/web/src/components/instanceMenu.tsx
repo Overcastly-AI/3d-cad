@@ -15,6 +15,7 @@ import {
   formatChord,
   IsolateIcon,
   MoveIcon,
+  SketchIcon,
 } from "@loft/design";
 
 import type { InstanceResponse } from "../api/assemblies";
@@ -50,6 +51,11 @@ export interface InstanceMenuActions {
   copy: () => void;
   toggleGrounded: () => void;
   remove: () => void;
+  /**
+   * Edit the part in place in this assembly (ASM-A3-IN-CONTEXT). Offered for
+   * a part, not a sub-assembly (open that to edit its parts).
+   */
+  editInPlace?: () => void;
 }
 
 const WAITING = "Waiting for the current edit…";
@@ -96,6 +102,17 @@ export function instanceMenuSections(
     {
       key: "edit",
       items: [
+        ...(instance.ref_document_kind === "part" && actions.editInPlace
+          ? [
+              {
+                key: "edit-in-place",
+                label: "Edit in place",
+                icon: <SketchIcon />,
+                onSelect: actions.editInPlace,
+                "data-testid": "instance-ctx-edit-in-place",
+              },
+            ]
+          : []),
         {
           key: "move",
           label: "Move",
