@@ -21,6 +21,7 @@ import type {
 } from "../api/assemblies";
 import { AssemblyBomPanel } from "./AssemblyBomPanel";
 import { AssemblyClashPanel } from "./AssemblyClashPanel";
+import type { NestedPart } from "../assembly/subAssemblies";
 import { AssemblyInspector } from "./AssemblyInspector";
 import { ExportRow } from "./ExportRow";
 import type { ExportedFile, ExportFormat } from "../api/exportPart";
@@ -62,6 +63,8 @@ export interface AssemblyInspectorPanelProps {
   exportDisabledReason?: string;
   /** Partial (a mate or joint did not solve) — the strip says so and asks. */
   exportGate?: AssemblyExportGate;
+  /** Parts inside sub-assemblies, by occurrence id (clash names). */
+  nested?: ReadonlyMap<string, NestedPart>;
 }
 
 const VIEW_OPTIONS = [
@@ -100,6 +103,7 @@ export function AssemblyInspectorPanel({
   exporter,
   exportDisabledReason,
   exportGate,
+  nested,
 }: AssemblyInspectorPanelProps) {
   return (
     <div className="flex w-full flex-col gap-3">
@@ -124,6 +128,7 @@ export function AssemblyInspectorPanel({
       ) : (
         <AssemblyClashPanel
           instances={instances}
+          nested={nested}
           result={clashResult}
           busy={clashBusy}
           error={clashError}

@@ -4,6 +4,7 @@
  * seat, so the two never stack.
  */
 import type { InstanceResponse, MateResponse } from "../api/assemblies";
+import { componentName, type NestedPart } from "../assembly/subAssemblies";
 import type { JointDialogApi } from "../assembly/useJointDialog";
 import type { DriveTarget, JointDriveApi } from "../assembly/useJointDrive";
 import { JointDialog } from "./JointDialog";
@@ -16,6 +17,8 @@ export interface JointHudProps {
   driveTarget: DriveTarget | null;
   instances: readonly InstanceResponse[];
   mates: readonly MateResponse[];
+  /** Parts inside sub-assemblies, so a joint origin on one is named. */
+  nested?: ReadonlyMap<string, NestedPart>;
 }
 
 export function JointHud({
@@ -24,12 +27,13 @@ export function JointHud({
   driveTarget,
   instances,
   mates,
+  nested,
 }: JointHudProps) {
   if (dialog.open) {
     return (
       <JointDialog
         instanceName={(id) =>
-          instances.find((i) => i.id === id)?.name ?? "Component"
+          componentName(instances, nested, id) ?? "Component"
         }
         previewing={dialog.previewing}
         throughEachOther={dialog.throughEachOther}
