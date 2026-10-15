@@ -255,13 +255,14 @@ def test_step_assembly_export_roundtrip(
 
     _match_reimported(name, data, _expected_bodies(request), tmp_path, roundtrip_tol)
 
-    # Instance traceability: one named occurrence per instance. (The goldens carry
-    # no instance names, so the composer falls back to the instance id — which is
-    # exactly the identity a re-import must be able to hand back.)
+    # Instance traceability: one named occurrence per PLACED part — an instance,
+    # or a part inside a sub-assembly by its occurrence id. (The goldens carry no
+    # instance names, so the composer falls back to that id — which is exactly the
+    # identity a re-import must be able to hand back.)
     occurrence_names = {n.decode("ascii") for n in _OCCURRENCE_NAME_RE.findall(data)}
-    for inst in request.instances:
-        assert str(inst.instance_id) in occurrence_names, (
-            f"{name}: instance {inst.instance_id} has no named occurrence in the "
+    for placed_id in _placed_ids(request):
+        assert str(placed_id) in occurrence_names, (
+            f"{name}: part {placed_id} has no named occurrence in the "
             f"STEP file — not traceable (occurrences: {sorted(occurrence_names)})"
         )
 
@@ -738,6 +739,13 @@ def test_step_assembly_export_nonidentity_rotation_roundtrip(
 # caller flattens it would still pass a return-value test.
 
 
+def _placed_ids(request: EvaluateAssemblyRequest) -> list[uuid.UUID]:
+    """Every part the file must place: the instances of a flat assembly, and
+    each part inside a sub-assembly (by occurrence id) — one STEP occurrence
+    each. Read from the solve the export composes, so it cannot drift from it."""
+    return [placed.instance_id for placed in solve_assembly(request).placed]
+
+
 def _unique_part_keys(request: ExportAssemblyRequest) -> set[str]:
     return {inst.part_key for inst in request.instances}
 
@@ -793,9 +801,10 @@ def test_step_assembly_export_writes_one_brep_per_unique_part_body(
         f"instance instead of instanced (audit N8)"
     )
     named = [n for n in _OCCURRENCE_NAME_RE.findall(data) if n]
-    assert len(named) == len(request.instances), (
-        f"{name}: {len(named)} named occurrences for {len(request.instances)} "
-        f"instances — an instance lost its placement"
+    placed = len(_placed_ids(request))
+    assert len(named) == placed, (
+        f"{name}: {len(named)} named occurrences for {placed} "
+        f"placed parts — a part lost its placement"
     )
 
 
