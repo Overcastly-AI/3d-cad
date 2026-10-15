@@ -43,13 +43,16 @@ if modelling does not cost them time. So:
 Base tooling is the core that Fusion 360, SolidWorks and Onshape share:
 sketch, extrude, revolve, sweep, loft, hole, fillet, chamfer, shell, draft,
 pattern, mirror, datums and assemblies. Loft does not build niche or legacy
-features into it. A feature outside that core is deprecated and will live in
-a future plugins package (PLUGINS-PACKAGE in `docs/BACKLOG.md`). A deprecated
-feature keeps loading and rebuilding every stored part unchanged (read-only
-legacy), but it cannot be authored again. If a part relies on one, rebuild
-the part with base tooling. The first is the extrude twist: a twisted prism
-is a Sweep with twist along a straight path, as in Fusion and SolidWorks
-(founder, 2026-10-09).
+features into it. A deprecated feature keeps rebuilding every stored part
+unchanged but cannot be authored again; the first is the extrude twist, now
+a Sweep with twist (founder, 2026-10-09). Everything beyond the core is a
+plugin: a custom feature, as in Onshape, with a typed form whose inputs live
+in the feature tree and expand at rebuild into base features, so a plugin can
+never make geometry the base tools could not (RESEARCH §23). First-party
+plugins ship preinstalled as ordinary tools, starting with a Build group of
+building generators (deck, stud wall, hosted window and door, roof) with
+lumber materials and a cut list (founder, 2026-10-15;
+`reference-parts/buildings.md`).
 
 ## Reference parts
 
@@ -153,6 +156,12 @@ pick a joint origin on each part, plus a motion type (ASM-JOINTS).
 - **A1 butt hinge:** 2 parts, a revolute joint limited to 0-180°.
 - **A2 bench vice:** 7 parts, 12 instances, a slider, BOM, interference and a drawing.
 - **A3 linear stage:** 16 parts, 73 instances, a sub-assembly, fastener patterns, an in-context edit and time budgets.
+
+Reference buildings (`docs/reference-parts/buildings.md`) pass the same way,
+built from Build-group plugins with no member drawn by hand:
+
+- **B1 deck:** 12 x 16 ft, ledger, beam, posts, joists, decking, guard and cut list.
+- **B2 shed:** 10 x 12 ft, stud walls, a hosted door and window, and a 6/12 gable roof.
 
 ## Daily-driver scorecard
 

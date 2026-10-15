@@ -40,9 +40,13 @@ Then a level-1 rerun, the A1 hinge (ASM-\* in the backlog), and level 2.
 4. MCP server on top of `loft-script`.
 5. Assemblies a working engineer can use: joints, drag, limits, component patterns
    and in-context edits, driven by the reference assemblies A1-A3.
+6. Plugins as custom features, then building generators (deck, stud walls,
+   hosted windows and doors, roof) with lumber materials and a cut list,
+   driven by the reference buildings B1-B2 (RESEARCH §23).
 
 ## Later
 
 Versions for assemblies and drawings, version-pinned references, realtime
 collaboration,
-Helm/HA deployment, SSO/OIDC, and a plugin mechanism.
+Helm/HA deployment, SSO/OIDC, timber framing, a whole-house assembly, and
+third-party plugins.

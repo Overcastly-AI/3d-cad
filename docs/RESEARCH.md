@@ -1603,3 +1603,76 @@ limit stops motion; it does not remove the degree of freedom.
   (25, 17.5, 20); DOF 6; all hand-derived, tolerance 1e-9.
   `test_assembly_joints_solver.py` covers DOF 0/1/1/2/3/3, the stops, the
   seam, the numeric limit path and named conflicts.
+
+## 23. Plugins and building generators
+
+**What working users do.** Onshape custom features (FeatureScript) are the
+closest model: a feature declares typed, bounded inputs from which the dialog
+is generated, sits in the feature list like any other, regenerates on edit,
+and is pinned to the version of the document it came from; a newer version
+only shows an update badge, and the user chooses to update. SketchUp's Medeek
+Wall, Truss and Deck regenerate whole framed assemblies (studs, headers,
+kings, jacks, cripples, rafters, trusses) from a few parameters and print
+callouts and lists. Revit doors and windows are families hosted in a wall:
+placing one cuts the opening, and moving it moves the cut. Chief Architect
+and SoftPlan build wall, floor and roof framing from preferences and feed a
+materials list; a member marked manual is kept on rebuild. SolidWorks
+weldments draw structural members from a profile library and keep a cut list
+grouped by standard, size, material and length. Fusion add-ins are Python
+commands in a toolbar panel, but what they make is mostly dead geometry
+(Fusion's custom-feature API is still a preview). What
+feels seamless: the tool is in the toolbar with no install step, a form with
+units, one tree entry, regenerate on any edit, openings that cut their host
+and reframe it, a material per member, and a cut list that is always current.
+
+**Decisions.**
+
+- **A custom feature expands into base features.** A plugin registers a
+  custom feature. Its inputs are stored in the feature tree; at rebuild a
+  pure function expands them into base features (sketch, extrude, cut,
+  pattern, boolean, new body). A plugin runs no kernel code, so it cannot
+  make geometry the base tools could not. Members are separate bodies (no
+  fuse), which avoids the whole-body booleans that dominate rebuild cost
+  (§15).
+- **Manifest** (pydantic, in `loft-wire`): `id` (`loft.deck`), `version`
+  (semver), `title`, toolbar `group` (Build), typed `inputs` (length, angle,
+  count, choice, profile, material, feature reference; units, default,
+  bounds; each accepts a §20 expression, so parameters drive it), `expand`,
+  and per-member metadata (role, profile, material, nominal size) for the
+  cut list and mass. The web renders the form from the served manifest
+  (`GET /api/v1/plugins`), so no form is hand-written per plugin.
+- **Where it runs.** Plugins live in a kernel-free `packages/loft-plugins`
+  that depends on `loft-wire` only. Documents expands them where it already
+  resolves formulas (`evaluation_features`), so geometry receives base
+  features only and never learns that plugins exist; only geometry imports
+  the kernel. `loft-script` uses the same package to preview and test.
+- **Hosting is by inputs, never by geometry.** A window names its host wall
+  feature, an offset and a head height. Expansion is one pass over every
+  custom feature's inputs, so a wall frames the openings it hosts wherever
+  they sit in the tree, and nothing waits on a rebuilt face. Pick-based
+  inputs (a deck ledger on a picked face) resolve through §14 first.
+- **Stable ids.** An expanded feature's id derives from the custom feature's
+  id and the member's role and index (`<id>/joist/3`), so picks on generated
+  geometry keep their names across an edit.
+- **Determinism and versions.** A stored custom feature pins `plugin_id` and
+  `plugin_version`. The package keeps every released version's expander;
+  a release that changes the expansion for any existing inputs is a new
+  version, and goldens per version prove old ones byte-identical. Updating
+  is explicit (an update badge, one undo step), as in Onshape. The last
+  expansion is stored with the feature, so a part whose plugin is missing
+  (a `.loft` opened on another server) still rebuilds, read-only, like the
+  legacy extrude twist.
+- **Bounds.** An expansion is validated by the same pydantic models and
+  authoring checks as a user's features, and is capped (5,000 base features
+  and 2 s per custom feature); over a cap is a typed error on that feature.
+- **Security.** First-party plugins are reviewed code in the repo: no I/O, no
+  imports beyond `loft-wire`, run in the documents process. Third-party
+  plugins are not loaded until the founder chooses between declarative
+  manifests (inputs plus a template in the §20 expression language, no code)
+  and Python in a sandbox (a separate process with no network, file system
+  or kernel, and time and memory caps).
+- **Order of work** (BACKLOG "Plugins and buildings"): registry with the
+  twist as its first consumer, UI, lumber materials, cut list, then the deck,
+  walls, hosted windows and doors, and roof against
+  `docs/reference-parts/buildings.md`; timber frame and the house assembly
+  (sub-assemblies from ASM-A3) come later.
