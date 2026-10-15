@@ -1673,6 +1673,8 @@ and reframe it, a material per member, and a cut list that is always current.
   sandbox: a separate process with no network, file system or kernel, and
   time and memory caps. It gets its inputs and returns base features through
   the same `expand` contract as a first-party plugin.
+- **Lumber.** US dimensional lumber (nominal inches) is the first library;
+  metric CLS and European sizes come later (founder, 2026-10-15).
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

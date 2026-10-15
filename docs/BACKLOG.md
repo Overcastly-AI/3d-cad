@@ -189,9 +189,6 @@ step. These replace PLUGINS-PACKAGE.
       (same counts and properties, no tolerance touched) and the CM-6
       later-pocket chain building the right body instead of `invalid_body`?
       Not scheduled until decided.
-- [ ] **Lumber library** (RESEARCH §23): is US lumber (nominal inches) the
-      first library, with metric CLS/European sizes later? (Third-party
-      plugins: Python in a sandbox, founder 2026-10-15.)
 
 ## Notes
 
