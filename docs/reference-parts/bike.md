@@ -51,13 +51,13 @@ stack 570, reach 390, chainstay 410, BB drop 70.
      off perpendicular is still valid.
    - The guard refused the body honestly, but the user cannot place the ring
      exactly (see finding 1).
-3. **BIKE-EDIT-RESULT-CHECK (needs triage, possibly wrong geometry).** I
-   edited Plane1 to 43.4386° and retyped the Sketch3 line to end at (426.562,
-   450.469), so the down tube meets the head axis 35 mm up.
-   - The rebuild reported OK, with volume 174,968.67 and 2 shells.
-   - In the iso view (`bike-frame-after-edit.png`) the down tube no longer
-     appears to run up to the head tube.
-   - The expected total is about 225,000 mm³. Not verified before the cap.
+3. **BIKE-EDIT-RESULT-CHECK (triaged: kernel correct, the typed line did not
+   land).** The stored Sketch3 line is (0,0)→(450.469, 0), not (426.562,
+   450.469). The kernel sweeps exactly that oblique path: down tube 49,975.95
+   against 49,975.95 by hand. The total is 174,968.50, the same cold and
+   incremental. The intended tree rebuilds to 225,050.41 (down tube 100,100.47
+   by hand). Open question for the web app: why the line-tool entry stored
+   (450.469, 0).
 4. **BIKE-SWEEP-PATH-PICK.** A sweep path is a whole sketch, not picked edges
    or a chain from a skeleton. A branched skeleton fails with a misleading
    kernel `ValueError` ("may self-intersect") instead of
