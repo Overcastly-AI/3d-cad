@@ -4890,12 +4890,15 @@
         "type": "object"
       },
       "InContextResolvedItem": {
-        "description": "One link's new last-resolved value, for documents to store.",
+        "description": "One link's new last-resolved value, for documents to store.\n\nCarries the link's whole identity: the value is written only onto an\nentity whose link is still exactly this one (not another edge of the same\ncomponent, nor the same edge from another host occurrence).",
         "properties": {
           "assembly_id": {
             "format": "uuid",
             "title": "Assembly Id",
             "type": "string"
+          },
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSignature"
           },
           "entity_id": {
             "maxLength": 64,
@@ -4908,9 +4911,20 @@
             "title": "Feature Id",
             "type": "string"
           },
+          "host_occurrence_id": {
+            "format": "uuid",
+            "title": "Host Occurrence Id",
+            "type": "string"
+          },
           "occurrence_id": {
             "format": "uuid",
             "title": "Occurrence Id",
+            "type": "string"
+          },
+          "part_id": {
+            "description": "The referenced part",
+            "format": "uuid",
+            "title": "Part Id",
             "type": "string"
           },
           "resolved": {
@@ -4940,7 +4954,10 @@
           "feature_id",
           "entity_id",
           "assembly_id",
+          "host_occurrence_id",
           "occurrence_id",
+          "part_id",
+          "edge",
           "resolved"
         ],
         "title": "InContextResolvedItem",
@@ -4966,7 +4983,7 @@
         "type": "object"
       },
       "InContextResolvedWrite": {
-        "description": "``POST /api/v1/parts/{part_id}/in-context/resolved`` (documents).\n\nMetadata, not an edit: no undo step and no ``tree_version`` bump (the\nDESIGN-INTENT-BACKFILL rule). An item is written only where the entity\nstill carries a link to the same assembly and occurrence.",
+        "description": "``POST /api/v1/parts/{part_id}/in-context/resolved`` (documents).\n\nMetadata, not an edit: no undo step and no ``tree_version`` bump (the\nDESIGN-INTENT-BACKFILL rule). An item is written only where the entity\nstill carries exactly the item's link (:func:`apply_resolved`).",
         "properties": {
           "items": {
             "items": {

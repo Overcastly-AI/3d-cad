@@ -18,7 +18,7 @@ import { useEffect, useMemo } from "react";
 
 import { MESH_LINEAR_DEFLECTION_MM } from "../../api/client";
 import {
-  evaluateAssembly,
+  evaluateCommittedAssembly,
   fetchAssemblyEvaluationRequest,
   fetchAssemblyGraph,
 } from "../../api/assemblies";
@@ -80,7 +80,7 @@ export function useInContext({
     enabled: active && treeVersion !== undefined,
     queryFn: async () => {
       const request = await fetchAssemblyEvaluationRequest(assemblyId ?? "");
-      const evaluation = await evaluateAssembly({
+      const evaluation = await evaluateCommittedAssembly({
         ...request,
         linear_deflection: MESH_LINEAR_DEFLECTION_MM,
       });

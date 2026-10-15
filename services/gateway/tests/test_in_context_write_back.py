@@ -1,11 +1,14 @@
 """gateway.in_context — geometry's resolved in-context values reach documents
-(ASM-A3-IN-CONTEXT).
+(ASM-A3-IN-CONTEXT), from COMMITTED evaluations only.
 
 Documents and geometry are ``httpx.MockTransport`` upstreams; auth runs for
-real. After ``/geometry/assembly/evaluate``, each edited part whose links moved
-gets ONE documents write of its changed values, as the caller; unchanged and
-failed links are not written; a refused or failing write never fails the
-evaluation; an assembly without links makes no documents call at all.
+real. With ``?write_back=true`` and a request that is the assembly as
+documents stores it, each edited part whose links moved gets ONE documents
+write of its changed values, carrying each link's whole identity. Never
+written: an evaluation without the flag (the joint dialog's live preview), a
+flagged one whose mates or poses differ from the stored assembly (a draft),
+unchanged or failed links, and nothing at all for an assembly without links.
+A refused write never fails the evaluation.
 """
 
 import asyncio
@@ -24,7 +27,9 @@ from loft_wire.assemblies import (
     EvaluateAssemblyRequest,
     EvaluateAssemblyResult,
     EvaluatedInstance,
+    Placement,
 )
+from loft_wire.geometry import Vec3
 from loft_wire.in_context import InContextResolvedWrite, InContextStatus
 from loft_wire.parts import PRINCIPAL_HEADER
 from py_kit.db import async_dsn
@@ -36,8 +41,17 @@ Handler = Callable[[httpx.Request], httpx.Response]
 ASSEMBLY = uuid.UUID(int=0xA3)
 PLATE = uuid.UUID(int=0xB2)
 BLOCK = uuid.UUID(int=0xB3)
+RAIL = uuid.UUID(int=0xB4)
 SKETCH = uuid.UUID(int=0xC1)
 RAIL_OCC = uuid.UUID(int=0xD1)
+PLATE_OCC = uuid.UUID(int=0xD2)
+EDGE = {
+    "curve": "circle",
+    "end_a": {"x": 189.25, "y": 0.0, "z": 8.0},
+    "end_b": {"x": 189.25, "y": 0.0, "z": 8.0},
+    "midpoint": {"x": 185.75, "y": 0.0, "z": 8.0},
+    "length_mm": 10.995574287564276,
+}
 
 
 def _circle(y: float) -> dict[str, Any]:
@@ -56,6 +70,9 @@ def _status(part: uuid.UUID, entity: str, **extra: Any) -> InContextStatus:
             "feature_id": str(SKETCH),
             "entity_id": entity,
             "occurrence_id": str(RAIL_OCC),
+            "host_occurrence_id": str(PLATE_OCC),
+            "referenced_part_id": str(RAIL),
+            "edge": EDGE,
             "state": "ok",
             "resolved": _circle(45.0),
             "changed": True,
@@ -67,23 +84,33 @@ def _status(part: uuid.UUID, entity: str, **extra: Any) -> InContextStatus:
 def _result(statuses: list[InContextStatus]) -> str:
     return EvaluateAssemblyResult(
         assembly_id=ASSEMBLY,
-        version=1,
+        version=4,
         instances=[],
         status="well_constrained",
         in_context=statuses,
     ).model_dump_json()
 
 
-def _request() -> dict[str, Any]:
+def _request(rail_y: float = 40.0) -> EvaluateAssemblyRequest:
     return EvaluateAssemblyRequest(
         assembly_id=ASSEMBLY,
-        version=1,
+        version=4,
         instances=[
             EvaluatedInstance(
-                instance_id=uuid.uuid4(), part_key=f"{PLATE}@tip", features=[]
-            )
+                instance_id=RAIL_OCC,
+                part_key=f"{RAIL}@tip",
+                features=[],
+                grounded=True,
+                placement=Placement(position=Vec3(x=25.0, y=rail_y, z=10.0)),
+            ),
+            EvaluatedInstance(
+                instance_id=PLATE_OCC,
+                part_key=f"{PLATE}@tip",
+                features=[],
+                grounded=True,
+            ),
         ],
-    ).model_dump(mode="json")
+    )
 
 
 async def _create_schema(url: str) -> None:
@@ -119,19 +146,31 @@ def _client(db_url: str, documents: Handler, geometry: Handler) -> TestClient:
 def _bearer(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/register",
-        json={"email": "ic@example.com", "password": "hunter2-passphrase"},
+        json={
+            "email": f"ic-{uuid.uuid4().hex[:8]}@example.com",
+            "password": "hunter2-passphrase",
+        },
     )
     assert response.status_code == 201, response.text
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 def _evaluate(
-    db_url: str, statuses: list[InContextStatus], documents_status: int = 200
-) -> tuple[httpx.Response | Any, list[httpx.Request]]:
+    db_url: str,
+    statuses: list[InContextStatus],
+    *,
+    request: EvaluateAssemblyRequest | None = None,
+    write_back: bool = True,
+    documents_status: int = 200,
+) -> tuple[Any, list[httpx.Request]]:
+    """Evaluate *request* (default: the stored assembly); the documents
+    writes made, in order."""
     writes: list[httpx.Request] = []
 
-    def documents(request: httpx.Request) -> httpx.Response:
-        writes.append(request)
+    def documents(call: httpx.Request) -> httpx.Response:
+        if call.url.path.endswith("/evaluation-request"):
+            return httpx.Response(200, content=_request().model_dump_json())
+        writes.append(call)
         if documents_status != 200:
             return httpx.Response(documents_status, json={"error": {}})
         return httpx.Response(200, json={"written": 1, "skipped": 0})
@@ -142,7 +181,8 @@ def _evaluate(
     with _client(db_url, documents, geometry) as client:
         response = client.post(
             "/api/v1/geometry/assembly/evaluate",
-            json=_request(),
+            params={"write_back": "true"} if write_back else {},
+            json=(request or _request()).model_dump(mode="json"),
             headers=_bearer(client),
         )
     return response, writes
@@ -170,11 +210,40 @@ def test_changed_values_are_written_once_per_part(db_url: str) -> None:
     )
     plate = next(w for w in writes if str(PLATE) in w.url.path)
     body = InContextResolvedWrite.model_validate_json(plate.content)
-    assert [(i.entity_id, i.assembly_id, i.occurrence_id) for i in body.items] == [
-        ("p1", ASSEMBLY, RAIL_OCC)
-    ]
+    # Each item carries the link's whole identity.
+    [item] = body.items
+    assert (
+        item.entity_id,
+        item.assembly_id,
+        item.host_occurrence_id,
+        item.occurrence_id,
+        item.part_id,
+    ) == ("p1", ASSEMBLY, PLATE_OCC, RAIL_OCC, RAIL)
+    assert item.edge.end_a.x == 189.25
     assert json.loads(plate.content)["items"][0]["resolved"] == _circle(45.0)
     assert PRINCIPAL_HEADER in plate.headers
+
+
+def test_a_preview_without_the_flag_never_writes(db_url: str) -> None:
+    """The joint dialog's live preview evaluates without ``write_back``."""
+    response, writes = _evaluate(db_url, [_status(PLATE, "p1")], write_back=False)
+    assert response.status_code == 200, response.text
+    assert writes == []
+
+
+def test_a_draft_that_differs_from_the_stored_assembly_never_writes(
+    db_url: str,
+) -> None:
+    """A rail at a draft pose (a cancelled offset), even flagged: nothing is
+    stored, so the part never keeps a pose the assembly does not have."""
+    response, writes = _evaluate(
+        db_url, [_status(PLATE, "p1")], request=_request(rail_y=52.0)
+    )
+    assert response.status_code == 200, response.text
+    assert writes == []
+    stale = _request().model_copy(update={"version": 3})
+    response, writes = _evaluate(db_url, [_status(PLATE, "p1")], request=stale)
+    assert writes == []
 
 
 def test_no_links_no_documents_call(db_url: str) -> None:

@@ -1039,8 +1039,9 @@ export interface paths {
          *     ``{shared mesh id, solved placement}`` plus an analytic combined roll-up. A
          *     bad part / mate / solve is a 200 with a typed per-entry error or a
          *     non-``well_constrained`` status (design §4); the envelope stays reserved
-         *     for transport/validation failures of this call itself. In-context links
-         *     whose resolved values changed are written back to documents
+         *     for transport/validation failures of this call itself. With
+         *     ``write_back``, in-context links whose resolved values changed are written
+         *     back to documents, if the request is the stored assembly
          *     (:mod:`gateway.in_context`).
          */
         post: operations["assembly_evaluate_api_v1_geometry_assembly_evaluate_post"];
@@ -7246,6 +7247,8 @@ export interface components {
              * @default false
              */
             changed: boolean;
+            /** @description The link's edge, as stored */
+            edge: components["schemas"]["EdgeSignature"];
             /** Entity Id */
             entity_id: string;
             /**
@@ -7254,6 +7257,12 @@ export interface components {
              * @description The dependent sketch
              */
             feature_id: string;
+            /**
+             * Host Occurrence Id
+             * Format: uuid
+             * @description The link's host occurrence (part of its identity)
+             */
+            host_occurrence_id: string;
             /** Message */
             message?: string | null;
             /**
@@ -7270,6 +7279,12 @@ export interface components {
             part_id: string;
             /** Reason */
             reason?: ("component_missing" | "component_replaced" | "component_failed" | "host_missing" | "edge_unresolved" | "edge_ambiguous" | "unsupported_curve" | "cycle" | "not_converged") | null;
+            /**
+             * Referenced Part Id
+             * Format: uuid
+             * @description The part the link names at `occurrence_id`
+             */
+            referenced_part_id: string;
             /** Resolved */
             resolved?: (components["schemas"]["InContextLine"] | components["schemas"]["InContextCircle"] | components["schemas"]["InContextArc"]) | null;
             /**
@@ -13935,7 +13950,10 @@ export interface operations {
     };
     assembly_evaluate_api_v1_geometry_assembly_evaluate_post: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Store the in-context values this evaluation resolved (ASM-A3-IN-CONTEXT). Only for the assembly as stored: a request that differs from it (a draft joint or move preview) writes nothing. Off by default. */
+                write_back?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;

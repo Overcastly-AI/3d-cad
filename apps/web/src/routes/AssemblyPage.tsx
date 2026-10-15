@@ -17,7 +17,7 @@ import {
   createMate,
   deleteInstance,
   deleteMate,
-  evaluateAssembly,
+  evaluateCommittedAssembly,
   exportAssembly,
   fetchAssemblyGraph,
   type InstanceResponse,
@@ -230,7 +230,7 @@ export function AssemblyPage() {
       partTrees !== undefined &&
       subs.ready,
     queryFn: () =>
-      evaluateAssembly(
+      evaluateCommittedAssembly(
         buildEvaluateAssemblyRequest(
           graph as NonNullable<typeof graph>,
           partTrees as Map<string, FeatureTreeResponse>,

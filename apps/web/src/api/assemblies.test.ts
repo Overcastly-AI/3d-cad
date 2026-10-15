@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkInterference,
   copyInstance,
+  evaluateAssembly,
   type EvaluateAssemblyRequest,
   exportAssembly,
   redoAssembly,
@@ -45,6 +46,46 @@ const restoredGraph = {
   can_undo: true,
   can_redo: true,
 };
+
+describe("evaluateAssembly and in-context write-back (ASM-A3-IN-CONTEXT)", () => {
+  const request: EvaluateAssemblyRequest = {
+    assembly_id: assemblyId,
+    version: 1,
+    instances: [],
+    mates: [],
+    linear_deflection: 0.1,
+  };
+  const evaluated = {
+    assembly_id: assemblyId,
+    version: 1,
+    instances: [],
+    status: "well_constrained",
+    mate_errors: [],
+  };
+  async function urlOf(writeBack: boolean | undefined): Promise<URL> {
+    let captured: Request | undefined;
+    const client = createGatewayClient({
+      baseUrl: "http://gateway.test",
+      fetch: (r: Request) => {
+        captured = r;
+        return Promise.resolve(json(evaluated, 200));
+      },
+    });
+    await (writeBack === undefined
+      ? evaluateAssembly(request, client)
+      : evaluateAssembly(request, client, writeBack));
+    return new URL(captured?.url ?? "");
+  }
+
+  it("a preview (the default) never asks the gateway to store values", async () => {
+    expect((await urlOf(undefined)).searchParams.has("write_back")).toBe(false);
+    expect((await urlOf(false)).searchParams.has("write_back")).toBe(false);
+  });
+
+  it("a committed evaluation asks for write_back", async () => {
+    expect((await urlOf(true)).searchParams.get("write_back")).toBe("true");
+  });
+});
 
 describe("undoAssembly / redoAssembly", () => {
   it("undoAssembly POSTs the expected_version and returns the restored graph", async () => {

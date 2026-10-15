@@ -7264,6 +7264,10 @@
             "title": "Changed",
             "type": "boolean"
           },
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "The link's edge, as stored"
+          },
           "entity_id": {
             "title": "Entity Id",
             "type": "string"
@@ -7272,6 +7276,12 @@
             "description": "The dependent sketch",
             "format": "uuid",
             "title": "Feature Id",
+            "type": "string"
+          },
+          "host_occurrence_id": {
+            "description": "The link's host occurrence (part of its identity)",
+            "format": "uuid",
+            "title": "Host Occurrence Id",
             "type": "string"
           },
           "message": {
@@ -7319,6 +7329,12 @@
             ],
             "title": "Reason"
           },
+          "referenced_part_id": {
+            "description": "The part the link names at `occurrence_id`",
+            "format": "uuid",
+            "title": "Referenced Part Id",
+            "type": "string"
+          },
           "resolved": {
             "anyOf": [
               {
@@ -7362,6 +7378,9 @@
           "feature_id",
           "entity_id",
           "occurrence_id",
+          "host_occurrence_id",
+          "referenced_part_id",
+          "edge",
           "state"
         ],
         "title": "InContextStatus",
@@ -17829,8 +17848,22 @@
     },
     "/api/v1/geometry/assembly/evaluate": {
       "post": {
-        "description": "Proxy an assembly evaluation to the geometry service (assemblies \u00a74).\n\nAuth-protected (an assembly graph belongs to a signed-in user); the\ngeometry hop stays identity-free, so the principal never travels upstream\n(same posture as measure/overlay, RESEARCH \u00a73). The shared\n:class:`EvaluateAssemblyRequest` DTO validates at the gateway before\nanything goes upstream. Geometry evaluates each unique part once (shared\ncontent-addressed mesh), solves the mate graph, and returns per-instance\n``{shared mesh id, solved placement}`` plus an analytic combined roll-up. A\nbad part / mate / solve is a 200 with a typed per-entry error or a\nnon-``well_constrained`` status (design \u00a74); the envelope stays reserved\nfor transport/validation failures of this call itself. In-context links\nwhose resolved values changed are written back to documents\n(:mod:`gateway.in_context`).",
+        "description": "Proxy an assembly evaluation to the geometry service (assemblies \u00a74).\n\nAuth-protected (an assembly graph belongs to a signed-in user); the\ngeometry hop stays identity-free, so the principal never travels upstream\n(same posture as measure/overlay, RESEARCH \u00a73). The shared\n:class:`EvaluateAssemblyRequest` DTO validates at the gateway before\nanything goes upstream. Geometry evaluates each unique part once (shared\ncontent-addressed mesh), solves the mate graph, and returns per-instance\n``{shared mesh id, solved placement}`` plus an analytic combined roll-up. A\nbad part / mate / solve is a 200 with a typed per-entry error or a\nnon-``well_constrained`` status (design \u00a74); the envelope stays reserved\nfor transport/validation failures of this call itself. With\n``write_back``, in-context links whose resolved values changed are written\nback to documents, if the request is the stored assembly\n(:mod:`gateway.in_context`).",
         "operationId": "assembly_evaluate_api_v1_geometry_assembly_evaluate_post",
+        "parameters": [
+          {
+            "description": "Store the in-context values this evaluation resolved (ASM-A3-IN-CONTEXT). Only for the assembly as stored: a request that differs from it (a draft joint or move preview) writes nothing. Off by default.",
+            "in": "query",
+            "name": "write_back",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Store the in-context values this evaluation resolved (ASM-A3-IN-CONTEXT). Only for the assembly as stored: a request that differs from it (a draft joint or move preview) writes nothing. Off by default.",
+              "title": "Write Back",
+              "type": "boolean"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {

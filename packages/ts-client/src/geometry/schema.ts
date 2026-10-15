@@ -4995,6 +4995,8 @@ export interface components {
              * @default false
              */
             changed: boolean;
+            /** @description The link's edge, as stored */
+            edge: components["schemas"]["EdgeSignature"];
             /** Entity Id */
             entity_id: string;
             /**
@@ -5003,6 +5005,12 @@ export interface components {
              * @description The dependent sketch
              */
             feature_id: string;
+            /**
+             * Host Occurrence Id
+             * Format: uuid
+             * @description The link's host occurrence (part of its identity)
+             */
+            host_occurrence_id: string;
             /** Message */
             message?: string | null;
             /**
@@ -5019,6 +5027,12 @@ export interface components {
             part_id: string;
             /** Reason */
             reason?: ("component_missing" | "component_replaced" | "component_failed" | "host_missing" | "edge_unresolved" | "edge_ambiguous" | "unsupported_curve" | "cycle" | "not_converged") | null;
+            /**
+             * Referenced Part Id
+             * Format: uuid
+             * @description The part the link names at `occurrence_id`
+             */
+            referenced_part_id: string;
             /** Resolved */
             resolved?: (components["schemas"]["InContextLine"] | components["schemas"]["InContextCircle"] | components["schemas"]["InContextArc"]) | null;
             /**

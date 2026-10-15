@@ -268,7 +268,10 @@ def test_write_back_is_metadata_and_a_stale_save_keeps_it(
         "feature_id": feature,
         "entity_id": "p1",
         "assembly_id": stage.stage,
+        "host_occurrence_id": stage.plate_occ,
         "occurrence_id": stage.rail_in_stage,
+        "part_id": stage.rail,
+        "edge": EDGE,
         "resolved": stage.link(45.0)["resolved"],
     }
     response = client.post(
@@ -327,6 +330,25 @@ def test_write_back_is_metadata_and_a_stale_save_keeps_it(
         headers=HEADERS,
     )
     assert response.json() == {"written": 0, "skipped": 1}
+    # Nor one resolved for ANOTHER edge of the same component (the entity was
+    # re-projected while an older evaluation was in flight).
+    other_edge = EDGE | {
+        "end_a": {"x": 26.75, "y": 0.0, "z": 8.0},
+        "end_b": {"x": 26.75, "y": 0.0, "z": 8.0},
+        "midpoint": {"x": 23.25, "y": 0.0, "z": 8.0},
+    }
+    stale = copy.deepcopy(item) | {
+        "edge": other_edge,
+        "resolved": stage.link(99.0)["resolved"],
+    }
+    response = client.post(
+        f"/api/v1/parts/{stage.plate}/in-context/resolved",
+        json={"items": [stale]},
+        headers=HEADERS,
+    )
+    assert response.json() == {"written": 0, "skipped": 1}
+    (entity,) = _entities(client, stage.plate, feature)
+    assert entity["projection"]["in_context"]["resolved"]["center"]["y"] == 45.0
     # Someone else's part is a 404.
     response = client.post(
         f"/api/v1/parts/{stage.plate}/in-context/resolved",

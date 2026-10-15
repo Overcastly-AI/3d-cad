@@ -20,7 +20,7 @@ rebuilds the same way inside its context assembly and outside it (SolidWorks'
 import uuid
 from typing import Annotated, Any, Literal, cast
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from loft_wire.geometry import Vec3
 from loft_wire.signatures import EdgeSignature
@@ -132,6 +132,13 @@ class InContextStatus(BaseModel):
     feature_id: uuid.UUID = Field(description="The dependent sketch")
     entity_id: str
     occurrence_id: uuid.UUID = Field(description="The referenced component")
+    host_occurrence_id: uuid.UUID = Field(
+        description="The link's host occurrence (part of its identity)"
+    )
+    referenced_part_id: uuid.UUID = Field(
+        description="The part the link names at `occurrence_id`"
+    )
+    edge: EdgeSignature = Field(description="The link's edge, as stored")
     state: Literal["ok", "error"]
     reason: InContextReason | None = None
     message: str | None = None
@@ -140,12 +147,20 @@ class InContextStatus(BaseModel):
 
 
 class InContextResolvedItem(BaseModel):
-    """One link's new last-resolved value, for documents to store."""
+    """One link's new last-resolved value, for documents to store.
+
+    Carries the link's whole identity: the value is written only onto an
+    entity whose link is still exactly this one (not another edge of the same
+    component, nor the same edge from another host occurrence).
+    """
 
     feature_id: uuid.UUID
     entity_id: str = Field(min_length=1, max_length=64)
     assembly_id: uuid.UUID
+    host_occurrence_id: uuid.UUID
     occurrence_id: uuid.UUID
+    part_id: uuid.UUID = Field(description="The referenced part")
+    edge: EdgeSignature
     resolved: InContextCurve
 
 
@@ -154,7 +169,7 @@ class InContextResolvedWrite(BaseModel):
 
     Metadata, not an edit: no undo step and no ``tree_version`` bump (the
     DESIGN-INTENT-BACKFILL rule). An item is written only where the entity
-    still carries a link to the same assembly and occurrence.
+    still carries exactly the item's link (:func:`apply_resolved`).
     """
 
     items: list[InContextResolvedItem] = Field(max_length=MAX_IN_CONTEXT_LINKS)
@@ -214,14 +229,28 @@ def carry_resolved(stored: Any, incoming: Any) -> Any:
 
 
 def apply_resolved(params: Any, item: InContextResolvedItem) -> bool:
-    """Write *item* into the JSON sketch *params* in place; whether it applied
-    (the entity still links to the same assembly and occurrence)."""
+    """Write *item* into the JSON sketch *params* in place; whether it applied.
+
+    Only where the entity still links exactly the item's link: the same
+    assembly, host occurrence, referenced occurrence and part, and edge. A
+    value resolved from an older link (another edge re-picked in between) is
+    never written onto the new one.
+    """
     link = _links_of(params).get(item.entity_id)
     if link is None:
         return False
-    if link.get("assembly_id") != str(item.assembly_id) or link.get(
-        "occurrence_id"
-    ) != str(item.occurrence_id):
+    ids = (
+        ("assembly_id", item.assembly_id),
+        ("host_occurrence_id", item.host_occurrence_id),
+        ("occurrence_id", item.occurrence_id),
+        ("part_id", item.part_id),
+    )
+    if any(link.get(key) != str(value) for key, value in ids):
+        return False
+    try:
+        if EdgeSignature.model_validate(link.get("edge")) != item.edge:
+            return False
+    except ValidationError:
         return False
     value = item.resolved.model_dump(mode="json")
     if link.get("resolved") == value:

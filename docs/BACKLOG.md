@@ -244,6 +244,8 @@ One line each. The founder triages weekly; most are closed without work.
 - ASM-IC-SUB-CONTEXT: a link resolves only when its own context assembly is evaluated; a link made in the carriage sub-assembly keeps its last values while the stage is evaluated (SolidWorks' rule, but Fusion resolves through the parent).
 - ASM-IC-COPIES: documents refuses a link to a pattern copy (its occurrence is not stored), although geometry would resolve one.
 - ASM-IC-BREAK-ALL: Break link works one sketch selection at a time; SolidWorks' External References dialog lists and breaks or locks every reference of a part.
+- ASM-IC-WRITE-RETRY: a failed in-context write-back is only logged (the next committed evaluation rewrites it, since the stored value still differs); it is not retried or flagged to the user.
+- ASM-IC-UNDO: undo/redo can restore an older last-resolved value; it is corrected by the next committed evaluation of the context assembly, not at the undo itself.
 - ASM-PAT-STALE-BOUND: a hole pattern's count is stored at write for the write-time bound of the assemblies above it; when the part later gains holes that stored count is stale until the pattern is rewritten. Geometry refuses any tree that then places more than 500 parts (typed `assembly_too_large`, before per-part work), so the stale count is a late refusal rather than a hang. The gateway could re-count on every write to an ancestor.
 - ASM-PAT-NESTED-STATE: a pattern that fails inside a sub-assembly (stale edge, too large) is reported only when the sub-assembly itself is open, not in the parent's tree.
 - ASM-SUB-TREE: the component tree lists a sub-assembly as one row and cannot be expanded to its parts (Fusion's browser can).

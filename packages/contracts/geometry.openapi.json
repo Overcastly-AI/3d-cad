@@ -5610,6 +5610,10 @@
             "title": "Changed",
             "type": "boolean"
           },
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "The link's edge, as stored"
+          },
           "entity_id": {
             "title": "Entity Id",
             "type": "string"
@@ -5618,6 +5622,12 @@
             "description": "The dependent sketch",
             "format": "uuid",
             "title": "Feature Id",
+            "type": "string"
+          },
+          "host_occurrence_id": {
+            "description": "The link's host occurrence (part of its identity)",
+            "format": "uuid",
+            "title": "Host Occurrence Id",
             "type": "string"
           },
           "message": {
@@ -5665,6 +5675,12 @@
             ],
             "title": "Reason"
           },
+          "referenced_part_id": {
+            "description": "The part the link names at `occurrence_id`",
+            "format": "uuid",
+            "title": "Referenced Part Id",
+            "type": "string"
+          },
           "resolved": {
             "anyOf": [
               {
@@ -5708,6 +5724,9 @@
           "feature_id",
           "entity_id",
           "occurrence_id",
+          "host_occurrence_id",
+          "referenced_part_id",
+          "edge",
           "state"
         ],
         "title": "InContextStatus",

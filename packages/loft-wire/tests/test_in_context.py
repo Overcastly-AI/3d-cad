@@ -121,7 +121,10 @@ def test_apply_writes_only_to_the_same_link() -> None:
             "feature_id": str(uuid.uuid4()),
             "entity_id": "p1",
             "assembly_id": ASM,
+            "host_occurrence_id": HOST,
             "occurrence_id": OCC,
+            "part_id": PART,
+            "edge": EDGE,
             "resolved": _resolved(45.0),
         }
     )
@@ -134,3 +137,36 @@ def test_apply_writes_only_to_the_same_link() -> None:
     assert apply_resolved(params, moved) is False
     gone = item.model_copy(update={"entity_id": "p9"})
     assert apply_resolved(params, gone) is False
+
+
+def test_a_stale_item_for_another_edge_or_host_is_ignored() -> None:
+    """The entity was re-linked (another edge of the same component, or the
+    same edge from another host occurrence) while an evaluation built from
+    the older link was in flight: its value is never written onto the new
+    link."""
+    params = copy.deepcopy(_sketch(40.0))
+    base = {
+        "feature_id": str(uuid.uuid4()),
+        "entity_id": "p1",
+        "assembly_id": ASM,
+        "host_occurrence_id": HOST,
+        "occurrence_id": OCC,
+        "part_id": PART,
+        "edge": EDGE,
+        "resolved": _resolved(45.0),
+    }
+    other_edge = EDGE | {
+        "end_a": {"x": 26.75, "y": 0.0, "z": 8.0},
+        "end_b": {"x": 26.75, "y": 0.0, "z": 8.0},
+        "midpoint": {"x": 23.25, "y": 0.0, "z": 8.0},
+    }
+    for change in (
+        {"edge": other_edge},
+        {"host_occurrence_id": str(uuid.uuid4())},
+        {"part_id": str(uuid.uuid4())},
+    ):
+        stale = InContextResolvedItem.model_validate(base | change)
+        assert apply_resolved(params, stale) is False, change
+    assert params["entities"][0]["projection"]["in_context"]["resolved"] == (
+        _resolved(40.0)
+    )

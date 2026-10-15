@@ -4975,6 +4975,10 @@ export interface components {
         /**
          * InContextResolvedItem
          * @description One link's new last-resolved value, for documents to store.
+         *
+         *     Carries the link's whole identity: the value is written only onto an
+         *     entity whose link is still exactly this one (not another edge of the same
+         *     component, nor the same edge from another host occurrence).
          */
         InContextResolvedItem: {
             /**
@@ -4982,6 +4986,7 @@ export interface components {
              * Format: uuid
              */
             assembly_id: string;
+            edge: components["schemas"]["EdgeSignature"];
             /** Entity Id */
             entity_id: string;
             /**
@@ -4990,10 +4995,21 @@ export interface components {
              */
             feature_id: string;
             /**
+             * Host Occurrence Id
+             * Format: uuid
+             */
+            host_occurrence_id: string;
+            /**
              * Occurrence Id
              * Format: uuid
              */
             occurrence_id: string;
+            /**
+             * Part Id
+             * Format: uuid
+             * @description The referenced part
+             */
+            part_id: string;
             /** Resolved */
             resolved: components["schemas"]["InContextLine"] | components["schemas"]["InContextCircle"] | components["schemas"]["InContextArc"];
         };
@@ -5013,7 +5029,7 @@ export interface components {
          *
          *     Metadata, not an edit: no undo step and no ``tree_version`` bump (the
          *     DESIGN-INTENT-BACKFILL rule). An item is written only where the entity
-         *     still carries a link to the same assembly and occurrence.
+         *     still carries exactly the item's link (:func:`apply_resolved`).
          */
         InContextResolvedWrite: {
             /** Items */
