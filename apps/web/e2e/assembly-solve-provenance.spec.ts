@@ -248,7 +248,7 @@ async function assertNoClaimOverPreMatePose(
   mode: MateObsMode,
 ): Promise<void> {
   if (mode.holdSolveMs > 0) {
-    await page.route("**/api/v1/geometry/assembly/evaluate", async (route) => {
+    await page.route("**/api/v1/geometry/assembly/evaluate*", async (route) => {
       await new Promise((resolve) => setTimeout(resolve, mode.holdSolveMs));
       await route.continue();
     });
