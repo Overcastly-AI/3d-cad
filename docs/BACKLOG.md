@@ -30,7 +30,13 @@ byte-identical; RESEARCH §15a). Done 2026-10-09..14 and dropped at the
       RESEARCH §15a. _Status 2026-10-09:_ step 5 taken (25.98 s against
       26.16 s); step 3 refused, because a cache keyed on TShape misses
       OCCT's in-place rewrites (§15a); step 2 waits on the founder: may we
-      fetch the OCCT `BRepCheck` source?
+      fetch the OCCT `BRepCheck` source? _Status 2026-10-15:_ step 2 built,
+      measured and not merged. A wire-level check equal to the analyzer on
+      10823 admissions, every golden byte-identical, saved only 0.6-0.7 s at
+      N=200 (26.69 s against 27.40 s at d2f5777), inside the run-to-run
+      spread; the review judged it not worth re-verifying on every OCCT
+      upgrade (RESEARCH §15a). What is left needs step 1 (founder) or step 4
+      (new goldens).
 - [ ] **ASM-A3** (founder 2026-10-15: next, so a bike can be built; split it now): sub-assemblies from
       the Add panel with an indented BOM, a component pattern that follows a
       part's holes (Fusion pattern, Onshape Replicate, SolidWorks

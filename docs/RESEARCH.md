@@ -1080,6 +1080,91 @@ eight-site cycle, so step 5 sits inside the noise, as its ~0.5 % estimate
 said it would. The target of 22 s at N=200 is not met. What is left is step 1 (founder), step 2 (founder: the source) and
 step 4 (new goldens).
 
+**Pass 2, step 2 (2026-10-15): admission `BRepCheck` by changed wire.** Built,
+measured and NOT merged. A gate (`kernel/wire_check.py`, never on the branch)
+gave the same verdict as `BRepCheck_Analyzer` and reused the verdict of wire
+data it had already seen pass. It saved 0.6-0.7 s of ~27.4 s at N=200, about
+the run-to-run spread, and the review judged that too little to justify
+re-proving, on every OCCT upgrade, exactly what each OCCT check reads (one
+gap: `BRepTools_WireExplorer` on BSpline, Bezier and cone faces derives a UV
+tolerance from all of the face's wires). The record below stands so nobody
+repeats it.
+
+- **Source, by founder decision of 2026-10-15.** OCCT 7.9.3's `BRepCheck`
+  source was read as reference only. It was fetched with
+  `git clone --depth 1 --branch V7_9_3 https://github.com/Open-Cascade-SAS/OCCT.git`
+  (tag `V7_9_3`, commit a016080bf673), sparse to `src/BRepCheck`, into a
+  scratch directory outside the repo. It is not vendored, copied or committed.
+  OCCT stays LGPL-2.1 with its exception and is linked dynamically through OCP.
+  No check was rewritten in Python. The gate calls OCCT's own
+  `BRepCheck_Face`, `_Wire`, `_Edge` and `_Vertex` in the analyzer's order.
+- **What the analyzer decides.** On a compound of faces, `IsValid()` holds
+  when every face's surface exists and every wire, edge and vertex of the face
+  is clean. For each wire that means its own status and `InContext(face)`. For
+  each edge it means its own status, `CheckPolygonOnTriangulation` and
+  `InContext(face)`. For each vertex it means `InContext(edge)` and
+  `InContext(face)`. Last, `BRepCheck_Face::OrientationOfWires` must be clean
+  over all of the face's wires. (When a wire or edge fails, the analyzer marks
+  the face unorientable instead of asking, but the face is invalid then
+  anyway.) Every check is a pure function of the shapes, so the compound's
+  verdict is the conjunction of the per-face verdicts. A wire's checks read
+  only its own subtree and the face's surface, locations, orientation and
+  tolerance. The one exception is `BRepCheck_Wire::Closed2d`, which reads
+  every seam edge of the face. So a face with a seam edge, or with a child that
+  is not a wire, still goes to the analyzer whole. An OCCT exception inside a
+  check fails it, as the analyzer records it.
+- **The reuse key, and why §15a's lesson does not bite.** The plan said "reuse
+  the verdict of every wire whose TShape is unchanged". That is the cache §15a
+  refused for volumes, and for the same reason: OCCT rewrites TShapes in place.
+  The key is therefore the data, not the shape. It is the SHA-256 of the
+  `BinTools` bytes of a face built by `EmptyCopied` from the face plus that
+  one wire. Those bytes carry the face's surface, locations, orientation and
+  tolerance, and every curve, pcurve, range, flag, tolerance, vertex point,
+  point representation and polygon on triangulation, by value. `BinTools`
+  indexes geometry by handle, so "this pcurve lies on the face's own surface
+  object", which `BRepCheck_Edge::InContext` tests by pointer, is in the bytes
+  too. A wire rewritten in place keeps its TShape but changes its bytes, so it
+  misses and is checked again. `tests/test_admission_wire_check.py` edits
+  each input the per-wire checks read, in place, under unchanged TShapes:
+  vertex point, tolerance and point on curve; edge tolerance, the three flags
+  and the range; a line's coefficients; the face's tolerance and surface
+  object; the wire's edges; a mesh; a triangulation node; and the face
+  location. Every edit changes the key. A wire that passed and was then broken
+  in place gets the analyzer's verdict, not the memo's. Only passing verdicts
+  are kept. The memo lives on `EvaluationState`, is shared by forks (a key
+  names data, so that is safe) and starts again past 65536 keys.
+- **Proven equal over the suite.** The always-on test compares the gate with
+  the analyzer at every admission of the 115 golden trees (part, sheet-metal
+  and assembly goldens) and `housing_tree(29)`. It also covers the two trees
+  that end in `invalid_body`: the coincident tubes at y = 110.5, refused at
+  admission, and the CM-6 later pocket, which OCCT invalidates in place and the
+  publish-time re-check refuses. `LOFT_ADMISSION_CROSSCHECK=1` does the same
+  for every test in the geometry suite. The whole-suite run made 10823
+  admissions, 1 of them refused, reused 7005 wire verdicts and had 0
+  mismatches.
+- **Bytes.** The GLB and the whole result JSON are byte-identical to d2f5777
+  for 88 goldens, 20 sheet-metal goldens, 7 assembly goldens, `housing_tree`
+  29/100/200 and `heat_sink_tree` 32/128. No tolerance was touched.
+- **Measured.** At N=200 the gate costs 1.61 s, where the analyzer cost
+  2.60 s. 7282 of the 8042 wire checks come from the memo. What remains is
+  `OrientationOfWires` (~0.9 s), O(wires²) on the top face, which runs over all
+  of the face's wires every time. Making that incremental would mean rewriting
+  `IntersectWires` and `ClassifyWires`, which is what the founder's rule rules
+  out. `housing_tree(200)` cold, one fresh interpreter per sample, 01e49e2,
+  d2f5777 (before) and this change interleaved on an otherwise idle host.
+  Load was 0.8 to 1.2 for the first three rounds, which is our own one busy
+  core, and 1.0 to 2.4 for rounds four and five:
+
+| N=200          | 01e49e2 | d2f5777 | step 2  |
+| -------------- | ------- | ------- | ------- |
+| median, 3 runs | 27.81 s | 27.40 s | 26.69 s |
+| median, 5 runs | 28.37 s | 27.62 s | 27.00 s |
+
+The step bought about 0.6 to 0.7 s (2.5 %), not the ~8 % estimated. The
+estimate counted the whole admission, and a third of the admission is the
+face-level classification that has to stay whole. The 22 s target is not met.
+What is left is step 1 (founder) and step 4 (new goldens).
+
 ## 16. Shell corners: sharp by default, rounded where stored
 
 **What mainstream CAD does.** SolidWorks, Onshape and Fusion 360 shell with
