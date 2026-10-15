@@ -58,6 +58,7 @@ import {
   mateInstanceIds,
   mateTag,
 } from "../assembly/mates";
+import type { NestedPart } from "../assembly/subAssemblies";
 import type { JointProbe } from "../assembly/useJointDrive";
 import type { AssemblySolve } from "../features/assemblySolve";
 import { useDocumentLengthUnit } from "../units/documentUnit";
@@ -69,6 +70,8 @@ import {
 
 export interface AssemblyTreePanelProps {
   graph: AssemblyGraphResponse | undefined;
+  /** Parts inside sub-assemblies: a joint to one is numbered as its component. */
+  nested?: ReadonlyMap<string, NestedPart>;
   graphError: Error | null;
   /**
    * WHAT MAY BE CLAIMED about the solve on screen (MATE-OBS-2) — the mate
@@ -162,6 +165,7 @@ function eyeAction(mode: VisibilityMode, name: string): string {
 
 export function AssemblyTreePanel({
   graph,
+  nested,
   graphError,
   solve,
   selectedInstanceId,
@@ -189,6 +193,8 @@ export function AssemblyTreePanel({
   const matesEyebrow = mates.length > 0 ? `Mates · ${mates.length}` : "Mates";
   // Balloon number = 1-based position in the (order_index-sorted) instance list.
   const balloonById = new Map(instances.map((i, index) => [i.id, index + 1]));
+  const balloonOf = (id: string) =>
+    balloonById.get(nested?.get(id)?.groupId ?? id) ?? "?";
   // Both badge sets come from the STALENESS-GATED derivation, so during a write
   // in flight both are empty and every row reads `pending` — no claim, rather
   // than the previous solve's claim.
@@ -500,8 +506,7 @@ export function AssemblyTreePanel({
                         ) : null}
                       </span>
                       <span className="block font-data text-2xs tabular-nums text-gauge">
-                        ①{balloonById.get(a) ?? "?"} · ②
-                        {balloonById.get(b) ?? "?"}
+                        ①{balloonOf(a)} · ②{balloonOf(b)}
                         {failed
                           ? " · unresolved"
                           : conflicting

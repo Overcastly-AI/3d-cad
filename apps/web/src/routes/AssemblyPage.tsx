@@ -42,7 +42,6 @@ import {
   fetchFeatureTree,
   fetchPart,
   type FeatureTreeResponse,
-  type PartResponse,
 } from "../api/parts";
 import { AddInstancePanel } from "../components/AddInstancePanel";
 import { AssemblyCommandBand } from "../components/AssemblyCommandBand";
@@ -76,6 +75,13 @@ import {
   useMateAuthoringStore,
 } from "../assembly/mateStore";
 import { placementToScene } from "../assembly/placement";
+import { buildSceneInstances, componentPose } from "../assembly/sceneInstances";
+import { componentClashIds } from "../assembly/subAssemblies";
+import {
+  useNestedOverlays,
+  useNestedSolve,
+  useSubAssemblies,
+} from "../assembly/useSubAssemblies";
 import {
   useJointDialog,
   useReleaseJointHold,
@@ -141,6 +147,8 @@ const IDENTITY_QUAT = { w: 1, x: 0, y: 0, z: 0 };
  * title block. A new part seeds APART from the others so that authoring a mate
  * and re-solving snaps them together in view — the signature moment.
  */
+const NO_PART_TREES = new Map<string, FeatureTreeResponse>();
+
 export function AssemblyPage() {
   const { assemblyId } = assemblyRoute.useParams();
   const queryClient = useQueryClient();
@@ -205,21 +213,28 @@ export function AssemblyPage() {
     },
     staleTime: 30_000,
   });
-  const partTrees = partDocsQuery.data?.trees;
+  // An assembly of sub-assemblies only has no part rows to wait for.
+  const partTrees =
+    partDocIds.length === 0 ? NO_PART_TREES : partDocsQuery.data?.trees;
   const partMaterials = partDocsQuery.data?.materials;
   const partStamp = partDocsQuery.data?.stamp ?? "";
+  const subs = useSubAssemblies(assemblyId, graph);
 
   // Evaluate: one shared mesh per unique part + a solved pose per instance.
   const evalQuery = useQuery({
-    queryKey: ["assembly-eval", assemblyId, docVersion, partStamp],
+    queryKey: ["assembly-eval", assemblyId, docVersion, partStamp, subs.stamp],
     enabled:
-      graph !== undefined && instances.length > 0 && partTrees !== undefined,
+      graph !== undefined &&
+      instances.length > 0 &&
+      partTrees !== undefined &&
+      subs.ready,
     queryFn: () =>
       evaluateAssembly(
         buildEvaluateAssemblyRequest(
           graph as NonNullable<typeof graph>,
           partTrees as Map<string, FeatureTreeResponse>,
           partMaterials,
+          subs.requests,
         ),
       ),
     staleTime: Infinity,
@@ -237,11 +252,17 @@ export function AssemblyPage() {
   // graph and every referenced part's tree have loaded.
   const evaluateRequest = useMemo(
     () =>
-      graph !== undefined && partTrees !== undefined
-        ? buildEvaluateAssemblyRequest(graph, partTrees, partMaterials)
+      graph !== undefined && partTrees !== undefined && subs.ready
+        ? buildEvaluateAssemblyRequest(
+            graph,
+            partTrees,
+            partMaterials,
+            subs.requests,
+          )
         : null,
-    [graph, partTrees, partMaterials],
+    [graph, partTrees, partMaterials, subs.ready, subs.requests],
   );
+  const { nested, subPoses } = useNestedSolve(evaluation, evaluateRequest);
 
   // ---------------------------------------------------------------------
   // Interference (clash) check — the same solve as evaluate, scanned for
@@ -293,6 +314,10 @@ export function AssemblyPage() {
   const clashIds = useMemo(
     () => clashInstanceIds(clashResult?.clashes ?? []),
     [clashResult],
+  );
+  const treeClashIds = useMemo(
+    () => componentClashIds(clashIds, nested),
+    [clashIds, nested],
   );
 
   // Export the WHOLE solved assembly as one STEP/STL file. Bound to the shared
@@ -460,28 +485,21 @@ export function AssemblyPage() {
   const jointPreview = jointDialog.previewFor;
   const sceneInstances = useMemo<SceneInstance[]>(
     () =>
-      instances.map((instance, index) => {
-        const solved = solvedById.get(instance.id);
-        const placement =
-          moveOverride(instance.id) ??
-          driveOverride(instance.id) ??
-          jointPreview(instance.id) ??
-          solved?.placement ??
-          instance.placement;
-        const meshGlbId = solved?.part_mesh_glb_id ?? null;
-        return {
-          id: instance.id,
-          name: instance.name,
-          balloon: index + 1,
-          grounded: instance.grounded,
-          transform: placementToScene(placement),
-          geometry: meshGlbId ? (byMeshId.get(meshGlbId) ?? null) : null,
-          visibility: visibilityModeOf(visibility, instance.id),
-        };
+      buildSceneInstances({
+        instances,
+        evaluation,
+        nested,
+        subPoses,
+        componentOverride: (id) => moveOverride(id) ?? driveOverride(id),
+        preview: jointPreview,
+        byMeshId,
+        visibility,
       }),
     [
       instances,
-      solvedById,
+      evaluation,
+      nested,
+      subPoses,
       byMeshId,
       visibility,
       moveOverride,
@@ -543,8 +561,9 @@ export function AssemblyPage() {
     staleTime: Infinity,
     retry: false,
   });
+  const nestedOverlays = useNestedOverlays(overlayActive, nested, subs.stamp);
   const overlaysByInstance = useMemo(() => {
-    const map = new Map<string, OverlayResult>();
+    const map = new Map<string, OverlayResult>(nestedOverlays);
     if (!overlayActive) return map;
     const byDoc = overlaysQuery.data;
     if (!byDoc) return map;
@@ -553,7 +572,7 @@ export function AssemblyPage() {
       if (overlay) map.set(instance.id, overlay);
     }
     return map;
-  }, [overlayActive, overlaysQuery.data, instances]);
+  }, [overlayActive, overlaysQuery.data, instances, nestedOverlays]);
 
   // ---------------------------------------------------------------------
   // Mutations — each reads the freshest doc_version and invalidates the graph
@@ -652,7 +671,10 @@ export function AssemblyPage() {
   const [addError, setAddError] = useState<string | null>(null);
 
   const handleAddPart = useCallback(
-    (part: PartResponse) => {
+    (
+      part: { id: string; name: string },
+      kind: "part" | "assembly" = "part",
+    ) => {
       const index = instances.length;
       setAddingPartId(part.id);
       setAddError(null);
@@ -661,7 +683,7 @@ export function AssemblyPage() {
           await createInstance(assemblyId, {
             name: `${part.name} <${index + 1}>`,
             ref_document_id: part.id,
-            ref_document_kind: "part",
+            ref_document_kind: kind,
             grounded: index === 0,
             placement: {
               position: { x: index * 80, y: 0, z: 0 },
@@ -905,13 +927,15 @@ export function AssemblyPage() {
   });
   const driveTarget = handles.target;
   const movingInstance = instances.find((i) => i.id === movingId) ?? null;
-  const movingScene = sceneInstances.find((i) => i.id === movingId) ?? null;
   // What the drop is compared with — the pose the part had before the drag.
   const movingBase =
     movingInstance === null
       ? null
-      : (solvedById.get(movingInstance.id)?.placement ??
-        movingInstance.placement);
+      : componentPose(movingInstance, evaluation, subPoses);
+  const movingTransform =
+    movingInstance === null || movingBase === null
+      ? null
+      : placementToScene(moveOverride(movingInstance.id) ?? movingBase);
   const movingMated =
     movingId !== null &&
     mates.some((m) => mateInstanceIds(m.mate).includes(movingId));
@@ -1139,10 +1163,13 @@ export function AssemblyPage() {
   // ---------------------------------------------------------------------
   const solve = deriveAssemblySolve({
     writing: mutationInFlight || historyStep !== null,
-    loading: graphQuery.isFetching || partDocsQuery.isFetching,
+    loading: graphQuery.isFetching || partDocsQuery.isFetching || subs.fetching,
     evaluating: evalQuery.isFetching,
     solvable:
-      graph !== undefined && instances.length > 0 && partTrees !== undefined,
+      graph !== undefined &&
+      instances.length > 0 &&
+      partTrees !== undefined &&
+      subs.ready,
     placeholder: evalQuery.isPlaceholderData,
     failed: evalQuery.isError,
     drawing,
@@ -1304,6 +1331,7 @@ export function AssemblyPage() {
                   driveTarget={driveTarget}
                   instances={instances}
                   mates={mates}
+                  nested={nested}
                 />
                 {movingInstance !== null && movingBase !== null ? (
                   <MoveInstancePanel
@@ -1322,6 +1350,8 @@ export function AssemblyPage() {
                     addingPartId={addingPartId}
                     error={addError}
                     onAdd={handleAddPart}
+                    assemblyId={assemblyId}
+                    onAddAssembly={(sub) => handleAddPart(sub, "assembly")}
                     onClose={() => setAddOpen(false)}
                   />
                 ) : null}
@@ -1394,9 +1424,9 @@ export function AssemblyPage() {
               onPreview={drive.preview}
               onRelease={handles.onRelease}
             />
-            {movingScene !== null && movingBase !== null ? (
+            {movingTransform !== null && movingBase !== null ? (
               <MoveTriad
-                transform={movingScene.transform}
+                transform={movingTransform}
                 enabled={!move.committing}
                 onDrag={(placement) => move.preview(placement, true)}
                 onDragEnd={() => move.commit(movingBase, false)}
@@ -1406,11 +1436,12 @@ export function AssemblyPage() {
           <FloatingPanel side="left" title="Components" id="tree">
             <AssemblyTreePanel
               graph={graph}
+              nested={nested}
               graphError={graphQuery.error}
               solve={solve}
               selectedInstanceId={selectedInstanceId}
-              clashingInstanceIds={clashIds.measured}
-              unverifiedInstanceIds={clashIds.unverifiedOnly}
+              clashingInstanceIds={treeClashIds.measured}
+              unverifiedInstanceIds={treeClashIds.unverifiedOnly}
               visibility={visibility}
               onToggleVisibility={toggleVisibility}
               onSetVisibility={setVisibilityMode}
@@ -1448,6 +1479,7 @@ export function AssemblyPage() {
               exporter={gatedExporter}
               exportDisabledReason={exportBlockedReason}
               exportGate={exportGate}
+              nested={nested}
             />
           </FloatingPanel>
         </main>

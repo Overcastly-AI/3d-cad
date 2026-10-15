@@ -1,20 +1,29 @@
 /**
- * Add-a-part panel — the v1 instance picker, shown in the viewport HUD (top-
- * left, the same anchor the part editors use). Lists the caller's parts as
- * ruled action cells; choosing one adds it to the assembly as a new instance
- * seeded at the origin (the user then grounds one and mates the rest). Kept
- * simple for v1: a flat register pick, not a thumbnail browser we can't render.
+ * Add-a-component panel — the instance picker, shown in the viewport HUD (top-
+ * left, the same anchor the part editors use). Lists the caller's parts, then
+ * their other assemblies, as ruled action cells; choosing one adds it to the
+ * assembly as a new instance (the user then grounds one and joins the rest).
+ * An assembly goes in as a RIGID SUB-ASSEMBLY (Fusion's Insert into Current
+ * Design, SolidWorks' Insert Component): one component that moves as a unit.
+ * An assembly that already contains this one is refused by the server, whose
+ * message names the chain. Kept simple: a flat register pick, not a thumbnail
+ * browser we can't render.
  */
 import { Panel, PanelActionCell, PanelSection } from "@loft/design";
 import { useQuery } from "@tanstack/react-query";
 
+import { fetchAssemblies, type AssemblyResponse } from "../api/assemblies";
 import { fetchParts, type PartResponse } from "../api/parts";
 
 export interface AddInstancePanelProps {
-  /** The id of the part currently being added (its cell shows busy), or null. */
+  /** The id of the document being added (its cell shows busy), or null. */
   addingPartId: string | null;
   error: string | null;
   onAdd: (part: PartResponse) => void;
+  /** The assembly being edited: never offered as its own sub-assembly. */
+  assemblyId?: string;
+  /** Insert another assembly as a rigid sub-assembly. */
+  onAddAssembly?: (assembly: AssemblyResponse) => void;
   onClose: () => void;
 }
 
@@ -22,6 +31,8 @@ export function AddInstancePanel({
   addingPartId,
   error,
   onAdd,
+  assemblyId,
+  onAddAssembly,
   onClose,
 }: AddInstancePanelProps) {
   const parts = useQuery({
@@ -29,7 +40,14 @@ export function AddInstancePanel({
     queryFn: () => fetchParts(),
     staleTime: 30_000,
   });
+  const assemblies = useQuery({
+    queryKey: ["assemblies"],
+    queryFn: () => fetchAssemblies(),
+    enabled: onAddAssembly !== undefined,
+    staleTime: 30_000,
+  });
   const list = parts.data ?? [];
+  const subs = (assemblies.data ?? []).filter((a) => a.id !== assemblyId);
 
   return (
     <div
@@ -75,16 +93,41 @@ export function AddInstancePanel({
               ))}
             </div>
           )}
+        </PanelSection>
+        {onAddAssembly !== undefined && subs.length > 0 ? (
+          <PanelSection eyebrow="Insert a sub-assembly">
+            <div
+              className="max-h-[10rem] overflow-y-auto"
+              data-testid="add-instance-assembly-list"
+            >
+              {subs.map((sub) => (
+                <PanelActionCell
+                  key={sub.id}
+                  label={sub.name}
+                  caption={
+                    addingPartId === sub.id
+                      ? "Inserting…"
+                      : "Insert as one rigid component"
+                  }
+                  disabled={addingPartId !== null}
+                  data-testid={`add-instance-assembly-${sub.id}`}
+                  onClick={() => onAddAssembly(sub)}
+                />
+              ))}
+            </div>
+          </PanelSection>
+        ) : null}
+        <div>
           {error ? (
             <p
               role="alert"
-              className="px-3 pb-2 font-body text-xs text-flag"
+              className="px-3 pb-2 pt-2 font-body text-xs text-flag"
               data-testid="add-instance-submit-error"
             >
               {error}
             </p>
           ) : null}
-          <div className="border-t border-hairline">
+          <div>
             <PanelActionCell
               label="Done"
               caption="Close the picker"
@@ -92,7 +135,7 @@ export function AddInstancePanel({
               onClick={onClose}
             />
           </div>
-        </PanelSection>
+        </div>
       </Panel>
     </div>
   );

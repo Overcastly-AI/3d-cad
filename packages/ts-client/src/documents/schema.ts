@@ -77,14 +77,13 @@ export interface paths {
         };
         /**
          * Get Assembly Bom
-         * @description The assembly's flat bill of materials (direct instances only; uniform 404).
+         * @description The assembly's bill of materials: top level, indented and parts only.
          *
-         *     A pure read model (assemblies.md residual): groups the assembly's DIRECT
-         *     instances by referenced document, resolving each to its current name and
-         *     kind. NOT recursive into rigid sub-assemblies — a sub-assembly instance is a
-         *     single ``kind: "assembly"`` line (recursive/indented BOM is a tracked
-         *     follow-up). A referenced document deleted while still instanced is reported
-         *     as a ``missing`` line with a null name, never a 500.
+         *     A pure read model (:mod:`documents.bom`): ``lines`` groups the assembly's
+         *     DIRECT instances (a sub-assembly is one line), ``indented`` opens each
+         *     sub-assembly beneath its line, and ``parts_only`` counts every part at every
+         *     level. A referenced document deleted while still instanced is reported as a
+         *     ``missing`` line with a null name, never a 500. Uniform 404.
          */
         get: operations["get_assembly_bom_api_v1_assemblies__assembly_id__bom_get"];
         put?: never;
@@ -1651,16 +1650,23 @@ export interface components {
         };
         /**
          * AssemblyBomResponse
-         * @description An assembly's flat bill of materials (design: assemblies.md residual).
+         * @description An assembly's bill of materials, in SolidWorks' three views.
          *
-         *     A pure documents-side READ MODEL — no writes, no migration: it aggregates
-         *     the assembly's DIRECT instances into one :class:`BomLine` per referenced
-         *     document (quantity = shared-reference count), resolving each document's
-         *     current name from the ``parts`` / ``assemblies`` tables. Deterministically
-         *     ordered (resolved name, then ``ref_document_id``) so the list is stable
-         *     across reads. ``total_instances`` is the sum of every line's quantity (the
-         *     assembly's direct-instance count), so an empty assembly is
-         *     ``{lines: [], total_instances: 0}``.
+         *     A pure documents-side READ MODEL — no writes, no migration — resolving each
+         *     document's current name from the ``parts`` / ``assemblies`` tables:
+         *
+         *     - ``lines`` (TOP LEVEL): one :class:`BomLine` per document the assembly
+         *       instances directly, a sub-assembly as a single line;
+         *       ``total_instances`` sums them.
+         *     - ``indented``: the top-level lines with each sub-assembly's contents
+         *       listed under it, to any depth.
+         *     - ``parts_only``: every PART at every level, each counted once per placed
+         *       occurrence; ``total_parts`` sums them (what a shop builds).
+         *
+         *     Each list is deterministically ordered (resolved name, then
+         *     ``ref_document_id``; missing documents last), so reads are stable. An empty
+         *     assembly is ``{lines: [], indented: [], parts_only: [], total_instances: 0,
+         *     total_parts: 0}``.
          */
         AssemblyBomResponse: {
             /**
@@ -1669,15 +1675,30 @@ export interface components {
              */
             assembly_id: string;
             /**
+             * Indented
+             * @description Top-level lines with every sub-assembly opened beneath itself, depth first
+             */
+            indented: components["schemas"]["IndentedBomLine"][];
+            /**
              * Lines
-             * @description One line per referenced document, deterministically ordered
+             * @description Top level: one line per directly-referenced document, deterministically ordered
              */
             lines: components["schemas"]["BomLine"][];
             /**
+             * Parts Only
+             * @description Every part at every level, one line per part document, quantity = placed occurrences
+             */
+            parts_only: components["schemas"]["BomLine"][];
+            /**
              * Total Instances
-             * @description Sum of all line quantities (direct instance count)
+             * @description Sum of all top-level line quantities (direct instances)
              */
             total_instances: number;
+            /**
+             * Total Parts
+             * @description Sum of the parts-only quantities (every placed part)
+             */
+            total_parts: number;
         };
         /**
          * AssemblyCreate
@@ -1907,15 +1928,15 @@ export interface components {
         };
         /**
          * BomLine
-         * @description One line of an assembly's bill of materials (a flat, direct-instance BOM).
+         * @description One line of an assembly's bill of materials.
          *
-         *     A BOM line GROUPS the assembly's DIRECT instances by the document they
-         *     reference: ``quantity`` is the count of instances sharing this
-         *     ``ref_document_id``, ``name`` is the referenced document's CURRENT name, and
-         *     ``ref_document_kind`` is ``part`` or ``assembly``. This is the FLAT v1 —
-         *     direct instances only, NOT recursive into rigid sub-assemblies (an explicit
-         *     follow-up; a sub-assembly instance appears as a single ``kind: "assembly"``
-         *     line, never expanded).
+         *     A BOM line GROUPS instances by the document they reference: ``quantity`` is
+         *     the count of instances sharing this ``ref_document_id`` (within the line's
+         *     parent for an indented line, across every level for a parts-only line),
+         *     ``name`` is the referenced document's CURRENT name, and
+         *     ``ref_document_kind`` is ``part`` or ``assembly``. In the top-level list a
+         *     sub-assembly is one ``kind: "assembly"`` line; the indented and parts-only
+         *     lists open it up (SolidWorks' three BOM types).
          *
          *     A referenced document that was DELETED while still instanced surfaces
          *     honestly, not silently: the line stays (its instances still exist and still
@@ -1936,7 +1957,7 @@ export interface components {
             name: string | null;
             /**
              * Quantity
-             * @description Count of direct instances referencing this document
+             * @description Count of instances referencing this document: direct instances on a top-level line, instances inside the parent on an indented line, every placed occurrence on a parts-only line
              */
             quantity: number;
             /**
@@ -1947,7 +1968,7 @@ export interface components {
             ref_document_id: string;
             /**
              * Ref Document Kind
-             * @description 'part' or 'assembly' (a rigid sub-assembly, not expanded)
+             * @description 'part' or 'assembly' (a rigid sub-assembly)
              * @enum {string}
              */
             ref_document_kind: "part" | "assembly";
@@ -3067,7 +3088,7 @@ export interface components {
             name: string | null;
             /**
              * Quantity
-             * @description Count of direct instances referencing this document
+             * @description Count of instances referencing this document: direct instances on a top-level line, instances inside the parent on an indented line, every placed occurrence on a parts-only line
              */
             quantity: number;
             /**
@@ -3078,7 +3099,7 @@ export interface components {
             ref_document_id: string;
             /**
              * Ref Document Kind
-             * @description 'part' or 'assembly' (a rigid sub-assembly, not expanded)
+             * @description 'part' or 'assembly' (a rigid sub-assembly)
              * @enum {string}
              */
             ref_document_kind: "part" | "assembly";
@@ -3089,9 +3110,9 @@ export interface components {
          *
          *     A pure READ MODEL (no table, no migration): the sheet's single source document
          *     (the enforced one-sheet-one-source invariant, §2.2) must be an ASSEMBLY, and its
-         *     DIRECT instances are rolled up into numbered :class:`DrawingBomLine` s. FLAT —
-         *     a rigid sub-assembly instance is one ``kind: "assembly"`` line, never expanded
-         *     (the same v1 bound the assembly BOM states; recursive/indented is a follow-up).
+         *     DIRECT instances are rolled up into numbered :class:`DrawingBomLine` s. TOP
+         *     LEVEL — the assembly BOM's ``lines`` (SolidWorks' default drawing parts list):
+         *     a rigid sub-assembly instance is one ``kind: "assembly"`` line.
          *
          *     A sheet drafting a PART has no bill of materials: that is a typed
          *     ``drawing_bom_source_not_assembly`` 422, not a 200 with an empty list — an empty
@@ -3497,9 +3518,10 @@ export interface components {
          * EvaluateAssemblyRequest
          * @description Evaluate an assembly graph to solved placements + shared meshes (§4).
          *
-         *     Documents flattens rigid sub-assemblies into this recursive structure
-         *     before sending (or geometry recurses — the rigid-group result is identical,
-         *     §1.4/§4). Deterministic (RESEARCH §9): the same request yields an identical
+         *     A rigid sub-assembly rides NESTED (``EvaluatedInstance.sub_assembly``):
+         *     geometry solves it in its own frame, then moves it as one body. A mate may
+         *     name a part inside a sub-assembly by its occurrence id (``occurrence_id``).
+         *     Deterministic (RESEARCH §9): the same request yields an identical
          *     result — bitwise-stable mesh ids AND solved transforms — in-process and
          *     across an interpreter restart.
          */
@@ -3638,6 +3660,8 @@ export interface components {
              *     }
              */
             placement: components["schemas"]["Placement"];
+            /** @description Set when this instance is a RIGID SUB-ASSEMBLY: that assembly's own evaluation request (its instances and mates, nested to any depth). Geometry solves it in its own frame first, then places it as one rigid body (SolidWorks' rigid sub-assembly); its parts come back as occurrences (see `occurrence_id`). `features` is ignored and should be empty. Omitted for a part instance, so a request without sub-assemblies dumps exactly as before they existed. */
+            sub_assembly?: components["schemas"]["EvaluateAssemblyRequest"] | null;
         };
         /**
          * EvaluatedMate
@@ -4624,6 +4648,60 @@ export interface components {
             placement: components["schemas"]["Placement"];
             /** @description The product body's own (local-frame) mass properties */
             properties?: components["schemas"]["ShapeProperties"] | null;
+        };
+        /**
+         * IndentedBomLine
+         * @description One row of the INDENTED bill of materials (SolidWorks' indented BOM).
+         *
+         *     Rows come depth first: a sub-assembly row is followed by the rows of its own
+         *     contents, one level deeper. ``quantity`` counts within the parent
+         *     (a wheel has 1 rim); ``total_quantity`` counts across the whole assembly
+         *     (a bike with 2 wheels has 2 rims), which is the number to order.
+         */
+        IndentedBomLine: {
+            /**
+             * Item
+             * @description Outline item number: '2' at the top level, '2.1' for the first line inside item 2
+             */
+            item: string;
+            /**
+             * Level
+             * @description Nesting depth; 0 = a top-level line
+             */
+            level: number;
+            /**
+             * Missing
+             * @description True when the referenced document no longer exists (deleted while still instanced) — the line and its quantity are still reported so the dangling reference is visible, never silently dropped
+             * @default false
+             */
+            missing: boolean;
+            /**
+             * Name
+             * @description The referenced document's CURRENT name, or null when it has been deleted while still instanced (see `missing`)
+             */
+            name: string | null;
+            /**
+             * Quantity
+             * @description Count of instances referencing this document: direct instances on a top-level line, instances inside the parent on an indented line, every placed occurrence on a parts-only line
+             */
+            quantity: number;
+            /**
+             * Ref Document Id
+             * Format: uuid
+             * @description The referenced part / sub-assembly document (the group key)
+             */
+            ref_document_id: string;
+            /**
+             * Ref Document Kind
+             * @description 'part' or 'assembly' (a rigid sub-assembly)
+             * @enum {string}
+             */
+            ref_document_kind: "part" | "assembly";
+            /**
+             * Total Quantity
+             * @description How many of this line the whole assembly holds: quantity multiplied by every parent line's quantity
+             */
+            total_quantity: number;
         };
         /**
          * InstanceCopy

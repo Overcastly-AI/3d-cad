@@ -43,6 +43,7 @@ from loft_wire.assemblies import (
     ExportAssemblyRequest,
     InterferenceResult,
     assembly_export_filename,
+    count_leaf_instances,
 )
 from loft_wire.drawings import (
     ARTIFACT_MEDIA_TYPES,
@@ -356,11 +357,13 @@ def assembly_interference_route(
     posture, §4.3); the py-kit envelope stays reserved for transport/validation
     failures of this call itself.
     """
-    if len(request.instances) > MAX_INTERFERENCE_INSTANCES:
+    # A sub-assembly counts by the parts it places: those are what get paired.
+    placed_parts = count_leaf_instances(request.instances)
+    if placed_parts > MAX_INTERFERENCE_INSTANCES:
         raise ValidationApiError(
             f"Interference checking is limited to {MAX_INTERFERENCE_INSTANCES} "
             f"instances per request (the pairwise clash scan is quadratic in "
-            f"instance count), got {len(request.instances)}.",
+            f"instance count), got {placed_parts}.",
             code="interference_too_many_instances",
         )
     return check_interference(request)

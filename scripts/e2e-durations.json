@@ -17,6 +17,7 @@
     "assembly-partial-export.spec.ts": 223.1,
     "assembly-solve-provenance.spec.ts": 76.8,
     "assembly-step-names.spec.ts": 7.9,
+    "assembly-subassembly.spec.ts": 71.4,
     "assembly-undo-redo.spec.ts": 36.0,
     "assembly-units.spec.ts": 34.4,
     "assembly-unresolved-export.spec.ts": 84.8,

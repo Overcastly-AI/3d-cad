@@ -816,7 +816,8 @@
           "assembly": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/EvaluateAssemblyRequest"
+                "$ref": "#/components/schemas/EvaluateAssemblyRequest",
+                "description": "The assembly graph to project (reused VERBATIM \u2014 instances + mates + version); geometry solves it with the SAME solve_assembly the evaluate/interference/export routes use"
               },
               {
                 "type": "null"
@@ -3410,7 +3411,7 @@
         "type": "object"
       },
       "EvaluateAssemblyRequest": {
-        "description": "Evaluate an assembly graph to solved placements + shared meshes (\u00a74).\n\nDocuments flattens rigid sub-assemblies into this recursive structure\nbefore sending (or geometry recurses \u2014 the rigid-group result is identical,\n\u00a71.4/\u00a74). Deterministic (RESEARCH \u00a79): the same request yields an identical\nresult \u2014 bitwise-stable mesh ids AND solved transforms \u2014 in-process and\nacross an interpreter restart.",
+        "description": "Evaluate an assembly graph to solved placements + shared meshes (\u00a74).\n\nA rigid sub-assembly rides NESTED (``EvaluatedInstance.sub_assembly``):\ngeometry solves it in its own frame, then moves it as one body. A mate may\nname a part inside a sub-assembly by its occurrence id (``occurrence_id``).\nDeterministic (RESEARCH \u00a79): the same request yields an identical\nresult \u2014 bitwise-stable mesh ids AND solved transforms \u2014 in-process and\nacross an interpreter restart.",
         "properties": {
           "assembly_id": {
             "format": "uuid",
@@ -3487,7 +3488,7 @@
             "description": "Remaining DOF + offending mate ids; None for a clean well_constrained solve (design \u00a72.4)"
           },
           "instances": {
-            "description": "Same order as the request instances",
+            "description": "One row per placed part, in request order; a sub-assembly contributes a row per part inside it (with a `path`), depth first",
             "items": {
               "$ref": "#/components/schemas/InstancePlacementResult"
             },
@@ -3532,6 +3533,14 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "sub_assemblies": {
+            "description": "Solved pose of each top-level sub-assembly instance; its parts are in `instances` with a `path`. Omitted while empty.",
+            "items": {
+              "$ref": "#/components/schemas/SubAssemblyPlacement"
+            },
+            "title": "Sub Assemblies",
+            "type": "array"
           },
           "version": {
             "title": "Version",
@@ -3981,6 +3990,17 @@
               }
             },
             "description": "Authored seed pose (\u00a72.3)"
+          },
+          "sub_assembly": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvaluateAssemblyRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when this instance is a RIGID SUB-ASSEMBLY: that assembly's own evaluation request (its instances and mates, nested to any depth). Geometry solves it in its own frame first, then places it as one rigid body (SolidWorks' rigid sub-assembly); its parts come back as occurrences (see `occurrence_id`). `features` is ignored and should be empty. Omitted for a part instance, so a request without sub-assemblies dumps exactly as before they existed."
           }
         },
         "required": [
@@ -5217,6 +5237,15 @@
             ],
             "description": "Content-addressed shared part mesh (sha256:<hex>), or null when the part produced no body",
             "title": "Part Mesh Glb Id"
+          },
+          "path": {
+            "description": "For a part placed inside a sub-assembly: the instance ids from the top-level sub-assembly instance down to this part instance, and `instance_id` is then the occurrence id of that path. Omitted for a part instanced directly in the assembly.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Path",
+            "type": "array"
           },
           "placement": {
             "$ref": "#/components/schemas/Placement",
@@ -9852,6 +9881,27 @@
         "title": "StepAssemblyImportResult",
         "type": "object"
       },
+      "SubAssemblyPlacement": {
+        "description": "A top-level sub-assembly instance's SOLVED pose (the frame its parts\nmove with).",
+        "properties": {
+          "instance_id": {
+            "description": "The sub-assembly instance",
+            "format": "uuid",
+            "title": "Instance Id",
+            "type": "string"
+          },
+          "placement": {
+            "$ref": "#/components/schemas/Placement",
+            "description": "SOLVED world pose (seed if unsolved)"
+          }
+        },
+        "required": [
+          "instance_id",
+          "placement"
+        ],
+        "title": "SubAssemblyPlacement",
+        "type": "object"
+      },
       "SubshapeRef": {
         "description": "Stage-1 reference to ONE planar face of a body-affecting feature's result.\n\n(docs/design/topological-naming.md \u00a74.) ``feature_id`` is the stage-1 anchor\n\u2014 \"the prior body-affecting feature whose body I signature-match against\"\n(\u00a74), NOT necessarily the originating feature (stage 2 shifts it to the true\noriginating feature). It materializes into ``feature_dependencies`` like a\n:class:`FeatureRef` (via the widened :func:`iter_feature_refs` /\n:func:`feature_references`), so deleting that feature is a write-time\n409-with-dependents. ``subshape_type`` is ``\"face\"`` only in v1 (edge/vertex\nreserved \u2014 \u00a710).",
         "properties": {
@@ -10539,7 +10589,8 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/EvaluateAssemblyRequest"
+                "$ref": "#/components/schemas/EvaluateAssemblyRequest",
+                "description": "The assembly graph to project (reused VERBATIM \u2014 instances + mates + version); geometry solves it with the SAME solve_assembly the evaluate/interference/export routes use"
               }
             }
           },
@@ -10692,7 +10743,8 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/EvaluateAssemblyRequest"
+                "$ref": "#/components/schemas/EvaluateAssemblyRequest",
+                "description": "The assembly graph to project (reused VERBATIM \u2014 instances + mates + version); geometry solves it with the SAME solve_assembly the evaluate/interference/export routes use"
               }
             }
           },

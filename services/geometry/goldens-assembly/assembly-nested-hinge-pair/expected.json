@@ -1,0 +1,99 @@
+{
+  "description": "NESTED SUB-ASSEMBLY GOLDEN (ASM-A3 step 1): the revolute hinge golden (assembly-hinge-revolute: two 40 x 25 x 10 mm plates with r5 holes at (12, 12.5) and (28, 12.5), A grounded, B on a revolute joint through hole 1 driven to 90 deg) inserted TWICE as a rigid sub-assembly, plus a third plate C on a RIGID joint whose first origin is a part INSIDE the first hinge. W1 is grounded at the origin; W2 is grounded at (100, 50, 0) turned a quarter turn about Z; C is seeded at (200, 0, 0) and its rigid joint pairs the hole-1 TOP rim of W1's plate B (named by occurrence id, uuid5 of W1 then B) with C's hole-1 BOTTOM rim. Locks: the child solved in its own frame then moved as one body, the composition of the instance pose with each part's pose inside it, occurrence ids, a parent joint resolved on a nested part and carried into the sub-assembly frame, and a well-constrained closed-form solve.",
+  "derivation": [
+    "Expectations are HAND-DERIVED, not recorded pipeline output. The plate's own mass properties are the sketch-extrude-plate-2holes golden's: volume 8429.203673205104 mm^3, surface_area 3614.159265358979 mm^2, centroid (20, 12.5, 5), AABB [0,0,0]..[40,25,10], 8 faces / 18 edges / 1 shell.",
+    "Inside each hinge (its own frame), from assembly-hinge-revolute: A at identity; B at t_B = (24.5, 0.5, 10), R_B = RotZ(+90 deg), q = (0, 0, 0.7071067811865476, 0.7071067811865476).",
+    "Occurrence ids: uuid5(W1, str(A)) = 8771d05f-6a43-5ec4-8284-596ca6133df0, uuid5(W1, str(B)) = e5ca6644-ab70-5fa8-996d-4d377f3aca35, uuid5(W2, str(A)) = d1d8f6d6-6c30-5c97-bb33-cb39cef2a402, uuid5(W2, str(B)) = 4ad756f9-611c-58ce-b836-325399af9c78 (W1 = ...f1, W2 = ...f2, A = ...01, B = ...02; loft_wire.assemblies.nested_occurrence_id).",
+    "W1 is grounded at identity, so W1/A is at identity and W1/B at (24.5, 0.5, 10), RotZ(90).",
+    "W2 is grounded at t_W = (100, 50, 0), R_W = RotZ(90): W2/A = t_W, RotZ(90). W2/B: R = RotZ(90) RotZ(90) = RotZ(180), q = (0, 0, 1, 0); t = R_W (24.5, 0.5, 10) + t_W = (-0.5, 24.5, 10) + (100, 50, 0) = (99.5, 74.5, 10).",
+    "Rigid joint origin A (circle_centre, W1/B's hole-1 TOP rim, B-local (12, 12.5, 10), Z = +Z, X = +X). World: R_B (12, 12.5, 10) + t_B = (-12.5, 12, 10) + (24.5, 0.5, 10) = (12, 12.5, 20); Z = +Z; X = R_B (+X) = +Y.",
+    "Rigid joint origin B (circle_centre, C's hole-1 BOTTOM rim, C-local (12, 12.5, 0), Z = -Z, X = +X). The joint aligns F_C = F_A o RotX(180): world X = +Y, Z = -Z. So R_C (+X) = +Y and R_C (-Z) = -Z: R_C = RotZ(+90), q = (0, 0, 0.7071067811865476, 0.7071067811865476). t_C = (12, 12.5, 20) - R_C (12, 12.5, 0) = (12, 12.5, 20) - (-12.5, 12, 0) = (24.5, 0.5, 20): C sits on W1's B, 10 above it.",
+    "remaining_dof = 0: W1 and W2 are grounded (the parent solves each sub-assembly as one body, so the hinge's own free turn is not a DOF here) and the rigid joint fixes C, so the status is well_constrained.",
+    "Probes: C's hole-1 bottom centre (12, 12.5, 0) -> (12, 12.5, 20), the joint origin. W2/B's hole-1 bottom centre (12, 12.5, 0) -> RotZ(180) (12, 12.5, 0) + (99.5, 74.5, 10) = (87.5, 62, 10), which is W2/A's hole-1 top centre R_W (12, 12.5, 10) + t_W = (87.5, 62, 10): the hinge stayed closed when its instance turned.",
+    "combined volume = 5 x 8429.203673205104 = 42146.01836602552 mm^3; surface_area = 5 x 3614.159265358979 = 18070.796326794895 mm^2 (sums; no boolean).",
+    "combined centroid (equal volumes): W1/A (20, 12.5, 5); W1/B RotZ(90) (20, 12.5, 5) + (24.5, 0.5, 10) = (12, 20.5, 15); W2/A (-12.5, 20, 5) + (100, 50, 0) = (87.5, 70, 5); W2/B RotZ(180) (20, 12.5, 5) + (99.5, 74.5, 10) = (79.5, 62, 15); C (-12.5, 20, 5) + (24.5, 0.5, 20) = (12, 20.5, 25). Mean (211/5, 185.5/5, 65/5) = (42.2, 37.1, 13).",
+    "combined bounding_box: W1/A [0,0,0]..[40,25,10]; W1/B x in [-0.5, 24.5], y in [0.5, 40.5], z in [10, 20]; W2/A x in [75, 100], y in [50, 90], z in [0, 10]; W2/B x in [59.5, 99.5], y in [49.5, 74.5], z in [10, 20]; C x in [-0.5, 24.5], y in [0.5, 40.5], z in [20, 30]. All quarter or half turns, so the corner unions are exact. Union [-0.5, 0, 0]..[100, 90, 30].",
+    "combined topology 40 / 90 / 5 (summed over the five placed plates); distinct_mesh_count 1 (one part_key at both levels)."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "CLOSED-FORM tolerance: each hinge is the closed-form hinge golden, and the parent is a tree hanging off grounded bodies, so every pose is analytic to float64 round-off. Measured first (2026-10-15, build123d 0.11.1 / OCCT 7.9, numpy BLAS pinned to 1 thread): every position within 3.6e-15 mm, quaternions within 1.2e-16, centroid within 4e-15 mm, bounding box within 3.6e-15 mm, combined volume within 1.5e-11 mm^3 (summation order of five part volumes). 1e-9 matches the S4a joint goldens. Loosening it requires a reviewed justification here and in docs/GEOMETRY-QA.md.",
+  "status": "well_constrained",
+  "remaining_dof": 0,
+  "distinct_mesh_count": 1,
+  "instances": [
+    {
+      "instance_id": "8771d05f-6a43-5ec4-8284-596ca6133df0",
+      "placement": {
+        "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "e5ca6644-ab70-5fa8-996d-4d377f3aca35",
+      "placement": {
+        "position": { "x": 24.5, "y": 0.5, "z": 10.0 },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.7071067811865476,
+          "w": 0.7071067811865476
+        }
+      }
+    },
+    {
+      "instance_id": "d1d8f6d6-6c30-5c97-bb33-cb39cef2a402",
+      "placement": {
+        "position": { "x": 100.0, "y": 50.0, "z": 0.0 },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.7071067811865476,
+          "w": 0.7071067811865476
+        }
+      }
+    },
+    {
+      "instance_id": "4ad756f9-611c-58ce-b836-325399af9c78",
+      "placement": {
+        "position": { "x": 99.5, "y": 74.5, "z": 10.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 1.0, "w": 0.0 }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-0000000000f3",
+      "placement": {
+        "position": { "x": 24.5, "y": 0.5, "z": 20.0 },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.7071067811865476,
+          "w": 0.7071067811865476
+        }
+      }
+    }
+  ],
+  "probes": [
+    {
+      "instance_id": "00000000-0000-0000-0000-0000000000f3",
+      "local": { "x": 12.0, "y": 12.5, "z": 0.0 },
+      "world": { "x": 12.0, "y": 12.5, "z": 20.0 },
+      "note": "C's hole-1 bottom centre lands on W1/B's hole-1 top centre (the rigid joint origin)"
+    },
+    {
+      "instance_id": "4ad756f9-611c-58ce-b836-325399af9c78",
+      "local": { "x": 12.0, "y": 12.5, "z": 0.0 },
+      "world": { "x": 87.5, "y": 62.0, "z": 10.0 },
+      "note": "W2/B's hole-1 bottom centre stays on W2/A's hole-1 top centre: the turned hinge moved as one body"
+    }
+  ],
+  "properties": {
+    "volume": 42146.01836602552,
+    "surface_area": 18070.796326794895,
+    "centroid": { "x": 42.2, "y": 37.1, "z": 13.0 },
+    "bounding_box": {
+      "min": { "x": -0.5, "y": 0.0, "z": 0.0 },
+      "max": { "x": 100.0, "y": 90.0, "z": 30.0 }
+    }
+  },
+  "topology": { "faces": 40, "edges": 90, "shells": 5 }
+}

@@ -677,7 +677,14 @@ def test_bom_empty_assembly(client: TestClient) -> None:
     body = client.get(
         f"/api/v1/assemblies/{assembly_id}/bom", headers=_headers()
     ).json()
-    assert body == {"assembly_id": assembly_id, "lines": [], "total_instances": 0}
+    assert body == {
+        "assembly_id": assembly_id,
+        "lines": [],
+        "total_instances": 0,
+        "indented": [],
+        "parts_only": [],
+        "total_parts": 0,
+    }
 
 
 def test_bom_deleted_reference_is_flagged_missing(

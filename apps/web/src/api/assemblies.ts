@@ -48,8 +48,15 @@ export type LockMate = components["schemas"]["LockMate"];
 export type MateFaceRef = components["schemas"]["MateFaceRef"];
 export type MateAxisRef = components["schemas"]["MateAxisRef"];
 export type Placement = components["schemas"]["Placement"];
+/** What the web SENDS (evaluate, export, interference). */
 export type EvaluateAssemblyRequest =
-  components["schemas"]["EvaluateAssemblyRequest"];
+  components["schemas"]["EvaluateAssemblyRequest-Input"];
+/** One instance of it; `sub_assembly` nests a rigid sub-assembly's request. */
+export type EvaluatedInstance =
+  components["schemas"]["EvaluatedInstance-Input"];
+/** A sub-assembly's request as documents serves it (same shape, read side). */
+export type SubAssemblyRequest =
+  components["schemas"]["EvaluateAssemblyRequest-Output"];
 export type EvaluateAssemblyResult =
   components["schemas"]["EvaluateAssemblyResult"];
 export type InstancePlacementResult =
@@ -297,7 +304,28 @@ export async function fetchAssemblyGraph(
   return data;
 }
 
-/** Add a part instance to an assembly (201; 422 on a stale version). */
+/**
+ * An assembly's evaluation-ready request, nested to any depth (ASM-A3): what a
+ * parent embeds as `sub_assembly` for each instance of this assembly, so its
+ * evaluate / export / interference requests carry the whole tree.
+ */
+export async function fetchAssemblyEvaluationRequest(
+  assemblyId: string,
+  client: GatewayClient = gatewayClient,
+): Promise<SubAssemblyRequest> {
+  const { data, error } = await client.GET(
+    "/api/v1/assemblies/{assembly_id}/evaluation-request",
+    { params: { path: { assembly_id: assemblyId } } },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The sub-assembly could not be loaded."),
+    );
+  }
+  return data;
+}
+
+/** Add a part or sub-assembly instance (201; 422 on a stale version or cycle). */
 export async function createInstance(
   assemblyId: string,
   body: InstanceCreate,

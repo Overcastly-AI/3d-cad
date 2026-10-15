@@ -16,6 +16,7 @@ import type {
   AssemblyGraphResponse,
   EvaluateAssemblyRequest,
   InstanceResponse,
+  SubAssemblyRequest,
 } from "../api/assemblies";
 import { MESH_LINEAR_DEFLECTION_MM } from "../api/client";
 
@@ -72,12 +73,27 @@ export function buildEvaluateAssemblyRequest(
   graph: AssemblyGraphResponse,
   partTrees: ReadonlyMap<string, FeatureTreeResponse>,
   partMaterials: ReadonlyMap<string, MaterialAssignment | null> = new Map(),
+  subAssemblies: ReadonlyMap<string, SubAssemblyRequest> = new Map(),
 ): EvaluateAssemblyRequest {
   return {
     assembly_id: graph.assembly.id,
     version: graph.doc_version,
     linear_deflection: MESH_LINEAR_DEFLECTION_MM,
     instances: graph.instances.map((instance) => {
+      // A rigid sub-assembly carries its own request, as documents builds it
+      // (ASM-A3); geometry solves it as one body and returns its parts.
+      if (instance.ref_document_kind === "assembly") {
+        return {
+          instance_id: instance.id,
+          name: instance.name,
+          part_key: partKey(instance),
+          grounded: instance.grounded,
+          placement: instance.placement,
+          features: [],
+          materials: null,
+          sub_assembly: subAssemblies.get(instance.ref_document_id) ?? null,
+        };
+      }
       const tree = partTrees.get(instance.ref_document_id);
       return {
         instance_id: instance.id,

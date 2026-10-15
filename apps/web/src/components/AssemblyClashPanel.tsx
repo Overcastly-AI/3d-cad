@@ -31,6 +31,7 @@ import { Panel, PanelSection } from "@loft/design";
 
 import type { InstanceResponse, InterferenceResult } from "../api/assemblies";
 import { clashEyebrow, clashRows } from "../assembly/clash";
+import { componentName, type NestedPart } from "../assembly/subAssemblies";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 
 export interface AssemblyClashPanelProps {
@@ -42,24 +43,27 @@ export interface AssemblyClashPanelProps {
   busy: boolean;
   /** A non-recoverable failure of the check call itself, or null. */
   error: string | null;
+  /** Parts inside sub-assemblies: clash pairs name them by occurrence. */
+  nested?: ReadonlyMap<string, NestedPart>;
 }
 
 export function AssemblyClashPanel({
   instances,
+  nested,
   result,
   busy,
   error,
 }: AssemblyClashPanelProps) {
   const balloonById = new Map(instances.map((i, index) => [i.id, index + 1]));
-  const nameById = new Map(instances.map((i) => [i.id, i.name]));
+  // A part inside a sub-assembly takes its component's balloon.
   const clashes = result?.clashes ?? [];
   const unit = useDocumentLengthUnit();
   const rows = clashRows(clashes, unit);
   const hasUnresolved = rows.some((row) => row.unresolved);
 
   const label = (id: string) => ({
-    balloon: balloonById.get(id) ?? "?",
-    name: nameById.get(id) ?? "Unknown part",
+    balloon: balloonById.get(nested?.get(id)?.groupId ?? id) ?? "?",
+    name: componentName(instances, nested, id) ?? "Unknown part",
   });
 
   return (

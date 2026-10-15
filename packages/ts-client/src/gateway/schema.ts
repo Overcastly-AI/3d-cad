@@ -145,6 +145,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assemblies/{assembly_id}/evaluation-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Assembly Evaluation Request
+         * @description The assembly's evaluation-ready graph, exactly as geometry solves it.
+         *
+         *     Documents resolves each part instance to its feature prefix and each
+         *     sub-assembly instance to that assembly's own request, nested to any depth
+         *     (ASM-A3). The web embeds this for a sub-assembly it inserts, so the parent's
+         *     evaluate, export and interference requests carry the whole tree without the
+         *     browser walking it. Owner-scoped with the uniform 404; a tree too large or
+         *     too deep to evaluate is documents' typed 422.
+         */
+        get: operations["get_assembly_evaluation_request_api_v1_assemblies__assembly_id__evaluation_request_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}/extents": {
         parameters: {
             query?: never;
@@ -2244,16 +2271,23 @@ export interface components {
         };
         /**
          * AssemblyBomResponse
-         * @description An assembly's flat bill of materials (design: assemblies.md residual).
+         * @description An assembly's bill of materials, in SolidWorks' three views.
          *
-         *     A pure documents-side READ MODEL — no writes, no migration: it aggregates
-         *     the assembly's DIRECT instances into one :class:`BomLine` per referenced
-         *     document (quantity = shared-reference count), resolving each document's
-         *     current name from the ``parts`` / ``assemblies`` tables. Deterministically
-         *     ordered (resolved name, then ``ref_document_id``) so the list is stable
-         *     across reads. ``total_instances`` is the sum of every line's quantity (the
-         *     assembly's direct-instance count), so an empty assembly is
-         *     ``{lines: [], total_instances: 0}``.
+         *     A pure documents-side READ MODEL — no writes, no migration — resolving each
+         *     document's current name from the ``parts`` / ``assemblies`` tables:
+         *
+         *     - ``lines`` (TOP LEVEL): one :class:`BomLine` per document the assembly
+         *       instances directly, a sub-assembly as a single line;
+         *       ``total_instances`` sums them.
+         *     - ``indented``: the top-level lines with each sub-assembly's contents
+         *       listed under it, to any depth.
+         *     - ``parts_only``: every PART at every level, each counted once per placed
+         *       occurrence; ``total_parts`` sums them (what a shop builds).
+         *
+         *     Each list is deterministically ordered (resolved name, then
+         *     ``ref_document_id``; missing documents last), so reads are stable. An empty
+         *     assembly is ``{lines: [], indented: [], parts_only: [], total_instances: 0,
+         *     total_parts: 0}``.
          */
         AssemblyBomResponse: {
             /**
@@ -2262,15 +2296,30 @@ export interface components {
              */
             assembly_id: string;
             /**
+             * Indented
+             * @description Top-level lines with every sub-assembly opened beneath itself, depth first
+             */
+            indented: components["schemas"]["IndentedBomLine"][];
+            /**
              * Lines
-             * @description One line per referenced document, deterministically ordered
+             * @description Top level: one line per directly-referenced document, deterministically ordered
              */
             lines: components["schemas"]["BomLine"][];
             /**
+             * Parts Only
+             * @description Every part at every level, one line per part document, quantity = placed occurrences
+             */
+            parts_only: components["schemas"]["BomLine"][];
+            /**
              * Total Instances
-             * @description Sum of all line quantities (direct instance count)
+             * @description Sum of all top-level line quantities (direct instances)
              */
             total_instances: number;
+            /**
+             * Total Parts
+             * @description Sum of the parts-only quantities (every placed part)
+             */
+            total_parts: number;
         };
         /**
          * AssemblyCreate
@@ -2713,15 +2762,15 @@ export interface components {
         };
         /**
          * BomLine
-         * @description One line of an assembly's bill of materials (a flat, direct-instance BOM).
+         * @description One line of an assembly's bill of materials.
          *
-         *     A BOM line GROUPS the assembly's DIRECT instances by the document they
-         *     reference: ``quantity`` is the count of instances sharing this
-         *     ``ref_document_id``, ``name`` is the referenced document's CURRENT name, and
-         *     ``ref_document_kind`` is ``part`` or ``assembly``. This is the FLAT v1 —
-         *     direct instances only, NOT recursive into rigid sub-assemblies (an explicit
-         *     follow-up; a sub-assembly instance appears as a single ``kind: "assembly"``
-         *     line, never expanded).
+         *     A BOM line GROUPS instances by the document they reference: ``quantity`` is
+         *     the count of instances sharing this ``ref_document_id`` (within the line's
+         *     parent for an indented line, across every level for a parts-only line),
+         *     ``name`` is the referenced document's CURRENT name, and
+         *     ``ref_document_kind`` is ``part`` or ``assembly``. In the top-level list a
+         *     sub-assembly is one ``kind: "assembly"`` line; the indented and parts-only
+         *     lists open it up (SolidWorks' three BOM types).
          *
          *     A referenced document that was DELETED while still instanced surfaces
          *     honestly, not silently: the line stays (its instances still exist and still
@@ -2742,7 +2791,7 @@ export interface components {
             name: string | null;
             /**
              * Quantity
-             * @description Count of direct instances referencing this document
+             * @description Count of instances referencing this document: direct instances on a top-level line, instances inside the parent on an indented line, every placed occurrence on a parts-only line
              */
             quantity: number;
             /**
@@ -2753,7 +2802,7 @@ export interface components {
             ref_document_id: string;
             /**
              * Ref Document Kind
-             * @description 'part' or 'assembly' (a rigid sub-assembly, not expanded)
+             * @description 'part' or 'assembly' (a rigid sub-assembly)
              * @enum {string}
              */
             ref_document_kind: "part" | "assembly";
@@ -4759,7 +4808,7 @@ export interface components {
             name: string | null;
             /**
              * Quantity
-             * @description Count of direct instances referencing this document
+             * @description Count of instances referencing this document: direct instances on a top-level line, instances inside the parent on an indented line, every placed occurrence on a parts-only line
              */
             quantity: number;
             /**
@@ -4770,7 +4819,7 @@ export interface components {
             ref_document_id: string;
             /**
              * Ref Document Kind
-             * @description 'part' or 'assembly' (a rigid sub-assembly, not expanded)
+             * @description 'part' or 'assembly' (a rigid sub-assembly)
              * @enum {string}
              */
             ref_document_kind: "part" | "assembly";
@@ -4781,9 +4830,9 @@ export interface components {
          *
          *     A pure READ MODEL (no table, no migration): the sheet's single source document
          *     (the enforced one-sheet-one-source invariant, §2.2) must be an ASSEMBLY, and its
-         *     DIRECT instances are rolled up into numbered :class:`DrawingBomLine` s. FLAT —
-         *     a rigid sub-assembly instance is one ``kind: "assembly"`` line, never expanded
-         *     (the same v1 bound the assembly BOM states; recursive/indented is a follow-up).
+         *     DIRECT instances are rolled up into numbered :class:`DrawingBomLine` s. TOP
+         *     LEVEL — the assembly BOM's ``lines`` (SolidWorks' default drawing parts list):
+         *     a rigid sub-assembly instance is one ``kind: "assembly"`` line.
          *
          *     A sheet drafting a PART has no bill of materials: that is a typed
          *     ``drawing_bom_source_not_assembly`` 422, not a 200 with an empty list — an empty
@@ -5293,13 +5342,14 @@ export interface components {
          * EvaluateAssemblyRequest
          * @description Evaluate an assembly graph to solved placements + shared meshes (§4).
          *
-         *     Documents flattens rigid sub-assemblies into this recursive structure
-         *     before sending (or geometry recurses — the rigid-group result is identical,
-         *     §1.4/§4). Deterministic (RESEARCH §9): the same request yields an identical
+         *     A rigid sub-assembly rides NESTED (``EvaluatedInstance.sub_assembly``):
+         *     geometry solves it in its own frame, then moves it as one body. A mate may
+         *     name a part inside a sub-assembly by its occurrence id (``occurrence_id``).
+         *     Deterministic (RESEARCH §9): the same request yields an identical
          *     result — bitwise-stable mesh ids AND solved transforms — in-process and
          *     across an interpreter restart.
          */
-        EvaluateAssemblyRequest: {
+        "EvaluateAssemblyRequest-Input": {
             /**
              * Assembly Id
              * Format: uuid
@@ -5309,7 +5359,46 @@ export interface components {
              * Instances
              * @description The assembly's instances (result order preserved), bounded by MAX_ASSEMBLY_INSTANCES (work bound, audit G2)
              */
-            instances: components["schemas"]["EvaluatedInstance"][];
+            instances: components["schemas"]["EvaluatedInstance-Input"][];
+            /**
+             * Linear Deflection
+             * @description Presentation tessellation parameter (mm), never persisted. Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
+             * @default 0.1
+             */
+            linear_deflection: number;
+            /**
+             * Mates
+             * @description The mate graph; processed in order_index order (determinism), bounded by MAX_ASSEMBLY_MATES (work bound, audit G2)
+             */
+            mates?: components["schemas"]["EvaluatedMate"][];
+            /**
+             * Version
+             * @description Echoed back; cache/correlation key
+             */
+            version: number;
+        };
+        /**
+         * EvaluateAssemblyRequest
+         * @description Evaluate an assembly graph to solved placements + shared meshes (§4).
+         *
+         *     A rigid sub-assembly rides NESTED (``EvaluatedInstance.sub_assembly``):
+         *     geometry solves it in its own frame, then moves it as one body. A mate may
+         *     name a part inside a sub-assembly by its occurrence id (``occurrence_id``).
+         *     Deterministic (RESEARCH §9): the same request yields an identical
+         *     result — bitwise-stable mesh ids AND solved transforms — in-process and
+         *     across an interpreter restart.
+         */
+        "EvaluateAssemblyRequest-Output": {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /**
+             * Instances
+             * @description The assembly's instances (result order preserved), bounded by MAX_ASSEMBLY_INSTANCES (work bound, audit G2)
+             */
+            instances: components["schemas"]["EvaluatedInstance-Output"][];
             /**
              * Linear Deflection
              * @description Presentation tessellation parameter (mm), never persisted. Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
@@ -5352,7 +5441,7 @@ export interface components {
             diagnosis?: components["schemas"]["AssemblySolveDiagnosis"] | null;
             /**
              * Instances
-             * @description Same order as the request instances
+             * @description One row per placed part, in request order; a sub-assembly contributes a row per part inside it (with a `path`), depth first
              */
             instances: components["schemas"]["InstancePlacementResult"][];
             /**
@@ -5373,6 +5462,11 @@ export interface components {
              * @enum {string}
              */
             status: "well_constrained" | "under_constrained" | "over_constrained" | "conflicting" | "not_converged";
+            /**
+             * Sub Assemblies
+             * @description Solved pose of each top-level sub-assembly instance; its parts are in `instances` with a `path`. Omitted while empty.
+             */
+            sub_assemblies?: components["schemas"]["SubAssemblyPlacement"][];
             /** Version */
             version: number;
         };
@@ -5568,7 +5662,7 @@ export interface components {
          *     never a kernel body. ``placement`` is the authored seed pose the solver
          *     starts from; ``grounded`` fixes it at that pose (0 DOF — the solver anchor).
          */
-        EvaluatedInstance: {
+        "EvaluatedInstance-Input": {
             /**
              * Features
              * @description The part's ordered feature prefix (feature-tree §4 contract), bounded by MAX_TREE_FEATURES (work bound, audit G2)
@@ -5615,6 +5709,70 @@ export interface components {
              *     }
              */
             placement: components["schemas"]["Placement"];
+            /** @description Set when this instance is a RIGID SUB-ASSEMBLY: that assembly's own evaluation request (its instances and mates, nested to any depth). Geometry solves it in its own frame first, then places it as one rigid body (SolidWorks' rigid sub-assembly); its parts come back as occurrences (see `occurrence_id`). `features` is ignored and should be empty. Omitted for a part instance, so a request without sub-assemblies dumps exactly as before they existed. */
+            sub_assembly?: components["schemas"]["EvaluateAssemblyRequest-Input"] | null;
+        };
+        /**
+         * EvaluatedInstance
+         * @description One assembly instance as the evaluator sees it (design §4).
+         *
+         *     ``part_key`` is the DEDUP key — ``f"{ref_document_id}@{version-or-tip}"`` —
+         *     so two instances of the SAME part evaluate once and share one
+         *     content-addressed mesh (the central perf win, design §4 step 1). ``features``
+         *     is the part's ordered feature prefix (reuses the feature-tree §4 contract
+         *     VERBATIM), so geometry stays the sole evaluator and documents sends intent,
+         *     never a kernel body. ``placement`` is the authored seed pose the solver
+         *     starts from; ``grounded`` fixes it at that pose (0 DOF — the solver anchor).
+         */
+        "EvaluatedInstance-Output": {
+            /**
+             * Features
+             * @description The part's ordered feature prefix (feature-tree §4 contract), bounded by MAX_TREE_FEATURES (work bound, audit G2)
+             */
+            features: components["schemas"]["EvaluatedFeatureInput"][];
+            /**
+             * Grounded
+             * @description Fix this instance at its placement (0 DOF) — the solver anchor; an assembly with none grounded floats (under_constrained, §1.2)
+             * @default false
+             */
+            grounded: boolean;
+            /**
+             * Instance Id
+             * Format: uuid
+             * @description Instance identity (result keying)
+             */
+            instance_id: string;
+            /** @description The instanced PART's material assignment (docs/design/materials.md), forwarded verbatim into that part's evaluation so the assembly rolls up a real mass. Null = the part has no material, so it contributes no mass and the assembly total is null (never zero). Two instances share a part_key and therefore a part, so they share this. */
+            materials?: components["schemas"]["MaterialAssignment"] | null;
+            /**
+             * Name
+             * @description Human-readable instance name ('Bracket <1>'), threaded into the STEP export as the PRODUCT name so a Loft->STEP->Loft round trip preserves part identity instead of writing the instance UUID (FINDINGS #7). Optional: evaluate/interference ignore it; the export path falls back to the instance id when absent (a nameless request stays valid).
+             */
+            name?: string | null;
+            /**
+             * Part Key
+             * @description Dedup key f'{ref_document_id}@{version-or-tip}': instances sharing it evaluate once and share one content-addressed mesh (§4)
+             */
+            part_key: string;
+            /**
+             * @description Authored seed pose (§2.3)
+             * @default {
+             *       "orientation": {
+             *         "w": 1,
+             *         "x": 0,
+             *         "y": 0,
+             *         "z": 0
+             *       },
+             *       "position": {
+             *         "x": 0,
+             *         "y": 0,
+             *         "z": 0
+             *       }
+             *     }
+             */
+            placement: components["schemas"]["Placement"];
+            /** @description Set when this instance is a RIGID SUB-ASSEMBLY: that assembly's own evaluation request (its instances and mates, nested to any depth). Geometry solves it in its own frame first, then places it as one rigid body (SolidWorks' rigid sub-assembly); its parts come back as occurrences (see `occurrence_id`). `features` is ignored and should be empty. Omitted for a part instance, so a request without sub-assemblies dumps exactly as before they existed. */
+            sub_assembly?: components["schemas"]["EvaluateAssemblyRequest-Output"] | null;
         };
         /**
          * EvaluatedMate
@@ -5685,7 +5843,7 @@ export interface components {
              * Instances
              * @description The assembly's instances (result order preserved), bounded by MAX_ASSEMBLY_INSTANCES (work bound, audit G2)
              */
-            instances: components["schemas"]["EvaluatedInstance"][];
+            instances: components["schemas"]["EvaluatedInstance-Input"][];
             /**
              * Linear Deflection
              * @description Presentation tessellation parameter (mm), never persisted. Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
@@ -6759,6 +6917,60 @@ export interface components {
             kind: "inline";
         };
         /**
+         * IndentedBomLine
+         * @description One row of the INDENTED bill of materials (SolidWorks' indented BOM).
+         *
+         *     Rows come depth first: a sub-assembly row is followed by the rows of its own
+         *     contents, one level deeper. ``quantity`` counts within the parent
+         *     (a wheel has 1 rim); ``total_quantity`` counts across the whole assembly
+         *     (a bike with 2 wheels has 2 rims), which is the number to order.
+         */
+        IndentedBomLine: {
+            /**
+             * Item
+             * @description Outline item number: '2' at the top level, '2.1' for the first line inside item 2
+             */
+            item: string;
+            /**
+             * Level
+             * @description Nesting depth; 0 = a top-level line
+             */
+            level: number;
+            /**
+             * Missing
+             * @description True when the referenced document no longer exists (deleted while still instanced) — the line and its quantity are still reported so the dangling reference is visible, never silently dropped
+             * @default false
+             */
+            missing: boolean;
+            /**
+             * Name
+             * @description The referenced document's CURRENT name, or null when it has been deleted while still instanced (see `missing`)
+             */
+            name: string | null;
+            /**
+             * Quantity
+             * @description Count of instances referencing this document: direct instances on a top-level line, instances inside the parent on an indented line, every placed occurrence on a parts-only line
+             */
+            quantity: number;
+            /**
+             * Ref Document Id
+             * Format: uuid
+             * @description The referenced part / sub-assembly document (the group key)
+             */
+            ref_document_id: string;
+            /**
+             * Ref Document Kind
+             * @description 'part' or 'assembly' (a rigid sub-assembly)
+             * @enum {string}
+             */
+            ref_document_kind: "part" | "assembly";
+            /**
+             * Total Quantity
+             * @description How many of this line the whole assembly holds: quantity multiplied by every parent line's quantity
+             */
+            total_quantity: number;
+        };
+        /**
          * InstanceCopy
          * @description Copy one instance within its assembly (Fusion's Copy and Paste).
          *
@@ -6874,6 +7086,11 @@ export interface components {
              * @description Content-addressed shared part mesh (sha256:<hex>), or null when the part produced no body
              */
             part_mesh_glb_id: string | null;
+            /**
+             * Path
+             * @description For a part placed inside a sub-assembly: the instance ids from the top-level sub-assembly instance down to this part instance, and `instance_id` is then the occurrence id of that path. Omitted for a part instanced directly in the assembly.
+             */
+            path?: string[];
             /** @description SOLVED world pose (seed if unsolved) */
             placement: components["schemas"]["Placement"];
             /** @description The part's own mass properties (BOM/inspection) */
@@ -10692,6 +10909,21 @@ export interface components {
             status: "converged" | "underconstrained" | "overconstrained" | "conflicting" | "diverged";
         };
         /**
+         * SubAssemblyPlacement
+         * @description A top-level sub-assembly instance's SOLVED pose (the frame its parts
+         *     move with).
+         */
+        SubAssemblyPlacement: {
+            /**
+             * Instance Id
+             * Format: uuid
+             * @description The sub-assembly instance
+             */
+            instance_id: string;
+            /** @description SOLVED world pose (seed if unsolved) */
+            placement: components["schemas"]["Placement"];
+        };
+        /**
          * SubshapeRef
          * @description Stage-1 reference to ONE planar face of a body-affecting feature's result.
          *
@@ -11623,6 +11855,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssemblyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_assembly_evaluation_request_api_v1_assemblies__assembly_id__evaluation_request_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluateAssemblyRequest-Output"];
                 };
             };
             /** @description Validation Error */
@@ -13025,7 +13288,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["EvaluateAssemblyRequest"];
+                "application/json": components["schemas"]["EvaluateAssemblyRequest-Input"];
             };
         };
         responses: {
@@ -13096,7 +13359,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["EvaluateAssemblyRequest"];
+                "application/json": components["schemas"]["EvaluateAssemblyRequest-Input"];
             };
         };
         responses: {

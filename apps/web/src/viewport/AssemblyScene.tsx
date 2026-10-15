@@ -59,6 +59,18 @@ export interface SceneInstance {
    * you cannot see must not be pickable. `ghost` draws it translucent.
    */
   visibility: VisibilityMode;
+  /**
+   * For a part inside a rigid sub-assembly: the sub-assembly instance it
+   * belongs to (ASM-A3). `id` is then the part's occurrence id, which is what
+   * a joint picked on it stores; a click selects, and Lock picks, the
+   * component, as Fusion does.
+   */
+  groupId?: string;
+}
+
+/** The component a scene instance selects: its sub-assembly, else itself. */
+function componentId(instance: SceneInstance): string {
+  return instance.groupId ?? instance.id;
 }
 
 /** Is this instance drawn at all this frame? */
@@ -289,6 +301,7 @@ function Balloon({
         type="button"
         onClick={onSelect}
         data-testid={`assembly-balloon-${instance.id}`}
+        data-group-id={instance.groupId}
         data-solved-x={instance.transform.position[0].toFixed(4)}
         data-solved-y={instance.transform.position[1].toFixed(4)}
         data-solved-z={instance.transform.position[2].toFixed(4)}
@@ -605,7 +618,7 @@ export function AssemblyScene({
             key={inst.id}
             geometry={inst.geometry}
             transform={inst.transform}
-            selected={selectedInstanceId === inst.id}
+            selected={selectedInstanceId === componentId(inst)}
             clashing={clashingInstanceIds.has(inst.id)}
             unverified={unverifiedInstanceIds.has(inst.id)}
             ghost={inst.visibility === "ghost"}
@@ -613,9 +626,9 @@ export function AssemblyScene({
             onSelect={
               bodiesPickable
                 ? (event) => {
-                    if (tool === "lock") pickInstance(inst.id);
+                    if (tool === "lock") pickInstance(componentId(inst));
                     else if (onBodyPress?.(inst.id, event) !== true) {
-                      onSelectInstance(inst.id);
+                      onSelectInstance(componentId(inst));
                     }
                   }
                 : undefined
@@ -708,11 +721,13 @@ export function AssemblyScene({
         <Balloon
           key={`b-${inst.id}`}
           instance={inst}
-          selected={selectedInstanceId === inst.id}
+          selected={selectedInstanceId === componentId(inst)}
           clashState={clashStateOf(inst.id)}
           onPoseDrawn={onPoseDrawn}
           onSelect={() =>
-            tool === "lock" ? pickInstance(inst.id) : onSelectInstance(inst.id)
+            tool === "lock"
+              ? pickInstance(componentId(inst))
+              : onSelectInstance(componentId(inst))
           }
         />
       ))}

@@ -37,13 +37,24 @@ byte-identical; RESEARCH §15a). Done 2026-10-09..14 and dropped at the
       spread; the review judged it not worth re-verifying on every OCCT
       upgrade (RESEARCH §15a). What is left needs step 1 (founder) or step 4
       (new goldens).
-- [ ] **ASM-A3** (founder 2026-10-15: next, so a bike can be built; split it now): sub-assemblies from
-      the Add panel with an indented BOM, a component pattern that follows a
-      part's holes (Fusion pattern, Onshape Replicate, SolidWorks
-      pattern-driven), and in-context edits (Fusion Edit in Place).
-      _Accept:_ A3's BOM reads 16 lines and 73 instances (top level 11 and
-      45), its 28 rail screws follow the rail's hole count, and moving the
-      rails from ±40 to ±45 moves the carriage plate's holes.
+- [x] **ASM-A3** step 1, nested sub-assemblies (done on this branch; e2e
+      `assembly-subassembly.spec.ts`, golden `assembly-nested-hinge-pair`)
+      (founder 2026-10-15: next, so a bike can be built): an assembly is
+      inserted from the Add panel as a rigid sub-assembly (SolidWorks rigid),
+      solved in its own frame and drawn to any depth; a joint attaches to a
+      part inside it by occurrence id and survives a reload; moving it moves
+      its contents; the BOM is top level, indented and parts only, and the
+      drawing parts list is the top level; interference and STEP include
+      every nested part; cycles are refused naming the chain. A3's remaining
+      acceptance moves to the two lines below.
+- [ ] **ASM-A3-PATTERN** (A3): a component pattern that follows a part's
+      holes (Fusion pattern, Onshape Replicate, SolidWorks pattern-driven).
+      _Accept:_ A3's 28 rail screws are one pattern following the rail's hole
+      count, and A3's BOM reads 16 lines and 73 instances (top level 11 and
+      45).
+- [ ] **ASM-A3-IN-CONTEXT** (A3): in-context edits (Fusion Edit in Place,
+      SolidWorks external references). _Accept:_ moving A3's rails from ±40
+      to ±45 moves the carriage plate's holes.
 
 ## Next
 
@@ -199,6 +210,14 @@ step. These replace PLUGINS-PACKAGE.
 ## Notes
 
 One line each. The founder triages weekly; most are closed without work.
+
+- ASM-SUB-FLEXIBLE: sub-assemblies are rigid only; SolidWorks' flexible mode (the wheel's own revolute still turning inside the bike) is not built.
+- ASM-SUB-STEP-TREE: assembly STEP writes every nested part as one flat level of occurrences; SolidWorks and Fusion write the nested product structure.
+- ASM-SUB-CHILD-ERRORS: a sub-assembly's own dropped or conflicting mates do not show in the parent's solve status (it is solved silently in its own frame).
+- ASM-SUB-BALLOONS: each part inside a sub-assembly draws its component's balloon, so a two-part wheel shows "1" twice; Fusion shows one per component.
+- ASM-SUB-TREE: the component tree lists a sub-assembly as one row and cannot be expanded to its parts (Fusion's browser can).
+- ASM-SUB-DRIVE: dragging or driving a joint whose moving side is a sub-assembly is untested (the e2e joins a part onto a grounded sub-assembly).
+- ASM-SUB-LIMIT-RACE (77884a3 review): part inserts take no per-owner advisory lock, so two concurrent inserts into different assemblies of one tree can push it slightly past 500; the top assembly then 422s on evaluate/BOM until an instance is removed (recoverable, nothing lost). Also add a query-count test for an insert into a sub-assembly many assemblies contain.
 
 - LINE-ENTRY-TAB review (90db343): a Tab left in a circle's drag box survives a click/canvas-Esc and refuses the next circle at the same centre ("10" Tab, later "100"; clear `tabbed` on draft change); "W" Tab "/2" is refused as a second value without saying why; the error text overlaps the X AXIS label; a line Angle cell (Fusion shows Length and Angle) needs an angle-to-axis dimension first.
 - APEX-BUTTONS: Extrude and Revolve enable with only an apex (point-only) sketch present; clicking does nothing.

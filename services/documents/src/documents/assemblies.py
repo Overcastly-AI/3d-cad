@@ -30,7 +30,6 @@ from loft_wire.assemblies import (
     AssemblyResponse,
     AssemblyUndoRedoRequest,
     AssemblyUpdate,
-    BomLine,
     EvaluateAssemblyRequest,
     EvaluatedInstance,
     EvaluatedMate,
@@ -38,13 +37,13 @@ from loft_wire.assemblies import (
     InstanceMutationResponse,
     InstanceResponse,
     InstanceUpdate,
+    LockMate,
     Mate,
     MateCreate,
     MateMutationResponse,
     MateParams,
     MateResponse,
     Placement,
-    RefDocumentKind,
     mate_instance_ids,
 )
 from loft_wire.features import EvaluatedFeatureInput
@@ -62,10 +61,16 @@ from documents.assembly_history import (
     ordered_instances,
     ordered_mates,
 )
+from documents.bom import assembly_bom
 from documents.features import evaluation_prefix, part_materials
 from documents.filing import resolve_destination
 from documents.history_core import Direction
 from documents.joint_rules import reject_out_of_limits
+from documents.occurrences import (
+    OccurrenceWalk,
+    mate_members,
+    reject_oversize,
+)
 from documents.parts import (
     Principal,
     get_owned_assembly,
@@ -122,13 +127,23 @@ async def get_mate(
 
 
 async def ensure_mate_members(
-    session: AsyncSession, assembly_id: uuid.UUID, mate: MateParams
+    session: AsyncSession,
+    owner_id: uuid.UUID,
+    assembly_id: uuid.UUID,
+    mate: MateParams,
 ) -> None:
     """Every instance *mate* names is a distinct member of this assembly.
 
     A mate is a constraint EDGE between two DISTINCT instances; naming one
     instance on both sides is degenerate (``mate_self_reference`` 422), and an
     instance of another assembly is refused (``mate_instance_unknown`` 422).
+
+    A member is a direct instance or a PART inside a sub-assembly instance,
+    named by its occurrence id (:mod:`documents.occurrences`) — a joint to the
+    wheel's rim. Two parts of the same rigid sub-assembly cannot move relative
+    to each other (``mate_within_sub_assembly`` 422), and a face, edge or origin
+    must belong to a part, never to a sub-assembly as a whole
+    (``mate_needs_part`` 422; a ``lock`` names instances, so it may).
     """
     named_ids = mate_instance_ids(mate)
     if named_ids[0] == named_ids[1]:
@@ -137,15 +152,30 @@ async def ensure_mate_members(
             code="mate_self_reference",
             details={"instance_id": str(named_ids[0])},
         )
-    member_ids = {row.id for row in await ordered_instances(session, assembly_id)}
+    members = await mate_members(session, owner_id, assembly_id, set(named_ids))
     for named_id in named_ids:
-        if named_id not in member_ids:
+        member = members.get(named_id)
+        if member is None:
             raise ValidationApiError(
                 f"Mate references instance {named_id}, which is not part of this "
                 "assembly.",
                 code="mate_instance_unknown",
                 details={"instance_id": str(named_id)},
             )
+        if member.is_sub_assembly and not isinstance(mate, LockMate):
+            raise ValidationApiError(
+                "A joint or mate attaches to a part: pick a face, edge or point of "
+                "a part inside the sub-assembly.",
+                code="mate_needs_part",
+                details={"instance_id": str(named_id)},
+            )
+    if members[named_ids[0]].group_id == members[named_ids[1]].group_id:
+        raise ValidationApiError(
+            "Both parts are inside the same rigid sub-assembly, so they cannot move "
+            "relative to each other. Join them in the sub-assembly itself.",
+            code="mate_within_sub_assembly",
+            details={"instance_id": str(members[named_ids[0]].group_id)},
+        )
 
 
 async def _count(
@@ -251,6 +281,30 @@ async def _reaches(session: AsyncSession, start: uuid.UUID, target: uuid.UUID) -
     return False
 
 
+async def _reject_cycle_or_overflow(
+    session: AsyncSession,
+    owner_id: uuid.UUID,
+    assembly: db.Assembly,
+    child_id: uuid.UUID,
+) -> None:
+    """Refuse inserting assembly *child_id* into *assembly* when it would make
+    the assembly contain itself."""
+    if await _reaches(session, child_id, assembly.id):
+        child = await session.get(db.Assembly, child_id)
+        child_name = child.name if child is not None else str(child_id)
+        message = (
+            "An assembly cannot be inserted into itself."
+            if child_id == assembly.id
+            else f"{child_name} already contains {assembly.name}, so inserting it "
+            "here would make the assembly contain itself."
+        )
+        raise ValidationApiError(
+            message,
+            code="assembly_cycle",
+            details={"ref_document_id": str(child_id)},
+        )
+
+
 # --- serialization ----------------------------------------------------------------
 
 
@@ -318,20 +372,12 @@ async def _instance_part_inputs(
 
     A PART instance resolves to its referenced part's rollback-applied, upcast prefix
     (:func:`documents.features.evaluation_prefix`, reused VERBATIM — one rollback/upcast
-    implementation, DRY). Two cases yield an EMPTY prefix (never a 500), which geometry
-    reports as a typed per-instance ``no_body`` (dropped from the projection, the rest
-    still project — the §4 degrade-don't-fail posture):
-
-    - a referenced part DELETED while still instanced (a dangling ref);
-    - a rigid SUB-ASSEMBLY instance (``ref_document_kind == "assembly"``): v1 does NOT
-      flatten nested sub-assemblies into their leaf part-instances (an explicit
-      follow-up — see BACKLOG); a single-LEVEL assembly (direct part instances) is fully
-      projected.
+    implementation, DRY). A referenced part DELETED while still instanced yields an
+    EMPTY prefix (never a 500), which geometry reports as a typed per-instance
+    ``no_body`` (the §4 degrade-don't-fail posture).
 
     Owner-scoping is defense-in-depth (references are same-owner enforced at write).
     """
-    if instance.ref_document_kind != "part":
-        return [], None  # nested sub-assembly flatten deferred (v1) — no_body
     part = await session.get(db.Part, instance.ref_document_id)
     if part is None or part.owner_id != owner_id:
         return [], None  # deleted / foreign referenced part → typed no_body
@@ -339,7 +385,10 @@ async def _instance_part_inputs(
 
 
 async def build_evaluate_assembly_request(
-    session: AsyncSession, assembly: db.Assembly
+    session: AsyncSession,
+    assembly: db.Assembly,
+    *,
+    _built: dict[uuid.UUID, EvaluateAssemblyRequest] | None = None,
 ) -> EvaluateAssemblyRequest:
     """Resolve an assembly's graph → the ``EvaluateAssemblyRequest`` geometry solves.
 
@@ -349,16 +398,42 @@ async def build_evaluate_assembly_request(
     the SAME assembly-graph read the assembly endpoints use (:func:`ordered_instances` /
     :func:`ordered_mates`) and the SAME part-prefix resolution the part
     evaluation-request uses — documents sends INTENT, never a kernel body (CLAUDE.md
-    boundaries). v1 flattens single-LEVEL assemblies (direct part instances); nested
-    sub-assemblies degrade to a typed per-instance ``no_body`` (flatten is a follow-up).
+    boundaries).
+
+    A SUB-ASSEMBLY instance carries its assembly's own request, built the same way
+    (once per assembly, however often it is instanced), as ``sub_assembly``;
+    geometry solves it as a rigid body. A sub-assembly deleted while still
+    instanced degrades to an empty part (typed ``no_body``). Too many placed parts
+    or too deep a nest is a typed 422 (``assembly_too_large`` /
+    ``assembly_too_deep``), never a 500 building the request.
     """
+    if _built is None:
+        # Bounded before anything is built: a tree past the bounds is refused
+        # here, never materialised (it can predate the write-time checks).
+        await OccurrenceWalk(session, assembly.owner_id).require_within_bounds(
+            assembly.id
+        )
+    built = {} if _built is None else _built
     instances = await ordered_instances(session, assembly.id)
     mates = await ordered_mates(session, assembly.id)
     evaluated: list[EvaluatedInstance] = []
     for instance in instances:
-        features, materials = await _instance_part_inputs(
-            session, assembly.owner_id, instance
-        )
+        sub_assembly: EvaluateAssemblyRequest | None = None
+        features: list[EvaluatedFeatureInput] = []
+        materials: MaterialAssignment | None = None
+        if instance.ref_document_kind == "assembly":
+            child = await session.get(db.Assembly, instance.ref_document_id)
+            if child is not None and child.owner_id == assembly.owner_id:
+                sub_assembly = built.get(child.id)
+                if sub_assembly is None:
+                    sub_assembly = await build_evaluate_assembly_request(
+                        session, child, _built=built
+                    )
+                    built[child.id] = sub_assembly
+        else:
+            features, materials = await _instance_part_inputs(
+                session, assembly.owner_id, instance
+            )
         evaluated.append(
             EvaluatedInstance(
                 instance_id=instance.id,
@@ -372,6 +447,7 @@ async def build_evaluate_assembly_request(
                 materials=materials,
                 placement=Placement.model_validate(instance.placement),
                 grounded=instance.grounded,
+                sub_assembly=sub_assembly,
             )
         )
     return EvaluateAssemblyRequest(
@@ -466,105 +542,20 @@ async def get_assembly_evaluation_request(
     return await build_evaluate_assembly_request(session, assembly)
 
 
-async def resolve_document_names(
-    session: AsyncSession,
-    owner_id: uuid.UUID,
-    refs: set[tuple[uuid.UUID, RefDocumentKind]],
-) -> dict[tuple[uuid.UUID, RefDocumentKind], str]:
-    """Current names of the referenced parts / assemblies, keyed by (id, kind).
-
-    Owner-scoped (defense-in-depth — references are same-owner enforced at write
-    time): a referenced document DELETED since it was instanced is simply absent
-    from the map, and the BOM reports that line ``missing`` rather than 500-ing.
-    One query per kind over only the ids actually referenced.
-
-    Shared with :mod:`documents.drawings` (a drawing sheet's BOM resolves the SAME
-    names for its item lines — CLAUDE.md DRY), hence public.
-    """
-    part_ids = {ref_id for ref_id, kind in refs if kind == "part"}
-    assembly_ids = {ref_id for ref_id, kind in refs if kind == "assembly"}
-    names: dict[tuple[uuid.UUID, RefDocumentKind], str] = {}
-    if part_ids:
-        result = await session.execute(
-            select(db.Part.id, db.Part.name).where(
-                db.Part.id.in_(part_ids), db.Part.owner_id == owner_id
-            )
-        )
-        for ref_id, name in result.all():
-            names[(ref_id, "part")] = name
-    if assembly_ids:
-        result = await session.execute(
-            select(db.Assembly.id, db.Assembly.name).where(
-                db.Assembly.id.in_(assembly_ids), db.Assembly.owner_id == owner_id
-            )
-        )
-        for ref_id, name in result.all():
-            names[(ref_id, "assembly")] = name
-    return names
-
-
-async def _bom_response(
-    session: AsyncSession, assembly: db.Assembly
-) -> AssemblyBomResponse:
-    """Aggregate the assembly's DIRECT instances into a flat BOM (read model).
-
-    One line per referenced document (``ref_document_id`` + kind), quantity =
-    the count of instances sharing it, name resolved to the referenced
-    document's CURRENT name (null + ``missing`` when deleted-but-still-instanced).
-    Deterministically ordered by resolved name then ``ref_document_id`` (missing
-    lines sort last, then by id) so the list is stable across reads.
-    """
-    result = await session.execute(
-        select(
-            db.Instance.ref_document_id,
-            db.Instance.ref_document_kind,
-            func.count(),
-        )
-        .where(db.Instance.assembly_id == assembly.id)
-        .group_by(db.Instance.ref_document_id, db.Instance.ref_document_kind)
-    )
-    groups: list[tuple[uuid.UUID, RefDocumentKind, int]] = [
-        (ref_id, kind, int(count)) for ref_id, kind, count in result.all()
-    ]
-    names = await resolve_document_names(
-        session, assembly.owner_id, {(ref_id, kind) for ref_id, kind, _ in groups}
-    )
-    lines = [
-        BomLine(
-            ref_document_id=ref_id,
-            ref_document_kind=kind,
-            name=names.get((ref_id, kind)),
-            missing=(ref_id, kind) not in names,
-            quantity=count,
-        )
-        for ref_id, kind, count in groups
-    ]
-    # Stable order: resolved name, then id; deleted-ref (null name) lines last.
-    lines.sort(
-        key=lambda line: (line.name is None, line.name or "", str(line.ref_document_id))
-    )
-    return AssemblyBomResponse(
-        assembly_id=assembly.id,
-        lines=lines,
-        total_instances=sum(line.quantity for line in lines),
-    )
-
-
 @router.get("/{assembly_id}/bom")
 async def get_assembly_bom(
     assembly_id: uuid.UUID, owner_id: Principal, session: SessionDep
 ) -> AssemblyBomResponse:
-    """The assembly's flat bill of materials (direct instances only; uniform 404).
+    """The assembly's bill of materials: top level, indented and parts only.
 
-    A pure read model (assemblies.md residual): groups the assembly's DIRECT
-    instances by referenced document, resolving each to its current name and
-    kind. NOT recursive into rigid sub-assemblies — a sub-assembly instance is a
-    single ``kind: "assembly"`` line (recursive/indented BOM is a tracked
-    follow-up). A referenced document deleted while still instanced is reported
-    as a ``missing`` line with a null name, never a 500.
+    A pure read model (:mod:`documents.bom`): ``lines`` groups the assembly's
+    DIRECT instances (a sub-assembly is one line), ``indented`` opens each
+    sub-assembly beneath its line, and ``parts_only`` counts every part at every
+    level. A referenced document deleted while still instanced is reported as a
+    ``missing`` line with a null name, never a 500. Uniform 404.
     """
     assembly = await get_owned_assembly(session, owner_id, assembly_id)
-    return await _bom_response(session, assembly)
+    return await assembly_bom(session, assembly)
 
 
 @router.patch("/{assembly_id}")
@@ -675,15 +666,18 @@ async def create_instance(
                 "ref_document_kind": request.ref_document_kind,
             },
         )
-    if request.ref_document_kind == "assembly" and await _reaches(
-        session, request.ref_document_id, assembly_id
-    ):
-        raise ValidationApiError(
-            "An assembly cannot contain itself (directly or through a "
-            "sub-assembly chain).",
-            code="assembly_cycle",
-            details={"ref_document_id": str(request.ref_document_id)},
+    if request.ref_document_kind == "assembly":
+        await _reject_cycle_or_overflow(
+            session, owner_id, assembly, request.ref_document_id
         )
+    # Every insert, part or sub-assembly, grows this assembly and every
+    # assembly containing it: each must stay within the size and depth bounds.
+    await reject_oversize(
+        session,
+        owner_id,
+        assembly_id,
+        adding=(request.ref_document_kind, request.ref_document_id),
+    )
 
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
     position = await _count(session, db.Instance, assembly_id)
@@ -833,9 +827,25 @@ async def delete_instance(
     instance = await get_instance(session, assembly, instance_id)
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
 
-    # Cascade-remove mates that reference this instance (§1.2 graph integrity).
-    for mate in await ordered_mates(session, assembly_id):
-        if instance_id in mate_instance_ids(MATE_ADAPTER.validate_python(mate.params)):
+    # Cascade-remove mates that reference this instance, or a part inside it
+    # when it is a sub-assembly (§1.2 graph integrity).
+    mates = await ordered_mates(session, assembly_id)
+    named_by_mate = {
+        mate.id: mate_instance_ids(MATE_ADAPTER.validate_python(mate.params))
+        for mate in mates
+    }
+    members = await mate_members(
+        session,
+        owner_id,
+        assembly_id,
+        {i for named in named_by_mate.values() for i in named},
+    )
+    for mate in mates:
+        named = named_by_mate[mate.id]
+        if any(
+            (member := members.get(i)) is not None and member.group_id == instance_id
+            for i in named
+        ):
             deleted_mate_index = mate.order_index
             await session.delete(mate)
             await session.flush()
@@ -871,7 +881,7 @@ async def create_mate(
     this assembly (``mate_instance_unknown`` 422 otherwise)."""
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
     ensure_fresh(assembly, request.expected_version)
-    await ensure_mate_members(session, assembly_id, request.mate)
+    await ensure_mate_members(session, owner_id, assembly_id, request.mate)
     await reject_out_of_limits(session, assembly_id, request.mate, None)
 
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
@@ -1009,6 +1019,18 @@ async def _reject_restore_integrity_violations(
                 code="assembly_restore_conflict",
                 details=details,
             )
+    # Acyclic now, so the bounds can be counted: the restored instances must
+    # not put this assembly, or one containing it, past them.
+    try:
+        await reject_oversize(session, owner_id, assembly_id)
+    except ValidationApiError as exc:
+        await session.rollback()
+        raise ConflictError(
+            "Restoring this history step would put an assembly past the size "
+            "or nesting bound.",
+            code="assembly_restore_conflict",
+            details={"reason": exc.code},
+        ) from None
 
 
 async def _restore_history_step(

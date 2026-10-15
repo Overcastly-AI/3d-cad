@@ -3502,9 +3502,10 @@ export interface components {
          * EvaluateAssemblyRequest
          * @description Evaluate an assembly graph to solved placements + shared meshes (§4).
          *
-         *     Documents flattens rigid sub-assemblies into this recursive structure
-         *     before sending (or geometry recurses — the rigid-group result is identical,
-         *     §1.4/§4). Deterministic (RESEARCH §9): the same request yields an identical
+         *     A rigid sub-assembly rides NESTED (``EvaluatedInstance.sub_assembly``):
+         *     geometry solves it in its own frame, then moves it as one body. A mate may
+         *     name a part inside a sub-assembly by its occurrence id (``occurrence_id``).
+         *     Deterministic (RESEARCH §9): the same request yields an identical
          *     result — bitwise-stable mesh ids AND solved transforms — in-process and
          *     across an interpreter restart.
          */
@@ -3561,7 +3562,7 @@ export interface components {
             diagnosis?: components["schemas"]["AssemblySolveDiagnosis"] | null;
             /**
              * Instances
-             * @description Same order as the request instances
+             * @description One row per placed part, in request order; a sub-assembly contributes a row per part inside it (with a `path`), depth first
              */
             instances: components["schemas"]["InstancePlacementResult"][];
             /**
@@ -3582,6 +3583,11 @@ export interface components {
              * @enum {string}
              */
             status: "well_constrained" | "under_constrained" | "over_constrained" | "conflicting" | "not_converged";
+            /**
+             * Sub Assemblies
+             * @description Solved pose of each top-level sub-assembly instance; its parts are in `instances` with a `path`. Omitted while empty.
+             */
+            sub_assemblies?: components["schemas"]["SubAssemblyPlacement"][];
             /** Version */
             version: number;
         };
@@ -3824,6 +3830,8 @@ export interface components {
              *     }
              */
             placement: components["schemas"]["Placement"];
+            /** @description Set when this instance is a RIGID SUB-ASSEMBLY: that assembly's own evaluation request (its instances and mates, nested to any depth). Geometry solves it in its own frame first, then places it as one rigid body (SolidWorks' rigid sub-assembly); its parts come back as occurrences (see `occurrence_id`). `features` is ignored and should be empty. Omitted for a part instance, so a request without sub-assemblies dumps exactly as before they existed. */
+            sub_assembly?: components["schemas"]["EvaluateAssemblyRequest"] | null;
         };
         /**
          * EvaluatedMate
@@ -4744,6 +4752,11 @@ export interface components {
              * @description Content-addressed shared part mesh (sha256:<hex>), or null when the part produced no body
              */
             part_mesh_glb_id: string | null;
+            /**
+             * Path
+             * @description For a part placed inside a sub-assembly: the instance ids from the top-level sub-assembly instance down to this part instance, and `instance_id` is then the occurrence id of that path. Omitted for a part instanced directly in the assembly.
+             */
+            path?: string[];
             /** @description SOLVED world pose (seed if unsolved) */
             placement: components["schemas"]["Placement"];
             /** @description The part's own mass properties (BOM/inspection) */
@@ -7995,6 +8008,21 @@ export interface components {
              * @description Recovered products, in deterministic product-tree order
              */
             products: components["schemas"]["ImportedProduct"][];
+        };
+        /**
+         * SubAssemblyPlacement
+         * @description A top-level sub-assembly instance's SOLVED pose (the frame its parts
+         *     move with).
+         */
+        SubAssemblyPlacement: {
+            /**
+             * Instance Id
+             * Format: uuid
+             * @description The sub-assembly instance
+             */
+            instance_id: string;
+            /** @description SOLVED world pose (seed if unsolved) */
+            placement: components["schemas"]["Placement"];
         };
         /**
          * SubshapeRef
