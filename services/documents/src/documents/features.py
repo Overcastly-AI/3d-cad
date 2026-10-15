@@ -508,7 +508,7 @@ async def update_feature(
         features = await _ordered_features(session, part.id)
         features_by_id = {row.id: row for row in features}
         target_ids = validate_references(envelope, feature.order_index, features_by_id)
-        await check_links(session, owner_id, part, envelope, load_feature(feature)[0])
+        await check_links(session, owner_id, part, envelope, feature)
         # The context assembly owns a link's last resolved value: a save from a
         # tree read before its write-back keeps the stored one.
         incoming = carry_resolved(

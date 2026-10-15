@@ -35,10 +35,12 @@ from loft_wire.in_context import (
 )
 from py_kit import ValidationApiError, get_logger
 from py_kit.db import SessionDep
+from pydantic import ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db, history
+from documents.feature_expressions import load_feature
 from documents.occurrences import OccurrenceWalk
 from documents.parts import Principal, get_owned_part
 
@@ -121,11 +123,18 @@ async def check_links(
     owner_id: uuid.UUID,
     part: db.Part,
     envelope: FeatureEnvelope,
-    stored: FeatureEnvelope | None = None,
+    stored: db.Feature | None = None,
 ) -> None:
     """Refuse a write whose new or changed in-context links are invalid
-    (module docstring). *stored* is the feature as it was (None on create)."""
-    before = {} if stored is None else links_of(stored)
+    (module docstring). *stored* is the feature row as it was (None on
+    create); a stored row that no longer loads has no links to keep, so every
+    link of the write is checked."""
+    before: dict[str, InContextLink] = {}
+    if stored is not None:
+        try:
+            before = links_of(load_feature(stored)[0])
+        except ValidationError:
+            before = {}
     fresh = [
         link
         for entity_id, link in links_of(envelope).items()
