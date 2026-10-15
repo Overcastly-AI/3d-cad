@@ -17,7 +17,9 @@ contract on the same model:
 from __future__ import annotations
 
 import copy
+import math
 import re
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -37,6 +39,7 @@ from loft_wire.assemblies import (
     nested_occurrence_id,
 )
 from loft_wire.component_patterns import pattern_copy_id
+from py_kit.errors import ValidationApiError
 from pydantic import ValidationError
 
 _GOLDEN = Path(__file__).resolve().parent.parent / "goldens-assembly"
@@ -290,6 +293,231 @@ def test_named_step_export_does_not_carry_the_writer_counter() -> None:
     for _ in range(8):
         export_assembly(request)
     assert export_assembly(request) == first
+
+
+# --- what counts as a hole, and the bound over the whole tree (review fixes) ------
+
+
+def _features(*sketches: tuple[list[dict[str, Any]], float]) -> list[dict[str, Any]]:
+    """A part: each sketch on XY extruded (added) by its depth."""
+    out: list[dict[str, Any]] = []
+    for n, (entities, depth) in enumerate(sketches, start=1):
+        sketch_id = str(uuid.UUID(int=0xA000 + n))
+        out.append(
+            {
+                "id": sketch_id,
+                "feature": {
+                    "type": "sketch",
+                    "version": 1,
+                    "params": {
+                        "plane": {"kind": "datum_plane", "plane": "XY"},
+                        "entities": entities,
+                        "constraints": [],
+                    },
+                },
+            }
+        )
+        out.append(
+            {
+                "id": str(uuid.UUID(int=0xB000 + n)),
+                "feature": {
+                    "type": "extrude",
+                    "version": 1,
+                    "params": {
+                        "profile": {"kind": "feature", "feature_id": sketch_id},
+                        "distance_mm": depth,
+                        "operation": "add",
+                        "direction": "normal",
+                    },
+                },
+            }
+        )
+    return out
+
+
+def _line(i: str, a: tuple[float, float], b: tuple[float, float]) -> dict[str, Any]:
+    return {
+        "id": i,
+        "kind": "line",
+        "start": {"x": a[0], "y": a[1]},
+        "end": {"x": b[0], "y": b[1]},
+    }
+
+
+def _arc(
+    i: str, c: tuple[float, float], a: tuple[float, float], b: tuple[float, float]
+) -> dict[str, Any]:
+    return {
+        "id": i,
+        "kind": "arc",
+        "center": {"x": c[0], "y": c[1]},
+        "start": {"x": a[0], "y": a[1]},
+        "end": {"x": b[0], "y": b[1]},
+    }
+
+
+def _circle(i: str, c: tuple[float, float], r: float) -> dict[str, Any]:
+    return {"id": i, "kind": "circle", "center": {"x": c[0], "y": c[1]}, "radius": r}
+
+
+#: 80 x 50 x 10 with r5 corner rounds, r5 holes at (40, 25) and (60, 25), and
+#: an r5 boss at (20, 25) standing 10 above the top face: four quarter-circle
+#: rims and a full boss rim on the top face share the holes' radius.
+ROUNDED_PLATE = _features(
+    (
+        [
+            _line("l1", (5, 0), (75, 0)),
+            _arc("a1", (75, 5), (75, 0), (80, 5)),
+            _line("l2", (80, 5), (80, 45)),
+            _arc("a2", (75, 45), (80, 45), (75, 50)),
+            _line("l3", (75, 50), (5, 50)),
+            _arc("a3", (5, 45), (5, 50), (0, 45)),
+            _line("l4", (0, 45), (0, 5)),
+            _arc("a4", (5, 5), (0, 5), (5, 0)),
+            _circle("h1", (40, 25), 5),
+            _circle("h2", (60, 25), 5),
+        ],
+        10.0,
+    ),
+    ([_circle("b1", (20, 25), 5)], 20.0),
+)
+
+
+def _rim(cx: float, cy: float, z: float, r: float = 5.0) -> dict[str, Any]:
+    return {
+        "curve": "circle",
+        "end_a": {"x": cx + r, "y": cy, "z": z},
+        "end_b": {"x": cx + r, "y": cy, "z": z},
+        "midpoint": {"x": cx - r, "y": cy, "z": z},
+        "length_mm": 2 * math.pi * r,
+    }
+
+
+def _rounded_request(seed_hole: dict[str, Any]) -> EvaluateAssemblyRequest:
+    model = _only(_model(), HOLES)
+    plate = model["instances"][0]
+    plate["features"] = ROUNDED_PLATE
+    plate["part_key"] = "rounded-plate@1"
+    model["instances"] = [plate, model["instances"][2]]
+    model["mates"] = []
+    model["instances"][1]["grounded"] = True
+    pattern = model["patterns"][0]["pattern"]
+    pattern["seed_hole"] = {"instance_id": str(A), "signature": seed_hole}
+    pattern["also_on"] = []
+    return EvaluateAssemblyRequest.model_validate(model)
+
+
+def test_only_real_holes_drive_a_hole_pattern() -> None:
+    """Corner rounds and a boss share the hole radius on the top face; only
+    the two holes count, and the copy goes to the other hole."""
+    result = evaluate_assembly(_rounded_request(_rim(40, 25, 10)))
+    assert [(s.count, s.error_code) for s in result.pattern_states] == [(2, None)]
+    rows = {row.instance_id: row for row in result.instances}
+    seed = Pose.from_placement(rows[P].placement).t
+    copy_pose = Pose.from_placement(rows[pattern_copy_id(HOLES, P, 1)].placement)
+    assert copy_pose.t == pytest.approx(seed + np.array([20.0, 0.0, 0.0]), abs=TOL)
+
+
+@pytest.mark.parametrize(
+    "signature",
+    [
+        pytest.param(_rim(20, 25, 10), id="boss-rim"),
+        pytest.param(
+            {
+                "curve": "circle",
+                "end_a": {"x": 75.0, "y": 0.0, "z": 10.0},
+                "end_b": {"x": 80.0, "y": 5.0, "z": 10.0},
+                "midpoint": {
+                    "x": 75 + 5 * math.sqrt(0.5),
+                    "y": 5 - 5 * math.sqrt(0.5),
+                    "z": 10.0,
+                },
+                "length_mm": 2.5 * math.pi,
+            },
+            id="corner-round",
+        ),
+    ],
+)
+def test_a_rim_that_is_not_a_hole_is_refused(signature: dict[str, Any]) -> None:
+    result = evaluate_assembly(_rounded_request(signature))
+    assert result.pattern_states[0].error_code == "pattern_hole_not_hole"
+    assert len(result.instances) == 2
+
+
+#: A 70 x 70 x 4 plate with a 6 x 6 grid of r1 holes.
+GRID_PLATE = _features(
+    (
+        [
+            _line("l1", (0, 0), (70, 0)),
+            _line("l2", (70, 0), (70, 70)),
+            _line("l3", (70, 70), (0, 70)),
+            _line("l4", (0, 70), (0, 0)),
+            *(
+                _circle(f"h{i}{j}", (10 + 10 * i, 10 + 10 * j), 1)
+                for i in range(6)
+                for j in range(6)
+            ),
+        ],
+        4.0,
+    )
+)
+
+
+def test_a_tree_past_the_bound_is_refused_fast_at_every_entry() -> None:
+    """The stale-count case: a sub-assembly's hole pattern counted small when
+    written, its part since grown to 36 holes, instanced 14 times: 14 x 38 =
+    532 parts. Each level is within the bound on its own and the request
+    parses (28 instances); evaluation, interference and STEP export refuse
+    with the typed error before building anything per part."""
+    sub = _only(_model(), HOLES)
+    driver = sub["instances"][0]
+    driver["features"] = GRID_PLATE
+    driver["part_key"] = "grid-plate@1"
+    sub["instances"] = [driver, sub["instances"][2]]
+    sub["mates"] = []
+    sub["instances"][1]["grounded"] = True
+    pattern = sub["patterns"][0]["pattern"]
+    pattern["seed_hole"] = {"instance_id": str(A), "signature": _rim(10, 10, 4, 1)}
+    pattern["also_on"] = []
+    assert (
+        evaluate_assembly(EvaluateAssemblyRequest.model_validate(sub))
+        .pattern_states[0]
+        .count
+        == 36
+    )
+    parent = {
+        "assembly_id": str(uuid.UUID(int=0xFB)),
+        "version": 1,
+        "instances": [
+            {
+                "instance_id": str(uuid.UUID(int=0x3000 + n)),
+                "part_key": "grid-wheel@tip",
+                "features": [],
+                "grounded": True,
+                "placement": {"position": {"x": 100.0 * n, "y": 0.0, "z": 0.0}},
+                "sub_assembly": sub,
+            }
+            for n in range(14)
+        ],
+    }
+    request = EvaluateAssemblyRequest.model_validate(parent)
+    started = time.monotonic()
+    for run in (
+        lambda: evaluate_assembly(request),
+        lambda: check_interference(request),
+        lambda: export_assembly(
+            ExportAssemblyRequest.model_validate({**parent, "format": "step"})
+        ),
+    ):
+        with pytest.raises(ValidationApiError) as refused:
+            run()
+        assert refused.value.code == "assembly_too_large"
+    assert time.monotonic() - started < 30.0
+    response = TestClient(app).post(
+        "/api/v1/assembly/evaluate", json=request.model_dump(mode="json")
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "assembly_too_large"
 
 
 def test_the_counts_route_answers_every_pattern() -> None:

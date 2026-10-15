@@ -228,7 +228,7 @@ One line each. The founder triages weekly; most are closed without work.
 - ASM-PAT-HOLE-SET: "On holes" takes every circle of the seed hole's radius on its face, not the holes of one hole feature (two same-size hole features on one face are one set); SolidWorks picks the feature.
 - ASM-PAT-PREVIEW: the pattern dialog shows no copies until OK (Fusion previews them live); a Move preview of a seed leaves its copies in place until the commit.
 - ASM-PAT-RECT: a linear pattern runs in one direction; Fusion's rectangular pattern has a second direction and SolidWorks a sketch-driven pattern.
-- ASM-PAT-STALE-BOUND: a hole pattern's count is stored at write for the write-time bound of the assemblies above it; when the part later gains holes that stored count is stale until the pattern is rewritten (geometry still refuses an expansion past 500, typed `pattern_too_large`).
+- ASM-PAT-STALE-BOUND: a hole pattern's count is stored at write for the write-time bound of the assemblies above it; when the part later gains holes that stored count is stale until the pattern is rewritten. Geometry refuses any tree that then places more than 500 parts (typed `assembly_too_large`, before per-part work), so the stale count is a late refusal rather than a hang. The gateway could re-count on every write to an ancestor.
 - ASM-PAT-NESTED-STATE: a pattern that fails inside a sub-assembly (stale edge, too large) is reported only when the sub-assembly itself is open, not in the parent's tree.
 - ASM-SUB-TREE: the component tree lists a sub-assembly as one row and cannot be expanded to its parts (Fusion's browser can).
 - ASM-SUB-DRIVE: dragging or driving a joint whose moving side is a sub-assembly is untested (the e2e joins a part onto a grounded sub-assembly).

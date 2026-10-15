@@ -80,6 +80,7 @@ from loft_wire.geometry import (
     Vec3,
 )
 from loft_wire.joints import JointState
+from py_kit.errors import ValidationApiError
 
 from geometry.assembly.patterns import PatternTarget, SeedPart, expand_pattern
 from geometry.assembly.protocol import (
@@ -778,6 +779,12 @@ def _seed_occurrences(
         if child is None:
             child = _solve(inst.sub_assembly, parts, subs)
             subs[inst.part_key] = child
+        # The bound is on the parts the WHOLE tree places: a sub-assembly
+        # within it on its own (its patterns' counts can grow when a driving
+        # part gains holes) can still push this level past it, so refuse
+        # before materialising more than the bound allows.
+        if len(occurrences) + len(child.occurrences) > MAX_ASSEMBLY_INSTANCES:
+            raise assembly_too_large()
         frame = Pose.from_placement(inst.placement)
         for occ in child.occurrences:
             offset = Pose.from_placement(occ.placement)
@@ -801,6 +808,22 @@ def _seed_occurrences(
     return occurrences
 
 
+def assembly_too_large() -> ValidationApiError:
+    """The typed refusal for a tree that places more than the bound.
+
+    Raised (never folded into a 200) because nothing about such a tree can be
+    evaluated within the work bound: it is refused before any per-part result,
+    clash pair or STEP occurrence is built (audit G2).
+    """
+    return ValidationApiError(
+        f"This assembly places more than {MAX_ASSEMBLY_INSTANCES} parts across "
+        "its sub-assemblies and patterns; at most that many can be evaluated "
+        "at once.",
+        code="assembly_too_large",
+        details={"max_instances": MAX_ASSEMBLY_INSTANCES},
+    )
+
+
 def _placed(occ: Occurrence, solved: dict[uuid.UUID, Placement]) -> Occurrence:
     """*occ* at its solved world pose: its group's solved pose, composed with
     its offset inside the group (the seed when its group did not solve)."""
@@ -820,8 +843,11 @@ def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResul
     bitwise-stable ``part_mesh_glb_id``s (content hashes of deterministic GLBs)
     and solved transforms (the BLAS-pinned solver). Never raises for an
     evaluation outcome — a bad part/mate/solve is a typed per-entry error or a
-    non-``well_constrained`` status inside the result envelope. One result row
-    per placed part: a sub-assembly contributes its parts, each with its path.
+    non-``well_constrained`` status inside the result envelope. The one refusal
+    is the work bound: a tree whose sub-assemblies and patterns place more than
+    ``MAX_ASSEMBLY_INSTANCES`` parts raises the typed ``assembly_too_large``
+    (:func:`assembly_too_large`) before any per-part work. One result row per
+    placed part: a sub-assembly contributes its parts, each with its path.
     """
     solved_assembly = solve_assembly(request)
     parts = solved_assembly.parts
