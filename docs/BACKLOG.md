@@ -28,7 +28,7 @@ byte-identical; RESEARCH §15a).
       26.16 s); step 3 refused, because a cache keyed on TShape misses
       OCCT's in-place rewrites (§15a); step 2 waits on the founder: may we
       fetch the OCCT `BRepCheck` source?
-- [ ] **PART-PARAMETERS** (was PARAMETERS; absorbs SKETCH-EXPR-TRIG; the
+- [x] **PART-PARAMETERS** (done 2026-10-14, all nine steps on main; was PARAMETERS; absorbs SKETCH-EXPR-TRIG; the
       gear is not parametric): named part parameters shared by sketches and
       features, as Fusion's Change Parameters and Onshape's Variables.
       Decisions: RESEARCH §20. Each step merges alone:
@@ -62,7 +62,9 @@ byte-identical; RESEARCH §15a).
         (`docs/reference-parts/{helical-gear,manifold,knob}.py`, run in CI by
         `packages/loft-script/tests/test_reference_parts.py`; RESEARCH §20
         "Step 9, as built".)
-- [ ] **DATUM-PLANE-ANGLE** (moto frame steering head, tube-frame gap): there
+- [x] **DATUM-PLANE-ANGLE** (done 13ed52f..2f585fe, 16361fe; edge pick and
+      formula angle in this change; goldens `datum-angle-*`; e2e
+      `datum-plane-angle{,-edge}.spec.ts`; RESEARCH §18) (moto frame steering head, tube-frame gap): there
       is no tilted datum plane (only offset, on-face, offset-from and
       midplane), so the 25° steering head is a revolve about a sketch axis.
       Fusion (Plane at Angle), SolidWorks (Plane, "At angle" about an edge or
@@ -424,6 +426,8 @@ One line each. The founder triages weekly; most are closed without work.
 - HOLE-FACE-NORMAL-CHANGE: if an edit changes a hole face's normal, the hole keeps the stale stored frame (as before).
 - CENTRE-MARK-PICK-REFUSED (centre-marks review): section and flat-pattern views draw pickable centre marks but measure refuses centre dimensions there, so the error only shows after placing.
 - CENTRE-MARK-SVG-ATTRS: centre-mark `<g>` carries cx/cy attributes (not valid SVG); use data- attributes.
+- DATUM-PICK-STUCK (plane-at-angle review): if the datum editor's identity changes while open, the edge pick button stays on "Picking..." until clicked again; switching kind away from angle while armed leaves the pick armed (next click ignored).
+- DATUM-PICK-E2E-GAPS: the edge-pick e2e covers neither the curved-edge refusal nor Escape mid-pick.
 - JOINT-PLANAR-PARENT (motions review): a planar slide PATCHes B's placement; when B is the solve parent rather than the child the slide may not stick. Unverified.
 - JOINT-CARD-OVERLAP: the joint drive card overlaps the inspector's DOF text (revolute and planar).
 - MEASURE-FROM-EVAL-REQUEST, rest (step 8 did the part's measure and pick): assembly overlays (`AssemblyPage.tsx` `buildEvaluateTree`) and drawing requests (`useDrawingData.ts`) still build from GET features, so a sick feature still shows its last good body there.

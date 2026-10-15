@@ -53,6 +53,7 @@ import {
 import {
   angleLineOptions,
   datumAngleError,
+  type DatumEdge,
   edgeReadout,
   EMPTY_ANGLE_LINE,
   type SketchLineOption,
@@ -112,6 +113,14 @@ export interface DatumEditorProps {
    * or while the form is incomplete), so the viewport can draw it before Save.
    */
   onAnglePlaneChange?: (params: DatumAngleParams | null) => void;
+  /** A plane at an angle's edge pick is armed (the parent offers the edges). */
+  edgePickArmed?: boolean;
+  /** Arm/disarm the edge pick for a plane at an angle's line. */
+  onToggleEdgePick?: () => void;
+  /** The latest picked straight edge, delivered once per pick (nonce-guarded). */
+  edgePick?: { nonce: number; edge: DatumEdge } | null;
+  /** Why the last edge pick was refused (a curved edge, no body), or null. */
+  edgePickError?: string | null;
 }
 
 /**
@@ -150,7 +159,7 @@ const KIND_OPTIONS: ReadonlyArray<{ value: DatumKind; label: string }> = [
   { value: "offset_from", label: "Offset from a datum" },
   { value: "midplane", label: "Midplane between two references" },
   { value: "on_face", label: "On a model face" },
-  { value: "angle", label: "At an angle about a line" },
+  { value: "angle", label: "Plane at angle (about a line or edge)" },
 ];
 
 const BASE_OPTIONS: ReadonlyArray<SegmentOption<DatumPlaneName>> =
@@ -201,12 +210,14 @@ function FacePickButton({
   testId,
   label,
   ariaLabel,
+  armedLabel = "Picking… (click a face)",
 }: {
   armed: boolean;
   onClick: () => void;
   testId: string;
   label: string;
   ariaLabel: string;
+  armedLabel?: string;
 }) {
   return (
     <button
@@ -223,7 +234,7 @@ function FacePickButton({
           : "border-etch text-gauge hover:border-gauge hover:text-mist",
       )}
     >
-      {armed ? "Picking… (click a face)" : label}
+      {armed ? armedLabel : label}
     </button>
   );
 }
@@ -345,6 +356,10 @@ export function DatumEditor({
   offsetOverride = null,
   onPlaneChange,
   onAnglePlaneChange,
+  edgePickArmed = false,
+  onToggleEdgePick,
+  edgePick = null,
+  edgePickError = null,
 }: DatumEditorProps) {
   const unit = useDocumentLengthUnit();
   // THE ECHO (direction contract β). Without it the arrow springs back to its
@@ -387,6 +402,17 @@ export function DatumEditor({
     lastPickNonce.current = facePick.nonce;
     setForm((f) => applyFacePick(f, facePick.slot, facePick.face));
   }, [facePick]);
+  // The same for a picked edge: it becomes a plane at an angle's line.
+  const lastEdgeNonce = useRef(0);
+  useEffect(() => {
+    if (edgePick === null || edgePick.nonce === lastEdgeNonce.current) return;
+    lastEdgeNonce.current = edgePick.nonce;
+    setForm((f) =>
+      f.kind === "angle"
+        ? { ...f, line: { source: "edge", edge: edgePick.edge } }
+        : f,
+    );
+  }, [edgePick]);
 
   const submit = useCallback(() => {
     const params = buildDatumParams(form, unit);
@@ -722,6 +748,29 @@ export function DatumEditor({
                     aria-label="Line the plane turns about"
                   />
                 )}
+                {canPickFace && onToggleEdgePick ? (
+                  <FacePickButton
+                    armed={edgePickArmed}
+                    testId="datum-angle-edge-pick"
+                    label={
+                      form.line.source === "edge"
+                        ? "Pick another edge"
+                        : "Pick an edge"
+                    }
+                    armedLabel="Picking… (click a straight edge)"
+                    ariaLabel="Pick a straight model edge for the line"
+                    onClick={onToggleEdgePick}
+                  />
+                ) : null}
+                {edgePickError ? (
+                  <p
+                    role="alert"
+                    data-testid="datum-angle-edge-error"
+                    className="font-body text-xs text-flag"
+                  >
+                    {edgePickError}
+                  </p>
+                ) : null}
                 <MidplaneSideField
                   slot="angle-reference"
                   label="Reference plane"
@@ -767,8 +816,7 @@ export function DatumEditor({
                 <p className="-mt-1 font-body text-xs text-gauge">
                   The plane through the line, turned from the reference. 0 is
                   parallel to it; positive turns right-handed about the line.
-                  The line must be parallel to the reference. Select a straight
-                  model edge before opening Datum to turn about it.
+                  The line must be parallel to the reference.
                 </p>
                 <FlipControl
                   flip={form.flip}

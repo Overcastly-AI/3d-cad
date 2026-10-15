@@ -12,7 +12,7 @@ import {
  * mocks). The moto frame's steering head: a construction line along -Y through
  * the front apex (on an XY datum at the apex height), and the front cross tube
  * through the apex, are seeded through the API. Then, in the UI, the engineer
- * opens Datum, picks "At an angle about a line", chooses that sketch line,
+ * opens Datum, picks "Plane at angle", chooses that sketch line,
  * keeps XY as the reference and types 25. The 50/32 head annulus is sketched on
  * the new plane and extruded symmetric 160 (API), and the body's bounds are the
  * head's, raked 25 deg back:
@@ -140,7 +140,7 @@ test.describe("datum plane at an angle", () => {
       timeout: 30_000,
     });
 
-    // Datum > At an angle about a line: the sketch line, XY, 25.
+    // Datum > Plane at angle: the sketch line, XY, 25.
     await page.getByTestId("tool-datum").click();
     await expect(page.getByTestId("datum-editor")).toBeVisible();
     await page.getByTestId("datum-kind").selectOption("angle");
