@@ -30,7 +30,7 @@ The OCP wheel ships no type stubs; the directives scope that to this file.
 """
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
 # pyright: reportUnknownVariableType=false, reportAttributeAccessIssue=false
-# pyright: reportUnknownArgumentType=false
+# pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
-from build123d import GeomType
+from build123d import Face, GeomType, Wire
 from loft_wire.assemblies import (
     MAX_ASSEMBLY_INSTANCES,
     occurrence_id,
@@ -59,6 +59,10 @@ from loft_wire.component_patterns import (
 from loft_wire.joints import JointOrigin
 from numpy.typing import NDArray
 from OCP.BRepAdaptor import BRepAdaptor_Curve
+from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
+from OCP.TopExp import TopExp
+from OCP.TopoDS import TopoDS
+from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
 
 from geometry.assembly.joint_origins import FaceNames, resolve_joint_origin
 from geometry.assembly.protocol import AssemblyDefinitionError
@@ -72,6 +76,9 @@ Vector = NDArray[np.float64]
 #: Two hole centres, radii or plane offsets closer than this (mm) are the same.
 #: Far above float64 noise on model coordinates, far below any real hole pitch.
 HOLE_MATCH_TOL_MM = 1e-6
+
+#: How far (radians) a rim's arcs may fall short of a full turn.
+_SWEEP_TOL_RAD = 1e-6
 
 #: |a.b| above this treats two hole axes as parallel.
 _PARALLEL_COS = 1.0 - 1e-9
@@ -247,39 +254,108 @@ def _circle(edge_wrapped: object) -> tuple[Vector, Vector, float]:
     return centre, axis, float(circle.Radius())
 
 
-def matching_holes(
-    body: BodyShape, centre: Vector, axis: Vector, radius: float
-) -> list[Vector]:
-    """Centres (part frame) of every circle of *body* like the seed hole: the
-    same radius, a parallel axis, its centre on the seed hole's plane.
+@dataclass(frozen=True)
+class Hole:
+    """A round hole in a planar face of a part (part frame)."""
 
-    Deduplicated by centre and sorted, so the order is a pure function of the
-    geometry.
+    centre: Vector
+    axis: Vector
+    radius: float
+    #: The rim's edges (OCCT shapes), to find the picked one among them.
+    edges: tuple[object, ...]
+
+
+def _edge_faces(body: BodyShape) -> TopTools_IndexedDataMapOfShapeListOfShape:
+    ancestors = TopTools_IndexedDataMapOfShapeListOfShape()
+    TopExp.MapShapesAndAncestors_s(body.wrapped, TopAbs_EDGE, TopAbs_FACE, ancestors)
+    return ancestors
+
+
+def _faces_of(
+    edge_wrapped: object, ancestors: TopTools_IndexedDataMapOfShapeListOfShape
+) -> list[Face]:
+    if not ancestors.Contains(edge_wrapped):
+        return []
+    return [Face(TopoDS.Face_s(shape)) for shape in ancestors.FindFromKey(edge_wrapped)]
+
+
+def _hole_of_wire(
+    wire: Wire,
+    face: Face,
+    normal: Vector,
+    ancestors: TopTools_IndexedDataMapOfShapeListOfShape,
+) -> Hole | None:
+    """The hole an INNER wire of *face* bounds, or None.
+
+    A hole's rim is a full circle (one closed circular edge, or arcs about one
+    centre sweeping 2 pi), and its wall is a cylinder going INTO the material,
+    against the face's outward normal. A boss standing on the face has the
+    same rim but its wall rises out of the face, so it is not a hole; a
+    rounded corner is an arc of the OUTER wire and never reaches here.
     """
-    found: list[Vector] = []
-    for edge in body.edges():
-        if edge.geom_type != GeomType.CIRCLE:
-            continue
-        c, a, r = _circle(edge.wrapped)
-        if abs(r - radius) > HOLE_MATCH_TOL_MM:
-            continue
-        if abs(float(np.dot(a, axis))) < _PARALLEL_COS:
-            continue
-        if abs(float(np.dot(c - centre, axis))) > HOLE_MATCH_TOL_MM:
-            continue
-        if any(float(np.linalg.norm(c - seen)) <= HOLE_MATCH_TOL_MM for seen in found):
-            continue
-        found.append(c)
+    edges = wire.edges()
+    if not edges or any(edge.geom_type != GeomType.CIRCLE for edge in edges):
+        return None
+    circles = [_circle(edge.wrapped) for edge in edges]
+    centre, axis, radius = circles[0]
+    for c, a, r in circles[1:]:
+        if (
+            abs(r - radius) > HOLE_MATCH_TOL_MM
+            or float(np.linalg.norm(c - centre)) > HOLE_MATCH_TOL_MM
+            or abs(float(np.dot(a, axis))) < _PARALLEL_COS
+        ):
+            return None
+    sweep = 0.0
+    for edge in edges:
+        curve = BRepAdaptor_Curve(edge.wrapped)
+        sweep += abs(curve.LastParameter() - curve.FirstParameter())
+    if abs(sweep - 2.0 * math.pi) > _SWEEP_TOL_RAD:
+        return None
+    for edge in edges:
+        for wall in _faces_of(edge.wrapped, ancestors):
+            if wall.wrapped.IsSame(face.wrapped):
+                continue
+            if wall.geom_type != GeomType.CYLINDER:
+                return None
+            middle = wall.center()
+            depth = float(
+                np.dot(np.array([middle.X, middle.Y, middle.Z]) - centre, normal)
+            )
+            if depth >= -HOLE_MATCH_TOL_MM:
+                return None  # the wall rises out of the face: a boss
+    return Hole(
+        centre=centre,
+        axis=axis,
+        radius=radius,
+        edges=tuple(edge.wrapped for edge in edges),
+    )
+
+
+def face_holes(
+    face: Face, ancestors: TopTools_IndexedDataMapOfShapeListOfShape
+) -> list[Hole]:
+    """Every round hole bounded by an inner wire of the planar *face*."""
+    n = face.normal_at()
+    normal = np.array([n.X, n.Y, n.Z], dtype=np.float64)
+    holes = (
+        _hole_of_wire(wire, face, normal, ancestors) for wire in face.inner_wires()
+    )
+    return [hole for hole in holes if hole is not None]
+
+
+def matching_holes(holes: list[Hole], seed: Hole) -> list[Vector]:
+    """Centres of the holes like *seed* (same radius) on its face, sorted, so
+    the order is a pure function of the geometry."""
     return sorted(
-        found,
+        (h.centre for h in holes if abs(h.radius - seed.radius) <= HOLE_MATCH_TOL_MM),
         key=lambda c: tuple(round(float(v) / HOLE_MATCH_TOL_MM) for v in c),
     )
 
 
 def _seed_hole(
     pattern: HoleComponentPattern, driver: PatternTarget
-) -> tuple[Vector, Vector, float]:
-    """The seed hole's centre, axis and radius in the driving PART's frame,
+) -> tuple[Hole, list[Hole]]:
+    """The seed hole and every hole of the face it is in (part frame), the rim
     resolved through the durable edge resolver (so it follows a part edit)."""
     assert driver.body is not None
     try:
@@ -290,12 +366,20 @@ def _seed_hole(
         raise PatternError("subshape_ambiguous", f"seed hole: {exc}") from exc
     except SubshapeUnresolvedError as exc:
         raise PatternError("subshape_unresolved", f"seed hole: {exc}") from exc
-    if edge.geom_type != GeomType.CIRCLE:
-        raise PatternError(
-            "pattern_hole_not_circle",
-            "the seed hole resolved to an edge that is not a circle",
-        )
-    return _circle(edge.wrapped)
+    if edge.geom_type == GeomType.CIRCLE:
+        ancestors = _edge_faces(driver.body)
+        for face in _faces_of(edge.wrapped, ancestors):
+            if face.geom_type != GeomType.PLANE:
+                continue
+            holes = face_holes(face, ancestors)
+            for hole in holes:
+                if any(edge.wrapped.IsSame(rim) for rim in hole.edges):
+                    return hole, holes
+    raise PatternError(
+        "pattern_hole_not_hole",
+        "the picked edge is not the rim of a hole: pick the full circle where a "
+        "round hole meets a flat face",
+    )
 
 
 def hole_transforms(
@@ -303,8 +387,9 @@ def hole_transforms(
 ) -> list[Pose]:
     driver = _target(targets, pattern.seed_hole.instance_id)
     assert driver.body is not None
-    centre, axis, radius = _seed_hole(pattern, driver)
-    holes = matching_holes(driver.body, centre, axis, radius)
+    seed, on_face = _seed_hole(pattern, driver)
+    centre = seed.centre
+    holes = matching_holes(on_face, seed)
     drivers = [driver]
     for other_id in pattern.also_on:
         other = _target(targets, other_id)
