@@ -13,6 +13,11 @@ bigger.
    at a time, on paths that do not overlap. A brief is four things: the task
    and its acceptance line, the paths the agent may edit, its ports, and the
    branch. Do not restate CLAUDE.md.
+   **Time cap (founder, 2026-10-15): 30 minutes per agent.** Size each brief
+   to fit, tell the agent the cap, and schedule a check at 30 minutes. At
+   the cap, message it to commit what works and report; stop it with
+   TaskStop if it has not reported 10 minutes later. Split work that needs
+   longer into steps.
 3. **Review.** One `code-reviewer` pass per change. Only blocking findings
    (CLAUDE.md, "Severity") go back to the builder. Everything else becomes a
    Note.
