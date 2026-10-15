@@ -496,3 +496,7 @@ One line each. The founder triages weekly; most are closed without work.
 - BOOLEAN-KEEP-TOOLS (ladder 3d, step 9): a Boolean always consumes its tool body; Fusion's Combine has "Keep Tools". 3d's body 2 is an annulus plus a patterned flute fill instead of band minus body 1.
 - SCRIPT-POINT-DIMS (step 9): loft-script's Sketch has no sugar for point dimensions (`point_distance`, `point_line_distance`); the parametric reference parts place vertices through `docs/reference-parts/formula_sketch.py`.
 - LADDER-3D-BORE (step 9): read literally, "band minus body 1" fills the D-bore from Z 6 to 15 with a second lump; `knob.py` reads the band as round body 1, and ladder.md should say which is meant.
+- ASM-FAILED-PART-API (BIKE2-FAILED-PART-KILLS-PICKS follow-up): `POST /geometry/assembly/export` still writes only the bodied occurrences with no signal in the response; the web gate says Partial, but a loft-script or API caller gets a short file silently.
+- ASM-FAILED-PART-DRAWING: an assembly drawing omits a part that failed to build and warns only for unresolved joints, not for the missing part.
+- ASM-FAILED-PART-PLACEHOLDER: a failed part is omitted from the viewport rather than drawn as a placeholder box; its row and the pick status name it.
+- ASM-FAILED-PART-IN-PLACE: Edit in Place drops a failed context part's edges silently (the other parts' edges are offered); it does not say which part has none.
