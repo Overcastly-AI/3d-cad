@@ -46,7 +46,7 @@ NON-fatal: a valid seed-consistent placement with the remaining DOF reported.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 from loft_wire.assemblies import (
@@ -54,10 +54,13 @@ from loft_wire.assemblies import (
     AssemblySolveStatus,
     EvaluateAssemblyRequest,
     EvaluateAssemblyResult,
+    EvaluatedInstance,
     InstancePlacementResult,
     MateEvaluationError,
     Placement,
+    SubAssemblyPlacement,
     mate_instance_ids,
+    nested_occurrence_id,
 )
 from loft_wire.features import (
     EvaluateTreeRequest,
@@ -194,16 +197,20 @@ def _mate_self_reference_error(
     )
 
 
-def _evaluate_unique_parts(request: EvaluateAssemblyRequest) -> dict[str, _PartResult]:
+def _evaluate_unique_parts(
+    request: EvaluateAssemblyRequest, cache: dict[str, _PartResult]
+) -> dict[str, _PartResult]:
     """Evaluate each UNIQUE part exactly once, keyed by ``part_key`` (§4 step 1).
 
     Reuses :func:`~geometry.features.evaluate_tree` verbatim (which tessellates +
     ``store_mesh_glb``s the body), so two instances of one part share a single
     evaluation and a single content-addressed mesh (the §6.4 dedup contract).
+    *cache* is shared with every sub-assembly of the request, so a part used at
+    two levels is still evaluated once. Sub-assembly instances are skipped: their
+    parts are evaluated by their own solve.
     """
-    cache: dict[str, _PartResult] = {}
     for inst in request.instances:
-        if inst.part_key in cache:
+        if inst.sub_assembly is not None or inst.part_key in cache:
             continue
         tree_request = EvaluateTreeRequest(
             part_id=uuid.uuid5(_PART_NS, inst.part_key),
@@ -233,8 +240,23 @@ def _evaluate_unique_parts(request: EvaluateAssemblyRequest) -> dict[str, _PartR
     return cache
 
 
+def iter_part_instances(
+    instances: list[EvaluatedInstance],
+) -> list[EvaluatedInstance]:
+    """Every PART instance in *instances*, through every sub-assembly, in order."""
+    out: list[EvaluatedInstance] = []
+    for inst in instances:
+        if inst.sub_assembly is None:
+            out.append(inst)
+        else:
+            out.extend(iter_part_instances(inst.sub_assembly.instances))
+    return out
+
+
 def _resolve_mates(
-    evaluable: list[ResolvableInstance], request: EvaluateAssemblyRequest
+    evaluable: list[ResolvableInstance],
+    occurrences: list[ResolvableInstance],
+    request: EvaluateAssemblyRequest,
 ) -> tuple[AssemblySolveInput, list[MateEvaluationError]]:
     """Build the solve input, resolving each mate individually (§4 step 2).
 
@@ -243,8 +265,14 @@ def _resolve_mates(
     is reported as a per-mate error and DROPPED — the assembly still solves the
     mates it can, degrading to under-constrained rather than failing whole (§4).
     The kept mates are re-sorted deterministically by the solver.
+
+    *occurrences* are the parts inside rigid sub-assemblies: a mate may name
+    one, and is then solved against the sub-assembly it moves with. Two parts of
+    the SAME rigid sub-assembly cannot move relative to each other, so a mate
+    between them is dropped with ``mate_within_sub_assembly``.
     """
     solve_instances = build_assembly_solve_input(evaluable, []).instances
+    group_of = {inst.instance_id: inst.solver_id for inst in [*evaluable, *occurrences]}
     solver_mates: list[SolverMate] = []
     mate_errors: list[MateEvaluationError] = []
     for evaluated in request.mates:
@@ -255,13 +283,16 @@ def _resolve_mates(
             # a typed per-mate error instead of letting it raise (§4).
             mate_errors.append(_mate_self_reference_error(evaluated.mate_id, ids[0]))
             continue
+        if len({group_of.get(i, i) for i in ids}) < len(ids):
+            mate_errors.append(_mate_within_sub_assembly_error(evaluated.mate_id))
+            continue
         resolvable = ResolvableMate(
             mate_id=evaluated.mate_id,
             order_index=evaluated.order_index,
             mate=evaluated.mate,
         )
         try:
-            built = build_assembly_solve_input(evaluable, [resolvable])
+            built = build_assembly_solve_input(evaluable, [resolvable], occurrences)
         except AssemblyDefinitionError as exc:
             mate_errors.append(
                 MateEvaluationError(
@@ -273,6 +304,21 @@ def _resolve_mates(
     return (
         AssemblySolveInput(instances=solve_instances, mates=solver_mates),
         mate_errors,
+    )
+
+
+def _mate_within_sub_assembly_error(mate_id: uuid.UUID) -> MateEvaluationError:
+    """A per-mate error for a mate between two parts of one rigid sub-assembly."""
+    return MateEvaluationError(
+        mate_id=mate_id,
+        error=FeatureError(
+            code="mate_within_sub_assembly",
+            message=(
+                f"mate {mate_id} joins two parts of the same rigid sub-assembly, "
+                "which cannot move relative to each other; join them in the "
+                "sub-assembly itself"
+            ),
+        ),
     )
 
 
@@ -380,6 +426,34 @@ class PlacedInstance:
     body: BodyShape
     placement: Placement
     name: str | None
+    #: Instance ids from the top-level sub-assembly instance down to this part
+    #: (``instance_id`` is then that path's occurrence id); empty for a part
+    #: instanced directly in the assembly.
+    path: tuple[uuid.UUID, ...] = ()
+
+
+@dataclass(frozen=True)
+class Occurrence:
+    """One PART placed by the assembly, at any depth (service-internal).
+
+    A part instanced directly is its own occurrence (``path`` empty,
+    ``group_id`` its own id, ``offset`` None). A part inside a rigid
+    sub-assembly carries the path to it, the top-level sub-assembly instance it
+    moves with (``group_id``) and its pose in that instance's frame
+    (``offset``). ``placement`` is the SOLVED world pose (the seed when
+    unsolved); ``error`` is set, and ``body`` None, when its part made no body.
+    """
+
+    occurrence_id: uuid.UUID
+    path: tuple[uuid.UUID, ...]
+    group_id: uuid.UUID
+    offset: Pose | None
+    part_key: str
+    name: str | None
+    seed: Placement
+    placement: Placement
+    body: BodyShape | None
+    error: FeatureError | None
 
 
 @dataclass(frozen=True)
@@ -392,9 +466,13 @@ class SolvedAssembly:
     ``placed`` hold kernel :class:`~geometry.kernel.types.BodyShape` solids, so
     this type is NEVER serialised or crossed over a service boundary (CLAUDE.md).
 
-    ``placed`` is the export-ready view: one entry per instance that produced a
-    body, in request-instance order, each carrying its resolved part body and
-    its SOLVED world placement (the authored seed for an un-solved instance).
+    ``placed`` is the export-ready view: one entry per part occurrence that
+    produced a body (sub-assemblies opened, depth first), each carrying its
+    resolved part body and its SOLVED world placement (the authored seed for an
+    un-solved instance). ``occurrences`` is the same list including the parts
+    that made no body; ``instance_errors`` is keyed by occurrence id.
+    ``sub_assembly_poses`` holds each top-level sub-assembly instance's solved
+    pose.
     """
 
     parts: dict[str, _PartResult]
@@ -405,6 +483,8 @@ class SolvedAssembly:
     diagnosis: AssemblySolveDiagnosis | None
     mate_errors: list[MateEvaluationError]
     joint_states: list[JointState]
+    occurrences: list[Occurrence]
+    sub_assembly_poses: dict[uuid.UUID, Placement]
 
 
 def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
@@ -417,35 +497,75 @@ def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
     raises for an evaluation outcome (a bad part/mate/solve is a typed per-entry
     error or a non-``well_constrained`` status, the never-500 contract, §4).
     Deterministic (RESEARCH §9): the BLAS-pinned solver + fixed instance order.
-    """
-    parts = _evaluate_unique_parts(request)
 
-    evaluable: list[ResolvableInstance] = []
-    instance_errors: dict[uuid.UUID, FeatureError] = {}
+    A RIGID SUB-ASSEMBLY (``EvaluatedInstance.sub_assembly``) is solved first, in
+    its own frame and by its own mates (once per distinct sub-assembly, however
+    often it is instanced), then enters this solve as ONE body: its parts keep
+    their solved poses relative to each other and move with the instance. A
+    mate here may name one of those parts by occurrence id.
+    """
+    return _solve(request, {}, {})
+
+
+def _solve(
+    request: EvaluateAssemblyRequest,
+    parts: dict[str, _PartResult],
+    subs: dict[str, SolvedAssembly],
+) -> SolvedAssembly:
+    """:func:`solve_assembly` with the part and sub-assembly caches threaded
+    through every level (both keyed by ``part_key``, which names one document
+    at one version)."""
+    _evaluate_unique_parts(request, parts)
+    occurrences = _seed_occurrences(request, parts, subs)
+
     # Once per unique part, like its evaluation; only a part some mate names
     # needs them, and an unmated assembly pays nothing.
     mated = {
         i for evaluated in request.mates for i in mate_instance_ids(evaluated.mate)
     }
     names_of: dict[str, list[str | None] | None] = {}
-    for inst in request.instances:
-        if inst.instance_id in mated and inst.part_key not in names_of:
-            names_of[inst.part_key] = parts[inst.part_key].face_names()
-    for inst in request.instances:
-        part = parts[inst.part_key]
-        if part.body is None:
-            assert part.error is not None
-            instance_errors[inst.instance_id] = part.error
-        else:
-            evaluable.append(
-                ResolvableInstance(
-                    instance_id=inst.instance_id,
-                    body=part.body,
-                    placement=inst.placement,
-                    grounded=inst.grounded,
-                    face_names=names_of.get(inst.part_key),
-                )
+    for occ in occurrences:
+        if occ.occurrence_id in mated and occ.part_key not in names_of:
+            names_of[occ.part_key] = parts[occ.part_key].face_names()
+
+    instance_errors: dict[uuid.UUID, FeatureError] = {}
+    nested: list[ResolvableInstance] = []
+    direct_bodies: dict[uuid.UUID, BodyShape] = {}
+    bodied_groups: set[uuid.UUID] = set()
+    for occ in occurrences:
+        if occ.body is None:
+            assert occ.error is not None
+            instance_errors[occ.occurrence_id] = occ.error
+            continue
+        bodied_groups.add(occ.group_id)
+        if not occ.path:
+            direct_bodies[occ.occurrence_id] = occ.body
+            continue
+        nested.append(
+            ResolvableInstance(
+                instance_id=occ.occurrence_id,
+                body=occ.body,
+                placement=occ.seed,
+                face_names=names_of.get(occ.part_key),
+                group_id=occ.group_id,
+                offset=occ.offset,
             )
+        )
+
+    # The solver bodies: each top-level instance that places anything — a part
+    # with a body, or a sub-assembly with at least one (it has no B-rep of its
+    # own; mates reach it through its parts).
+    evaluable = [
+        ResolvableInstance(
+            instance_id=inst.instance_id,
+            body=direct_bodies.get(inst.instance_id),
+            placement=inst.placement,
+            grounded=inst.grounded,
+            face_names=names_of.get(inst.part_key),
+        )
+        for inst in request.instances
+        if inst.instance_id in bodied_groups
+    ]
 
     status: AssemblySolveStatus = "under_constrained"
     diagnosis: AssemblySolveDiagnosis | None = None
@@ -461,7 +581,7 @@ def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
             # itself may still raise AssemblyDefinitionError. Map ANY residual to
             # a clean assembly-level status — solve_assembly never raises for an
             # evaluation outcome (§4, the never-500 contract).
-            problem, mate_errors = _resolve_mates(evaluable, request)
+            problem, mate_errors = _resolve_mates(evaluable, nested, request)
             result = _SOLVER.solve(problem)
         except AssemblyDefinitionError as exc:
             status = "not_converged"
@@ -480,20 +600,24 @@ def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
             message="No instance produced a body to place; nothing to solve.",
         )
 
-    placed: list[PlacedInstance] = []
-    for inst in request.instances:
-        part = parts[inst.part_key]
-        if part.body is None:
-            continue
-        placed.append(
-            PlacedInstance(
-                instance_id=inst.instance_id,
-                part_key=inst.part_key,
-                body=part.body,
-                placement=solved.get(inst.instance_id, inst.placement),
-                name=inst.name,
-            )
+    sub_assembly_poses = {
+        inst.instance_id: solved.get(inst.instance_id, inst.placement)
+        for inst in request.instances
+        if inst.sub_assembly is not None
+    }
+    placed_occurrences = [_placed(occ, solved) for occ in occurrences]
+    placed = [
+        PlacedInstance(
+            instance_id=occ.occurrence_id,
+            part_key=occ.part_key,
+            body=occ.body,
+            placement=occ.placement,
+            name=occ.name,
+            path=occ.path,
         )
+        for occ in placed_occurrences
+        if occ.body is not None
+    ]
 
     return SolvedAssembly(
         parts=parts,
@@ -504,7 +628,79 @@ def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
         diagnosis=diagnosis,
         mate_errors=mate_errors,
         joint_states=joint_states,
+        occurrences=placed_occurrences,
+        sub_assembly_poses=sub_assembly_poses,
     )
+
+
+def _seed_occurrences(
+    request: EvaluateAssemblyRequest,
+    parts: dict[str, _PartResult],
+    subs: dict[str, SolvedAssembly],
+) -> list[Occurrence]:
+    """Every part *request* places, at its SEED pose, sub-assemblies opened.
+
+    A sub-assembly is solved (once per ``part_key``) in its own frame; each of
+    its parts becomes an occurrence of this assembly whose ``offset`` is its
+    solved pose in that frame and whose seed is the instance's seed composed
+    with it.
+    """
+    occurrences: list[Occurrence] = []
+    for inst in request.instances:
+        if inst.sub_assembly is None:
+            part = parts[inst.part_key]
+            occurrences.append(
+                Occurrence(
+                    occurrence_id=inst.instance_id,
+                    path=(),
+                    group_id=inst.instance_id,
+                    offset=None,
+                    part_key=inst.part_key,
+                    name=inst.name,
+                    seed=inst.placement,
+                    placement=inst.placement,
+                    body=part.body,
+                    error=part.error,
+                )
+            )
+            continue
+        child = subs.get(inst.part_key)
+        if child is None:
+            child = _solve(inst.sub_assembly, parts, subs)
+            subs[inst.part_key] = child
+        frame = Pose.from_placement(inst.placement)
+        for occ in child.occurrences:
+            offset = Pose.from_placement(occ.placement)
+            seed = frame.compose(offset).to_placement()
+            occurrences.append(
+                Occurrence(
+                    occurrence_id=nested_occurrence_id(
+                        inst.instance_id, occ.occurrence_id
+                    ),
+                    path=(inst.instance_id, *(occ.path or (occ.occurrence_id,))),
+                    group_id=inst.instance_id,
+                    offset=offset,
+                    part_key=occ.part_key,
+                    name=occ.name,
+                    seed=seed,
+                    placement=seed,
+                    body=occ.body,
+                    error=occ.error,
+                )
+            )
+    return occurrences
+
+
+def _placed(occ: Occurrence, solved: dict[uuid.UUID, Placement]) -> Occurrence:
+    """*occ* at its solved world pose: its group's solved pose, composed with
+    its offset inside the group (the seed when its group did not solve)."""
+    group_pose = solved.get(occ.group_id)
+    if group_pose is None:
+        return occ
+    if occ.offset is None:
+        return replace(occ, placement=group_pose)
+    pose = Pose.from_placement(group_pose).compose(occ.offset)
+    return replace(occ, placement=pose.to_placement())
 
 
 def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResult:
@@ -514,54 +710,55 @@ def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResul
     bitwise-stable ``part_mesh_glb_id``s (content hashes of deterministic GLBs)
     and solved transforms (the BLAS-pinned solver). Never raises for an
     evaluation outcome — a bad part/mate/solve is a typed per-entry error or a
-    non-``well_constrained`` status inside the result envelope.
+    non-``well_constrained`` status inside the result envelope. One result row
+    per placed part: a sub-assembly contributes its parts, each with its path.
     """
     solved_assembly = solve_assembly(request)
     parts = solved_assembly.parts
-    solved = solved_assembly.solved
-    instance_errors = solved_assembly.instance_errors
-    status = solved_assembly.status
-    diagnosis = solved_assembly.diagnosis
-    mate_errors = solved_assembly.mate_errors
 
     instances_out: list[InstancePlacementResult] = []
     roll_up: list[tuple[ShapeProperties, Placement]] = []
-    for inst in request.instances:
-        error = instance_errors.get(inst.instance_id)
-        if error is not None:
+    for occ in solved_assembly.occurrences:
+        path = list(occ.path)
+        if occ.error is not None:
             instances_out.append(
                 InstancePlacementResult(
-                    instance_id=inst.instance_id,
+                    instance_id=occ.occurrence_id,
                     part_mesh_glb_id=None,
-                    placement=inst.placement,
+                    placement=occ.seed,
                     properties=None,
-                    error=error,
+                    error=occ.error,
+                    path=path,
                 )
             )
             continue
-        part = parts[inst.part_key]
-        placement = solved.get(inst.instance_id, inst.placement)
+        part = parts[occ.part_key]
         instances_out.append(
             InstancePlacementResult(
-                instance_id=inst.instance_id,
+                instance_id=occ.occurrence_id,
                 part_mesh_glb_id=part.mesh_glb_id,
-                placement=placement,
+                placement=occ.placement,
                 properties=part.properties,
                 error=None,
+                path=path,
             )
         )
         if part.properties is not None:
-            roll_up.append((part.properties, placement))
+            roll_up.append((part.properties, occ.placement))
 
     combined = _combine_properties(roll_up)
     return EvaluateAssemblyResult(
         assembly_id=request.assembly_id,
         version=request.version,
         instances=instances_out,
-        status=status,
-        diagnosis=diagnosis,
-        mate_errors=mate_errors,
+        status=solved_assembly.status,
+        diagnosis=solved_assembly.diagnosis,
+        mate_errors=solved_assembly.mate_errors,
         properties=combined,
         bounding_box=combined.bounding_box if combined is not None else None,
         joint_states=solved_assembly.joint_states,
+        sub_assemblies=[
+            SubAssemblyPlacement(instance_id=instance_id, placement=placement)
+            for instance_id, placement in solved_assembly.sub_assembly_poses.items()
+        ],
     )

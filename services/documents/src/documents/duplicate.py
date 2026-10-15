@@ -74,6 +74,7 @@ from documents.db import (
     Sheet,
     View,
 )
+from documents.occurrences import occurrence_remap
 from documents.parts import (
     Principal,
     get_owned_assembly,
@@ -341,6 +342,11 @@ async def duplicate_assembly(
     )
     new_id = {instance.id: uuid.uuid4() for instance in instances}
     mapping = {str(old): str(new) for old, new in new_id.items()}
+    # A joint to a part inside a sub-assembly names it by an occurrence id
+    # derived from the sub-assembly instance's id, so it re-mints with it.
+    mapping.update(
+        await occurrence_remap(session, source.owner_id, list(instances), new_id)
+    )
     for instance in instances:
         session.add(
             Instance(

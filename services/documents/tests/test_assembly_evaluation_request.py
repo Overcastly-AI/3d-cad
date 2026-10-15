@@ -222,10 +222,10 @@ def test_rollback_bar_applies_to_the_instanced_part_prefix(client: TestClient) -
     assert [str(item.id) for item in instance.features] == [first]
 
 
-def test_sub_assembly_instance_contributes_an_empty_prefix(client: TestClient) -> None:
-    """v1 defers NESTED flatten: a rigid sub-assembly instance resolves with an
-    EMPTY feature prefix (geometry reports its typed per-instance ``no_body`` and
-    projects the rest) — never a 500. Single-LEVEL assemblies are fully resolved."""
+def test_sub_assembly_instance_carries_its_own_request(client: TestClient) -> None:
+    """A rigid sub-assembly instance carries the sub-assembly's OWN evaluation
+    request (``sub_assembly``), resolved the same way, with no feature prefix of
+    its own; geometry solves it as one body (ASM-A3)."""
     part_id = _create_part(client, "plate")
     _create_sketch(client, part_id, "Sketch1", 0)
     inner_id = _create_assembly(client, "inner")
@@ -243,8 +243,14 @@ def test_sub_assembly_instance_contributes_an_empty_prefix(client: TestClient) -
 
     part_instance, sub_instance = _evaluation_request(client, outer_id).instances
     assert len(part_instance.features) == 1  # the part instance fully resolves
-    assert sub_instance.features == []  # nested flatten deferred (typed no_body)
+    assert part_instance.sub_assembly is None
+    assert sub_instance.features == []
     assert sub_instance.part_key == f"{inner_id}@tip"
+    assert sub_instance.sub_assembly is not None
+    assert str(sub_instance.sub_assembly.assembly_id) == inner_id
+    (inner_part,) = sub_instance.sub_assembly.instances
+    assert len(inner_part.features) == 1
+    assert inner_part.grounded
 
 
 def test_dangling_part_reference_contributes_an_empty_prefix(

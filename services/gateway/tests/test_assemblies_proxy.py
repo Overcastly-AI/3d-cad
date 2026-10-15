@@ -28,6 +28,8 @@ from loft_wire.assemblies import (
     AssemblyResponse,
     AssemblyUndoRedoRequest,
     BomLine,
+    EvaluateAssemblyRequest,
+    EvaluatedInstance,
     InstanceCreate,
     InstanceMutationResponse,
     InstanceResponse,
@@ -113,6 +115,32 @@ def _bom() -> AssemblyBomResponse:
             )
         ],
         total_instances=2,
+        indented=[],
+        parts_only=[],
+        total_parts=0,
+    )
+
+
+def _evaluation_request() -> EvaluateAssemblyRequest:
+    """A one-level parent holding one sub-assembly of one part."""
+    child = EvaluateAssemblyRequest(
+        assembly_id=uuid.UUID("00000000-0000-0000-0000-0000000000d1"),
+        version=3,
+        instances=[
+            EvaluatedInstance(instance_id=INSTANCE_A, part_key="p@tip", features=[])
+        ],
+    )
+    return EvaluateAssemblyRequest(
+        assembly_id=ASSEMBLY,
+        version=1,
+        instances=[
+            EvaluatedInstance(
+                instance_id=uuid.UUID("00000000-0000-0000-0000-0000000000d2"),
+                part_key=f"{child.assembly_id}@tip",
+                features=[],
+                sub_assembly=child,
+            )
+        ],
     )
 
 
@@ -196,6 +224,9 @@ def _echo_documents(seen: list[httpx.Request]) -> Handler:
             return httpx.Response(200, content=listing.model_dump_json())
         if path.endswith("/bom"):
             return httpx.Response(200, content=_bom().model_dump_json())
+        if path.endswith("/evaluation-request"):
+            body_r = _evaluation_request().model_dump_json()
+            return httpx.Response(200, content=body_r)
         return httpx.Response(200, content=_graph(owner_id).model_dump_json())
 
     return handler
@@ -228,6 +259,7 @@ def _envelope(body: dict[str, Any]) -> dict[str, Any]:
         ("GET", "/api/v1/assemblies"),
         ("GET", f"/api/v1/assemblies/{ASSEMBLY}"),
         ("GET", f"/api/v1/assemblies/{ASSEMBLY}/bom"),
+        ("GET", f"/api/v1/assemblies/{ASSEMBLY}/evaluation-request"),
         ("GET", f"/api/v1/assemblies/{ASSEMBLY}/extents"),
         ("PATCH", f"/api/v1/assemblies/{ASSEMBLY}"),
         ("DELETE", f"/api/v1/assemblies/{ASSEMBLY}"),
@@ -320,6 +352,23 @@ def test_get_assembly_bom_passthrough(db_url: str, seen: list[httpx.Request]) ->
     [upstream] = seen
     assert upstream.method == "GET"
     assert upstream.url.path == f"/api/v1/assemblies/{ASSEMBLY}/bom"
+    assert upstream.headers[PRINCIPAL_HEADER] == user_id
+
+
+def test_get_evaluation_request_passthrough_keeps_the_nesting(
+    db_url: str, seen: list[httpx.Request]
+) -> None:
+    with make_client(db_url, _echo_documents(seen)) as client:
+        user_id, bearer = _register(client)
+        response = client.get(
+            f"/api/v1/assemblies/{ASSEMBLY}/evaluation-request", headers=bearer
+        )
+
+    assert response.status_code == 200
+    request = EvaluateAssemblyRequest.model_validate(response.json())
+    assert request == _evaluation_request()
+    [upstream] = seen
+    assert upstream.url.path == f"/api/v1/assemblies/{ASSEMBLY}/evaluation-request"
     assert upstream.headers[PRINCIPAL_HEADER] == user_id
 
 

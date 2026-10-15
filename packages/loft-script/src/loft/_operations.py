@@ -97,6 +97,16 @@ POST_ASSEMBLIES_ASSEMBLY_ID_DUPLICATE: Final = Operation(
     required_query=(),
 )
 
+GET_ASSEMBLIES_ASSEMBLY_ID_EVALUATION_REQUEST: Final = Operation(
+    operation_id="get_assembly_evaluation_request_api_v1_assemblies__assembly_id__evaluation_request_get",
+    method="GET",
+    path="/api/v1/assemblies/{assembly_id}/evaluation-request",
+    request_model=None,
+    response_model="EvaluateAssemblyRequest-Output",
+    path_params=("assembly_id",),
+    required_query=(),
+)
+
 GET_ASSEMBLIES_ASSEMBLY_ID_EXTENTS: Final = Operation(
     operation_id="get_assembly_extents_api_v1_assemblies__assembly_id__extents_get",
     method="GET",
@@ -511,7 +521,7 @@ POST_GEOMETRY_ASSEMBLY_EVALUATE: Final = Operation(
     operation_id="assembly_evaluate_api_v1_geometry_assembly_evaluate_post",
     method="POST",
     path="/api/v1/geometry/assembly/evaluate",
-    request_model="EvaluateAssemblyRequest",
+    request_model="EvaluateAssemblyRequest-Input",
     response_model="EvaluateAssemblyResult",
     path_params=(),
     required_query=(),
@@ -531,7 +541,7 @@ POST_GEOMETRY_ASSEMBLY_INTERFERENCE: Final = Operation(
     operation_id="assembly_interference_api_v1_geometry_assembly_interference_post",
     method="POST",
     path="/api/v1/geometry/assembly/interference",
-    request_model="EvaluateAssemblyRequest",
+    request_model="EvaluateAssemblyRequest-Input",
     response_model="InterferenceResult",
     path_params=(),
     required_query=(),
@@ -1010,6 +1020,7 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "update_assembly_api_v1_assemblies__assembly_id__patch": PATCH_ASSEMBLIES_ASSEMBLY_ID,
         "get_assembly_bom_api_v1_assemblies__assembly_id__bom_get": GET_ASSEMBLIES_ASSEMBLY_ID_BOM,
         "duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post": POST_ASSEMBLIES_ASSEMBLY_ID_DUPLICATE,
+        "get_assembly_evaluation_request_api_v1_assemblies__assembly_id__evaluation_request_get": GET_ASSEMBLIES_ASSEMBLY_ID_EVALUATION_REQUEST,
         "get_assembly_extents_api_v1_assemblies__assembly_id__extents_get": GET_ASSEMBLIES_ASSEMBLY_ID_EXTENTS,
         "create_instance_api_v1_assemblies__assembly_id__instances_post": POST_ASSEMBLIES_ASSEMBLY_ID_INSTANCES,
         "delete_instance_api_v1_assemblies__assembly_id__instances__instance_id__delete": DELETE_ASSEMBLIES_ASSEMBLY_ID_INSTANCES_INSTANCE_ID,

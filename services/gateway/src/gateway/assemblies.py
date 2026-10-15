@@ -116,6 +116,30 @@ async def get_assembly_bom(
     return AssemblyBomResponse.model_validate_json(upstream.content)
 
 
+@router.get("/{assembly_id}/evaluation-request")
+async def get_assembly_evaluation_request(
+    assembly_id: uuid.UUID, user: CurrentUser, http_request: Request
+) -> EvaluateAssemblyRequest:
+    """The assembly's evaluation-ready graph, exactly as geometry solves it.
+
+    Documents resolves each part instance to its feature prefix and each
+    sub-assembly instance to that assembly's own request, nested to any depth
+    (ASM-A3). The web embeds this for a sub-assembly it inserts, so the parent's
+    evaluate, export and interference requests carry the whole tree without the
+    browser walking it. Owner-scoped with the uniform 404; a tree too large or
+    too deep to evaluate is documents' typed 422.
+    """
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "GET",
+        f"/api/v1/assemblies/{assembly_id}/evaluation-request",
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return EvaluateAssemblyRequest.model_validate_json(upstream.content)
+
+
 @router.get("/{assembly_id}/extents", dependencies=[COMPUTE_RATE_LIMIT])
 async def get_assembly_extents(
     assembly_id: uuid.UUID, user: CurrentUser, http_request: Request

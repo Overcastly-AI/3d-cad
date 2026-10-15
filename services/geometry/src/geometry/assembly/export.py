@@ -43,7 +43,11 @@ from loft_wire.assemblies import (
     assembly_export_root_name,
 )
 
-from geometry.assembly.evaluate import PlacedInstance, solve_assembly
+from geometry.assembly.evaluate import (
+    PlacedInstance,
+    iter_part_instances,
+    solve_assembly,
+)
 from geometry.assembly.transform import Pose
 from geometry.features.evaluate import features_have_twist
 from geometry.kernel import (
@@ -118,7 +122,7 @@ def export_assembly(request: ExportAssemblyRequest) -> bytes:
     # (TWIST-ASSEMBLY-MESH-COST-1; design twisted-extrude.md §6.1).
     twisted_parts = {
         instance.part_key
-        for instance in request.instances
+        for instance in iter_part_instances(request.instances)
         if features_have_twist(instance.features)
     }
     components = [_component(placed, twisted_parts) for placed in solved.placed]

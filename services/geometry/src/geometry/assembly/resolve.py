@@ -80,10 +80,12 @@ from geometry.assembly.protocol import (
     AssemblySolveInput,
     ResolvedAxis,
     ResolvedFace,
+    ResolvedFrame,
     ResolvedMateGeometry,
     SolverInstance,
     SolverMate,
 )
+from geometry.assembly.transform import Pose, as_vec3, as_vector
 from geometry.kernel.edges import resolve_edge_durable
 from geometry.kernel.faces import (
     SubshapeAmbiguousError,
@@ -109,10 +111,18 @@ class ResolvableInstance:
     edges across whatever the shape holds, so a mate against a multi-body part
     resolves against every subshape solid. The caller (evaluation #5) evaluates
     each unique part once and hands the same body to every instance of that part.
+
+    **Rigid sub-assemblies.** A sub-assembly instance is one solver body with no
+    B-rep of its own (``body`` None): a mate must name a PART inside it. Each
+    such part is an extra resolvable OCCURRENCE (``build_assembly_solve_input``'s
+    ``occurrences``) whose ``group_id`` is the sub-assembly instance it moves
+    with and whose ``offset`` is its pose in that instance's frame; geometry
+    resolved on the part is carried into the group frame, and the mate is
+    re-addressed to the group (:func:`regroup_mate`).
     """
 
     instance_id: uuid.UUID
-    body: BodyShape
+    body: BodyShape | None
     placement: Placement
     grounded: bool = False
     #: The part evaluation's history-based face names, aligned with
@@ -120,6 +130,15 @@ class ResolvableInstance:
     #: They enable the named tier, which carries a mate or joint through a part
     #: edit that moved its face or hole; ``None`` runs the geometric tiers only.
     face_names: FaceNames = field(default=None, compare=False)
+    #: The solver body this occurrence moves with; ``None`` = itself.
+    group_id: uuid.UUID | None = None
+    #: This occurrence's pose in its group's frame; ``None`` = identity.
+    offset: Pose | None = field(default=None, compare=False)
+
+    @property
+    def solver_id(self) -> uuid.UUID:
+        """The solver instance whose pose places this occurrence."""
+        return self.instance_id if self.group_id is None else self.group_id
 
 
 @dataclass(frozen=True)
@@ -213,18 +232,84 @@ def resolve_mate_geometry(
 
 def _body_for(
     ref: MateGeometryRef | JointOrigin, body_of: dict[uuid.UUID, ResolvableInstance]
-) -> ResolvableInstance:
+) -> tuple[ResolvableInstance, BodyShape]:
     """The evaluated instance (body and face names) a ref names, or a clean error.
 
     A ref to an instance absent from the assembly is malformed input — an
-    :class:`AssemblyDefinitionError`, never a crash (design §4 step 2).
+    :class:`AssemblyDefinitionError`, never a crash (design §4 step 2). So is a
+    ref to a sub-assembly itself, which has no faces of its own.
     """
-    body = body_of.get(ref.instance_id)
-    if body is None:
+    inst = body_of.get(ref.instance_id)
+    if inst is None:
         raise AssemblyDefinitionError(
             f"mate references unknown instance {ref.instance_id}"
         )
-    return body
+    if inst.body is None:
+        raise AssemblyDefinitionError(
+            f"mate references sub-assembly instance {ref.instance_id} itself; "
+            "pick a face or edge of a part inside it"
+        )
+    return inst, inst.body
+
+
+def _into_group(
+    geometry: ResolvedMateGeometry, offset: Pose | None
+) -> ResolvedMateGeometry:
+    """Carry geometry resolved in a part's frame into its rigid group's frame."""
+    if offset is None:
+        return geometry
+
+    def point(vec: Vec3) -> Vec3:
+        return as_vec3(offset.apply_point(as_vector(vec)))
+
+    def direction(vec: Vec3) -> Vec3:
+        return as_vec3(offset.apply_direction(as_vector(vec)))
+
+    if isinstance(geometry, ResolvedFace):
+        return ResolvedFace(
+            point=point(geometry.point), normal=direction(geometry.normal)
+        )
+    if isinstance(geometry, ResolvedAxis):
+        return ResolvedAxis(
+            point=point(geometry.point), direction=direction(geometry.direction)
+        )
+    return ResolvedFrame(
+        origin=point(geometry.origin), z=direction(geometry.z), x=direction(geometry.x)
+    )
+
+
+def regroup_mate(
+    mate: MateParams, body_of: dict[uuid.UUID, ResolvableInstance]
+) -> MateParams:
+    """*mate* re-addressed from the occurrences it names to their solver bodies.
+
+    A joint to a part inside a rigid sub-assembly is solved as a joint to the
+    sub-assembly (the part's geometry already carried into its frame); an id
+    with no occurrence is left alone, so the solver's own unknown-instance
+    guard still names it.
+    """
+
+    def solver_id(instance_id: uuid.UUID) -> uuid.UUID:
+        inst = body_of.get(instance_id)
+        return instance_id if inst is None else inst.solver_id
+
+    if isinstance(mate, LockMate):
+        return mate.model_copy(
+            update={
+                "a_instance_id": solver_id(mate.a_instance_id),
+                "b_instance_id": solver_id(mate.b_instance_id),
+            }
+        )
+    return mate.model_copy(
+        update={
+            "a": mate.a.model_copy(
+                update={"instance_id": solver_id(mate.a.instance_id)}
+            ),
+            "b": mate.b.model_copy(
+                update={"instance_id": solver_id(mate.b.instance_id)}
+            ),
+        }
+    )
 
 
 def _resolve_mate_pair(
@@ -253,20 +338,23 @@ def _resolve_mate_pair(
 def _resolve_origin(
     origin: JointOrigin, body_of: dict[uuid.UUID, ResolvableInstance]
 ) -> ResolvedMateGeometry:
-    inst = _body_for(origin, body_of)
-    return resolve_joint_origin(inst.body, origin, face_names=inst.face_names)
+    inst, body = _body_for(origin, body_of)
+    frame = resolve_joint_origin(body, origin, face_names=inst.face_names)
+    return _into_group(frame, inst.offset)
 
 
 def _resolve_ref(
     ref: MateGeometryRef, body_of: dict[uuid.UUID, ResolvableInstance]
 ) -> ResolvedMateGeometry:
-    inst = _body_for(ref, body_of)
-    return resolve_mate_geometry(inst.body, ref, face_names=inst.face_names)
+    inst, body = _body_for(ref, body_of)
+    resolved = resolve_mate_geometry(body, ref, face_names=inst.face_names)
+    return _into_group(resolved, inst.offset)
 
 
 def build_assembly_solve_input(
     instances: Sequence[ResolvableInstance],
     mates: Sequence[ResolvableMate],
+    occurrences: Sequence[ResolvableInstance] = (),
 ) -> AssemblySolveInput:
     """Assemble the full :class:`AssemblySolveInput` from evaluated bodies + mates.
 
@@ -276,13 +364,17 @@ def build_assembly_solve_input(
     mate_id)`` order so the output is deterministic regardless of input order
     (RESEARCH §9); the solver re-sorts by the same key.
 
+    *instances* are the solver bodies; *occurrences* are the parts inside rigid
+    sub-assemblies, which a mate may name but which move with their group (see
+    :class:`ResolvableInstance`). Each emitted mate names solver bodies only.
+
     Raises:
         AssemblyDefinitionError: a duplicate instance id, a ref to an instance
             not in the assembly, a stale/ambiguous signature, or a non-circular
             edge where an axis is expected (design §4 step 2).
     """
     body_of: dict[uuid.UUID, ResolvableInstance] = {}
-    for inst in instances:
+    for inst in [*instances, *occurrences]:
         if inst.instance_id in body_of:
             raise AssemblyDefinitionError(f"duplicate instance id {inst.instance_id}")
         body_of[inst.instance_id] = inst
@@ -301,7 +393,7 @@ def build_assembly_solve_input(
         SolverMate(
             mate_id=m.mate_id,
             order_index=m.order_index,
-            mate=m.mate,
+            mate=regroup_mate(m.mate, body_of),
             geometry=_resolve_mate_pair(m.mate, body_of),
         )
         for m in ordered

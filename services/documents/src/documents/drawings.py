@@ -74,8 +74,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from documents import db
-from documents.assemblies import resolve_document_names
 from documents.assembly_history import ordered_instances
+from documents.bom import resolve_document_names
 from documents.filing import resolve_destination
 from documents.parts import (
     Principal,
@@ -652,8 +652,10 @@ async def _bom_lines(
     removing, or reordering an instance does — a real edit, and the reason nothing
     downstream may cache a number.
 
-    FLAT, like the assembly BOM: a rigid sub-assembly instance is a single
-    ``kind: "assembly"`` line, never expanded. A referenced document deleted while
+    TOP LEVEL, the same lines and quantities as the assembly BOM's ``lines``
+    (SolidWorks' default for a drawing parts list): a rigid sub-assembly instance
+    is a single ``kind: "assembly"`` line, ballooned once; its contents are on the
+    assembly BOM's indented and parts-only views. A referenced document deleted while
     still instanced keeps its line with ``missing`` true and a null name — the
     quantity is never silently dropped.
     """

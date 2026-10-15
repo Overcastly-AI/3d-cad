@@ -18,10 +18,11 @@ as :mod:`loft_wire.geometry` does.
 """
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from loft_wire.features import (
     MAX_TREE_FEATURES,
@@ -53,6 +54,11 @@ from loft_wire.units import DEFAULT_LENGTH_UNIT, LengthUnit
 def _is_empty(value: object) -> bool:
     """``exclude_if`` predicate: an empty list is not serialized."""
     return value == []
+
+
+def _is_none(value: object) -> bool:
+    """``exclude_if`` predicate: an absent optional is not serialized."""
+    return value is None
 
 
 def _drop_schema_default(schema: dict[str, Any]) -> None:
@@ -119,6 +125,49 @@ InstanceName = Annotated[
 #: distinct so the acyclicity walk (documents-side) knows which references to
 #: recurse into.
 RefDocumentKind = Literal["part", "assembly"]
+
+
+# --- occurrences: a part placed inside a sub-assembly ------------------------------
+#
+# A rigid sub-assembly is inserted as ONE instance, but its parts still have to be
+# drawn, picked, clash-checked and exported one by one. Each such placed part is
+# an OCCURRENCE, named by the chain of instance ids from the top-level instance
+# down to the part instance (Onshape's occurrence path). Its id is that chain
+# folded into one deterministic UUID, so an occurrence can stand anywhere an
+# instance id stands (a joint origin, a clash pair, a result row) without a second
+# id type on the wire. A part instanced directly in the assembly is its own
+# occurrence: its occurrence id is its instance id.
+
+#: How deep sub-assemblies may nest (a work bound, like the instance bound). A
+#: bike is three levels; sixteen is far past any assembly this targets.
+MAX_ASSEMBLY_DEPTH = 16
+
+
+def nested_occurrence_id(
+    instance_id: uuid.UUID, child_occurrence_id: uuid.UUID
+) -> uuid.UUID:
+    """The id of *child_occurrence_id* (an occurrence inside a sub-assembly) as
+    seen from the assembly that instances that sub-assembly as *instance_id*.
+
+    ``uuid5`` keyed on the parent instance, so two instances of one wheel give
+    their rims two different, stable ids, and documents (validating a joint) and
+    geometry (solving it) derive the same id without asking each other.
+    """
+    return uuid.uuid5(instance_id, str(child_occurrence_id))
+
+
+def occurrence_id(path: Sequence[uuid.UUID]) -> uuid.UUID:
+    """The occurrence id of an instance-id *path* (top-level instance first).
+
+    ``[part_instance]`` is the instance itself; ``[wheel, rim]`` is the rim of that
+    wheel; ``[bike, wheel, rim]`` nests once more.
+    """
+    if not path:
+        raise ValueError("an occurrence path names at least one instance")
+    current = path[-1]
+    for instance_id in reversed(path[:-1]):
+        current = nested_occurrence_id(instance_id, current)
+    return current
 
 
 # --- placement + orientation (§1.5) ---------------------------------------------
@@ -594,15 +643,15 @@ class AssemblyUndoRedoRequest(BaseModel):
 
 
 class BomLine(BaseModel):
-    """One line of an assembly's bill of materials (a flat, direct-instance BOM).
+    """One line of an assembly's bill of materials.
 
-    A BOM line GROUPS the assembly's DIRECT instances by the document they
-    reference: ``quantity`` is the count of instances sharing this
-    ``ref_document_id``, ``name`` is the referenced document's CURRENT name, and
-    ``ref_document_kind`` is ``part`` or ``assembly``. This is the FLAT v1 —
-    direct instances only, NOT recursive into rigid sub-assemblies (an explicit
-    follow-up; a sub-assembly instance appears as a single ``kind: "assembly"``
-    line, never expanded).
+    A BOM line GROUPS instances by the document they reference: ``quantity`` is
+    the count of instances sharing this ``ref_document_id`` (within the line's
+    parent for an indented line, across every level for a parts-only line),
+    ``name`` is the referenced document's CURRENT name, and
+    ``ref_document_kind`` is ``part`` or ``assembly``. In the top-level list a
+    sub-assembly is one ``kind: "assembly"`` line; the indented and parts-only
+    lists open it up (SolidWorks' three BOM types).
 
     A referenced document that was DELETED while still instanced surfaces
     honestly, not silently: the line stays (its instances still exist and still
@@ -614,7 +663,7 @@ class BomLine(BaseModel):
         description="The referenced part / sub-assembly document (the group key)"
     )
     ref_document_kind: RefDocumentKind = Field(
-        description="'part' or 'assembly' (a rigid sub-assembly, not expanded)"
+        description="'part' or 'assembly' (a rigid sub-assembly)"
     )
     name: str | None = Field(
         description="The referenced document's CURRENT name, or null when it has "
@@ -627,29 +676,72 @@ class BomLine(BaseModel):
         "the dangling reference is visible, never silently dropped",
     )
     quantity: int = Field(
-        ge=1, description="Count of direct instances referencing this document"
+        ge=1,
+        description="Count of instances referencing this document: direct "
+        "instances on a top-level line, instances inside the parent on an "
+        "indented line, every placed occurrence on a parts-only line",
+    )
+
+
+class IndentedBomLine(BomLine):
+    """One row of the INDENTED bill of materials (SolidWorks' indented BOM).
+
+    Rows come depth first: a sub-assembly row is followed by the rows of its own
+    contents, one level deeper. ``quantity`` counts within the parent
+    (a wheel has 1 rim); ``total_quantity`` counts across the whole assembly
+    (a bike with 2 wheels has 2 rims), which is the number to order.
+    """
+
+    item: str = Field(
+        description="Outline item number: '2' at the top level, '2.1' for the "
+        "first line inside item 2"
+    )
+    level: int = Field(ge=0, description="Nesting depth; 0 = a top-level line")
+    total_quantity: int = Field(
+        ge=1,
+        description="How many of this line the whole assembly holds: quantity "
+        "multiplied by every parent line's quantity",
     )
 
 
 class AssemblyBomResponse(BaseModel):
-    """An assembly's flat bill of materials (design: assemblies.md residual).
+    """An assembly's bill of materials, in SolidWorks' three views.
 
-    A pure documents-side READ MODEL — no writes, no migration: it aggregates
-    the assembly's DIRECT instances into one :class:`BomLine` per referenced
-    document (quantity = shared-reference count), resolving each document's
-    current name from the ``parts`` / ``assemblies`` tables. Deterministically
-    ordered (resolved name, then ``ref_document_id``) so the list is stable
-    across reads. ``total_instances`` is the sum of every line's quantity (the
-    assembly's direct-instance count), so an empty assembly is
-    ``{lines: [], total_instances: 0}``.
+    A pure documents-side READ MODEL — no writes, no migration — resolving each
+    document's current name from the ``parts`` / ``assemblies`` tables:
+
+    - ``lines`` (TOP LEVEL): one :class:`BomLine` per document the assembly
+      instances directly, a sub-assembly as a single line;
+      ``total_instances`` sums them.
+    - ``indented``: the top-level lines with each sub-assembly's contents
+      listed under it, to any depth.
+    - ``parts_only``: every PART at every level, each counted once per placed
+      occurrence; ``total_parts`` sums them (what a shop builds).
+
+    Each list is deterministically ordered (resolved name, then
+    ``ref_document_id``; missing documents last), so reads are stable. An empty
+    assembly is ``{lines: [], indented: [], parts_only: [], total_instances: 0,
+    total_parts: 0}``.
     """
 
     assembly_id: uuid.UUID
     lines: list[BomLine] = Field(
-        description="One line per referenced document, deterministically ordered"
+        description="Top level: one line per directly-referenced document, "
+        "deterministically ordered"
     )
     total_instances: int = Field(
-        ge=0, description="Sum of all line quantities (direct instance count)"
+        ge=0, description="Sum of all top-level line quantities (direct instances)"
+    )
+    indented: list[IndentedBomLine] = Field(
+        description="Top-level lines with every sub-assembly opened beneath "
+        "itself, depth first"
+    )
+    parts_only: list[BomLine] = Field(
+        description="Every part at every level, one line per part document, "
+        "quantity = placed occurrences"
+    )
+    total_parts: int = Field(
+        ge=0, description="Sum of the parts-only quantities (every placed part)"
     )
 
 
@@ -805,14 +897,27 @@ class EvaluatedInstance(BaseModel):
         description="Fix this instance at its placement (0 DOF) — the solver "
         "anchor; an assembly with none grounded floats (under_constrained, §1.2)",
     )
+    sub_assembly: "EvaluateAssemblyRequest | None" = Field(
+        default=None,
+        exclude_if=_is_none,
+        json_schema_extra=_drop_schema_default,
+        description="Set when this instance is a RIGID SUB-ASSEMBLY: that "
+        "assembly's own evaluation request (its instances and mates, nested to "
+        "any depth). Geometry solves it in its own frame first, then places it "
+        "as one rigid body (SolidWorks' rigid sub-assembly); its parts come back "
+        "as occurrences (see `occurrence_id`). `features` is ignored and should "
+        "be empty. Omitted for a part instance, so a request without "
+        "sub-assemblies dumps exactly as before they existed.",
+    )
 
 
 class EvaluateAssemblyRequest(BaseModel):
     """Evaluate an assembly graph to solved placements + shared meshes (§4).
 
-    Documents flattens rigid sub-assemblies into this recursive structure
-    before sending (or geometry recurses — the rigid-group result is identical,
-    §1.4/§4). Deterministic (RESEARCH §9): the same request yields an identical
+    A rigid sub-assembly rides NESTED (``EvaluatedInstance.sub_assembly``):
+    geometry solves it in its own frame, then moves it as one body. A mate may
+    name a part inside a sub-assembly by its occurrence id (``occurrence_id``).
+    Deterministic (RESEARCH §9): the same request yields an identical
     result — bitwise-stable mesh ids AND solved transforms — in-process and
     across an interpreter restart.
     """
@@ -836,6 +941,49 @@ class EvaluateAssemblyRequest(BaseModel):
         description="Presentation tessellation parameter (mm), never persisted. "
         "Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
     )
+
+    @model_validator(mode="after")
+    def _bounded_nesting(self) -> Self:
+        """Sub-assemblies count toward the work bounds by what they PLACE: the
+        part occurrences across every level (each one is evaluated, drawn and
+        clash-checked) and the nesting depth (each level is a solve)."""
+        leaves = count_leaf_instances(self.instances)
+        if leaves > MAX_ASSEMBLY_INSTANCES:
+            raise ValueError(
+                f"the assembly places {leaves} parts across its sub-assemblies; "
+                f"at most {MAX_ASSEMBLY_INSTANCES} are allowed per request"
+            )
+        depth = assembly_depth(self.instances)
+        if depth > MAX_ASSEMBLY_DEPTH:
+            raise ValueError(
+                f"sub-assemblies nest {depth} levels deep; at most "
+                f"{MAX_ASSEMBLY_DEPTH} are allowed"
+            )
+        return self
+
+
+def count_leaf_instances(instances: Sequence[EvaluatedInstance]) -> int:
+    """How many PART occurrences *instances* place, through every sub-assembly."""
+    total = 0
+    for instance in instances:
+        if instance.sub_assembly is None:
+            total += 1
+        else:
+            total += count_leaf_instances(instance.sub_assembly.instances)
+    return total
+
+
+def assembly_depth(instances: Sequence[EvaluatedInstance]) -> int:
+    """Levels of assembly *instances* spans: 1 with no sub-assembly."""
+    deepest = 1
+    for instance in instances:
+        if instance.sub_assembly is not None:
+            deepest = max(deepest, 1 + assembly_depth(instance.sub_assembly.instances))
+    return deepest
+
+
+EvaluatedInstance.model_rebuild()
+EvaluateAssemblyRequest.model_rebuild()
 
 
 class InstancePlacementResult(BaseModel):
@@ -864,6 +1012,23 @@ class InstancePlacementResult(BaseModel):
         description="Typed per-instance failure inside a 200 (the part's failing "
         "feature error / no_body), never a transport 4xx (design §4)",
     )
+    path: list[uuid.UUID] = Field(
+        default_factory=list["uuid.UUID"],
+        exclude_if=_is_empty,
+        json_schema_extra=_drop_schema_default,
+        description="For a part placed inside a sub-assembly: the instance ids "
+        "from the top-level sub-assembly instance down to this part instance, "
+        "and `instance_id` is then the occurrence id of that path. Omitted for "
+        "a part instanced directly in the assembly.",
+    )
+
+
+class SubAssemblyPlacement(BaseModel):
+    """A top-level sub-assembly instance's SOLVED pose (the frame its parts
+    move with)."""
+
+    instance_id: uuid.UUID = Field(description="The sub-assembly instance")
+    placement: Placement = Field(description="SOLVED world pose (seed if unsolved)")
 
 
 class MateEvaluationError(BaseModel):
@@ -918,7 +1083,8 @@ class EvaluateAssemblyResult(BaseModel):
     assembly_id: uuid.UUID
     version: int
     instances: list[InstancePlacementResult] = Field(
-        description="Same order as the request instances"
+        description="One row per placed part, in request order; a sub-assembly "
+        "contributes a row per part inside it (with a `path`), depth first"
     )
     status: AssemblySolveStatus = Field(description="Assembly-level solve outcome")
     diagnosis: AssemblySolveDiagnosis | None = Field(
@@ -942,6 +1108,13 @@ class EvaluateAssemblyResult(BaseModel):
         json_schema_extra=_drop_schema_default,
         description="Solved position of each joint mate. Omitted while empty, "
         "so an assembly without joints dumps exactly as before joints existed.",
+    )
+    sub_assemblies: list[SubAssemblyPlacement] = Field(
+        default_factory=list["SubAssemblyPlacement"],
+        exclude_if=_is_empty,
+        json_schema_extra=_drop_schema_default,
+        description="Solved pose of each top-level sub-assembly instance; its "
+        "parts are in `instances` with a `path`. Omitted while empty.",
     )
 
 

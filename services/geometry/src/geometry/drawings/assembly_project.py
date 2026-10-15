@@ -116,13 +116,13 @@ def evaluate_assembly_drawing_views(
     solved = solve_assembly(request.assembly)
     scale_value = request.scale.numerator / request.scale.denominator
 
-    # Per-instance errors in deterministic request-instance order (solve_assembly's
-    # instance_errors dict is insertion-ordered by request.instances, but iterate the
-    # request explicitly so the order is provably request-order regardless of dict).
+    # Per-part errors in deterministic order: solve_assembly's occurrence list is
+    # request order, sub-assemblies opened depth first (a part inside one is keyed
+    # by its occurrence id).
     instance_errors = [
-        InstanceEvaluationError(instance_id=inst.instance_id, error=err)
-        for inst in request.assembly.instances
-        if (err := solved.instance_errors.get(inst.instance_id)) is not None
+        InstanceEvaluationError(instance_id=occ.occurrence_id, error=occ.error)
+        for occ in solved.occurrences
+        if occ.error is not None
     ]
 
     body = compose_assembly_body(solved.placed)

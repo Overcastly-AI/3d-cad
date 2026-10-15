@@ -401,26 +401,41 @@ def test_reordering_instances_renumbers_and_says_so_via_the_version(
     ] == [(1, second), (2, first)]
 
 
-def test_bom_sub_assembly_is_one_unexpanded_line(client: TestClient) -> None:
-    """A rigid sub-assembly instance is a single ``kind: 'assembly'`` item.
-
-    FLAT v1, matching the assembly BOM: recursive/indented expansion is a tracked
-    follow-up, so the line is honest about what it is rather than silently absent.
-    """
+def test_bom_sub_assembly_is_one_top_level_line(client: TestClient) -> None:
+    """A rigid sub-assembly instance is a single ``kind: 'assembly'`` item, and
+    the drawing's parts list is the assembly BOM's TOP LEVEL: same documents,
+    same quantities, same total (SolidWorks' default drawing BOM). The parts
+    inside are on the assembly BOM's indented and parts-only views."""
     parent = _create_assembly(client, "bom-parent")
     child = _create_assembly(client, "bom-child")
+    part = _create_part(client, "bom-leaf")
+    _add_instance(client, child, part, 0, name="Leaf <1>")
+    _add_instance(client, child, part, 1, name="Leaf <2>")
     _add_instance(
         client, parent, child, 0, ref_document_kind="assembly", name="Sub <1>"
+    )
+    _add_instance(
+        client, parent, child, 1, ref_document_kind="assembly", name="Sub <2>"
     )
 
     drawing_id, _ = _drawing_of(client, "bom-nested-dwg", parent)
     body = _bom(client, drawing_id).json()
-    assert body["total_instances"] == 1
+    assert body["total_instances"] == 2
     [line] = body["lines"]
     assert line["item_number"] == 1
     assert line["ref_document_kind"] == "assembly"
     assert line["ref_document_id"] == child
     assert line["name"] == "bom-child"
+    assert line["quantity"] == 2
+
+    assembly_bom = client.get(
+        f"/api/v1/assemblies/{parent}/bom", headers=_headers()
+    ).json()
+    assert [(x["ref_document_id"], x["quantity"]) for x in assembly_bom["lines"]] == [
+        (x["ref_document_id"], x["quantity"]) for x in body["lines"]
+    ]
+    assert assembly_bom["total_instances"] == body["total_instances"]
+    assert assembly_bom["total_parts"] == 4
 
 
 def test_bom_of_an_empty_assembly_is_an_empty_item_list(client: TestClient) -> None:

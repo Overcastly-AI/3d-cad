@@ -2087,9 +2087,9 @@ class DrawingBomResponse(BaseModel):
 
     A pure READ MODEL (no table, no migration): the sheet's single source document
     (the enforced one-sheet-one-source invariant, §2.2) must be an ASSEMBLY, and its
-    DIRECT instances are rolled up into numbered :class:`DrawingBomLine` s. FLAT —
-    a rigid sub-assembly instance is one ``kind: "assembly"`` line, never expanded
-    (the same v1 bound the assembly BOM states; recursive/indented is a follow-up).
+    DIRECT instances are rolled up into numbered :class:`DrawingBomLine` s. TOP
+    LEVEL — the assembly BOM's ``lines`` (SolidWorks' default drawing parts list):
+    a rigid sub-assembly instance is one ``kind: "assembly"`` line.
 
     A sheet drafting a PART has no bill of materials: that is a typed
     ``drawing_bom_source_not_assembly`` 422, not a 200 with an empty list — an empty
