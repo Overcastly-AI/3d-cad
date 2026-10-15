@@ -407,6 +407,57 @@ def _rounded_request(seed_hole: dict[str, Any]) -> EvaluateAssemblyRequest:
     return EvaluateAssemblyRequest.model_validate(model)
 
 
+#: The counterbore centres of COUNTERBORE_PLATE.
+CB_CENTRES = ((15.0, 15.0), (15.0, 35.0), (65.0, 15.0), (65.0, 35.0))
+
+#: 80 x 50 x 10 with four counterbored holes (through r3; counterbore r5 from
+#: z 7 to 10, so each floor is its own annular face at z 7) and, at (40, 25),
+#: an annular groove r2..r5 from z 7 to 10 around an r2 island: on the top face
+#: the groove's outer rim has the counterbores' radius.
+COUNTERBORE_PLATE = _features(
+    (
+        [
+            _line("l1", (0, 0), (80, 0)),
+            _line("l2", (80, 0), (80, 50)),
+            _line("l3", (80, 50), (0, 50)),
+            _line("l4", (0, 50), (0, 0)),
+            *(_circle(f"c{n}", c, 5) for n, c in enumerate(CB_CENTRES)),
+            _circle("g", (40, 25), 5),
+        ],
+        10.0,
+    ),
+    # One sketch per region: an extrude takes one outer boundary.
+    *(([_circle("o", c, 5), _circle("i", c, 3)], 7.0) for c in CB_CENTRES),
+    ([_circle("f", (40, 25), 5)], 7.0),
+    ([_circle("island", (40, 25), 2)], 10.0),
+)
+
+
+def _counterbore_request(seed_hole: dict[str, Any]) -> EvaluateAssemblyRequest:
+    request = _rounded_request(seed_hole).model_dump(mode="json")
+    request["instances"][0]["features"] = COUNTERBORE_PLATE
+    request["instances"][0]["part_key"] = "counterbore-plate@1"
+    return EvaluateAssemblyRequest.model_validate(request)
+
+
+@pytest.mark.parametrize(
+    ("rim", "radius"),
+    [
+        pytest.param((15, 15, 7), 3.0, id="counterbore-floor"),
+        pytest.param((15, 15, 10), 5.0, id="counterbore-top-not-the-groove"),
+        pytest.param((15, 15, 0), 3.0, id="bottom"),
+    ],
+)
+def test_counterbores_count_on_every_level(
+    rim: tuple[float, float, float], radius: float
+) -> None:
+    """Each counterbore floor is its own face; the level is every face on that
+    plane, so the floor rim counts all four. On the top face the groove's
+    outer rim has the same radius but an island at its centre: not a hole."""
+    result = evaluate_assembly(_counterbore_request(_rim(*rim, r=radius)))
+    assert [(s.count, s.error_code) for s in result.pattern_states] == [(4, None)]
+
+
 def test_only_real_holes_drive_a_hole_pattern() -> None:
     """Corner rounds and a boss share the hole radius on the top face; only
     the two holes count, and the copy goes to the other hole."""

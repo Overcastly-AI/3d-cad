@@ -1,5 +1,5 @@
 {
-  "description": "HOLE-PATTERN RULE GOLDEN (ASM-A3-PATTERN review): a hole pattern counts only REAL holes. Driver R is an 80 x 50 x 10 plate with r5 corner rounds, r5 through holes at (40, 25) and (60, 25), and an r5 boss at (20, 25) standing 10 above its top face, grounded at the origin. On R's top face (z = 10) six circular rims share the holes' radius: two hole rims, the boss's base rim, and four quarter-circle corner rounds. Seed S (the two-hole plate) is grounded at (28, 12.5, 10), its hole 1 over R's hole at (40, 25); the hole pattern's seed hole is R's (40, 25) top rim. Locks: partial arcs (outer-wire corner rounds) and a boss rim (its wall rises out of the face) are not holes, so the count is 2 and the one copy goes to the other hole.",
+  "description": "HOLE-PATTERN RULE GOLDEN (ASM-A3-PATTERN review): a hole pattern counts only REAL holes, over the whole level of the seed hole. Driver R is an 80 x 50 x 10 plate with r5 corner rounds, r5 through holes at (40, 25) and (60, 25), and an r5 boss at (20, 25) standing 10 above its top face; seed S sits over R's (40, 25) hole: the corner rounds (partial arcs) and the boss rim (its wall rises out of the face) are not holes, count 2. Driver G, at (0, 100, 0), is an 80 x 50 x 10 plate with four counterbored holes (through r3, counterbore r5 from z 7 to 10, so each floor is its own annular face) at (15|65, 15|35) and an annular groove r2..r5, z 7..10, around an r2 island at (40, 25). Seed S2's pattern is seeded on the first counterbore FLOOR rim (r3, z 7): every floor of that level counts, 4. Seed S3's is seeded on the first counterbore TOP rim (r5, z 10): the groove's outer rim has the same radius but material (the island) at its centre, so it is not a hole, 4.",
   "derivation": [
     "Expectations are HAND-DERIVED, not recorded pipeline output.",
     "R's mass properties. The rounded outline's area is 80 x 50 - 4 (5^2 - pi 5^2 / 4) = 3900 + 25 pi. The slab (z 0..10) less two r5 holes: 10 (3900 + 25 pi) - 2 x 250 pi = 39000 - 250 pi; the boss above the face (z 10..20): 250 pi. Volume 39000 mm^3.",
@@ -9,56 +9,266 @@
     "The plate S (sketch-extrude-plate-2holes golden): volume 8429.203673205104, surface_area 3614.159265358979, centroid (20, 12.5, 5), AABB [0,0,0]..[40,25,10], 8 / 18 / 1.",
     "Holes on R's top face: inner wires whose rim is a full circle and whose wall goes down into the slab: the rims at (40, 25) and (60, 25). The boss's base rim is an inner wire too, but its wall rises above the face; the corner rounds are quarter arcs of the OUTER wire. Count 2.",
     "Copy (pattern ...f1, seed ...e2, k1 = uuid5 c70fd1e8-5135-55e3-9ad7-bf089ed1bf16): T = Trans((60, 25, 10) - (40, 25, 10)) = Trans(20, 0, 0); S at (28, 12.5, 10) -> (48, 12.5, 10), unrotated.",
-    "Combined: volume 39000 + 2 x 8429.203673205104 = 55858.40734641021; area 11099.557428756427 + 2 x 3614.159265358979 = 18327.875959474386. Centroid, volume-weighted: S at (48, 25, 15), copy at (68, 25, 15); x = (39000 x 39.19446342215646 + 8429.203673205104 x 116) / 55858.40734641021 = 44.87008883036061; y = 25; z = (39000 x 5.201384144460884 + 16858.407346410208 x 15) / 55858.40734641021 = 8.158666053686106.",
-    "Bounding box: R [0,0,0]..[80,50,20]; S [28,12.5,10]..[68,37.5,20]; copy [48,12.5,10]..[88,37.5,20]. Union [0,0,0]..[88,50,20]. Topology 14 + 8 + 8 = 30 faces, 33 + 18 + 18 = 69 edges, 3 shells; distinct meshes 2."
+    "G's mass properties. Slab 80 x 50 x 10 = 40000; each counterbore removes r5 over z 7..10 (75 pi, centroid z 8.5) and r3 over z 0..7 (63 pi, z 3.5); the groove removes the annulus r2..r5 over z 7..10 (63 pi, z 8.5). Volume 40000 - 615 pi = 38067.92051804228. Symmetric about x 40 and y 25 (counterbores at x 15 / 65, y 15 / 35; groove at the centre). z moment 200000 - 4 (75 pi x 8.5 + 63 pi x 3.5) - 63 pi x 8.5 = 200000 - 3967.5 pi, z = 4.926345558013866.",
+    "G's surface: top 4000 - 125 pi (four r5 bores and the groove), island top 4 pi, bottom 4000 - 36 pi, sides 2600; per counterbore r3 wall 42 pi, floor 16 pi, r5 wall 30 pi (88 pi, x 4 = 352 pi); groove outer wall 30 pi, floor 21 pi, island wall 12 pi. Total 10600 + 258 pi = 11410.530904626166. Topology: faces top, bottom, 4 sides, 3 per counterbore, 4 for the groove = 22; edges 12 box, 6 per counterbore (4 circles + 2 seams), 6 for the groove = 42; 1 shell.",
+    "G's levels. z 7, facing up: the four floor annuli and the groove floor; their inner rims are r3 (x4, walls into the slab) and r2 (the island wall rises: not a hole). Seed rim r3 at (15, 15, 7): holes sorted (15,15), (15,35), (65,15), (65,35), count 4, shifts (0, 20, 0), (50, 0, 0), (50, 20, 0). z 10, facing up: the top face and the island top; r5 inner rims at the four counterbores and the groove, but G has material (the island) at the groove centre: count 4, the same shifts.",
+    "Seeds (the plate) grounded: S2 at (0, 100, 20), S3 at (0, 100, 40). Copies: S2 pattern ...f2: 3730a8ab (0, 120, 20), d37aa2c9 (50, 100, 20), 7725a90b (50, 120, 20); S3 pattern ...f3: 0d51027b (0, 120, 40), 34c95a22 (50, 100, 40), daab28fe (50, 120, 40); all unrotated.",
+    "Combined: volume 39000 + (40000 - 615 pi) + 10 x 8429.203673205104 = 161359.95725009334; area (10000 + 350 pi) + (10600 + 258 pi) + 10 x 3614.159265358979 = 58651.68098697238. Volume-weighted centroid over R (39.19446342215646, 25, 5.201384144460884), G (40, 125, 4.926345558013866) and the ten plates (centroid + (20, 12.5, 5) each): (43.775432040326315, 89.33796273764322, 18.613309662814142).",
+    "Bounding box: R [0,0,0]..[80,50,20]; S / copy up to x 88; G [0,100,0]..[80,150,10]; the S2 / S3 sets x 0..90, y 100..145, z 20..50. Union [0,0,0]..[90,150,50]. Topology 14 + 22 + 10 x 8 = 116 faces, 33 + 42 + 10 x 18 = 255 edges, 12 shells; distinct meshes 3."
   ],
   "tolerance": 1e-9,
-  "tolerance_rationale": "CLOSED-FORM tolerance: every pose is a grounded seed or an exact translation, and the mass properties are exact areas of lines, arcs and circles. Measured first (2026-10-15, build123d 0.11.1 / OCCT 7.9): positions exact, centroid within 3.6e-14 mm, volume within 7.3e-12 mm^3. 1e-9 matches the other assembly goldens. Loosening it requires a reviewed justification here and in docs/GEOMETRY-QA.md.",
+  "tolerance_rationale": "CLOSED-FORM tolerance: every pose is a grounded seed or an exact translation, and the mass properties are exact areas of lines, arcs and circles. Measured first (2026-10-15, build123d 0.11.1 / OCCT 7.9): positions exact, centroid within 2.2e-14 mm, volume exact to the last digit. 1e-9 matches the other assembly goldens. Loosening it requires a reviewed justification here and in docs/GEOMETRY-QA.md.",
   "status": "well_constrained",
   "remaining_dof": 0,
   "pattern_counts": [
-    { "pattern_id": "00000000-0000-0000-0000-0000000000f1", "count": 2 }
+    {
+      "pattern_id": "00000000-0000-0000-0000-0000000000f1",
+      "count": 2
+    },
+    {
+      "pattern_id": "00000000-0000-0000-0000-0000000000f2",
+      "count": 4
+    },
+    {
+      "pattern_id": "00000000-0000-0000-0000-0000000000f3",
+      "count": 4
+    }
   ],
-  "distinct_mesh_count": 2,
+  "distinct_mesh_count": 3,
   "instances": [
     {
       "instance_id": "00000000-0000-0000-0000-0000000000e1",
       "placement": {
-        "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
-        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+        "position": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
       }
     },
     {
       "instance_id": "00000000-0000-0000-0000-0000000000e2",
       "placement": {
-        "position": { "x": 28.0, "y": 12.5, "z": 10.0 },
-        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+        "position": {
+          "x": 28.0,
+          "y": 12.5,
+          "z": 10.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
       }
     },
     {
       "instance_id": "c70fd1e8-5135-55e3-9ad7-bf089ed1bf16",
       "placement": {
-        "position": { "x": 48.0, "y": 12.5, "z": 10.0 },
-        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+        "position": {
+          "x": 48.0,
+          "y": 12.5,
+          "z": 10.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-0000000000e3",
+      "placement": {
+        "position": {
+          "x": 0.0,
+          "y": 100.0,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-0000000000e4",
+      "placement": {
+        "position": {
+          "x": 0.0,
+          "y": 100.0,
+          "z": 20.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-0000000000e5",
+      "placement": {
+        "position": {
+          "x": 0.0,
+          "y": 100.0,
+          "z": 40.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    },
+    {
+      "instance_id": "3730a8ab-cce5-5f5b-b2c4-a9d2c6774412",
+      "placement": {
+        "position": {
+          "x": 0.0,
+          "y": 120.0,
+          "z": 20.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    },
+    {
+      "instance_id": "d37aa2c9-8ab0-5a27-b61c-8d828fbc8c6a",
+      "placement": {
+        "position": {
+          "x": 50.0,
+          "y": 100.0,
+          "z": 20.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    },
+    {
+      "instance_id": "7725a90b-7e6e-534b-a2b3-5b0970e67601",
+      "placement": {
+        "position": {
+          "x": 50.0,
+          "y": 120.0,
+          "z": 20.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    },
+    {
+      "instance_id": "0d51027b-75c9-507f-8ae6-c188ed297c96",
+      "placement": {
+        "position": {
+          "x": 0.0,
+          "y": 120.0,
+          "z": 40.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    },
+    {
+      "instance_id": "34c95a22-ba1d-5461-bcb5-f6085df96f36",
+      "placement": {
+        "position": {
+          "x": 50.0,
+          "y": 100.0,
+          "z": 40.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    },
+    {
+      "instance_id": "daab28fe-8da1-5ec3-8891-4ce76864450f",
+      "placement": {
+        "position": {
+          "x": 50.0,
+          "y": 120.0,
+          "z": 40.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
       }
     }
   ],
   "probes": [
     {
       "instance_id": "c70fd1e8-5135-55e3-9ad7-bf089ed1bf16",
-      "local": { "x": 12.0, "y": 12.5, "z": 0.0 },
-      "world": { "x": 60.0, "y": 25.0, "z": 10.0 },
+      "local": {
+        "x": 12.0,
+        "y": 12.5,
+        "z": 0.0
+      },
+      "world": {
+        "x": 60.0,
+        "y": 25.0,
+        "z": 10.0
+      },
       "note": "The copy's hole-1 bottom centre sits on R's second hole's top centre, as the seed's sits on the first"
     }
   ],
   "properties": {
-    "volume": 55858.40734641021,
-    "surface_area": 18327.875959474386,
-    "centroid": { "x": 44.87008883036061, "y": 25.0, "z": 8.158666053686106 },
+    "volume": 161359.95725009334,
+    "surface_area": 58651.68098697238,
+    "centroid": {
+      "x": 43.775432040326315,
+      "y": 89.33796273764322,
+      "z": 18.613309662814142
+    },
     "bounding_box": {
-      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
-      "max": { "x": 88.0, "y": 50.0, "z": 20.0 }
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 90.0,
+        "y": 150.0,
+        "z": 50.0
+      }
     }
   },
-  "topology": { "faces": 30, "edges": 69, "shells": 3 }
+  "topology": {
+    "faces": 116,
+    "edges": 255,
+    "shells": 12
+  }
 }

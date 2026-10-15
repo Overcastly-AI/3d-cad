@@ -331,16 +331,53 @@ def _hole_of_wire(
     )
 
 
-def face_holes(
-    face: Face, ancestors: TopTools_IndexedDataMapOfShapeListOfShape
-) -> list[Hole]:
-    """Every round hole bounded by an inner wire of the planar *face*."""
+def _normal(face: Face) -> Vector:
     n = face.normal_at()
-    normal = np.array([n.X, n.Y, n.Z], dtype=np.float64)
+    return np.array([n.X, n.Y, n.Z], dtype=np.float64)
+
+
+def face_holes(
+    face: Face,
+    ancestors: TopTools_IndexedDataMapOfShapeListOfShape,
+    level: list[Face],
+) -> list[Hole]:
+    """Every round hole bounded by an inner wire of the planar *face*.
+
+    *level* is every face of the body on the face's plane, facing the same way:
+    a circle with material of that level at its centre is not a hole but the
+    outer rim of an annular groove around an island.
+    """
+    normal = _normal(face)
     holes = (
         _hole_of_wire(wire, face, normal, ancestors) for wire in face.inner_wires()
     )
-    return [hole for hole in holes if hole is not None]
+    return [
+        hole
+        for hole in holes
+        if hole is not None
+        and not any(other.is_inside(tuple(hole.centre)) for other in level)
+    ]
+
+
+def _level_faces(body: BodyShape, face: Face) -> list[Face]:
+    """Every planar face of *body* coplanar with *face*, facing the same way:
+    the level a hole pattern's holes are on (a counterbore's floor is one
+    annular face per hole)."""
+    normal = _normal(face)
+    origin = face.center()
+    point = np.array([origin.X, origin.Y, origin.Z], dtype=np.float64)
+    level: list[Face] = []
+    for other in body.faces():
+        if other.geom_type != GeomType.PLANE:
+            continue
+        if float(np.dot(_normal(other), normal)) < _PARALLEL_COS:
+            continue
+        c = other.center()
+        offset = np.array([c.X, c.Y, c.Z], dtype=np.float64) - point
+        if abs(float(np.dot(offset, normal))) > HOLE_MATCH_TOL_MM:
+            continue
+        level.append(other)
+    return level
 
 
 def matching_holes(holes: list[Hole], seed: Hole) -> list[Vector]:
@@ -355,8 +392,9 @@ def matching_holes(holes: list[Hole], seed: Hole) -> list[Vector]:
 def _seed_hole(
     pattern: HoleComponentPattern, driver: PatternTarget
 ) -> tuple[Hole, list[Hole]]:
-    """The seed hole and every hole of the face it is in (part frame), the rim
-    resolved through the durable edge resolver (so it follows a part edit)."""
+    """The seed hole and every hole on its level (part frame): every planar
+    face coplanar with the seed's, facing the same way. The rim is resolved
+    through the durable edge resolver (so it follows a part edit)."""
     assert driver.body is not None
     try:
         edge = resolve_edge_durable(
@@ -371,9 +409,14 @@ def _seed_hole(
         for face in _faces_of(edge.wrapped, ancestors):
             if face.geom_type != GeomType.PLANE:
                 continue
-            holes = face_holes(face, ancestors)
-            for hole in holes:
+            level = _level_faces(driver.body, face)
+            for hole in face_holes(face, ancestors, level):
                 if any(edge.wrapped.IsSame(rim) for rim in hole.edges):
+                    holes = [
+                        found
+                        for other in level
+                        for found in face_holes(other, ancestors, level)
+                    ]
                     return hole, holes
     raise PatternError(
         "pattern_hole_not_hole",
