@@ -46,6 +46,8 @@ import {
   Stamp,
 } from "@loft/design";
 
+import type { ReactNode } from "react";
+
 import type {
   AssemblyGraphResponse,
   InstanceResponse,
@@ -122,6 +124,8 @@ export interface AssemblyTreePanelProps {
    */
   jointProbes?: ReadonlyMap<string, JointProbe>;
   busy: boolean;
+  /** The PATTERNS section (ASM-A3), between the components and the mates. */
+  patternSection?: ReactNode;
 }
 
 /** A probe's numbers as attributes (full precision; JSON for vectors). */
@@ -182,6 +186,7 @@ export function AssemblyTreePanel({
   onEditJoint,
   jointProbes,
   busy,
+  patternSection,
 }: AssemblyTreePanelProps) {
   const unit = useDocumentLengthUnit();
   const instances = graph?.instances ?? [];
@@ -384,6 +389,7 @@ export function AssemblyTreePanel({
           )}
         </PanelSection>
 
+        {patternSection}
         <PanelSection eyebrow={matesEyebrow}>
           {mates.length === 0 ? (
             <p

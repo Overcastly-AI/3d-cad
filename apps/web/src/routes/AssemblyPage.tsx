@@ -9,7 +9,6 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -34,7 +33,6 @@ import {
 } from "../api/assemblies";
 import type { ExportFormat } from "../api/exportPart";
 import { fetchAssemblyBom } from "../api/bom";
-import { DrawingNameTakenError, createDrawing } from "../api/drawings";
 import { MeshNotFoundError, fetchBodyMesh } from "../api/mesh";
 import { fetchOverlay, type OverlayResult } from "../api/measure";
 import type { MaterialAssignment } from "../api/materials";
@@ -74,9 +72,10 @@ import {
   type MateTool,
   useMateAuthoringStore,
 } from "../assembly/mateStore";
+import { usePatternPickStore } from "../assembly/patternStore";
 import { placementToScene } from "../assembly/placement";
 import { buildSceneInstances, componentPose } from "../assembly/sceneInstances";
-import { componentClashIds } from "../assembly/subAssemblies";
+import { componentClashIds, componentName } from "../assembly/subAssemblies";
 import {
   useNestedOverlays,
   useNestedSolve,
@@ -94,6 +93,8 @@ import {
   useReleaseWhenSolved,
 } from "../assembly/useMoveSession";
 import { copyBlocker, useCopyComponent } from "../assembly/useCopyComponent";
+import { useOpenDrawing } from "../assembly/useOpenDrawing";
+import { usePatterns } from "../assembly/usePatterns";
 import {
   type DrawnPoses,
   NO_DRAWN_POSES,
@@ -152,7 +153,6 @@ const NO_PART_TREES = new Map<string, FeatureTreeResponse>();
 export function AssemblyPage() {
   const { assemblyId } = assemblyRoute.useParams();
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const reducedMotion = useReducedMotion();
 
   const graphQuery = useQuery({
@@ -536,6 +536,7 @@ export function AssemblyPage() {
   const resetPicks = useMateAuthoringStore((s) => s.resetPicks);
   const setTool = useMateAuthoringStore((s) => s.setTool);
 
+  const patternPicking = usePatternPickStore((s) => s.picking !== null);
   // Leaving the workspace disarms the mate session.
   useEffect(() => () => useMateAuthoringStore.getState().clear(), []);
 
@@ -543,7 +544,7 @@ export function AssemblyPage() {
   // face/axis mate tool is armed; mapped to each instance sharing that part.
   // Every mate but lock picks part geometry (faces for coincident / distance /
   // angle, axes for concentric), so all of them want the overlay fetched.
-  const overlayActive = tool !== null && tool !== "lock";
+  const overlayActive = (tool !== null && tool !== "lock") || patternPicking;
   const overlaysQuery = useQuery({
     queryKey: ["assembly-overlays", assemblyId, docVersion, partDocKey],
     enabled: overlayActive && partTrees !== undefined && partDocIds.length > 0,
@@ -594,52 +595,12 @@ export function AssemblyPage() {
     [refreshGraph],
   );
 
-  // Draft this assembly (§7): create a drawing named after it and open the
-  // sheet with the assembly ALREADY chosen as the source (`?source=`), so the
-  // next step is visible from where the user already is rather than hunted for
-  // in another register. The sheet is not laid out here on purpose — paper size
-  // and scale are the drafter's first two decisions, and pre-empting them would
-  // trade one hunt for a re-layout.
-  const [drawingBusy, setDrawingBusy] = useState(false);
-  const openDrawing = useCallback(() => {
-    if (drawingBusy || graph === undefined) return;
-    setDrawingBusy(true);
-    setActionError(null);
-    void (async () => {
-      try {
-        // A name is unique per owner, so an assembly drafted twice needs a
-        // suffix rather than a failure (same retry the part editor's flat
-        // pattern uses — one register, one convention).
-        const baseName = `${graph.assembly.name} — drawing`;
-        let drawing = null;
-        for (let attempt = 0; attempt < 6 && drawing === null; attempt += 1) {
-          const name = attempt === 0 ? baseName : `${baseName} ${attempt + 1}`;
-          try {
-            drawing = await createDrawing(name);
-          } catch (error) {
-            if (error instanceof DrawingNameTakenError) continue;
-            throw error;
-          }
-        }
-        if (drawing === null) {
-          throw new Error("A drawing for this assembly already exists.");
-        }
-        await navigate({
-          to: "/drawings/$drawingId",
-          params: { drawingId: drawing.id },
-          search: { source: assemblyId },
-        });
-      } catch (error) {
-        setActionError(
-          error instanceof Error
-            ? error.message
-            : "The drawing could not be created.",
-        );
-      } finally {
-        setDrawingBusy(false);
-      }
-    })();
-  }, [drawingBusy, graph, navigate, assemblyId]);
+  // Draft this assembly (§7) on a new sheet (`useOpenDrawing`).
+  const { drawingBusy, openDrawing } = useOpenDrawing(
+    assemblyId,
+    graph?.assembly.name,
+    setActionError,
+  );
 
   // Document-unit change (docs/design/units.md §U2): a pure re-label under the
   // doc_version OCC. No stored mm value changes, so the assembly never
@@ -801,11 +762,26 @@ export function AssemblyPage() {
   // mutation uses (new doc_version cascades to part-trees → evaluate → meshes,
   // so the solved placements re-render) — never a second pipeline.
   // ---------------------------------------------------------------------
+  // Component patterns (ASM-A3): dialog, tree section, band button.
+  const patterns = usePatterns({
+    assemblyId,
+    docVersion,
+    patterns: graph?.patterns ?? [],
+    instances,
+    evaluation,
+    stale: evalQuery.isFetching || evalQuery.isPlaceholderData,
+    selectedInstanceId,
+    nameOf: (id) => componentName(instances, nested, id) ?? "a part",
+    refreshGraph,
+    onError: setActionError,
+    busy,
+  });
   const canUndo = graph?.can_undo ?? false;
   const canRedo = graph?.can_redo ?? false;
   /** Any graph mutation in flight — history must never race its version. */
   const mutationInFlight =
     busy ||
+    patterns.writing ||
     copying ||
     submitting ||
     unitBusy ||
@@ -1253,6 +1229,7 @@ export function AssemblyPage() {
                     ? armDrive(null)
                     : selectedInstance !== null && startMove(selectedInstance)
               }
+              pattern={patterns.band}
               copyBlocker={copyBlocker(selectedInstance, copyWriting)}
               onCopy={() =>
                 selectedInstance !== null && copyComponent(selectedInstance)
@@ -1345,6 +1322,7 @@ export function AssemblyPage() {
                     onCancel={cancelMove}
                   />
                 ) : null}
+                {patterns.hud}
                 {addOpen ? (
                   <AddInstancePanel
                     addingPartId={addingPartId}
@@ -1458,6 +1436,7 @@ export function AssemblyPage() {
               // (the mutual exclusion's visible half — runHistoryStep guards
               // the other direction).
               busy={busy || historyStep !== null}
+              patternSection={patterns.treeSection}
             />
           </FloatingPanel>
           <FloatingPanel side="right" title="Inspect" id="inspector">

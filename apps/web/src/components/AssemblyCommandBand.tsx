@@ -18,6 +18,7 @@ import {
   Flyout,
   formatChord,
   JointIcon,
+  LinearPatternIcon,
   MeasureIcon,
   MoreIcon,
   MoveIcon,
@@ -65,6 +66,8 @@ export interface AssemblyCommandBandProps {
   copyBlocker: string | null;
   /** Copy the selected component, then open Move on the copy (Ctrl+D). */
   onCopy: () => void;
+  /** Pattern components (ASM-A3): the dialog's toggle; omitted, no button. */
+  pattern?: { active: boolean; blocker: string | null; onToggle: () => void };
   /** A mate needs two instances; the tools stay disabled until then. */
   canMate: boolean;
   activeTool: MateTool | null;
@@ -138,6 +141,7 @@ export function AssemblyCommandBand({
   onMove,
   copyBlocker,
   onCopy,
+  pattern,
   canMate,
   activeTool,
   onToggleTool,
@@ -191,6 +195,20 @@ export function AssemblyCommandBand({
           data-testid="copy-instance"
           onClick={onCopy}
         />
+        {pattern !== undefined ? (
+          <ToolButton
+            icon={<LinearPatternIcon />}
+            label="Pattern"
+            showLabel
+            active={pattern.active}
+            disabled={!pattern.active && pattern.blocker !== null}
+            caption={
+              pattern.active ? undefined : (pattern.blocker ?? undefined)
+            }
+            data-testid="pattern-components"
+            onClick={pattern.onToggle}
+          />
+        ) : null}
       </ToolGroup>
       {/* Joint leads, as in Fusion's Assemble panel: one command that brings
           two origins together and names the motion left free. The five

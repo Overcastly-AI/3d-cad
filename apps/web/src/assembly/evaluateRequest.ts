@@ -110,6 +110,17 @@ export function buildEvaluateAssemblyRequest(
       order_index: mate.order_index,
       mate: mate.mate,
     })),
+    // Component patterns (ASM-A3): geometry places their copies after the
+    // solve. Omitted when there are none, so the request is as before.
+    ...((graph.patterns ?? []).length > 0
+      ? {
+          patterns: (graph.patterns ?? []).map((pattern) => ({
+            pattern_id: pattern.id,
+            order_index: pattern.order_index,
+            pattern: pattern.pattern,
+          })),
+        }
+      : {}),
   };
 }
 

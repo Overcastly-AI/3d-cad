@@ -44,6 +44,8 @@ export interface NestedPart {
   partDocumentId: string;
   /** Its feature prefix, for the pick overlay. */
   features: EvaluatedInstance["features"];
+  /** A copy placed by a pattern inside the sub-assembly (ASM-A3). */
+  copy?: boolean;
 }
 
 /** The request instance a result path names, walking down sub-assemblies. */
@@ -71,19 +73,33 @@ export function nestedParts(
 ): Map<string, NestedPart> {
   const out = new Map<string, NestedPart>();
   if (evaluation === undefined || request === null) return out;
-  for (const row of evaluation.instances) {
+  // A copy placed by a pattern inside a sub-assembly has no request instance
+  // of its own; it is the same part as the row that shares its mesh.
+  const byMesh = new Map<string, EvaluatedInstance>();
+  const leaves = evaluation.instances.map((row) => {
+    const leaf = instanceAt(request.instances, row.path ?? []);
+    if (leaf !== null && row.part_mesh_glb_id) {
+      byMesh.set(row.part_mesh_glb_id, leaf);
+    }
+    return leaf;
+  });
+  evaluation.instances.forEach((row, index) => {
     const path = row.path ?? [];
     const groupId = path[0];
-    if (groupId === undefined) continue;
-    const leaf = instanceAt(request.instances, path);
+    // Copies of THIS assembly's patterns are drawn with their seed instead.
+    if (groupId === undefined || row.pattern) return;
+    const leaf =
+      leaves[index] ??
+      (row.part_mesh_glb_id ? byMesh.get(row.part_mesh_glb_id) : undefined);
     out.set(row.instance_id, {
       id: row.instance_id,
       groupId,
       name: leaf?.name ?? "Part",
       partDocumentId: (leaf?.part_key ?? "").split("@")[0] ?? "",
       features: leaf?.features ?? [],
+      ...(leaves[index] === null ? { copy: true } : {}),
     });
-  }
+  });
   return out;
 }
 

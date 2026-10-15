@@ -31,6 +31,7 @@ import {
   type MateColumnEntry,
 } from "../assembly/mateColumn";
 import { useMateAuthoringStore } from "../assembly/mateStore";
+import { usePatternPickStore } from "../assembly/patternStore";
 import { faceLabel, isPickableFace } from "../features/face";
 import { groundShadowTexture } from "./groundShadow";
 import { InstanceMateOverlay } from "./InstanceMateOverlay";
@@ -66,6 +67,13 @@ export interface SceneInstance {
    * component, as Fusion does.
    */
   groupId?: string;
+  /**
+   * A copy placed by a component pattern (ASM-A3): its balloon is kept (it
+   * carries the drawn-pose acknowledgement and the pose stamps) but not shown,
+   * because the copies share their seed's item number and thirty-two of them
+   * would bury the part they label.
+   */
+  patternCopy?: boolean;
 }
 
 /** The component a scene instance selects: its sub-assembly, else itself. */
@@ -302,6 +310,13 @@ function Balloon({
         onClick={onSelect}
         data-testid={`assembly-balloon-${instance.id}`}
         data-group-id={instance.groupId}
+        data-pattern-copy={instance.patternCopy ? "true" : undefined}
+        tabIndex={instance.patternCopy ? -1 : undefined}
+        style={
+          instance.patternCopy
+            ? { opacity: 0, pointerEvents: "none" }
+            : undefined
+        }
         data-solved-x={instance.transform.position[0].toFixed(4)}
         data-solved-y={instance.transform.position[1].toFixed(4)}
         data-solved-z={instance.transform.position[2].toFixed(4)}
@@ -374,11 +389,14 @@ export function AssemblyScene({
   const pickAxis = useMateAuthoringStore((s) => s.pickAxis);
   const pickInstance = useMateAuthoringStore((s) => s.pickInstance);
   const pickOrigin = useMateAuthoringStore((s) => s.pickOrigin);
+  // The pattern dialog's edge pick (ASM-A3) takes over the axis overlay.
+  const patternPick = usePatternPickStore((s) => s.picking);
+  const pickPatternEdge = usePatternPickStore((s) => s.pickEdge);
 
   // Distance / angle pick two planar faces like coincident, so they reuse the
   // face overlay; concentric picks circular-edge axes; lock picks the body.
   const overlayTool: "coincident" | "concentric" | null =
-    tool === "concentric"
+    patternPick !== null || tool === "concentric"
       ? "concentric"
       : tool !== null && tool !== "lock" && tool !== "joint"
         ? "coincident"
@@ -710,8 +728,11 @@ export function AssemblyScene({
                   pickFace(inst.id, index, signature)
                 }
                 onPickAxis={(index, signature) =>
-                  pickAxis(inst.id, index, signature)
+                  patternPick !== null
+                    ? pickPatternEdge(inst.id, signature)
+                    : pickAxis(inst.id, index, signature)
                 }
+                straightEdges={patternPick === "axis"}
               />
             );
           })
