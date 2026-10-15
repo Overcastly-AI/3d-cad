@@ -86,10 +86,17 @@ byte-identical; RESEARCH §15a).
       face" step; an e2e covers all three. This reverses UI-W3 for the
       cancel case: a cancelled command's pick is forgotten (Fusion), and only
       a saved pick seeds the next command.
+- [ ] **ASM-A3** (founder 2026-10-15: next, so a bike can be built; split it now): sub-assemblies from
+      the Add panel with an indented BOM, a component pattern that follows a
+      part's holes (Fusion pattern, Onshape Replicate, SolidWorks
+      pattern-driven), and in-context edits (Fusion Edit in Place).
+      _Accept:_ A3's BOM reads 16 lines and 73 instances (top level 11 and
+      45), its 28 rail screws follow the rail's hole count, and moving the
+      rails from ±40 to ±45 moves the carriage plate's holes.
 
 ## Next
 
-- [ ] **SWEEP-CLOSED-PATH** (moto frame rail loop, tube-frame gap): a sweep
+- [x] **SWEEP-CLOSED-PATH** (done, 6b8a324 0b5a085 d8adfc8 b9e7698; goldens `sweep-closed-*`) (moto frame rail loop, tube-frame gap): a sweep
       along a closed, tangent-continuous path is refused `sweep_path_closed`,
       so the golden sweeps two open halves. SolidWorks, Fusion and Onshape
       sweep a closed path in one feature. _Accept:_
@@ -152,21 +159,21 @@ byte-identical; RESEARCH §15a).
 
 ### Assemblies (ranked by what stops A1, then A2, then A3 in `docs/reference-parts/assemblies.md`)
 
-- [ ] **ASM-JOINTS** (stops A1; the other ASM items build on it): Fusion and
+- [x] **ASM-JOINTS** (done, 6c13a55 5a18cde c40fd7a 42a5fd1) (stops A1; the other ASM items build on it): Fusion and
       Onshape connect parts with a joint. It picks a joint origin (or mate
       connector) on each part, at a circle centre, face centre or vertex,
       plus a motion type: rigid, revolute, slider, cylindrical, planar or
       ball. Loft has only pairwise mates. _Accept:_ the A1 hinge is one
       revolute joint between two knuckle circles, with remaining DOF 1.
       Every stored mate assembly opens and solves unchanged.
-- [ ] **ASM-MOVE-DRAG** (stops A1): instances cannot be moved. Each is placed
+- [x] **ASM-MOVE-DRAG** (done, 6c13a55; e2e `assembly-move.spec.ts`) (stops A1): instances cannot be moved. Each is placed
       80 mm along +X, with no drag and no handle. Fusion and Onshape drag a
       component, and its joints hold it to its free DOF. _Accept:_ in A1,
       dragging leaf B turns it about the knuckle axis only (the axis moves
       < 1e-6). An unmated instance moves 30 in Y and turns 90° about Z, by a
       Move/Rotate handle and by typed values, and stays there after a
       reload. e2e covers both.
-- [ ] **ASM-LIMITS** (stops A1): a joint has no min/max (Fusion and
+- [x] **ASM-LIMITS** (done; e2e `assembly-joint-hinge.spec.ts`) (stops A1): a joint has no min/max (Fusion and
       Onshape joint limits). _Accept:_ the hinge
       stops at 0° and 180° when dragged, a typed 200° is refused with the
       limit named, and the limits survive a reload.
@@ -178,13 +185,6 @@ byte-identical; RESEARCH §15a).
       clash among the real ones. SolidWorks lists fasteners in a separate
       folder. _Accept:_ at o = 0, 40 and 80, A2 lists exactly 5 threaded
       engagements apart from the real clashes, and there are none of those.
-- [ ] **ASM-A3** (after A2; split it when it is next): sub-assemblies from
-      the Add panel with an indented BOM, a component pattern that follows a
-      part's holes (Fusion pattern, Onshape Replicate, SolidWorks
-      pattern-driven), and in-context edits (Fusion Edit in Place).
-      _Accept:_ A3's BOM reads 16 lines and 73 instances (top level 11 and
-      45), its 28 rail screws follow the rail's hole count, and moving the
-      rails from ±40 to ±45 moves the carriage plate's holes.
 
 ## Later
 
