@@ -21,7 +21,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, status
 from loft_wire.assemblies import (
-    MAX_ASSEMBLY_DEPTH,
     MAX_ASSEMBLY_INSTANCES,
     MAX_ASSEMBLY_MATES,
     AssemblyBomResponse,
@@ -45,7 +44,6 @@ from loft_wire.assemblies import (
     MateParams,
     MateResponse,
     Placement,
-    count_leaf_instances,
     mate_instance_ids,
 )
 from loft_wire.features import EvaluatedFeatureInput
@@ -68,7 +66,11 @@ from documents.features import evaluation_prefix, part_materials
 from documents.filing import resolve_destination
 from documents.history_core import Direction
 from documents.joint_rules import reject_out_of_limits
-from documents.occurrences import OccurrenceWalk, mate_members
+from documents.occurrences import (
+    OccurrenceWalk,
+    mate_members,
+    reject_oversize,
+)
 from documents.parts import (
     Principal,
     get_owned_assembly,
@@ -125,7 +127,10 @@ async def get_mate(
 
 
 async def ensure_mate_members(
-    session: AsyncSession, assembly_id: uuid.UUID, mate: MateParams
+    session: AsyncSession,
+    owner_id: uuid.UUID,
+    assembly_id: uuid.UUID,
+    mate: MateParams,
 ) -> None:
     """Every instance *mate* names is a distinct member of this assembly.
 
@@ -147,9 +152,7 @@ async def ensure_mate_members(
             code="mate_self_reference",
             details={"instance_id": str(named_ids[0])},
         )
-    assembly = await session.get(db.Assembly, assembly_id)
-    owner_id = assembly.owner_id if assembly is not None else uuid.UUID(int=0)
-    members = await mate_members(session, owner_id, assembly_id)
+    members = await mate_members(session, owner_id, assembly_id, set(named_ids))
     for named_id in named_ids:
         member = members.get(named_id)
         if member is None:
@@ -285,7 +288,7 @@ async def _reject_cycle_or_overflow(
     child_id: uuid.UUID,
 ) -> None:
     """Refuse inserting assembly *child_id* into *assembly* when it would make
-    the assembly contain itself, or grow past what one evaluation may place."""
+    the assembly contain itself."""
     if await _reaches(session, child_id, assembly.id):
         child = await session.get(db.Assembly, child_id)
         child_name = child.name if child is not None else str(child_id)
@@ -300,12 +303,6 @@ async def _reject_cycle_or_overflow(
             code="assembly_cycle",
             details={"ref_document_id": str(child_id)},
         )
-    walk = OccurrenceWalk(session, owner_id)
-    if 1 + await walk.depth(child_id) > MAX_ASSEMBLY_DEPTH:
-        raise _too_deep()
-    placed = len(await walk.leaves(assembly.id)) + len(await walk.leaves(child_id))
-    if placed > MAX_ASSEMBLY_INSTANCES:
-        raise _too_large(placed)
 
 
 # --- serialization ----------------------------------------------------------------
@@ -387,28 +384,10 @@ async def _instance_part_inputs(
     return await evaluation_prefix(session, part), part_materials(part)
 
 
-def _too_large(placed: int) -> ValidationApiError:
-    return ValidationApiError(
-        f"This assembly places {placed} parts across its sub-assemblies; at most "
-        f"{MAX_ASSEMBLY_INSTANCES} can be evaluated at once.",
-        code="assembly_too_large",
-        details={"placed_parts": placed, "max_instances": MAX_ASSEMBLY_INSTANCES},
-    )
-
-
-def _too_deep() -> ValidationApiError:
-    return ValidationApiError(
-        f"Sub-assemblies nest more than {MAX_ASSEMBLY_DEPTH} levels deep here.",
-        code="assembly_too_deep",
-        details={"max_depth": MAX_ASSEMBLY_DEPTH},
-    )
-
-
 async def build_evaluate_assembly_request(
     session: AsyncSession,
     assembly: db.Assembly,
     *,
-    _depth: int = 1,
     _built: dict[uuid.UUID, EvaluateAssemblyRequest] | None = None,
 ) -> EvaluateAssemblyRequest:
     """Resolve an assembly's graph → the ``EvaluateAssemblyRequest`` geometry solves.
@@ -428,8 +407,12 @@ async def build_evaluate_assembly_request(
     or too deep a nest is a typed 422 (``assembly_too_large`` /
     ``assembly_too_deep``), never a 500 building the request.
     """
-    if _depth > MAX_ASSEMBLY_DEPTH:
-        raise _too_deep()
+    if _built is None:
+        # Bounded before anything is built: a tree past the bounds is refused
+        # here, never materialised (it can predate the write-time checks).
+        await OccurrenceWalk(session, assembly.owner_id).require_within_bounds(
+            assembly.id
+        )
     built = {} if _built is None else _built
     instances = await ordered_instances(session, assembly.id)
     mates = await ordered_mates(session, assembly.id)
@@ -444,7 +427,7 @@ async def build_evaluate_assembly_request(
                 sub_assembly = built.get(child.id)
                 if sub_assembly is None:
                     sub_assembly = await build_evaluate_assembly_request(
-                        session, child, _depth=_depth + 1, _built=built
+                        session, child, _built=built
                     )
                     built[child.id] = sub_assembly
         else:
@@ -467,9 +450,6 @@ async def build_evaluate_assembly_request(
                 sub_assembly=sub_assembly,
             )
         )
-    placed = count_leaf_instances(evaluated)
-    if placed > MAX_ASSEMBLY_INSTANCES:
-        raise _too_large(placed)
     return EvaluateAssemblyRequest(
         assembly_id=assembly.id,
         version=assembly.doc_version,
@@ -690,6 +670,14 @@ async def create_instance(
         await _reject_cycle_or_overflow(
             session, owner_id, assembly, request.ref_document_id
         )
+    # Every insert, part or sub-assembly, grows this assembly and every
+    # assembly containing it: each must stay within the size and depth bounds.
+    await reject_oversize(
+        session,
+        owner_id,
+        assembly_id,
+        adding=(request.ref_document_kind, request.ref_document_id),
+    )
 
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
     position = await _count(session, db.Instance, assembly_id)
@@ -841,9 +829,19 @@ async def delete_instance(
 
     # Cascade-remove mates that reference this instance, or a part inside it
     # when it is a sub-assembly (§1.2 graph integrity).
-    members = await mate_members(session, owner_id, assembly_id)
-    for mate in await ordered_mates(session, assembly_id):
-        named = mate_instance_ids(MATE_ADAPTER.validate_python(mate.params))
+    mates = await ordered_mates(session, assembly_id)
+    named_by_mate = {
+        mate.id: mate_instance_ids(MATE_ADAPTER.validate_python(mate.params))
+        for mate in mates
+    }
+    members = await mate_members(
+        session,
+        owner_id,
+        assembly_id,
+        {i for named in named_by_mate.values() for i in named},
+    )
+    for mate in mates:
+        named = named_by_mate[mate.id]
         if any(
             (member := members.get(i)) is not None and member.group_id == instance_id
             for i in named
@@ -883,7 +881,7 @@ async def create_mate(
     this assembly (``mate_instance_unknown`` 422 otherwise)."""
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
     ensure_fresh(assembly, request.expected_version)
-    await ensure_mate_members(session, assembly_id, request.mate)
+    await ensure_mate_members(session, owner_id, assembly_id, request.mate)
     await reject_out_of_limits(session, assembly_id, request.mate, None)
 
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
@@ -1021,6 +1019,18 @@ async def _reject_restore_integrity_violations(
                 code="assembly_restore_conflict",
                 details=details,
             )
+    # Acyclic now, so the bounds can be counted: the restored instances must
+    # not put this assembly, or one containing it, past them.
+    try:
+        await reject_oversize(session, owner_id, assembly_id)
+    except ValidationApiError as exc:
+        await session.rollback()
+        raise ConflictError(
+            "Restoring this history step would put an assembly past the size "
+            "or nesting bound.",
+            code="assembly_restore_conflict",
+            details={"reason": exc.code},
+        ) from None
 
 
 async def _restore_history_step(

@@ -51,12 +51,20 @@ from copy import deepcopy
 from typing import Any, cast
 
 from fastapi import APIRouter, status
-from loft_wire.assemblies import ASSEMBLY_NAME_MAX_LENGTH, AssemblyResponse
+from loft_wire.assemblies import (
+    ASSEMBLY_NAME_MAX_LENGTH,
+    AssemblyResponse,
+    mate_instance_ids,
+)
+from loft_wire.assemblies import (
+    Mate as MateParams,
+)
 from loft_wire.drawings import DRAWING_NAME_MAX_LENGTH, DrawingResponse
 from loft_wire.parts import PART_NAME_MAX_LENGTH, PartResponse
 from loft_wire.workspace import copy_name
 from py_kit import ConflictError, get_logger
 from py_kit.db import SessionDep
+from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,7 +82,7 @@ from documents.db import (
     Sheet,
     View,
 )
-from documents.occurrences import occurrence_remap
+from documents.occurrences import OccurrenceWalk, occurrence_remap
 from documents.parts import (
     Principal,
     get_owned_assembly,
@@ -83,6 +91,9 @@ from documents.parts import (
 )
 
 _logger = get_logger("documents.duplicate")
+
+#: A stored mate row's params, to read the instances it names.
+_MATE_PARAMS: TypeAdapter[MateParams] = TypeAdapter(MateParams)
 
 parts_router = APIRouter(prefix="/api/v1/parts", tags=["parts"])
 assemblies_router = APIRouter(prefix="/api/v1/assemblies", tags=["assemblies"])
@@ -342,11 +353,6 @@ async def duplicate_assembly(
     )
     new_id = {instance.id: uuid.uuid4() for instance in instances}
     mapping = {str(old): str(new) for old, new in new_id.items()}
-    # A joint to a part inside a sub-assembly names it by an occurrence id
-    # derived from the sub-assembly instance's id, so it re-mints with it.
-    mapping.update(
-        await occurrence_remap(session, source.owner_id, list(instances), new_id)
-    )
     for instance in instances:
         session.add(
             Instance(
@@ -372,6 +378,22 @@ async def duplicate_assembly(
         .scalars()
         .all()
     )
+    # A joint to a part inside a sub-assembly names it by an occurrence id
+    # derived from the sub-assembly instance's id, so it re-mints with it.
+    # Only the ids the mates name are resolved, and only within the size bound
+    # (the copy is a new root exactly as large as its source).
+    named = {
+        instance_id
+        for mate in mates
+        for instance_id in mate_instance_ids(_MATE_PARAMS.validate_python(mate.params))
+    }
+    if not named.issubset(new_id.keys()):
+        await OccurrenceWalk(session, source.owner_id).require_within_bounds(source.id)
+        mapping.update(
+            await occurrence_remap(
+                session, source.owner_id, list(instances), new_id, named - new_id.keys()
+            )
+        )
     for mate in mates:
         session.add(
             Mate(

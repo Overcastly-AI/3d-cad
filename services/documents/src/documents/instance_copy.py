@@ -41,6 +41,7 @@ from py_kit.db import SessionDep
 from documents import db
 from documents.assemblies import ensure_fresh, get_instance
 from documents.assembly_history import ASSEMBLY_HISTORY, ordered_instances
+from documents.occurrences import reject_oversize
 from documents.parts import Principal, get_owned_assembly, referenced_document_exists
 
 _logger = get_logger("documents.instance_copy")
@@ -138,6 +139,14 @@ async def copy_instance(
             },
         )
 
+    # A copy of a sub-assembly grows this assembly and every one containing
+    # it like any insert: the same size and depth bounds.
+    await reject_oversize(
+        session,
+        owner_id,
+        assembly_id,
+        adding=(source.ref_document_kind, source.ref_document_id),
+    )
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
     siblings = await ordered_instances(session, assembly_id)
     position = len(siblings)

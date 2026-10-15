@@ -13,14 +13,17 @@ A wheel (two parts) is inserted twice into a bike next to a frame part:
   instance, and follows the copy when the assembly is duplicated.
 """
 
+import time
 import uuid
 from collections.abc import Iterator
+from itertools import pairwise
 from typing import Any
 
 import pytest
 from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
 from loft_wire.assemblies import (
+    MAX_ASSEMBLY_DEPTH,
     EvaluateAssemblyRequest,
     nested_occurrence_id,
     occurrence_id,
@@ -260,3 +263,86 @@ def test_duplicating_moves_joints_to_nested_parts_with_the_copy(
         front_copy, bike.rim_in_wheel
     )
     assert mate["mate"]["a"]["instance_id"] == graph["instances"][2]["id"]
+
+
+# --- the size and depth bounds hold for every ancestor (review: DoS) ----------
+
+
+def _assembly(client: TestClient, name: str) -> str:
+    return str(_post(client, "/api/v1/assemblies", {"name": name})["id"])
+
+
+def test_a_top_down_build_is_refused_at_the_ancestor_it_would_overflow(
+    client: TestClient,
+) -> None:
+    """Empty levels inserted five times each into the one above, parts last:
+    every insert is checked against EVERY assembly containing its target, so
+    the one that would put the top past the bound is refused, whatever its
+    kind. Components counted: 5 x (1 + 5 x (1 + 5 x (1 + n)))."""
+    levels = [_assembly(client, f"L{i}") for i in range(5)]
+    for upper, lower in pairwise(levels[:4]):
+        for n in range(5):
+            _instance(client, upper, lower, "assembly", f"Sub <{n}>")
+    # L3 <- L4 twice: L0 = 5 x (1 + 5 x (1 + 5 x 3)) = 405 components.
+    for n in range(2):
+        _instance(client, levels[3], levels[4], "assembly", f"L4 <{n}>")
+    third = _insert(client, levels[3], levels[4], "assembly", "L4 <3>")
+    assert third.status_code == 422, third.text
+    assert third.json()["error"]["code"] == "assembly_too_large"
+    # A PART at the bottom grows L0 by 2 x 5 x 5 x 5 = 250: refused too.
+    part = _post(client, "/api/v1/parts", {"name": "Bolt"})["id"]
+    bolt = _insert(client, levels[4], part, "part", "Bolt <1>")
+    assert bolt.status_code == 422, bolt.text
+    assert bolt.json()["error"]["code"] == "assembly_too_large"
+    # Copying a sub-assembly instance is an insert like any other.
+    source = client.get(f"/api/v1/assemblies/{levels[3]}", headers=HEADERS).json()
+    copy = client.post(
+        f"/api/v1/assemblies/{levels[3]}/instances/{source['instances'][0]['id']}/copy",
+        json={"expected_version": source["doc_version"]},
+        headers=HEADERS,
+    )
+    assert copy.status_code == 422, copy.text
+    assert copy.json()["error"]["code"] == "assembly_too_large"
+
+
+def test_a_chain_past_the_depth_bound_is_refused_top_down(
+    client: TestClient,
+) -> None:
+    levels = [_assembly(client, f"D{i}") for i in range(MAX_ASSEMBLY_DEPTH + 1)]
+    for upper, lower in pairwise(levels[:-1]):
+        _instance(client, upper, lower, "assembly", "Sub <1>")
+    # D0..D15 is 16 levels; one more below D15 makes D0 17 deep.
+    last = _insert(client, levels[-2], levels[-1], "assembly", "Deepest <1>")
+    assert last.status_code == 422, last.text
+    assert last.json()["error"]["code"] == "assembly_too_deep"
+
+
+def test_joints_on_a_near_maximal_tree_stay_fast(client: TestClient) -> None:
+    """7 x 7 x 7: 399 components, the most this shape allows under the bound.
+    A joint to the deepest parts, the BOM and a delete each resolve only what
+    they name, so together they stay well inside a few seconds."""
+    part = _post(client, "/api/v1/parts", {"name": "Spoke"})["id"]
+    hub = _assembly(client, "Hub")
+    spokes = [_instance(client, hub, part, "part", f"Spoke <{n}>") for n in range(7)]
+    wheel = _assembly(client, "Wheel")
+    hubs = [_instance(client, wheel, hub, "assembly", f"Hub <{n}>") for n in range(7)]
+    fleet = _assembly(client, "Fleet")
+    wheels = [
+        _instance(client, fleet, wheel, "assembly", f"Wheel <{n}>") for n in range(7)
+    ]
+    deep_a = str(occurrence_id([uuid.UUID(i) for i in (wheels[0], hubs[6], spokes[6])]))
+    deep_b = str(occurrence_id([uuid.UUID(i) for i in (wheels[6], hubs[0], spokes[0])]))
+
+    started = time.perf_counter()
+    response = _add_mate(client, fleet, _joint(deep_a, deep_b))
+    assert response.status_code == 201, response.text
+    bom = client.get(f"/api/v1/assemblies/{fleet}/bom", headers=HEADERS).json()
+    assert bom["total_parts"] == 343
+    deleted = client.delete(
+        f"/api/v1/assemblies/{fleet}/instances/{wheels[0]}",
+        params={"expected_version": _version(client, fleet)},
+        headers=HEADERS,
+    )
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["mates"] == []
+    assert time.perf_counter() - started < 10.0

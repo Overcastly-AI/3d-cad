@@ -28,6 +28,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db
+from documents.occurrences import OccurrenceWalk
 
 RefKey = tuple[uuid.UUID, RefDocumentKind]
 
@@ -172,6 +173,9 @@ async def assembly_bom(
     session: AsyncSession, assembly: db.Assembly
 ) -> AssemblyBomResponse:
     """The assembly's bill of materials: top level, indented and parts only."""
+    # Bounded first: the indented rows and part tallies are no more than the
+    # components the tree places, which the write-time bound keeps small.
+    await OccurrenceWalk(session, assembly.owner_id).require_within_bounds(assembly.id)
     walk = _BomWalk(session, assembly.owner_id)
     lines = await walk.top_level(assembly.id)
     parts: Counter[uuid.UUID] = Counter()

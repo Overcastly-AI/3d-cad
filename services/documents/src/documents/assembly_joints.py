@@ -77,7 +77,7 @@ async def update_mate(
             f"The edited joint is not valid: {reasons}",
             code="invalid_joint_update",
         ) from None
-    await ensure_mate_members(session, assembly_id, updated)
+    await ensure_mate_members(session, owner_id, assembly_id, updated)
     await reject_out_of_limits(session, assembly_id, updated, mate.id)
 
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
