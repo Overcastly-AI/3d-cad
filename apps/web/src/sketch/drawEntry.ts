@@ -110,3 +110,34 @@ export function resolveDrawCells(
 /** True when no cell refused its text. */
 export const drawCellsOk = (cells: DrawCells): boolean =>
   Object.keys(cells.errors).length === 0;
+
+/**
+ * LINE-LENGTH-TAB (docs/reference-parts/bike.md finding 3). A drawn line's box
+ * has ONE cell, its length; an engineer who means the end point types
+ * "426.562 Tab 450.469 Enter" into it. Tab used to leave the box (for the
+ * Horizontal glyph), and the second number was then appended to the first
+ * ("426.562450.469"), refused with a parse error that named no cause; retyped,
+ * the second number became the LENGTH. A one-cell box keeps the keyboard on
+ * Tab, as Fusion's draw boxes do, and says what it takes instead.
+ */
+export function oneValueMessage(
+  field: Pick<DrawDimensionField, "key" | "name">,
+): string {
+  const what = `This box takes one value, the ${field.name.toLowerCase()}.`;
+  return field.key === "length"
+    ? `${what} To place the end point, type X Tab Y before you click.`
+    : what;
+}
+
+/**
+ * Was a second value typed after a Tab in a one-cell box? `textAtTab` is the
+ * cell's text when Tab was pressed (empty: nothing was typed before it, so the
+ * typing after it is the only value). True when the text still begins with it
+ * and has grown: the second number would be glued onto the first.
+ */
+export function secondValueTyped(textAtTab: string, text: string): boolean {
+  if (textAtTab.trim() === "") return false;
+  return (
+    text.startsWith(textAtTab) && text.slice(textAtTab.length).trim() !== ""
+  );
+}

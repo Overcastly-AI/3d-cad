@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { Quantity } from "../features/expr";
-import { drawCellsOk, resolveDrawCells, resolveDrawEntry } from "./drawEntry";
+import {
+  drawCellsOk,
+  oneValueMessage,
+  resolveDrawCells,
+  resolveDrawEntry,
+  secondValueTyped,
+} from "./drawEntry";
 
 const names = new Map<string, Quantity>([
   ["W", { value: 80, kind: "length" }],
@@ -72,5 +78,29 @@ describe("resolveDrawCells", () => {
     const cells = resolveDrawCells(fields, (i) => texts[i] ?? "", "mm", names);
     expect(drawCellsOk(cells)).toBe(false);
     expect(Object.keys(cells.errors)).toEqual(["height"]);
+  });
+});
+
+describe("one-cell box after Tab (LINE-LENGTH-TAB)", () => {
+  it("sees the bike's x Tab y as a second value, never a longer first one", () => {
+    expect(secondValueTyped("426.562", "426.562450.469")).toBe(true);
+    expect(secondValueTyped("426.562", "426.562 450.469")).toBe(true);
+  });
+
+  it("lets the first value alone, or a retyped one, apply", () => {
+    expect(secondValueTyped("426.562", "426.562")).toBe(false);
+    expect(secondValueTyped("426.562", "426.562 ")).toBe(false);
+    expect(secondValueTyped("426.562", "450.469")).toBe(false);
+    // Tab before anything was typed: what follows is the only value.
+    expect(secondValueTyped("", "450.469")).toBe(false);
+  });
+
+  it("names the one value, and for a line how to type the end point", () => {
+    expect(oneValueMessage({ key: "length", name: "Length" })).toBe(
+      "This box takes one value, the length. To place the end point, type X Tab Y before you click.",
+    );
+    expect(oneValueMessage({ key: "diameter", name: "Diameter" })).toBe(
+      "This box takes one value, the diameter.",
+    );
   });
 });

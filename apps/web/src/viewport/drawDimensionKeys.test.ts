@@ -55,6 +55,16 @@ describe("bufferDrawKey", () => {
     expect(type(["Tab", "7"], circle)!.text).toEqual(["7"]);
   });
 
+  it("marks where a one-cell box's first value ended on Tab (LINE-LENGTH-TAB)", () => {
+    const line = { draftId: "line", fieldCount: 1 };
+    const buffer = type([..."426.562", "Tab", ..."450.469", "Enter"], line);
+    expect(buffer!.tabbedAt).toBe("426.562");
+    expect(bufferedText(buffer!, 0)).toBe("426.562450.469");
+    expect(buffer!.apply).toBe(true);
+    // A pair has a next cell: nothing to mark.
+    expect(type(["1", "Tab", "2"])!.tabbedAt).toBeUndefined();
+  });
+
   it("accepts a bare Enter as 'the shape is right as drawn'", () => {
     const buffer = type(["Enter"]);
     expect(buffer!.apply).toBe(true);
