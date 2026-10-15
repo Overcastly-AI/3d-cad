@@ -45,6 +45,7 @@ from loft_wire.assemblies import (
     assembly_export_filename,
     count_leaf_instances,
 )
+from loft_wire.component_patterns import PatternCountsResult
 from loft_wire.drawings import (
     ARTIFACT_MEDIA_TYPES,
     ComposeDrawingRequest,
@@ -108,6 +109,7 @@ from py_kit.errors import NotFoundError, ValidationApiError
 from geometry.assembly import (
     AssemblyExportError,
     check_interference,
+    count_patterns,
     evaluate_assembly,
     export_assembly,
     import_step_assembly,
@@ -324,6 +326,25 @@ def evaluate_assembly_route(
 
 
 @router.post(
+    "/assembly/pattern-counts",
+    dependencies=[ADMISSION_CONTROL],
+)
+def assembly_pattern_counts_route(
+    request: EvaluateAssemblyRequest,
+) -> PatternCountsResult:
+    """How many each component pattern of the assembly places (ASM-A3).
+
+    A hole-driven pattern's count is the driving part's hole count, which only
+    an evaluation knows; the gateway asks here so the bill of materials and the
+    instance bound count every copy. Every pattern at every level, once each,
+    with its count per seed (the seed included) or the typed reason it places
+    none. The same solve as ``/assembly/evaluate``, so the counts are exactly
+    what evaluation places.
+    """
+    return count_patterns(request)
+
+
+@router.post(
     "/assembly/interference",
     dependencies=[ADMISSION_CONTROL],
 )
@@ -358,7 +379,7 @@ def assembly_interference_route(
     failures of this call itself.
     """
     # A sub-assembly counts by the parts it places: those are what get paired.
-    placed_parts = count_leaf_instances(request.instances)
+    placed_parts = count_leaf_instances(request.instances, request.patterns)
     if placed_parts > MAX_INTERFERENCE_INSTANCES:
         raise ValidationApiError(
             f"Interference checking is limited to {MAX_INTERFERENCE_INSTANCES} "

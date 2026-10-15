@@ -91,6 +91,15 @@ class ExpectedJointState(BaseModel):
     axis_world: Vec3
 
 
+class ExpectedPatternCount(BaseModel):
+    """One component pattern's expected count per seed (ASM-A3-PATTERN)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pattern_id: str
+    count: int
+
+
 class ExpectedProbe(BaseModel):
     """A point fixed in an instance's part frame and where it must land in the
     world at the solved placement (e.g. a hinge leaf's far edge)."""
@@ -125,6 +134,9 @@ class AssemblyGoldenExpectation(BaseModel):
     )
     joint_states: list[ExpectedJointState] | None = Field(
         default=None, description="Solved joint states; checked when given"
+    )
+    pattern_counts: list[ExpectedPatternCount] | None = Field(
+        default=None, description="Per-pattern counts; checked when given"
     )
     probes: list[ExpectedProbe] = Field(default_factory=list["ExpectedProbe"])
     distinct_mesh_count: int = Field(ge=1)
@@ -223,6 +235,13 @@ def test_dof_joint_states_and_probes_match_hand_values(
     if expected.remaining_dof is not None:
         got_dof = 0 if result.diagnosis is None else result.diagnosis.remaining_dof
         assert got_dof == expected.remaining_dof, f"{case.name}: remaining_dof"
+    if expected.pattern_counts is not None:
+        assert [
+            (str(state.pattern_id), state.count, state.error_code)
+            for state in result.pattern_states
+        ] == [
+            (want.pattern_id, want.count, None) for want in expected.pattern_counts
+        ], f"{case.name}: pattern counts"
     if expected.joint_states is not None:
         got_states = result.joint_states
         assert [str(js.mate_id) for js in got_states] == [

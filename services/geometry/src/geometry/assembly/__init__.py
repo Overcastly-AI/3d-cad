@@ -10,6 +10,7 @@ mate-geometry-ref resolution into :class:`SolverMate.geometry`.
 from geometry.assembly.evaluate import (
     PlacedInstance,
     SolvedAssembly,
+    count_patterns,
     evaluate_assembly,
     solve_assembly,
 )
@@ -65,6 +66,7 @@ __all__ = [
     "SolverMate",
     "build_assembly_solve_input",
     "check_interference",
+    "count_patterns",
     "evaluate_assembly",
     "export_assembly",
     "import_step_assembly",

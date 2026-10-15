@@ -828,3 +828,92 @@ def test_0018_up_down_up_on_a_populated_database(
         ("parts", "parameters"),
     ]
     assert run(_scalar_rows(pg_url, "SELECT parameters::text FROM parts")) == [("[]",)]
+
+
+def test_0019_offline_sql_creates_assembly_patterns(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0018:0019")
+    assert "CREATE TABLE assembly_patterns" in sql
+    assert "REFERENCES assemblies (id) ON DELETE CASCADE" in sql
+    assert "params JSONB NOT NULL" in sql
+    assert "driven_count INTEGER" in sql
+    assert "driven_count INTEGER NOT NULL" not in sql
+    assert (
+        "CONSTRAINT uq_assembly_patterns_order UNIQUE (assembly_id, order_index)" in sql
+    )
+    # Additive only: no existing table is altered or rewritten.
+    assert "ALTER TABLE" not in sql
+    assert "UPDATE " not in sql.replace("UPDATE alembic_version", "")
+
+
+def test_0019_offline_downgrade_drops_assembly_patterns(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0019:0018", downgrade=True)
+    assert "DROP TABLE assembly_patterns" in sql
+    assert "ALTER TABLE" not in sql
+
+
+_PATTERN_ASSEMBLY = "6f3f6b64-0000-4000-8000-0000000190aa"
+_PATTERN_INSTANCE = "6f3f6b64-0000-4000-8000-0000000190bb"
+_PATTERN_MATE = "6f3f6b64-0000-4000-8000-0000000190cc"
+
+
+def test_0019_up_down_up_on_a_populated_database(
+    pg_url: str, alembic_runner: Callable[..., None]
+) -> None:
+    """ASM-A3-PATTERN: 0019 against real rows. An existing assembly, its
+    instance, mate and history snapshot come through byte-for-byte; a pattern
+    row stores, keeps its order unique per assembly and cascades with its
+    assembly; the downgrade drops exactly the table; the upgrade applies
+    again."""
+    alembic_runner(pg_url, "0018", downgrade=True)
+    run = asyncio.run
+    placement = '{"position": {"x": 0, "y": 0, "z": 0}}'
+    for statement in (
+        "INSERT INTO assemblies (id, owner_id, name, doc_version) "
+        f"VALUES ('{_PATTERN_ASSEMBLY}', '{_OWNER}', 'Old stage', 4)",
+        "INSERT INTO instances (id, assembly_id, ref_document_id, "
+        "ref_document_kind, name, placement, order_index) VALUES "
+        f"('{_PATTERN_INSTANCE}', '{_PATTERN_ASSEMBLY}', gen_random_uuid(), "
+        f"'part', 'Rail <1>', '{placement}', 0)",
+        "INSERT INTO mates (id, assembly_id, order_index, type, params) VALUES "
+        f"('{_PATTERN_MATE}', '{_PATTERN_ASSEMBLY}', 0, 'lock', "
+        f'\'{{"type": "lock", "a_instance_id": "{_PATTERN_INSTANCE}", '
+        f'"b_instance_id": "{_PATTERN_INSTANCE}"}}\')',
+        "INSERT INTO assembly_snapshots (assembly_id, seq, state) VALUES "
+        f"('{_PATTERN_ASSEMBLY}', 1, '{{\"instances\": [], \"mates\": []}}')",
+    ):
+        run(_scalar_rows(pg_url, statement))
+    reads = (
+        "SELECT id, name, doc_version, updated_at FROM assemblies",
+        "SELECT id, name, placement::text, order_index, updated_at FROM instances",
+        "SELECT id, params::text, updated_at FROM mates",
+        "SELECT seq, state::text FROM assembly_snapshots",
+    )
+    before = [run(_scalar_rows(pg_url, read)) for read in reads]
+
+    alembic_runner(pg_url, "0019")
+    assert [run(_scalar_rows(pg_url, read)) for read in reads] == before
+    insert = (
+        "INSERT INTO assembly_patterns (assembly_id, order_index, type, params) "
+        f"VALUES ('{_PATTERN_ASSEMBLY}', 0, 'linear', '{{\"count\": 3}}')"
+    )
+    run(_scalar_rows(pg_url, insert))
+    assert run(
+        _scalar_rows(pg_url, "SELECT type, driven_count FROM assembly_patterns")
+    ) == [("linear", None)]
+    with pytest.raises(IntegrityError):
+        run(_scalar_rows(pg_url, insert))  # (assembly_id, order_index) is unique
+
+    alembic_runner(pg_url, "0018", downgrade=True)
+    assert "assembly_patterns" not in run(_table_names(pg_url))
+    assert [run(_scalar_rows(pg_url, read)) for read in reads] == before
+
+    alembic_runner(pg_url, "head")
+    run(_scalar_rows(pg_url, insert))
+    run(
+        _scalar_rows(pg_url, f"DELETE FROM assemblies WHERE id = '{_PATTERN_ASSEMBLY}'")
+    )
+    assert run(_scalar_rows(pg_url, "SELECT count(*) FROM assembly_patterns")) == [(0,)]

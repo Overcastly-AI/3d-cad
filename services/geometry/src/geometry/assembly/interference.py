@@ -43,11 +43,13 @@ BLAS-pinned solve yields an identical clash list across interpreter restarts.
 from __future__ import annotations
 
 from loft_wire.assemblies import (
+    MAX_INTERFERENCE_INSTANCES,
     ClashPair,
     EvaluateAssemblyRequest,
     InterferenceResult,
 )
 from py_kit import get_logger
+from py_kit.errors import ValidationApiError
 
 from geometry.assembly.evaluate import PlacedInstance, solve_assembly
 from geometry.assembly.transform import Pose
@@ -87,6 +89,15 @@ def check_interference(request: EvaluateAssemblyRequest) -> InterferenceResult:
     (the never-500 contract, §4).
     """
     solved = solve_assembly(request)
+    if len(solved.placed) > MAX_INTERFERENCE_INSTANCES:
+        # Reached only through a hole-driven pattern, whose copies are counted
+        # once the driving part is evaluated (the route checks the rest).
+        raise ValidationApiError(
+            f"Interference checking is limited to {MAX_INTERFERENCE_INSTANCES} "
+            "instances per request (the pairwise clash scan is quadratic in "
+            f"instance count); its patterns place {len(solved.placed)}.",
+            code="interference_too_many_instances",
+        )
     world_bodies = [
         (placed.instance_id, _world_body(placed)) for placed in solved.placed
     ]

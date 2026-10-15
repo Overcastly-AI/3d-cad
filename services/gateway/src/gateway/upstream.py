@@ -25,6 +25,7 @@ error. Raw stacks never reach the client.
 """
 
 import math
+from collections.abc import Mapping, Sequence
 from typing import Any, Final, NoReturn
 
 import httpx2 as httpx
@@ -35,6 +36,9 @@ from py_kit import (
     UpstreamTimeoutError,
     UpstreamUnavailableError,
 )
+
+#: Query parameters for an upstream call; a list value repeats the name.
+QueryParams = Mapping[str, str | Sequence[str]] | None
 
 #: Fallback retry hint (seconds) on a 504 when the client's budget cannot be
 #: read off the transport. Small on purpose: the upstream is still working and
@@ -174,7 +178,7 @@ async def send_upstream(
     *,
     json_content: str | None = None,
     headers: dict[str, str] | None = None,
-    params: dict[str, str] | None = None,
+    params: QueryParams = None,
 ) -> httpx.Response:
     """Forward to an upstream, letting ``httpx.HTTPError`` propagate RAW.
 
@@ -207,7 +211,7 @@ async def forward(
     service: str,
     json_content: str | None = None,
     headers: dict[str, str] | None = None,
-    params: dict[str, str] | None = None,
+    params: QueryParams = None,
 ) -> httpx.Response:
     """Forward to an upstream service, mapping transport failures to envelopes.
 

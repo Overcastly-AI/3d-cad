@@ -840,6 +840,60 @@ class Mate(Base):
         )
 
 
+class AssemblyPattern(Base):
+    """One component pattern of an assembly (ASM-A3-PATTERN).
+
+    ONE entry per pattern, holding its definition (``params`` is the full
+    :data:`~loft_wire.component_patterns.ComponentPattern` payload, always the
+    output of a pydantic validation), never copied instance rows: geometry
+    places the copies after the solve. The seeds and references live inside
+    ``params`` and are app-enforced at write time, like a mate's.
+    ``driven_count`` is a hole-driven pattern's count when last written (as
+    geometry resolved it, through the gateway): it feeds the write-time
+    instance bound only, and is NULL for linear and circular patterns.
+    """
+
+    __tablename__ = "assembly_patterns"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    assembly_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("assemblies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    order_index: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
+    type: Mapped[str] = mapped_column(sa.String(16), nullable=False)
+    params: Mapped[dict[str, Any]] = mapped_column(_JSON_VARIANT, nullable=False)
+    driven_count: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        onupdate=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "assembly_id", "order_index", name="uq_assembly_patterns_order"
+        ),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return (
+            f"AssemblyPattern(id={self.id!r}, assembly_id={self.assembly_id!r}, "
+            f"type={self.type!r})"
+        )
+
+
 class AssemblySnapshot(Base):
     """One entry of an assembly's bounded undo/redo history (undo-redo.md UR3).
 

@@ -18,10 +18,10 @@ walk is needed; deleting a drawing simply cascades its whole layout.
 """
 
 import uuid
-from typing import Annotated, cast
+from collections.abc import Mapping
+from typing import Annotated
 
 from fastapi import APIRouter, Query, status
-from loft_wire.assemblies import RefDocumentKind
 from loft_wire.drawings import (
     MAX_DRAWING_ANNOTATIONS,
     MAX_DRAWING_DIMENSIONS,
@@ -74,8 +74,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from documents import db
-from documents.assembly_history import ordered_instances
-from documents.bom import resolve_document_names
+from documents.bom import (
+    direct_quantities,
+    parse_pattern_counts,
+    resolve_document_names,
+)
 from documents.filing import resolve_destination
 from documents.parts import (
     Principal,
@@ -639,7 +642,10 @@ async def _bom_source_assembly(
 
 
 async def _bom_lines(
-    session: AsyncSession, assembly: db.Assembly
+    session: AsyncSession,
+    assembly: db.Assembly,
+    counts: Mapping[uuid.UUID, int],
+    unresolved: set[uuid.UUID],
 ) -> list[DrawingBomLine]:
     """Number the assembly's direct instances into drawing BOM lines (design §7).
 
@@ -657,20 +663,11 @@ async def _bom_lines(
     is a single ``kind: "assembly"`` line, ballooned once; its contents are on the
     assembly BOM's indented and parts-only views. A referenced document deleted while
     still instanced keeps its line with ``missing`` true and a null name — the
-    quantity is never silently dropped.
+    quantity is never silently dropped. A component pattern's copies count on
+    their seed's line (ASM-A3; see :func:`documents.bom.direct_quantities`).
     """
-    instances = await ordered_instances(session, assembly.id)
-    order: list[tuple[uuid.UUID, RefDocumentKind]] = []
-    quantities: dict[tuple[uuid.UUID, RefDocumentKind], int] = {}
-    for instance in instances:
-        key = (
-            instance.ref_document_id,
-            cast(RefDocumentKind, instance.ref_document_kind),
-        )
-        if key not in quantities:
-            order.append(key)
-            quantities[key] = 0
-        quantities[key] += 1
+    quantities = await direct_quantities(session, assembly.id, counts, unresolved)
+    order = list(quantities)
     names = await resolve_document_names(session, assembly.owner_id, set(order))
     return [
         DrawingBomLine(
@@ -698,6 +695,13 @@ async def get_drawing_bom(
             "routes take. An unknown/foreign id is a `sheet_not_found` 404.",
         ),
     ] = None,
+    pattern_count: Annotated[
+        list[str] | None,
+        Query(
+            description="'<pattern id>:<count>' for each hole-driven pattern "
+            "geometry resolved (the gateway sets these), as on the assembly BOM.",
+        ),
+    ] = None,
 ) -> DrawingBomResponse:
     """The sheet's bill of materials — numbered items derived from its assembly.
 
@@ -717,7 +721,10 @@ async def get_drawing_bom(
     """
     drawing = await get_owned_drawing(session, owner_id, drawing_id)
     sheet_row, assembly = await _bom_source_assembly(session, owner_id, drawing, sheet)
-    lines = await _bom_lines(session, assembly)
+    unresolved: set[uuid.UUID] = set()
+    lines = await _bom_lines(
+        session, assembly, parse_pattern_counts(pattern_count or []), unresolved
+    )
     return DrawingBomResponse(
         drawing_id=drawing.id,
         sheet_id=sheet_row.id,
@@ -725,6 +732,7 @@ async def get_drawing_bom(
         assembly_version=assembly.doc_version,
         lines=lines,
         total_instances=sum(line.quantity for line in lines),
+        unresolved_patterns=sorted(unresolved, key=str),
     )
 
 

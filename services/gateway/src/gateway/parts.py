@@ -26,7 +26,12 @@ from loft_wire.workspace import DependencyConflictEnvelope
 
 from gateway.auth import CurrentUser
 from gateway.db import User
-from gateway.upstream import create_upstream_client, forward, raise_upstream_error
+from gateway.upstream import (
+    QueryParams,
+    create_upstream_client,
+    forward,
+    raise_upstream_error,
+)
 
 #: Upstream call budget — documents queries are cheap OLTP round-trips.
 DOCUMENTS_TIMEOUT_S = 10.0
@@ -70,7 +75,7 @@ async def forward_documents(
     method: str,
     path: str,
     json_content: str | None = None,
-    params: dict[str, str] | None = None,
+    params: QueryParams = None,
 ) -> httpx.Response:
     """Forward to documents with the authenticated principal attached.
 

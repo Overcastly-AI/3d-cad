@@ -163,6 +163,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assembly/pattern-counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assembly Pattern Counts Route
+         * @description How many each component pattern of the assembly places (ASM-A3).
+         *
+         *     A hole-driven pattern's count is the driving part's hole count, which only
+         *     an evaluation knows; the gateway asks here so the bill of materials and the
+         *     instance bound count every copy. Every pattern at every level, once each,
+         *     with its count per seed (the seed included) or the typed reason it places
+         *     none. The same solve as ``/assembly/evaluate``, so the counts are exactly
+         *     what evaluation places.
+         */
+        post: operations["assembly_pattern_counts_route_api_v1_assembly_pattern_counts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drawing/assembly/evaluate": {
         parameters: {
             query?: never;
@@ -1372,6 +1399,58 @@ export interface components {
              * @description Which edges of the current body to bevel (geometric predicate, not topological naming — design §2.4; same selector union as fillet)
              */
             edges: components["schemas"]["AllEdgesSelector"] | components["schemas"]["AxisParallelEdgesSelector"] | components["schemas"]["PickedEdgesSelector"];
+        };
+        /**
+         * CircularComponentPattern
+         * @description ``count`` copies about ``axis``, over ``angle_deg``.
+         *
+         *     360 degrees is a full ring: the copies are 360/count apart. A smaller
+         *     angle is the angle from the seed to the last copy: they are
+         *     angle/(count - 1) apart (Fusion's Full / Angle, SolidWorks' equal spacing).
+         */
+        CircularComponentPattern: {
+            /**
+             * Angle Deg
+             * @description Total angle (degrees); 360 = a full, equally spaced ring
+             * @default 360
+             */
+            angle_deg: number;
+            /**
+             * Angle Expr
+             * @description `angle_deg` as typed (an expression), if typed
+             */
+            angle_expr?: string | null;
+            /**
+             * Axis
+             * @description The axis the copies turn about
+             */
+            axis: components["schemas"]["OriginAxisRef"] | components["schemas"]["EdgeAxisRef"];
+            /**
+             * Count
+             * @description How many in the pattern, the seed included
+             */
+            count: number;
+            /**
+             * Count Expr
+             * @description `count` as typed (an expression), if typed
+             */
+            count_expr?: string | null;
+            /**
+             * Flip
+             * @description Turn the other way
+             * @default false
+             */
+            flip: boolean;
+            /**
+             * Seed Instance Ids
+             * @description The instances to repeat (instances of this assembly: parts or rigid sub-assemblies), in order
+             */
+            seed_instance_ids: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "circular";
         };
         /**
          * CircularPatternParamsV1
@@ -3135,6 +3214,31 @@ export interface components {
             view: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
         };
         /**
+         * EdgeAxisRef
+         * @description An axis picked on an instance's part: a straight edge (its line, pointing
+         *     from its canonical start toward its end) or a circular edge (the axis
+         *     through its centre, pointing out of the face it bounds).
+         *
+         *     ``instance_id`` may be an instance of this assembly or a part inside one of
+         *     its sub-assemblies (an occurrence id, as joints use). It may not be a copy
+         *     placed by another pattern.
+         */
+        EdgeAxisRef: {
+            /**
+             * Instance Id
+             * Format: uuid
+             * @description The instance (or nested occurrence) whose part carries the edge
+             */
+            instance_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "edge";
+            /** @description Stage-1 signature of the picked edge (curve 'line' or 'circle') */
+            signature: components["schemas"]["EdgeSignature"];
+        };
+        /**
          * EdgeLengthMeasurement
          * @description Measure the length of a single model edge (design §3.1 linear).
          */
@@ -3532,6 +3636,11 @@ export interface components {
              */
             mates?: components["schemas"]["EvaluatedMate"][];
             /**
+             * Patterns
+             * @description Component patterns (ASM-A3), expanded after the solve in order_index order. Omitted while empty, so a request without patterns dumps exactly as before they existed.
+             */
+            patterns?: components["schemas"]["EvaluatedPattern"][];
+            /**
              * Version
              * @description Echoed back; cache/correlation key
              */
@@ -3575,6 +3684,11 @@ export interface components {
              * @description Per-mate resolution failures (dropped from the solve, §4)
              */
             mate_errors?: components["schemas"]["MateEvaluationError"][];
+            /**
+             * Pattern States
+             * @description Each component pattern of this assembly: how many it placed per seed, or why it placed none. Omitted while empty.
+             */
+            pattern_states?: components["schemas"]["PatternCount"][];
             /** @description Combined assembly mass properties (roll-up, §4) */
             properties?: components["schemas"]["ShapeProperties"] | null;
             /**
@@ -3862,6 +3976,24 @@ export interface components {
             order_index: number;
         };
         /**
+         * EvaluatedPattern
+         * @description One pattern as the evaluator sees it: its stored id names its copies.
+         */
+        EvaluatedPattern: {
+            /**
+             * Order Index
+             * @description Expansion order (determinism)
+             */
+            order_index: number;
+            /** Pattern */
+            pattern: components["schemas"]["LinearComponentPattern"] | components["schemas"]["CircularComponentPattern"] | components["schemas"]["HoleComponentPattern"];
+            /**
+             * Pattern Id
+             * Format: uuid
+             */
+            pattern_id: string;
+        };
+        /**
          * ExportAssemblyRequest
          * @description Evaluate an assembly graph and export it as one multi-instance CAD file.
          *
@@ -3919,6 +4051,11 @@ export interface components {
              * @description The assembly's human-readable document name. Names the exported STEP's ROOT PRODUCT and the download filename; omitted / null falls back to the assembly id. Export-only (see DocumentName): a name must never be an input to the solve.
              */
             name?: string | null;
+            /**
+             * Patterns
+             * @description Component patterns (ASM-A3), expanded after the solve in order_index order. Omitted while empty, so a request without patterns dumps exactly as before they existed.
+             */
+            patterns?: components["schemas"]["EvaluatedPattern"][];
             /**
              * Version
              * @description Echoed back; cache/correlation key
@@ -4359,6 +4496,36 @@ export interface components {
             kind: "blind";
         };
         /**
+         * HoleComponentPattern
+         * @description Pattern-driven: one copy at every hole like ``seed_hole`` (Replicate).
+         *
+         *     The holes are every circular edge of the driving part with the seed hole's
+         *     radius whose centre lies on the seed hole's plane, with a parallel axis:
+         *     the rims of one hole feature on one face. The seed sits at ``seed_hole``;
+         *     a copy goes to each of the other holes, and to every such hole on each
+         *     instance in ``also_on`` (further instances of the SAME part, such as the
+         *     second rail). The count is whatever the part has when it is evaluated.
+         */
+        HoleComponentPattern: {
+            /**
+             * Also On
+             * @description Further instances (or nested occurrences) of the driving part whose matching holes also get a copy
+             */
+            also_on?: string[];
+            /** @description The hole the seed sits at */
+            seed_hole: components["schemas"]["HoleRef"];
+            /**
+             * Seed Instance Ids
+             * @description The instances to repeat (instances of this assembly: parts or rigid sub-assemblies), in order
+             */
+            seed_instance_ids: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "hole";
+        };
+        /**
          * HoleCounterbore
          * @description A larger coaxial CYLINDRICAL recess at the face (``kind: "counterbore"``).
          *
@@ -4520,6 +4687,22 @@ export interface components {
              * @description Hole type: a plain bore (`simple`, the default when omitted — slice-1 behaviour) or a bore plus a coaxial counterbore / countersink recess at the face (:data:`HoleType`)
              */
             type?: components["schemas"]["HoleSimple"] | components["schemas"]["HoleCounterbore"] | components["schemas"]["HoleCountersink"];
+        };
+        /**
+         * HoleRef
+         * @description The hole a hole-driven pattern's seed sits at: a circular edge (a hole
+         *     rim) of a part instance in this assembly, or of a part inside one of its
+         *     sub-assemblies.
+         */
+        HoleRef: {
+            /**
+             * Instance Id
+             * Format: uuid
+             * @description The driving part's instance (or nested occurrence)
+             */
+            instance_id: string;
+            /** @description Stage-1 signature of the seed hole's rim (curve 'circle') */
+            signature: components["schemas"]["EdgeSignature"];
         };
         /**
          * HoleSimple
@@ -4757,6 +4940,8 @@ export interface components {
              * @description For a part placed inside a sub-assembly: the instance ids from the top-level sub-assembly instance down to this part instance, and `instance_id` is then the occurrence id of that path. Omitted for a part instanced directly in the assembly.
              */
             path?: string[];
+            /** @description Set when this row is a copy placed by one of THIS assembly's component patterns (for a copy of a sub-assembly seed, on each of its parts). Omitted otherwise. */
+            pattern?: components["schemas"]["PatternCopyRef"] | null;
             /** @description SOLVED world pose (seed if unsolved) */
             placement: components["schemas"]["Placement"];
             /** @description The part's own mass properties (BOM/inspection) */
@@ -5002,6 +5187,53 @@ export interface components {
              * @description Rotation about the joint Z axis (degrees)
              */
             rot_deg?: number | null;
+        };
+        /**
+         * LinearComponentPattern
+         * @description ``count`` copies, ``spacing_mm`` apart along ``direction``.
+         */
+        LinearComponentPattern: {
+            /**
+             * Count
+             * @description How many in the pattern, the seed included
+             */
+            count: number;
+            /**
+             * Count Expr
+             * @description `count` as typed (an expression), if typed
+             */
+            count_expr?: string | null;
+            /**
+             * Direction
+             * @description The direction the copies run in
+             */
+            direction: components["schemas"]["OriginAxisRef"] | components["schemas"]["EdgeAxisRef"];
+            /**
+             * Flip
+             * @description Run the other way
+             * @default false
+             */
+            flip: boolean;
+            /**
+             * Seed Instance Ids
+             * @description The instances to repeat (instances of this assembly: parts or rigid sub-assemblies), in order
+             */
+            seed_instance_ids: string[];
+            /**
+             * Spacing Expr
+             * @description `spacing_mm` as typed (an expression), if typed
+             */
+            spacing_expr?: string | null;
+            /**
+             * Spacing Mm
+             * @description Distance between neighbouring copies (mm)
+             */
+            spacing_mm: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "linear";
         };
         /**
          * LinearDimensionParams
@@ -5670,6 +5902,23 @@ export interface components {
             kind: "origin_axis";
         };
         /**
+         * OriginAxisRef
+         * @description One of the assembly's origin axes (X, Y or Z through the origin).
+         */
+        OriginAxisRef: {
+            /**
+             * Axis
+             * @description 'x', 'y' or 'z'
+             * @enum {string}
+             */
+            axis: "x" | "y" | "z";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "origin_axis";
+        };
+        /**
          * OverlayEdge
          * @description One pickable B-rep edge of the evaluated body (transient index).
          *
@@ -5819,6 +6068,62 @@ export interface components {
              * @enum {string}
              */
             kind: "body";
+        };
+        /**
+         * PatternCopyRef
+         * @description Marks a result row as a pattern copy: which pattern, which seed.
+         */
+        PatternCopyRef: {
+            /**
+             * Index
+             * @description 1 = the first copy after the seed
+             */
+            index: number;
+            /**
+             * Pattern Id
+             * Format: uuid
+             */
+            pattern_id: string;
+            /**
+             * Seed Instance Id
+             * Format: uuid
+             */
+            seed_instance_id: string;
+        };
+        /**
+         * PatternCount
+         * @description How many a pattern places when evaluated, the seed included, or why it
+         *     places none. ``count`` is per seed.
+         */
+        PatternCount: {
+            /**
+             * Count
+             * @description Copies per seed, the seed included; null when the pattern could not be resolved (see `error`)
+             */
+            count: number | null;
+            /**
+             * Error Code
+             * @description Why the pattern did not resolve, if it did not
+             */
+            error_code?: string | null;
+            /**
+             * Error Message
+             * @description The same, in words
+             */
+            error_message?: string | null;
+            /**
+             * Pattern Id
+             * Format: uuid
+             */
+            pattern_id: string;
+        };
+        /**
+         * PatternCountsResult
+         * @description Every pattern of an evaluation request, at every level, with its count.
+         */
+        PatternCountsResult: {
+            /** Counts */
+            counts: components["schemas"]["PatternCount"][];
         };
         /**
          * PatternFeature
@@ -8687,6 +8992,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InterferenceResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assembly_pattern_counts_route_api_v1_assembly_pattern_counts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluateAssemblyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatternCountsResult"];
                 };
             };
             /** @description Validation Error */

@@ -24,6 +24,14 @@ from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from loft_wire.component_patterns import (
+    MAX_ASSEMBLY_PATTERNS,
+    EvaluatedPattern,
+    PatternCopyRef,
+    PatternCount,
+    PatternResponse,
+    explicit_copies,
+)
 from loft_wire.features import (
     MAX_TREE_FEATURES,
     DocumentName,
@@ -610,6 +618,13 @@ class AssemblyGraphResponse(BaseModel):
     doc_version: int = Field(description="Echoed OCC token (== assembly.doc_version)")
     instances: list[InstanceResponse]
     mates: list[MateResponse]
+    patterns: list[PatternResponse] = Field(
+        default_factory=list["PatternResponse"],
+        exclude_if=_is_empty,
+        json_schema_extra=_drop_schema_default,
+        description="The assembly's component patterns, in order (ASM-A3). "
+        "Omitted while empty, so an assembly without patterns reads as before.",
+    )
     can_undo: bool = Field(
         description="True when an earlier history snapshot exists to restore "
         "(docs/design/undo-redo.md UR3) — lets the toolbar disable undo "
@@ -742,6 +757,14 @@ class AssemblyBomResponse(BaseModel):
     )
     total_parts: int = Field(
         ge=0, description="Sum of the parts-only quantities (every placed part)"
+    )
+    unresolved_patterns: list[uuid.UUID] = Field(
+        default_factory=list["uuid.UUID"],
+        exclude_if=_is_empty,
+        json_schema_extra=_drop_schema_default,
+        description="Hole-driven patterns whose count could not be resolved "
+        "(their driving part did not evaluate): only their seeds are counted. "
+        "Omitted while empty.",
     )
 
 
@@ -941,13 +964,22 @@ class EvaluateAssemblyRequest(BaseModel):
         description="Presentation tessellation parameter (mm), never persisted. "
         "Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
     )
+    patterns: list[EvaluatedPattern] = Field(
+        default_factory=list["EvaluatedPattern"],
+        max_length=MAX_ASSEMBLY_PATTERNS,
+        exclude_if=_is_empty,
+        json_schema_extra=_drop_schema_default,
+        description="Component patterns (ASM-A3), expanded after the solve in "
+        "order_index order. Omitted while empty, so a request without patterns "
+        "dumps exactly as before they existed.",
+    )
 
     @model_validator(mode="after")
     def _bounded_nesting(self) -> Self:
         """Sub-assemblies count toward the work bounds by what they PLACE: the
         part occurrences across every level (each one is evaluated, drawn and
         clash-checked) and the nesting depth (each level is a solve)."""
-        leaves = count_leaf_instances(self.instances)
+        leaves = count_leaf_instances(self.instances, self.patterns)
         if leaves > MAX_ASSEMBLY_INSTANCES:
             raise ValueError(
                 f"the assembly places {leaves} parts across its sub-assemblies; "
@@ -962,14 +994,26 @@ class EvaluateAssemblyRequest(BaseModel):
         return self
 
 
-def count_leaf_instances(instances: Sequence[EvaluatedInstance]) -> int:
-    """How many PART occurrences *instances* place, through every sub-assembly."""
-    total = 0
+def count_leaf_instances(
+    instances: Sequence[EvaluatedInstance],
+    patterns: Sequence[EvaluatedPattern] = (),
+) -> int:
+    """How many PART occurrences *instances* place, through every sub-assembly,
+    counting the copies of the linear and circular *patterns* (a hole-driven
+    pattern's count is only known to geometry, which bounds it on expansion)."""
+    leaves: dict[uuid.UUID, int] = {}
     for instance in instances:
         if instance.sub_assembly is None:
-            total += 1
+            leaves[instance.instance_id] = 1
         else:
-            total += count_leaf_instances(instance.sub_assembly.instances)
+            leaves[instance.instance_id] = count_leaf_instances(
+                instance.sub_assembly.instances, instance.sub_assembly.patterns
+            )
+    total = sum(leaves.values())
+    for evaluated in patterns:
+        copies = explicit_copies(evaluated.pattern) or 0
+        for seed in evaluated.pattern.seed_instance_ids:
+            total += copies * leaves.get(seed, 0)
     return total
 
 
@@ -1020,6 +1064,14 @@ class InstancePlacementResult(BaseModel):
         "from the top-level sub-assembly instance down to this part instance, "
         "and `instance_id` is then the occurrence id of that path. Omitted for "
         "a part instanced directly in the assembly.",
+    )
+    pattern: PatternCopyRef | None = Field(
+        default=None,
+        exclude_if=_is_none,
+        json_schema_extra=_drop_schema_default,
+        description="Set when this row is a copy placed by one of THIS "
+        "assembly's component patterns (for a copy of a sub-assembly seed, on "
+        "each of its parts). Omitted otherwise.",
     )
 
 
@@ -1115,6 +1167,13 @@ class EvaluateAssemblyResult(BaseModel):
         json_schema_extra=_drop_schema_default,
         description="Solved pose of each top-level sub-assembly instance; its "
         "parts are in `instances` with a `path`. Omitted while empty.",
+    )
+    pattern_states: list[PatternCount] = Field(
+        default_factory=list["PatternCount"],
+        exclude_if=_is_empty,
+        json_schema_extra=_drop_schema_default,
+        description="Each component pattern of this assembly: how many it "
+        "placed per seed, or why it placed none. Omitted while empty.",
     )
 
 
