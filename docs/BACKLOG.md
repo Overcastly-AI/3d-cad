@@ -61,9 +61,20 @@ byte-identical; RESEARCH §15a). Done 2026-10-09..14 and dropped at the
       structure bills top level 11 / 45 and parts only 16 / 73
       (`test_a3_bom_counts_every_copy`); a 32-spoke wheel in a bike bills 64
       spokes (`asm-pattern.png`).
-- [ ] **ASM-A3-IN-CONTEXT** (A3): in-context edits (Fusion Edit in Place,
-      SolidWorks external references). _Accept:_ moving A3's rails from ±40
-      to ±45 moves the carriage plate's holes.
+- [x] **ASM-A3-IN-CONTEXT** (A3; done on this branch; e2e
+      `assembly-in-context.spec.ts`, golden `assembly-in-context-rail-plate`,
+      RESEARCH §24): Edit in Place from the component menu opens the part with
+      the other components ghosted around it, and Project takes their edges as
+      in-context links (context assembly, host and referenced occurrence, edge
+      in that part's frame, last resolved curve). Every evaluation of the
+      context assembly re-resolves them, rebuilds the part and re-solves until
+      nothing moves; the gateway stores the values (metadata, no undo step).
+      Out of context a part rebuilds from its last values. A removed or
+      replaced component, a gone edge or a loop is a typed error shown on the
+      component and the sketch, keeping the last geometry; Break link keeps
+      it; a loop is refused at write (`in_context_cycle`, naming the chain).
+      No schema change. Moving A3's rails from ±40 to ±45 moves the plate's
+      holes (golden, 1e-9; e2e).
 
 ## Next
 
@@ -228,6 +239,11 @@ One line each. The founder triages weekly; most are closed without work.
 - ASM-PAT-HOLE-SET: "On holes" takes every circle of the seed hole's radius on its face, not the holes of one hole feature (two same-size hole features on one face are one set); SolidWorks picks the feature.
 - ASM-PAT-PREVIEW: the pattern dialog shows no copies until OK (Fusion previews them live); a Move preview of a seed leaves its copies in place until the commit.
 - ASM-PAT-RECT: a linear pattern runs in one direction; Fusion's rectangular pattern has a second direction and SolidWorks a sketch-driven pattern.
+- ASM-IC-FACES: in-context links are projected edges only; offset-from and up-to a neighbour's face (Fusion and SolidWorks both) are not built.
+- ASM-IC-NESTED-MENU: Edit in Place is offered for top-level parts; a part inside a sub-assembly resolves through its occurrence id (tested), but the tree offers no menu for it.
+- ASM-IC-SUB-CONTEXT: a link resolves only when its own context assembly is evaluated; a link made in the carriage sub-assembly keeps its last values while the stage is evaluated (SolidWorks' rule, but Fusion resolves through the parent).
+- ASM-IC-COPIES: documents refuses a link to a pattern copy (its occurrence is not stored), although geometry would resolve one.
+- ASM-IC-BREAK-ALL: Break link works one sketch selection at a time; SolidWorks' External References dialog lists and breaks or locks every reference of a part.
 - ASM-PAT-STALE-BOUND: a hole pattern's count is stored at write for the write-time bound of the assemblies above it; when the part later gains holes that stored count is stale until the pattern is rewritten. Geometry refuses any tree that then places more than 500 parts (typed `assembly_too_large`, before per-part work), so the stale count is a late refusal rather than a hang. The gateway could re-count on every write to an ancestor.
 - ASM-PAT-NESTED-STATE: a pattern that fails inside a sub-assembly (stale edge, too large) is reported only when the sub-assembly itself is open, not in the parent's tree.
 - ASM-SUB-TREE: the component tree lists a sub-assembly as one row and cannot be expanded to its parts (Fusion's browser can).

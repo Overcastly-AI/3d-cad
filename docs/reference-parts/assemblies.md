@@ -30,8 +30,14 @@ as ASM-\* in `docs/BACKLOG.md`.
   entry each. Copies follow their seed after the solve; the BOM,
   interference, STEP and the 500-component bound count them, and an on-holes
   pattern's count follows its driving part.
-- **Not built:** mirror, in-context edits, exploded views and a fastener
-  library. Performance at scale has not been measured.
+- **In context (ASM-A3-IN-CONTEXT):** Edit in Place opens a part with the
+  other components ghosted around it; Project takes their edges as in-context
+  links, which follow the referenced component whenever the assembly is
+  evaluated. Out of context the part keeps the last resolved values. A
+  removed or replaced component is a typed error, never a re-attachment, and
+  a loop of references is refused.
+- **Not built:** mirror, in-context face offsets and up-to extents, exploded
+  views and a fastener library. Performance at scale has not been measured.
 
 ## The three assemblies
 
@@ -150,7 +156,7 @@ axes are X along the travel, and Z up. Screws are ISO 4762.
 | Grouping       | Rigid groups, nested components                                      | Rigid or flexible sub-assemblies                                                           | Pairwise lock; rigid sub-assemblies            |
 | Patterns       | Pattern and mirror of components                                     | Linear, circular, pattern-driven and sketch-driven patterns; mirror components             | Linear, circular, on-holes patterns            |
 | Fasteners      | McMaster-Carr insert                                                 | Toolbox, Smart Fasteners into Hole Wizard holes                                            | Hand-modelled                                  |
-| In context     | Edit in place, cross-component references                            | Edit Part in the assembly, external references                                             | None                                           |
+| In context     | Edit in place, cross-component references                            | Edit Part in the assembly, external references                                             | Edit in Place; projected edges only            |
 | BOM            | Parts list and balloons in drawings                                  | Top-level, parts-only and indented BOM                                                     | Top-level, indented, parts-only; drawing BOM   |
 | Interference   | Interference, with or without coincident faces                       | Interference detection, with a separate fasteners folder                                   | Clash pairs; touching is ignored               |
 | Explode        | Animation workspace                                                  | Exploded views                                                                             | None                                           |
