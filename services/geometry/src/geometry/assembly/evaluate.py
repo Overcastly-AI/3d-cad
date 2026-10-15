@@ -50,6 +50,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 from loft_wire.assemblies import (
+    MAX_ASSEMBLY_INSTANCES,
     AssemblySolveDiagnosis,
     AssemblySolveStatus,
     EvaluateAssemblyRequest,
@@ -61,6 +62,11 @@ from loft_wire.assemblies import (
     SubAssemblyPlacement,
     mate_instance_ids,
     nested_occurrence_id,
+)
+from loft_wire.component_patterns import (
+    PatternCopyRef,
+    PatternCount,
+    PatternCountsResult,
 )
 from loft_wire.features import (
     EvaluateTreeRequest,
@@ -74,7 +80,9 @@ from loft_wire.geometry import (
     Vec3,
 )
 from loft_wire.joints import JointState
+from py_kit.errors import ValidationApiError
 
+from geometry.assembly.patterns import PatternTarget, SeedPart, expand_pattern
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,
     AssemblySolveInput,
@@ -454,6 +462,8 @@ class Occurrence:
     placement: Placement
     body: BodyShape | None
     error: FeatureError | None
+    #: Set on a copy placed by one of THIS assembly's component patterns.
+    pattern: PatternCopyRef | None = None
 
 
 @dataclass(frozen=True)
@@ -485,6 +495,11 @@ class SolvedAssembly:
     joint_states: list[JointState]
     occurrences: list[Occurrence]
     sub_assembly_poses: dict[uuid.UUID, Placement]
+    #: Each of this assembly's own patterns: its count, or why it placed none.
+    pattern_states: list[PatternCount]
+    #: The same for every pattern at every level (sub-assemblies' too), once
+    #: each, in first-seen order.
+    all_pattern_states: list[PatternCount]
 
 
 def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
@@ -606,6 +621,13 @@ def _solve(
         if inst.sub_assembly is not None
     }
     placed_occurrences = [_placed(occ, solved) for occ in occurrences]
+    # Patterns are placed from the SOLVED poses: each copy is fixed relative to
+    # its seed and to the pattern's reference geometry.
+    copies, pattern_states = _expand_patterns(request, placed_occurrences, parts)
+    for copy in copies:
+        if copy.error is not None:
+            instance_errors[copy.occurrence_id] = copy.error
+    placed_occurrences.extend(copies)
     placed = [
         PlacedInstance(
             instance_id=occ.occurrence_id,
@@ -630,7 +652,96 @@ def _solve(
         joint_states=joint_states,
         occurrences=placed_occurrences,
         sub_assembly_poses=sub_assembly_poses,
+        pattern_states=pattern_states,
+        all_pattern_states=_all_pattern_states(request, pattern_states, subs),
     )
+
+
+def _all_pattern_states(
+    request: EvaluateAssemblyRequest,
+    own: list[PatternCount],
+    subs: dict[str, SolvedAssembly],
+) -> list[PatternCount]:
+    """*own* plus every sub-assembly's patterns, each pattern once."""
+    out = list(own)
+    seen = {state.pattern_id for state in own}
+    for inst in request.instances:
+        child = subs.get(inst.part_key) if inst.sub_assembly is not None else None
+        if child is None:
+            continue
+        for state in child.all_pattern_states:
+            if state.pattern_id not in seen:
+                seen.add(state.pattern_id)
+                out.append(state)
+    return out
+
+
+def _copy_name(name: str | None, index: int) -> str | None:
+    """A copy's name: its seed's, numbered within the pattern (the seed is 1)."""
+    return None if name is None else f"{name} ({index + 1})"
+
+
+def _expand_patterns(
+    request: EvaluateAssemblyRequest,
+    occurrences: list[Occurrence],
+    parts: dict[str, _PartResult],
+) -> tuple[list[Occurrence], list[PatternCount]]:
+    """The copies *request*'s patterns place, from the solved *occurrences*.
+
+    Bounded: the copies may take the assembly up to the instance bound and no
+    further; a pattern that would pass it places nothing and says so.
+    """
+    if not request.patterns:
+        return [], []
+    targets = {
+        occ.occurrence_id: PatternTarget(
+            body=occ.body,
+            placement=Pose.from_placement(occ.placement),
+            part_key=occ.part_key,
+            face_names=parts[occ.part_key].face_names,
+        )
+        for occ in occurrences
+    }
+    seeds: dict[uuid.UUID, list[SeedPart]] = {
+        inst.instance_id: [] for inst in request.instances
+    }
+    source: dict[tuple[uuid.UUID, tuple[uuid.UUID, ...]], Occurrence] = {}
+    for occ in occurrences:
+        if occ.group_id not in seeds:
+            continue
+        inner = occ.path[1:]
+        seeds[occ.group_id].append(
+            SeedPart(inner=inner, placement=Pose.from_placement(occ.placement))
+        )
+        source[(occ.group_id, inner)] = occ
+    budget = MAX_ASSEMBLY_INSTANCES - len(occurrences)
+    copies: list[Occurrence] = []
+    states: list[PatternCount] = []
+    for evaluated in sorted(
+        request.patterns, key=lambda p: (p.order_index, str(p.pattern_id))
+    ):
+        placed, state = expand_pattern(evaluated, seeds, targets, budget)
+        budget -= len(placed)
+        states.append(state)
+        for copy in placed:
+            seed_part = source[(copy.ref.seed_instance_id, copy.inner)]
+            placement = copy.placement.to_placement()
+            copies.append(
+                Occurrence(
+                    occurrence_id=copy.occurrence_id,
+                    path=copy.path,
+                    group_id=copy.group_id,
+                    offset=seed_part.offset,
+                    part_key=seed_part.part_key,
+                    name=_copy_name(seed_part.name, copy.ref.index),
+                    seed=placement,
+                    placement=placement,
+                    body=seed_part.body,
+                    error=seed_part.error,
+                    pattern=copy.ref,
+                )
+            )
+    return copies, states
 
 
 def _seed_occurrences(
@@ -648,6 +759,10 @@ def _seed_occurrences(
     occurrences: list[Occurrence] = []
     for inst in request.instances:
         if inst.sub_assembly is None:
+            # Parts listed after a large sub-assembly count toward the same
+            # bound as its contents.
+            if len(occurrences) >= MAX_ASSEMBLY_INSTANCES:
+                raise assembly_too_large()
             part = parts[inst.part_key]
             occurrences.append(
                 Occurrence(
@@ -668,6 +783,12 @@ def _seed_occurrences(
         if child is None:
             child = _solve(inst.sub_assembly, parts, subs)
             subs[inst.part_key] = child
+        # The bound is on the parts the WHOLE tree places: a sub-assembly
+        # within it on its own (its patterns' counts can grow when a driving
+        # part gains holes) can still push this level past it, so refuse
+        # before materialising more than the bound allows.
+        if len(occurrences) + len(child.occurrences) > MAX_ASSEMBLY_INSTANCES:
+            raise assembly_too_large()
         frame = Pose.from_placement(inst.placement)
         for occ in child.occurrences:
             offset = Pose.from_placement(occ.placement)
@@ -691,6 +812,22 @@ def _seed_occurrences(
     return occurrences
 
 
+def assembly_too_large() -> ValidationApiError:
+    """The typed refusal for a tree that places more than the bound.
+
+    Raised (never folded into a 200) because nothing about such a tree can be
+    evaluated within the work bound: it is refused before any per-part result,
+    clash pair or STEP occurrence is built (audit G2).
+    """
+    return ValidationApiError(
+        f"This assembly places more than {MAX_ASSEMBLY_INSTANCES} parts across "
+        "its sub-assemblies and patterns; at most that many can be evaluated "
+        "at once.",
+        code="assembly_too_large",
+        details={"max_instances": MAX_ASSEMBLY_INSTANCES},
+    )
+
+
 def _placed(occ: Occurrence, solved: dict[uuid.UUID, Placement]) -> Occurrence:
     """*occ* at its solved world pose: its group's solved pose, composed with
     its offset inside the group (the seed when its group did not solve)."""
@@ -710,8 +847,11 @@ def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResul
     bitwise-stable ``part_mesh_glb_id``s (content hashes of deterministic GLBs)
     and solved transforms (the BLAS-pinned solver). Never raises for an
     evaluation outcome — a bad part/mate/solve is a typed per-entry error or a
-    non-``well_constrained`` status inside the result envelope. One result row
-    per placed part: a sub-assembly contributes its parts, each with its path.
+    non-``well_constrained`` status inside the result envelope. The one refusal
+    is the work bound: a tree whose sub-assemblies and patterns place more than
+    ``MAX_ASSEMBLY_INSTANCES`` parts raises the typed ``assembly_too_large``
+    (:func:`assembly_too_large`) before any per-part work. One result row per
+    placed part: a sub-assembly contributes its parts, each with its path.
     """
     solved_assembly = solve_assembly(request)
     parts = solved_assembly.parts
@@ -729,6 +869,7 @@ def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResul
                     properties=None,
                     error=occ.error,
                     path=path,
+                    pattern=occ.pattern,
                 )
             )
             continue
@@ -741,6 +882,7 @@ def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResul
                 properties=part.properties,
                 error=None,
                 path=path,
+                pattern=occ.pattern,
             )
         )
         if part.properties is not None:
@@ -761,4 +903,16 @@ def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResul
             SubAssemblyPlacement(instance_id=instance_id, placement=placement)
             for instance_id, placement in solved_assembly.sub_assembly_poses.items()
         ],
+        pattern_states=solved_assembly.pattern_states,
     )
+
+
+def count_patterns(request: EvaluateAssemblyRequest) -> PatternCountsResult:
+    """How many each pattern of *request* places, at every level (ASM-A3).
+
+    The BOM and the instance bound need a hole-driven pattern's count, which
+    only the evaluated driving part knows. Runs the same solve as evaluation
+    (patterns are placed from solved poses), so the counts are exactly what an
+    evaluation places.
+    """
+    return PatternCountsResult(counts=solve_assembly(request).all_pattern_states)

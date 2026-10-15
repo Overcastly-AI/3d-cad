@@ -80,6 +80,8 @@ export interface InstanceMateOverlayProps {
   onHover: (index: number | null) => void;
   onPickFace: (index: number, signature: PlanarFaceSignature) => void;
   onPickAxis: (index: number, signature: EdgeSignature) => void;
+  /** Offer straight edges as well as circles (a pattern's direction pick). */
+  straightEdges?: boolean;
 }
 
 export function InstanceMateOverlay({
@@ -93,6 +95,7 @@ export function InstanceMateOverlay({
   onHover,
   onPickFace,
   onPickAxis,
+  straightEdges = false,
 }: InstanceMateOverlayProps) {
   const invalidate = useThree((s) => s.invalidate);
 
@@ -114,11 +117,12 @@ export function InstanceMateOverlay({
       overlay === null
         ? []
         : overlay.edges.flatMap((edge, index) =>
-            edge.signature.curve === "circle"
+            edge.signature.curve === "circle" ||
+            (straightEdges && edge.signature.curve === "line")
               ? [{ index, polyline: edge.polyline, signature: edge.signature }]
               : [],
           ),
-    [overlay],
+    [overlay, straightEdges],
   );
   const circleBand = useMemo<EdgeBandInput[]>(
     () => circles.map(({ index, polyline }) => ({ index, polyline })),
@@ -243,7 +247,13 @@ export function InstanceMateOverlay({
                 recede
                 selected={selectedIndex === index}
                 data-testid={`mate-axis-${instanceId}-${index}`}
-                aria-label={`Circular edge ${index + 1} — hole axis`}
+                data-edge-curve={signature.curve}
+                data-edge-mid={`${signature.midpoint.x},${signature.midpoint.y},${signature.midpoint.z}`}
+                aria-label={
+                  signature.curve === "line"
+                    ? `Straight edge ${index + 1} — direction`
+                    : `Circular edge ${index + 1} — hole axis`
+                }
                 onClick={() => onPickAxis(index, signature)}
                 onPointerOver={() => onHover(index)}
                 onPointerOut={() => clearHover(index)}

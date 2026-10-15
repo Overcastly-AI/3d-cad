@@ -27,6 +27,7 @@ from py_kit.ratelimit import RateLimiter
 
 from gateway.affinity import parse_worker_urls
 from gateway.assemblies import router as assemblies_router
+from gateway.assembly_patterns import router as assembly_patterns_router
 from gateway.auth import auth_router, resolve_auth_config
 from gateway.auth.security import (
     DEFAULT_AUTH_RATE_LIMIT_REQUESTS,
@@ -225,6 +226,7 @@ def build_app(
     app.include_router(materials_router)
     app.include_router(features_router)
     app.include_router(assemblies_router)
+    app.include_router(assembly_patterns_router)
     app.include_router(drawings_router)
     app.include_router(step_import_router)
     app.include_router(assembly_import_router)

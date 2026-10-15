@@ -197,6 +197,36 @@ POST_ASSEMBLIES_ASSEMBLY_ID_MOVE: Final = Operation(
     required_query=(),
 )
 
+POST_ASSEMBLIES_ASSEMBLY_ID_PATTERNS: Final = Operation(
+    operation_id="create_pattern_api_v1_assemblies__assembly_id__patterns_post",
+    method="POST",
+    path="/api/v1/assemblies/{assembly_id}/patterns",
+    request_model="PatternCreate",
+    response_model="PatternMutationResponse",
+    path_params=("assembly_id",),
+    required_query=(),
+)
+
+DELETE_ASSEMBLIES_ASSEMBLY_ID_PATTERNS_PATTERN_ID: Final = Operation(
+    operation_id="delete_pattern_api_v1_assemblies__assembly_id__patterns__pattern_id__delete",
+    method="DELETE",
+    path="/api/v1/assemblies/{assembly_id}/patterns/{pattern_id}",
+    request_model=None,
+    response_model="AssemblyGraphResponse",
+    path_params=("assembly_id", "pattern_id",),
+    required_query=("expected_version",),
+)
+
+PATCH_ASSEMBLIES_ASSEMBLY_ID_PATTERNS_PATTERN_ID: Final = Operation(
+    operation_id="update_pattern_api_v1_assemblies__assembly_id__patterns__pattern_id__patch",
+    method="PATCH",
+    path="/api/v1/assemblies/{assembly_id}/patterns/{pattern_id}",
+    request_model="PatternUpdate",
+    response_model="PatternMutationResponse",
+    path_params=("assembly_id", "pattern_id",),
+    required_query=(),
+)
+
 POST_ASSEMBLIES_ASSEMBLY_ID_REDO: Final = Operation(
     operation_id="redo_assembly_api_v1_assemblies__assembly_id__redo_post",
     method="POST",
@@ -1030,6 +1060,9 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "delete_mate_api_v1_assemblies__assembly_id__mates__mate_id__delete": DELETE_ASSEMBLIES_ASSEMBLY_ID_MATES_MATE_ID,
         "update_mate_api_v1_assemblies__assembly_id__mates__mate_id__patch": PATCH_ASSEMBLIES_ASSEMBLY_ID_MATES_MATE_ID,
         "move_assembly_api_v1_assemblies__assembly_id__move_post": POST_ASSEMBLIES_ASSEMBLY_ID_MOVE,
+        "create_pattern_api_v1_assemblies__assembly_id__patterns_post": POST_ASSEMBLIES_ASSEMBLY_ID_PATTERNS,
+        "delete_pattern_api_v1_assemblies__assembly_id__patterns__pattern_id__delete": DELETE_ASSEMBLIES_ASSEMBLY_ID_PATTERNS_PATTERN_ID,
+        "update_pattern_api_v1_assemblies__assembly_id__patterns__pattern_id__patch": PATCH_ASSEMBLIES_ASSEMBLY_ID_PATTERNS_PATTERN_ID,
         "redo_assembly_api_v1_assemblies__assembly_id__redo_post": POST_ASSEMBLIES_ASSEMBLY_ID_REDO,
         "undo_assembly_api_v1_assemblies__assembly_id__undo_post": POST_ASSEMBLIES_ASSEMBLY_ID_UNDO,
         "login_api_v1_auth_login_post": POST_AUTH_LOGIN,

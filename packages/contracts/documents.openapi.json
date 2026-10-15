@@ -265,6 +265,15 @@
             "minimum": 0.0,
             "title": "Total Parts",
             "type": "integer"
+          },
+          "unresolved_patterns": {
+            "description": "Hole-driven patterns whose count could not be resolved (their driving part did not evaluate): only their seeds are counted. Omitted while empty.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Unresolved Patterns",
+            "type": "array"
           }
         },
         "required": [
@@ -354,6 +363,14 @@
               "$ref": "#/components/schemas/MateResponse"
             },
             "title": "Mates",
+            "type": "array"
+          },
+          "patterns": {
+            "description": "The assembly's component patterns, in order (ASM-A3). Omitted while empty, so an assembly without patterns reads as before.",
+            "items": {
+              "$ref": "#/components/schemas/PatternResponse"
+            },
+            "title": "Patterns",
             "type": "array"
           }
         },
@@ -890,6 +907,103 @@
           "distance_mm"
         ],
         "title": "ChamferParamsV1",
+        "type": "object"
+      },
+      "CircularComponentPattern": {
+        "description": "``count`` copies about ``axis``, over ``angle_deg``.\n\n360 degrees is a full ring: the copies are 360/count apart. A smaller\nangle is the angle from the seed to the last copy: they are\nangle/(count - 1) apart (Fusion's Full / Angle, SolidWorks' equal spacing).",
+        "properties": {
+          "angle_deg": {
+            "default": 360.0,
+            "description": "Total angle (degrees); 360 = a full, equally spaced ring",
+            "exclusiveMinimum": 0.0,
+            "maximum": 360.0,
+            "title": "Angle Deg",
+            "type": "number"
+          },
+          "angle_expr": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`angle_deg` as typed (an expression), if typed",
+            "title": "Angle Expr"
+          },
+          "axis": {
+            "description": "The axis the copies turn about",
+            "discriminator": {
+              "mapping": {
+                "edge": "#/components/schemas/EdgeAxisRef",
+                "origin_axis": "#/components/schemas/OriginAxisRef"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OriginAxisRef"
+              },
+              {
+                "$ref": "#/components/schemas/EdgeAxisRef"
+              }
+            ],
+            "title": "Axis"
+          },
+          "count": {
+            "description": "How many in the pattern, the seed included",
+            "maximum": 500.0,
+            "minimum": 2.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "count_expr": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`count` as typed (an expression), if typed",
+            "title": "Count Expr"
+          },
+          "flip": {
+            "default": false,
+            "description": "Turn the other way",
+            "title": "Flip",
+            "type": "boolean"
+          },
+          "seed_instance_ids": {
+            "description": "The instances to repeat (instances of this assembly: parts or rigid sub-assemblies), in order",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Seed Instance Ids",
+            "type": "array"
+          },
+          "type": {
+            "const": "circular",
+            "default": "circular",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seed_instance_ids",
+          "axis",
+          "count"
+        ],
+        "title": "CircularComponentPattern",
         "type": "object"
       },
       "CircularPatternParamsV1": {
@@ -2143,6 +2257,15 @@
             "minimum": 0.0,
             "title": "Total Instances",
             "type": "integer"
+          },
+          "unresolved_patterns": {
+            "description": "Hole-driven component patterns whose count could not be resolved: only their seeds are counted. Omitted while empty.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Unresolved Patterns",
+            "type": "array"
           }
         },
         "required": [
@@ -2311,6 +2434,33 @@
           "name"
         ],
         "title": "DrawingUpdate",
+        "type": "object"
+      },
+      "EdgeAxisRef": {
+        "description": "An axis picked on an instance's part: a straight edge (its line, pointing\nfrom its canonical start toward its end) or a circular edge (the axis\nthrough its centre, pointing out of the face it bounds).\n\n``instance_id`` may be an instance of this assembly or a part inside one of\nits sub-assemblies (an occurrence id, as joints use). It may not be a copy\nplaced by another pattern.",
+        "properties": {
+          "instance_id": {
+            "description": "The instance (or nested occurrence) whose part carries the edge",
+            "format": "uuid",
+            "title": "Instance Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "edge",
+            "default": "edge",
+            "title": "Kind",
+            "type": "string"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "Stage-1 signature of the picked edge (curve 'line' or 'circle')"
+          }
+        },
+        "required": [
+          "instance_id",
+          "signature"
+        ],
+        "title": "EdgeAxisRef",
         "type": "object"
       },
       "EdgeLengthMeasurement": {
@@ -2622,6 +2772,15 @@
             },
             "maxItems": 2000,
             "title": "Mates",
+            "type": "array"
+          },
+          "patterns": {
+            "description": "Component patterns (ASM-A3), expanded after the solve in order_index order. Omitted while empty, so a request without patterns dumps exactly as before they existed.",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedPattern"
+            },
+            "maxItems": 200,
+            "title": "Patterns",
             "type": "array"
           },
           "version": {
@@ -2950,6 +3109,51 @@
           "mate"
         ],
         "title": "EvaluatedMate",
+        "type": "object"
+      },
+      "EvaluatedPattern": {
+        "description": "One pattern as the evaluator sees it: its stored id names its copies.",
+        "properties": {
+          "order_index": {
+            "description": "Expansion order (determinism)",
+            "minimum": 0.0,
+            "title": "Order Index",
+            "type": "integer"
+          },
+          "pattern": {
+            "discriminator": {
+              "mapping": {
+                "circular": "#/components/schemas/CircularComponentPattern",
+                "hole": "#/components/schemas/HoleComponentPattern",
+                "linear": "#/components/schemas/LinearComponentPattern"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LinearComponentPattern"
+              },
+              {
+                "$ref": "#/components/schemas/CircularComponentPattern"
+              },
+              {
+                "$ref": "#/components/schemas/HoleComponentPattern"
+              }
+            ],
+            "title": "Pattern"
+          },
+          "pattern_id": {
+            "format": "uuid",
+            "title": "Pattern Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern_id",
+          "order_index",
+          "pattern"
+        ],
+        "title": "EvaluatedPattern",
         "type": "object"
       },
       "ExtrudeFeature": {
@@ -4033,6 +4237,48 @@
         "title": "HoleBlindDepth",
         "type": "object"
       },
+      "HoleComponentPattern": {
+        "description": "Pattern-driven: one copy at every hole like ``seed_hole`` (Replicate).\n\nThe holes are every circular edge of the driving part with the seed hole's\nradius whose centre lies on the seed hole's plane, with a parallel axis:\nthe rims of one hole feature on one face. The seed sits at ``seed_hole``;\na copy goes to each of the other holes, and to every such hole on each\ninstance in ``also_on`` (further instances of the SAME part, such as the\nsecond rail). The count is whatever the part has when it is evaluated.",
+        "properties": {
+          "also_on": {
+            "description": "Further instances (or nested occurrences) of the driving part whose matching holes also get a copy",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Also On",
+            "type": "array"
+          },
+          "seed_hole": {
+            "$ref": "#/components/schemas/HoleRef",
+            "description": "The hole the seed sits at"
+          },
+          "seed_instance_ids": {
+            "description": "The instances to repeat (instances of this assembly: parts or rigid sub-assemblies), in order",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Seed Instance Ids",
+            "type": "array"
+          },
+          "type": {
+            "const": "hole",
+            "default": "hole",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seed_instance_ids",
+          "seed_hole"
+        ],
+        "title": "HoleComponentPattern",
+        "type": "object"
+      },
       "HoleCounterbore": {
         "description": "A larger coaxial CYLINDRICAL recess at the face (``kind: \"counterbore\"``).\n\nSeats a socket-head cap screw: a flat-bottomed cylinder of\n``cbore_diameter_mm`` sunk ``cbore_depth_mm`` from the placement face, coaxial\nwith the bore, subtracted ALONGSIDE the bore. The recess diameter must exceed\nthe bore ``diameter_mm`` and its depth must fit within the body's thickness \u2014\nan invalid recess degrades to a typed ``hole_cbore_invalid`` (diameter) /\n``hole_too_deep`` (depth) rebuild error, never a raise or a silently wrong\nbody (the never-500 posture the simple hole already holds).",
         "properties": {
@@ -4246,6 +4492,27 @@
           "depth"
         ],
         "title": "HoleParamsV1",
+        "type": "object"
+      },
+      "HoleRef": {
+        "description": "The hole a hole-driven pattern's seed sits at: a circular edge (a hole\nrim) of a part instance in this assembly, or of a part inside one of its\nsub-assemblies.",
+        "properties": {
+          "instance_id": {
+            "description": "The driving part's instance (or nested occurrence)",
+            "format": "uuid",
+            "title": "Instance Id",
+            "type": "string"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "Stage-1 signature of the seed hole's rim (curve 'circle')"
+          }
+        },
+        "required": [
+          "instance_id",
+          "signature"
+        ],
+        "title": "HoleRef",
         "type": "object"
       },
       "HoleSimple": {
@@ -5078,6 +5345,103 @@
           }
         },
         "title": "JointValue",
+        "type": "object"
+      },
+      "LinearComponentPattern": {
+        "description": "``count`` copies, ``spacing_mm`` apart along ``direction``.",
+        "properties": {
+          "count": {
+            "description": "How many in the pattern, the seed included",
+            "maximum": 500.0,
+            "minimum": 2.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "count_expr": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`count` as typed (an expression), if typed",
+            "title": "Count Expr"
+          },
+          "direction": {
+            "description": "The direction the copies run in",
+            "discriminator": {
+              "mapping": {
+                "edge": "#/components/schemas/EdgeAxisRef",
+                "origin_axis": "#/components/schemas/OriginAxisRef"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OriginAxisRef"
+              },
+              {
+                "$ref": "#/components/schemas/EdgeAxisRef"
+              }
+            ],
+            "title": "Direction"
+          },
+          "flip": {
+            "default": false,
+            "description": "Run the other way",
+            "title": "Flip",
+            "type": "boolean"
+          },
+          "seed_instance_ids": {
+            "description": "The instances to repeat (instances of this assembly: parts or rigid sub-assemblies), in order",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Seed Instance Ids",
+            "type": "array"
+          },
+          "spacing_expr": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`spacing_mm` as typed (an expression), if typed",
+            "title": "Spacing Expr"
+          },
+          "spacing_mm": {
+            "description": "Distance between neighbouring copies (mm)",
+            "exclusiveMinimum": 0.0,
+            "maximum": 100000.0,
+            "title": "Spacing Mm",
+            "type": "number"
+          },
+          "type": {
+            "const": "linear",
+            "default": "linear",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seed_instance_ids",
+          "direction",
+          "count",
+          "spacing_mm"
+        ],
+        "title": "LinearComponentPattern",
         "type": "object"
       },
       "LinearDimensionParams": {
@@ -6100,6 +6464,32 @@
         "title": "OriginAxis",
         "type": "object"
       },
+      "OriginAxisRef": {
+        "description": "One of the assembly's origin axes (X, Y or Z through the origin).",
+        "properties": {
+          "axis": {
+            "description": "'x', 'y' or 'z'",
+            "enum": [
+              "x",
+              "y",
+              "z"
+            ],
+            "title": "Axis",
+            "type": "string"
+          },
+          "kind": {
+            "const": "origin_axis",
+            "default": "origin_axis",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "axis"
+        ],
+        "title": "OriginAxisRef",
+        "type": "object"
+      },
       "ParallelConstraint": {
         "description": "Two lines have equal direction.\n\nRelates two **whole** line entities (by id, not by endpoint) \u2014 contrast\nwith :class:`CoincidentConstraint`, whose ``a``/``b`` name single points.\nRemoves one rotational degree of freedom. Both entities must be lines.",
         "properties": {
@@ -6735,6 +7125,46 @@
         "title": "PatternBodyScope",
         "type": "object"
       },
+      "PatternCreate": {
+        "description": "Add a component pattern to an assembly.",
+        "properties": {
+          "expected_version": {
+            "description": "Optimistic-concurrency guard (design \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "pattern": {
+            "description": "The pattern (on `type`)",
+            "discriminator": {
+              "mapping": {
+                "circular": "#/components/schemas/CircularComponentPattern",
+                "hole": "#/components/schemas/HoleComponentPattern",
+                "linear": "#/components/schemas/LinearComponentPattern"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LinearComponentPattern"
+              },
+              {
+                "$ref": "#/components/schemas/CircularComponentPattern"
+              },
+              {
+                "$ref": "#/components/schemas/HoleComponentPattern"
+              }
+            ],
+            "title": "Pattern"
+          }
+        },
+        "required": [
+          "expected_version",
+          "pattern"
+        ],
+        "title": "PatternCreate",
+        "type": "object"
+      },
       "PatternFeature": {
         "description": "``{\"type\": \"pattern\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -6813,6 +7243,24 @@
         "title": "PatternFeaturesScope",
         "type": "object"
       },
+      "PatternMutationResponse": {
+        "description": "Result of a pattern write: the pattern + the new version.",
+        "properties": {
+          "doc_version": {
+            "title": "Doc Version",
+            "type": "integer"
+          },
+          "pattern": {
+            "$ref": "#/components/schemas/PatternResponse"
+          }
+        },
+        "required": [
+          "pattern",
+          "doc_version"
+        ],
+        "title": "PatternMutationResponse",
+        "type": "object"
+      },
       "PatternParamsV1": {
         "description": "Repeat the current single body into a linear row or circular ring.\n\nWraps the discriminated :data:`PatternGeometry` under ``pattern`` (the\nnested-discriminator idiom of :class:`RevolveParamsV1`'s ``axis``). In the\n``body`` scope a pattern carries NO ``FeatureRef``: it operates on the implicit\nsingle body chain that exists at its point in the tree (design \u00a77.6), so its\ndependency on the prior body-affecting feature is tree order, not a reference.\nSee the module-level DESIGN DECISION note for the v1 \"pattern the whole body +\nunion\" semantics and its stated limitations.\n\n``scope`` (v2, docs/design/pattern-scope.md) states WHAT is repeated \u2014 the whole\n``body`` (the reading above, kept verbatim) or an explicit selection of\n``features``, which DOES materialise ``feature_dependencies``. It defaults to\n``body`` and a persisted params blob with no ``scope`` key reads as ``body``\n(:meth:`_legacy_body_scope`), so every pattern authored before v2 evaluates on\nunchanged code.",
         "properties": {
@@ -6859,6 +7307,96 @@
           "pattern"
         ],
         "title": "PatternParamsV1",
+        "type": "object"
+      },
+      "PatternResponse": {
+        "description": "A pattern as stored.",
+        "properties": {
+          "assembly_id": {
+            "format": "uuid",
+            "title": "Assembly Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "order_index": {
+            "description": "Stable order in the assembly's tree",
+            "title": "Order Index",
+            "type": "integer"
+          },
+          "pattern": {
+            "discriminator": {
+              "mapping": {
+                "circular": "#/components/schemas/CircularComponentPattern",
+                "hole": "#/components/schemas/HoleComponentPattern",
+                "linear": "#/components/schemas/LinearComponentPattern"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LinearComponentPattern"
+              },
+              {
+                "$ref": "#/components/schemas/CircularComponentPattern"
+              },
+              {
+                "$ref": "#/components/schemas/HoleComponentPattern"
+              }
+            ],
+            "title": "Pattern"
+          }
+        },
+        "required": [
+          "id",
+          "assembly_id",
+          "order_index",
+          "pattern"
+        ],
+        "title": "PatternResponse",
+        "type": "object"
+      },
+      "PatternUpdate": {
+        "description": "Replace a pattern's definition (its id and position stay).",
+        "properties": {
+          "expected_version": {
+            "description": "Optimistic-concurrency guard (design \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "pattern": {
+            "description": "The new definition",
+            "discriminator": {
+              "mapping": {
+                "circular": "#/components/schemas/CircularComponentPattern",
+                "hole": "#/components/schemas/HoleComponentPattern",
+                "linear": "#/components/schemas/LinearComponentPattern"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LinearComponentPattern"
+              },
+              {
+                "$ref": "#/components/schemas/CircularComponentPattern"
+              },
+              {
+                "$ref": "#/components/schemas/HoleComponentPattern"
+              }
+            ],
+            "title": "Pattern"
+          }
+        },
+        "required": [
+          "expected_version",
+          "pattern"
+        ],
+        "title": "PatternUpdate",
         "type": "object"
       },
       "PerpendicularConstraint": {
@@ -10530,7 +11068,7 @@
     },
     "/api/v1/assemblies/{assembly_id}/bom": {
       "get": {
-        "description": "The assembly's bill of materials: top level, indented and parts only.\n\nA pure read model (:mod:`documents.bom`): ``lines`` groups the assembly's\nDIRECT instances (a sub-assembly is one line), ``indented`` opens each\nsub-assembly beneath its line, and ``parts_only`` counts every part at every\nlevel. A referenced document deleted while still instanced is reported as a\n``missing`` line with a null name, never a 500. Uniform 404.",
+        "description": "The assembly's bill of materials: top level, indented and parts only.\n\nA pure read model (:mod:`documents.bom`): ``lines`` groups the assembly's\nDIRECT instances (a sub-assembly is one line), ``indented`` opens each\nsub-assembly beneath its line, and ``parts_only`` counts every part at every\nlevel. A referenced document deleted while still instanced is reported as a\n``missing`` line with a null name, never a 500. Uniform 404. Component\npattern copies count as instances of their seed's document (ASM-A3).",
         "operationId": "get_assembly_bom_api_v1_assemblies__assembly_id__bom_get",
         "parameters": [
           {
@@ -10541,6 +11079,27 @@
               "format": "uuid",
               "title": "Assembly Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "'<pattern id>:<count>' for each hole-driven pattern whose count geometry resolved (the gateway sets these); a hole-driven pattern without one counts its seeds only and is listed in `unresolved_patterns`.",
+            "in": "query",
+            "name": "pattern_count",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "'<pattern id>:<count>' for each hole-driven pattern whose count geometry resolved (the gateway sets these); a hole-driven pattern without one counts its seeds only and is listed in `unresolved_patterns`.",
+              "title": "Pattern Count"
             }
           },
           {
@@ -11340,6 +11899,282 @@
         ]
       }
     },
+    "/api/v1/assemblies/{assembly_id}/patterns": {
+      "post": {
+        "description": "Add a component pattern (appended to the assembly's patterns).\n\nRefusals (422): ``pattern_seed_unknown``, ``pattern_reference_unknown``,\n``pattern_needs_part``, ``pattern_driver_mismatch``, an expression error\n(its own code) or a value out of range (``pattern_value_invalid``),\n``pattern_limit_exceeded``, ``assembly_too_large``,\n``stale_assembly_version``. Another user's assembly is a uniform 404.",
+        "operationId": "create_pattern_api_v1_assemblies__assembly_id__patterns_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A hole-driven pattern's count per seed (the seed included), as geometry resolved it for this write; set by the gateway. Ignored for linear and circular patterns.",
+            "in": "query",
+            "name": "driven_count",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 500,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A hole-driven pattern's count per seed (the seed included), as geometry resolved it for this write; set by the gateway. Ignored for linear and circular patterns.",
+              "title": "Driven Count"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatternCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatternMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Pattern",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/patterns/{pattern_id}": {
+      "delete": {
+        "description": "Delete a pattern and with it every copy it placed; its seeds stay.",
+        "operationId": "delete_pattern_api_v1_assemblies__assembly_id__patterns__pattern_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pattern_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pattern Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optimistic-concurrency guard (design \u00a71.2)",
+            "in": "query",
+            "name": "expected_version",
+            "required": true,
+            "schema": {
+              "description": "Optimistic-concurrency guard (design \u00a71.2)",
+              "minimum": 0,
+              "title": "Expected Version",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyGraphResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Pattern",
+        "tags": [
+          "assemblies"
+        ]
+      },
+      "patch": {
+        "description": "Replace a pattern's definition; it keeps its id and its place. The\nsame refusals as a create, plus ``pattern_not_found`` (404).",
+        "operationId": "update_pattern_api_v1_assemblies__assembly_id__patterns__pattern_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pattern_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pattern Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A hole-driven pattern's count per seed (the seed included), as geometry resolved it for this write; set by the gateway. Ignored for linear and circular patterns.",
+            "in": "query",
+            "name": "driven_count",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 500,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A hole-driven pattern's count per seed (the seed included), as geometry resolved it for this write; set by the gateway. Ignored for linear and circular patterns.",
+              "title": "Driven Count"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatternUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatternMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Pattern",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
     "/api/v1/assemblies/{assembly_id}/redo": {
       "post": {
         "description": "Restore the next history snapshot VERBATIM (ids preserved).\n\nClean no-op at the top of the ring; stale ``expected_version`` \u2192 422.",
@@ -11897,6 +12732,27 @@
               ],
               "description": "Which sheet to bill (a sheet id from the drawing tree); omit to bill the FIRST sheet, the same default the compose/export routes take. An unknown/foreign id is a `sheet_not_found` 404.",
               "title": "Sheet"
+            }
+          },
+          {
+            "description": "'<pattern id>:<count>' for each hole-driven pattern geometry resolved (the gateway sets these), as on the assembly BOM.",
+            "in": "query",
+            "name": "pattern_count",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "'<pattern id>:<count>' for each hole-driven pattern geometry resolved (the gateway sets these), as on the assembly BOM.",
+              "title": "Pattern Count"
             }
           },
           {

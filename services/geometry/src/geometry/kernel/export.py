@@ -700,6 +700,42 @@ def occt_default_product_name() -> str:
     return str(Interface_Static.CVal_s("write.step.product.name"))
 
 
+#: A whole part-21 statement that carries a process-global counter (a
+#: ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` or a ``PRODUCT``), quoted strings skipped
+#: as units so a ``;`` inside a name does not end it.
+_COUNTED_STATEMENT_RE = re.compile(
+    rb"(?:NEXT_ASSEMBLY_USAGE_OCCURRENCE|PRODUCT)\((?:[^;']|'[^']*')*\);"
+)
+
+#: OCCT's line continuation: a newline and the indent of the next line.
+_CONTINUATION_RE = re.compile(rb"\r?\n[ \t]+")
+
+#: A quoted string, or a run of anything else.
+_QUOTED_OR_NOT_RE = re.compile(rb"'[^']*'|[^']+")
+
+
+def _unwrap_counted_statements(data: bytes) -> bytes:
+    """Join OCCT's line continuations inside every counter-carrying statement.
+
+    OCCT wraps a statement that passes its line width, and the counter's digits
+    count toward that width: the same occurrence wraps after ``$`` with id
+    ``'9'`` and not with id ``'1234'``, so renumbering the id alone leaves the
+    WRAP as a trace of the process-global counter (measured: a pattern golden's
+    named occurrences wrapped differently on the second export of a worker,
+    ASM-A3-PATTERN). Joining the continuation lines first makes the layout
+    independent of the counter. Breaks inside quoted strings are kept, and
+    part-21 does not limit line length.
+    """
+
+    def _join(match: re.Match[bytes]) -> bytes:
+        return b"".join(
+            part if part.startswith(b"'") else _CONTINUATION_RE.sub(b"", part)
+            for part in _QUOTED_OR_NOT_RE.findall(match.group(0))
+        )
+
+    return _COUNTED_STATEMENT_RE.sub(_join, data)
+
+
 def _renumber_in_appearance_order(pattern: re.Pattern[bytes], data: bytes) -> bytes:
     """Rewrite *pattern*'s counter group (2) to its FIRST-APPEARANCE rank.
 
@@ -742,6 +778,7 @@ def _canonicalise_writer_counters(data: bytes) -> bytes:
     each to its first-appearance rank is therefore semantically inert and makes
     identical requests byte-identical, in-process and across a worker restart.
     """
+    data = _unwrap_counted_statements(data)
     return _renumber_in_appearance_order(
         _TRANSLATOR_PRODUCT_RE, _renumber_in_appearance_order(_NAUO_ID_RE, data)
     )

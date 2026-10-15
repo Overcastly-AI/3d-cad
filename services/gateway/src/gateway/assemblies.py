@@ -42,6 +42,7 @@ from loft_wire.assemblies import (
 from loft_wire.joints import MateUpdate
 
 from gateway.affinity import forward_geometry
+from gateway.assembly_patterns import resolved_counts
 from gateway.auth import CurrentUser
 from gateway.parts import DEPENDENCY_CONFLICT_RESPONSE, forward_documents
 from gateway.ratelimit import COMPUTE_RATE_LIMIT
@@ -101,15 +102,27 @@ async def get_assembly(
 async def get_assembly_bom(
     assembly_id: uuid.UUID, user: CurrentUser, http_request: Request
 ) -> AssemblyBomResponse:
-    """The assembly's flat bill of materials (direct instances only; uniform 404).
+    """The assembly's bill of materials: top level, indented and parts only.
 
     Documents aggregates the read model (one line per referenced document,
     quantity = shared-reference count, current name + kind, deleted-ref lines
     flagged ``missing``); the gateway proxies faithfully under the same
     auth/ownership posture as :func:`get_assembly`.
     """
+    path = f"/api/v1/assemblies/{assembly_id}/bom"
+    upstream = await forward_documents(http_request, user, "GET", path)
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    bom = AssemblyBomResponse.model_validate_json(upstream.content)
+    if not bom.unresolved_patterns:
+        return bom
+    # Hole-driven patterns: their counts follow the driving part, which only
+    # geometry knows (gateway.assembly_patterns).
+    counts = await resolved_counts(http_request, user, assembly_id)
+    if not counts:
+        return bom
     upstream = await forward_documents(
-        http_request, user, "GET", f"/api/v1/assemblies/{assembly_id}/bom"
+        http_request, user, "GET", path, params={"pattern_count": counts}
     )
     if upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(upstream, service=_SERVICE)

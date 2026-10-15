@@ -12,10 +12,18 @@ A pure read model over the instance tables (no writes, no migration). Names are
 the referenced documents' CURRENT names; a document deleted while still
 instanced keeps its line with ``missing`` set, and a missing sub-assembly is not
 opened. The walk is depth-bounded and memoised per assembly.
+
+A component pattern's copies count as instances of their seed's document
+(ASM-A3), at whatever level the pattern is. A hole-driven pattern's count is
+the driving part's hole count, which geometry resolves: the gateway passes it
+in (:func:`parse_pattern_counts`), and a pattern it could not resolve counts
+its seeds only and is listed in ``unresolved_patterns``.
 """
 
 import uuid
 from collections import Counter
+from collections.abc import Iterable, Mapping
+from typing import cast
 
 from loft_wire.assemblies import (
     MAX_ASSEMBLY_DEPTH,
@@ -24,13 +32,67 @@ from loft_wire.assemblies import (
     IndentedBomLine,
     RefDocumentKind,
 )
-from sqlalchemy import func, select
+from py_kit import ValidationApiError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db
-from documents.occurrences import OccurrenceWalk
+from documents.assembly_history import ordered_patterns
+from documents.occurrences import OccurrenceWalk, copies_per_seed
 
 RefKey = tuple[uuid.UUID, RefDocumentKind]
+
+
+def parse_pattern_counts(values: Iterable[str]) -> dict[uuid.UUID, int]:
+    """``['<pattern id>:<count>', ...]`` (the BOM query) as a map, or 422."""
+    counts: dict[uuid.UUID, int] = {}
+    for value in values:
+        pattern_id, _, count = value.partition(":")
+        try:
+            counts[uuid.UUID(pattern_id)] = int(count)
+        except ValueError:
+            raise ValidationApiError(
+                f"pattern_count {value!r} is not '<pattern id>:<count>'.",
+                code="invalid_pattern_count",
+            ) from None
+    return counts
+
+
+async def direct_quantities(
+    session: AsyncSession,
+    assembly_id: uuid.UUID,
+    counts: Mapping[uuid.UUID, int],
+    unresolved: set[uuid.UUID],
+) -> dict[RefKey, int]:
+    """How many of each referenced document *assembly_id* places directly,
+    in first-appearance (instance) order: one per instance, plus each
+    pattern's copies of its seeds. Hole-driven patterns missing from *counts*
+    add nothing and are added to *unresolved*."""
+    result = await session.execute(
+        select(
+            db.Instance.id, db.Instance.ref_document_id, db.Instance.ref_document_kind
+        )
+        .where(db.Instance.assembly_id == assembly_id)
+        .order_by(db.Instance.order_index)
+    )
+    ref_of: dict[uuid.UUID, RefKey] = {}
+    quantities: dict[RefKey, int] = {}
+    for instance_id, ref_id, kind in result.all():
+        key: RefKey = (ref_id, cast(RefDocumentKind, kind))
+        ref_of[instance_id] = key
+        quantities[key] = quantities.get(key, 0) + 1
+    if not ref_of:
+        return quantities
+    for row in await ordered_patterns(session, assembly_id):
+        copies = copies_per_seed(row, counts)
+        if copies is None:
+            unresolved.add(row.id)
+            continue
+        for seed in row.params.get("seed_instance_ids", []):
+            seed_ref = ref_of.get(uuid.UUID(seed))
+            if seed_ref is not None:
+                quantities[seed_ref] += copies
+    return quantities
 
 
 async def resolve_document_names(
@@ -85,9 +147,16 @@ def _sorted(lines: list[BomLine]) -> list[BomLine]:
 class _BomWalk:
     """One read's walk over the assembly tree, memoising each level's lines."""
 
-    def __init__(self, session: AsyncSession, owner_id: uuid.UUID) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        owner_id: uuid.UUID,
+        counts: Mapping[uuid.UUID, int] | None = None,
+    ) -> None:
         self.session = session
         self.owner_id = owner_id
+        self.counts: Mapping[uuid.UUID, int] = counts or {}
+        self.unresolved: set[uuid.UUID] = set()
         self._lines: dict[uuid.UUID, list[BomLine]] = {}
 
     async def top_level(self, assembly_id: uuid.UUID) -> list[BomLine]:
@@ -95,17 +164,11 @@ class _BomWalk:
         cached = self._lines.get(assembly_id)
         if cached is not None:
             return cached
-        result = await self.session.execute(
-            select(
-                db.Instance.ref_document_id,
-                db.Instance.ref_document_kind,
-                func.count(),
-            )
-            .where(db.Instance.assembly_id == assembly_id)
-            .group_by(db.Instance.ref_document_id, db.Instance.ref_document_kind)
+        quantities = await direct_quantities(
+            self.session, assembly_id, self.counts, self.unresolved
         )
         groups: list[tuple[uuid.UUID, RefDocumentKind, int]] = [
-            (ref_id, kind, int(count)) for ref_id, kind, count in result.all()
+            (ref_id, kind, count) for (ref_id, kind), count in quantities.items()
         ]
         names = await resolve_document_names(
             self.session, self.owner_id, {(ref_id, kind) for ref_id, kind, _ in groups}
@@ -162,21 +225,16 @@ class _BomWalk:
         return rows
 
 
-async def top_level_lines(
-    session: AsyncSession, owner_id: uuid.UUID, assembly_id: uuid.UUID
-) -> list[BomLine]:
-    """The assembly's TOP-LEVEL lines (the default BOM and a drawing's)."""
-    return await _BomWalk(session, owner_id).top_level(assembly_id)
-
-
 async def assembly_bom(
-    session: AsyncSession, assembly: db.Assembly
+    session: AsyncSession,
+    assembly: db.Assembly,
+    counts: Mapping[uuid.UUID, int] | None = None,
 ) -> AssemblyBomResponse:
     """The assembly's bill of materials: top level, indented and parts only."""
     # Bounded first: the indented rows and part tallies are no more than the
     # components the tree places, which the write-time bound keeps small.
     await OccurrenceWalk(session, assembly.owner_id).require_within_bounds(assembly.id)
-    walk = _BomWalk(session, assembly.owner_id)
+    walk = _BomWalk(session, assembly.owner_id, counts)
     lines = await walk.top_level(assembly.id)
     parts: Counter[uuid.UUID] = Counter()
     part_lines: dict[uuid.UUID, BomLine] = {}
@@ -194,4 +252,5 @@ async def assembly_bom(
         indented=indented,
         parts_only=parts_only,
         total_parts=sum(line.quantity for line in parts_only),
+        unresolved_patterns=sorted(walk.unresolved, key=str),
     )

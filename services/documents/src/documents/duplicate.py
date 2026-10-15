@@ -59,6 +59,7 @@ from loft_wire.assemblies import (
 from loft_wire.assemblies import (
     Mate as MateParams,
 )
+from loft_wire.component_patterns import pattern_reference_ids
 from loft_wire.drawings import DRAWING_NAME_MAX_LENGTH, DrawingResponse
 from loft_wire.parts import PART_NAME_MAX_LENGTH, PartResponse
 from loft_wire.workspace import copy_name
@@ -69,9 +70,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from documents.assembly_history import ordered_patterns
 from documents.db import (
     Annotation,
     Assembly,
+    AssemblyPattern,
     Dimension,
     Drawing,
     Feature,
@@ -89,6 +92,7 @@ from documents.parts import (
     get_owned_drawing,
     get_owned_part,
 )
+from documents.pattern_rows import PATTERN_ADAPTER
 
 _logger = get_logger("documents.duplicate")
 
@@ -382,10 +386,17 @@ async def duplicate_assembly(
     # derived from the sub-assembly instance's id, so it re-mints with it.
     # Only the ids the mates name are resolved, and only within the size bound
     # (the copy is a new root exactly as large as its source).
+    patterns = await ordered_patterns(session, source.id)
     named = {
         instance_id
         for mate in mates
         for instance_id in mate_instance_ids(_MATE_PARAMS.validate_python(mate.params))
+    } | {
+        instance_id
+        for row in patterns
+        for instance_id in pattern_reference_ids(
+            PATTERN_ADAPTER.validate_python(row.params)
+        )
     }
     if not named.issubset(new_id.keys()):
         await OccurrenceWalk(session, source.owner_id).require_within_bounds(source.id)
@@ -401,6 +412,17 @@ async def duplicate_assembly(
                 order_index=mate.order_index,
                 type=mate.type,
                 params=remap_ids(mate.params, mapping),
+            )
+        )
+    # Component patterns name their seeds and references by the same ids.
+    for row in patterns:
+        session.add(
+            AssemblyPattern(
+                assembly_id=copy.id,
+                order_index=row.order_index,
+                type=row.type,
+                params=remap_ids(row.params, mapping),
+                driven_count=row.driven_count,
             )
         )
 

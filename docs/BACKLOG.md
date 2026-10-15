@@ -47,11 +47,20 @@ byte-identical; RESEARCH §15a). Done 2026-10-09..14 and dropped at the
       drawing parts list is the top level; interference and STEP include
       every nested part; cycles are refused naming the chain. A3's remaining
       acceptance moves to the two lines below.
-- [ ] **ASM-A3-PATTERN** (A3): a component pattern that follows a part's
-      holes (Fusion pattern, Onshape Replicate, SolidWorks pattern-driven).
-      _Accept:_ A3's 28 rail screws are one pattern following the rail's hole
-      count, and A3's BOM reads 16 lines and 73 instances (top level 11 and
-      45).
+- [x] **ASM-A3-PATTERN** (A3; done on this branch; e2e
+      `assembly-pattern.spec.ts`, golden `assembly-component-patterns`):
+      linear, circular and on-holes (pattern-driven / Replicate) component
+      patterns of parts or rigid sub-assemblies, one tree entry each (Pattern
+      on the band; count, spacing and angle typed as expressions; direction or
+      axis from an origin axis, a straight edge or a hole axis picked in the
+      viewport). Copies are placed by geometry after the solve, fixed to their
+      seed (a jointed seed carries them), and count in the BOM (gateway asks
+      geometry for a hole pattern's count, so the BOM follows the part),
+      interference, STEP and the 500 bound (every ancestor; typed
+      `assembly_too_large`). Table `assembly_patterns` (alembic 0019). A3's
+      structure bills top level 11 / 45 and parts only 16 / 73
+      (`test_a3_bom_counts_every_copy`); a 32-spoke wheel in a bike bills 64
+      spokes (`asm-pattern.png`).
 - [ ] **ASM-A3-IN-CONTEXT** (A3): in-context edits (Fusion Edit in Place,
       SolidWorks external references). _Accept:_ moving A3's rails from ±40
       to ±45 moves the carriage plate's holes.
@@ -215,9 +224,16 @@ One line each. The founder triages weekly; most are closed without work.
 - ASM-SUB-STEP-TREE: assembly STEP writes every nested part as one flat level of occurrences; SolidWorks and Fusion write the nested product structure.
 - ASM-SUB-CHILD-ERRORS: a sub-assembly's own dropped or conflicting mates do not show in the parent's solve status (it is solved silently in its own frame).
 - ASM-SUB-BALLOONS: each part inside a sub-assembly draws its component's balloon, so a two-part wheel shows "1" twice; Fusion shows one per component.
+- ASM-PAT-PARAMS: assemblies have no parameter table, so a pattern's count / spacing / angle expressions are arithmetic with units only; Fusion's user parameters drive them.
+- ASM-PAT-HOLE-SET: "On holes" takes every circle of the seed hole's radius on its face, not the holes of one hole feature (two same-size hole features on one face are one set); SolidWorks picks the feature.
+- ASM-PAT-PREVIEW: the pattern dialog shows no copies until OK (Fusion previews them live); a Move preview of a seed leaves its copies in place until the commit.
+- ASM-PAT-RECT: a linear pattern runs in one direction; Fusion's rectangular pattern has a second direction and SolidWorks a sketch-driven pattern.
+- ASM-PAT-STALE-BOUND: a hole pattern's count is stored at write for the write-time bound of the assemblies above it; when the part later gains holes that stored count is stale until the pattern is rewritten. Geometry refuses any tree that then places more than 500 parts (typed `assembly_too_large`, before per-part work), so the stale count is a late refusal rather than a hang. The gateway could re-count on every write to an ancestor.
+- ASM-PAT-NESTED-STATE: a pattern that fails inside a sub-assembly (stale edge, too large) is reported only when the sub-assembly itself is open, not in the parent's tree.
 - ASM-SUB-TREE: the component tree lists a sub-assembly as one row and cannot be expanded to its parts (Fusion's browser can).
 - ASM-SUB-DRIVE: dragging or driving a joint whose moving side is a sub-assembly is untested (the e2e joins a part onto a grounded sub-assembly).
 - ASM-SUB-LIMIT-RACE (77884a3 review): part inserts take no per-owner advisory lock, so two concurrent inserts into different assemblies of one tree can push it slightly past 500; the top assembly then 422s on evaluate/BOM until an instance is removed (recoverable, nothing lost). Also add a query-count test for an insert into a sub-assembly many assemblies contain.
+- ASM-PAT-HOLE-PERF (303f000 review): the groove check (`Face.is_inside` per coplanar face, patterns.py:357) is quadratic: one evaluate of a counterbore grid takes 0.14 s at 25, 2.1 s at 100, 28 s at 400; test only level faces whose bounding box holds the centre. A tube flush inside a larger hole still counts the outer groove rim, and a flush pin body over a hole drops that hole (untested).
 
 - LINE-ENTRY-TAB review (90db343): a Tab left in a circle's drag box survives a click/canvas-Esc and refuses the next circle at the same centre ("10" Tab, later "100"; clear `tabbed` on draft change); "W" Tab "/2" is refused as a second value without saying why; the error text overlaps the X AXIS label; a line Angle cell (Fusion shows Length and Angle) needs an angle-to-axis dimension first.
 - APEX-BUTTONS: Extrude and Revolve enable with only an apex (point-only) sketch present; clicking does nothing.

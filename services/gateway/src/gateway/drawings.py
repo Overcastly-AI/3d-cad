@@ -56,6 +56,7 @@ from loft_wire.features import EvaluatedFeatureInput, EvaluateTreeRequest
 from py_kit.errors import NotFoundError, ValidationApiError
 
 from gateway.affinity import forward_geometry
+from gateway.assembly_patterns import resolved_counts
 from gateway.auth import CurrentUser
 from gateway.parts import forward_documents
 from gateway.ratelimit import COMPUTE_RATE_LIMIT
@@ -135,12 +136,21 @@ async def get_drawing_bom(
     ``sheet_has_no_views`` / ``drawing_bom_source_not_assembly`` /
     ``drawing_bom_source_missing`` (422).
     """
+    path = f"/api/v1/drawings/{drawing_id}/bom"
+    base: dict[str, str] = {} if sheet is None else {"sheet": str(sheet)}
+    upstream = await forward_documents(http_request, user, "GET", path, params=base)
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    bom = DrawingBomResponse.model_validate_json(upstream.content)
+    if not bom.unresolved_patterns:
+        return bom
+    # A hole-driven pattern's count follows its driving part: resolve it
+    # through geometry and bill again (gateway.assembly_patterns).
+    counts = await resolved_counts(http_request, user, bom.assembly_id)
+    if not counts:
+        return bom
     upstream = await forward_documents(
-        http_request,
-        user,
-        "GET",
-        f"/api/v1/drawings/{drawing_id}/bom",
-        params={"sheet": str(sheet)} if sheet is not None else None,
+        http_request, user, "GET", path, params={**base, "pattern_count": counts}
     )
     if upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(upstream, service=_SERVICE)

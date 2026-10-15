@@ -1,0 +1,152 @@
+{
+  "description": "COMPONENT PATTERN GOLDEN (ASM-A3-PATTERN): five 40 x 25 x 10 mm two-hole plates (the sketch-extrude-plate-2holes part: r5 holes at (12, 12.5) and (28, 12.5)) and one pattern of each kind. A, grounded at the origin, and A2, grounded at (0, -100, 0), drive a HOLE pattern (Replicate) of plate P, which a rigid joint seats on A's hole-1 top rim; L, grounded at (0, 100, 0), is LINEAR-patterned 3 x 50 mm (typed '2 * 25 mm') along A's bottom front edge; C, grounded at (200, 0, 0), is CIRCULAR-patterned 4 x 360 deg about A's hole-2 top rim. Locks: copies placed from SOLVED poses (P's copies follow its joint), the hole matching rule (same radius, same plane, parallel axis), a second driving instance (also_on), a straight-edge direction, a circular-edge axis through the hole centre with Z out of the top face, pattern_copy_id, and the per-pattern counts.",
+  "derivation": [
+    "Expectations are HAND-DERIVED, not recorded pipeline output. The plate's own mass properties are the sketch-extrude-plate-2holes golden's: volume 8429.203673205104 mm^3, surface_area 3614.159265358979 mm^2, centroid (20, 12.5, 5), AABB [0,0,0]..[40,25,10], 8 faces / 18 edges / 1 shell.",
+    "P: the rigid joint pairs A's hole-1 TOP rim (A-local (12, 12.5, 10), Z = +Z out of the top face, X = +X) with P's hole-1 BOTTOM rim (P-local (12, 12.5, 0), Z = -Z, X = +X). F_P = F_A o RotX(180) gives world X = +X and Z = -Z, so R_P = I and t_P = (12, 12.5, 10) - (12, 12.5, 0) = (0, 0, 10). A, A2, L and C are grounded at their seeds: remaining_dof 0, well_constrained.",
+    "HOLE pattern (order 0, seed P, seed hole = A's hole-1 top rim, r = 5, on the plane z = 10): the plate's circles of radius 5 centred on z = 10 with an axis parallel to Z are its two top rims, centres (12, 12.5, 10) and (28, 12.5, 10), sorted by coordinates. Copies run over the drivers [A, A2] and each one's holes in order, skipping A's hole 1 (the seed's own): T = W_j o Trans(c_h - c_0) o W_A^-1 with W_A = I. k1: A hole 2, Trans(16, 0, 0): P at (16, 0, 10). k2: A2 hole 1, Trans(0, -100, 0): (0, -100, 10). k3: A2 hole 2, Trans(16, -100, 0): (16, -100, 10). Count: 2 holes x 2 drivers = 4.",
+    "LINEAR pattern (order 1, seed L): A's edge (0,0,0)-(40,0,0); its canonical start is (0,0,0), so the direction is +X. Copies at k x 50 along +X: (50, 100, 0) and (100, 100, 0). Count 3.",
+    "CIRCULAR pattern (order 2, seed C): the axis through A's hole-2 top rim centre p = (28, 12.5, 10), Z = +Z (out of the top face). A full ring of 4: step 90 deg. Copy k: R = RotZ(90k), t = R t_C + p - R p. k1: R (200, 0, 0) = (0, 200, 0); p - R p = (28, 12.5) - (-12.5, 28) = (40.5, -15.5); t = (40.5, 184.5, 0), q = (0, 0, s, s) with s = 0.7071067811865476. k2: R t_C = (-200, 0, 0); p - R p = (56, 25); t = (-144, 25, 0), q = (0, 0, 1, 0). k3: R (x, y) = (y, -x): R t_C = (0, -200, 0); p - R p = (28 - 12.5, 12.5 + 28) = (15.5, 40.5); t = (15.5, -159.5, 0), q = (0, 0, -s, s) (compared as a rotation matrix, so the -q double cover is immaterial).",
+    "Copy ids: loft_wire.component_patterns.pattern_copy_id = uuid5(pattern id, '<seed id>/<k>'). Hole (pattern ...d1, seed ...c2): 7af0f8c2, e682014d, 2d5b162b. Linear (...d2, seed ...c3): 64daf23e, 4c823d71. Circular (...d3, seed ...c4): 0c7f40bf, 4ea71d41, ed540af9.",
+    "13 plates. Combined volume = 13 x 8429.203673205104 = 109579.64775166635 mm^3; surface_area = 13 x 3614.159265358979 = 46984.07044966673 mm^2 (sums; no boolean).",
+    "Combined centroid (equal volumes), world centroids t + R (20, 12.5, 5): A (20, 12.5, 5), A2 (20, -87.5, 5), P (20, 12.5, 15), L (20, 112.5, 5), C (220, 12.5, 5), P1 (36, 12.5, 15), P2 (20, -87.5, 15), P3 (36, -87.5, 15), L1 (70, 112.5, 5), L2 (120, 112.5, 5), C1 (-12.5, 20, 5) + (40.5, 184.5, 0) = (28, 204.5, 5), C2 (-20, -12.5, 5) + (-144, 25, 0) = (-164, 12.5, 5), C3 (12.5, -20, 5) + (15.5, -159.5, 0) = (28, -179.5, 5). Sums: x 474, y 162.5, z 105. Mean (474/13, 12.5, 105/13) = (36.46153846153846, 12.5, 8.076923076923077).",
+    "Combined bounding_box: the unrotated plates span x [0, 140] and [200, 240], y [-100, 125], z [0, 20]; C1 x [15.5, 40.5], y [184.5, 224.5]; C2 x [-184, -144], y [0, 25]; C3 x [15.5, 40.5], y [-199.5, -159.5]. Quarter and half turns, so the corner unions are exact. Union [-184, -199.5, 0]..[240, 224.5, 20].",
+    "Combined topology 104 / 234 / 13 (13 plates); distinct_mesh_count 1 (one part_key)."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "CLOSED-FORM tolerance: every placement is a grounded seed, a closed-form rigid joint, or a seed moved by an exact translation or quarter turn, so every pose is analytic to float64 round-off. Measured first (2026-10-15, build123d 0.11.1 / OCCT 7.9, numpy BLAS pinned to 1 thread): every position within 3.8e-14 mm, rotation matrices within 4.5e-16, centroid within 7.2e-15 mm, combined volume within 3e-11 mm^3 (summation order of 13 part volumes). 1e-9 matches the S4a joint and nested goldens. Loosening it requires a reviewed justification here and in docs/GEOMETRY-QA.md.",
+  "status": "well_constrained",
+  "remaining_dof": 0,
+  "pattern_counts": [
+    { "pattern_id": "00000000-0000-0000-0000-0000000000d1", "count": 4 },
+    { "pattern_id": "00000000-0000-0000-0000-0000000000d2", "count": 3 },
+    { "pattern_id": "00000000-0000-0000-0000-0000000000d3", "count": 4 }
+  ],
+  "distinct_mesh_count": 1,
+  "instances": [
+    {
+      "instance_id": "00000000-0000-0000-0000-0000000000c1",
+      "placement": {
+        "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-0000000000c5",
+      "placement": {
+        "position": { "x": 0.0, "y": -100.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-0000000000c2",
+      "placement": {
+        "position": { "x": 0.0, "y": 0.0, "z": 10.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-0000000000c3",
+      "placement": {
+        "position": { "x": 0.0, "y": 100.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-0000000000c4",
+      "placement": {
+        "position": { "x": 200.0, "y": 0.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "7af0f8c2-c176-5566-b595-7da44dca5993",
+      "placement": {
+        "position": { "x": 16.0, "y": 0.0, "z": 10.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "e682014d-78d8-55e9-8bd4-0c3ac8cbd092",
+      "placement": {
+        "position": { "x": 0.0, "y": -100.0, "z": 10.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "2d5b162b-4b76-5c28-b763-9cda7f587275",
+      "placement": {
+        "position": { "x": 16.0, "y": -100.0, "z": 10.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "64daf23e-60bc-5ae4-858b-a1d82f1f9543",
+      "placement": {
+        "position": { "x": 50.0, "y": 100.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "4c823d71-d78d-53d9-a5e5-7d32435479f9",
+      "placement": {
+        "position": { "x": 100.0, "y": 100.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "0c7f40bf-183a-5360-a17c-66e2032dbc56",
+      "placement": {
+        "position": { "x": 40.5, "y": 184.5, "z": 0.0 },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.7071067811865476,
+          "w": 0.7071067811865476
+        }
+      }
+    },
+    {
+      "instance_id": "4ea71d41-9e37-5a8d-a22e-4ab597aa581c",
+      "placement": {
+        "position": { "x": -144.0, "y": 25.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 1.0, "w": 0.0 }
+      }
+    },
+    {
+      "instance_id": "ed540af9-466c-5081-90b5-e247ccb2f23b",
+      "placement": {
+        "position": { "x": 15.5, "y": -159.5, "z": 0.0 },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.7071067811865476,
+          "w": 0.7071067811865476
+        }
+      }
+    }
+  ],
+  "probes": [
+    {
+      "instance_id": "0c7f40bf-183a-5360-a17c-66e2032dbc56",
+      "local": { "x": 28.0, "y": 12.5, "z": 10.0 },
+      "world": { "x": 28.0, "y": 212.5, "z": 10.0 },
+      "note": "C1 is C turned 90 deg about the axis through A's hole 2: C's own hole-2 top centre, 200 from the axis along +X at (228, 12.5, 10), lands 200 from it along +Y: RotZ(90) (28, 12.5, 10) + (40.5, 184.5, 0) = (28, 212.5, 10)"
+    },
+    {
+      "instance_id": "2d5b162b-4b76-5c28-b763-9cda7f587275",
+      "local": { "x": 12.0, "y": 12.5, "z": 0.0 },
+      "world": { "x": 28.0, "y": -87.5, "z": 10.0 },
+      "note": "P3's hole-1 bottom centre sits on A2's hole-2 top centre (28, 12.5, 10) + (0, -100, 0), exactly as P's sits on A's hole 1"
+    }
+  ],
+  "properties": {
+    "volume": 109579.64775166635,
+    "surface_area": 46984.07044966673,
+    "centroid": { "x": 36.46153846153846, "y": 12.5, "z": 8.076923076923077 },
+    "bounding_box": {
+      "min": { "x": -184.0, "y": -199.5, "z": 0.0 },
+      "max": { "x": 240.0, "y": 224.5, "z": 20.0 }
+    }
+  },
+  "topology": { "faces": 104, "edges": 234, "shells": 13 }
+}

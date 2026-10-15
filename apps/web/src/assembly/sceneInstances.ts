@@ -73,6 +73,7 @@ export function buildSceneInstances(input: SceneInputs): SceneInstance[] {
           geometry: geometryOf(row),
           visibility,
           groupId: instance.id,
+          patternCopy: part.copy === true,
         });
       }
       return;
@@ -93,6 +94,29 @@ export function buildSceneInstances(input: SceneInputs): SceneInstance[] {
       visibility,
     });
   });
+  // Component pattern copies (ASM-A3): placed by geometry after the solve and
+  // drawn like their seed. A click on one selects the seed, as in Fusion,
+  // where a pattern's copies follow the component they repeat.
+  for (const row of input.evaluation?.instances ?? []) {
+    const ref = row.pattern;
+    if (ref === undefined || ref === null) continue;
+    const index = input.instances.findIndex(
+      (i) => i.id === ref.seed_instance_id,
+    );
+    const seed = input.instances[index];
+    if (seed === undefined) continue;
+    out.push({
+      id: row.instance_id,
+      name: `${seed.name} (${ref.index + 1})`,
+      balloon: index + 1,
+      grounded: false,
+      transform: placementToScene(row.placement),
+      geometry: geometryOf(row),
+      visibility: visibilityModeOf(input.visibility, seed.id),
+      groupId: seed.id,
+      patternCopy: true,
+    });
+  }
   return out;
 }
 

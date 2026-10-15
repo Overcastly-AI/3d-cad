@@ -46,6 +46,7 @@ from loft_wire.assemblies import (
     Placement,
     mate_instance_ids,
 )
+from loft_wire.component_patterns import EvaluatedPattern
 from loft_wire.features import EvaluatedFeatureInput
 from loft_wire.materials import MaterialAssignment
 from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
@@ -60,8 +61,9 @@ from documents.assembly_history import (
     ASSEMBLY_HISTORY,
     ordered_instances,
     ordered_mates,
+    ordered_patterns,
 )
-from documents.bom import assembly_bom
+from documents.bom import assembly_bom, parse_pattern_counts
 from documents.features import evaluation_prefix, part_materials
 from documents.filing import resolve_destination
 from documents.history_core import Direction
@@ -76,6 +78,11 @@ from documents.parts import (
     get_owned_assembly,
     referenced_document_exists,
     reject_if_instanced,
+)
+from documents.pattern_rows import (
+    PATTERN_ADAPTER,
+    cascade_instance_delete,
+    pattern_response,
 )
 
 _logger = get_logger("documents.assemblies")
@@ -329,12 +336,14 @@ async def graph_response(
 ) -> AssemblyGraphResponse:
     instances = await ordered_instances(session, assembly.id)
     mates = await ordered_mates(session, assembly.id)
+    patterns = await ordered_patterns(session, assembly.id)
     can_undo, can_redo = await ASSEMBLY_HISTORY.availability(session, assembly)
     return AssemblyGraphResponse(
         assembly=AssemblyResponse.model_validate(assembly),
         doc_version=assembly.doc_version,
         instances=[_instance_response(row) for row in instances],
         mates=[mate_response(row) for row in mates],
+        patterns=[pattern_response(row) for row in patterns],
         can_undo=can_undo,
         can_redo=can_redo,
     )
@@ -462,6 +471,14 @@ async def build_evaluate_assembly_request(
             )
             for mate in mates
         ],
+        patterns=[
+            EvaluatedPattern(
+                pattern_id=row.id,
+                order_index=row.order_index,
+                pattern=PATTERN_ADAPTER.validate_python(row.params),
+            )
+            for row in await ordered_patterns(session, assembly.id)
+        ],
     )
 
 
@@ -544,7 +561,18 @@ async def get_assembly_evaluation_request(
 
 @router.get("/{assembly_id}/bom")
 async def get_assembly_bom(
-    assembly_id: uuid.UUID, owner_id: Principal, session: SessionDep
+    assembly_id: uuid.UUID,
+    owner_id: Principal,
+    session: SessionDep,
+    pattern_count: Annotated[
+        list[str] | None,
+        Query(
+            description="'<pattern id>:<count>' for each hole-driven pattern "
+            "whose count geometry resolved (the gateway sets these); a "
+            "hole-driven pattern without one counts its seeds only and is "
+            "listed in `unresolved_patterns`.",
+        ),
+    ] = None,
 ) -> AssemblyBomResponse:
     """The assembly's bill of materials: top level, indented and parts only.
 
@@ -552,10 +580,13 @@ async def get_assembly_bom(
     DIRECT instances (a sub-assembly is one line), ``indented`` opens each
     sub-assembly beneath its line, and ``parts_only`` counts every part at every
     level. A referenced document deleted while still instanced is reported as a
-    ``missing`` line with a null name, never a 500. Uniform 404.
+    ``missing`` line with a null name, never a 500. Uniform 404. Component
+    pattern copies count as instances of their seed's document (ASM-A3).
     """
     assembly = await get_owned_assembly(session, owner_id, assembly_id)
-    return await assembly_bom(session, assembly)
+    return await assembly_bom(
+        session, assembly, parse_pattern_counts(pattern_count or [])
+    )
 
 
 @router.patch("/{assembly_id}")
@@ -850,6 +881,10 @@ async def delete_instance(
             await session.delete(mate)
             await session.flush()
             await _shift_down(session, db.Mate, assembly_id, deleted_mate_index + 1)
+
+    # The same for component patterns: it leaves their seeds, and a pattern
+    # left without seeds or reading geometry from it goes with it (ASM-A3).
+    await cascade_instance_delete(session, owner_id, assembly_id, instance_id)
 
     deleted_index = instance.order_index
     await session.delete(instance)

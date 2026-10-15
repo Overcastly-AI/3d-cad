@@ -16,12 +16,16 @@ memoised per assembly (never a list of occurrences), and it stops at the bound,
 so a check costs one read per distinct assembly however deep the tree. What is
 counted is every COMPONENT occurrence — each part and each sub-assembly
 instance, at every level — so a chain of empty sub-assemblies is bounded too.
+A component pattern's copies count like the instances they copy (ASM-A3): a
+linear or circular pattern by its stored count, a hole-driven one by the count
+geometry gave it when it was last written (see :func:`copies_per_seed`).
 
 Nothing here enumerates occurrences until the count is known to be within the
 bound; then a walk touches at most :data:`MAX_ASSEMBLY_INSTANCES` of them.
 """
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from loft_wire.assemblies import (
@@ -34,13 +38,33 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db
-from documents.assembly_history import ordered_instances
+from documents.assembly_history import ordered_instances, ordered_patterns
 
 #: An occurrence as seen from one assembly: its id and the instance path to it.
 Occurrence = tuple[uuid.UUID, tuple[uuid.UUID, ...]]
 
 #: Counts saturate here: anything above the bound is simply "too many".
 _OVER = MAX_ASSEMBLY_INSTANCES + 1
+
+
+def copies_per_seed(
+    row: db.AssemblyPattern, counts: Mapping[uuid.UUID, int] | None = None
+) -> int | None:
+    """How many copies of each seed a stored pattern adds (its count less the
+    seed itself).
+
+    A linear or circular pattern stores its count. A hole-driven pattern's
+    count is the driving part's hole count, known only to geometry: with
+    *counts* (fresh from geometry, keyed by pattern id) it is read there and is
+    None when absent (unresolved); without, the count stored when the pattern
+    was last written is used (the write-time bound).
+    """
+    if row.type != "hole":
+        return max(int(row.params["count"]) - 1, 0)
+    if counts is None:
+        return max((row.driven_count or 1) - 1, 0)
+    count = counts.get(row.id)
+    return None if count is None else max(count - 1, 0)
 
 
 def too_large(placed: int) -> ValidationApiError:
@@ -109,13 +133,24 @@ class OccurrenceWalk:
             return cached
         self._counts[assembly_id] = _OVER  # a (refused) cycle never loops
         total = self.extra.get(assembly_id, (0, 0))[0]
-        for instance in await self._owned_instances(assembly_id):
-            total += 1
+        each: dict[uuid.UUID, int] = {}
+        instances = await self._owned_instances(assembly_id)
+        for instance in instances:
+            each[instance.id] = 1
             if instance.ref_document_kind == "assembly":
-                total += await self.count(instance.ref_document_id)
+                each[instance.id] += await self.count(instance.ref_document_id)
+            total += each[instance.id]
             if total > MAX_ASSEMBLY_INSTANCES:
-                total = _OVER
-                break
+                self._counts[assembly_id] = _OVER
+                return _OVER
+        if instances:
+            for row in await ordered_patterns(self.session, assembly_id):
+                copies = copies_per_seed(row) or 0
+                for seed in row.params.get("seed_instance_ids", []):
+                    total += copies * each.get(uuid.UUID(seed), 0)
+                if total > MAX_ASSEMBLY_INSTANCES:
+                    total = _OVER
+                    break
         self._counts[assembly_id] = min(total, _OVER)
         return self._counts[assembly_id]
 
