@@ -17,7 +17,7 @@ import {
   createMate,
   deleteInstance,
   deleteMate,
-  evaluateAssembly,
+  evaluateCommittedAssembly,
   exportAssembly,
   fetchAssemblyGraph,
   type InstanceResponse,
@@ -116,6 +116,7 @@ import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { useReducedMotion } from "../lib/useReducedMotion";
 import { KEY_COPY_INSTANCE, KEY_MOVE_INSTANCE } from "../shortcuts/registry";
 import { instanceMenuSections, moveBlocker } from "../components/instanceMenu";
+import { InContextIssues, useEditInPlace } from "../assembly/InContextIssues";
 import { assemblyRoute } from "../router";
 import {
   assemblyBounds,
@@ -229,7 +230,7 @@ export function AssemblyPage() {
       partTrees !== undefined &&
       subs.ready,
     queryFn: () =>
-      evaluateAssembly(
+      evaluateCommittedAssembly(
         buildEvaluateAssemblyRequest(
           graph as NonNullable<typeof graph>,
           partTrees as Map<string, FeatureTreeResponse>,
@@ -1082,6 +1083,7 @@ export function AssemblyPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [historyLockReason, triggerUndo, triggerRedo]);
 
+  const editInPlace = useEditInPlace(assemblyId);
   // The component row's right-click menu (`components/instanceMenu`).
   const [instanceMenu, setInstanceMenu] = useState<{
     instance: InstanceResponse;
@@ -1107,6 +1109,7 @@ export function AssemblyPage() {
         copy: () => copyComponent(instance),
         toggleGrounded: () => void handleToggleGrounded(instance),
         remove: () => void handleDeleteInstance(instance),
+        editInPlace: () => editInPlace(instance.ref_document_id, instance.id),
       },
     );
 
@@ -1335,6 +1338,10 @@ export function AssemblyPage() {
                 ) : null}
                 {/* The way back from an isolate / a hand-hidden scene. Renders
                     only while something IS hidden — no decorative chrome. */}
+                <InContextIssues
+                  evaluation={evaluation}
+                  instances={instances}
+                />
                 <VisibilityStamp
                   isolatedName={isolatedName}
                   hiddenCount={hiddenCount}

@@ -204,6 +204,22 @@ class OccurrenceWalk:
         self._leaves[assembly_id] = out
         return out
 
+    async def part_of(self, assembly_id: uuid.UUID) -> dict[uuid.UUID, uuid.UUID]:
+        """``occurrence id -> part id`` for every PART occurrence *assembly_id*
+        places (ASM-A3-IN-CONTEXT), in its own id namespace; bounded like
+        :meth:`leaves`. Pattern copies are not occurrences here."""
+        await self.require_within_bounds(assembly_id)
+        out: dict[uuid.UUID, uuid.UUID] = {}
+        for instance in await self._owned_instances(assembly_id):
+            if instance.ref_document_kind == "part":
+                out[instance.id] = instance.ref_document_id
+                continue
+            for child_id, part_id in (
+                await self.part_of(instance.ref_document_id)
+            ).items():
+                out[nested_occurrence_id(instance.id, child_id)] = part_id
+        return out
+
 
 async def containing_assemblies(
     session: AsyncSession, assembly_id: uuid.UUID

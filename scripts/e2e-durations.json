@@ -9,6 +9,7 @@
     "assembly-drawing.spec.ts": 14.7,
     "assembly-import-flow.spec.ts": 41.3,
     "assembly-import.spec.ts": 42.3,
+    "assembly-in-context.spec.ts": 50.5,
     "assembly-inspect.spec.ts": 59.8,
     "assembly-joint-hinge.spec.ts": 90.4,
     "assembly-joint-motions.spec.ts": 84.0,

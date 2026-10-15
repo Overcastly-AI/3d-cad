@@ -540,10 +540,14 @@ function historyStepError(error: unknown, fallback: string): Error {
 export async function evaluateAssembly(
   request: EvaluateAssemblyRequest,
   client: GatewayClient = gatewayClient,
+  writeBack = false,
 ): Promise<EvaluateAssemblyResult> {
   const { data, error } = await client.POST(
     "/api/v1/geometry/assembly/evaluate",
-    { body: request },
+    {
+      body: request,
+      ...(writeBack ? { params: { query: { write_back: true } } } : {}),
+    },
   );
   if (error !== undefined) {
     throw new Error(
@@ -551,6 +555,19 @@ export async function evaluateAssembly(
     );
   }
   return data;
+}
+
+/**
+ * {@link evaluateAssembly} of the assembly AS STORED (the workspace's own
+ * evaluation, Edit in Place): the in-context values it resolves are kept as
+ * each part's last values (ASM-A3-IN-CONTEXT). Never for a preview of a draft
+ * joint or move; the gateway also refuses to store from a request that is not
+ * the stored assembly.
+ */
+export function evaluateCommittedAssembly(
+  request: EvaluateAssemblyRequest,
+): Promise<EvaluateAssemblyResult> {
+  return evaluateAssembly(request, gatewayClient, true);
 }
 
 /**

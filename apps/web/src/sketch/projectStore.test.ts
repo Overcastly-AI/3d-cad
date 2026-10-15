@@ -62,7 +62,7 @@ describe("the Project tool", () => {
     expect(
       entity !== undefined &&
         "projection" in entity &&
-        entity.projection?.edge.feature_id,
+        entity.projection?.edge?.feature_id,
     ).toBe(ANCHOR);
     expect(store().revision).toBe(before + 1);
     expect(store().nextIdIndex).toBe(2);

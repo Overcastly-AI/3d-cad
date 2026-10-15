@@ -26,10 +26,16 @@ export const PROJECT_NO_BODY_HINT =
 export function useSketchProjectSession({
   mode,
   anchorFeatureId,
+  inContext = false,
 }: {
   mode: SketchMode;
   /** The body-affecting feature before the sketch, or null (no body). */
   anchorFeatureId: string | null;
+  /**
+   * Edited in place in an assembly (ASM-A3-IN-CONTEXT): the other components'
+   * edges are offered too, so Project arms even before this part has a body.
+   */
+  inContext?: boolean;
 }): void {
   const tool = useSketchStore((s) => s.tool);
   const entities = useSketchStore((s) => s.entities);
@@ -47,6 +53,7 @@ export function useSketchProjectSession({
       return;
     }
     if (!hasBody) {
+      if (inContext) return;
       useSketchStore.getState().setTool("select");
       useSketchStore.setState({ hint: PROJECT_NO_BODY_HINT });
       return;
@@ -58,7 +65,7 @@ export function useSketchProjectSession({
         if (at !== null) useSketchStore.getState().projectEdge(edge, at);
       },
     });
-  }, [armed, hasBody]);
+  }, [armed, hasBody, inContext]);
 
   useEffect(() => {
     if (!armed) return;

@@ -35,6 +35,7 @@ from documents.folders import assemblies_router as folder_assemblies_router
 from documents.folders import drawings_router as folder_drawings_router
 from documents.folders import parts_router as folder_parts_router
 from documents.folders import router as folders_router
+from documents.in_context import router as in_context_router
 from documents.instance_copy import router as instance_copy_router
 from documents.loft_file import router as loft_file_router
 from documents.materials import router as materials_router
@@ -110,6 +111,7 @@ def build_app(settings: DocumentsSettings | None = None) -> FastAPI:
     app.include_router(parameters_router)
     # DESIGN-INTENT-BACKFILL: serve the tree, write names back under the lock.
     app.include_router(ref_backfill_router)
+    app.include_router(in_context_router)
     app.include_router(ref_backfill_sweep_router)
     # Workspace management (:mod:`documents.duplicate`) — one module, three
     # routers, so the id-remap and the copy-naming rule are written once.

@@ -32,6 +32,7 @@ from loft_wire.features import (
     SketchProjectionReason,
     SketchProjectionStatus,
 )
+from loft_wire.in_context import InContextLine
 from loft_wire.signatures import EdgeSignature
 
 from geometry.features.state import EvaluationState
@@ -41,6 +42,7 @@ from geometry.kernel.edges import (
     resolve_edges_each,
 )
 from geometry.kernel.faces import SubshapeAmbiguousError
+from geometry.kernel.in_context_curve import curve_edge
 from geometry.kernel.naming import EdgeEnds
 from geometry.kernel.project import (
     ProjectedArc,
@@ -162,7 +164,7 @@ def _project_one(
     plane: Plane,
     ends: _Ends,
 ) -> SketchEntity | SketchProjectionReason:
-    assert entity.projection is not None
+    assert entity.projection is not None and entity.projection.edge is not None
     assert isinstance(entity, SketchLine | SketchArc | SketchCircle)
     projected = project_edge(resolved.edge, plane, entity.kind)
     if isinstance(projected, str):
@@ -171,6 +173,46 @@ def _project_one(
     match entity, projected:
         case SketchLine(), ProjectedLine():
             return _place_line(entity, projected, resolved, stored, plane, ends)
+        case SketchArc(), ProjectedArc():
+            return entity.model_copy(
+                update={
+                    "center": _pt(projected.center),
+                    "start": _pt(projected.start),
+                    "end": _pt(projected.end),
+                }
+            )
+        case SketchCircle(), ProjectedCircle():
+            return entity.model_copy(
+                update={"center": _pt(projected.center), "radius": projected.radius}
+            )
+        case _:  # pragma: no cover — project_edge already checked the kind
+            return "kind_changed"
+
+
+def _project_in_context(
+    entity: SketchEntity, plane: Plane
+) -> SketchEntity | SketchProjectionReason:
+    """An in-context entity placed from its link's last resolved curve
+    (ASM-A3-IN-CONTEXT), which is in this part's frame; without one yet it
+    keeps the coordinates it was drawn with."""
+    assert entity.projection is not None and entity.projection.in_context
+    assert isinstance(entity, SketchLine | SketchArc | SketchCircle)
+    curve = entity.projection.in_context.resolved
+    if curve is None:
+        return entity
+    projected = project_edge(curve_edge(curve), plane, entity.kind)
+    if isinstance(projected, str):
+        return projected
+    match entity, projected:
+        case SketchLine(), ProjectedLine():
+            assert isinstance(curve, InContextLine)
+            first = plane_point(plane, (curve.start.x, curve.start.y, curve.start.z))
+            start, end = (
+                (projected.a, projected.b)
+                if math.dist(projected.a, first) <= math.dist(projected.b, first)
+                else (projected.b, projected.a)
+            )
+            return entity.model_copy(update={"start": _pt(start), "end": _pt(end)})
         case SketchArc(), ProjectedArc():
             return entity.model_copy(
                 update={
@@ -196,27 +238,44 @@ def project_entities(
     Unlinked entities, and a sketch with no projected entity, are returned as
     they came (the same object, so a sketch without projections solves exactly
     as before). The body is enumerated once for the whole sketch, and every
-    resolved reference is reported to ``state.subshape_tally``.
+    resolved reference is reported to ``state.subshape_tally``. An in-context
+    entity is placed from its link's stored curve and needs no body here.
     """
-    linked = [e for e in params.entities if e.projection is not None]
-    if not linked:
+    projected = [e for e in params.entities if e.projection is not None]
+    if not projected:
         return params, []
+    linked = [e for e in projected if e.projection is not None and e.projection.edge]
+    replaced: dict[str, SketchEntity] = {}
+    status_of: dict[str, SketchProjectionStatus] = {}
+    for entity in projected:
+        if entity.projection is None or entity.projection.in_context is None:
+            continue
+        placed = _project_in_context(entity, plane)
+        if isinstance(placed, str):
+            status_of[entity.id] = _sick(entity, placed)
+            continue
+        replaced[entity.id] = placed
+        status_of[entity.id] = SketchProjectionStatus(entity=entity.id, state="ok")
     body = state.active_body
-    if body is None:
-        return params, [_sick(e, "no_body") for e in linked]
-
+    if linked and body is None:
+        status_of.update({e.id: _sick(e, "no_body") for e in linked})
+        linked = []
     targets = [
-        e.projection.edge.selector.signature for e in linked if e.projection is not None
+        e.projection.edge.selector.signature
+        for e in linked
+        if e.projection is not None and e.projection.edge is not None
     ]
-    resolved_each = resolve_edges_each(
-        body,
-        targets,
-        tally=state.subshape_tally,
-        face_names=state.face_names(),
+    resolved_each = (
+        resolve_edges_each(
+            body,
+            targets,
+            tally=state.subshape_tally,
+            face_names=state.face_names(),
+        )
+        if linked and body is not None
+        else []
     )
     ends = _Ends(state)
-    replaced: dict[str, SketchEntity] = {}
-    statuses: list[SketchProjectionStatus] = []
     for entity, resolved in zip(linked, resolved_each, strict=True):
         if not isinstance(resolved, ResolvedEdge):
             reason: SketchProjectionReason = (
@@ -224,15 +283,18 @@ def project_entities(
                 if isinstance(resolved, SubshapeAmbiguousError)
                 else "unresolved"
             )
-            statuses.append(_sick(entity, reason))
+            status_of[entity.id] = _sick(entity, reason)
             continue
         placed = _project_one(entity, resolved, plane, ends)
         if isinstance(placed, str):
-            statuses.append(_sick(entity, placed))
+            status_of[entity.id] = _sick(entity, placed)
             continue
         replaced[entity.id] = placed
-        statuses.append(
-            SketchProjectionStatus(entity=entity.id, state="ok", tier=resolved.tier)
+        status_of[entity.id] = SketchProjectionStatus(
+            entity=entity.id, state="ok", tier=resolved.tier
         )
+    statuses = [status_of[e.id] for e in projected]
+    if not replaced:
+        return params, statuses
     entities = [replaced.get(e.id, e) for e in params.entities]
     return params.model_copy(update={"entities": entities}), statuses

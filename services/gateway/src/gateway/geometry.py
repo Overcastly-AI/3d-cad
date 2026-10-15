@@ -15,7 +15,7 @@ envelopes, including geometry's 503 ``service_overloaded`` and its
 from typing import Annotated, Any, NoReturn
 
 import httpx2 as httpx
-from fastapi import APIRouter, Path, Request, Response
+from fastapi import APIRouter, Path, Query, Request, Response
 from loft_wire.assemblies import (
     EvaluateAssemblyRequest,
     EvaluateAssemblyResult,
@@ -65,6 +65,7 @@ from pydantic import BaseModel
 from gateway.affinity import GeometryPool, forward_geometry, parse_worker_urls
 from gateway.auth import CurrentUser
 from gateway.db import User
+from gateway.in_context import write_back as store_in_context
 from gateway.parts import forward_documents
 from gateway.ratelimit import COMPUTE_RATE_LIMIT
 from gateway.upstream import raise_upstream_error
@@ -455,7 +456,18 @@ async def assembly_export(
 
 @router.post("/assembly/evaluate", dependencies=[COMPUTE_RATE_LIMIT])
 async def assembly_evaluate(
-    request: EvaluateAssemblyRequest, user: CurrentUser, http_request: Request
+    request: EvaluateAssemblyRequest,
+    user: CurrentUser,
+    http_request: Request,
+    write_back: Annotated[
+        bool,
+        Query(
+            description="Store the in-context values this evaluation resolved "
+            "(ASM-A3-IN-CONTEXT). Only for the assembly as stored: a request "
+            "that differs from it (a draft joint or move preview) writes "
+            "nothing. Off by default."
+        ),
+    ] = False,
 ) -> EvaluateAssemblyResult:
     """Proxy an assembly evaluation to the geometry service (assemblies §4).
 
@@ -468,12 +480,21 @@ async def assembly_evaluate(
     ``{shared mesh id, solved placement}`` plus an analytic combined roll-up. A
     bad part / mate / solve is a 200 with a typed per-entry error or a
     non-``well_constrained`` status (design §4); the envelope stays reserved
-    for transport/validation failures of this call itself.
+    for transport/validation failures of this call itself. With
+    ``write_back``, in-context links whose resolved values changed are written
+    back to documents, if the request is the stored assembly
+    (:mod:`gateway.in_context`).
     """
     upstream = await _forward(http_request, user, "/api/v1/assembly/evaluate", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
-    return EvaluateAssemblyResult.model_validate_json(upstream.content)
+    result = EvaluateAssemblyResult.model_validate_json(upstream.content)
+    # In-context links geometry moved are stored as their part's last values
+    # (ASM-A3-IN-CONTEXT), so the part rebuilds the same way on its own; only
+    # from a committed evaluation, never a preview.
+    if write_back:
+        await store_in_context(http_request, user, request, result)
+    return result
 
 
 @router.post("/assembly/interference", dependencies=[COMPUTE_RATE_LIMIT])

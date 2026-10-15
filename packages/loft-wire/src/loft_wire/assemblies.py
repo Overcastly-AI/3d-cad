@@ -54,6 +54,7 @@ from loft_wire.geometry import (
     ShapeProperties,
     Vec3,
 )
+from loft_wire.in_context import MAX_IN_CONTEXT_LINKS, InContextStatus
 from loft_wire.joints import JointMate, JointState
 from loft_wire.materials import MaterialAssignment
 from loft_wire.units import DEFAULT_LENGTH_UNIT, LengthUnit
@@ -1174,6 +1175,15 @@ class EvaluateAssemblyResult(BaseModel):
         json_schema_extra=_drop_schema_default,
         description="Each component pattern of this assembly: how many it "
         "placed per seed, or why it placed none. Omitted while empty.",
+    )
+    in_context: list[InContextStatus] = Field(
+        default_factory=list["InContextStatus"],
+        max_length=MAX_IN_CONTEXT_LINKS,
+        exclude_if=_is_empty,
+        json_schema_extra=_drop_schema_default,
+        description="Each in-context link whose context is this assembly "
+        "(ASM-A3-IN-CONTEXT): resolved, or why not. The meshes above already "
+        "use the resolved values. Omitted while empty.",
     )
 
 

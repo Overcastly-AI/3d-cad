@@ -112,6 +112,20 @@ class ExpectedProbe(BaseModel):
     note: str
 
 
+class ExpectedInContext(BaseModel):
+    """One in-context link's expected resolution (ASM-A3-IN-CONTEXT): a
+    projected circle's centre and radius in its edited part's frame, and
+    whether the evaluation moved it from the stored value."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entity_id: str
+    state: str
+    center: Vec3
+    radius: float
+    changed: bool
+
+
 class AssemblyGoldenExpectation(BaseModel):
     """Committed expectations for one assembly golden (``expected.json``).
 
@@ -139,6 +153,9 @@ class AssemblyGoldenExpectation(BaseModel):
         default=None, description="Per-pattern counts; checked when given"
     )
     probes: list[ExpectedProbe] = Field(default_factory=list["ExpectedProbe"])
+    in_context: list[ExpectedInContext] | None = Field(
+        default=None, description="In-context link resolutions; checked when given"
+    )
     distinct_mesh_count: int = Field(ge=1)
     instances: list[ExpectedInstancePlacement]
     properties: ExpectedCombinedProperties
@@ -266,6 +283,22 @@ def test_dof_joint_states_and_probes_match_hand_values(
                 (got.axis_world.z, want.axis_world.z),
             ):
                 assert g == pytest.approx(w, abs=tolerance), f"{case.name}: axis"
+    if expected.in_context is not None:
+        got_links = [
+            (s.entity_id, s.state, s.resolved, s.changed) for s in result.in_context
+        ]
+        assert [g[:2] for g in got_links] == [
+            (w.entity_id, w.state) for w in expected.in_context
+        ], f"{case.name}: in-context links"
+        for (_, _, curve, changed), want in zip(
+            got_links, expected.in_context, strict=True
+        ):
+            assert curve is not None and curve.kind == "circle", case.name
+            assert changed is want.changed, f"{case.name}: in-context changed"
+            assert [curve.center.x, curve.center.y, curve.center.z] == pytest.approx(
+                [want.center.x, want.center.y, want.center.z], abs=tolerance
+            ), f"{case.name}: in-context centre of {want.entity_id}"
+            assert curve.radius == pytest.approx(want.radius, abs=tolerance)
     placements = {str(inst.instance_id): inst.placement for inst in result.instances}
     for probe in expected.probes:
         pose = Pose.from_placement(placements[probe.instance_id])

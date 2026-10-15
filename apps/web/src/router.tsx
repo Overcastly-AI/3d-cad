@@ -50,11 +50,26 @@ const firstLightRoute = createRoute({
   component: ModelerPage,
 });
 
-/** Part workspace: feature tree + viewport + sketch mode. */
+/**
+ * Part workspace: feature tree + viewport + sketch mode.
+ *
+ * `?context=<assembly id>&occurrence=<occurrence id>` opens it IN PLACE in
+ * that assembly (Edit in Place, ASM-A3-IN-CONTEXT): the other components are
+ * drawn around the part and Project offers their edges. Both or neither.
+ */
 export const partRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/parts/$partId",
   component: PartPage,
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { context?: string; occurrence?: string } =>
+    typeof search.context === "string" &&
+    search.context.length > 0 &&
+    typeof search.occurrence === "string" &&
+    search.occurrence.length > 0
+      ? { context: search.context, occurrence: search.occurrence }
+      : {},
 });
 
 /** The assemblies register — sibling of the parts home. */

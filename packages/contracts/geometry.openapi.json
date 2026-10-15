@@ -3620,6 +3620,15 @@
             ],
             "description": "Remaining DOF + offending mate ids; None for a clean well_constrained solve (design \u00a72.4)"
           },
+          "in_context": {
+            "description": "Each in-context link whose context is this assembly (ASM-A3-IN-CONTEXT): resolved, or why not. The meshes above already use the resolved values. Omitted while empty.",
+            "items": {
+              "$ref": "#/components/schemas/InContextStatus"
+            },
+            "maxItems": 2000,
+            "title": "In Context",
+            "type": "array"
+          },
           "instances": {
             "description": "One row per placed part, in request order; a sub-assembly contributes a row per part inside it (with a `path`), depth first",
             "items": {
@@ -5443,6 +5452,284 @@
           "mesh_glb_id"
         ],
         "title": "ImportedProduct",
+        "type": "object"
+      },
+      "InContextArc": {
+        "description": "A resolved circular arc through three of its points, in curve order.",
+        "properties": {
+          "end": {
+            "$ref": "#/components/schemas/Vec3"
+          },
+          "kind": {
+            "const": "arc",
+            "title": "Kind",
+            "type": "string"
+          },
+          "mid": {
+            "$ref": "#/components/schemas/Vec3"
+          },
+          "start": {
+            "$ref": "#/components/schemas/Vec3"
+          }
+        },
+        "required": [
+          "kind",
+          "start",
+          "mid",
+          "end"
+        ],
+        "title": "InContextArc",
+        "type": "object"
+      },
+      "InContextCircle": {
+        "description": "A resolved full circle.",
+        "properties": {
+          "center": {
+            "$ref": "#/components/schemas/Vec3"
+          },
+          "kind": {
+            "const": "circle",
+            "title": "Kind",
+            "type": "string"
+          },
+          "normal": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "Unit axis of the circle"
+          },
+          "radius": {
+            "description": "Radius (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Radius",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "center",
+          "normal",
+          "radius"
+        ],
+        "title": "InContextCircle",
+        "type": "object"
+      },
+      "InContextLine": {
+        "description": "A resolved straight edge: ``start`` is the end the entity's ``start``\nfollows.",
+        "properties": {
+          "end": {
+            "$ref": "#/components/schemas/Vec3"
+          },
+          "kind": {
+            "const": "line",
+            "title": "Kind",
+            "type": "string"
+          },
+          "start": {
+            "$ref": "#/components/schemas/Vec3"
+          }
+        },
+        "required": [
+          "kind",
+          "start",
+          "end"
+        ],
+        "title": "InContextLine",
+        "type": "object"
+      },
+      "InContextLink": {
+        "description": "An associative reference to an edge of another component.\n\n``assembly_id`` is the context: only an evaluation of that assembly\nresolves the link. ``host_occurrence_id`` is the occurrence of the edited\npart the sketch was drawn in (the part may be placed more than once; this\none is the frame). ``occurrence_id`` is the referenced component and\n``part_id`` the part it placed when picked, so a replaced component is an\nerror, never a silent re-attachment. Occurrence ids are the ASM-A3 chain\n(:func:`loft_wire.assemblies.occurrence_id`). ``edge`` is the picked\nedge's signature in the referenced part's own frame.",
+        "properties": {
+          "assembly_id": {
+            "format": "uuid",
+            "title": "Assembly Id",
+            "type": "string"
+          },
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSignature"
+          },
+          "host_occurrence_id": {
+            "format": "uuid",
+            "title": "Host Occurrence Id",
+            "type": "string"
+          },
+          "occurrence_id": {
+            "format": "uuid",
+            "title": "Occurrence Id",
+            "type": "string"
+          },
+          "part_id": {
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "resolved": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "arc": "#/components/schemas/InContextArc",
+                    "circle": "#/components/schemas/InContextCircle",
+                    "line": "#/components/schemas/InContextLine"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/InContextLine"
+                  },
+                  {
+                    "$ref": "#/components/schemas/InContextCircle"
+                  },
+                  {
+                    "$ref": "#/components/schemas/InContextArc"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The edge as the context assembly last resolved it, in the edited part's frame. The sketch rebuild projects it, in and out of context. Written by the assembly evaluation (through the gateway); absent until the first one, when the entity keeps the coordinates it was drawn with.",
+            "title": "Resolved"
+          }
+        },
+        "required": [
+          "assembly_id",
+          "host_occurrence_id",
+          "occurrence_id",
+          "part_id",
+          "edge"
+        ],
+        "title": "InContextLink",
+        "type": "object"
+      },
+      "InContextStatus": {
+        "description": "How one in-context link resolved in this assembly evaluation.\n\n``error`` keeps the entity at its last resolved geometry; the dependent\nsketch (``feature_id``) shows it. ``changed`` says ``resolved`` differs\nfrom what the request carried, so the gateway writes it back.",
+        "properties": {
+          "changed": {
+            "default": false,
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "The link's edge, as stored"
+          },
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "feature_id": {
+            "description": "The dependent sketch",
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "host_occurrence_id": {
+            "description": "The link's host occurrence (part of its identity)",
+            "format": "uuid",
+            "title": "Host Occurrence Id",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "occurrence_id": {
+            "description": "The referenced component",
+            "format": "uuid",
+            "title": "Occurrence Id",
+            "type": "string"
+          },
+          "part_id": {
+            "description": "The edited (dependent) part",
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "component_missing",
+                  "component_replaced",
+                  "component_failed",
+                  "host_missing",
+                  "edge_unresolved",
+                  "edge_ambiguous",
+                  "unsupported_curve",
+                  "cycle",
+                  "not_converged"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "referenced_part_id": {
+            "description": "The part the link names at `occurrence_id`",
+            "format": "uuid",
+            "title": "Referenced Part Id",
+            "type": "string"
+          },
+          "resolved": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "arc": "#/components/schemas/InContextArc",
+                    "circle": "#/components/schemas/InContextCircle",
+                    "line": "#/components/schemas/InContextLine"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/InContextLine"
+                  },
+                  {
+                    "$ref": "#/components/schemas/InContextCircle"
+                  },
+                  {
+                    "$ref": "#/components/schemas/InContextArc"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved"
+          },
+          "state": {
+            "enum": [
+              "ok",
+              "error"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part_id",
+          "feature_id",
+          "entity_id",
+          "occurrence_id",
+          "host_occurrence_id",
+          "referenced_part_id",
+          "edge",
+          "state"
+        ],
+        "title": "InContextStatus",
         "type": "object"
       },
       "InstanceEvaluationError": {
@@ -9950,15 +10237,31 @@
         "type": "object"
       },
       "SketchProjection": {
-        "description": "The body edge a projected entity is linked to (SKETCH-PROJECT-EDGES).\n\nFusion 360's Project and SolidWorks' Convert Entities: the entity is the\nedge seen from the sketch plane, and it follows the edge when the body\nchanges. ``edge`` is the same stage-1 :class:`EdgeSubshapeRef` a picked\nfillet edge stores; its ``feature_id`` is a feature dependency of the\nsketch. The entity's own coordinates are the last good projection, so a\nsketch whose edge no longer resolves keeps them, as Fusion does. The\nsolver holds a projected entity fixed (0 DOF).",
+        "description": "The body edge a projected entity is linked to (SKETCH-PROJECT-EDGES).\n\nFusion 360's Project and SolidWorks' Convert Entities: the entity is the\nedge seen from the sketch plane, and it follows the edge when the body\nchanges. ``edge`` is the same stage-1 :class:`EdgeSubshapeRef` a picked\nfillet edge stores; its ``feature_id`` is a feature dependency of the\nsketch. The entity's own coordinates are the last good projection, so a\nsketch whose edge no longer resolves keeps them, as Fusion does. The\nsolver holds a projected entity fixed (0 DOF).\n\nExactly one of ``edge`` and ``in_context`` is set. ``in_context`` links the\nentity to an edge of ANOTHER component of an assembly (ASM-A3-IN-CONTEXT,\n:class:`~loft_wire.in_context.InContextLink`); it names no feature of this\npart, so it adds no feature dependency.",
         "properties": {
           "edge": {
-            "$ref": "#/components/schemas/EdgeSubshapeRef"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EdgeSubshapeRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The edge of this part's body (Project). Absent on an in-context projection."
+          },
+          "in_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InContextLink"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The edge of another component of an assembly (Edit in Place). Absent on a same-part projection."
           }
         },
-        "required": [
-          "edge"
-        ],
         "title": "SketchProjection",
         "type": "object"
       },

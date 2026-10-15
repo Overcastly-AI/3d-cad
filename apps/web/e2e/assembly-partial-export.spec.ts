@@ -106,7 +106,7 @@ test.describe("a partial assembly export", () => {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    await page.route("**/api/v1/geometry/assembly/evaluate", async (route) => {
+    await page.route("**/api/v1/geometry/assembly/evaluate*", async (route) => {
       await held;
       // The reload below may cancel a request still in flight here.
       await route.continue().catch(() => {});
@@ -123,7 +123,7 @@ test.describe("a partial assembly export", () => {
       "Solving…",
       { timeout: 60_000 },
     );
-    await page.unroute("**/api/v1/geometry/assembly/evaluate");
+    await page.unroute("**/api/v1/geometry/assembly/evaluate*");
 
     await page.reload();
     await waitForSolved(page);

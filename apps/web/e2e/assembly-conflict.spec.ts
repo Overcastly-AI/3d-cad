@@ -160,7 +160,7 @@ test.describe("MATEUI-1 — a conflict names mates the panel can show you", () =
     // it. The fields are still sent; this fix stopped RENDERING them.
     let served: { message?: string; suggested_fix?: string | null } | null =
       null;
-    await page.route("**/api/v1/geometry/assembly/evaluate", async (route) => {
+    await page.route("**/api/v1/geometry/assembly/evaluate*", async (route) => {
       const response = await route.fetch();
       const body = await response.text();
       try {

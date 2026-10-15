@@ -26,6 +26,7 @@ from typing import Annotated, ClassVar, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from loft_wire.in_context import InContextLink
 from loft_wire.signatures import EdgeSubshapeRef
 
 #: Sketch-local entity id — unique within one sketch, stable across edits.
@@ -89,9 +90,33 @@ class SketchProjection(BaseModel):
     sketch. The entity's own coordinates are the last good projection, so a
     sketch whose edge no longer resolves keeps them, as Fusion does. The
     solver holds a projected entity fixed (0 DOF).
+
+    Exactly one of ``edge`` and ``in_context`` is set. ``in_context`` links the
+    entity to an edge of ANOTHER component of an assembly (ASM-A3-IN-CONTEXT,
+    :class:`~loft_wire.in_context.InContextLink`); it names no feature of this
+    part, so it adds no feature dependency.
     """
 
-    edge: EdgeSubshapeRef
+    edge: EdgeSubshapeRef | None = Field(
+        default=None,
+        exclude_if=_absent,
+        description="The edge of this part's body (Project). Absent on an "
+        "in-context projection.",
+    )
+    in_context: InContextLink | None = Field(
+        default=None,
+        exclude_if=_absent,
+        description="The edge of another component of an assembly (Edit in "
+        "Place). Absent on a same-part projection.",
+    )
+
+    @model_validator(mode="after")
+    def _one_source(self) -> "SketchProjection":
+        if (self.edge is None) == (self.in_context is None):
+            raise ValueError(
+                "A projection names either a body edge or an in-context edge"
+            )
+        return self
 
 
 class SketchEntityBase(BaseModel):

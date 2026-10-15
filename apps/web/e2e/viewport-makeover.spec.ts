@@ -338,7 +338,7 @@ test.describe("assembly fit (Batch 1, P1)", () => {
     // sqlite+in-proc eval resolves sub-frame, hiding the collapse the review
     // caught. Under real network latency the window is always this wide.
     let delayEval = false;
-    await page.route("**/api/v1/geometry/assembly/evaluate", async (route) => {
+    await page.route("**/api/v1/geometry/assembly/evaluate*", async (route) => {
       if (delayEval) await new Promise((r) => setTimeout(r, 700));
       await route.continue();
     });

@@ -324,7 +324,7 @@ def test_a_projection_round_trips() -> None:
     assert sketch.model_dump(mode="json") == raw
     assert SketchDefinition.model_validate_json(sketch.model_dump_json()) == sketch
     line = sketch.entities[0]
-    assert line.projection is not None
+    assert line.projection is not None and line.projection.edge is not None
     assert str(line.projection.edge.feature_id) == _EDGE_ANCHOR
 
 
