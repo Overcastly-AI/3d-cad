@@ -51,7 +51,7 @@ export function InContextIssues({
     <div
       role={errors.length > 0 ? "alert" : undefined}
       data-testid="assembly-in-context"
-      className="pointer-events-none absolute bottom-3 left-1/2 z-10 flex max-w-[min(36rem,calc(100%-2rem))] -translate-x-1/2 flex-col gap-1"
+      className="pointer-events-none absolute bottom-3 left-1/2 z-10 flex max-w-[36rem] -translate-x-1/2 flex-col gap-1"
     >
       {errors.map((status) => (
         <p

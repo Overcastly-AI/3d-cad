@@ -29,7 +29,7 @@ export function InContextBanner({
       data-testid="in-context-banner"
       data-loading={session.loading ? "true" : "false"}
       data-links={session.statuses.length}
-      className="pointer-events-auto absolute bottom-3 left-1/2 z-10 flex max-w-[min(36rem,calc(100%-2rem))] -translate-x-1/2 flex-col gap-1 rounded-sm border border-brass/60 bg-anvil/95 px-3 py-2"
+      className="pointer-events-auto absolute bottom-3 left-1/2 z-10 flex max-w-[36rem] -translate-x-1/2 flex-col gap-1 rounded-sm border border-brass/60 bg-anvil/95 px-3 py-2"
     >
       <div className="flex items-center gap-3">
         <span className="font-display text-2xs uppercase tracking-[0.18em] text-brass">
