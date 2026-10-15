@@ -1,0 +1,67 @@
+{
+  "description": "IN-CONTEXT GOLDEN (ASM-A3-IN-CONTEXT), A3's rail-spacing edit: two A3 rails (MGN12 stand-ins, 350 x 12 x 8, fourteen r1.75 through holes at x = 12.5 + 25k, y = 0) grounded at (25, +-45, 10), and the carriage plate (120 x 140 x 8 centred on its origin) grounded at (200, 0, 26). The plate's second sketch holds two circles projected IN CONTEXT from each rail's hole 8 (rail-local centre (187.5, 0), top rim z = 8), cut through the plate. The stored links still hold the values resolved when the rails were at +-40: the evaluation must re-resolve them at +-45, cut the holes there, and report them changed. Locks: the link resolves against the referenced occurrence's solved pose, is carried into the host occurrence's frame, and the host part is rebuilt from it before the result is built.",
+  "derivation": [
+    "Expectations are HAND-DERIVED, not recorded pipeline output. r = 1.75, A_h = pi r^2 = 9.62112750161874 mm^2.",
+    "Rail: V_r = 8 (350 x 12 - 14 A_h) = 32522.433719818702 mm^3; S_r = 2 (4200 - 14 A_h) + 8 x (2 x 350 + 2 x 12) + 14 x 2 pi r x 8 = 15154.112750161874 mm^2. The holes sit symmetrically about x = 175, so the rail's centroid is (175, 0, 4).",
+    "Link resolution: hole 8's top rim is at rail-local (187.5, 0, 8), normal +Z. Rail 1 at (25, 45, 10): world (212.5, 45, 18). Into the plate's frame (plate at (200, 0, 26), no rotation): (12.5, 45, -8). Rail 2: (12.5, -45, -8). Both radius 1.75, normal +Z. The stored values were (12.5, +-40, -8), so both are changed.",
+    "Plate: the sketch on its XY plane projects each rim along Z to a circle centred (12.5, +-45), and the cut removes two r1.75 cylinders through its 8 mm. V_p = 8 (120 x 140 - 2 A_h) = 134246.0619599741 mm^3; S_p = 2 (16800 - 2 A_h) + 8 x 520 + 2 x 2 pi r x 8 = 37897.44467859455 mm^2. Centroid x = -(2 A_h x 12.5) / (16800 - 2 A_h) = -0.01433357129609852; y = 0 (the holes are mirror images); z = 4.",
+    "Combined volume = 2 V_r + V_p = 199290.9293996115 mm^3; surface_area = 2 S_r + S_p = 68205.6701789183 mm^2.",
+    "World centroids: rails (200, +-45, 14), plate (199.98566642870390, 0, 30). Combined: x = (2 V_r x 200 + V_p (200 + x_p)) / V = 199.99034464084178; y = 0 (the rails cancel); z = (2 V_r x 14 + V_p x 30) / V = 24.777896404169077.",
+    "Bounding box: rails x [25, 375], y [39, 51] and [-51, -39], z [10, 18]; plate x [140, 260], y [-70, 70], z [26, 34]. Union [25, -70, 10]..[375, 70, 34].",
+    "Topology: a rail is 6 planar faces + 14 hole cylinders = 20 faces, and 12 box edges + 14 x 3 (two rims and a seam) = 54 edges; the plate is 8 faces and 18 edges (the two-hole plate of sketch-extrude-plate-2holes). Sum 48 / 126 / 3. Two parts: distinct_mesh_count 2."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "CLOSED-FORM tolerance: grounded seeds, a translation-only carry of an exact B-rep circle, and analytic prism volumes, so every value is exact to float64 round-off. Measured first (2026-10-15, build123d 0.11.1 / OCCT 7.9): link centres exact, volume and area within 4e-11, centroid within 4e-15 mm. 1e-9 matches the other assembly goldens. Loosening it requires a reviewed justification here and in docs/GEOMETRY-QA.md.",
+  "status": "well_constrained",
+  "remaining_dof": 0,
+  "in_context": [
+    {
+      "entity_id": "p1",
+      "state": "ok",
+      "center": { "x": 12.5, "y": 45.0, "z": -8.0 },
+      "radius": 1.75,
+      "changed": true
+    },
+    {
+      "entity_id": "p2",
+      "state": "ok",
+      "center": { "x": 12.5, "y": -45.0, "z": -8.0 },
+      "radius": 1.75,
+      "changed": true
+    }
+  ],
+  "distinct_mesh_count": 2,
+  "instances": [
+    {
+      "instance_id": "00000000-0000-0000-0000-00000000a3f1",
+      "placement": {
+        "position": { "x": 25.0, "y": 45.0, "z": 10.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-00000000a3f2",
+      "placement": {
+        "position": { "x": 25.0, "y": -45.0, "z": 10.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-00000000a3f3",
+      "placement": {
+        "position": { "x": 200.0, "y": 0.0, "z": 26.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    }
+  ],
+  "properties": {
+    "volume": 199290.9293996115,
+    "surface_area": 68205.6701789183,
+    "centroid": { "x": 199.99034464084178, "y": 0.0, "z": 24.777896404169077 },
+    "bounding_box": {
+      "min": { "x": 25.0, "y": -70.0, "z": 10.0 },
+      "max": { "x": 375.0, "y": 70.0, "z": 34.0 }
+    }
+  },
+  "topology": { "faces": 48, "edges": 126, "shells": 3 }
+}

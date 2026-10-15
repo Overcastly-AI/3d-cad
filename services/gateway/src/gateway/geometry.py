@@ -65,6 +65,7 @@ from pydantic import BaseModel
 from gateway.affinity import GeometryPool, forward_geometry, parse_worker_urls
 from gateway.auth import CurrentUser
 from gateway.db import User
+from gateway.in_context import write_back
 from gateway.parts import forward_documents
 from gateway.ratelimit import COMPUTE_RATE_LIMIT
 from gateway.upstream import raise_upstream_error
@@ -468,12 +469,18 @@ async def assembly_evaluate(
     ``{shared mesh id, solved placement}`` plus an analytic combined roll-up. A
     bad part / mate / solve is a 200 with a typed per-entry error or a
     non-``well_constrained`` status (design §4); the envelope stays reserved
-    for transport/validation failures of this call itself.
+    for transport/validation failures of this call itself. In-context links
+    whose resolved values changed are written back to documents
+    (:mod:`gateway.in_context`).
     """
     upstream = await _forward(http_request, user, "/api/v1/assembly/evaluate", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
-    return EvaluateAssemblyResult.model_validate_json(upstream.content)
+    result = EvaluateAssemblyResult.model_validate_json(upstream.content)
+    # In-context links geometry moved are stored as their part's last values
+    # (ASM-A3-IN-CONTEXT), so the part rebuilds the same way on its own.
+    await write_back(http_request, user, result)
+    return result
 
 
 @router.post("/assembly/interference", dependencies=[COMPUTE_RATE_LIMIT])

@@ -4741,6 +4741,248 @@
         "title": "ImportedProduct",
         "type": "object"
       },
+      "InContextArc": {
+        "description": "A resolved circular arc through three of its points, in curve order.",
+        "properties": {
+          "end": {
+            "$ref": "#/components/schemas/Vec3"
+          },
+          "kind": {
+            "const": "arc",
+            "title": "Kind",
+            "type": "string"
+          },
+          "mid": {
+            "$ref": "#/components/schemas/Vec3"
+          },
+          "start": {
+            "$ref": "#/components/schemas/Vec3"
+          }
+        },
+        "required": [
+          "kind",
+          "start",
+          "mid",
+          "end"
+        ],
+        "title": "InContextArc",
+        "type": "object"
+      },
+      "InContextCircle": {
+        "description": "A resolved full circle.",
+        "properties": {
+          "center": {
+            "$ref": "#/components/schemas/Vec3"
+          },
+          "kind": {
+            "const": "circle",
+            "title": "Kind",
+            "type": "string"
+          },
+          "normal": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "Unit axis of the circle"
+          },
+          "radius": {
+            "description": "Radius (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Radius",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "center",
+          "normal",
+          "radius"
+        ],
+        "title": "InContextCircle",
+        "type": "object"
+      },
+      "InContextLine": {
+        "description": "A resolved straight edge: ``start`` is the end the entity's ``start``\nfollows.",
+        "properties": {
+          "end": {
+            "$ref": "#/components/schemas/Vec3"
+          },
+          "kind": {
+            "const": "line",
+            "title": "Kind",
+            "type": "string"
+          },
+          "start": {
+            "$ref": "#/components/schemas/Vec3"
+          }
+        },
+        "required": [
+          "kind",
+          "start",
+          "end"
+        ],
+        "title": "InContextLine",
+        "type": "object"
+      },
+      "InContextLink": {
+        "description": "An associative reference to an edge of another component.\n\n``assembly_id`` is the context: only an evaluation of that assembly\nresolves the link. ``host_occurrence_id`` is the occurrence of the edited\npart the sketch was drawn in (the part may be placed more than once; this\none is the frame). ``occurrence_id`` is the referenced component and\n``part_id`` the part it placed when picked, so a replaced component is an\nerror, never a silent re-attachment. Occurrence ids are the ASM-A3 chain\n(:func:`loft_wire.assemblies.occurrence_id`). ``edge`` is the picked\nedge's signature in the referenced part's own frame.",
+        "properties": {
+          "assembly_id": {
+            "format": "uuid",
+            "title": "Assembly Id",
+            "type": "string"
+          },
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSignature"
+          },
+          "host_occurrence_id": {
+            "format": "uuid",
+            "title": "Host Occurrence Id",
+            "type": "string"
+          },
+          "occurrence_id": {
+            "format": "uuid",
+            "title": "Occurrence Id",
+            "type": "string"
+          },
+          "part_id": {
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "resolved": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "arc": "#/components/schemas/InContextArc",
+                    "circle": "#/components/schemas/InContextCircle",
+                    "line": "#/components/schemas/InContextLine"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/InContextLine"
+                  },
+                  {
+                    "$ref": "#/components/schemas/InContextCircle"
+                  },
+                  {
+                    "$ref": "#/components/schemas/InContextArc"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The edge as the context assembly last resolved it, in the edited part's frame. The sketch rebuild projects it, in and out of context. Written by the assembly evaluation (through the gateway); absent until the first one, when the entity keeps the coordinates it was drawn with.",
+            "title": "Resolved"
+          }
+        },
+        "required": [
+          "assembly_id",
+          "host_occurrence_id",
+          "occurrence_id",
+          "part_id",
+          "edge"
+        ],
+        "title": "InContextLink",
+        "type": "object"
+      },
+      "InContextResolvedItem": {
+        "description": "One link's new last-resolved value, for documents to store.",
+        "properties": {
+          "assembly_id": {
+            "format": "uuid",
+            "title": "Assembly Id",
+            "type": "string"
+          },
+          "entity_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "feature_id": {
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "occurrence_id": {
+            "format": "uuid",
+            "title": "Occurrence Id",
+            "type": "string"
+          },
+          "resolved": {
+            "discriminator": {
+              "mapping": {
+                "arc": "#/components/schemas/InContextArc",
+                "circle": "#/components/schemas/InContextCircle",
+                "line": "#/components/schemas/InContextLine"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/InContextLine"
+              },
+              {
+                "$ref": "#/components/schemas/InContextCircle"
+              },
+              {
+                "$ref": "#/components/schemas/InContextArc"
+              }
+            ],
+            "title": "Resolved"
+          }
+        },
+        "required": [
+          "feature_id",
+          "entity_id",
+          "assembly_id",
+          "occurrence_id",
+          "resolved"
+        ],
+        "title": "InContextResolvedItem",
+        "type": "object"
+      },
+      "InContextResolvedResult": {
+        "description": "How many of the items were written (the rest no longer matched).",
+        "properties": {
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "written": {
+            "title": "Written",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "written",
+          "skipped"
+        ],
+        "title": "InContextResolvedResult",
+        "type": "object"
+      },
+      "InContextResolvedWrite": {
+        "description": "``POST /api/v1/parts/{part_id}/in-context/resolved`` (documents).\n\nMetadata, not an edit: no undo step and no ``tree_version`` bump (the\nDESIGN-INTENT-BACKFILL rule). An item is written only where the entity\nstill carries a link to the same assembly and occurrence.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InContextResolvedItem"
+            },
+            "maxItems": 2000,
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "InContextResolvedWrite",
+        "type": "object"
+      },
       "IndentedBomLine": {
         "description": "One row of the INDENTED bill of materials (SolidWorks' indented BOM).\n\nRows come depth first: a sub-assembly row is followed by the rows of its own\ncontents, one level deeper. ``quantity`` counts within the parent\n(a wheel has 1 rim); ``total_quantity`` counts across the whole assembly\n(a bike with 2 wheels has 2 rims), which is the number to order.",
         "properties": {
@@ -9935,15 +10177,31 @@
         "type": "object"
       },
       "SketchProjection": {
-        "description": "The body edge a projected entity is linked to (SKETCH-PROJECT-EDGES).\n\nFusion 360's Project and SolidWorks' Convert Entities: the entity is the\nedge seen from the sketch plane, and it follows the edge when the body\nchanges. ``edge`` is the same stage-1 :class:`EdgeSubshapeRef` a picked\nfillet edge stores; its ``feature_id`` is a feature dependency of the\nsketch. The entity's own coordinates are the last good projection, so a\nsketch whose edge no longer resolves keeps them, as Fusion does. The\nsolver holds a projected entity fixed (0 DOF).",
+        "description": "The body edge a projected entity is linked to (SKETCH-PROJECT-EDGES).\n\nFusion 360's Project and SolidWorks' Convert Entities: the entity is the\nedge seen from the sketch plane, and it follows the edge when the body\nchanges. ``edge`` is the same stage-1 :class:`EdgeSubshapeRef` a picked\nfillet edge stores; its ``feature_id`` is a feature dependency of the\nsketch. The entity's own coordinates are the last good projection, so a\nsketch whose edge no longer resolves keeps them, as Fusion does. The\nsolver holds a projected entity fixed (0 DOF).\n\nExactly one of ``edge`` and ``in_context`` is set. ``in_context`` links the\nentity to an edge of ANOTHER component of an assembly (ASM-A3-IN-CONTEXT,\n:class:`~loft_wire.in_context.InContextLink`); it names no feature of this\npart, so it adds no feature dependency.",
         "properties": {
           "edge": {
-            "$ref": "#/components/schemas/EdgeSubshapeRef"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EdgeSubshapeRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The edge of this part's body (Project). Absent on an in-context projection."
+          },
+          "in_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InContextLink"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The edge of another component of an assembly (Edit in Place). Absent on a same-part projection."
           }
         },
-        "required": [
-          "edge"
-        ],
         "title": "SketchProjection",
         "type": "object"
       },
@@ -15104,6 +15362,78 @@
         "summary": "Suppress Feature",
         "tags": [
           "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/in-context/resolved": {
+      "post": {
+        "description": "Store links' last resolved values, as metadata (module docstring). An\nitem whose entity no longer links to the same assembly and occurrence is\nskipped, so a re-pick in between is left alone.",
+        "operationId": "write_resolved_api_v1_parts__part_id__in_context_resolved_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InContextResolvedWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InContextResolvedResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Write Resolved",
+        "tags": [
+          "in-context"
         ]
       }
     },

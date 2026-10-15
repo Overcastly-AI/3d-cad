@@ -55,15 +55,17 @@ export function projectionOf(
 }
 
 /**
- * Every picked signature already projected into this sketch — what the edge
- * overlay lights as "picked", so an edge you have brought in reads as taken.
+ * Every picked signature of THIS part's body already projected into this
+ * sketch — what the edge overlay lights as "picked", so an edge you have
+ * brought in reads as taken. An in-context projection names another
+ * component's edge, so it is not one of these.
  */
 export function projectedSignatures(
   entities: readonly SketchEntity[],
 ): EdgeSignature[] {
   return entities.flatMap((entity) => {
-    const projection = projectionOf(entity);
-    return projection === null ? [] : [projection.edge.selector.signature];
+    const edge = projectionOf(entity)?.edge;
+    return edge ? [edge.selector.signature] : [];
   });
 }
 

@@ -1132,6 +1132,28 @@ export interface paths {
         patch: operations["suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch"];
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/in-context/resolved": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Write Resolved
+         * @description Store links' last resolved values, as metadata (module docstring). An
+         *     item whose entity no longer links to the same assembly and occurrence is
+         *     skipped, so a re-pick in between is left alone.
+         */
+        post: operations["write_resolved_api_v1_parts__part_id__in_context_resolved_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/last-evaluation": {
         parameters: {
             query?: never;
@@ -4863,6 +4885,141 @@ export interface components {
             properties?: components["schemas"]["ShapeProperties"] | null;
         };
         /**
+         * InContextArc
+         * @description A resolved circular arc through three of its points, in curve order.
+         */
+        InContextArc: {
+            end: components["schemas"]["Vec3"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "arc";
+            mid: components["schemas"]["Vec3"];
+            start: components["schemas"]["Vec3"];
+        };
+        /**
+         * InContextCircle
+         * @description A resolved full circle.
+         */
+        InContextCircle: {
+            center: components["schemas"]["Vec3"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "circle";
+            /** @description Unit axis of the circle */
+            normal: components["schemas"]["Vec3"];
+            /**
+             * Radius
+             * @description Radius (mm)
+             */
+            radius: number;
+        };
+        /**
+         * InContextLine
+         * @description A resolved straight edge: ``start`` is the end the entity's ``start``
+         *     follows.
+         */
+        InContextLine: {
+            end: components["schemas"]["Vec3"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "line";
+            start: components["schemas"]["Vec3"];
+        };
+        /**
+         * InContextLink
+         * @description An associative reference to an edge of another component.
+         *
+         *     ``assembly_id`` is the context: only an evaluation of that assembly
+         *     resolves the link. ``host_occurrence_id`` is the occurrence of the edited
+         *     part the sketch was drawn in (the part may be placed more than once; this
+         *     one is the frame). ``occurrence_id`` is the referenced component and
+         *     ``part_id`` the part it placed when picked, so a replaced component is an
+         *     error, never a silent re-attachment. Occurrence ids are the ASM-A3 chain
+         *     (:func:`loft_wire.assemblies.occurrence_id`). ``edge`` is the picked
+         *     edge's signature in the referenced part's own frame.
+         */
+        InContextLink: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            edge: components["schemas"]["EdgeSignature"];
+            /**
+             * Host Occurrence Id
+             * Format: uuid
+             */
+            host_occurrence_id: string;
+            /**
+             * Occurrence Id
+             * Format: uuid
+             */
+            occurrence_id: string;
+            /**
+             * Part Id
+             * Format: uuid
+             */
+            part_id: string;
+            /**
+             * Resolved
+             * @description The edge as the context assembly last resolved it, in the edited part's frame. The sketch rebuild projects it, in and out of context. Written by the assembly evaluation (through the gateway); absent until the first one, when the entity keeps the coordinates it was drawn with.
+             */
+            resolved?: (components["schemas"]["InContextLine"] | components["schemas"]["InContextCircle"] | components["schemas"]["InContextArc"]) | null;
+        };
+        /**
+         * InContextResolvedItem
+         * @description One link's new last-resolved value, for documents to store.
+         */
+        InContextResolvedItem: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /** Entity Id */
+            entity_id: string;
+            /**
+             * Feature Id
+             * Format: uuid
+             */
+            feature_id: string;
+            /**
+             * Occurrence Id
+             * Format: uuid
+             */
+            occurrence_id: string;
+            /** Resolved */
+            resolved: components["schemas"]["InContextLine"] | components["schemas"]["InContextCircle"] | components["schemas"]["InContextArc"];
+        };
+        /**
+         * InContextResolvedResult
+         * @description How many of the items were written (the rest no longer matched).
+         */
+        InContextResolvedResult: {
+            /** Skipped */
+            skipped: number;
+            /** Written */
+            written: number;
+        };
+        /**
+         * InContextResolvedWrite
+         * @description ``POST /api/v1/parts/{part_id}/in-context/resolved`` (documents).
+         *
+         *     Metadata, not an edit: no undo step and no ``tree_version`` bump (the
+         *     DESIGN-INTENT-BACKFILL rule). An item is written only where the entity
+         *     still carries a link to the same assembly and occurrence.
+         */
+        InContextResolvedWrite: {
+            /** Items */
+            items: components["schemas"]["InContextResolvedItem"][];
+        };
+        /**
          * IndentedBomLine
          * @description One row of the INDENTED bill of materials (SolidWorks' indented BOM).
          *
@@ -8207,9 +8364,17 @@ export interface components {
          *     sketch. The entity's own coordinates are the last good projection, so a
          *     sketch whose edge no longer resolves keeps them, as Fusion does. The
          *     solver holds a projected entity fixed (0 DOF).
+         *
+         *     Exactly one of ``edge`` and ``in_context`` is set. ``in_context`` links the
+         *     entity to an edge of ANOTHER component of an assembly (ASM-A3-IN-CONTEXT,
+         *     :class:`~loft_wire.in_context.InContextLink`); it names no feature of this
+         *     part, so it adds no feature dependency.
          */
         SketchProjection: {
-            edge: components["schemas"]["EdgeSubshapeRef"];
+            /** @description The edge of this part's body (Project). Absent on an in-context projection. */
+            edge?: components["schemas"]["EdgeSubshapeRef"] | null;
+            /** @description The edge of another component of an assembly (Edit in Place). Absent on a same-part projection. */
+            in_context?: components["schemas"]["InContextLink"] | null;
         };
         /**
          * SketchSpline
@@ -11056,6 +11221,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeatureMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    write_resolved_api_v1_parts__part_id__in_context_resolved_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InContextResolvedWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InContextResolvedResult"];
                 };
             };
             /** @description Validation Error */

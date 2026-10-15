@@ -46,7 +46,7 @@ NON-fatal: a valid seed-consistent placement with the remaining DOF reported.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 from loft_wire.assemblies import (
@@ -79,9 +79,11 @@ from loft_wire.geometry import (
     TopologyCounts,
     Vec3,
 )
+from loft_wire.in_context import InContextStatus
 from loft_wire.joints import JointState
 from py_kit.errors import ValidationApiError
 
+from geometry.assembly.in_context import solve_in_context
 from geometry.assembly.patterns import PatternTarget, SeedPart, expand_pattern
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,
@@ -500,6 +502,8 @@ class SolvedAssembly:
     #: The same for every pattern at every level (sub-assemblies' too), once
     #: each, in first-seen order.
     all_pattern_states: list[PatternCount]
+    #: How each in-context link whose context is this assembly resolved.
+    in_context: list[InContextStatus] = field(default_factory=list["InContextStatus"])
 
 
 def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
@@ -518,8 +522,28 @@ def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
     often it is instanced), then enters this solve as ONE body: its parts keep
     their solved poses relative to each other and move with the instance. A
     mate here may name one of those parts by occurrence id.
+
+    In-context links whose context is this assembly are kept current
+    (:mod:`geometry.assembly.in_context`): the bodies, meshes and poses
+    returned use their resolved curves, and ``in_context`` says how each
+    resolved. Without such links the assembly is solved once, as before.
     """
-    return _solve(request, {}, {})
+    parts: dict[str, _PartResult] = {}
+
+    def solve(current: EvaluateAssemblyRequest, stale: set[str]) -> SolvedAssembly:
+        for key in stale:
+            parts.pop(key, None)
+        return _solve(current, parts, {})
+
+    run = solve_in_context(
+        request,
+        solve,
+        lambda solved: solved.occurrences,
+        lambda solved, key: solved.parts[key].face_names(),
+    )
+    if not run.statuses:
+        return run.solved
+    return replace(run.solved, in_context=run.statuses)
 
 
 def _solve(
@@ -904,6 +928,7 @@ def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResul
             for instance_id, placement in solved_assembly.sub_assembly_poses.items()
         ],
         pattern_states=solved_assembly.pattern_states,
+        in_context=solved_assembly.in_context,
     )
 
 

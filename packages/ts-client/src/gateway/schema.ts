@@ -1039,7 +1039,9 @@ export interface paths {
          *     ``{shared mesh id, solved placement}`` plus an analytic combined roll-up. A
          *     bad part / mate / solve is a 200 with a typed per-entry error or a
          *     non-``well_constrained`` status (design §4); the envelope stays reserved
-         *     for transport/validation failures of this call itself.
+         *     for transport/validation failures of this call itself. In-context links
+         *     whose resolved values changed are written back to documents
+         *     (:mod:`gateway.in_context`).
          */
         post: operations["assembly_evaluate_api_v1_geometry_assembly_evaluate_post"];
         delete?: never;
@@ -5587,6 +5589,11 @@ export interface components {
             /** @description Remaining DOF + offending mate ids; None for a clean well_constrained solve (design §2.4) */
             diagnosis?: components["schemas"]["AssemblySolveDiagnosis"] | null;
             /**
+             * In Context
+             * @description Each in-context link whose context is this assembly (ASM-A3-IN-CONTEXT): resolved, or why not. The meshes above already use the resolved values. Omitted while empty.
+             */
+            in_context?: components["schemas"]["InContextStatus"][];
+            /**
              * Instances
              * @description One row per placed part, in request order; a sub-assembly contributes a row per part inside it (with a `path`), depth first
              */
@@ -7136,6 +7143,140 @@ export interface components {
              * @constant
              */
             kind: "inline";
+        };
+        /**
+         * InContextArc
+         * @description A resolved circular arc through three of its points, in curve order.
+         */
+        InContextArc: {
+            end: components["schemas"]["Vec3"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "arc";
+            mid: components["schemas"]["Vec3"];
+            start: components["schemas"]["Vec3"];
+        };
+        /**
+         * InContextCircle
+         * @description A resolved full circle.
+         */
+        InContextCircle: {
+            center: components["schemas"]["Vec3"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "circle";
+            /** @description Unit axis of the circle */
+            normal: components["schemas"]["Vec3"];
+            /**
+             * Radius
+             * @description Radius (mm)
+             */
+            radius: number;
+        };
+        /**
+         * InContextLine
+         * @description A resolved straight edge: ``start`` is the end the entity's ``start``
+         *     follows.
+         */
+        InContextLine: {
+            end: components["schemas"]["Vec3"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "line";
+            start: components["schemas"]["Vec3"];
+        };
+        /**
+         * InContextLink
+         * @description An associative reference to an edge of another component.
+         *
+         *     ``assembly_id`` is the context: only an evaluation of that assembly
+         *     resolves the link. ``host_occurrence_id`` is the occurrence of the edited
+         *     part the sketch was drawn in (the part may be placed more than once; this
+         *     one is the frame). ``occurrence_id`` is the referenced component and
+         *     ``part_id`` the part it placed when picked, so a replaced component is an
+         *     error, never a silent re-attachment. Occurrence ids are the ASM-A3 chain
+         *     (:func:`loft_wire.assemblies.occurrence_id`). ``edge`` is the picked
+         *     edge's signature in the referenced part's own frame.
+         */
+        InContextLink: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            edge: components["schemas"]["EdgeSignature"];
+            /**
+             * Host Occurrence Id
+             * Format: uuid
+             */
+            host_occurrence_id: string;
+            /**
+             * Occurrence Id
+             * Format: uuid
+             */
+            occurrence_id: string;
+            /**
+             * Part Id
+             * Format: uuid
+             */
+            part_id: string;
+            /**
+             * Resolved
+             * @description The edge as the context assembly last resolved it, in the edited part's frame. The sketch rebuild projects it, in and out of context. Written by the assembly evaluation (through the gateway); absent until the first one, when the entity keeps the coordinates it was drawn with.
+             */
+            resolved?: (components["schemas"]["InContextLine"] | components["schemas"]["InContextCircle"] | components["schemas"]["InContextArc"]) | null;
+        };
+        /**
+         * InContextStatus
+         * @description How one in-context link resolved in this assembly evaluation.
+         *
+         *     ``error`` keeps the entity at its last resolved geometry; the dependent
+         *     sketch (``feature_id``) shows it. ``changed`` says ``resolved`` differs
+         *     from what the request carried, so the gateway writes it back.
+         */
+        InContextStatus: {
+            /**
+             * Changed
+             * @default false
+             */
+            changed: boolean;
+            /** Entity Id */
+            entity_id: string;
+            /**
+             * Feature Id
+             * Format: uuid
+             * @description The dependent sketch
+             */
+            feature_id: string;
+            /** Message */
+            message?: string | null;
+            /**
+             * Occurrence Id
+             * Format: uuid
+             * @description The referenced component
+             */
+            occurrence_id: string;
+            /**
+             * Part Id
+             * Format: uuid
+             * @description The edited (dependent) part
+             */
+            part_id: string;
+            /** Reason */
+            reason?: ("component_missing" | "component_replaced" | "component_failed" | "host_missing" | "edge_unresolved" | "edge_ambiguous" | "unsupported_curve" | "cycle" | "not_converged") | null;
+            /** Resolved */
+            resolved?: (components["schemas"]["InContextLine"] | components["schemas"]["InContextCircle"] | components["schemas"]["InContextArc"]) | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ok" | "error";
         };
         /**
          * IndentedBomLine
@@ -11069,9 +11210,17 @@ export interface components {
          *     sketch. The entity's own coordinates are the last good projection, so a
          *     sketch whose edge no longer resolves keeps them, as Fusion does. The
          *     solver holds a projected entity fixed (0 DOF).
+         *
+         *     Exactly one of ``edge`` and ``in_context`` is set. ``in_context`` links the
+         *     entity to an edge of ANOTHER component of an assembly (ASM-A3-IN-CONTEXT,
+         *     :class:`~loft_wire.in_context.InContextLink`); it names no feature of this
+         *     part, so it adds no feature dependency.
          */
         SketchProjection: {
-            edge: components["schemas"]["EdgeSubshapeRef"];
+            /** @description The edge of this part's body (Project). Absent on an in-context projection. */
+            edge?: components["schemas"]["EdgeSubshapeRef"] | null;
+            /** @description The edge of another component of an assembly (Edit in Place). Absent on a same-part projection. */
+            in_context?: components["schemas"]["InContextLink"] | null;
         };
         /**
          * SketchProjectionStatus

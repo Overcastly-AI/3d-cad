@@ -50,7 +50,7 @@ describe("useSketchProjectSession", () => {
     expect(
       entity !== undefined &&
         "projection" in entity &&
-        entity.projection?.edge.feature_id,
+        entity.projection?.edge?.feature_id,
     ).toBe("shell");
     // The taken edge reads as taken.
     expect(useEdgePickStore.getState().picked).toEqual([RIM.signature]);

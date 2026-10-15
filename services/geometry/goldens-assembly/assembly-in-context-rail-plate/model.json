@@ -1,0 +1,751 @@
+{
+  "assembly_id": "00000000-0000-0000-0000-00000000a3c0",
+  "version": 1,
+  "mates": [],
+  "instances": [
+    {
+      "instance_id": "00000000-0000-0000-0000-00000000a3f1",
+      "part_key": "00000000-0000-0000-0000-00000000a3e1@tip",
+      "name": null,
+      "features": [
+        {
+          "id": "00000000-0000-0000-0000-00000000a301",
+          "feature": {
+            "suppressed": false,
+            "type": "sketch",
+            "version": 1,
+            "params": {
+              "plane": {
+                "kind": "datum_plane",
+                "plane": "XY"
+              },
+              "entities": [
+                {
+                  "id": "e1",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 0.0,
+                    "y": -6.0
+                  },
+                  "end": {
+                    "x": 350.0,
+                    "y": -6.0
+                  }
+                },
+                {
+                  "id": "e2",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 350.0,
+                    "y": -6.0
+                  },
+                  "end": {
+                    "x": 350.0,
+                    "y": 6.0
+                  }
+                },
+                {
+                  "id": "e3",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 350.0,
+                    "y": 6.0
+                  },
+                  "end": {
+                    "x": 0.0,
+                    "y": 6.0
+                  }
+                },
+                {
+                  "id": "e4",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 0.0,
+                    "y": 6.0
+                  },
+                  "end": {
+                    "x": 0.0,
+                    "y": -6.0
+                  }
+                },
+                {
+                  "id": "h1",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 12.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h2",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 37.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h3",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 62.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h4",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 87.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h5",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 112.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h6",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 137.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h7",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 162.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h8",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 187.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h9",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 212.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h10",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 237.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h11",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 262.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h12",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 287.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h13",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 312.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h14",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 337.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                }
+              ],
+              "constraints": []
+            }
+          }
+        },
+        {
+          "id": "00000000-0000-0000-0000-00000000a302",
+          "feature": {
+            "suppressed": false,
+            "type": "extrude",
+            "version": 1,
+            "params": {
+              "profile": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-00000000a301"
+              },
+              "distance_mm": 8.0,
+              "operation": "add",
+              "direction": "normal"
+            }
+          }
+        }
+      ],
+      "materials": null,
+      "placement": {
+        "position": {
+          "x": 25.0,
+          "y": 45.0,
+          "z": 10.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      },
+      "grounded": true
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-00000000a3f2",
+      "part_key": "00000000-0000-0000-0000-00000000a3e1@tip",
+      "name": null,
+      "features": [
+        {
+          "id": "00000000-0000-0000-0000-00000000a301",
+          "feature": {
+            "suppressed": false,
+            "type": "sketch",
+            "version": 1,
+            "params": {
+              "plane": {
+                "kind": "datum_plane",
+                "plane": "XY"
+              },
+              "entities": [
+                {
+                  "id": "e1",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 0.0,
+                    "y": -6.0
+                  },
+                  "end": {
+                    "x": 350.0,
+                    "y": -6.0
+                  }
+                },
+                {
+                  "id": "e2",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 350.0,
+                    "y": -6.0
+                  },
+                  "end": {
+                    "x": 350.0,
+                    "y": 6.0
+                  }
+                },
+                {
+                  "id": "e3",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 350.0,
+                    "y": 6.0
+                  },
+                  "end": {
+                    "x": 0.0,
+                    "y": 6.0
+                  }
+                },
+                {
+                  "id": "e4",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 0.0,
+                    "y": 6.0
+                  },
+                  "end": {
+                    "x": 0.0,
+                    "y": -6.0
+                  }
+                },
+                {
+                  "id": "h1",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 12.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h2",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 37.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h3",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 62.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h4",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 87.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h5",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 112.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h6",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 137.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h7",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 162.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h8",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 187.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h9",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 212.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h10",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 237.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h11",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 262.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h12",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 287.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h13",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 312.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                },
+                {
+                  "id": "h14",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 337.5,
+                    "y": 0.0
+                  },
+                  "radius": 1.75
+                }
+              ],
+              "constraints": []
+            }
+          }
+        },
+        {
+          "id": "00000000-0000-0000-0000-00000000a302",
+          "feature": {
+            "suppressed": false,
+            "type": "extrude",
+            "version": 1,
+            "params": {
+              "profile": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-00000000a301"
+              },
+              "distance_mm": 8.0,
+              "operation": "add",
+              "direction": "normal"
+            }
+          }
+        }
+      ],
+      "materials": null,
+      "placement": {
+        "position": {
+          "x": 25.0,
+          "y": -45.0,
+          "z": 10.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      },
+      "grounded": true
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-00000000a3f3",
+      "part_key": "00000000-0000-0000-0000-00000000a3e2@tip",
+      "name": null,
+      "features": [
+        {
+          "id": "00000000-0000-0000-0000-00000000a303",
+          "feature": {
+            "suppressed": false,
+            "type": "sketch",
+            "version": 1,
+            "params": {
+              "plane": {
+                "kind": "datum_plane",
+                "plane": "XY"
+              },
+              "entities": [
+                {
+                  "id": "e1",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": -60.0,
+                    "y": -70.0
+                  },
+                  "end": {
+                    "x": 60.0,
+                    "y": -70.0
+                  }
+                },
+                {
+                  "id": "e2",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 60.0,
+                    "y": -70.0
+                  },
+                  "end": {
+                    "x": 60.0,
+                    "y": 70.0
+                  }
+                },
+                {
+                  "id": "e3",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 60.0,
+                    "y": 70.0
+                  },
+                  "end": {
+                    "x": -60.0,
+                    "y": 70.0
+                  }
+                },
+                {
+                  "id": "e4",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": -60.0,
+                    "y": 70.0
+                  },
+                  "end": {
+                    "x": -60.0,
+                    "y": -70.0
+                  }
+                }
+              ],
+              "constraints": []
+            }
+          }
+        },
+        {
+          "id": "00000000-0000-0000-0000-00000000a304",
+          "feature": {
+            "suppressed": false,
+            "type": "extrude",
+            "version": 1,
+            "params": {
+              "profile": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-00000000a303"
+              },
+              "distance_mm": 8.0,
+              "operation": "add",
+              "direction": "normal"
+            }
+          }
+        },
+        {
+          "id": "00000000-0000-0000-0000-00000000a305",
+          "feature": {
+            "suppressed": false,
+            "type": "sketch",
+            "version": 1,
+            "params": {
+              "plane": {
+                "kind": "datum_plane",
+                "plane": "XY"
+              },
+              "entities": [
+                {
+                  "id": "p1",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 12.5,
+                    "y": 40.0
+                  },
+                  "radius": 1.75,
+                  "projection": {
+                    "in_context": {
+                      "assembly_id": "00000000-0000-0000-0000-00000000a3c0",
+                      "host_occurrence_id": "00000000-0000-0000-0000-00000000a3f3",
+                      "occurrence_id": "00000000-0000-0000-0000-00000000a3f1",
+                      "part_id": "00000000-0000-0000-0000-00000000a3e1",
+                      "edge": {
+                        "subshape_type": "edge",
+                        "curve": "circle",
+                        "end_a": {
+                          "x": 189.25,
+                          "y": -4.286263797015736e-16,
+                          "z": 8.0
+                        },
+                        "end_b": {
+                          "x": 189.25,
+                          "y": 0.0,
+                          "z": 8.0
+                        },
+                        "midpoint": {
+                          "x": 185.75,
+                          "y": 2.143131898507868e-16,
+                          "z": 8.0
+                        },
+                        "length_mm": 10.995574287564272,
+                        "topo_name": "[\"00000000-0000-0000-0000-00000000a302:end\",\"00000000-0000-0000-0000-00000000a302:side:h8\"]"
+                      },
+                      "resolved": {
+                        "kind": "circle",
+                        "center": {
+                          "x": 12.5,
+                          "y": 40.0,
+                          "z": -8.0
+                        },
+                        "normal": {
+                          "x": 0.0,
+                          "y": 0.0,
+                          "z": 1.0
+                        },
+                        "radius": 1.75
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "p2",
+                  "construction": false,
+                  "kind": "circle",
+                  "center": {
+                    "x": 12.5,
+                    "y": -40.0
+                  },
+                  "radius": 1.75,
+                  "projection": {
+                    "in_context": {
+                      "assembly_id": "00000000-0000-0000-0000-00000000a3c0",
+                      "host_occurrence_id": "00000000-0000-0000-0000-00000000a3f3",
+                      "occurrence_id": "00000000-0000-0000-0000-00000000a3f2",
+                      "part_id": "00000000-0000-0000-0000-00000000a3e1",
+                      "edge": {
+                        "subshape_type": "edge",
+                        "curve": "circle",
+                        "end_a": {
+                          "x": 189.25,
+                          "y": -4.286263797015736e-16,
+                          "z": 8.0
+                        },
+                        "end_b": {
+                          "x": 189.25,
+                          "y": 0.0,
+                          "z": 8.0
+                        },
+                        "midpoint": {
+                          "x": 185.75,
+                          "y": 2.143131898507868e-16,
+                          "z": 8.0
+                        },
+                        "length_mm": 10.995574287564272,
+                        "topo_name": "[\"00000000-0000-0000-0000-00000000a302:end\",\"00000000-0000-0000-0000-00000000a302:side:h8\"]"
+                      },
+                      "resolved": {
+                        "kind": "circle",
+                        "center": {
+                          "x": 12.5,
+                          "y": -40.0,
+                          "z": -8.0
+                        },
+                        "normal": {
+                          "x": 0.0,
+                          "y": 0.0,
+                          "z": 1.0
+                        },
+                        "radius": 1.75
+                      }
+                    }
+                  }
+                }
+              ],
+              "constraints": []
+            }
+          }
+        },
+        {
+          "id": "00000000-0000-0000-0000-00000000a306",
+          "feature": {
+            "suppressed": false,
+            "type": "extrude",
+            "version": 1,
+            "params": {
+              "profile": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-00000000a305"
+              },
+              "distance_mm": 8.0,
+              "operation": "cut",
+              "direction": "normal"
+            }
+          }
+        }
+      ],
+      "materials": null,
+      "placement": {
+        "position": {
+          "x": 200.0,
+          "y": 0.0,
+          "z": 26.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      },
+      "grounded": true
+    }
+  ]
+}

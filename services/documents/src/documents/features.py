@@ -42,6 +42,7 @@ from loft_wire.features import (
     UndoRedoRequest,
     feature_references,
 )
+from loft_wire.in_context import carry_resolved
 from loft_wire.legacy_twist import (
     EXTRUDE_TWIST_DEPRECATED_CODE,
     EXTRUDE_TWIST_DEPRECATED_MESSAGE,
@@ -61,6 +62,7 @@ from documents.feature_expressions import (
     load_feature,
     resolve_for_write,
 )
+from documents.in_context import check_links
 from documents.parts import Principal, get_owned_part, section_view_feature_refs
 from documents.ref_backfill import backfill_written_params
 
@@ -440,6 +442,7 @@ async def create_feature(
     reject_import_with_prior_body(envelope, position, features)
     reject_new_extrude_twist(envelope)
     target_ids = validate_references(envelope, position, features_by_id)
+    await check_links(session, owner_id, part, envelope)
 
     await _shift_indexes(session, part.id, position, +1)
     feature = db.Feature(
@@ -505,7 +508,12 @@ async def update_feature(
         features = await _ordered_features(session, part.id)
         features_by_id = {row.id: row for row in features}
         target_ids = validate_references(envelope, feature.order_index, features_by_id)
-        incoming = envelope.params.model_dump(mode="json")
+        await check_links(session, owner_id, part, envelope, load_feature(feature)[0])
+        # The context assembly owns a link's last resolved value: a save from a
+        # tree read before its write-back keeps the stored one.
+        incoming = carry_resolved(
+            feature.params, envelope.params.model_dump(mode="json")
+        )
         # A save from a tree read before a background history-name write
         # (DESIGN-INTENT-BACKFILL, which does not bump tree_version) keeps the
         # names THAT WRITE gave every pick it did not change. The source is

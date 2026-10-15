@@ -3319,11 +3319,11 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                     )
                 )
             # A projected entity names an edge of an earlier body-affecting
-            # feature's result (SKETCH-PROJECT-EDGES), the picked-fillet rule.
-            # getattr: a model_construct'ed entity list is not type-checked.
+            # feature's result (the picked-fillet rule), an in-context one
+            # another part's (no dependency). getattr: model_construct'ed.
             for entity in feature.params.entities:
                 link = getattr(entity, "projection", None)
-                if isinstance(link, SketchProjection):
+                if isinstance(link, SketchProjection) and link.edge is not None:
                     references.append(
                         FeatureReference(
                             f"projection:{entity.id}",
