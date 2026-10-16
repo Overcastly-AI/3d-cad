@@ -22,6 +22,7 @@ import type { PartBody } from "./usePartBody";
 import type { MaterialControls } from "./useMaterialControls";
 import type { PartVersions } from "./usePartVersions";
 import type { PartParameters } from "./usePartParameters";
+import { usePluginCatalog } from "./usePluginCatalog";
 
 /** The left rail: the feature tree and the bodies panel. */
 export function FeatureTreeRail({
@@ -74,6 +75,8 @@ export function FeatureTreeRail({
   const { repickFace, repickEdges, dismissedMovedEdges, dismissMovedEdge } =
     editorRepick;
   const { bodies, lumpsByFeature } = featureCatalog;
+  // The installed plugins: a custom feature's title, members, read-only.
+  const { catalog: plugins } = usePluginCatalog();
   return (
     <>
       <ChromeRail side="left">
@@ -100,6 +103,7 @@ export function FeatureTreeRail({
               onCommitRename={commitRename}
               onCancelRename={() => setRenamingId(null)}
               onReorder={reorderTree}
+              plugins={plugins}
             />
             {bodies.length > 0 ? (
               <BodiesPanel

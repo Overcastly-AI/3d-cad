@@ -177,6 +177,7 @@ test.describe("item 10 — in-command band", () => {
     await waitForBody(page);
 
     // Draft opens with zero picked faces — an invalid form (no_draft_faces).
+    await page.getByTestId("modify-more").click();
     await page.getByTestId("new-draft").click();
     await expect(page.getByTestId("draft-editor")).toBeVisible();
     const ok = page.getByTestId("in-command-ok");

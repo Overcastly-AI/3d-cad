@@ -63,6 +63,8 @@ import {
   updateFeature,
 } from "../../api/parts";
 import { FeatureWriteError } from "../../api/envelope";
+import type { PipeParams } from "../../api/parts";
+import { pipeFeatureCreate, pipeFeatureUpdate } from "../../features/pipe";
 import {
   expressionsForParams,
   formulaFieldMounted,
@@ -72,6 +74,7 @@ import {
   useFormulaSessionStore,
 } from "../../features/fieldFormulas";
 import { usePreselectStore } from "../../features/preselect";
+import { pluginErrorSentence } from "../../features/customFeature";
 import type { EditorFormulas } from "./useEditorFormulas";
 import type { PartDocument } from "./usePartDocument";
 import type { PartBody } from "./usePartBody";
@@ -211,7 +214,11 @@ export function useFeatureSubmit({
             );
           } else {
             setEditorError(
-              error instanceof Error ? error.message : fallbackMessage,
+              error instanceof FeatureWriteError
+                ? pluginErrorSentence(error.code, error.message)
+                : error instanceof Error
+                  ? error.message
+                  : fallbackMessage,
             );
           }
         } finally {
@@ -279,6 +286,23 @@ export function useFeatureSubmit({
         current.mode === "create",
         current.featureId,
         "The sweep could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitPipe = useCallback(
+    (params: PipeParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "pipe") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "pipe").length + 1;
+      runFeatureSave(
+        (version) => pipeFeatureCreate(`Pipe${nextIndex}`, params, version),
+        (version) => pipeFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The pipe could not be saved.",
       );
     },
     [editor, features, runFeatureSave],
@@ -543,6 +567,7 @@ export function useFeatureSubmit({
     submitExtrude,
     submitRevolve,
     submitSweep,
+    submitPipe,
     submitLoft,
     submitPattern,
     submitMirror,
@@ -557,6 +582,7 @@ export function useFeatureSubmit({
     submitHem,
     submitCornerRelief,
     submitCombine,
+    runFeatureSave,
   };
 }
 

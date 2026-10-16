@@ -72,8 +72,17 @@ TRUTH_REL = 1e-10
 #: edit too (docs/GEOMETRY-QA.md 2026-09-25). F1's 1e-6 override was retired
 #: when its round trip met ROUNDTRIP_TOL (1.3e-8). The moto frame (2026-10-07,
 #: reviewed by the orchestrator) drifts 1.3e-5 mm^3 / 0.18 mm^2 on a 704,000 mm^3
-#: part through OCCT's STEP; a pure-build123d twin drifts the same.
-REVIEWED_OVERRIDE: dict[str, float] = {"frame-moto-cradle-tube-od25.4-t1.6": 0.5}
+#: part through OCCT's STEP; a pure-build123d twin drifts the same. The bike
+#: frame (geometry-QA sign-off 2026-10-16; docs/GEOMETRY-QA.md was retired in
+#: e0e5589, so the sign-off is this entry, the golden's rationale and the
+#: executable test_pipe_frame::test_the_step_drift_is_occts_not_loft_geometry):
+#: worst drift 6.09e-3 mm^2, the tree's area under the fixed-order integral (the
+#: adaptive rule: 2.7e-6); its plain-build123d twin drifts 8.65e-4 mm^3 through
+#: build123d's own STEP. Tightened 0.05 -> 0.025, 4.1x the worst.
+REVIEWED_OVERRIDE: dict[str, float] = {
+    "frame-moto-cradle-tube-od25.4-t1.6": 0.5,
+    "frame-bike-4-pipes-one-skeleton-head73": 0.025,
+}
 
 #: The second case: the golden's shape class, other numbers. Its spline's
 #: tightest inward radius of curvature is 2.354 mm against the 2 mm wall, so the

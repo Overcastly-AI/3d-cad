@@ -124,6 +124,7 @@ test.describe("multi-body union", () => {
     await expectRenderedBody(page);
 
     // Combine is enabled with two bodies — author a union through the UI.
+    await page.getByTestId("modify-more").click();
     const combine = page.getByTestId("new-combine");
     await expect(combine).toBeEnabled();
     await combine.click();
@@ -155,6 +156,7 @@ test.describe("multi-body union", () => {
       timeout: 30_000,
     });
 
+    await page.getByTestId("modify-more").click();
     await page.getByTestId("new-combine").click();
     await expect(page.getByTestId("combine-editor")).toBeVisible();
     // Pick Subtract — the role labels flip to the asymmetric Target − Tool.
@@ -186,6 +188,7 @@ test.describe("multi-body union", () => {
       timeout: 30_000,
     });
 
+    await page.getByTestId("modify-more").click();
     await page.getByTestId("new-combine").click();
     await expect(page.getByTestId("combine-editor")).toBeVisible();
     await page.getByTestId("combine-op-intersect").click();
@@ -218,6 +221,7 @@ test.describe("multi-body union", () => {
       timeout: 30_000,
     });
 
+    await page.getByTestId("modify-more").click();
     await page.getByTestId("new-combine").click();
     await page.getByTestId("combine-submit").click();
     await expect(page.getByTestId("body-row")).toHaveCount(1, {
@@ -246,6 +250,7 @@ test.describe("multi-body union", () => {
     // Open the editor and choose Subtract — the shot captures the union /
     // subtract / intersect selector with subtract's Target − Tool labelling
     // over the two-body scene.
+    await page.getByTestId("modify-more").click();
     await page.getByTestId("new-combine").click();
     await expect(page.getByTestId("combine-editor")).toBeVisible();
     await page.getByTestId("combine-op-subtract").click();

@@ -39,7 +39,7 @@ export interface BodyInfo {
 }
 
 /** Body-creating solid features that carry an `operation` + `merge`. */
-const BODY_CREATING = new Set(["extrude", "revolve", "sweep", "loft"]);
+const BODY_CREATING = new Set(["extrude", "revolve", "sweep", "pipe", "loft"]);
 
 /**
  * The bodies a part currently holds, in tree order. See the module docstring for
@@ -129,6 +129,14 @@ export function partBodies(
 ): BodyInfo[] {
   if (evaluated === null) return computeBodies(features);
   const byId = new Map(features.map((f) => [f.id, f]));
+  // A custom feature's body is founded by one of its MEMBERS (PLUGIN-UI):
+  // named by the custom feature, keyed by the member as the server keys it.
+  for (const feature of features) {
+    if (feature.feature.type !== "custom") continue;
+    for (const member of feature.feature.params.expansion ?? []) {
+      byId.set(member.id, feature);
+    }
+  }
   const bodies: BodyInfo[] = [];
   for (const { base_feature_id: id } of evaluated) {
     const feature = byId.get(id);

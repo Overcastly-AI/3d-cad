@@ -25,7 +25,9 @@ ASM-A3-PATTERN and ASM-A3-IN-CONTEXT (§24; e2e `assembly-subassembly`,
    and the drawing's check strip names them. _Decided 2026-10-16 (delegated
    by founder to product-manager):_ yes, now — a script caller gets a short
    STEP with no signal, which is wrong geometry exported.
-2. [ ] **PIPE-ALONG-PATH** (bike BIKE-TUBE-PLANE, BIKE-SWEEP-PATH-PICK,
+2. [x] **PIPE-ALONG-PATH** (done 3370ead, 104b1a6, 7025366, 1bcb6bb, ec30739, 5d6b0e0; goldens
+   `pipe-*`, `datum-along-path-*`, `frame-bike-4-pipes-*`; e2e
+   `pipe-frame.spec.ts`; RESEARCH §25) (bike BIKE-TUBE-PLANE, BIKE-SWEEP-PATH-PICK,
    BIKE-NO-INCLUDE-SKETCH): Fusion's Pipe (picked chain of sketch or body
    edges, section circle or ring by OD and wall, fused or new body) and
    Plane Along Path (plane normal to an edge at a distance or ratio). One
@@ -42,7 +44,7 @@ ASM-A3-PATTERN and ASM-A3-IN-CONTEXT (§24; e2e `assembly-subassembly`,
    twisted-extrude golden (empty two-way difference), every stored twisted
    extrude rebuilds byte-identical, and a test plugin's v2 leaves its v1
    feature's golden byte-identical.
-4. [ ] **PLUGIN-UI** (stops B1): a custom feature is an ordinary tool in a
+4. [x] **PLUGIN-UI** (stops B1): a custom feature is an ordinary tool in a
    Build toolbar group, with a form generated from its input schema (units
    and parameters accepted), one tree node that unfolds into its members,
    edited like any feature (Onshape custom features). _Accept:_ an e2e
@@ -230,6 +232,10 @@ step. PLUGIN-REGISTRY and PLUGIN-UI are in Now.
 
 One line each. The founder triages weekly; most are closed without work.
 
+- PIPE-VIEWPORT-PICK: the Pipe path is picked from a list of sketch curves (plus preselected model edges); Fusion also picks sketch curves in the viewport.
+- PIPE-SECTIONS: only circular (and hollow) sections; Fusion's Pipe also has square and triangular sections and a partial "distance" along the path.
+- PIPE-PATH-PLANE-SPLINE: a Plane Along Path on a spline or a curved model edge is placed by the server only, so the client does not offer it as a sketch plane until it can place it.
+- PIPE-MATRIX: `pipe` is exempt from the composition matrix (CUT_ROW_EXEMPT / CATALOGUE_EXEMPT, allowlist +3) on the grounds that sweep_cut covers its funnel; a `pipe_cut` row would remove the exemption.
 - ASM-SUB-FLEXIBLE: sub-assemblies are rigid only; SolidWorks' flexible mode (the wheel's own revolute still turning inside the bike) is not built.
 - ASM-SUB-CHILD-ERRORS: a sub-assembly's own dropped or conflicting mates do not show in the parent's solve status (it is solved silently in its own frame).
 - ASM-SUB-BALLOONS: each part inside a sub-assembly draws its component's balloon, so a two-part wheel shows "1" twice; Fusion shows one per component.
@@ -254,11 +260,16 @@ One line each. The founder triages weekly; most are closed without work.
 - DRAWING-AUTOSCALE review (bd9416b, 31bec29): `resolve_view_anchors` drops the title-block shift if any auto-placed standard view lacks `clear_title_block`, so a loft-script user adding a standard view to a laid-out sheet moves the arrangement back (no UI path today); the 0020 migration test does not check the server default on an ORM insert without a value. _Decided 2026-10-16 (delegated by founder to product-manager):_ keep all three — issues stay off the sheet and in the check strip, as Fusion and SolidWorks never print warnings onto a drawing, and export shows the issue count beside the button with no extra confirm; Auto at 2:1 for small parts is the ISO 5455 enlargement a SolidWorks auto-scale picks; the first-angle bike at 1:50 on A4 is right, because a fixed sheet size wins over scale and the user picks A3 for 1:20.
 - ASM-FAILED-PART-API review (a992b8d): `part_name_of` names a part whose first bodiless occurrence is a sub-assembly pattern copy "X (2)"; the header truncation loop re-serialises per dropped part (quadratic, bounded by the instance cap); SheetIssueStrip gives no Open part button for a failed part without `part_document_id` and two same-named ones share a React key; the web could read `EvaluateAssemblyResult.omitted` instead of folding rows in `partFailures.ts`.
 - PLUGIN-CAP review (380836d): a tree over the cap (reached through undo, or stored before the fix) still exports a .loft through `refresh_expansions`, and that file (or a version saved from it) is then refused on import/restore, with the whole import refused if any one version is over; `_check_vanished_members` and `check_members_authorable` run on writes only, not on undo/redo (with PLUGIN-UNDO-CAP). Process: the PLUGIN-REGISTRY builder pushed a338197 unreviewed against its brief; reviewed after the fact (blocking cap bug fixed in 380836d).
+- TOOLBAR-MORE review (864f857): a verb letter pressed while a group's ▾ menu is open starts the command but leaves the menu open (Flyout.tsx ~180; close on command start or band lock); "Plane along path" is gated on `canPipe` (a path sketch) while its requirement line says "a sketch curve or edge", so a body-only part can't enable it from edges; `openCreatePlaneAlongPath` ignores preselection seeding.
 - LAYOUTISSUE-AT: `ComposedLayoutIssue.at` (the banner anchor) is still on the wire although nothing stamps issues on the sheet since BIKE2-DRAWING-SCALE; drop it or give it a reader.
 
 - LINE-ENTRY-TAB review (90db343): a Tab left in a circle's drag box survives a click/canvas-Esc and refuses the next circle at the same centre ("10" Tab, later "100"; clear `tabbed` on draft change); "W" Tab "/2" is refused as a second value without saying why; the error text overlaps the X AXIS label.
 - PLUGIN-CAP: a custom feature's effective size cap is the part's 1,000-feature tree bound counted after expansion (RESEARCH §23); the wire's per-plugin `MAX_PLUGIN_EXPANSION` (5,000) is moot under it and could drop to 1,000 in a wire change.
 - PLUGIN-UNDO-CAP: undo/redo restores a prior tree state without re-checking the expanded bound (each state was within it when written); an overflow would surface only as the evaluation's `plugin_expansion_too_large`.
+- PLUGIN-UI-BAND-1280: the Build group fills the command band at 1280: Export's format codes now shed to icons there (tooltips keep them), and the next tool or group needs the band's "more" flyout (`toolbar-overflow.spec.ts` point 4).
+- PLUGIN-UI-ICON: the manifest has no icon, so every plugin tool and tree chip wears one generic custom-feature glyph; an `icon` key from the design glyph set is a wire change.
+- PLUGIN-UI-UPDATE: a feature pinned to an older installed version edits on that version; there is no update badge or explicit update to `latest` yet (RESEARCH §23, Onshape's update).
+- PLUGIN-UI-MEMBERS: member rows are read-only labels; picking one does not select or light that member's faces alone (the custom row lights all of them), and the missing-plugin e2e stubs the catalog rather than importing a `.loft` from another server.
 - APEX-BUTTONS: Extrude and Revolve enable with only an apex (point-only) sketch present; clicking does nothing.
 - APEX-SWEEP-PATH: `defaultSweepPathId` and the sweep path picker still offer apex sketches (the kernel refuses with a typed `PathEmptyError`).
 - APEX-OTHER-LISTS: the BaseFlange editor and the revolve axis map still list apex sketches (typed kernel refusal, no crash).

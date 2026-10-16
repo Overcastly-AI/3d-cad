@@ -46,6 +46,7 @@ from geometry.kernel.extrude import (
     entity_edges,
 )
 from geometry.kernel.healing import clean_shape
+from geometry.kernel.path_chain import PathNotConnectedError, branch_point
 from geometry.kernel.sweep_check import check_not_self_intersecting
 from geometry.kernel.sweep_closed import (
     ClosedSweepError,
@@ -59,11 +60,6 @@ from geometry.kernel.sweep_closed import (
 class PathEmptyError(ValueError):
     """The path sketch has no curve entities (only construction/points); there
     is no trajectory to sweep along."""
-
-
-class PathNotConnectedError(ValueError):
-    """The path entities form more than one disjoint wire; a sweep path is a
-    single connected chain in v1."""
 
 
 class SweepError(RuntimeError):
@@ -83,7 +79,8 @@ def build_path_wire(plane: Plane, entities: Sequence[SketchEntity]) -> Wire:
 
     Raises:
         PathEmptyError: no curve entities (only construction geometry/points).
-        PathNotConnectedError: the edges form more than one disjoint wire.
+        PathNotConnectedError: the edges form more than one disjoint wire,
+            or three or more meet at one point (a branched skeleton).
         PathCornerError: the wire is closed and a joint is not G1 (it names
             the joint).
     """
@@ -99,6 +96,13 @@ def build_path_wire(plane: Plane, entities: Sequence[SketchEntity]) -> Wire:
             "and/or points); there is no trajectory to sweep along."
         )
 
+    branch = branch_point(edges)
+    if branch is not None:
+        raise PathNotConnectedError(
+            f"Path sketch branches at ({branch.X:.4g}, {branch.Y:.4g}, "
+            f"{branch.Z:.4g}): three or more curves meet there. A sweep path is "
+            "a single unbranched chain; use a Pipe to pick one branch."
+        )
     wires = Wire.combine(edges, tol=PROFILE_WIRE_TOLERANCE)
     if len(wires) > 1:
         raise PathNotConnectedError(

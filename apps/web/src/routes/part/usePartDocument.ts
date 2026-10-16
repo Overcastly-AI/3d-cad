@@ -8,7 +8,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 
-import { evaluatePart, fetchFeatureTree, fetchPart } from "../../api/parts";
+import { useCallback } from "react";
+
+import {
+  evaluatePart,
+  type EvaluateTreeResult,
+  fetchFeatureTree,
+  fetchPart,
+} from "../../api/parts";
+import { foldCustomResults } from "../../features/customFeature";
 import { useSketchStore } from "../../sketch/store";
 import { partRoute } from "../../router";
 
@@ -64,11 +72,21 @@ export function usePartDocument() {
     queryFn: () => fetchFeatureTree(partId),
   });
   const treeVersion = tree.data?.tree_version;
+  // A custom feature's members are what geometry reports; each custom row
+  // gets one result folded from them, so every surface reads it as a row
+  // (PLUGIN-UI, `features/customFeature`).
+  const treeFeatures = tree.data?.features;
+  const foldResults = useCallback(
+    (data: EvaluateTreeResult) =>
+      treeFeatures === undefined ? data : foldCustomResults(data, treeFeatures),
+    [treeFeatures],
+  );
   const evaluation = useQuery({
     queryKey: ["evaluate", partId, treeVersion],
     queryFn: () => evaluatePart(partId),
     enabled: tree.data !== undefined && tree.data.features.length > 0,
     staleTime: Infinity,
+    select: foldResults,
   });
   return {
     partId,

@@ -19,7 +19,7 @@
  *    band resize AND on any content change (mode swaps, new tool groups), so
  *    a future group can never re-introduce the stale-arithmetic defect. If
  *    one day even the icon tier cannot fit a surface at the 1280 responsive
- *    floor, grow an explicit "more" flyout — never let the band clip silently
+ *    floor, move a group's quieter verbs into its "more" (▾) menu (`ToolGroup.more`) — never let the band clip silently
  *    (the regression spec `e2e/toolbar-overflow.spec.ts` enforces this).
  *
  * 3. **Labels are shed GROUP BY GROUP, in a declared order — not all at once.**

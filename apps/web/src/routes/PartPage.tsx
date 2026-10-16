@@ -57,6 +57,8 @@ import { useSketchPersistence } from "./part/useSketchPersistence";
 import { useSolvedSketches } from "./part/useSolvedSketches";
 import { useSketchEditRequests } from "./part/useSketchEditRequests";
 import { useFeatureCatalog } from "./part/useFeatureCatalog";
+import { usePluginCatalog } from "./part/usePluginCatalog";
+import { usePluginFeature } from "./part/usePluginFeature";
 import { useEditorSeat } from "./part/useEditorSeat";
 import { useEditorFormulas } from "./part/useEditorFormulas";
 import { useActionFlags } from "./part/useActionFlags";
@@ -623,6 +625,17 @@ export function PartPage() {
     endTreeWrite,
     noteWrittenTreeVersion,
   });
+  // PLUGIN-UI: the Build group's tools and the custom-feature card.
+  const { catalog: pluginCatalog } = usePluginCatalog();
+  const pluginFeature = usePluginFeature({
+    features,
+    catalog: pluginCatalog,
+    editor,
+    setEditor,
+    setEditorError,
+    setSelectedFeatureId,
+    runFeatureSave: featureSubmit.runFeatureSave,
+  });
   const treeActions = useTreeActions({
     partId,
     queryClient,
@@ -1002,6 +1015,8 @@ export function PartPage() {
             pickState={pickState}
             partParameters={partParameters}
             openCreateCombine={openCreateCombine}
+            pluginCatalog={pluginCatalog}
+            openCreatePlugin={pluginFeature.openCreatePlugin}
           />
         </TopToolbar>
         {/* Full-bleed scene: the canvas owns the frame; the tree + inspector
@@ -1114,6 +1129,8 @@ export function PartPage() {
                     pickSessions={pickSessions}
                     actionFlags={actionFlags}
                     datumFacePicking={datumFacePicking}
+                    pluginCatalog={pluginCatalog}
+                    submitCustom={pluginFeature.submitCustom}
                   />
                   <ActionNotices
                     actionFlags={actionFlags}

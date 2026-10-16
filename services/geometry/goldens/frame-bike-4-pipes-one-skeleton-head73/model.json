@@ -1,0 +1,296 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000b1",
+  "tree_version": 1,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XZ"
+          },
+          "entities": [
+            {
+              "id": "h",
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 600.0,
+                "y": 0.0
+              },
+              "construction": true
+            },
+            {
+              "id": "seat",
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": -140.5076723519614,
+                "y": 477.40986743409655
+              }
+            },
+            {
+              "id": "top",
+              "kind": "line",
+              "start": {
+                "x": -140.5076723519614,
+                "y": 477.40986743409655
+              },
+              "end": {
+                "x": 391.5,
+                "y": 568.0
+              }
+            },
+            {
+              "id": "head",
+              "kind": "line",
+              "start": {
+                "x": 391.5,
+                "y": 568.0
+              },
+              "end": {
+                "x": 435.3557557084105,
+                "y": 424.5542866055447
+              }
+            },
+            {
+              "id": "down",
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 435.3557557084105,
+                "y": 424.5542866055447
+              }
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "fixed",
+              "point": {
+                "entity": "h",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "horizontal",
+              "entity": "h"
+            },
+            {
+              "kind": "distance",
+              "entity": "h",
+              "value_mm": 600.0
+            },
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "seat",
+                "point": "start"
+              },
+              "b": {
+                "entity": "h",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "down",
+                "point": "start"
+              },
+              "b": {
+                "entity": "h",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "top",
+                "point": "start"
+              },
+              "b": {
+                "entity": "seat",
+                "point": "end"
+              }
+            },
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "top",
+                "point": "end"
+              },
+              "b": {
+                "entity": "head",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "down",
+                "point": "end"
+              },
+              "b": {
+                "entity": "head",
+                "point": "end"
+              }
+            },
+            {
+              "kind": "distance",
+              "entity": "seat",
+              "value_mm": 500.0
+            },
+            {
+              "kind": "angle",
+              "a": "h",
+              "b": "seat",
+              "value_deg": 106.5
+            },
+            {
+              "kind": "point_distance",
+              "a": {
+                "entity": "h",
+                "point": "start"
+              },
+              "b": {
+                "entity": "head",
+                "point": "start"
+              },
+              "direction": "horizontal",
+              "value_mm": 390.0
+            },
+            {
+              "kind": "point_distance",
+              "a": {
+                "entity": "h",
+                "point": "start"
+              },
+              "b": {
+                "entity": "head",
+                "point": "start"
+              },
+              "direction": "vertical",
+              "value_mm": 570.0
+            },
+            {
+              "kind": "distance",
+              "entity": "head",
+              "value_mm": 150.0
+            },
+            {
+              "kind": "angle",
+              "a": "h",
+              "b": "head",
+              "value_deg": 73.0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "feature": {
+        "type": "pipe",
+        "version": 1,
+        "params": {
+          "path": [
+            {
+              "kind": "sketch_curve",
+              "sketch": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "entity": "down"
+            }
+          ],
+          "outer_diameter_mm": 44.0,
+          "operation": "add",
+          "merge": true,
+          "wall_thickness_mm": 1.2
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "feature": {
+        "type": "pipe",
+        "version": 1,
+        "params": {
+          "path": [
+            {
+              "kind": "sketch_curve",
+              "sketch": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "entity": "seat"
+            }
+          ],
+          "outer_diameter_mm": 31.8,
+          "operation": "add",
+          "merge": true,
+          "wall_thickness_mm": 1.0
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000004",
+      "feature": {
+        "type": "pipe",
+        "version": 1,
+        "params": {
+          "path": [
+            {
+              "kind": "sketch_curve",
+              "sketch": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "entity": "top"
+            }
+          ],
+          "outer_diameter_mm": 35.0,
+          "operation": "add",
+          "merge": true,
+          "wall_thickness_mm": 1.0
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000005",
+      "feature": {
+        "type": "pipe",
+        "version": 1,
+        "params": {
+          "path": [
+            {
+              "kind": "sketch_curve",
+              "sketch": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "entity": "head"
+            }
+          ],
+          "outer_diameter_mm": 50.0,
+          "operation": "add",
+          "merge": true,
+          "wall_thickness_mm": 3.0
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

@@ -13,6 +13,7 @@ import { type ExtrudeForm } from "../../features/extrude";
 import { type RevolveForm } from "../../features/revolve";
 import { type PatternForm } from "../../features/pattern";
 import { type SweepForm } from "../../features/sweep";
+import { type PipeForm } from "../../features/pipe";
 import { type LoftForm } from "../../features/loft";
 import {
   type BaseFlangeForm,
@@ -26,6 +27,7 @@ import { type ChamferForm, type FilletForm } from "../../features/modify";
 import { type ShellForm } from "../../features/shell";
 import { type DraftForm } from "../../features/draft";
 import { type HoleForm } from "../../features/hole";
+import { type CustomParams } from "../../api/plugins";
 
 /** Constraint/dimension edits persist after this quiet gap (the live loop). */
 export const SYNC_DEBOUNCE_MS = 400;
@@ -53,6 +55,12 @@ export type OpenEditor =
       kind: "sweep";
       mode: "create" | "edit";
       initial: SweepForm;
+      featureId?: string;
+    }
+  | {
+      kind: "pipe";
+      mode: "create" | "edit";
+      initial: PipeForm;
       featureId?: string;
     }
   | {
@@ -144,6 +152,18 @@ export type OpenEditor =
       mode: "create";
       initial: CombineForm;
       featureId?: string;
+    }
+  | {
+      // A plugin's custom feature (PLUGIN-UI): its form is generated from the
+      // pinned manifest, which the card reads from the served catalog.
+      kind: "custom";
+      mode: "create" | "edit";
+      pluginId: string;
+      pluginVersion: string;
+      /** The band's command name: the plugin's title, or the feature's name. */
+      title: string;
+      stored?: CustomParams;
+      featureId?: string;
     };
 
 /** Editor kind → the command name shown in the breadcrumb + band lock reason. */
@@ -151,6 +171,7 @@ export const COMMAND_LABEL: Record<OpenEditor["kind"], string> = {
   extrude: "Extrude",
   revolve: "Revolve",
   sweep: "Sweep",
+  pipe: "Pipe",
   loft: "Loft",
   pattern: "Pattern",
   fillet: "Fillet",
@@ -165,6 +186,7 @@ export const COMMAND_LABEL: Record<OpenEditor["kind"], string> = {
   hem: "Hem",
   cornerRelief: "Corner relief",
   combine: "Combine",
+  custom: "Custom feature",
 };
 
 /** An evaluate result with no `bodies` list: one stable empty list. */

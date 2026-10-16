@@ -20,7 +20,7 @@ import {
   ToolGroup,
   VerbGlyph,
 } from "@loft/design";
-import type { ToolProposal, VerbGlyphProps } from "@loft/design";
+import type { FlyoutItem, ToolProposal, VerbGlyphProps } from "@loft/design";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -50,7 +50,7 @@ import type { NextStepProposal, NextStepTool } from "./nextStep";
  *   Create       +407px   the family a newcomer reaches for before the icons
  *                         are learned, so it is the first VERB group to earn
  *                         its width.
- *   Modify       +475px   same class as Create, reached once the tool set is
+ *   Modify       +444px   same class as Create, reached once the tool set is
  *                         already familiar.
  *   Sheet metal  +524px   the widest labels on the band for a family that is
  *                         inert on every part that is not sheet metal — last
@@ -105,6 +105,11 @@ export interface CreateStripProps {
   onImportStep?: (file: File) => void;
   /** Author a standalone datum (construction) plane the tree can reuse. */
   onNewDatum?: () => void;
+  /**
+   * Open the datum editor on Plane Along Path (Fusion's Construct row). Gated
+   * on `canPipe`: it needs the same thing, a curve to sit normal to.
+   */
+  onNewPlaneAlongPath?: () => void;
   /** True when a solved sketch exists to extrude. */
   canExtrude: boolean;
   onNewExtrude: () => void;
@@ -117,6 +122,12 @@ export interface CreateStripProps {
    */
   canSweep: boolean;
   onNewSweep: () => void;
+  /**
+   * True when there is a curve to run a pipe along: a solved sketch, or a body
+   * whose edges can be picked (PIPE-ALONG-PATH).
+   */
+  canPipe?: boolean;
+  onNewPipe?: () => void;
   /**
    * True when ≥2 sketch features exist to blend through as a loft's ordered
    * sections (a loft references a LIST of earlier sketches, not the implicit
@@ -271,6 +282,11 @@ export interface CreateStripProps {
    * have already answered.
    */
   nextStep?: NextStepProposal | null;
+  /**
+   * The Build group (installed plugins, PLUGIN-UI), rendered after Sheet
+   * metal: it is built by its own component from the served catalog.
+   */
+  buildGroup?: ReactNode;
 }
 
 /**
@@ -431,12 +447,15 @@ export function CreateStrip({
   importingStep = false,
   onImportStep,
   onNewDatum,
+  onNewPlaneAlongPath,
   canExtrude,
   onNewExtrude,
   canRevolve,
   onNewRevolve,
   canSweep,
   onNewSweep,
+  canPipe = false,
+  onNewPipe,
   canLoft,
   onNewLoft,
   canModify = false,
@@ -478,6 +497,7 @@ export function CreateStrip({
   exportPartialQualifier,
   exportState,
   nextStep = null,
+  buildGroup = null,
 }: CreateStripProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
   const importReady =
@@ -669,6 +689,75 @@ export function CreateStrip({
     tool: Parameters<typeof partVerbKey>[0],
   ): string | undefined => partVerbKey(tool)?.toUpperCase();
 
+  /**
+   * CREATE ▾ — the group's low-frequency verbs, behind its eyebrow the way
+   * Fusion's Create menu holds Pipe and the Construct planes. A band cell is
+   * paid for by every session; these are reached in a few, so they cost the
+   * band a caret instead, and that is what lets the band afford its labels
+   * (EXPORT's format codes at 1280, every label by 2800). A row that cannot
+   * act yet says what it needs, in the menu, in place of the tooltip a band
+   * cell would carry.
+   */
+  const pipeReady = canPipe && treeReady && onNewPipe !== undefined;
+  const alongPathReady =
+    canPipe && treeReady && onNewPlaneAlongPath !== undefined;
+  const createMore: FlyoutItem[] = [
+    {
+      key: "pipe",
+      icon: <VerbGlyph verb="pipe" />,
+      label: "Pipe",
+      "data-testid": "new-pipe",
+      "aria-label":
+        "Pipe — a round bar or tube along picked sketch curves or edges",
+      available: pipeReady,
+      requires: "a path sketch",
+      disabled: locked || !pipeReady,
+      onSelect: () => onNewPipe?.(),
+    },
+    {
+      key: "plane-along-path",
+      icon: <VerbGlyph verb="datum" />,
+      label: "Plane along path",
+      "data-testid": "tool-plane-along-path",
+      "aria-label": "Plane along path — a datum plane normal to a curve",
+      available: alongPathReady,
+      requires: "a sketch curve or edge",
+      disabled: locked || !alongPathReady,
+      onSelect: () => onNewPlaneAlongPath?.(),
+    },
+  ];
+  /**
+   * MODIFY ▾ — Draft (in Fusion's Modify menu, not on its toolbar; mold
+   * release is a specialist's verb, and `D` still opens it from the keyboard)
+   * and Combine (inert on every single-body part, which is most of them).
+   */
+  const modifyMore: FlyoutItem[] = [
+    {
+      key: "draft",
+      icon: <VerbGlyph verb="draft" />,
+      label: "Draft",
+      shortcut: "D",
+      "data-testid": "new-draft",
+      "aria-label":
+        "Draft — taper picked faces for mold release about a neutral plane (D)",
+      available: draftReady,
+      requires: "a body",
+      disabled: locked || !draftReady,
+      onSelect: () => onDraft?.(),
+    },
+    {
+      key: "combine",
+      icon: <VerbGlyph verb="boolean" />,
+      label: "Combine",
+      "data-testid": "new-combine",
+      "aria-label": "Combine — fuse two bodies into one (boolean union)",
+      available: combineReady,
+      requires: "two bodies",
+      disabled: locked || !combineReady,
+      onSelect: () => onCombine?.(),
+    },
+  ];
+
   return (
     <div
       aria-label="Create"
@@ -788,7 +877,12 @@ export function CreateStrip({
           onRedo={onRedo}
         />
 
-        <ToolGroup eyebrow="Create" labelPriority={LABEL_PRIORITY.create}>
+        <ToolGroup
+          eyebrow="Create"
+          labelPriority={LABEL_PRIORITY.create}
+          more={createMore}
+          moreTestId="create-more"
+        >
           <ToolButton
             icon={<VerbGlyph verb="import_step" />}
             showLabel
@@ -957,7 +1051,12 @@ export function CreateStrip({
           </div>
         ) : null}
 
-        <ToolGroup eyebrow="Modify" labelPriority={LABEL_PRIORITY.modify}>
+        <ToolGroup
+          eyebrow="Modify"
+          labelPriority={LABEL_PRIORITY.modify}
+          more={modifyMore}
+          moreTestId="modify-more"
+        >
           <ToolButton
             {...withNextStep(
               "new-fillet",
@@ -1025,21 +1124,6 @@ export function CreateStrip({
             onClick={onShell}
           />
           <ToolButton
-            icon={<VerbGlyph verb="draft" />}
-            showLabel
-            label="Draft"
-            shortcut="D"
-            data-testid="new-draft"
-            aria-label={
-              draftReady
-                ? "Draft — taper picked faces for mold release about a neutral plane (D)"
-                : "Draft — create a body first"
-            }
-            caption={captionFor(draftReady, "Create a body first")}
-            disabled={locked || !draftReady}
-            onClick={onDraft}
-          />
-          <ToolButton
             {...withNextStep(
               "new-hole",
               "hole",
@@ -1071,20 +1155,6 @@ export function CreateStrip({
             caption={scopeCaptionFor(mirrorReady, "Create a body first")}
             disabled={locked || !mirrorReady}
             onClick={onMirror}
-          />
-          <ToolButton
-            icon={<VerbGlyph verb="boolean" />}
-            showLabel
-            label="Combine"
-            data-testid="new-combine"
-            aria-label={
-              combineReady
-                ? "Combine — fuse two bodies into one (boolean union)"
-                : "Combine — needs two or more bodies"
-            }
-            caption={captionFor(combineReady, "Needs two bodies")}
-            disabled={locked || !combineReady}
-            onClick={onCombine}
           />
           {/* Fusion files Change Parameters under Modify: the table drives
               the dimensions the other Modify tools change. It is a panel, not
@@ -1216,6 +1286,8 @@ export function CreateStrip({
             onClick={onExportFlatDxf}
           />
         </ToolGroup>
+
+        {buildGroup}
 
         <ToolGroup eyebrow="Inspect" labelPriority={LABEL_PRIORITY.inspect}>
           <ToolButton

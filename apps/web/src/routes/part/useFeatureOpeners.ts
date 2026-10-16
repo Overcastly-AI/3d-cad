@@ -8,7 +8,7 @@ import { useCallback } from "react";
 
 import { useMeasureStore } from "../../measure/store";
 import { type FeatureResponse } from "../../api/parts";
-import { defaultDatumForm } from "../../features/datum";
+import { defaultDatumForm, defaultFormForKind } from "../../features/datum";
 import { isStraightEdge } from "../../features/datumAngle";
 import {
   defaultExtrudeForm,
@@ -30,6 +30,7 @@ import {
   defaultSweepProfileId,
 } from "../../features/sweep";
 import { defaultLoftForm, defaultLoftSections } from "../../features/loft";
+import { defaultPipeForm } from "../../features/pipe";
 import {
   defaultBaseFlangeForm,
   defaultCornerReliefForm,
@@ -157,6 +158,28 @@ export function useFeatureOpeners({
       initial: defaultSweepForm(profileId, pathId),
     });
   }, [tree.data]);
+
+  // A pipe follows picked curves (PIPE-ALONG-PATH): sketch curves chosen in
+  // the editor, and the model edges the cursor already has selected (UI-W3,
+  // the fillet's rule) riding along as the first picks.
+  const openCreatePipe = useCallback(() => {
+    const picked = preselectedEdges(
+      usePreselectStore.getState(),
+      bodyFeatureId,
+    );
+    const edges =
+      bodyFeatureId === null
+        ? []
+        : picked.map((signature) => ({ signature, anchorId: bodyFeatureId }));
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "pipe",
+      mode: "create",
+      initial: defaultPipeForm(edges),
+    });
+  }, [bodyFeatureId]);
 
   // A loft references an ORDERED LIST of ≥2 earlier sketches (its sections),
   // so it seeds the first two sketches in build order as the initial stack; the
@@ -404,6 +427,19 @@ export function useFeatureOpeners({
     });
   }, [bodyFeatureId]);
 
+  // Fusion's Construct > Plane Along Path, as its own menu row: the datum
+  // editor, opened already on the along-path kind.
+  const openCreatePlaneAlongPath = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "datum",
+      mode: "create",
+      initial: defaultFormForKind("along_path", false),
+    });
+  }, []);
+
   // A base flange thickens a sketch profile to gauge — the sheet-metal part's
   // first body (sheet-metal.md §4.1). Like extrude it needs a solved sketch to
   // consume, so it mirrors openCreateExtrude's profile guard.
@@ -477,6 +513,7 @@ export function useFeatureOpeners({
     openCreateExtrude,
     openCreateRevolve,
     openCreateSweep,
+    openCreatePipe,
     openCreateLoft,
     openCreatePattern,
     openCreateFillet,
@@ -487,6 +524,7 @@ export function useFeatureOpeners({
     openCreateMirror,
     openScopedVerb,
     openCreateDatum,
+    openCreatePlaneAlongPath,
     openCreateBaseFlange,
     openCreateEdgeFlange,
     openCreateHem,

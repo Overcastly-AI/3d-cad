@@ -172,6 +172,7 @@ test.describe("draft — taper faces for mold release", () => {
     });
 
     // Open the draft editor: a 20 mm cube exposes all 6 planar faces as targets.
+    await page.getByTestId("modify-more").click();
     await page.getByTestId("new-draft").click();
     await expect(page.getByTestId("draft-editor")).toBeVisible();
     await page.getByTestId("draft-angle").fill("5");
@@ -242,6 +243,7 @@ test.describe("draft — taper faces for mold release", () => {
     await page.goto(`/parts/${partId}`);
     await waitForCube(page);
 
+    await page.getByTestId("modify-more").click();
     await page.getByTestId("new-draft").click();
     await expect(page.getByTestId("draft-editor")).toBeVisible();
     // 80° is in the accepted (-90, 90) range, so it writes — but it collapses
@@ -274,6 +276,7 @@ test.describe("draft — taper faces for mold release", () => {
       await page.goto(`/parts/${partId}`);
       await waitForCube(page);
 
+      await page.getByTestId("modify-more").click();
       await page.getByTestId("new-draft").click();
       await page.getByTestId("draft-angle").fill("5");
       const picked = await pickSideFaces(page);

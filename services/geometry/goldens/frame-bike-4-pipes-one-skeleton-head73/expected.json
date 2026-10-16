@@ -1,0 +1,45 @@
+{
+  "description": "THE BIKE FRAME FROM ONE SKELETON (PIPE-ALONG-PATH acceptance; docs/reference-parts/bike.md BIKE-TUBE-PLANE, BIKE-SWEEP-PATH-PICK, BIKE-NO-INCLUDE-SKETCH): ONE fully-constrained skeleton sketch on XZ (BB at the origin, seat tube 500 at 73.5 deg, head tube top at reach 390 / stack 570, head tube 150 long at a 73 deg head angle, drawn 1.5-2 mm off and solved into place) and FOUR ring Pipes on its lines, each joined into the body: down tube 44 x 1.2, seat tube 31.8 x 1.0, top tube 35 x 1.0, head tube 50 x 3. No datum plane, no profile sketch, no hand-worked angle or offset: the reference attempt needed two datums per tube and could not merge the head tube. Locks four Pipes sharing one sketch, the joins at the BB and at both ends of the head tube (the down tube's OD equals the head tube's bore there), and one valid lump. The head angle edit (73 -> 72) and the independent build123d twin are in tests/test_pipe_frame.py.",
+  "derivation": [
+    "Volume, area and centroid are INDEPENDENT of the code under test: a second build in plain build123d (tests/test_pipe_frame.py::independent_frame): each tube a Solid.make_cylinder minus its bore on a plane at the tube's start whose normal is the tube's direction, the joints computed by hand from the dimensions (no sketch solve), fused, and measured with the same adaptive GProp rule as the product (measure_shape) so the comparison is of the two BUILDS. Both builds' two-way boolean differences are empty.",
+    "Joints by hand (sketch x, y = world X, Z): BB (0, 0); seat tube top 500 (-cos 73.5, sin 73.5) = (-142.0076723519614, 479.40986743409655); head tube top (390, 570); head tube bottom (390 + 150 cos 73, 570 - 150 sin 73) = (433.8557557084105, 426.5542866055447).",
+    "Per-tube volumes pi (R^2 - r^2) L: down 98170.49874050084, seat 48380.526865282794, top 57643.90027419989, head 66444.68462342412 (sum 270639.6105034). The joints overlap by down x seat 109.4238, seat x top 76.2312, top x head 174.8990, down x head 319.9941 (each an intersect measured on its own; no triple overlaps), so inclusion-exclusion gives 269959.0624, within 1.2e-3 of the twin's 269959.0612910233 and the tree's 269959.0621168297.",
+    "Bounding box by hand: a cap of radius R normal to an in-plane unit u spans R |u_z| along X and R |u_x| along Z. x_min = the seat tube's top cap: -142.00767 - 15.9 sin 73.5; x_max = the head tube's bottom cap: 433.85576 + 25 sin 73; z_min = the down tube's BB cap: -22 cos(atan2(426.554, 433.856)); z_max = the top tube's cap at the head tube top: 570 + 17.5 cos(atan2(90.590, 532.008)); y = +-25 (the head tube) plus OCCT's 1e-7 box pad on swept faces.",
+    "Topology: 29 faces / 86 edges / 1 shell, one lump. Pinned as a regression (the twin reads the same counts), not hand-derived.",
+    "Mesh (linear_deflection 0.1): 7172 vertices / 7126 triangles, recorded from the harness."
+  ],
+  "tolerance": 0.005,
+  "tolerance_rationale": "MEASURED, then set (2026-10-16, build123d 0.11.1 / OCCT 7.9). Tree against the independent twin: volume 8.3e-4 mm^3 (3e-9 relative), area 2.1e-6 mm^2, centroid 4.9e-7 mm, AABB 1.1e-10 mm (and 1e-7 of OCCT box pad in y). The volume deviation is the adaptive integrator's on the trimmed tube-tube intersection faces: the twin and the tree are the same solid (empty two-way difference) and inclusion-exclusion lands between them. 5e-3 is 6x the worst observed; never loosen it to go green.",
+  "roundtrip_tolerance": 0.025,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-16 on the one-lump frame: STEP re-approximates the trimmed tube-tube intersection faces. Round-trip drift of the tree body: volume 1.6e-5 mm^3 (6e-11 relative; ROUNDTRIP_TOL's absolute 1e-7 was sized for parts a thousand times smaller), area 6.1e-3 mm^2 (1.5e-8 relative), centroid 8.6e-8 mm. The independent PURE build123d twin drifts the same way through build123d's own export_step/import_step (volume 8.7e-4, area 1.6e-4, centroid 5.1e-7), so it is OCCT's STEP writer/reader on these faces, not Loft's export: the moto frame's finding. The tree's area drift is the fixed-order area integral re-evaluated on the re-approximated faces: OCCT's adaptive rule (eps 1e-9) moves 2.7e-6 mm^2. Geometry-QA sign-off 2026-10-16, executable as tests/test_pipe_frame.py::test_the_step_drift_is_occts_not_loft_geometry; tightened from 0.05 to 0.025, 4.1x the worst observed (the tree's area 6.09e-3), and applies to volume and area only; the centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 269959.0612910233,
+    "surface_area": 419579.8813464925,
+    "centroid": {
+      "x": 193.32781783979175,
+      "y": 0.0,
+      "z": 354.1866152154453
+    },
+    "bounding_box": {
+      "min": {
+        "x": -157.25290613636565,
+        "y": -25.0,
+        "z": -15.687796047654048
+      },
+      "max": {
+        "x": 457.7633746074864,
+        "y": 25.0,
+        "z": 587.2516792819815
+      }
+    }
+  },
+  "topology": {
+    "faces": 29,
+    "edges": 86,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 7172,
+    "triangles": 7126
+  }
+}

@@ -275,6 +275,7 @@ export const MOUNTS: readonly Mount[] = [
       await page.goto(`/parts/${partId}`);
       await dismissNavCue(page);
       await waitForCube(page);
+      await page.getByTestId("modify-more").click();
       await page.getByTestId("new-draft").click();
       await expect(page.getByTestId("draft-editor")).toBeVisible();
       await iso(page);

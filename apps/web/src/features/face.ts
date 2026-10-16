@@ -32,6 +32,7 @@ export const BODY_AFFECTING_FEATURE_TYPES: ReadonlySet<string> = new Set([
   "extrude",
   "revolve",
   "sweep",
+  "pipe",
   "loft",
   "fillet",
   "chamfer",

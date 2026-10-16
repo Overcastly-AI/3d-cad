@@ -1,0 +1,45 @@
+{
+  "description": "PIPE RING SECTION (PIPE-ALONG-PATH): a HOLLOW pipe (Fusion's Pipe > Hollow), outside diameter 20, wall 2, along one sketch line on the XZ datum plane from the origin to sketch (60, 80) = world (60, 0, 80): a 100 mm line at atan(80/60) from horizontal, so the section plane is oblique to every world axis that matters. Locks the ring section (outer circle minus the bore, both centred on the path), the oblique section placement, and the face roles wall / bore / start / end.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill); only the mesh counts are recorded from the harness (tessellation is not hand-derivable) and are pinned as a regression.",
+    "The sketch is fully constrained at its drawn position (start fixed, horizontal 60 and vertical 80 between the ends), so the path is (0,0,0) -> (60,0,80), length 100, direction u = (0.6, 0, 0.8).",
+    "ring area A = pi (R^2 - r^2) = pi (100 - 64) = 36 pi; volume = A L = 3600 pi = 11309.733552923255 mm^3.",
+    "surface_area = outer 2 pi R L + bore 2 pi r L + 2 caps A = 2000 pi + 1600 pi + 72 pi = 3672 pi = 11535.928223981... mm^2.",
+    "centroid = the axis midpoint (30, 0, 40) by symmetry.",
+    "bounding_box: a cap circle of radius R normal to u spans R sqrt(1 - u_i^2) along world axis i: x +-8, y +-10, z +-6. So x in [0 - 8, 60 + 8] = [-8, 68], y in [-10, 10], z in [-6, 86].",
+    "topology: outer and bore cylinders + 2 ring caps = 4 faces; 4 cap circles + 2 seams = 6 edges; 1 shell.",
+    "mesh (linear 0.1 / angular 0.1): 1012 vertices / 1008 triangles, recorded."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first (2026-10-16): volume 2e-12 and area 2e-12 relative, centroid 1e-17 mm, AABB exact to the printed digits. 1e-6 as for the straight bar; never loosen it to go green.",
+  "properties": {
+    "volume": 11309.733552923255,
+    "surface_area": 11535.92822398172,
+    "centroid": {
+      "x": 30.0,
+      "y": 0.0,
+      "z": 40.0
+    },
+    "bounding_box": {
+      "min": {
+        "x": -8.0,
+        "y": -10.0,
+        "z": -6.0
+      },
+      "max": {
+        "x": 68.0,
+        "y": 10.0,
+        "z": 86.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 4,
+    "edges": 6,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 1012,
+    "triangles": 1008
+  }
+}

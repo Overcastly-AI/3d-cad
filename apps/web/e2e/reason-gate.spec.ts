@@ -63,6 +63,8 @@ async function seedCubePart(page: Page): Promise<string> {
 interface Gated {
   /** The toolbar control that opens the card. */
   tool: string;
+  /** The group "more" (▾) trigger the tool lives behind, when it is not on the row. */
+  more?: string;
   /** The card, so the walk fails loudly if the tool opened something else. */
   editor: string;
   /** The commit cell whose reason is under test. */
@@ -146,6 +148,7 @@ const GATED: Gated[] = [
     // taper — which is the case the fields cannot show inline, and therefore
     // the one the Save cell has to carry.
     tool: "new-draft",
+    more: "modify-more",
     editor: "draft-editor",
     submit: "draft-submit",
     situation: "no faces are picked yet",
@@ -231,6 +234,7 @@ test("every reachable editor's gated commit action is legible at 1280x800", asyn
 
   const measured: string[] = [];
   for (const card of GATED) {
+    if (card.more !== undefined) await page.getByTestId(card.more).click();
     const tool = page.getByTestId(card.tool);
     await expect(tool, `${card.tool} never became reachable`).toBeEnabled({
       timeout: 30_000,
@@ -312,6 +316,7 @@ test("the founder shot: a gated Create explaining itself at 1280x800", async ({
   });
 
   await page.getByTestId("fillet-cancel").click();
+  await page.getByTestId("modify-more").click();
   await page.getByTestId("new-draft").click();
   await expect(page.getByTestId("draft-editor")).toBeVisible();
   await expect(page.getByTestId("draft-submit")).toBeDisabled();

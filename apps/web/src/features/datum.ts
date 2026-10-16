@@ -38,6 +38,13 @@ import {
   EMPTY_ANGLE_LINE,
   parseDatumAngleDeg,
 } from "./datumAngle";
+import {
+  type AlongPathForm,
+  alongPathForm,
+  buildAlongPathParams,
+  defaultAlongPathForm,
+  pathPositionError,
+} from "./datumPath";
 import { faceSubshapeRef, onFaceDatumParams } from "./face";
 import { fieldBlocker } from "./submitBlocker";
 import { parseSignedLengthMm } from "../units/length";
@@ -275,7 +282,7 @@ export function faceReadout(face: DatumFace): string {
 
 /** The datum kinds the editor authors. */
 export type DatumKind =
-  "offset" | "offset_from" | "midplane" | "on_face" | "angle";
+  "offset" | "offset_from" | "midplane" | "on_face" | "angle" | "along_path";
 
 /** The editable datum form — a discriminated union over {@link DatumKind}. */
 export type DatumForm = (
@@ -312,6 +319,7 @@ export type DatumForm = (
       angleInput: string;
       flip: boolean;
     }
+  | ({ kind: "along_path" } & AlongPathForm)
 ) & {
   /** The params as STORED, when editing (a no-op Save sends them back). */
   stored?: DatumParams;
@@ -381,6 +389,8 @@ export function defaultFormForKind(kind: DatumKind, flip: boolean): DatumForm {
       };
     case "on_face":
       return { kind: "on_face", face: null, offsetInput: "0" };
+    case "along_path":
+      return { kind: "along_path", ...defaultAlongPathForm(flip) };
     case "angle":
       return {
         kind: "angle",
@@ -464,6 +474,12 @@ export function formFromDatumParams(
         reference: midplaneSideForm(params.reference),
         angleInput: String(params.angle_deg),
         flip: params.flip,
+        stored: params,
+      };
+    case "along_path":
+      return {
+        kind: "along_path",
+        ...alongPathForm(params, unit),
         stored: params,
       };
   }
@@ -553,6 +569,8 @@ export function buildDatumParams(
       };
       return params;
     }
+    case "along_path":
+      return buildAlongPathParams(form, unit);
   }
 }
 
@@ -597,6 +615,12 @@ export function datumSubmitBlocker(
         parseDatumAngleDeg(form.angleInput),
         "angle",
       );
+    case "along_path":
+      if (form.curve === "") return "Choose the path curve.";
+      if (form.positionInput.trim() === "") return "Enter the position.";
+      return pathPositionError(form, unit) === null
+        ? null
+        : "Check the position.";
   }
 }
 

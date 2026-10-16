@@ -23,6 +23,7 @@ import {
 import { useIsHiddenFaceOrdinal } from "../../viewport/hiddenPicks";
 import { pickRefusal } from "../../viewport/pickTargets";
 import { highlightedFeatureIds } from "../../viewport/scopeHighlight";
+import { withMemberIds } from "../../features/customFeature";
 import type { PartDocument } from "./usePartDocument";
 import type { PartBody } from "./usePartBody";
 import type { PickState } from "./usePickState";
@@ -358,7 +359,11 @@ export function usePickOverlays({
   // lights nothing. The fillet under edit (its input body drawn) owns no face
   // there, and would otherwise fall back to warming the whole body.
   const highlightFeatureIds = useMemo(() => {
-    const ids = highlightedFeatureIds(scopedFeatureIds, selectedFeatureId);
+    // A custom feature's faces are its members' (PLUGIN-UI).
+    const ids = withMemberIds(
+      highlightedFeatureIds(scopedFeatureIds, selectedFeatureId),
+      displayTree?.features ?? [],
+    );
     const past = new Set(
       (displayTree?.features ?? [])
         .filter((f) => f.rolled_back)

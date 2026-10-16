@@ -73,6 +73,7 @@ from loft import parameters as table
 from loft.datum import LineLike, ReferenceLike, plane_at_angle_feature
 from loft.errors import FeatureFailed, InvalidRequest, NoBody, StaleDocument
 from loft.parameters import Numeric, field_numbers
+from loft.pipe import CurveLike, pipe_feature, plane_along_path_feature
 from loft.sketch import Sketch, resolve_plane
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -576,6 +577,75 @@ class Part:
             ),
         )
         return created.feature
+
+    def pipe(
+        self,
+        path: Sequence[CurveLike],
+        outer_diameter_mm: Numeric,
+        *,
+        wall_thickness_mm: Numeric | None = None,
+        operation: Literal["add", "cut"] = "add",
+        merge: bool = True,
+        name: str = "Pipe",
+    ) -> FeatureResponse:
+        """Fusion 360's Pipe: a round bar (or, with a wall, a tube) along *path*.
+
+        *path* is the picked curves in any order, each ``(sketch, entity_id)``
+        or a picked edge's ref; they must chain into one unbranched path, open
+        or closed, or :meth:`evaluate` raises ``sweep_path_not_connected``.
+        Sharp corners are mitred. ``operation="add"`` joins the tube to the
+        body (``merge=False`` makes it a new body); ``"cut"`` removes it. The
+        diameter and wall may be formulas over the part's parameters.
+        """
+        numbers, formulas = field_numbers(
+            {
+                "outer_diameter_mm": outer_diameter_mm,
+                "wall_thickness_mm": wall_thickness_mm,
+            },
+            self.parameter_values,
+        )
+        outer = numbers["outer_diameter_mm"]
+        assert outer is not None
+        created = self.create_feature(
+            name,
+            pipe_feature(
+                path,
+                outer,
+                wall_thickness_mm=numbers["wall_thickness_mm"],
+                operation=operation,
+                merge=merge,
+                expressions=formulas,
+            ),
+        )
+        return created.feature
+
+    def plane_along_path(
+        self,
+        curve: CurveLike,
+        *,
+        ratio: Numeric | None = None,
+        distance_mm: Numeric | None = None,
+        flip: bool = False,
+        name: str = "Plane",
+    ) -> FeatureRef:
+        """Fusion 360's Plane Along Path: a datum normal to *curve* at *ratio*
+        of its length or *distance_mm* along it from its start (omit both for
+        the start). Returns the datum's ref, ready for ``part.sketch(on=...)``;
+        the plane follows the curve on every rebuild."""
+        numbers, formulas = field_numbers(
+            {"ratio": ratio, "distance_mm": distance_mm}, self.parameter_values
+        )
+        created = self.create_feature(
+            name,
+            plane_along_path_feature(
+                curve,
+                ratio=numbers["ratio"],
+                distance_mm=numbers["distance_mm"],
+                flip=flip,
+                expressions=formulas,
+            ),
+        )
+        return FeatureRef(kind="feature", feature_id=created.feature.id)
 
     def plane_at_angle(
         self,

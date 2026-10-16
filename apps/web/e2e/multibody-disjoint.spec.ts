@@ -131,6 +131,7 @@ test.describe("multi-body disjoint union (MB-4c)", () => {
     await expect(page.getByTestId("body-lumps-0")).toHaveCount(0);
     await expect(page.getByTestId("body-lumps-1")).toHaveCount(0);
 
+    await page.getByTestId("modify-more").click();
     await page.getByTestId("new-combine").click();
     await expect(page.getByTestId("combine-editor")).toBeVisible();
 
@@ -178,6 +179,7 @@ test.describe("multi-body disjoint union (MB-4c)", () => {
     });
 
     // Union without the opt-in — the create succeeds, the rebuild does not.
+    await page.getByTestId("modify-more").click();
     await page.getByTestId("new-combine").click();
     await expect(page.getByTestId("combine-editor")).toBeVisible();
     await page.getByTestId("combine-submit").click();
@@ -213,6 +215,7 @@ test.describe("multi-body disjoint union (MB-4c)", () => {
     await expectRenderedBody(page);
 
     // Shot 1 — the Combine editor with the "Keep as one body" opt-in visible.
+    await page.getByTestId("modify-more").click();
     await page.getByTestId("new-combine").click();
     await expect(page.getByTestId("combine-allow-disjoint")).toBeVisible();
     await page.screenshot({

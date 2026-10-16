@@ -64,10 +64,18 @@ export function featureWriteError(
   body: unknown,
   fallback: string,
 ): FeatureWriteError {
-  const pointer = envelopeDetails(body).pointer;
+  const details = envelopeDetails(body);
+  // A plugin's refusal names its INPUT (`details.input`), which is the
+  // custom feature's field at `/inputs/<name>` (PLUGIN-UI).
+  const pointer =
+    typeof details.pointer === "string"
+      ? details.pointer
+      : typeof details.input === "string"
+        ? `/inputs/${details.input}`
+        : null;
   return new FeatureWriteError(
     envelopeMessage(body, fallback),
     envelopeCode(body),
-    typeof pointer === "string" ? pointer : null,
+    pointer,
   );
 }

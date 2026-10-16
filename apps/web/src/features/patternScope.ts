@@ -63,6 +63,7 @@ export const REPEATABLE_FEATURE_TYPES: ReadonlySet<string> = new Set([
   "extrude",
   "revolve",
   "sweep",
+  "pipe",
   "loft",
   "hole",
   "pattern",
@@ -100,6 +101,7 @@ function isSubtractive(feature: FeatureResponse["feature"]): boolean {
     feature.type === "extrude" ||
     feature.type === "revolve" ||
     feature.type === "sweep" ||
+    feature.type === "pipe" ||
     feature.type === "loft"
   ) {
     return feature.params.operation === "cut";

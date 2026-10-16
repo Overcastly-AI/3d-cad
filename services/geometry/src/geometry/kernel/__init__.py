@@ -120,6 +120,7 @@ from geometry.kernel.mirror import (
     reflect_tools,
 )
 from geometry.kernel.overlay import selection_overlay
+from geometry.kernel.path_chain import PathNotConnectedError
 from geometry.kernel.pattern import (
     PatternAngleError,
     PatternAxisError,
@@ -168,7 +169,6 @@ from geometry.kernel.step_assembly import (
 )
 from geometry.kernel.sweep import (
     PathEmptyError,
-    PathNotConnectedError,
     SweepError,
     build_path_wire,
     sweep_profile,

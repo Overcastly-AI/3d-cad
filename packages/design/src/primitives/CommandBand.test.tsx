@@ -13,7 +13,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { CommandBand } from "./CommandBand";
-import { ToolGroup } from "./ToolButton";
+import { ToolGroup } from "./ToolGroup";
 
 afterEach(cleanup);
 

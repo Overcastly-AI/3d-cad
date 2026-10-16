@@ -515,7 +515,17 @@ def _evaluate_pattern(
 #: reflectable kind must ALSO have recorded tools (a ``body``-scope mirror is a
 #: ``mirror`` that records nothing, §4.6).
 _MIRROR_REFLECTABLE_TYPES: frozenset[str] = frozenset(
-    {"extrude", "revolve", "sweep", "loft", "hole", "pattern", "mirror", "import"}
+    {
+        "extrude",
+        "revolve",
+        "sweep",
+        "pipe",
+        "loft",
+        "hole",
+        "pattern",
+        "mirror",
+        "import",
+    }
 )
 
 

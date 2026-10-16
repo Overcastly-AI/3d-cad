@@ -1,0 +1,45 @@
+{
+  "description": "FIRST PIPE GOLDEN (PIPE-ALONG-PATH): Fusion 360's Pipe, a solid round bar of outside diameter 20 along ONE picked sketch line, (0,0) -> (100,0) on the XY datum plane. The section is not sketched: the pipe centres a circle of the outer diameter on the path's start, normal to the path, and sweeps it. Locks the section placement (the bar is centred on the line everywhere, not anchored like a sweep profile), the solid-section path of the feature, and the open path's two flat caps.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill); only the mesh counts are recorded from the harness (tessellation is not hand-derivable) and are pinned as a regression.",
+    "The sketch is fully constrained at its drawn position (start fixed at the origin, horizontal, 100 long), so planegcs returns the input bitwise and the path is the segment (0,0,0) -> (100,0,0).",
+    "volume = pi R^2 L = pi * 10^2 * 100 = 10000 pi = 31415.926535897932 mm^3.",
+    "surface_area = 2 pi R L + 2 pi R^2 = 2000 pi + 200 pi = 2200 pi = 6911.503837897545 mm^2.",
+    "centroid = (50, 0, 0): the midpoint of the axis, by symmetry.",
+    "bounding_box = [0, -10, -10]..[100, 10, 10]: the caps are normal to the path, so x is exactly the path's extent and y, z are +-R.",
+    "topology: 1 cylinder face + 2 planar caps = 3 faces; 2 cap circles + 1 cylinder seam = 3 edges; 1 shell.",
+    "mesh (linear 0.1 / angular 0.1): 506 vertices / 500 triangles, recorded."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first (2026-10-16, build123d 0.11.1 / OCCT 7.9): volume and area within 1e-11 of the closed forms, centroid 1.5e-15 mm, AABB exact. 1e-6 is the sweep goldens' convention, far above the observed error and far below any geometric change (a 1e-6 mm radius change moves the volume by 6e-3 mm^3). Never loosen it to go green.",
+  "properties": {
+    "volume": 31415.926535897932,
+    "surface_area": 6911.503837897545,
+    "centroid": {
+      "x": 50.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": -10.0,
+        "z": -10.0
+      },
+      "max": {
+        "x": 100.0,
+        "y": 10.0,
+        "z": 10.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 3,
+    "edges": 3,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 506,
+    "triangles": 500
+  }
+}

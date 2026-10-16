@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 
+import { createFeature, SQUARE_20 } from "./partSeed";
 import {
   SCREENSHOT_DIR,
   createPartViaApi,
@@ -27,7 +28,7 @@ import {
  *   4. the band's chosen tier actually FITS (content <= bandWidth) — the
  *      width-independent form of "never silently clip", valid for any
  *      future group set. If even the icon tier ever fails this at 1280,
- *      grow an explicit "more" flyout — do not widen a magic number;
+ *      move quieter verbs into a group's ▾ menu (`ToolGroup.more`) — do not widen a magic number;
  *   5. a CREATE-group tooltip paints ABOVE the feature-tree panel (the P1:
  *      the band's old `z-10` context trapped tooltips under `z-30` panels).
  *
@@ -46,6 +47,7 @@ const BAND_GROUPS = [
   "Create",
   "Modify",
   "Sheet metal",
+  "Build",
   "Inspect",
 ] as const;
 
@@ -96,10 +98,13 @@ async function appScroll(page: Page) {
   }));
 }
 
-// Measured on the part band (empty part, 2026-08-22). At all three widths the
-// graduated tier settles on Export + Inspect labeled and the three big verb
-// families in icons — 1244.6px of content. Before EXPORT-1's group landed the
-// band showed no labels at all here, because the only alternative cost 2650.9.
+// Measured on the part band (empty part, 2026-10-16, after Pipe + Plane along
+// path went into CREATE ▾ and Draft + Combine into MODIFY ▾). The icon row is
+// 1073.4px, so at the 1280 floor Export's format codes (+160) fit again —
+// 1233.4px — and Build's title (+97) is the first that does not. At 1440 and
+// 1600 the tier settles on Export + Build + Inspect labeled (1367.6px), the
+// three big verb families in icons. A new low-frequency verb goes into its
+// group's ▾ menu (`ToolGroup.more`), not onto the row.
 for (const { width, height, tier } of [
   { width: 1280, height: 800, tier: "mixed" },
   { width: 1440, height: 900, tier: "mixed" },
@@ -156,11 +161,13 @@ for (const { width, height, tier } of [
       //    floor — "STEP"/"STL"/"3MF"/"GLB" are identifiers three near-identical
       //    mesh glyphs cannot spell — while the verb families, whose glyph and
       //    eyebrow already name them, go to icons first.
-      expect(fit.labeled).toContain("Export");
       expect(fit.labeled).not.toContain("Sheet metal");
-      await expect(page.getByTestId("part-export-band-step")).toContainText(
-        "STEP",
-      );
+      if (tier === "mixed") {
+        expect(fit.labeled).toContain("Export");
+        await expect(page.getByTestId("part-export-band-step")).toContainText(
+          "STEP",
+        );
+      }
     });
   });
 }
@@ -185,26 +192,26 @@ async function inlineLabelShown(
     );
 }
 
-test.describe("the band buys labels back as it widens (2400)", () => {
-  test.use({ viewport: { width: 2400, height: 1000 } });
+test.describe("the band buys labels back as it widens (2000)", () => {
+  test.use({ viewport: { width: 2000, height: 1000 } });
 
   test("CREATE gets its words back — measured, not hardcoded", async ({
     page,
   }) => {
     await openEmptyPart(page);
 
-    // At 2400 the band affords four of the five sheddable levels: Export,
-    // Inspect, Create and Modify are labeled (2126.8px), and only Sheet metal
-    // — the widest labels on the band, +524px, for a family inert on every
-    // part that is not sheet metal — is still in icons. So the step-back-up
-    // this spec was written to prove is live, and it is the CREATE group (the
-    // audit's own example) that demonstrates it.
+    // At 2000 the band affords Export, Build, Inspect and Create labeled
+    // (1774.9px); Modify's words would take it to 2219.1, so Modify and Sheet
+    // metal — the widest labels on the band, for a family inert on every part
+    // that is not sheet metal — are in icons (measured 2026-10-16). So the
+    // step-back-up this spec was written to prove is live, and it is the
+    // CREATE group (the audit's own example) that demonstrates it.
     await expect(page.getByTestId("top-toolbar")).toHaveAttribute(
       "data-band-tier",
       "mixed",
     );
     expect(await inlineLabelShown(page, "new-extrude", "Extrude")).toBe(true);
-    expect(await inlineLabelShown(page, "new-fillet", "Fillet")).toBe(true);
+    expect(await inlineLabelShown(page, "new-fillet", "Fillet")).toBe(false);
     expect(await inlineLabelShown(page, "new-base-flange", "Base flange")).toBe(
       false,
     );
@@ -223,10 +230,11 @@ test.describe("the fully labeled tier returns when it genuinely fits (2800)", ()
   }) => {
     await openEmptyPart(page);
 
-    // 2800 is not a magic number: the fully labeled row measures 2774.7px
-    // (2650.9 until Parameters joined Modify, PART-PARAMETERS), so this is the
-    // first round width above it. It is the top of the ramp — the
-    // guard that the probe really is measuring and not latched to a tier.
+    // 2800 is not a magic number: the fully labeled row measures 2743.1px
+    // since the low-frequency verbs moved into the groups' ▾ menus (it had
+    // grown past 3000 with Pipe on the row), so this is the first round width
+    // above it. It is the top of the ramp — the guard that the probe really
+    // is measuring and not latched to a tier.
     await expect(page.getByTestId("top-toolbar")).toHaveAttribute(
       "data-band-tier",
       "labeled",
@@ -239,6 +247,100 @@ test.describe("the fully labeled tier returns when it genuinely fits (2800)", ()
     expect(fit.labeled).toEqual([...BAND_GROUPS, "Export"]);
   });
 });
+
+test.describe("nothing is unreachable at the 1280 floor", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("Pipe, Plane along path and Twisted prism are one click (or key) away", async ({
+    page,
+  }) => {
+    // A sketch, so the path-consuming verbs are live rather than explained.
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Reach part");
+    await createFeature(page, account.token, part.id, {
+      name: "Sketch1",
+      feature: { type: "sketch", version: 1, params: SQUARE_20 },
+      expected_tree_version: 0,
+    });
+    await page.goto(`/parts/${part.id}`);
+    await expect(page.getByTestId("new-sketch")).toBeEnabled();
+
+    /** The element's whole box is inside the 1280 frame. */
+    const inFrame = async (testId: string) => {
+      const box = await page.getByTestId(testId).boundingBox();
+      expect(box, `${testId} is not rendered`).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(1280);
+    };
+
+    // Twisted prism (PLUGIN-UI) sits on the band itself, in BUILD.
+    const prism = page.getByTestId("plugin-tool-loft.twisted_prism");
+    await expect(prism).toBeEnabled();
+    await expect(prism).toHaveAccessibleName(/^Twisted prism/);
+    await inFrame("plugin-tool-loft.twisted_prism");
+
+    // CREATE ▾ names itself on hover, like every band control.
+    const more = page.getByTestId("create-more");
+    await expect(more).toHaveAccessibleName("More Create tools");
+    await more.hover();
+    await expect(more.locator("[data-tooltip]")).toHaveText(
+      "More Create tools",
+    );
+
+    // Pointer: CREATE ▾ → Pipe opens the pipe editor.
+    await more.click();
+    await expect(page.getByTestId("new-pipe")).toBeEnabled();
+    await inFrame("new-pipe");
+    await inFrame("tool-plane-along-path");
+    await page.getByTestId("new-pipe").click();
+    await expect(page.getByTestId("pipe-editor")).toBeVisible();
+    await page.getByTestId("pipe-cancel").click();
+    await expect(page.getByTestId("pipe-editor")).toBeHidden();
+
+    // Keyboard: focus the trigger, Enter opens on the first row, ArrowDown
+    // walks to Plane along path, Enter opens the datum editor on that kind.
+    await more.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("new-pipe")).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(page.getByTestId("tool-plane-along-path")).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("datum-editor")).toBeVisible();
+    await expect(page.getByTestId("datum-kind")).toHaveValue("along_path");
+    await page.getByTestId("datum-cancel").click();
+
+    // MODIFY ▾ holds Draft and Combine; on a one-sketch part neither can act,
+    // and each says what it needs instead of going quiet.
+    await page.getByTestId("modify-more").click();
+    await expect(page.getByTestId("new-draft")).toHaveAccessibleName(
+      /needs a body$/,
+    );
+    await expect(page.getByTestId("new-combine")).toHaveAccessibleName(
+      /needs two bodies$/,
+    );
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("modify-more")).toBeFocused();
+  });
+});
+
+for (const width of [1280, 1920] as const) {
+  test.describe(`band shot at ${width}`, () => {
+    test.use({ viewport: { width, height: 900 } });
+
+    test(`the part band at ${width}`, async ({ page }) => {
+      await openEmptyPart(page);
+      const fit = await bandFit(page);
+      expect(fit.contentWidth).toBeLessThanOrEqual(fit.bandWidth + 1);
+      // `page.screenshot` with a clip, not `locator.screenshot`: only the
+      // former goes through the UPDATE_SCREENSHOTS write gate (fixtures.ts).
+      const band = await page.getByTestId("top-toolbar").boundingBox();
+      await page.screenshot({
+        path: `${SCREENSHOT_DIR}/toolbar-${width}.png`,
+        clip: band!,
+      });
+    });
+  });
+}
 
 test.describe("band tooltips paint above the floating panels (audit P1)", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
