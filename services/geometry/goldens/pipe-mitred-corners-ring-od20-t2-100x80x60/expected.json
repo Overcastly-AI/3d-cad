@@ -10,7 +10,7 @@
     "topology: per run an outer and a bore wall (6) + 2 ring caps = 8 faces; 22 edges (cap circles, mitre ellipses, seams), 1 shell; counts pinned as recorded.",
     "mesh (linear 0.1 / angular 0.1): 2244 vertices / 2232 triangles, recorded."
   ],
-  "tolerance": 1e-06,
+  "tolerance": 1e-6,
   "tolerance_rationale": "Measured first (2026-10-16): volume 8.3e-8 mm^3 and area 6.3e-8 mm^2 below the closed forms (the mitre ellipses are B-spline-approximated edges), centroid within 9e-11 mm of derive.py, AABB exact. 1e-6 is 12x the worst observed; never loosen it to go green.",
   "properties": {
     "volume": 27143.36052701581,

@@ -10,7 +10,7 @@
     "topology: outer and bore cylinders + 2 ring caps = 4 faces; 4 cap circles + 2 seams = 6 edges; 1 shell.",
     "mesh (linear 0.1 / angular 0.1): 1012 vertices / 1008 triangles, recorded."
   ],
-  "tolerance": 1e-06,
+  "tolerance": 1e-6,
   "tolerance_rationale": "Measured first (2026-10-16): volume 2e-12 and area 2e-12 relative, centroid 1e-17 mm, AABB exact to the printed digits. 1e-6 as for the straight bar; never loosen it to go green.",
   "properties": {
     "volume": 11309.733552923255,

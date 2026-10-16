@@ -11,7 +11,7 @@
     "topology: a cylinder: 3 faces, 3 edges, 1 shell.",
     "mesh (linear 0.1 / angular 0.1): 506 vertices / 500 triangles, recorded (the straight bar's count: same face kinds, angular-dominated)."
   ],
-  "tolerance": 1e-06,
+  "tolerance": 1e-6,
   "tolerance_rationale": "Measured first (2026-10-16): volume, area and centroid within 2e-13 of the closed forms, AABB within 4e-15 mm. 1e-6 as for the pipe goldens; never loosen it to go green.",
   "properties": {
     "volume": 785.3981633974482,

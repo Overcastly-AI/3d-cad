@@ -10,7 +10,7 @@
     "topology: 1 cylinder face + 2 planar caps = 3 faces; 2 cap circles + 1 cylinder seam = 3 edges; 1 shell.",
     "mesh (linear 0.1 / angular 0.1): 506 vertices / 500 triangles, recorded."
   ],
-  "tolerance": 1e-06,
+  "tolerance": 1e-6,
   "tolerance_rationale": "Measured first (2026-10-16, build123d 0.11.1 / OCCT 7.9): volume and area within 1e-11 of the closed forms, centroid 1.5e-15 mm, AABB exact. 1e-6 is the sweep goldens' convention, far above the observed error and far below any geometric change (a 1e-6 mm radius change moves the volume by 6e-3 mm^3). Never loosen it to go green.",
   "properties": {
     "volume": 31415.926535897932,

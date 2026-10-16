@@ -10,7 +10,7 @@
     "topology: 4 cylinder faces (one per side), 16 edges (4 mitre ellipses + 4 seams + their splits), 1 shell; counts pinned as recorded.",
     "mesh (linear 0.1 / angular 0.1): 1232 vertices / 1224 triangles, recorded."
   ],
-  "tolerance": 1e-06,
+  "tolerance": 1e-6,
   "tolerance_rationale": "Measured first (2026-10-16): volume 7.5e-9 mm^3, area 7.7e-8 mm^2, centroid 1.9e-11 mm off the closed forms, AABB exact. 1e-6 is 13x the worst observed; never loosen it to go green.",
   "properties": {
     "volume": 125663.70614359173,
