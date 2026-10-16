@@ -19,7 +19,9 @@ Pipeline (reusing the shipped solve VERBATIM):
    ours: STEP as **INSTANCED AP214 product structure** (each unique PART is one
    named PRODUCT, placed once per instance as a named occurrence — so a
    re-import recovers every body traceable to its instance AND a downstream tool
-   can see that twenty dowel pins are one part, audit N8); 3MF as one NAMED
+   can see that twenty dowel pins are one part, audit N8; each sub-assembly is a
+   nested PRODUCT holding its own occurrences, placed relative to it, as
+   SolidWorks and Fusion write it, BIKE2-STEP-FLAT); 3MF as one NAMED
    OBJECT per instance (structure, no instancing); STL and GLB as one faceted
    compound with placements baked in and nothing else kept.
 
@@ -38,13 +40,19 @@ zero-solid file or a 500 — mirroring the tree-export no-body posture (§4.3).
 
 from __future__ import annotations
 
+import uuid
+
 from loft_wire.assemblies import (
+    EvaluateAssemblyRequest,
     ExportAssemblyRequest,
+    Placement,
     assembly_export_root_name,
 )
 
 from geometry.assembly.evaluate import (
+    Occurrence,
     PlacedInstance,
+    SolvedAssembly,
     iter_part_instances,
     solve_assembly,
 )
@@ -52,6 +60,8 @@ from geometry.assembly.transform import Pose
 from geometry.features.evaluate import features_have_twist
 from geometry.kernel import (
     AssemblyComponent,
+    StepAssemblyItem,
+    SubAssemblyComponent,
     export_3mf_assembly_bytes,
     export_glb_assembly_bytes,
     export_step_assembly_bytes,
@@ -70,6 +80,108 @@ class AssemblyExportError(Exception):
     def __init__(self, message: str, *, code: str = "assembly_export_no_body") -> None:
         super().__init__(message)
         self.code = code
+
+
+def _pose_fields(
+    placement: Placement,
+) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
+    """*placement* as the kernel's ``(translation, (x, y, z, w))`` pair."""
+    pose = Pose.from_placement(placement)
+    return (
+        (float(pose.t[0]), float(pose.t[1]), float(pose.t[2])),
+        (float(pose.q[0]), float(pose.q[1]), float(pose.q[2]), float(pose.q[3])),
+    )
+
+
+def _copy_name(name: str | None, index: int) -> str | None:
+    """A pattern copy's name: its seed's, numbered within the pattern (the
+    evaluate path's rule for a part copy, applied to a sub-assembly copy)."""
+    return None if name is None else f"{name} ({index + 1})"
+
+
+def _sub_assembly_item(
+    group_id: uuid.UUID,
+    members: list[Occurrence],
+    solved: SolvedAssembly,
+    request: EvaluateAssemblyRequest,
+    twisted_parts: set[str],
+) -> SubAssemblyComponent | None:
+    """One sub-assembly occurrence of *request* (an instance, or a pattern copy
+    of one), with its own level rebuilt from that sub-assembly's solve.
+
+    Its pose in this level's frame is the instance's solved pose; a copy has
+    none of its own, so it is read off a member: the member's pose here
+    composed with the inverse of its pose inside the sub-assembly (``offset``).
+    ``None`` when nothing inside it produced a body.
+    """
+    by_id = {inst.instance_id: inst for inst in request.instances}
+    first = members[0]
+    inst = by_id.get(group_id)
+    if inst is not None:
+        name = inst.name
+        placement = solved.sub_assembly_poses.get(group_id, inst.placement)
+    else:
+        assert first.pattern is not None, (
+            "a sub-assembly group is an instance or a copy"
+        )
+        inst = by_id[first.pattern.seed_instance_id]
+        name = _copy_name(inst.name, first.pattern.index)
+        assert first.offset is not None
+        frame = Pose.from_placement(first.placement).compose(first.offset.inverse())
+        placement = frame.to_placement()
+    assert inst.sub_assembly is not None
+    children = _step_items(solved.subs[inst.part_key], inst.sub_assembly, twisted_parts)
+    if not children:
+        return None
+    translation, quaternion = _pose_fields(placement)
+    return SubAssemblyComponent(
+        name=name if name is not None else str(group_id),
+        key=inst.part_key,
+        translation=translation,
+        quaternion=quaternion,
+        children=tuple(children),
+    )
+
+
+def _step_items(
+    solved: SolvedAssembly,
+    request: EvaluateAssemblyRequest,
+    twisted_parts: set[str],
+) -> list[StepAssemblyItem]:
+    """*request*'s level of the STEP product tree, in occurrence order
+    (BIKE2-STEP-FLAT).
+
+    The solve flattens every sub-assembly into its parent's occurrences; they
+    are grouped back here by the instance (or pattern copy) they move with. A
+    group with no path is a part placed at this level, in this level's frame;
+    any other group is a sub-assembly, rebuilt from its own solve (``subs`` is
+    one dict shared by every level of the tree). Composing the levels' poses
+    gives back each part's solved world placement.
+    """
+    groups: dict[uuid.UUID, list[Occurrence]] = {}
+    for occ in solved.occurrences:
+        groups.setdefault(occ.group_id, []).append(occ)
+    items: list[StepAssemblyItem] = []
+    for group_id, members in groups.items():
+        first = members[0]
+        if first.path:
+            sub = _sub_assembly_item(group_id, members, solved, request, twisted_parts)
+            if sub is not None:
+                items.append(sub)
+            continue
+        if first.body is None:
+            continue
+        translation, quaternion = _pose_fields(first.placement)
+        items.append(
+            AssemblyComponent(
+                name=first.name if first.name is not None else str(group_id),
+                body=first.body,
+                translation=translation,
+                quaternion=quaternion,
+                twisted=first.part_key in twisted_parts,
+            )
+        )
+    return items
 
 
 def _component(placed: PlacedInstance, twisted_parts: set[str]) -> AssemblyComponent:
@@ -125,12 +237,13 @@ def export_assembly(request: ExportAssemblyRequest) -> bytes:
         for instance in iter_part_instances(request.instances)
         if features_have_twist(instance.features)
     }
+    if request.format == "step":
+        return export_step_assembly_bytes(
+            assembly_export_root_name(request),
+            _step_items(solved, request, twisted_parts),
+        )
     components = [_component(placed, twisted_parts) for placed in solved.placed]
     match request.format:
-        case "step":
-            return export_step_assembly_bytes(
-                assembly_export_root_name(request), components
-            )
         case "stl":
             return export_stl_assembly_bytes(
                 components, request.linear_deflection, request.angular_deflection

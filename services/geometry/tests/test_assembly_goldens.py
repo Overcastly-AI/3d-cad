@@ -35,10 +35,19 @@ from pathlib import Path
 import numpy as np
 import pytest
 from geometry.assembly import evaluate_assembly
+from geometry.assembly.evaluate import solve_assembly
+from geometry.assembly.export import export_assembly
 from geometry.assembly.transform import Pose
+from geometry.kernel.step_tree import (
+    Box3,
+    StepTreeNode,
+    placed_bounding_box,
+    read_step_tree,
+)
 from loft_wire.assemblies import (
     AssemblySolveStatus,
     EvaluateAssemblyRequest,
+    ExportAssemblyRequest,
     Placement,
 )
 from loft_wire.geometry import BoundingBox, Vec3
@@ -126,6 +135,29 @@ class ExpectedInContext(BaseModel):
     changed: bool
 
 
+class ExpectedStepNode(BaseModel):
+    """Occurrences of one product under a STEP assembly product, in order of
+    first appearance: the product's name, how many occurrences share it, and
+    (for a sub-assembly) what one of them holds (BIKE2-STEP-FLAT)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    product: str
+    count: int = Field(ge=1)
+    children: list[ExpectedStepNode] = Field(default_factory=list["ExpectedStepNode"])
+
+
+class ExpectedStep(BaseModel):
+    """The golden's STEP export read back as a product tree: exported under
+    ``name``, which must name the root product; ``breps`` B-reps written."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    breps: int = Field(ge=1)
+    children: list[ExpectedStepNode]
+
+
 class AssemblyGoldenExpectation(BaseModel):
     """Committed expectations for one assembly golden (``expected.json``).
 
@@ -155,6 +187,9 @@ class AssemblyGoldenExpectation(BaseModel):
     probes: list[ExpectedProbe] = Field(default_factory=list["ExpectedProbe"])
     in_context: list[ExpectedInContext] | None = Field(
         default=None, description="In-context link resolutions; checked when given"
+    )
+    step: ExpectedStep | None = Field(
+        default=None, description="STEP product tree; checked when given"
     )
     distinct_mesh_count: int = Field(ge=1)
     instances: list[ExpectedInstancePlacement]
@@ -411,3 +446,100 @@ def test_rebuild_is_deterministic_across_interpreter_restart(
     assert result.stdout.strip() == local, (
         f"{case.name}: result differs across interpreter restart"
     )
+
+
+def _product_groups(node: StepTreeNode) -> list[ExpectedStepNode]:
+    """*node*'s children grouped by the product LABEL they refer to (so a
+    shared product is one group), in order of first appearance."""
+    groups: dict[str, list[StepTreeNode]] = {}
+    for child in node.children:
+        groups.setdefault(child.product_label, []).append(child)
+    return [
+        ExpectedStepNode(
+            product=members[0].product or "",
+            count=len(members),
+            children=_product_groups(members[0]),
+        )
+        for members in groups.values()
+    ]
+
+
+def _step_leaves(node: StepTreeNode) -> list[StepTreeNode]:
+    if not node.children:
+        return [node]
+    return [leaf for child in node.children for leaf in _step_leaves(child)]
+
+
+def _flat(box: Box3) -> np.ndarray:
+    return np.array([*box[0], *box[1]])
+
+
+STEP_CASES = [case for case in GOLDEN_CASES if case.expected.step is not None]
+
+
+def test_a_nested_patterned_golden_carries_a_step_tree() -> None:
+    """The STEP tree gate must reach a sub-assembly that holds a pattern."""
+    assert any(
+        any(
+            inst.sub_assembly is not None and inst.sub_assembly.patterns
+            for inst in case.request.instances
+        )
+        for case in STEP_CASES
+    ), "no assembly golden checks a nested, patterned STEP tree (BIKE2-STEP-FLAT)"
+
+
+@pytest.mark.parametrize("case", STEP_CASES, ids=[c.name for c in STEP_CASES])
+def test_step_export_keeps_the_product_tree(case: AssemblyGoldenCase) -> None:
+    """STEP export -> OCCT XCAF re-import keeps the assembly's structure
+    (BIKE2-STEP-FLAT): the root product is named after the assembly, each
+    sub-assembly is one nested product however often it is used, pattern copies
+    are occurrences of their seed's product, and every part occurrence's
+    world-space box (its locations composed down the tree) equals the box of
+    its part at the evaluate result's placement, matched by name."""
+    step = case.expected.step
+    assert step is not None
+    tolerance = case.expected.tolerance
+    request = ExportAssemblyRequest.model_validate(
+        {**case.request.model_dump(mode="json"), "format": "step", "name": step.name}
+    )
+    data = export_assembly(request)
+    tree = read_step_tree(data)
+
+    assert tree.product == step.name, f"{case.name}: root product {tree.product!r}"
+    assert _product_groups(tree) == step.children, f"{case.name}: product tree"
+    assert data.count(b"MANIFOLD_SOLID_BREP(") == step.breps, f"{case.name}: B-reps"
+
+    # The oracle: every placed part at the placement the evaluate route reports.
+    published = {
+        inst.instance_id: inst.placement
+        for inst in evaluate_assembly(case.request).instances
+    }
+    expected: list[tuple[str | None, np.ndarray]] = []
+    for occ in solve_assembly(case.request).occurrences:
+        if occ.body is None:
+            continue
+        assert published[occ.occurrence_id] == occ.placement, case.name
+        pose = Pose.from_placement(occ.placement)
+        box = placed_bounding_box(
+            occ.body,
+            (float(pose.t[0]), float(pose.t[1]), float(pose.t[2])),
+            (float(pose.q[0]), float(pose.q[1]), float(pose.q[2]), float(pose.q[3])),
+        )
+        expected.append((occ.name, _flat(box)))
+
+    leaves = _step_leaves(tree)
+    assert len(leaves) == len(expected), f"{case.name}: part occurrence count"
+    remaining = list(expected)
+    for leaf in leaves:
+        assert leaf.bounding_box is not None
+        got = _flat(leaf.bounding_box)
+        candidates = [item for item in remaining if item[0] == leaf.name]
+        assert candidates, f"{case.name}: no placed part named {leaf.name!r}"
+        nearest = min(candidates, key=lambda item: float(np.abs(item[1] - got).max()))
+        deviation = float(np.abs(nearest[1] - got).max())
+        assert deviation <= tolerance, (
+            f"{case.name}: {leaf.name} lands {deviation!r} mm from its evaluated "
+            f"placement (tolerance {tolerance!r})"
+        )
+        remaining.remove(nearest)
+    assert not remaining, f"{case.name}: {len(remaining)} placed part(s) missing"

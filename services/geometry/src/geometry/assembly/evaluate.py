@@ -504,6 +504,10 @@ class SolvedAssembly:
     all_pattern_states: list[PatternCount]
     #: How each in-context link whose context is this assembly resolved.
     in_context: list[InContextStatus] = field(default_factory=list["InContextStatus"])
+    #: Every sub-assembly solved for this tree, at any depth, keyed by its
+    #: ``part_key`` (one document at one version, solved once however often it
+    #: is instanced). The STEP export rebuilds the product tree from it.
+    subs: dict[str, SolvedAssembly] = field(default_factory=dict[str, "SolvedAssembly"])
 
 
 def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
@@ -678,6 +682,7 @@ def _solve(
         sub_assembly_poses=sub_assembly_poses,
         pattern_states=pattern_states,
         all_pattern_states=_all_pattern_states(request, pattern_states, subs),
+        subs=subs,
     )
 
 

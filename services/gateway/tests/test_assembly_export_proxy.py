@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 from gateway.db import Base
 from gateway.main import GatewaySettings, build_app
 from loft_wire.assemblies import (
+    AssemblyGraphResponse,
     EvaluatedInstance,
     ExportAssemblyRequest,
 )
@@ -108,8 +109,27 @@ def db_url(tmp_path: Path) -> str:
     return url
 
 
+def _no_stored_assembly(_request: httpx.Request) -> httpx.Response:
+    """Documents' uniform 404: the assembly is not the caller's (or not stored),
+    so an unnamed export keeps the id fallback."""
+    return httpx.Response(
+        404,
+        json={
+            "error": {
+                "code": "not_found",
+                "message": "Assembly not found.",
+                "details": None,
+                "request_id": "documents-id",
+            }
+        },
+    )
+
+
 def make_client(
-    db_url: str, geometry_handler: Handler, limiter: RateLimiter | None = None
+    db_url: str,
+    geometry_handler: Handler,
+    limiter: RateLimiter | None = None,
+    documents_handler: Handler = _no_stored_assembly,
 ) -> TestClient:
     settings = GatewaySettings(
         geometry_url="http://geometry.internal:8002",
@@ -120,6 +140,7 @@ def make_client(
     app = build_app(
         settings,
         geometry_transport=httpx.MockTransport(geometry_handler),
+        documents_transport=httpx.MockTransport(documents_handler),
         rate_limiter=limiter,
     )
     return TestClient(app, raise_server_exceptions=False)
@@ -308,3 +329,87 @@ def test_route_is_rate_limited(db_url: str) -> None:
     assert blocked.headers["Retry-After"] == "60"
     # The blocked request never reached the geometry service.
     assert seen == []
+
+
+def _graph(name: str) -> dict[str, Any]:
+    """The stored assembly's graph as documents returns it (only the name is
+    read)."""
+    now = "2026-10-16T00:00:00Z"
+    return AssemblyGraphResponse.model_validate(
+        {
+            "assembly": {
+                "id": str(ASSEMBLY),
+                "name": name,
+                "owner_id": str(uuid.uuid4()),
+                "length_unit": "mm",
+                "doc_version": 3,
+                "created_at": now,
+                "updated_at": now,
+            },
+            "doc_version": 3,
+            "instances": [],
+            "mates": [],
+            "can_undo": False,
+            "can_redo": False,
+        }
+    ).model_dump(mode="json")
+
+
+def _passthrough(seen: list[httpx.Request]) -> Handler:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=EXPORT_BYTES["step"])
+
+    return handler
+
+
+def test_an_unnamed_export_takes_the_stored_assembly_name(db_url: str) -> None:
+    """BIKE2-STEP-FLAT: an API caller exporting an assembly's evaluation
+    request sends no name, and the STEP root product was the assembly's UUID.
+    The gateway reads the caller's stored assembly and names the export after
+    it, as the web does."""
+    geometry: list[httpx.Request] = []
+    documents: list[httpx.Request] = []
+
+    def stored(request: httpx.Request) -> httpx.Response:
+        documents.append(request)
+        return httpx.Response(200, json=_graph("Bike"))
+
+    with make_client(db_url, _passthrough(geometry), documents_handler=stored) as c:
+        bearer = _register(c)
+        response = c.post(
+            "/api/v1/geometry/assembly/export",
+            json=_request("step").model_dump(mode="json"),
+            headers=bearer,
+        )
+
+    assert response.status_code == 200, response.text
+    [lookup] = documents
+    assert (lookup.method, lookup.url.path) == ("GET", f"/api/v1/assemblies/{ASSEMBLY}")
+    assert PRINCIPAL_HEADER in lookup.headers  # owner-scoped read
+    [upstream] = geometry
+    sent = ExportAssemblyRequest.model_validate_json(upstream.content)
+    assert sent.name == "Bike"
+    assert [i.instance_id for i in sent.instances] == [INSTANCE_A, INSTANCE_B]
+
+
+def test_a_named_export_does_not_read_the_assembly(db_url: str) -> None:
+    geometry: list[httpx.Request] = []
+    documents: list[httpx.Request] = []
+
+    def stored(request: httpx.Request) -> httpx.Response:
+        documents.append(request)
+        return httpx.Response(200, json=_graph("Stored name"))
+
+    request = _request("step").model_copy(update={"name": "Sent name"})
+    with make_client(db_url, _passthrough(geometry), documents_handler=stored) as c:
+        bearer = _register(c)
+        response = c.post(
+            "/api/v1/geometry/assembly/export",
+            json=request.model_dump(mode="json"),
+            headers=bearer,
+        )
+
+    assert response.status_code == 200, response.text
+    assert documents == []
+    assert ExportAssemblyRequest.model_validate_json(geometry[0].content) == request

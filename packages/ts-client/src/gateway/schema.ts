@@ -1070,7 +1070,8 @@ export interface paths {
          *     :class:`ExportAssemblyRequest` DTO validates at the gateway before anything
          *     goes upstream. Geometry solves the assembly and composes it into ONE
          *     multi-instance STEP (AP214 product structure) or STL; a body-less assembly is
-         *     a 422 ``assembly_export_no_body`` envelope, re-surfaced verbatim.
+         *     a 422 ``assembly_export_no_body`` envelope, re-surfaced verbatim. A request
+         *     without a ``name`` takes the stored assembly's (:func:`_named_export`).
          */
         post: operations["assembly_export_api_v1_geometry_assembly_export_post"];
         delete?: never;
@@ -13997,7 +13998,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The exported assembly CAD file, proxied byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, exact B-rep with product structure — each instance a named PRODUCT at its solved placement) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files. */
+            /** @description The exported assembly CAD file, proxied byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, exact B-rep with product structure — the root PRODUCT named after the assembly, each sub-assembly a nested PRODUCT, each part one PRODUCT placed by a named occurrence per instance or pattern copy, relative to its parent) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files. */
             200: {
                 headers: {
                     /** @description attachment; filename="<shape>.<format>" */

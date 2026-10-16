@@ -1,0 +1,94 @@
+{
+  "description": "NESTED + PATTERNED STEP GOLDEN (BIKE2-STEP-FLAT): the bike trial's round-2 shape, cut down to closed-form parts. Bike = Frame <1> (a 1000 x 50 x 50 box) + Wheel <1> and Wheel <2>, two instances of ONE Wheel sub-assembly. Wheel (own frame, axle = Z) = Hub <1> (cylinder r20 h100), Rim <1> (ring r290..r311, 20 thick) and Spoke <1> (a 2 x 2 bar from r20 to r290 along +X), circular-patterned 32 x 360 deg about the origin Z axis. Every instance is grounded and there are no mates. Locks the evaluate result of a two-level tree with a pattern inside a sub-assembly, and its STEP export as product structure: root 'Bike', two occurrences of one 'Wheel' product, each holding Hub, Rim and 32 occurrences of one shared 'Spoke' product, with every part occurrence's world box equal to the evaluate result's.",
+  "derivation": [
+    "Expectations are HAND-DERIVED, not recorded pipeline output. Each part is a sketch on XY extruded +Z. Hub: pi 20^2 100 = 40000 pi mm^3, area 2 pi 20 100 + 2 pi 20^2 = 4800 pi; 3 faces, 3 edges (two circles + seam), 1 shell. Rim: pi (311^2 - 290^2) 20 = 252420 pi, area 2 pi (311^2 - 290^2) + 2 pi 311 20 + 2 pi 290 20 = 49282 pi; 4 faces, 6 edges, 1 shell. Spoke: 270 x 2 x 2 = 1080, area 2 (540 + 540 + 4) = 2168; 6 / 12 / 1. Frame: 1000 x 50 x 50 = 2500000, area 2 (50000 + 50000 + 2500) = 205000; 6 / 12 / 1.",
+    "Wheel frame: Hub at (0, 0, -50), Rim at (0, 0, -10), Spoke seed at (0, 0, -1), so each part is centred on z = 0. The circular pattern about the origin Z axis places copy k (k = 1..31) at R = RotZ(11.25 k deg), t = R (0, 0, -1) = (0, 0, -1). 32 spokes in a full ring are symmetric about the axis, and hub and rim are centred on it, so the wheel's centroid is its origin.",
+    "Bike: Frame at (0, -25, 600), identity; Wheel <1> at (0, 0, 311) and Wheel <2> at (1000, 0, 311), both q = RotX(90 deg) = (s, 0, 0, s), s = sqrt(1/2), which maps wheel-frame (x, y, z) to (x, -z, y): the wheels stand upright in the XZ plane, axle along -Y.",
+    "Nested occurrence ids (loft_wire.assemblies.nested_occurrence_id of the wheel instance and the part's id in the wheel): Hub in Wheel <1> (...02, ...11) = 2ef8e4dc-6b10-509c-898f-1eecae0c0fba, in Wheel <2> (...03, ...11) = ebdda2f1-3360-5adf-861c-c9cf0dd6fe16. Spoke copy 8 = pattern_copy_id(...d1, ...13, 8) = da5ec0c4-93b8-576a-9881-509e1db97371; in Wheel <2> = c99e4ac3-42f7-538f-85bc-969951288e8c.",
+    "World placements: Hub in Wheel <1>: t = (0, 0, 311) + RotX90 (0, 0, -50) = (0, 50, 311), q = (s, 0, 0, s). Hub in Wheel <2>: (1000, 50, 311). Spoke copy 8 in Wheel <2> (RotZ(90) in the wheel): t = (1000, 0, 311) + RotX90 (0, 0, -1) = (1000, 1, 311); q = (s, 0, 0, s) * (0, 0, s, s) = w 1/2, v = s (0, 0, s) + s (s, 0, 0) + (s, 0, 0) x (0, 0, s) = (1/2, -1/2, 1/2): q = (0.5, -0.5, 0.5, 0.5). Probe: that spoke's outer tip, part-local (290, 0, 1), is (0, 290, 0) in the wheel and (1000, 0, 311) + (0, 0, 290) = (1000, 0, 601) in the world.",
+    "69 parts: 2 x (1 + 1 + 32) + 1. Volume = 2 (292420 pi + 32 x 1080) + 2500000 = 584840 pi + 2569120 = 4406449.047525454 mm^3. Area = 2 (54082 pi + 32 x 2168) + 205000 = 108164 pi + 343752 = 683559.2277828864 mm^2.",
+    "Centroid: the wheels' centroids are their origins (0, 0, 311) and (1000, 0, 311), each of volume W = 292420 pi + 34560; the frame's is (500, 0, 625). x = (1000 W + 500 F) / (2 W + F) = 500 exactly; y = 0; z = (2 W 311 + F 625) / (2 W + F) = 489.14798072857224 with F = 2500000.",
+    "Bounding box (the union of each part's placed local box): the rim dominates each wheel, local [-311, 311]^2 x [0, 20] at z -10 -> [-311, 311]^2 x [-10, 10], upright -> x [-311, 311], y [-10, 10], z [0, 622] for Wheel <1> and x [689, 1311] for Wheel <2>; the hub, local z [-50, 50] in the wheel, spans y [-50, 50]; a spoke's corners stay within r = sqrt(290^2 + 1^2) < 311. Frame: x [0, 1000], y [-25, 25], z [600, 650]. Union [-311, -50, 0]..[1311, 50, 650].",
+    "Topology: per wheel 3 + 4 + 32 x 6 = 199 faces, 3 + 6 + 32 x 12 = 393 edges, 34 shells; two wheels plus the frame: 404 / 798 / 69. distinct_mesh_count 4 (hub, rim, spoke, frame part keys).",
+    "STEP (exported with name 'Bike'): root product 'Bike' with Frame <1> -> 'Frame' and Wheel <1>, Wheel <2> -> ONE 'Wheel' product; 'Wheel' holds Hub <1> -> 'Hub', Rim <1> -> 'Rim' and Spoke <1>, Spoke <1> (2) .. Spoke <1> (32) -> ONE 'Spoke' product (the pattern copies are occurrences of the seed's product). B-reps written: 4, one per unique part body. Part occurrences after expanding both wheels: 69, each at the evaluate result's world placement."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "CLOSED-FORM tolerance at the STEP round trip's bound: every pose is a grounded seed, a composed quarter turn or a 1/32 turn of an exact rotation, so placements are analytic to float64 round-off. Measured first (2026-10-16, build123d 0.11.1 / OCCT 7.9): bounding box within 1.4e-14 mm, centroid within 2e-15 mm, combined volume within 2e-9 mm^3 of 4.4e6 (the summation order of 69 part volumes, a relative 5e-16), area within 2e-10 mm^2. 1e-6 is the bound the STEP tree round trip is held to (a coordinate of up to 1311 mm through part-21 text and back); the evaluate checks pass at 1e-8. Loosening it requires a reviewed justification here and in docs/GEOMETRY-QA.md.",
+  "status": "well_constrained",
+  "remaining_dof": 0,
+  "probes": [
+    {
+      "instance_id": "c99e4ac3-42f7-538f-85bc-969951288e8c",
+      "local": { "x": 290.0, "y": 0.0, "z": 1.0 },
+      "world": { "x": 1000.0, "y": 0.0, "z": 601.0 },
+      "note": "Spoke copy 8 of Wheel <2>: outer tip, a quarter turn round the hub, straight up"
+    }
+  ],
+  "distinct_mesh_count": 4,
+  "instances": [
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000001",
+      "placement": {
+        "position": { "x": 0.0, "y": -25.0, "z": 600.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "2ef8e4dc-6b10-509c-898f-1eecae0c0fba",
+      "placement": {
+        "position": { "x": 0.0, "y": 50.0, "z": 311.0 },
+        "orientation": {
+          "x": 0.7071067811865476,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 0.7071067811865476
+        }
+      }
+    },
+    {
+      "instance_id": "ebdda2f1-3360-5adf-861c-c9cf0dd6fe16",
+      "placement": {
+        "position": { "x": 1000.0, "y": 50.0, "z": 311.0 },
+        "orientation": {
+          "x": 0.7071067811865476,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 0.7071067811865476
+        }
+      }
+    },
+    {
+      "instance_id": "c99e4ac3-42f7-538f-85bc-969951288e8c",
+      "placement": {
+        "position": { "x": 1000.0, "y": 1.0, "z": 311.0 },
+        "orientation": { "x": 0.5, "y": -0.5, "z": 0.5, "w": 0.5 }
+      }
+    }
+  ],
+  "properties": {
+    "volume": 4406449.047525454,
+    "surface_area": 683559.2277828864,
+    "centroid": { "x": 500.0, "y": 0.0, "z": 489.14798072857224 },
+    "bounding_box": {
+      "min": { "x": -311.0, "y": -50.0, "z": 0.0 },
+      "max": { "x": 1311.0, "y": 50.0, "z": 650.0 }
+    }
+  },
+  "topology": { "faces": 404, "edges": 798, "shells": 69 },
+  "step": {
+    "name": "Bike",
+    "breps": 4,
+    "children": [
+      { "product": "Frame", "count": 1 },
+      {
+        "product": "Wheel",
+        "count": 2,
+        "children": [
+          { "product": "Hub", "count": 1 },
+          { "product": "Rim", "count": 1 },
+          { "product": "Spoke", "count": 32 }
+        ]
+      }
+    ]
+  }
+}

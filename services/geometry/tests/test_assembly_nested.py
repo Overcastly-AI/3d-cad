@@ -18,7 +18,6 @@ rest of the contract on the same real plates:
 from __future__ import annotations
 
 import copy
-import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -26,9 +25,11 @@ from typing import Any
 import numpy as np
 import pytest
 from geometry.assembly import evaluate_assembly
+from geometry.assembly.evaluate import solve_assembly
 from geometry.assembly.export import export_assembly
 from geometry.assembly.interference import check_interference
 from geometry.assembly.transform import Pose
+from geometry.kernel.step_tree import StepTreeNode, placed_bounding_box, read_step_tree
 from loft_wire.assemblies import (
     MAX_ASSEMBLY_DEPTH,
     MAX_ASSEMBLY_INSTANCES,
@@ -293,15 +294,30 @@ def test_interference_pairs_nested_parts_by_occurrence_id() -> None:
     assert (nested_occurrence_id(W1, B), nested_occurrence_id(W2, B)) in pairs
 
 
-_NAUO = re.compile(rb"NEXT_ASSEMBLY_USAGE_OCCURRENCE\(")
+def _part_occurrences(data: bytes) -> int:
+    """Part occurrences in a STEP file, every sub-assembly product expanded
+    once per occurrence of it (the file writes a shared one once)."""
+
+    def leaves(node: StepTreeNode) -> int:
+        return sum(map(leaves, node.children)) if node.children else 1
+
+    return leaves(read_step_tree(data))
 
 
 def test_step_export_holds_every_nested_part() -> None:
+    """Each hinge sub-assembly is ONE nested product used twice (BIKE2-STEP-FLAT):
+    the root holds the two hinge occurrences and the third part, the hinge
+    product its two plates, and all five parts are placed."""
     request = ExportAssemblyRequest.model_validate(
         {**_model(), "format": "step", "name": "Nested hinges"}
     )
     data = export_assembly(request)
-    assert len(_NAUO.findall(data)) == 5
+    tree = read_step_tree(data)
+    assert tree.product == "Nested hinges"
+    hinges = [child for child in tree.children if child.children]
+    assert len(hinges) == 2
+    assert hinges[0].product_label == hinges[1].product_label
+    assert _part_occurrences(data) == 5
 
 
 def test_a_failed_nested_part_is_reported_on_exactly_the_occurrences_export_omits() -> (
@@ -325,4 +341,61 @@ def test_a_failed_nested_part_is_reported_on_exactly_the_occurrences_export_omit
         {**model, "format": "step", "name": "Nested hinges"}
     )
     data = export_assembly(request)
-    assert len(_NAUO.findall(data)) == 5 - len(bodiless)
+    assert _part_occurrences(data) == 5 - len(bodiless)
+
+
+def _boxes(node: StepTreeNode) -> list[tuple[float, ...]]:
+    """Every part occurrence's world box under *node*, rounded to 1e-6 mm."""
+    own = (
+        [tuple(round(v, 6) for corner in node.bounding_box for v in corner)]
+        if node.bounding_box is not None
+        else []
+    )
+    return own + [box for child in node.children for box in _boxes(child)]
+
+
+def test_a_patterned_sub_assembly_is_another_occurrence_of_its_product() -> None:
+    """A component pattern whose seed is a sub-assembly places whole copies of
+    it; in the STEP each copy is one more occurrence of the SAME sub-assembly
+    product, named after the seed and numbered, and every part inside it lands
+    at its solved world placement (BIKE2-STEP-FLAT)."""
+    model = _model()
+    model["instances"][0]["name"] = "Hinge <1>"
+    model["patterns"] = [
+        {
+            "pattern_id": str(uuid.UUID(int=0xD7)),
+            "order_index": 0,
+            "pattern": {
+                "type": "linear",
+                "seed_instance_ids": [str(W1)],
+                "direction": {"kind": "origin_axis", "axis": "y"},
+                "flip": False,
+                "count": 3,
+                "spacing_mm": 150.0,
+                "count_expr": None,
+                "spacing_expr": None,
+            },
+        }
+    ]
+    request = ExportAssemblyRequest.model_validate(
+        {**model, "format": "step", "name": "Hinge row"}
+    )
+    tree = read_step_tree(export_assembly(request))
+    hinges = [child for child in tree.children if child.children]
+    assert [hinge.name for hinge in hinges] == [
+        "Hinge <1>",
+        str(W2),
+        "Hinge <1> (2)",
+        "Hinge <1> (3)",
+    ]
+    assert {hinges[0].product_label} == {h.product_label for h in hinges[2:]}
+
+    want: list[tuple[float, ...]] = []
+    for placed in solve_assembly(request).placed:
+        pose = Pose.from_placement(placed.placement)
+        t = (float(pose.t[0]), float(pose.t[1]), float(pose.t[2]))
+        q = (float(pose.q[0]), float(pose.q[1]), float(pose.q[2]), float(pose.q[3]))
+        box = placed_bounding_box(placed.body, t, q)
+        want.append(tuple(round(v, 6) for corner in box for v in corner))
+    assert len(want) == 9
+    assert sorted(_boxes(tree)) == sorted(want)

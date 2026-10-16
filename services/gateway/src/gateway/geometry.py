@@ -17,6 +17,7 @@ from typing import Annotated, Any, NoReturn
 import httpx2 as httpx
 from fastapi import APIRouter, Path, Query, Request, Response
 from loft_wire.assemblies import (
+    AssemblyGraphResponse,
     EvaluateAssemblyRequest,
     EvaluateAssemblyResult,
     ExportAssemblyRequest,
@@ -414,11 +415,37 @@ async def export(
 _ASSEMBLY_EXPORT_RESPONSES = export_responses(
     "The exported assembly CAD file, proxied byte-exact from the geometry "
     "service: STEP AP214 part 21 (`model/step`, exact B-rep with product "
-    "structure — each instance a named PRODUCT at its solved placement) or "
+    "structure — the root PRODUCT named after the assembly, each sub-assembly a "
+    "nested PRODUCT, each part one PRODUCT placed by a named occurrence per "
+    "instance or pattern copy, relative to its parent) or "
     "binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the "
     "suggested download filename. Byte-deterministic: identical requests "
     "produce identical files."
 )
+
+
+async def _named_export(
+    request: ExportAssemblyRequest, user: User, http_request: Request
+) -> ExportAssemblyRequest:
+    """*request* with the stored assembly's name when it carries none.
+
+    The STEP root product and the download are named after the assembly
+    (audit N4); the web sends the name, but an API or script caller exporting
+    the ``evaluation-request`` of an assembly does not, and got a root product
+    named by the assembly's UUID (BIKE2-STEP-FLAT). The caller's own assembly
+    supplies it here. One that is not stored, or not theirs, keeps the id
+    fallback: the export itself never depended on the document.
+    """
+    if request.name is not None:
+        return request
+    upstream = await forward_documents(
+        http_request, user, "GET", f"/api/v1/assemblies/{request.assembly_id}"
+    )
+    if upstream.status_code != 200:
+        return request
+    # Both names are the same bounded, stripped string (200 characters).
+    graph = AssemblyGraphResponse.model_validate_json(upstream.content)
+    return request.model_copy(update={"name": graph.assembly.name})
 
 
 # Auth-protected (same rationale + posture as ``/export`` above — audit F7).
@@ -439,8 +466,10 @@ async def assembly_export(
     :class:`ExportAssemblyRequest` DTO validates at the gateway before anything
     goes upstream. Geometry solves the assembly and composes it into ONE
     multi-instance STEP (AP214 product structure) or STL; a body-less assembly is
-    a 422 ``assembly_export_no_body`` envelope, re-surfaced verbatim.
+    a 422 ``assembly_export_no_body`` envelope, re-surfaced verbatim. A request
+    without a ``name`` takes the stored assembly's (:func:`_named_export`).
     """
+    request = await _named_export(request, user, http_request)
     upstream = await _forward(http_request, user, "/api/v1/assembly/export", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
