@@ -175,7 +175,11 @@ def test_declared_models_are_importable_py_kit_or_gateway_classes() -> None:
 # (constant -> operationId), and even that is cross-checked against the
 # contract's method and path.
 
-CALL_HELPERS = frozenset({"call", "call_none", "call_bytes"})
+CALL_HELPERS = frozenset({"call", "call_none", "call_bytes", "call_file"})
+
+#: Helpers that answer the same contract shape: ``call_file`` is ``call_bytes``
+#: keeping the response headers (an assembly export's omitted occurrences).
+HELPER_SHAPE = {"call_file": "call_bytes"}
 
 #: Floor, same reasoning as MINIMUM_OPERATIONS: 16 sites today, and a walk that
 #: finds nothing would make every assertion below vacuously true.
@@ -187,7 +191,7 @@ MINIMUM_CALL_SITES = 16
 #: whole surface out of the check while the other module kept the count above
 #: 16. So each root is censused on its own, and a module NOT listed here that
 #: grows a site is refused too, which keeps this tuple honest.
-CALL_SITE_MODULES = ("part.py", "session.py")
+CALL_SITE_MODULES = ("assembly.py", "part.py", "session.py")
 
 LIBRARY_SOURCE = REPO_ROOT / "packages" / "loft-script" / "src" / "loft"
 
@@ -376,12 +380,17 @@ def _model_problems(
     expected: str | None,
     components: dict[str, Any],
 ) -> list[str]:
-    if name != expected:
+    # Pydantic splits a model whose input and output schemas differ into
+    # `<Name>-Input` / `<Name>-Output` components; the class is still `<Name>`.
+    expected_class = expected
+    if expected is not None and expected.endswith(("-Input", "-Output")):
+        expected_class = expected.rsplit("-", 1)[0]
+    if name != expected_class:
         return [f"{where}: {role} {name!r}; contract declares {expected!r}"]
     if name is None or expected is None:
         return []
     model = _resolve(module, name)
-    if model is None or model.__name__ != expected:
+    if model is None or model.__name__ != expected_class:
         return [f"{where}: {role} name {name!r} is bound to {model!r}, not {expected}"]
     fields = {field.alias or key for key, field in model.model_fields.items()}
     declared = set(components[expected].get("properties", {}))
@@ -418,7 +427,7 @@ def _site_problems(
     #     that returns a component throws the fresh state away (and usually
     #     buys a second round trip to re-read it); `call` on a 204 would try to
     #     parse nothing.
-    if func.attr != shape.helper:
+    if HELPER_SHAPE.get(func.attr, func.attr) != shape.helper:
         problems.append(
             f"{where}: uses {func.attr}; {shape.method} {shape.path} answers "
             f"{shape.response or 'no JSON component'}, which needs {shape.helper}"

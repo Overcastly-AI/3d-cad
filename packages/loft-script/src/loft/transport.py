@@ -35,8 +35,9 @@ from __future__ import annotations
 
 import contextlib
 import json
+from collections.abc import Mapping
 from types import TracebackType
-from typing import Any, Self, TypeVar
+from typing import Any, NamedTuple, Self, TypeVar
 
 import httpx2 as httpx
 from pydantic import BaseModel, SecretStr
@@ -226,6 +227,33 @@ class Transport:
         return self._send(
             operation, path_params=path_params, query=query, body=body
         ).content
+
+    def call_file(
+        self,
+        operation: Operation,
+        *,
+        path_params: dict[str, Any] | None = None,
+        query: dict[str, Any] | None = None,
+        body: BaseModel | None = None,
+    ) -> FileResponse:
+        """:meth:`call_bytes`, keeping the response headers beside the bytes.
+
+        For a file route whose headers say something about the file — an
+        assembly export names the occurrences it left out in
+        ``X-Loft-Omitted-Occurrences``. The bytes are as untouched as
+        :meth:`call_bytes`'s.
+        """
+        response = self._send(
+            operation, path_params=path_params, query=query, body=body
+        )
+        return FileResponse(content=response.content, headers=response.headers)
+
+
+class FileResponse(NamedTuple):
+    """A file route's bytes and its response headers (case-insensitive)."""
+
+    content: bytes
+    headers: Mapping[str, str]
 
 
 def _check_request_model(operation: Operation, body: BaseModel | None) -> None:
