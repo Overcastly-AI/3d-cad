@@ -50,7 +50,10 @@ ASM-A3-PATTERN and ASM-A3-IN-CONTEXT (§24; e2e `assembly-subassembly`,
    edited like any feature (Onshape custom features). _Accept:_ an e2e
    inserts the twisted prism from the toolbar, edits its angle to `twist*2`
    and sees it regenerate.
-5. [ ] **PERF-REBUILD-200 step 1** (RESEARCH §15a step 1): one face-merge per
+5. [x] **PERF-REBUILD-200 step 1** (done; `housing_tree(200)` cold 29.35 s
+   -> 25.65 s, median of 3 against 514660d at load 0.3-1.1, -12.6 %; only the
+   moto frame's GLB/STEP changed, CM-6 later pocket now 30193.6284 mm^3
+   valid; RESEARCH §15a "Step 1 taken") (RESEARCH §15a step 1): one face-merge per
    boolean; the guarded merge stays for the fuzzy repair. _Accept:_ every
    golden byte-identical except the moto frame's `mesh_glb_id` and the
    coincident-tube BRep bytes, re-recorded with the same counts, volume and
@@ -516,3 +519,4 @@ One line each. The founder triages weekly; most are closed without work.
 - STEP-ZERO-SOLIDS (was a Next item): a STEP import that yields no solids has no recovery path; heal or partial import with an honest report.
 - TWISTED-BODY-DRAWINGS (was a founder decision): exact HLR is slow and the polygonal fallback loses the arcs. _Decided 2026-10-16 (delegated by founder to product-manager):_ exact HLR within the per-view budget, and past it the polygonal view flagged "approximate" in the check strip (SolidWorks' draft-quality views) — a drawing must never pass faceted arcs off as exact.
 - SHELL-REVOLVE-SHALLOW (was a founder decision): a shelled revolve at a shallow angle — true offset or OCCT's extension? _Decided 2026-10-16 (delegated by founder to product-manager):_ a true offset, or a typed refusal where OCCT cannot make one — Fusion and SolidWorks shells are uniform thickness, and a non-uniform wall is wrong geometry.
+- SHEET-METAL-DOUBLE-MERGE: the edge flange (`clean_shape(body.fuse(flange))`) and corner relief still face-merge a build123d boolean twice, unguarded by the integrity guard; step 1 left them so sheet-metal goldens stay byte-identical (RESEARCH §15a).
