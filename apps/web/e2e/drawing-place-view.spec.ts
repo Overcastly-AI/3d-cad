@@ -122,6 +122,10 @@ async function seedLaidOutDrawing(
 
   await expect(page.getByTestId("drawing-setup-hint")).toBeVisible();
   await page.getByTestId("drawing-part-select").selectOption(partId);
+  // 1:1, as these drags were measured: Auto draws the plate at 2:1, where the
+  // drop lands on the right view and the issue strip that then appears
+  // shrinks the sheet under the px tolerance (BIKE2-DRAWING-SCALE).
+  await page.getByTestId("drawing-scale-select").selectOption("1:1");
   await page.getByTestId("drawing-autolayout").click();
   await expect(page.getByTestId("drawing-sheet")).toBeVisible({
     timeout: 30_000,

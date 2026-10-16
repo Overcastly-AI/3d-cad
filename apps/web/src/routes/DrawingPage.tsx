@@ -22,6 +22,7 @@ import {
   placementReplaces,
   setPlacementOffset,
 } from "../drawing/authoring";
+import { AUTO_SCALE } from "../drawing/layout";
 import { drawingSourceName } from "../drawing/source";
 import { capitalise, PARTIAL_POSE_CLAUSE } from "../features/assemblyExport";
 import { isTypingTarget } from "../lib/isTypingTarget";
@@ -82,7 +83,7 @@ export function DrawingPage() {
     selectedSourceId,
     setSelectedSourceId,
     setScaleValue,
-    setSizeValue,
+    selectSize,
     effectiveSourceKind,
     effectiveScaleValue,
     effectiveSize,
@@ -346,7 +347,7 @@ export function DrawingPage() {
             scaleValue={effectiveScaleValue}
             onSelectScale={setScaleValue}
             sizeValue={effectiveSize}
-            onSelectSize={setSizeValue}
+            onSelectSize={selectSize}
             paperOrientation={paperOrientation}
             paperScale={paperScale}
             hasLayout={hasLayout}
@@ -400,7 +401,11 @@ export function DrawingPage() {
             adding={addingSheet}
             sheet={sheet}
             fit={orientationFit}
-            drawnScale={effectiveScaleValue}
+            drawnScale={
+              effectiveScaleValue === AUTO_SCALE
+                ? (paperScale ?? "1:1")
+                : effectiveScaleValue
+            }
             onFlipConvention={handleFlipConvention}
             onFlipOrientation={handleFlipOrientation}
             reheading={reheading}

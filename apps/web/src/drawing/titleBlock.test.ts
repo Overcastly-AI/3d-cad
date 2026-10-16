@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ComposedTitleBlock } from "../api/drawings";
-import { titleBlockFields } from "./titleBlock";
+import { KIND_CAPTION, titleBlockFields } from "./titleBlock";
 
 /** A placed title block with the given free-text fields; the geometry fields are
  * fixed (irrelevant to the row-selection logic under test). */
@@ -18,9 +18,17 @@ function block(
     title: "Bracket",
     scale: "1:1",
     size: "A4",
+    kind: "part",
     ...fields,
   };
 }
+
+describe("KIND_CAPTION", () => {
+  it("names an assembly sheet an assembly drawing, as the exports do", () => {
+    expect(KIND_CAPTION.part).toBe("LOFT · PART DRAWING");
+    expect(KIND_CAPTION.assembly).toBe("LOFT · ASSEMBLY DRAWING");
+  });
+});
 
 describe("titleBlockFields", () => {
   it("renders DRAWN / DATE / NOTES rows for every authored field, in order", () => {

@@ -119,6 +119,9 @@ async function layOutRibDrawing(page: Page, token: string): Promise<void> {
   await row.getByTestId("drawing-open").click();
   await expect(page.getByTestId("drawing-setup-hint")).toBeVisible();
   await page.getByTestId("drawing-part-select").selectOption(part.id);
+  // The pick budgets below are stated at 1:1 (a 4 mm edge, 4 mm on paper);
+  // Auto would draw this rib at 2:1 (BIKE2-DRAWING-SCALE).
+  await page.getByTestId("drawing-scale-select").selectOption("1:1");
   await page.getByTestId("drawing-autolayout").click();
   await expect(page.getByTestId("drawing-sheet")).toBeVisible({
     timeout: 30_000,

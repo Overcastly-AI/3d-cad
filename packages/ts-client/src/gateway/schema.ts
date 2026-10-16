@@ -3864,7 +3864,8 @@ export interface components {
          *     drawing ``title`` (truncated to fit), ``scale`` label and ``size`` display, plus
          *     the OPTIONAL free-text :class:`TitleBlock` fields ``author`` / ``date`` / ``notes``
          *     (each truncated to fit its cell, ``None`` when unset). The fixed captions ("TITLE" /
-         *     "SCALE" / "SIZE" / "LOFT · PART DRAWING" and, for the optional fields, "DRAWN" /
+         *     "SCALE" / "SIZE" / the ``kind`` caption ("LOFT · PART DRAWING" or "LOFT · ASSEMBLY
+         *     DRAWING", :data:`DRAWING_KIND_CAPTION`) and, for the optional fields, "DRAWN" /
          *     "DATE" / "NOTES") are the serializer's rendering constants (matching the on-screen
          *     title block). A ``None`` optional field is stamped by NO serializer — caption and
          *     value both omitted — so a title block with no free-text composes byte-identically to
@@ -3883,6 +3884,13 @@ export interface components {
             date?: string | null;
             /** Height */
             height: number;
+            /**
+             * Kind
+             * @description What the sheet drafts; the title block's kind caption reads 'LOFT · PART DRAWING' or 'LOFT · ASSEMBLY DRAWING'
+             * @default part
+             * @enum {string}
+             */
+            kind: "part" | "assembly";
             /**
              * Mid Y
              * @description Y of the horizontal rule in the right cell

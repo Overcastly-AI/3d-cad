@@ -8,7 +8,8 @@
  *  - the standard-view vocabulary (order + captions),
  *  - the create-flow layout (`sheetDimensions` + `standardLayout`) that seeds the
  *    persisted view positions when the sheet is first laid out,
- *  - the scale picker options, and
+ *  - the scale picker options and the fit that chooses a standard scale (and,
+ *    when the size is not fixed, a sheet size) for the standard views, and
  *  - the PICK types + endpoint correspondence the interactive layer reads off the
  *    neutral `ProjectedViewEdge` list (design §C) — positions are supplied by the
  *    composed geometry; this only resolves the canonical end_a/end_b labels.
@@ -300,19 +301,39 @@ export function vertexPaintMm(grabMm: number): number {
   return Math.min(drawing.vertexHandleMm, grabMm);
 }
 
-/** The scale options the picker offers, smallest reduction first. */
+/**
+ * The scale picker's "let the sheet choose" value, and its default. "Lay out
+ * standard views" then picks the largest standard scale whose views fit the
+ * sheet (see {@link fitScale}), enlarging a small part as Fusion and SolidWorks
+ * do when they open a drawing, instead of drawing a 20 mm part at a fixed 1:1.
+ * A scale the user picks instead is a ceiling: the fit still reduces from it.
+ */
+export const AUTO_SCALE = "auto";
+
+/**
+ * The standard scales (ISO 5455), largest first: the enlargements 5:1 and 2:1,
+ * full size, then the 1-2-5 reductions down to 1:1000. A drawing scale is
+ * always one of these. A 1.6 m bike on A4 lands on 1:20 rather than running
+ * off the paper at 1:10, the old smallest choice (BIKE2-DRAWING-SCALE).
+ */
 export const SCALE_OPTIONS: readonly {
   value: string;
   label: string;
   numerator: number;
   denominator: number;
 }[] = [
-  { value: "1:1", label: "1:1", numerator: 1, denominator: 1 },
-  { value: "2:1", label: "2:1", numerator: 2, denominator: 1 },
   { value: "5:1", label: "5:1", numerator: 5, denominator: 1 },
+  { value: "2:1", label: "2:1", numerator: 2, denominator: 1 },
+  { value: "1:1", label: "1:1", numerator: 1, denominator: 1 },
   { value: "1:2", label: "1:2", numerator: 1, denominator: 2 },
   { value: "1:5", label: "1:5", numerator: 1, denominator: 5 },
   { value: "1:10", label: "1:10", numerator: 1, denominator: 10 },
+  { value: "1:20", label: "1:20", numerator: 1, denominator: 20 },
+  { value: "1:50", label: "1:50", numerator: 1, denominator: 50 },
+  { value: "1:100", label: "1:100", numerator: 1, denominator: 100 },
+  { value: "1:200", label: "1:200", numerator: 1, denominator: 200 },
+  { value: "1:500", label: "1:500", numerator: 1, denominator: 500 },
+  { value: "1:1000", label: "1:1000", numerator: 1, denominator: 1000 },
 ];
 
 /** Model-space bbox extents (mm) along the world axes. */
@@ -339,79 +360,253 @@ export function boxExtents(box: BoundingBox): ModelExtents {
   };
 }
 
-/** Margin (sheet mm) kept between a view's footprint and its cell edge.
- * Calibrated, not padded: the SERVER's bounds-aware composer is the real
- * collision guarantee — this client cell model is a pre-flight estimate, and
- * 4 mm keeps the empirically-verified clean layouts acceptable (the WB-64
- * bottle's true iso height at 1:5 is 61.7 mm — a 6 mm margin would push it to
- * an unnecessarily tiny 1:10) while the exact projection coefficients below
- * keep the estimate honest. */
-const FIT_MARGIN_MM = 4;
-
-// Anchor-derived half-gaps, kept in lock-step with standardLayout's 0.32/0.68
-// columns and 0.36/0.70 rows: a view's usable half-width is the smaller of its
-// column's edge distance (0.32) and the mid-gap to the other column (0.18);
-// half-height likewise (bottom row edge 0.36, top row edge 0.30, row mid-gap
-// 0.17). If the anchors move, these must move with them.
-const CELL_HALF_W_FRACTION = Math.min(0.32, 0.18);
-const CELL_HALF_H_FRACTION = Math.min(0.36, 0.3, 0.17);
+// The sheet the composer draws on, mirrored from `geometry.drawings.layout` so
+// the fit predicts where the server will actually put each view.
+/** Border inset from the paper edge (server SHEET_MARGIN_MM). */
+const SHEET_MARGIN_MM = 10;
+/** Title block, bottom-right inside the border (server _TITLE_BLOCK_W/_H). */
+const TITLE_BLOCK_W_MM = 96;
+const TITLE_BLOCK_H_MM = 34;
+/** Clear space between adjacent views (server VIEW_GUTTER_MM). */
+const VIEW_GUTTER_MM = 24;
+/** Least clearance between a view's ink and the title block (server
+ * MIN_VIEW_CLEARANCE_MM, applied by `_title_block_shift`). */
+const MIN_VIEW_CLEARANCE_MM = 6;
+/** The caption band the server keeps inside the border below a view
+ * (_VIEW_CAPTION_BAND_MM: label baseline 8 mm + half its 3.4 mm cap). */
+const CAPTION_BAND_MM = 8 + 3.4 / 2;
+/** Below a view, its frame reaches the caption baseline (8 mm under the
+ * geometry) plus the pad: the frame the sheet draws round geometry + label. */
+const CAPTION_BASELINE_MM = 8;
 
 // EXACT true-isometric projection coefficients of the SERVER's iso frame
 // (geometry.drawings.project: N = normalize(−1,−1,1), X = normalize(Z×N)):
 // world x → (0.7071, 0.4082), y → (−0.7071, 0.4082), z → (0, 0.8165), so an
 // axis-aligned box projects to exactly w = 0.7071·(x+y),
-// h = 0.8165·z + 0.4082·(x+y). Code-review 2026-07-22: the previous hand
-// coefficients (0.87 / 0.82 / 0.3) mislabelled themselves an over-approx —
-// the width was 23% over while the xy-height term UNDER-approximated by 27%,
-// letting flat/pancake parts accept a scale whose iso view overflows its cell.
+// h = 0.8165·z + 0.4082·(x+y). Any body inside the box projects inside that.
 const ISO_W_XY = 0.7071;
 const ISO_H_Z = 0.8165;
 const ISO_H_XY = 0.4082;
 
+/** A sheet rectangle, y-UP from the bottom-left corner (sheet mm). */
+export interface SheetRect {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
 /**
- * The largest standard scale whose four auto-layout views fit their quadrant
- * cells on `dims`, never exceeding `chosenValue` (a user's explicit pick is a
- * ceiling, not a suggestion — auto-fit only ever *reduces*). This is the
- * fit-scale half of the auto-layout fix (BACKLOG 2026-07-20, WB-64 dogfooding:
- * a 258 mm part at the 1:1 default rendered views off-sheet and overlapping).
+ * Where the composer will put the four standard views of a part this size, at
+ * this scale, and the frame the sheet draws round each one.
  *
- * Cells come from the {@link standardLayout} anchor scheme (see the fraction
- * constants above), each less {@link FIT_MARGIN_MM} per side. Footprints are
- * the exact ortho projections (front x·z, right y·z, top x·y) plus the
- * true-iso bound (constants above). If even the smallest option cannot fit,
- * that smallest option is returned (a too-small view beats an unusable
- * overlap, and the server's bounds-aware composer still draws it).
+ * A mirror of the server's `bounds_aware_layout`: each view's half extents from
+ * the model box (front x·z, top x·y, right y·z, the true-iso bound), front at
+ * the origin, top and right one gutter away (mirrored for first angle), the
+ * iso in the free upper-right corner, the whole arrangement centred on the
+ * paper and lifted only as far as its captions need. Every real view is no
+ * bigger than its box estimate, so the frames returned here bound the drawn
+ * ones. A frame is the geometry plus the placement pad, and below it the
+ * caption baseline plus the pad.
  */
+export function standardViewFrames(
+  extents: ModelExtents,
+  dims: SheetDims,
+  ratio: number,
+  projection: Projection = "third_angle",
+): SheetRect[] {
+  const s = ratio / 2;
+  const f = { x: extents.x * s, y: extents.z * s };
+  const t = { x: extents.x * s, y: extents.y * s };
+  const r = { x: extents.y * s, y: extents.z * s };
+  const i = {
+    x: ISO_W_XY * (extents.x + extents.y) * s,
+    y: (ISO_H_Z * extents.z + ISO_H_XY * (extents.x + extents.y)) * s,
+  };
+  const g = VIEW_GUTTER_MM;
+  const sign = projection === "third_angle" ? 1 : -1;
+  const views = [
+    { at: { x: 0, y: 0 }, half: f },
+    { at: { x: 0, y: sign * (f.y + g + t.y) }, half: t },
+    { at: { x: sign * (f.x + g + r.x), y: 0 }, half: r },
+    {
+      at: { x: Math.max(f.x, t.x) + g + i.x, y: Math.max(f.y, r.y) + g + i.y },
+      half: i,
+    },
+  ];
+  const minX = Math.min(...views.map((v) => v.at.x - v.half.x));
+  const maxX = Math.max(...views.map((v) => v.at.x + v.half.x));
+  const minY = Math.min(...views.map((v) => v.at.y - v.half.y));
+  const maxY = Math.max(...views.map((v) => v.at.y + v.half.y));
+  let dx = dims.width / 2 - (minX + maxX) / 2;
+  let dy = dims.height / 2 - (minY + maxY) / 2;
+  // The server's `_fit_shift`: lift the arrangement just clear of the bottom
+  // border with its captions, when it fits at all.
+  const lo = minY + dy - CAPTION_BAND_MM;
+  const hi = maxY + dy;
+  const loBound = SHEET_MARGIN_MM;
+  const hiBound = dims.height - SHEET_MARGIN_MM;
+  if (hi - lo <= hiBound - loBound) {
+    if (lo < loBound) dy += loBound - lo;
+    else if (hi > hiBound) dy += hiBound - hi;
+  }
+  // The server's `_title_block_shift`: move up or left (the smaller move that
+  // stays inside the border) until no view's ink, caption included, comes
+  // within MIN_VIEW_CLEARANCE_MM of the title block.
+  const ink = views.map((v) => ({
+    minX: v.at.x + dx - v.half.x,
+    maxX: v.at.x + dx + v.half.x,
+    minY: v.at.y + dy - v.half.y - CAPTION_BAND_MM,
+    maxY: v.at.y + dy + v.half.y,
+  }));
+  const blockLeft =
+    dims.width - SHEET_MARGIN_MM - TITLE_BLOCK_W_MM - MIN_VIEW_CLEARANCE_MM;
+  const blockTop = SHEET_MARGIN_MM + TITLE_BLOCK_H_MM + MIN_VIEW_CLEARANCE_MM;
+  const near = ink.filter((r) => r.maxX > blockLeft && r.minY < blockTop);
+  if (near.length > 0) {
+    const up = blockTop - Math.min(...near.map((r) => r.minY));
+    const left = Math.max(...near.map((r) => r.maxX)) - blockLeft;
+    const fitsUp = Math.max(...ink.map((r) => r.maxY)) + up <= hiBound;
+    const fitsLeft =
+      Math.min(...ink.map((r) => r.minX)) - left >= SHEET_MARGIN_MM;
+    if (fitsUp && (!fitsLeft || up <= left)) dy += up;
+    else if (fitsLeft) dx -= left;
+  }
+  const pad = drawing.placementPadMm;
+  return views.map((v) => ({
+    minX: v.at.x + dx - v.half.x - pad,
+    maxX: v.at.x + dx + v.half.x + pad,
+    minY: v.at.y + dy - v.half.y - CAPTION_BASELINE_MM - pad,
+    maxY: v.at.y + dy + v.half.y + pad,
+  }));
+}
+
+/** The drawing area: inside the border, and the title block it must clear. */
+export function drawingArea(dims: SheetDims): {
+  border: SheetRect;
+  titleBlock: SheetRect;
+} {
+  const right = dims.width - SHEET_MARGIN_MM;
+  return {
+    border: {
+      minX: SHEET_MARGIN_MM,
+      minY: SHEET_MARGIN_MM,
+      maxX: right,
+      maxY: dims.height - SHEET_MARGIN_MM,
+    },
+    titleBlock: {
+      minX: right - TITLE_BLOCK_W_MM,
+      minY: SHEET_MARGIN_MM,
+      maxX: right,
+      maxY: SHEET_MARGIN_MM + TITLE_BLOCK_H_MM,
+    },
+  };
+}
+
+/** True when the standard views at `ratio` sit inside the border, clear of the
+ * title block. */
+export function standardViewsFit(
+  extents: ModelExtents,
+  dims: SheetDims,
+  ratio: number,
+  projection: Projection = "third_angle",
+): boolean {
+  const { border, titleBlock } = drawingArea(dims);
+  return standardViewFrames(extents, dims, ratio, projection).every(
+    (frame) =>
+      frame.minX >= border.minX &&
+      frame.maxX <= border.maxX &&
+      frame.minY >= border.minY &&
+      frame.maxY <= border.maxY &&
+      (frame.maxX <= titleBlock.minX || frame.minY >= titleBlock.maxY),
+  );
+}
+
+type ScaleOption = (typeof SCALE_OPTIONS)[number];
+
+const scaleRatio = (o: { numerator: number; denominator: number }) =>
+  o.numerator / o.denominator;
+
+/** The fitted scale, and whether the views actually fit at it. */
+export interface ScaleFit {
+  option: ScaleOption;
+  /** False when even the smallest scale overflows: the sheet is too small, and
+   * the composer's `off_sheet` check reports it in the check strip. */
+  fits: boolean;
+}
+
+/**
+ * The largest standard scale at which the four standard views fit the sheet's
+ * drawing area ({@link standardViewsFit}), never above `chosenValue`: Auto
+ * ({@link AUTO_SCALE}) may enlarge up to 5:1, an explicit pick is a ceiling.
+ * This is how Fusion and SolidWorks default a new drawing's scale: the biggest
+ * standard scale that fits the sheet. When nothing fits, the smallest scale,
+ * with `fits: false`.
+ */
+export function fitStandardScale(
+  extents: ModelExtents,
+  dims: SheetDims,
+  chosenValue: string,
+  projection: Projection = "third_angle",
+): ScaleFit {
+  const chosen = SCALE_OPTIONS.find((o) => o.value === chosenValue);
+  const ceiling = chosen ? scaleRatio(chosen) : Infinity;
+  const candidates = SCALE_OPTIONS.filter((o) => scaleRatio(o) <= ceiling);
+  for (const option of candidates) {
+    if (standardViewsFit(extents, dims, scaleRatio(option), projection)) {
+      return { option, fits: true };
+    }
+  }
+  const smallest = SCALE_OPTIONS[SCALE_OPTIONS.length - 1]!;
+  return { option: candidates[candidates.length - 1] ?? smallest, fits: false };
+}
+
+/** {@link fitStandardScale}'s scale alone. */
 export function fitScale(
   extents: ModelExtents,
   dims: SheetDims,
   chosenValue: string,
-): (typeof SCALE_OPTIONS)[number] {
-  const cellW = 2 * CELL_HALF_W_FRACTION * dims.width - 2 * FIT_MARGIN_MM;
-  const cellH = 2 * CELL_HALF_H_FRACTION * dims.height - 2 * FIT_MARGIN_MM;
-  const footprints: readonly [number, number][] = [
-    [extents.x, extents.z], // front
-    [extents.y, extents.z], // right
-    [extents.x, extents.y], // top
-    [
-      ISO_W_XY * (extents.x + extents.y),
-      ISO_H_Z * extents.z + ISO_H_XY * (extents.x + extents.y),
-    ], // iso
-  ];
-  const ratio = (o: { numerator: number; denominator: number }) =>
-    o.numerator / o.denominator;
-  const chosen = SCALE_OPTIONS.find((o) => o.value === chosenValue);
-  const ceiling = chosen ? ratio(chosen) : 1;
-  const candidates = SCALE_OPTIONS.filter((o) => ratio(o) <= ceiling).sort(
-    (a, b) => ratio(b) - ratio(a),
-  );
-  for (const option of candidates) {
-    const s = ratio(option);
-    if (footprints.every(([w, h]) => w * s <= cellW && h * s <= cellH)) {
-      return option;
-    }
+  projection: Projection = "third_angle",
+): ScaleOption {
+  return fitStandardScale(extents, dims, chosenValue, projection).option;
+}
+
+/** The paper series a sheet size belongs to, smallest first. A size that is
+ * not fixed only ever grows within its own series. */
+const SIZE_SERIES: readonly (readonly SheetSize[])[] = [
+  ["A4", "A3", "A2", "A1", "A0"],
+  ["ANSI_A", "ANSI_B", "ANSI_C", "ANSI_D"],
+];
+
+/**
+ * The paper size the next layout makes. A size the user fixed is kept, whether
+ * or not the views fit it (they get the check strip's warning). Otherwise the
+ * smallest size in the same series, starting at `size`, on which the standard
+ * views fit at a standard scale in either orientation — in practice `size`
+ * itself, since the scales reach 1:1000; a bigger sheet only when nothing fits.
+ */
+export function chooseSheetSize(
+  extents: ModelExtents,
+  size: SheetSize,
+  sizeFixed: boolean,
+  chosenValue: string = AUTO_SCALE,
+  projection: Projection = "third_angle",
+): SheetSize {
+  if (sizeFixed) return size;
+  const series = SIZE_SERIES.find((sizes) => sizes.includes(size)) ?? [size];
+  for (const candidate of series.slice(series.indexOf(size))) {
+    const fits = (["landscape", "portrait"] as const).some(
+      (orientation) =>
+        fitStandardScale(
+          extents,
+          sheetDimensions(candidate, orientation),
+          chosenValue,
+          projection,
+        ).fits,
+    );
+    if (fits) return candidate;
   }
-  return candidates[candidates.length - 1] ?? SCALE_OPTIONS[0]!;
+  return size;
 }
 
 // --- the orientation proposal, and the ONE header every new sheet is born with
@@ -423,6 +618,9 @@ export function fitScale(
 export interface OrientationFit {
   /** Fitted scale label per orientation ("1:2" / "1:5"). */
   scaleByOrientation: Record<Orientation, string>;
+  /** Whether the standard views fit that orientation at all (at its smallest
+   * scale they may still overflow — the composer then reports `off_sheet`). */
+  fitsByOrientation: Record<Orientation, boolean>;
   /** The orientation that fits the document largest (landscape wins a tie — the
    * shop default, so a document with no preference gets no surprise). */
   proposed: Orientation;
@@ -430,36 +628,43 @@ export interface OrientationFit {
 
 /**
  * The orientation proposal for a document on a given paper size. Both
- * orientations are fitted against the SAME {@link fitScale} the layout action
- * uses, with a 1:1 ceiling: auto-fit only ever REDUCES, so 1:1 is the neutral
- * maximum and the comparison answers "at best, how big can this be drawn either
- * way?" — which is the question that chooses a paper. (A user's own scale pick
- * stays a ceiling on the LAYOUT; it is not a claim about the paper.)
+ * orientations are fitted with the SAME {@link fitStandardScale} the layout
+ * action uses, under the same ceiling (Auto by default), so the scale the
+ * header cell quotes is the scale the next "Lay out" delivers.
  */
 export function proposeOrientation(
   extents: ModelExtents,
   size: SheetSize,
+  chosenValue: string = AUTO_SCALE,
+  projection: Projection = "third_angle",
 ): OrientationFit {
-  const landscape = fitScale(
-    extents,
-    sheetDimensions(size, "landscape"),
-    "1:1",
-  );
-  const portrait = fitScale(extents, sheetDimensions(size, "portrait"), "1:1");
-  const ratio = (o: { numerator: number; denominator: number }) =>
-    o.numerator / o.denominator;
+  const fit = (orientation: Orientation) =>
+    fitStandardScale(
+      extents,
+      sheetDimensions(size, orientation),
+      chosenValue,
+      projection,
+    );
+  const landscape = fit("landscape");
+  const portrait = fit("portrait");
+  // A fitting orientation beats an overflowing one; then the larger scale.
+  const better =
+    portrait.fits !== landscape.fits
+      ? portrait.fits
+      : scaleRatio(portrait.option) > scaleRatio(landscape.option);
   return {
     scaleByOrientation: {
-      landscape: landscape.value,
-      portrait: portrait.value,
+      landscape: landscape.option.value,
+      portrait: portrait.option.value,
     },
-    proposed: ratio(portrait) > ratio(landscape) ? "portrait" : "landscape",
+    fitsByOrientation: { landscape: landscape.fits, portrait: portrait.fits },
+    proposed: better ? "portrait" : "landscape",
   };
 }
 
 /**
  * Which shape of drawing a new sheet is being born for. `standard` is the four
- * quadrant views {@link fitScale} models; `lone` is a single centred view (a
+ * standard views {@link fitScale} models; `lone` is a single centred view (a
  * flat pattern, a section).
  */
 export type SheetLayoutKind = "standard" | "lone";

@@ -97,15 +97,13 @@ _VIEW_CAPTION_BAND_MM = _VIEW_LABEL_DY + _VIEW_LABEL_MM / 2
 #: halo uses, plus the caption's 0.6 mm letter-spacing.
 _VIEW_LABEL_ADVANCE_MM = _VIEW_LABEL_MM * 0.62 + 0.6
 
-#: Sheet banner (audit N2) — where the layout-issue lines are stamped and how they are
-#: spaced: inside the top-left border corner, reading down, in the same mono face as
-#: every other sheet text run. Bounded at :data:`_BANNER_MAX_LINES` stamped lines (plus
-#: a "+N MORE" tail) so a pathological sheet cannot paper itself over.
+#: Each layout issue's ``at`` anchor: inside the top-left border corner, one line per
+#: issue, reading down. Nothing stamps the issues on the sheet any more (they are the
+#: app's check strip, never ink on the drawing — BIKE2-DRAWING-SCALE); the anchor stays
+#: on the wire as where a viewer may pin them.
 _BANNER_DX = 3.0
 _BANNER_DY = 5.0
 _BANNER_LINE_MM = 4.2
-_BANNER_TEXT_MM = 2.8
-_BANNER_MAX_LINES = 4
 
 #: The flat-pattern view projection kind (sheet-metal.md §7). Placed by the ADDITIVE
 #: flat-pattern branch of :func:`place_sheet` — a single flat blank centred on the
@@ -560,7 +558,50 @@ def bounds_aware_layout(
         SHEET_MARGIN_MM,
         dims.y - SHEET_MARGIN_MM,
     )
+    ink = [
+        (rel[v].x + dx - half_of[v].x, rel[v].y + dy - half_of[v].y, half_of[v], v)
+        for v in present
+    ]
+    shift = _title_block_shift(
+        [
+            (x, y - _VIEW_CAPTION_BAND_MM, x + 2 * h.x, y + 2 * h.y)
+            for x, y, h, _ in ink
+        ],
+        dims,
+    )
+    dx += shift.x
+    dy += shift.y
     return {v: Vec2(rel[v].x + dx, rel[v].y + dy) for v in STANDARD_VIEWS}
+
+
+def _title_block_shift(
+    rects: Sequence[tuple[float, float, float, float]], dims: Vec2
+) -> Vec2:
+    """How far to move the arrangement so no view's ink (y-up ``(min_x, min_y,
+    max_x, max_y)``, captions included) comes within :data:`MIN_VIEW_CLEARANCE_MM`
+    of the title block.
+
+    Centring on the paper ignored the title block, so a part drawn large enough put
+    its right view on the block's corner (BIKE2-DRAWING-SCALE: the drawing area is
+    the border less the title block). Moves up or left, whichever is smaller and
+    keeps the views inside the border; zero when nothing is near the block, so a
+    sheet with room composes byte-identically, or when neither move fits (the sheet
+    is too small for the scale, which the fit on the client avoids).
+    """
+    block_left = dims.x - SHEET_MARGIN_MM - _TITLE_BLOCK_W - MIN_VIEW_CLEARANCE_MM
+    block_top = SHEET_MARGIN_MM + _TITLE_BLOCK_H + MIN_VIEW_CLEARANCE_MM
+    near = [r for r in rects if r[2] > block_left and r[1] < block_top]
+    if not near:
+        return Vec2(0.0, 0.0)
+    up = block_top - min(r[1] for r in near)
+    left = max(r[2] for r in near) - block_left
+    fits_up = max(r[3] for r in rects) + up <= dims.y - SHEET_MARGIN_MM
+    fits_left = min(r[0] for r in rects) - left >= SHEET_MARGIN_MM
+    if fits_up and (not fits_left or up <= left):
+        return Vec2(0.0, up)
+    if fits_left:
+        return Vec2(-left, 0.0)
+    return Vec2(0.0, 0.0)
 
 
 def _fit_shift(lo: float, hi: float, lo_bound: float, hi_bound: float) -> float:

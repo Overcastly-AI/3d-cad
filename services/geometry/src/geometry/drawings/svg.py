@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from loft_wire.drawings import (
+    DRAWING_KIND_CAPTION,
     ComposedBendTable,
     ComposedCentreMark,
     ComposedCircleEdge,
@@ -33,7 +34,6 @@ from geometry.drawings.dimensioning import (
     _DIM_ERROR_TEXT_MM,
 )
 from geometry.drawings.layout import (
-    _BANNER_TEXT_MM,
     _BEND_COL_DX,
     _BEND_TABLE_CAPTION_MM,
     _BEND_TABLE_CAPTIONS,
@@ -80,7 +80,6 @@ from geometry.drawings.sheet_style import (
     _fit,
     _tb_fields,
     _thread_row_cells,
-    banner_lines,
 )
 
 # ---------------------------------------------------------------------------------
@@ -336,7 +335,7 @@ def _emit_title_block(tb: ComposedTitleBlock, out: list[str]) -> None:
     )
     out.append(
         f'      <text x="{_fmt(x + 4)}" y="{_fmt(y + h - 4)}" {caption}>'
-        f"LOFT · PART DRAWING</text>"
+        f"{_esc(DRAWING_KIND_CAPTION[tb.kind])}</text>"
     )
     out.append(
         f'      <text x="{_fmt(tb.split_x + 4)}" y="{_fmt(y + 8)}" '
@@ -457,18 +456,6 @@ def _emit_thread_schedule(ts: ComposedThreadSchedule, out: list[str]) -> None:
     out.append("    </g>")
 
 
-def _emit_banner(composed: ComposedSheet, out: list[str]) -> None:
-    """Stamp the layout-issue banner into the SVG (audit N2)."""
-    for line in banner_lines(composed):
-        fill = _DIM_FLAG if line.error else _LABEL
-        out.append(
-            f'  <text data-testid="drawing-layout-issue" x="{_fmt(line.x)}" '
-            f'y="{_fmt(line.y)}" fill="{fill}" font-family="{_FONT}" '
-            f'font-size="{_fmt(_BANNER_TEXT_MM)}" letter-spacing="0.2">'
-            f"{_esc(line.text)}</text>"
-        )
-
-
 def _emit_note(note: ComposedNote, out: list[str]) -> None:
     """Render a placed free-text note (design §2.2) — left-anchored graphite ink.
 
@@ -522,6 +509,5 @@ def serialize_svg(composed: ComposedSheet) -> str:
         _emit_thread_schedule(composed.thread_schedule, out)
     for note in composed.notes:
         _emit_note(note, out)
-    _emit_banner(composed, out)
     out.append("</svg>")
     return "\n".join(out) + "\n"

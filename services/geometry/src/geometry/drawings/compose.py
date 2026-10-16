@@ -52,6 +52,7 @@ from loft_wire.drawings import (
     ComposedTitleBlock,
     ComposedView,
     DrawingDimensionInput,
+    DrawingKind,
     DrawingViewResult,
     EvaluateDrawingViewsResult,
     MeasuredDimension,
@@ -123,10 +124,8 @@ from geometry.drawings.pdf import (
     serialize_pdf,
 )
 from geometry.drawings.sheet_style import (
-    BannerLine,
     TitleBlockFieldRow,
     _fit,
-    banner_lines,
 )
 from geometry.drawings.svg import (
     serialize_svg,
@@ -149,7 +148,6 @@ __all__ = [
     "STANDARD_VIEWS",
     "VIEW_GUTTER_MM",
     "VIEW_LABEL",
-    "BannerLine",
     "FlatPatternExportError",
     "SheetOverflow",
     "SvgRect",
@@ -159,7 +157,6 @@ __all__ = [
     "ViewBounds",
     "anchored_signature",
     "arc_extent_points",
-    "banner_lines",
     "bounds_aware_layout",
     "build_centre_marks",
     "build_dimension_annotation",
@@ -299,7 +296,7 @@ def _tb_field(value: str | None) -> str | None:
 
 
 def _title_block(
-    layout: SheetLayout, dims: Vec2, scale_label: str
+    layout: SheetLayout, dims: Vec2, scale_label: str, kind: DrawingKind
 ) -> ComposedTitleBlock:
     """Place the bottom-right title block — mirrors TitleBlock.tsx.
 
@@ -327,6 +324,7 @@ def _title_block(
         title=display_title,
         scale=scale_label,
         size=layout.size.replace("_", " "),
+        kind=kind,
         author=_tb_field(tb.author) if tb is not None else None,
         date=_tb_field(tb.date) if tb is not None else None,
         notes=_tb_field(tb.notes) if tb is not None else None,
@@ -404,8 +402,12 @@ def place_sheet(
     layout: SheetLayout,
     annotations: Sequence[Annotation] = (),
     threads: Sequence[ThreadCalloutRow] = (),
+    kind: DrawingKind = "part",
 ) -> ComposedSheet:
     """Place the evaluated drawing on the sheet (drawing-export.md §4.2).
+
+    ``kind`` names what the sheet drafts in its title block ("PART DRAWING" or
+    "ASSEMBLY DRAWING").
 
     Ports ``DrawingSheet.tsx``'s placement pipeline: bounds-aware view anchoring,
     per-view edge y-flip, and per-dimension drafting placement (with the sibling-
@@ -588,7 +590,7 @@ def place_sheet(
         title=layout.title,
         scale_label=scale_label,
         views=composed_views,
-        title_block=_title_block(layout, dims, scale_label),
+        title_block=_title_block(layout, dims, scale_label, kind),
         bend_table=bend_table_block,
         notes=_place_notes(annotations),
         layout_issues=measure_sheet_issues(ink_rects, dims, SHEET_MARGIN_MM),

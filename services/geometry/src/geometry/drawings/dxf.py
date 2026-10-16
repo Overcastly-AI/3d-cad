@@ -29,6 +29,7 @@ from ezdxf.document import Drawing
 from ezdxf.enums import TextEntityAlignment
 from ezdxf.layouts import Modelspace
 from loft_wire.drawings import (
+    DRAWING_KIND_CAPTION,
     ComposedBendTable,
     ComposedCentreMark,
     ComposedCircleEdge,
@@ -50,7 +51,6 @@ from geometry.drawings.dimensioning import (
     _DIM_ERROR_TEXT_MM,
 )
 from geometry.drawings.layout import (
-    _BANNER_TEXT_MM,
     _BEND_COL_DX,
     _BEND_TABLE_CAPTION_MM,
     _BEND_TABLE_CAPTIONS,
@@ -75,7 +75,6 @@ from geometry.drawings.sheet_style import (
     _fit,
     _tb_fields,
     _thread_row_cells,
-    banner_lines,
 )
 
 # ---------------------------------------------------------------------------------
@@ -532,7 +531,7 @@ def _dxf_title_block(msp: Modelspace, tb: ComposedTitleBlock, frame: _DxfFrame) 
 
     caption(x + 4, y + 8, "TITLE")
     value(x + 4, y + 18, tb.title)
-    caption(x + 4, y + h - 4, "LOFT · PART DRAWING")
+    caption(x + 4, y + h - 4, DRAWING_KIND_CAPTION[tb.kind])
     caption(tb.split_x + 4, y + 8, "SCALE")
     value(tb.split_x + 4, tb.mid_y - 3, tb.scale)
     caption(tb.split_x + 4, tb.mid_y + 8, "SIZE")
@@ -805,7 +804,7 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
         doc.styles.add(_DXF_STYLE, font="cour.ttf")
         msp = doc.modelspace()
 
-        # Sheet furniture (border / title block / tables / notes / banner) is drawn at
+        # Sheet furniture (border / title block / tables / notes) is drawn at
         # sheet scale — it IS the paper. Views get their own frame below.
         sheet = _DxfFrame(composed.height_mm)
         # The scale the geometry was DRAWN at, recovered exactly from the sheet
@@ -832,20 +831,6 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
             _dxf_thread_schedule(msp, composed.thread_schedule, sheet)
         for note in composed.notes:
             _dxf_note(msp, note, sheet)
-        # The layout-issue banner (audit N2) — on the DIMENSION layer (the sheet's
-        # "read me" ink), so a shop opening the DXF sees the collision called out.
-        for line in banner_lines(composed):
-            _dxf_text_entity(
-                msp,
-                sheet,
-                line.text,
-                line.x,
-                line.y,
-                _BANNER_TEXT_MM,
-                0.0,
-                _LYR_DIMENSION,
-                centred=False,
-            )
 
         stream = io.StringIO()
         doc.write(stream)

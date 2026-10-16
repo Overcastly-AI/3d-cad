@@ -52,6 +52,11 @@ from loft_wire.drawing_centres import ComposedCentreMark as ComposedCentreMark
 from loft_wire.drawing_centres import EdgeToCentreMeasurement as EdgeToCentreMeasurement
 from loft_wire.drawing_centres import LinearOrientation as LinearOrientation
 from loft_wire.drawing_section import SectionViewParams as SectionViewParams
+from loft_wire.drawing_title_block import (
+    DRAWING_KIND_CAPTION as DRAWING_KIND_CAPTION,
+)
+from loft_wire.drawing_title_block import ComposedTitleBlock as ComposedTitleBlock
+from loft_wire.drawing_title_block import DrawingKind as DrawingKind
 from loft_wire.features import (
     MAX_TREE_FEATURES,
     DocumentName,
@@ -1662,46 +1667,6 @@ class ComposedView(BaseModel):
         default_factory=list["ComposedCentreMark"],
         description="Automatic centre marks, one per circle centre seen end-on "
         "(QA-DRAWING-CENTRE-MARKS); empty for a view with no circles.",
-    )
-
-
-class ComposedTitleBlock(BaseModel):
-    """The placed bottom-right title block (drawing-export.md §4.2).
-
-    Geometry (box + the two internal rules) plus the stamped values: the always-on
-    drawing ``title`` (truncated to fit), ``scale`` label and ``size`` display, plus
-    the OPTIONAL free-text :class:`TitleBlock` fields ``author`` / ``date`` / ``notes``
-    (each truncated to fit its cell, ``None`` when unset). The fixed captions ("TITLE" /
-    "SCALE" / "SIZE" / "LOFT · PART DRAWING" and, for the optional fields, "DRAWN" /
-    "DATE" / "NOTES") are the serializer's rendering constants (matching the on-screen
-    title block). A ``None`` optional field is stamped by NO serializer — caption and
-    value both omitted — so a title block with no free-text composes byte-identically to
-    its pre-free-text golden (the additive posture the notes/bend-table fields carry).
-    """
-
-    x: float
-    y: float
-    width: float
-    height: float
-    split_x: float = Field(description="X of the vertical rule (left | right cells)")
-    mid_y: float = Field(description="Y of the horizontal rule in the right cell")
-    title: str = Field(description="Drawing title, truncated to fit the cell")
-    scale: str = Field(description="Scale label ('1:1')")
-    size: str = Field(description="Sheet size, display form ('A4', 'ANSI A')")
-    author: str | None = Field(
-        default=None,
-        description="Author/drafter, truncated to fit; None (stamps nothing) when the "
-        "authored field is unset or blank",
-    )
-    date: str | None = Field(
-        default=None,
-        description="Free-text date, truncated to fit; None (stamps nothing) when the "
-        "authored field is unset or blank",
-    )
-    notes: str | None = Field(
-        default=None,
-        description="Free-text notes, truncated to fit; None (stamps nothing) when the "
-        "authored field is unset or blank",
     )
 
 

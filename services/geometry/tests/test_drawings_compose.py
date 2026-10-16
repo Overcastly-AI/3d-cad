@@ -44,7 +44,6 @@ from geometry.drawings.compose import (
     SvgRect,
     Vec2,
     ViewBounds,
-    banner_lines,
     bounds_aware_layout,
     build_dimension_annotation,
     format_dimension_label,
@@ -616,7 +615,7 @@ def _square_bounds(h: float) -> ViewBounds:
 def test_parity_bounds_aware_layout_third_angle_and_centering() -> None:
     dims = sheet_dimensions("A4", "landscape")
     a = bounds_aware_layout(
-        {v: _square_bounds(20) for v in ("front", "top", "right", "iso")}, dims
+        {v: _square_bounds(10) for v in ("front", "top", "right", "iso")}, dims
     )
     # Third-angle relations.
     assert a["top"].y > a["front"].y
@@ -2153,10 +2152,11 @@ def test_composed_sheets_keep_every_views_ink_inside_the_border() -> None:
         ), name
 
 
-# --- LAYOUTISSUE-OFFSHEET-1: a view off the sheet is reported and stamped ----------
+# --- LAYOUTISSUE-OFFSHEET-1: a view off the sheet is reported ----------------------
 # `layout_issues` only compared views in pairs, so a view whose ink left the drafting
-# border exported with an empty list and no banner. `place_sheet` now reports one
-# `off_sheet` error per such view, and every serializer stamps it.
+# border exported with an empty list. `place_sheet` now reports one `off_sheet` error
+# per such view. The app's check strip shows it; no export prints it on the drawing
+# (BIKE2-DRAWING-SCALE).
 
 
 def _oversize_sheet() -> ComposedSheet:
@@ -2185,7 +2185,7 @@ def test_a_view_off_the_sheet_is_reported_in_layout_issues() -> None:
 
 
 def test_the_off_sheet_issue_reports_the_measured_millimetres() -> None:
-    """The banner reports `measure_sheet_overflow` over the composed sheet's own
+    """The issue reports `measure_sheet_overflow` over the composed sheet's own
     emitted ink, not a second derivation."""
     sheet = _oversize_sheet()
     (overflow,) = measure_sheet_overflow(
@@ -2198,20 +2198,19 @@ def test_the_off_sheet_issue_reports_the_measured_millimetres() -> None:
     assert f"{overflow.sheet_mm:.2f} MM PAST THE PAPER EDGE" in issue.message
 
 
-def test_the_off_sheet_issue_is_stamped_on_every_export() -> None:
+def test_the_off_sheet_issue_is_never_printed_on_an_export() -> None:
+    """Error text is not ink on the drawing (BIKE2-DRAWING-SCALE): the issue rides
+    the composed sheet for the app to show, and no export prints it."""
     sheet = _oversize_sheet()
     (issue,) = sheet.layout_issues
-    lines = banner_lines(sheet)
-    assert [line.error for line in lines] == [True]
-    assert lines[0].text.endswith(issue.message)
-    assert issue.message in serialize_svg(sheet)
-    assert issue.message.encode() in serialize_pdf(sheet)
-    assert issue.message in serialize_dxf(sheet).decode("utf-8", "replace")
+    assert issue.message not in serialize_svg(sheet)
+    assert issue.message.encode() not in serialize_pdf(sheet)
+    assert issue.message not in serialize_dxf(sheet).decode("utf-8", "replace")
 
 
 def test_off_sheet_lines_stack_below_the_pair_lines() -> None:
-    """Pair issues keep their banner slots; off-sheet lines follow on their own
-    baselines rather than printing over them."""
+    """Pair issues keep the first anchors; off-sheet issues follow on their own
+    lines rather than sharing one."""
     rects: list[tuple[ViewProjection, SvgRect]] = [
         ("front", SvgRect(-20.0, 50.0, 120.0, 150.0)),
         ("top", SvgRect(100.0, 60.0, 240.0, 160.0)),
@@ -2237,10 +2236,9 @@ def test_a_caption_that_cannot_fit_is_reported_without_claiming_the_paper() -> N
 
 def test_a_sheet_inside_its_border_reports_nothing() -> None:
     """Non-vacuity: the tight A2 view (nudged so its caption fits) and a small
-    view both compose with no issue and no banner."""
+    view both compose with no issue."""
     for sheet in (_lone_view_sheet(), _lone_view_sheet(half_w=100.0, half_h=100.0)):
         assert sheet.layout_issues == []
-        assert banner_lines(sheet) == []
 
 
 # --- the sheet-fit golden: all three fixes on one exported sheet ------------------

@@ -18,6 +18,7 @@ import {
 } from "@loft/design";
 
 import {
+  AUTO_SCALE,
   SCALE_OPTIONS,
   sheetSizeLabel,
   sheetSizeOptions,
@@ -129,10 +130,15 @@ export function DrawingCommandBand({
     label: source.name,
     group: SOURCE_GROUP_LABEL[source.kind],
   }));
-  const scaleOptions = SCALE_OPTIONS.map((s) => ({
-    value: s.value,
-    label: s.label,
-  }));
+  // Auto first: the layout picks the largest standard scale whose views fit
+  // the sheet, and the option names the one it will pick.
+  const scaleOptions = [
+    {
+      value: AUTO_SCALE,
+      label: paperScale === null ? "Auto" : `Auto (${paperScale})`,
+    },
+    ...SCALE_OPTIONS.map((s) => ({ value: s.value, label: s.label })),
+  ];
   const sizeOptions = sheetSizeOptions(paperOrientation).map((s) => ({
     value: s.value,
     label: s.label,

@@ -25,8 +25,8 @@ import { SCREENSHOT_DIR } from "./support";
  *    a frame drawn straight through the title block.
  *  - the fit reads the SOLVED pose, not the authored seeds. The rig makes those
  *    two answers DIFFERENT (seeds span 120 mm in x, the bolted compound 40), and
- *    `layout.test.ts` pins the scales they imply: 1:2 for the seeds, 1:1 for the
- *    solve. Note the status cannot stand in for this — geometry's
+ *    `layout.test.ts` pins the scales they imply: 1:1 for the seeds, 2:1 for the
+ *    solve (Auto enlarges a part that fits, BIKE2-DRAWING-SCALE). Note the status cannot stand in for this — geometry's
  *    `test_status_alone_cannot_distinguish_the_two` shows the mated and unmated
  *    rigs BOTH report `under_constrained`, so a spec asserting on the status (or
  *    on the 200) passes in a world where the route answers with seeds.
@@ -34,8 +34,8 @@ import { SCREENSHOT_DIR } from "./support";
 
 /** The rig's two readings, kept next to the scales they imply. */
 const SEEDED_X_MM = 120; // two 40 mm plates, the second seeded at x = 80
-const SEEDED_SCALE = "1:2";
-const SOLVED_SCALE = "1:1"; // bolted flush: 40 x 25 x 20 fits its cells at 1:1
+const SEEDED_SCALE = "1:1"; // 120 mm across is 240 mm at 2:1, past A4's border
+const SOLVED_SCALE = "2:1"; // bolted flush, on A3: fits at 2:1, not at 5:1
 
 interface Rect {
   x: number;
@@ -153,7 +153,7 @@ test.describe("Drawings — an assembly sheet fits its paper", () => {
     await openDrawingFromAssembly(page);
     await layOut(page);
 
-    // The sheet reduced the picked 1:1 to the scale the extents earn. Read from
+    // Auto chose the scale the extents earn. Read from
     // the band's post-layout readout (derived from the PERSISTED view scale, so
     // this is what was written, not what the picker was left showing) and from
     // the title block the exporter stamps.
@@ -192,8 +192,8 @@ test.describe("Drawings — an assembly sheet fits its paper", () => {
     });
 
     // --- a later solve does NOT move a sheet the user already laid out -------
-    // Bolting the plates together shrinks the compound to 40 mm, which would fit
-    // 1:1. The sheet stays at 1:2 on purpose: the scale of a laid-out sheet
+    // Bolting the plates together shrinks the compound to ~40 mm, which would
+    // fit a larger scale. The sheet stays at 1:1 on purpose: the scale of a laid-out sheet
     // belongs to the user (they can re-pick it, and a dragged view is pinned),
     // and re-flowing paper underneath someone is the surprise the flow rule
     // exists to prevent. The sheet's own layout checks report; they never move.
@@ -230,8 +230,9 @@ test.describe("Drawings — an assembly sheet fits its paper", () => {
     // compound's AABB is a little wider than the 40 mm plate — measured 42.2 mm
     // here. Pinning that number would make this a solver-precision tripwire; the
     // property under test is that the reading is a stacked pair of plates and
-    // nowhere near the 120 mm the SEEDS span. Every value in this band fits at
-    // 1:1 and none of it fits at 2:1, so the scale assertion below stays exact.
+    // nowhere near the 120 mm the SEEDS span. On A3 every value in this band
+    // fits at 2:1 and none of it at 5:1 (on A4 the band straddles 2:1 and 1:1,
+    // BIKE2-DRAWING-SCALE), so the scale assertion below stays exact.
     const solved = await solvedExtents(page, token, assemblyId);
     expect(solved.x).toBeGreaterThan(38);
     expect(solved.x).toBeLessThan(60);
@@ -239,10 +240,12 @@ test.describe("Drawings — an assembly sheet fits its paper", () => {
     expect(solved.x).toBeLessThan(SEEDED_X_MM - 1);
 
     await openDrawingFromAssembly(page);
-    // Pick 2:1 so the outcome separates three worlds: no fit at all leaves 2:1,
-    // a fit that folded the SEEDS gives 1:2, and a fit on the solved compound
-    // gives 1:1. Only the last is correct, and it is not the default.
-    await page.getByTestId("drawing-scale-select").selectOption("2:1");
+    // Pick A3 and 5:1 so the outcome separates three worlds: no fit at all
+    // leaves 5:1, a fit that folded the SEEDS gives 1:1 (240 mm wide at 2:1 plus
+    // its iso is past A3's border), and a fit on the solved compound gives 2:1.
+    // Only the last is correct.
+    await page.getByTestId("drawing-size-select").selectOption("A3");
+    await page.getByTestId("drawing-scale-select").selectOption("5:1");
     await layOut(page);
 
     await expect(page.getByTestId("drawing-scale-readout")).toHaveText(

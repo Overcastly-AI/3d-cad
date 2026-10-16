@@ -11,7 +11,8 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  *    the reference moved when the part changed and geometry re-measured from the
  *    edge that is actually there — read on screen exactly like an untouched one;
  *  * `ComposedSheet.layout_issues` — two views that collide — appeared on the
- *    exported PDF/DXF/SVG as a stamped banner and NOWHERE in the app, so an
+ *    exported PDF/DXF/SVG as a stamped banner and NOWHERE in the app (it is now
+ *    the check strip only, never printed on the drawing), so an
  *    unreadable sheet looked fine right up until the shop opened the file.
  *
  * Both are driven here through a real browser against the real stack (no mocks),
@@ -425,10 +426,10 @@ test.describe("drawings — an overlapping sheet says so", () => {
     await expect(overlapRow.getByTestId("sheet-issue-message")).toContainText(
       "VIEWS OVERLAP BY",
     );
-    // ...and the SAME banner is stamped on the paper, so the SVG you see is the
-    // SVG you export (the server serializers use this exact hook).
-    const banner = page.getByTestId("drawing-layout-issue").first();
-    await expect(banner).toHaveText(/^LAYOUT ERROR: /);
+    // ...and NOTHING is printed on the paper: error text is the app's to show,
+    // never ink on the drawing or its exports (BIKE2-DRAWING-SCALE).
+    await expect(page.getByTestId("drawing-layout-issue")).toHaveCount(0);
+    await expect(page.getByTestId("drawing-sheet")).not.toContainText("LAYOUT");
 
     // Founder AFTER frame — the sheet that used to be silent.
     await page.mouse.move(20, 980);
