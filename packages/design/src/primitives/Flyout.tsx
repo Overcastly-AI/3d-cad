@@ -65,8 +65,25 @@ export interface FlyoutItem {
 export interface FlyoutProps {
   /** Group name on the trigger (e.g. "Geometric"). */
   label: string;
-  /** Group glyph on the trigger. */
-  icon: ReactNode;
+  /** Group glyph on the trigger (not drawn by the `eyebrow` variant). */
+  icon?: ReactNode;
+  /**
+   * `tool` (default): a band control in its own right, with glyph, label and caret.
+   *
+   * `eyebrow`: the trigger IS a `ToolGroup`'s eyebrow ("CREATE ▾"), Fusion's
+   * group-name dropdown holding the group's low-frequency verbs. The eyebrow
+   * is already on the band, so the menu costs the band a caret rather than a
+   * cell, and its word is the group's name, which no label tier sheds. The
+   * menu hangs from the nearest positioned ancestor (`ToolGroup` makes itself
+   * one), so it drops below the whole group instead of over its tools.
+   */
+  variant?: "tool" | "eyebrow";
+  /**
+   * The trigger's accessible name and tooltip, when it must say more than
+   * `label`: an eyebrow trigger is "More Create tools", not "Create", which is
+   * already the group's own name.
+   */
+  triggerLabel?: string;
   items: readonly FlyoutItem[];
   /** Tracked-caps header inside the menu. */
   eyebrow?: string;
@@ -76,7 +93,7 @@ export interface FlyoutProps {
    * menu does not vanish from the band once the menu closes.
    */
   active?: boolean;
-  "data-testid"?: string;
+  "data-testid"?: string | undefined;
 }
 
 /**
@@ -103,8 +120,12 @@ export function Flyout({
   items,
   eyebrow,
   active = false,
+  variant = "tool",
+  triggerLabel,
   "data-testid": testid,
 }: FlyoutProps) {
+  const isEyebrow = variant === "eyebrow";
+  const name = triggerLabel ?? label;
   const [open, setOpen] = useState(false);
   /**
    * Which edge of the trigger the menu hangs from. `start` (its left) unless
@@ -227,7 +248,12 @@ export function Flyout({
   };
 
   return (
-    <div ref={rootRef} className="relative flex items-stretch">
+    <div
+      ref={rootRef}
+      // The eyebrow variant is deliberately NOT a positioned box: its menu
+      // anchors to the enclosing `ToolGroup`, below the group's tools.
+      className={isEyebrow ? "flex" : "relative flex items-stretch"}
+    >
       <button
         ref={triggerRef}
         type="button"
@@ -235,39 +261,59 @@ export function Flyout({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        aria-label={label}
+        aria-label={name}
         onClick={() => (open ? close(true) : setOpen(true))}
         onKeyDown={onTriggerKeyDown}
         className={cx(
-          "group/tt relative inline-flex select-none items-center gap-1.5 rounded-sm py-1.5",
-          // Same ≥32px target and the same padding step as `ToolButton` takes
-          // when its enclosing group sheds — one band row, one hover geometry.
-          "min-h-8 px-2.5 [[data-labels=off]_&]:px-1.5",
-          "transition-colors duration-fast hover:bg-carbide",
+          "group/tt relative inline-flex select-none items-center rounded-sm",
+          "transition-colors duration-fast",
           "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
-          open && "bg-carbide",
-          active ? "text-brass" : "text-mist",
+          isEyebrow
+            ? // The eyebrow's own metrics (`ToolGroup`), so a group reads the
+              // same with or without a menu: a caret and a hover ink are all
+              // the menu adds.
+              cx(
+                "gap-0.5 px-1 pb-0.5 font-display text-2xs uppercase tracking-[0.16em] hover:text-mist",
+                open || active ? "text-brass" : "text-gauge",
+              )
+            : cx(
+                "gap-1.5 py-1.5",
+                // Same ≥32px target and the same padding step as `ToolButton`
+                // takes when its enclosing group sheds — one band row, one
+                // hover geometry.
+                "min-h-8 px-2.5 [[data-labels=off]_&]:px-1.5 hover:bg-carbide",
+                open && "bg-carbide",
+                active ? "text-brass" : "text-mist",
+              ),
         )}
         data-active={active ? "true" : undefined}
       >
-        <span className="flex shrink-0 items-center">{icon}</span>
-        <span className="font-display text-2xs uppercase tracking-[0.12em] [[data-labels=off]_&]:hidden">
-          {label}
-        </span>
+        {isEyebrow ? (
+          // The group's name is never shed: it is the eyebrow every tier keeps.
+          <span>{label}</span>
+        ) : (
+          <>
+            <span className="flex shrink-0 items-center">{icon}</span>
+            <span className="font-display text-2xs uppercase tracking-[0.12em] [[data-labels=off]_&]:hidden">
+              {label}
+            </span>
+          </>
+        )}
         <span
           aria-hidden
           className={cx(
-            "flex shrink-0 items-center text-gauge motion-safe:transition-transform motion-safe:duration-fast",
+            "flex shrink-0 items-center motion-safe:transition-transform motion-safe:duration-fast",
+            !isEyebrow && "text-gauge",
             open && "rotate-180",
           )}
         >
-          <CaretDownIcon size={12} />
+          <CaretDownIcon size={isEyebrow ? 10 : 12} />
         </span>
         {/* Not while the menu is down: the stamp and the menu occupy the same
             strip of viewport, and a tooltip over an open menu is noise. */}
-        {open ? null : <ToolStamp label={label} />}
+        {open ? null : <ToolStamp label={name} />}
         {/* The armed scribe, the same line `ToolButton` draws. */}
-        {active ? (
+        {active && !isEyebrow ? (
           <span
             aria-hidden
             data-scribe
@@ -281,7 +327,7 @@ export function Flyout({
           ref={menuRef}
           id={menuId}
           role="menu"
-          aria-label={label}
+          aria-label={name}
           onKeyDown={onMenuKeyDown}
           data-align={align}
           // 15rem, not 13: a row that declares what it `requires` carries a

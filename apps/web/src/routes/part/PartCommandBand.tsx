@@ -81,6 +81,7 @@ export function PartCommandBand({
   featureOpeners: Pick<
     FeatureOpeners,
     | "openCreateDatum"
+    | "openCreatePlaneAlongPath"
     | "openCreateExtrude"
     | "openCreateRevolve"
     | "openCreateSweep"
@@ -148,6 +149,7 @@ export function PartCommandBand({
   const { handleImportStep, toggleMeasure } = workspaceActions;
   const {
     openCreateDatum,
+    openCreatePlaneAlongPath,
     openCreateExtrude,
     openCreateRevolve,
     openCreateSweep,
@@ -192,6 +194,7 @@ export function PartCommandBand({
           importingStep={importing}
           onImportStep={handleImportStep}
           onNewDatum={openCreateDatum}
+          onNewPlaneAlongPath={openCreatePlaneAlongPath}
           canExtrude={hasSolvedSketch}
           onNewExtrude={openCreateExtrude}
           canRevolve={hasSolvedSketch}

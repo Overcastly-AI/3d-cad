@@ -106,6 +106,7 @@ test.describe("SEL-4 QA — shell and draft refusals, and the draft half", () =>
     await openDensePlate(page);
     const viewport = page.getByTestId("viewport");
 
+    await page.getByTestId("modify-more").click();
     await expect(page.getByTestId("new-draft")).toBeEnabled({
       timeout: 30_000,
     });
@@ -903,6 +904,7 @@ test.describe("SEL-4 QA — the recede rider, stated per overlay", () => {
     await expect(page.getByTestId("shell-editor")).toBeHidden();
 
     // (c) draft face marks — the same overlay under its other prefix
+    await page.getByTestId("modify-more").click();
     await page.getByTestId("new-draft").click();
     await page.getByTestId("draft-angle").fill("5");
     const draft = page.locator('[data-testid^="draft-face-"]').first();

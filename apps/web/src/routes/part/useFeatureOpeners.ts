@@ -8,7 +8,7 @@ import { useCallback } from "react";
 
 import { useMeasureStore } from "../../measure/store";
 import { type FeatureResponse } from "../../api/parts";
-import { defaultDatumForm } from "../../features/datum";
+import { defaultDatumForm, defaultFormForKind } from "../../features/datum";
 import { isStraightEdge } from "../../features/datumAngle";
 import {
   defaultExtrudeForm,
@@ -427,6 +427,19 @@ export function useFeatureOpeners({
     });
   }, [bodyFeatureId]);
 
+  // Fusion's Construct > Plane Along Path, as its own menu row: the datum
+  // editor, opened already on the along-path kind.
+  const openCreatePlaneAlongPath = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "datum",
+      mode: "create",
+      initial: defaultFormForKind("along_path", false),
+    });
+  }, []);
+
   // A base flange thickens a sketch profile to gauge — the sheet-metal part's
   // first body (sheet-metal.md §4.1). Like extrude it needs a solved sketch to
   // consume, so it mirrors openCreateExtrude's profile guard.
@@ -511,6 +524,7 @@ export function useFeatureOpeners({
     openCreateMirror,
     openScopedVerb,
     openCreateDatum,
+    openCreatePlaneAlongPath,
     openCreateBaseFlange,
     openCreateEdgeFlange,
     openCreateHem,

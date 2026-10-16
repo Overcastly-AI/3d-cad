@@ -189,6 +189,7 @@ async function angleField(page: Page): Promise<number> {
 
 /** Open the draft editor on the seeded cube, framed in iso. */
 async function openDraft(page: Page): Promise<void> {
+  await page.getByTestId("modify-more").click();
   await page.getByTestId("new-draft").click();
   await expect(page.getByTestId("draft-editor")).toBeVisible();
   await page.getByTestId("view-iso").click();

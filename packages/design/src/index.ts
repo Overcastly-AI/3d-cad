@@ -43,13 +43,12 @@ export { Notice, type NoticeProps } from "./primitives/Notice";
 export { Toolbar, Chip } from "./primitives/Toolbar";
 export {
   ToolButton,
-  ToolGroup,
   ToolOffer,
   Kbd,
   type ToolButtonProps,
-  type ToolGroupProps,
   type ToolProposal,
 } from "./primitives/ToolButton";
+export { ToolGroup, type ToolGroupProps } from "./primitives/ToolGroup";
 export {
   CommandBand,
   type CommandBandProps,

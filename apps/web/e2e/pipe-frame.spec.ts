@@ -97,6 +97,7 @@ async function pipeOnSkeleton(
   od: string,
   wall: string,
 ): Promise<Record<string, unknown>> {
+  await page.getByTestId("create-more").click();
   await page.getByTestId("new-pipe").click();
   await expect(page.getByTestId("pipe-editor")).toBeVisible();
   await page.getByTestId(`pipe-curve-Skeleton-${entity}`).click();
