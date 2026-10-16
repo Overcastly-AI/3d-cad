@@ -185,7 +185,7 @@ export function PipeEditor({
               </span>
             </div>
             <div
-              className="flex max-h-56 flex-col gap-1 overflow-y-auto border border-hairline p-1"
+              className="flex max-h-[14rem] flex-col gap-1 overflow-y-auto border border-hairline p-1"
               data-testid="pipe-path"
               role="group"
               aria-label="Path curves"
