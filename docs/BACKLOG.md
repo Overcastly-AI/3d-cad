@@ -44,7 +44,7 @@ ASM-A3-PATTERN and ASM-A3-IN-CONTEXT (§24; e2e `assembly-subassembly`,
    twisted-extrude golden (empty two-way difference), every stored twisted
    extrude rebuilds byte-identical, and a test plugin's v2 leaves its v1
    feature's golden byte-identical.
-4. [ ] **PLUGIN-UI** (stops B1): a custom feature is an ordinary tool in a
+4. [x] **PLUGIN-UI** (stops B1): a custom feature is an ordinary tool in a
    Build toolbar group, with a form generated from its input schema (units
    and parameters accepted), one tree node that unfolds into its members,
    edited like any feature (Onshape custom features). _Accept:_ an e2e
@@ -265,6 +265,10 @@ One line each. The founder triages weekly; most are closed without work.
 - LINE-ENTRY-TAB review (90db343): a Tab left in a circle's drag box survives a click/canvas-Esc and refuses the next circle at the same centre ("10" Tab, later "100"; clear `tabbed` on draft change); "W" Tab "/2" is refused as a second value without saying why; the error text overlaps the X AXIS label.
 - PLUGIN-CAP: a custom feature's effective size cap is the part's 1,000-feature tree bound counted after expansion (RESEARCH §23); the wire's per-plugin `MAX_PLUGIN_EXPANSION` (5,000) is moot under it and could drop to 1,000 in a wire change.
 - PLUGIN-UNDO-CAP: undo/redo restores a prior tree state without re-checking the expanded bound (each state was within it when written); an overflow would surface only as the evaluation's `plugin_expansion_too_large`.
+- PLUGIN-UI-BAND-1280: the Build group fills the command band at 1280: Export's format codes now shed to icons there (tooltips keep them), and the next tool or group needs the band's "more" flyout (`toolbar-overflow.spec.ts` point 4).
+- PLUGIN-UI-ICON: the manifest has no icon, so every plugin tool and tree chip wears one generic custom-feature glyph; an `icon` key from the design glyph set is a wire change.
+- PLUGIN-UI-UPDATE: a feature pinned to an older installed version edits on that version; there is no update badge or explicit update to `latest` yet (RESEARCH §23, Onshape's update).
+- PLUGIN-UI-MEMBERS: member rows are read-only labels; picking one does not select or light that member's faces alone (the custom row lights all of them), and the missing-plugin e2e stubs the catalog rather than importing a `.loft` from another server.
 - APEX-BUTTONS: Extrude and Revolve enable with only an apex (point-only) sketch present; clicking does nothing.
 - APEX-SWEEP-PATH: `defaultSweepPathId` and the sweep path picker still offer apex sketches (the kernel refuses with a typed `PathEmptyError`).
 - APEX-OTHER-LISTS: the BaseFlange editor and the revolve axis map still list apex sketches (typed kernel refusal, no crash).
