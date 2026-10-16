@@ -16,7 +16,7 @@ SWEEP-CLOSED-PATH, ASM-JOINTS, ASM-MOVE-DRAG, ASM-LIMITS, and ASM-A3 with
 ASM-A3-PATTERN and ASM-A3-IN-CONTEXT (§24; e2e `assembly-subassembly`,
 `assembly-pattern`, `assembly-in-context`).
 
-1. [ ] **ASM-FAILED-PART-API** (silently short export, next to the blocking
+1. [x] **ASM-FAILED-PART-API** (silently short export, next to the blocking
    line): `POST /geometry/assembly/export` names the occurrences it omitted
    in an `X-Loft-Omitted-Occurrences` header, forwarded by the gateway like
    `PROPERTIES_HEADER`, and loft-script warns with their names; an assembly

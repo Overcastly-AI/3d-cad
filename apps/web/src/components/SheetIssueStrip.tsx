@@ -15,12 +15,24 @@
  * face so the words on screen are literally the words on the print. Nothing here
  * is decorative: every row that CAN be fixed in one click carries the action that
  * fixes it (design mandate 3c), and a row that cannot says what to do instead.
+ *
+ * An assembly sheet also lists each part that failed to build (a WARNING row,
+ * ASM-FAILED-PART-API): its occurrences have no body, so the views silently
+ * lack them. Its action opens the part, where the failing feature is marked.
  */
 import { Stamp } from "@loft/design";
 
-import type { ComposedLayoutIssue, ViewProjection } from "../api/drawings";
+import type {
+  ComposedLayoutIssue,
+  OmittedPart,
+  ViewProjection,
+} from "../api/drawings";
 import { VIEW_LABEL } from "../drawing/layout";
-import { SEVERITY_LABEL, hasLayoutError } from "../drawing/layoutIssues";
+import {
+  SEVERITY_LABEL,
+  failedPartMessage,
+  hasLayoutError,
+} from "../drawing/layoutIssues";
 
 export interface SheetIssueStripProps {
   /** The composer's measured issues, in composed order. */
@@ -34,6 +46,10 @@ export interface SheetIssueStripProps {
   onAutoPlace: (projections: readonly ViewProjection[]) => void;
   /** A placement write is in flight — the row actions rest. */
   busy?: boolean;
+  /** The drafted assembly's parts that produced no body, by part. */
+  failedParts?: readonly OmittedPart[];
+  /** Open a failed part in its own workspace. */
+  onOpenPart?: (partId: string) => void;
 }
 
 /** "Front and Top" / "Front, Top and Right" — a readable list of view names. */
@@ -48,8 +64,10 @@ export function SheetIssueStrip({
   handPlaced,
   onAutoPlace,
   busy = false,
+  failedParts = [],
+  onOpenPart,
 }: SheetIssueStripProps) {
-  if (issues.length === 0) return null;
+  if (issues.length === 0 && failedParts.length === 0) return null;
   const errored = hasLayoutError(issues);
   return (
     <div
@@ -72,7 +90,7 @@ export function SheetIssueStrip({
           data-testid="sheet-issue-count"
           className="font-data text-2xs tabular-nums text-gauge"
         >
-          {issues.length}
+          {issues.length + failedParts.length}
         </span>
       </header>
       <ul className="divide-y divide-hairline">
@@ -126,6 +144,37 @@ export function SheetIssueStrip({
             </li>
           );
         })}
+        {failedParts.map((part) => (
+          <li
+            key={part.part_document_id ?? part.name}
+            data-testid="sheet-issue-row"
+            data-issue-code="part_failed"
+            data-severity="warning"
+            data-part-document-id={part.part_document_id ?? undefined}
+            className="flex items-center gap-2.5 px-3 py-1.5"
+          >
+            <Stamp tone="gauge" data-testid="sheet-issue-severity">
+              {SEVERITY_LABEL.warning}
+            </Stamp>
+            <span
+              data-testid="sheet-issue-message"
+              className="grow font-data text-2xs text-gauge"
+            >
+              {failedPartMessage(part)}
+            </span>
+            {part.part_document_id != null && onOpenPart !== undefined ? (
+              <button
+                type="button"
+                data-testid="sheet-issue-open-part"
+                aria-label={`Open ${part.name}`}
+                onClick={() => onOpenPart(part.part_document_id as string)}
+                className="shrink-0 rounded-sm px-1.5 py-0.5 font-display text-2xs uppercase tracking-[0.14em] text-brass transition-colors duration-fast hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass"
+              >
+                Open part
+              </button>
+            ) : null}
+          </li>
+        ))}
       </ul>
     </div>
   );

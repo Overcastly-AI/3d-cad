@@ -52,6 +52,7 @@
     "draw-dimension-arming.spec.ts": 84.9,
     "drawing-autoscale.spec.ts": 15.4,
     "drawing-centre-marks.spec.ts": 9.6,
+    "drawing-failed-part.spec.ts": 12.5,
     "drawing-parts-list.spec.ts": 36.4,
     "drawing-place-view.spec.ts": 13.3,
     "drawing-reanchor.spec.ts": 12.9,
