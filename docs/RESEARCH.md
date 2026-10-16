@@ -1164,6 +1164,9 @@ The step bought about 0.6 to 0.7 s (2.5 %), not the ~8 % estimated. The
 estimate counted the whole admission, and a third of the admission is the
 face-level classification that has to stay whole. The 22 s target is not met.
 What is left is step 1 (founder) and step 4 (new goldens).
+Decided 2026-10-16 (delegated by the founder to the product-manager): step 1
+is taken next and the 22 s target is retired; step 4 (PERF-REBUILD-LOCAL,
+under 10 s) waits until a reference part needs it.
 
 ## 16. Shell corners: sharp by default, rounded where stored
 

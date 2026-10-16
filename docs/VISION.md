@@ -193,3 +193,33 @@ main `01e49e2` on 2026-10-09 (commits and tests; no grade changed).
   driver. The scripting API is the answer for these.
 - A native desktop app. Loft is browser-first.
 - Cloud SaaS billing. Self-hosting comes first.
+
+## Delegated decisions
+
+The founder delegated these on 2026-10-16 ("launch an agent to understand the
+goal and answer them"); the product-manager decided them. Each is in
+`docs/BACKLOG.md` under its ID. Reverse any by editing that line.
+
+- **Drawing parts list:** Top level by default plus a Structure choice (Top
+  level, Indented, Parts only), as SolidWorks and Fusion (DRAWING-PARTS-LIST-LEVEL).
+- **Line Length + Angle:** yes, after Pipe, with the angle-to-axis dimension
+  first (SKETCH-LINE-ANGLE).
+- **Rebuild speed:** §15a step 1 now; step 4 stays in Next; the 22 s target
+  is retired for PERF-REBUILD-LOCAL's 10 s (PERF-REBUILD-200 step 1).
+- **In-context links in a sub-assembly:** resolve only in their own context
+  assembly (SolidWorks; Fusion syncs a context only in its own design)
+  (ASM-IC-SUB-CONTEXT).
+- **In-context face references:** later (ASM-IC-FACES).
+- **Script/API exports with failed parts:** flag them now with
+  `X-Loft-Omitted-Occurrences` and a loft-script warning (ASM-FAILED-PART-API).
+- **Drawing defaults:** keep issues off the sheet (export shows the count, no
+  confirm), Auto at 2:1 for small parts, first-angle bike at 1:50 on A4
+  (DRAWING-AUTOSCALE note).
+- **Auth rate limit:** trust `X-Forwarded-For` from the bundled proxy only
+  (AUTH-RATE-LIMIT-PROXY).
+- **Twisted-body drawings:** exact HLR within the budget, else a polygonal
+  view flagged approximate (TWISTED-BODY-DRAWINGS).
+- **Shelled revolve, shallow angle:** a true offset or a typed refusal
+  (SHELL-REVOLVE-SHALLOW).
+- **Left for the founder:** the object store (MinIO or an Apache-2.0 server),
+  because it turns on publishing images under AGPL §6.

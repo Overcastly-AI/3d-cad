@@ -9,76 +9,62 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
-Done 2026-10-09: **EXTRUDE-SYMMETRIC** (204a575, 61377c0, e6aeebb; golden
-`extrude-cut-symmetric-pocket-offset-xz-40x40x20`), **LINE-CHAIN** (b3d1b92,
-398799f) and **PERF-REBUILD-200 pass 1** (505a361, 55c6150, 6cb2ebf: 200
-features 29.4 -> 25.3 s, 100 features 7.0 -> 6.3 s, every golden
-byte-identical; RESEARCH §15a). Done 2026-10-09..14 and dropped at the
-2026-10-15 triage: **PART-PARAMETERS** (§20), **DATUM-PLANE-ANGLE** (§18),
-**SKETCH-PLANE-PICK**, **SWEEP-CLOSED-PATH** (§19), **ASM-JOINTS**,
-**ASM-MOVE-DRAG** and **ASM-LIMITS** (§21, §22).
+Ranked 2026-10-16 by the product-manager (delegated by the founder). Done
+2026-10-09..16 and dropped: EXTRUDE-SYMMETRIC, LINE-CHAIN, PERF-REBUILD-200
+passes 1-2 (§15a), PART-PARAMETERS, DATUM-PLANE-ANGLE, SKETCH-PLANE-PICK,
+SWEEP-CLOSED-PATH, ASM-JOINTS, ASM-MOVE-DRAG, ASM-LIMITS, and ASM-A3 with
+ASM-A3-PATTERN and ASM-A3-IN-CONTEXT (§24; e2e `assembly-subassembly`,
+`assembly-pattern`, `assembly-in-context`).
 
-- [ ] **PERF-REBUILD-200 pass 2** (the scorecard's ❌; RESEARCH §15a steps 2,
-      3 and 5, none of which needs a founder decision): admission `BRepCheck`
-      by changed wire, reusing the verdict of every unchanged wire and edge
-      (~8 %); body volumes summed from per-face GProp cached by TShape (~6 %);
-      pattern and mirror record their result's volume (~0.5 %). _Accept:_ the
-      wire-level check is proven equal to `BRepCheck_Analyzer` over the whole
-      golden suite before it replaces it; every golden byte-identical, no
-      tolerance touched; the `housing_tree(200)` cold rebuild, median of 3
-      against 01e49e2 on the same idle host, is at or under 22 s, recorded in
-      RESEARCH §15a. _Status 2026-10-09:_ step 5 taken (25.98 s against
-      26.16 s); step 3 refused, because a cache keyed on TShape misses
-      OCCT's in-place rewrites (§15a); step 2 waits on the founder: may we
-      fetch the OCCT `BRepCheck` source? _Status 2026-10-15:_ step 2 built,
-      measured and not merged. A wire-level check equal to the analyzer on
-      10823 admissions, every golden byte-identical, saved only 0.6-0.7 s at
-      N=200 (26.69 s against 27.40 s at d2f5777), inside the run-to-run
-      spread; the review judged it not worth re-verifying on every OCCT
-      upgrade (RESEARCH §15a). What is left needs step 1 (founder) or step 4
-      (new goldens).
-- [x] **ASM-A3** step 1, nested sub-assemblies (done on this branch; e2e
-      `assembly-subassembly.spec.ts`, golden `assembly-nested-hinge-pair`)
-      (founder 2026-10-15: next, so a bike can be built): an assembly is
-      inserted from the Add panel as a rigid sub-assembly (SolidWorks rigid),
-      solved in its own frame and drawn to any depth; a joint attaches to a
-      part inside it by occurrence id and survives a reload; moving it moves
-      its contents; the BOM is top level, indented and parts only, and the
-      drawing parts list is the top level; interference and STEP include
-      every nested part; cycles are refused naming the chain. A3's remaining
-      acceptance moves to the two lines below.
-- [x] **ASM-A3-PATTERN** (A3; done on this branch; e2e
-      `assembly-pattern.spec.ts`, golden `assembly-component-patterns`):
-      linear, circular and on-holes (pattern-driven / Replicate) component
-      patterns of parts or rigid sub-assemblies, one tree entry each (Pattern
-      on the band; count, spacing and angle typed as expressions; direction or
-      axis from an origin axis, a straight edge or a hole axis picked in the
-      viewport). Copies are placed by geometry after the solve, fixed to their
-      seed (a jointed seed carries them), and count in the BOM (gateway asks
-      geometry for a hole pattern's count, so the BOM follows the part),
-      interference, STEP and the 500 bound (every ancestor; typed
-      `assembly_too_large`). Table `assembly_patterns` (alembic 0019). A3's
-      structure bills top level 11 / 45 and parts only 16 / 73
-      (`test_a3_bom_counts_every_copy`); a 32-spoke wheel in a bike bills 64
-      spokes (`asm-pattern.png`).
-- [x] **ASM-A3-IN-CONTEXT** (A3; done on this branch; e2e
-      `assembly-in-context.spec.ts`, golden `assembly-in-context-rail-plate`,
-      RESEARCH §24): Edit in Place from the component menu opens the part with
-      the other components ghosted around it, and Project takes their edges as
-      in-context links (context assembly, host and referenced occurrence, edge
-      in that part's frame, last resolved curve). Every evaluation of the
-      context assembly re-resolves them, rebuilds the part and re-solves until
-      nothing moves; the gateway stores the values (metadata, no undo step).
-      Out of context a part rebuilds from its last values. A removed or
-      replaced component, a gone edge or a loop is a typed error shown on the
-      component and the sketch, keeping the last geometry; Break link keeps
-      it; a loop is refused at write (`in_context_cycle`, naming the chain).
-      No schema change. Moving A3's rails from ±40 to ±45 moves the plate's
-      holes (golden, 1e-9; e2e).
+1. [ ] **ASM-FAILED-PART-API** (silently short export, next to the blocking
+   line): `POST /geometry/assembly/export` names the occurrences it omitted
+   in an `X-Loft-Omitted-Occurrences` header, forwarded by the gateway like
+   `PROPERTIES_HEADER`, and loft-script warns with their names; an assembly
+   drawing warns for a part that failed to build. _Accept:_ exporting the
+   bike with a failing crank arm through loft-script warns naming both arms,
+   and the drawing's check strip names them. _Decided 2026-10-16 (delegated
+   by founder to product-manager):_ yes, now — a script caller gets a short
+   STEP with no signal, which is wrong geometry exported.
+2. [ ] **PIPE-ALONG-PATH** (bike BIKE-TUBE-PLANE, BIKE-SWEEP-PATH-PICK,
+   BIKE-NO-INCLUDE-SKETCH): Fusion's Pipe (picked chain of sketch or body
+   edges, section circle or ring by OD and wall, fused or new body) and
+   Plane Along Path (plane normal to an edge at a distance or ratio). One
+   skeleton sketch drives every tube; a branched pick gives
+   `sweep_path_not_connected`. _Accept:_ the bike's down, seat, top and head
+   tubes are 4 Pipes on one skeleton sketch, fused into one valid body
+   matching a build123d script to 1e-4; editing the head angle 73 -> 72°
+   rebuilds every tube; goldens for both features.
+3. [ ] **PLUGIN-REGISTRY** (stops B1; RESEARCH §23): a kernel-free
+   `packages/loft-plugins` registers custom features (manifest, typed inputs,
+   a pure expand to base features), pinned by version per feature and
+   expanded by documents; the deprecated extrude twist moves there as a
+   Twisted prism. _Accept:_ the twisted prism matches the legacy
+   twisted-extrude golden (empty two-way difference), every stored twisted
+   extrude rebuilds byte-identical, and a test plugin's v2 leaves its v1
+   feature's golden byte-identical.
+4. [ ] **PLUGIN-UI** (stops B1): a custom feature is an ordinary tool in a
+   Build toolbar group, with a form generated from its input schema (units
+   and parameters accepted), one tree node that unfolds into its members,
+   edited like any feature (Onshape custom features). _Accept:_ an e2e
+   inserts the twisted prism from the toolbar, edits its angle to `twist*2`
+   and sees it regenerate.
+5. [ ] **PERF-REBUILD-200 step 1** (RESEARCH §15a step 1): one face-merge per
+   boolean; the guarded merge stays for the fuzzy repair. _Accept:_ every
+   golden byte-identical except the moto frame's `mesh_glb_id` and the
+   coincident-tube BRep bytes, re-recorded with the same counts, volume and
+   STEP round trip, no tolerance touched; the CM-6 later-pocket test asserts
+   the valid analytic body (30193.6284 mm^3) instead of `invalid_body`;
+   bytes equal across 4 processes; `housing_tree(200)` cold, median of 3
+   against `514660d` on an idle host, recorded in §15a. _Decided 2026-10-16
+   (delegated by founder to product-manager):_ step 1 now, step 4 stays in
+   Next, and the 22 s target is retired for PERF-REBUILD-LOCAL's 10 s —
+   step 1 is ~15 % for one small change and turns a refused body into the
+   right one; step 4 re-records every hole and pocket golden, which no
+   reference part needs yet.
 
 ## Next
 
-- [ ] **PERF-REBUILD-LOCAL** (RESEARCH §15a step 4, after pass 2; takes over
+- [ ] **PERF-REBUILD-LOCAL** (RESEARCH §15a step 4, after step 1; takes over
       BIG-PATTERN-COST): holes as `BRepFeat_MakeCylindricalHole` and pockets
       as `BRepFeat_MakePrism`, costing the faces they touch rather than the
       whole body; also explain why a 50x mirror/rotate never finished and a
@@ -86,6 +72,14 @@ byte-identical; RESEARCH §15a). Done 2026-10-09..14 and dropped at the
       cold in under 10 s and 100 in under 3 s; face splits change, so each
       re-recorded golden gets a reviewed volume and STEP check, no tolerance
       loosened.
+- [ ] **AUTH-RATE-LIMIT-PROXY** (was a founder decision): behind the
+      bundled nginx every client shares one login bucket, so one attacker
+      locks every user out. _Accept:_ two clients behind the bundled proxy
+      get separate buckets, and a forged `X-Forwarded-For` sent straight to
+      the gateway is ignored. _Decided 2026-10-16 (delegated by founder to
+      product-manager):_ trust `X-Forwarded-For` only from the bundled
+      proxy's address (nginx overwrites it with `$remote_addr`), else key on
+      the socket — the standard trusted-proxy rule.
 - [ ] **FILLET-PARTIAL-RESOLVE**: when some of a fillet's picked edges no
       longer exist (an impeller going 7 -> 6 blades), the whole fillet fails.
       Fusion keeps the edges that still resolve and warns about the rest.
@@ -123,12 +117,33 @@ byte-identical; RESEARCH §15a). Done 2026-10-09..14 and dropped at the
 - [ ] **EMPTY-SKETCH-SAVE**: undoing the last entity of a saved sketch shows
       an empty sheet while the server keeps the old geometry. _Accept:_ an
       empty bound sketch saves as empty.
-- [ ] **BIG-PART-MESH**: a real imported part's mesh payload is 142 MB.
-      _Accept:_ quantised or compressed meshes, with the before/after size
-      measured.
-- [ ] **STEP-ZERO-SOLIDS**: a STEP import that yields no solids has no
-      recovery path. _Accept:_ heal or partial import with an honest report,
-      on a golden fixture.
+- [ ] **ASM-MIRROR-COMPONENT** (bike crankset): Mirror Components
+      (SolidWorks) / Mirror on components (Fusion) about a plane, as a copy of
+      a symmetric part or an opposite-hand part. _Accept:_ the left crank arm
+      is a mirrored copy of the right that follows an edit of it, and the BOM
+      counts 2 (or 1 + 1 opposite hand).
+- [ ] **SKETCH-3D** (bike chain and seat stays): a 3D sketch of lines and
+      arcs between picked points and skeleton vertices, usable as a Pipe or
+      Sweep path (SolidWorks 3D Sketch, Fusion's 3D sketch). _Accept:_ the
+      bike's splayed chain stays are Pipes on a 3D sketch tied to the
+      dropouts and BB, matching a script to 1e-4.
+- [ ] **SKETCH-LINE-ANGLE** (was DRAW-BOX-LINE-ANGLE): the Line draw box
+      shows Length and Angle cells, as Fusion does; the angle becomes an
+      angle-to-axis dimension, which ships first. _Accept:_ typing 450 Tab 73
+      Enter draws a 450 mm line at 73° to the sketch X axis, dimensioned,
+      and editing the 73 rotates it. _Decided 2026-10-16 (delegated by
+      founder to product-manager):_ yes, after Pipe — it is Fusion's
+      established entry and saves hand trig on every tube frame, but typed
+      coordinates already work (bike skeleton in 18 s).
+- [ ] **DRAWING-PARTS-LIST-LEVEL** (was BIKE2-DRAWING-BOM-LEVEL): the parts
+      list keeps Top level as its default and gains a Structure choice of Top
+      level, Indented and Parts only, editable after placing; balloons follow
+      the chosen level. _Accept:_ the bike's parts list switched to Parts only
+      lists 64 spokes, and to Indented shows 4.3 Spoke 32 under each wheel.
+      _Decided 2026-10-16 (delegated by founder to product-manager):_
+      top-level default plus a choice — SolidWorks (Top-level only / Parts
+      only / Indented) and Fusion (First Level / All Levels) both default to
+      the top level and both let the user change it.
 - [ ] **MCP-SERVER**: an MCP server over `loft-script`. _Accept:_ an agent
       creates a sketch, extrudes it, reads mass properties and exports STEP.
 
@@ -148,22 +163,8 @@ byte-identical; RESEARCH §15a). Done 2026-10-09..14 and dropped at the
 Founder, 2026-10-15: decks, sheds, rafters, windows and doors without drawing
 every member. A plugin registers a custom feature that expands into base
 features (RESEARCH §23). First-party plugins ship preinstalled; no install
-step. These replace PLUGINS-PACKAGE.
+step. PLUGIN-REGISTRY and PLUGIN-UI are in Now.
 
-- [ ] **PLUGIN-REGISTRY** (stops B1): a kernel-free `packages/loft-plugins`
-      registers custom features (manifest, typed inputs, a pure expand to base
-      features), pinned by version per feature and expanded by documents. The
-      deprecated extrude twist moves there as a Twisted prism that expands to
-      a straight-path Sweep with twist. _Accept:_ the twisted prism matches
-      the legacy twisted-extrude golden (empty two-way difference), every
-      stored twisted extrude rebuilds byte-identical, and publishing a test
-      plugin's v2 leaves its v1 feature's golden byte-identical.
-- [ ] **PLUGIN-UI** (stops B1): a custom feature is an ordinary tool in a
-      Build toolbar group. It opens a form generated from its input schema
-      (units and parameters accepted), is one tree node that unfolds into its
-      members, and edits like any feature (Onshape custom features). _Accept:_
-      an e2e inserts the twisted prism from the toolbar, edits its angle to
-      `twist*2` and sees it regenerate.
 - [ ] **LUMBER-MATERIALS** (stops B1): the material library gains SPF and
       Douglas fir-larch lumber, pressure-treated southern pine, LVL, glulam,
       structural steel and concrete, plus a profile library of nominal sizes
@@ -204,6 +205,12 @@ step. These replace PLUGINS-PACKAGE.
       sub-assemblies (needs ASM-A3), with one cut list. _Accept:_ B2 built as
       wall, floor and roof sub-assemblies gives the same cut list as the
       one-part build.
+- [ ] **ASM-IC-FACES** (was a note): in-context offset-from and up-to a
+      neighbour's face (Fusion and SolidWorks both). _Accept:_ a plate's
+      extrude up to a rail's top face follows the rail's height edit.
+      _Decided 2026-10-16 (delegated by founder to product-manager):_ later —
+      projected edges carry A3's in-context edit, and neither the bike nor
+      B1/B2 needs a face link (plugins host by inputs, §23).
 - [ ] **PLUGIN-THIRD-PARTY**: install a Python plugin Loft did not ship,
       run in a sandbox (founder 2026-10-15; RESEARCH §23). _Accept:_ an
       installed example plugin expands and rebuilds like a first-party one,
@@ -212,20 +219,12 @@ step. These replace PLUGINS-PACKAGE.
 
 ## Founder decisions
 
-- [ ] **Object store**: MinIO (AGPL, now unmaintained and source-only) or
-      an Apache-2.0 S3-compatible server?
-- [ ] **Auth rate limit behind the bundled proxy**: every client shares one
-      bucket. Should the limiter trust `X-Forwarded-For` from the bundled
-      nginx, or stay keyed on the connecting address?
-- [ ] **Drawings of twisted bodies**: exact HLR is slow; the polygonal
-      fallback loses the arcs.
-- [ ] **Shelled revolve at a shallow angle**: a true offset, or OCCT's
-      extension behaviour?
-- [ ] **One face-merge per boolean** (RESEARCH §15a step 1, ~15 % of a
-      200-feature rebuild): accept a new `mesh_glb_id` for the moto frame
-      (same counts and properties, no tolerance touched) and the CM-6
-      later-pocket chain building the right body instead of `invalid_body`?
-      Not scheduled until decided.
+- [ ] **Object store**: MinIO (AGPL-3.0, upstream no longer maintained,
+      built here from source) or an Apache-2.0 S3-compatible server? Left
+      for the founder: it turns on whether Overcastly publishes images
+      (AGPL §6, `docs/LICENSING.md`). The product-manager recommends
+      replacing it (an unmaintained store is security debt either way),
+      chosen by a spike that passes the backup drill and the air-gap gate.
 
 ## Notes
 
@@ -238,9 +237,8 @@ One line each. The founder triages weekly; most are closed without work.
 - ASM-PAT-HOLE-SET: "On holes" takes every circle of the seed hole's radius on its face, not the holes of one hole feature (two same-size hole features on one face are one set); SolidWorks picks the feature.
 - ASM-PAT-PREVIEW: the pattern dialog shows no copies until OK (Fusion previews them live); a Move preview of a seed leaves its copies in place until the commit.
 - ASM-PAT-RECT: a linear pattern runs in one direction; Fusion's rectangular pattern has a second direction and SolidWorks a sketch-driven pattern.
-- ASM-IC-FACES: in-context links are projected edges only; offset-from and up-to a neighbour's face (Fusion and SolidWorks both) are not built.
 - ASM-IC-NESTED-MENU: Edit in Place is offered for top-level parts; a part inside a sub-assembly resolves through its occurrence id (tested), but the tree offers no menu for it.
-- ASM-IC-SUB-CONTEXT: a link resolves only when its own context assembly is evaluated; a link made in the carriage sub-assembly keeps its last values while the stage is evaluated (SolidWorks' rule, but Fusion resolves through the parent).
+- ASM-IC-SUB-CONTEXT: a link resolves only when its own context assembly is evaluated; a link made in the carriage sub-assembly keeps its last values while the stage is evaluated. _Decided 2026-10-16 (delegated by founder to product-manager):_ keep the own-context rule — SolidWorks does this and Fusion updates an assembly context only in the design that made it (sync on demand), so neither re-resolves through every parent; close unless the stage shows a link as out of context without saying where to open it.
 - ASM-IC-COPIES: documents refuses a link to a pattern copy (its occurrence is not stored), although geometry would resolve one.
 - ASM-IC-BREAK-ALL: Break link works one sketch selection at a time; SolidWorks' External References dialog lists and breaks or locks every reference of a part.
 - ASM-IC-WRITE-RETRY: a failed in-context write-back is only logged (the next committed evaluation rewrites it, since the stored value still differs); it is not retried or flagged to the user.
@@ -252,11 +250,11 @@ One line each. The founder triages weekly; most are closed without work.
 - ASM-SUB-LIMIT-RACE (77884a3 review): part inserts take no per-owner advisory lock, so two concurrent inserts into different assemblies of one tree can push it slightly past 500; the top assembly then 422s on evaluate/BOM until an instance is removed (recoverable, nothing lost). Also add a query-count test for an insert into a sub-assembly many assemblies contain.
 - ASM-PAT-HOLE-PERF (303f000 review): the groove check (`Face.is_inside` per coplanar face, patterns.py:357) is quadratic: one evaluate of a counterbore grid takes 0.14 s at 25, 2.1 s at 100, 28 s at 400; test only level faces whose bounding box holds the centre. A tube flush inside a larger hole still counts the outer groove rim, and a flush pin body over a hole drops that hole (untested).
 - ASM-IC-WRITE-STALE (8265fe9 review): write-back does not compare part tree versions, so an older in-flight committed evaluation that finishes last can store a curve from an older version of the referenced part (until the next committed evaluation; out-of-context rebuild only); send and compare each part's `tree_version`. No test proves the browser's `buildEvaluateAssemblyRequest` passes the gateway's match, so client/server drift would silently stop write-back: add a parity test or an e2e asserting a value was written.
-- ASM-FAILED-PART review (79e6727): the geometry export route still omits failed parts silently for API/script callers (pre-existing); cheapest fix is an `X-Loft-Omitted-Occurrences` header forwarded by the gateway like `PROPERTIES_HEADER`. A timed-out pick overlay is cached with `staleTime: Infinity` and the request is not aborted (holds an admission slot); a top-level part with a missing tree gets no failure entry. Bike round 2 also found: BIKE2-DRAWING-BOM-LEVEL (drawing parts list top level only, no balloons), BIKE2-NO-MIRROR-COMPONENT; minor: revolve axis "Z" vs pattern "z", a second Drawing click silently makes "drawing 2".
-- DRAWING-AUTOSCALE review (bd9416b, 31bec29): `resolve_view_anchors` drops the title-block shift if any auto-placed standard view lacks `clear_title_block`, so a loft-script user adding a standard view to a laid-out sheet moves the arrangement back (no UI path today); the 0020 migration test does not check the server default on an ORM insert without a value. Founder to confirm: layout errors no longer stamped on sheets/exports (reverses audit N2), Auto opens small parts at 2:1, first-angle bike fits only at 1:50.
+- ASM-FAILED-PART review (79e6727): the API export gap is now ASM-FAILED-PART-API (Now). A timed-out pick overlay is cached with `staleTime: Infinity` and the request is not aborted (holds an admission slot); a top-level part with a missing tree gets no failure entry. Bike round 2's BIKE2-DRAWING-BOM-LEVEL and BIKE2-NO-MIRROR-COMPONENT are Next items; minor: revolve axis "Z" vs pattern "z", a second Drawing click silently makes "drawing 2".
+- DRAWING-AUTOSCALE review (bd9416b, 31bec29): `resolve_view_anchors` drops the title-block shift if any auto-placed standard view lacks `clear_title_block`, so a loft-script user adding a standard view to a laid-out sheet moves the arrangement back (no UI path today); the 0020 migration test does not check the server default on an ORM insert without a value. _Decided 2026-10-16 (delegated by founder to product-manager):_ keep all three — issues stay off the sheet and in the check strip, as Fusion and SolidWorks never print warnings onto a drawing, and export shows the issue count beside the button with no extra confirm; Auto at 2:1 for small parts is the ISO 5455 enlargement a SolidWorks auto-scale picks; the first-angle bike at 1:50 on A4 is right, because a fixed sheet size wins over scale and the user picks A3 for 1:20.
 - LAYOUTISSUE-AT: `ComposedLayoutIssue.at` (the banner anchor) is still on the wire although nothing stamps issues on the sheet since BIKE2-DRAWING-SCALE; drop it or give it a reader.
 
-- LINE-ENTRY-TAB review (90db343): a Tab left in a circle's drag box survives a click/canvas-Esc and refuses the next circle at the same centre ("10" Tab, later "100"; clear `tabbed` on draft change); "W" Tab "/2" is refused as a second value without saying why; the error text overlaps the X AXIS label; a line Angle cell (Fusion shows Length and Angle) needs an angle-to-axis dimension first.
+- LINE-ENTRY-TAB review (90db343): a Tab left in a circle's drag box survives a click/canvas-Esc and refuses the next circle at the same centre ("10" Tab, later "100"; clear `tabbed` on draft change); "W" Tab "/2" is refused as a second value without saying why; the error text overlaps the X AXIS label.
 - APEX-BUTTONS: Extrude and Revolve enable with only an apex (point-only) sketch present; clicking does nothing.
 - APEX-SWEEP-PATH: `defaultSweepPathId` and the sweep path picker still offer apex sketches (the kernel refuses with a typed `PathEmptyError`).
 - APEX-OTHER-LISTS: the BaseFlange editor and the revolve axis map still list apex sketches (typed kernel refusal, no crash).
@@ -426,7 +424,6 @@ One line each. The founder triages weekly; most are closed without work.
 - ENV-E2E-PORT: Playwright reuses an existing server on :5173 (`reuseExistingServer`), so parallel agents test each other's code unless each sets its own web port.
 - LOFT-DIMEXPR-INDEX (step 5 review): `dimension_expressions` pointers are keyed by constraint index; a hand edit that moves a plain dimension to that index silently moves the formula (warning `loft_tree_edited` only). Store the dimension's name in the entry and check it on read.
 - LOFT-COMMENT-PIN: golden-v1.2.loft has only empty parameter comments, so a non-empty comment's round trip is not pinned.
-- DRAW-BOX-LINE-ANGLE (after QA-RECT-BOX-NAMES): a line's draw box has length only; Fusion also asks for an angle, which needs an angle-to-axis dimension (a datum-axis `angle` constraint).
 - DRAW-BOX-LINE-LETTERS: mid-line (a chain is always mid-gesture) letters are still tool shortcuts and digits open X / Y; only a rectangle's and circle's size box owns the keyboard mid-drag.
 - DRAW-BOX-PREVIEW: a size typed mid-drag is not previewed on the rubber band, and a click while typing places at the cursor and drops the typed text.
 - DRAW-BOX-MODIFY-FIELDS: the sketcher's offset and corner (fillet/chamfer) value boxes still take numbers only.
@@ -498,7 +495,9 @@ One line each. The founder triages weekly; most are closed without work.
 - BOOLEAN-KEEP-TOOLS (ladder 3d, step 9): a Boolean always consumes its tool body; Fusion's Combine has "Keep Tools". 3d's body 2 is an annulus plus a patterned flute fill instead of band minus body 1.
 - SCRIPT-POINT-DIMS (step 9): loft-script's Sketch has no sugar for point dimensions (`point_distance`, `point_line_distance`); the parametric reference parts place vertices through `docs/reference-parts/formula_sketch.py`.
 - LADDER-3D-BORE (step 9): read literally, "band minus body 1" fills the D-bore from Z 6 to 15 with a second lump; `knob.py` reads the band as round body 1, and ladder.md should say which is meant.
-- ASM-FAILED-PART-API (BIKE2-FAILED-PART-KILLS-PICKS follow-up): `POST /geometry/assembly/export` still writes only the bodied occurrences with no signal in the response; the web gate says Partial, but a loft-script or API caller gets a short file silently.
-- ASM-FAILED-PART-DRAWING: an assembly drawing omits a part that failed to build and warns only for unresolved joints, not for the missing part.
 - ASM-FAILED-PART-PLACEHOLDER: a failed part is omitted from the viewport rather than drawn as a placeholder box; its row and the pick status name it.
 - ASM-FAILED-PART-IN-PLACE: Edit in Place drops a failed context part's edges silently (the other parts' edges are offered); it does not say which part has none.
+- BIG-PART-MESH (was a Next item): a real imported part's mesh payload is 142 MB; quantise or compress meshes, measuring before and after.
+- STEP-ZERO-SOLIDS (was a Next item): a STEP import that yields no solids has no recovery path; heal or partial import with an honest report.
+- TWISTED-BODY-DRAWINGS (was a founder decision): exact HLR is slow and the polygonal fallback loses the arcs. _Decided 2026-10-16 (delegated by founder to product-manager):_ exact HLR within the per-view budget, and past it the polygonal view flagged "approximate" in the check strip (SolidWorks' draft-quality views) — a drawing must never pass faceted arcs off as exact.
+- SHELL-REVOLVE-SHALLOW (was a founder decision): a shelled revolve at a shallow angle — true offset or OCCT's extension? _Decided 2026-10-16 (delegated by founder to product-manager):_ a true offset, or a typed refusal where OCCT cannot make one — Fusion and SolidWorks shells are uniform thickness, and a non-uniform wall is wrong geometry.

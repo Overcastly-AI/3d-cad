@@ -3,15 +3,15 @@
 Where we are and what comes next. The orchestrator keeps "Now" true; the
 `product-manager` owns the rest. The detail lives in `docs/BACKLOG.md`.
 
-## Now (2026-10-09)
+## Now (2026-10-16)
 
-Since 10-01: picks carry through early edits (design-intent names, backfilled
-on open), named part versions (Ctrl+S, restore, `.loft` 1.1), sketch Project
-(P), chained lines, point-to-point dimensions, symmetric extrude, and a first
-rebuild-speed pass (200 features 29.4 -> 25.3 s). In flight: rebuild speed
-pass 2, then a plane at an angle (tube frames), then sketch plane picking.
-Waiting on the founder: dropping the second face-merge (the next ~15 %).
-Then a level-1 rerun, the A1 hinge (ASM-\* in the backlog), and level 2.
+Since 10-09: part parameters, a plane at an angle, sketch plane picking,
+closed-path sweeps, assembly joints with drag and limits, nested
+sub-assemblies, component patterns and in-context edits (A3). Next, in order:
+a failed part named in API exports, Pipe and Plane Along Path (bike tube
+frames), the plugin registry and its Build toolbar (the B1 deck), and one
+face-merge per boolean (rebuild speed). Waiting on the founder: the object
+store.
 
 ## Shipped
 
