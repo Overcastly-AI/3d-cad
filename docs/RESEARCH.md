@@ -1896,3 +1896,49 @@ circular references.
   part at their solved poses relative to it, and Project offers their edges.
   Onshape edits in-context the same way, in the part's own workspace. Fusion
   stays in the assembly, but its tools are the part's tools there too.
+
+## 25. Pipe and Plane Along Path (PIPE-ALONG-PATH)
+
+Fusion 360's Pipe and Plane Along Path, the two commands a tube frame is built
+from (bike.md BIKE-TUBE-PLANE, BIKE-SWEEP-PATH-PICK, BIKE-NO-INCLUDE-SKETCH).
+Decisions, each Fusion's unless noted:
+
+- **A new feature type, not a Sweep option.** `pipe` takes a picked chain of
+  curves (`loft_wire.pipe.PathSegment`: a sketch curve of an earlier sketch,
+  construction curves included, or a model edge), an outside diameter and an
+  optional wall (Fusion's *Hollow*). No profile sketch: the section is centred
+  on the path's start, normal to it, so the tube is centred on the path
+  everywhere. One skeleton sketch feeds any number of Pipes. Operation is the
+  sketch solids' `add`/`cut` + `merge` (Join / New Body / Cut).
+- **Chaining** (`kernel/path_chain.py`): picks are ordered on every rebuild,
+  so pick order and drawn direction never change the tube. Three curve ends at
+  one point (a branch), two separate chains, a curve picked twice, or a closed
+  curve picked with others are `sweep_path_not_connected`. The chain runs so
+  the first pick is travelled start to end (a model edge from `end_a` as
+  picked). The same branch test now guards a Sweep's whole-sketch path, which
+  used to fail as a kernel ValueError on a branched skeleton.
+- **Sharp corners are mitred** (`BRepOffsetAPI_MakePipeShell` right-corner
+  transition), as Fusion's Pipe and Onshape's Sweep build them. A mitre cuts
+  through the corner on the bisecting plane, so volume and wall area are
+  exactly section x centre-line length; the corner golden's centroid is
+  derived in closed form (`derive.py`) and matches to 1e-10 mm. The same call
+  closes a CLOSED chain with corners (a square loop), which the Sweep refuses
+  (§19: OCCT's default transition sweeps it to zero volume). A bend tighter
+  than the outer radius is `sweep_failed`; a self-crossing tube is
+  `sweep_self_intersecting` (§19's check).
+- **Face names by role**: `wall:<curve>`, `bore:<curve>`, `start`, `end`,
+  where `<curve>` is `<sketch id>:<entity id>` (or `edge<i>` for a model
+  edge), so a later fillet or hole keeps its reference through a diameter or
+  skeleton edit.
+- **Plane Along Path** (`kind: "along_path"` datum): the point at `ratio` of
+  the curve's arc length or `distance_mm` along it (past the end is
+  `datum_path_out_of_range`); normal = the tangent in the direction of travel;
+  `x_dir` = the owning sketch's normal for a sketch curve (continuous under
+  skeleton edits, so a sketch on the plane never jumps a quarter turn), else
+  the on-face rule. Not Fusion-specified; recorded here.
+- **The bike** (`frame-bike-4-pipes-one-skeleton-head73`): four ring Pipes on
+  one fully-constrained skeleton fuse into one valid lump matching a plain
+  build123d twin to 3e-9 relative (empty two-way difference), at 73 and 72 deg.
+  Its STEP round trip drifts like the moto frame's (OCCT, shared by the twin).
+- Not built (Fusion has them): square/triangular sections, a partial
+  `distance` along the path for the Pipe itself.

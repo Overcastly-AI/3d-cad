@@ -41,6 +41,7 @@ from geometry.features.pattern_mirror import (
     _evaluate_mirror,
     _evaluate_pattern,
 )
+from geometry.features.pipe import _evaluate_pipe
 from geometry.features.sheet_metal_features import (
     _evaluate_sheet_metal_base_flange,
     _evaluate_sheet_metal_corner_relief,
@@ -70,6 +71,7 @@ BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
         "extrude",
         "revolve",
         "sweep",
+        "pipe",
         "loft",
         "fillet",
         "chamfer",
@@ -97,6 +99,7 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "extrude": _evaluate_extrude,
     "revolve": _evaluate_revolve,
     "sweep": _evaluate_sweep,
+    "pipe": _evaluate_pipe,
     "loft": _evaluate_loft,
     "fillet": _evaluate_fillet,
     "chamfer": _evaluate_chamfer,

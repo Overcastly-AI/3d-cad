@@ -1,0 +1,45 @@
+{
+  "description": "PIPE ALONG A CLOSED CHAIN WITH CORNERS (PIPE-ALONG-PATH): a solid round bar (OD 20) along the four sides of a 100 x 100 square, picked in the order e3, e1, e4, e2. The chain closes, so there are no caps, and all four corners are MITRED. A Sweep refuses a closed path with corners (sweep_path_not_tangent: OCCT's default transition sweeps it to zero volume); the Pipe's right-corner transition builds it, as Fusion's Pipe does. Locks the closed chain, the start at the first pick's start, and a closed mitred loop's exact volume.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill); only the mesh counts are recorded from the harness (tessellation is not hand-derivable) and are pinned as a regression.",
+    "The sketch is fully constrained at its drawn position (e1 fixed at the origin, horizontal and vertical sides, all coincident, two 100 sides), so the path is the square (0,0) (100,0) (100,100) (0,100), length 400.",
+    "volume = pi R^2 L = 100 pi * 400 = 40000 pi = 125663.70614359173 mm^3 (each mitre removes what it adds, see the corner golden).",
+    "surface_area = 2 pi R L = 20 pi * 400 = 8000 pi = 25132.741228718345 mm^2; no caps.",
+    "centroid = (50, 50, 0) by the square's symmetry.",
+    "bounding_box = the path's extent +- R: [-10, -10, -10]..[110, 110, 10].",
+    "topology: 4 cylinder faces (one per side), 16 edges (4 mitre ellipses + 4 seams + their splits), 1 shell; counts pinned as recorded.",
+    "mesh (linear 0.1 / angular 0.1): 1232 vertices / 1224 triangles, recorded."
+  ],
+  "tolerance": 1e-06,
+  "tolerance_rationale": "Measured first (2026-10-16): volume 7.5e-9 mm^3, area 7.7e-8 mm^2, centroid 1.9e-11 mm off the closed forms, AABB exact. 1e-6 is 13x the worst observed; never loosen it to go green.",
+  "properties": {
+    "volume": 125663.70614359173,
+    "surface_area": 25132.741228718343,
+    "centroid": {
+      "x": 50.0,
+      "y": 50.0,
+      "z": 0.0
+    },
+    "bounding_box": {
+      "min": {
+        "x": -10.0,
+        "y": -10.0,
+        "z": -10.0
+      },
+      "max": {
+        "x": 110.0,
+        "y": 110.0,
+        "z": 10.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 4,
+    "edges": 16,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 1232,
+    "triangles": 1224
+  }
+}

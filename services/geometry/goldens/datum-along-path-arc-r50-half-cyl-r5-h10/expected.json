@@ -1,0 +1,46 @@
+{
+  "description": "FIRST PLANE ALONG PATH GOLDEN (PIPE-ALONG-PATH): Fusion 360's Plane Along Path on a quarter ARC (centre the origin, R 50, from (50,0) to (0,50), counter-clockwise on XY) at ratio 0.5 of its length. A sketch on that plane holds an r5 circle at the plane origin, extruded 10 along the plane normal. Locks the point (half the ARC LENGTH, not half the chord), the normal (the tangent in the direction of travel), and that a sketch on the plane lands centred on the curve.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill); only the mesh counts are recorded from the harness (tessellation is not hand-derivable) and are pinned as a regression.",
+    "The arc sketch is fully constrained (fixed centre, radius 50) at its drawn position; the circle sketch is fully constrained (fixed centre at the plane origin, radius 5).",
+    "Half the arc's length from its start is the 45 deg point: P = 50 (cos 45, sin 45, 0) = (35.35533905932738, 35.35533905932738, 0); the counter-clockwise tangent there is t = (-sin 45, cos 45, 0).",
+    "The extrude is a cylinder of radius 5 from P to P + 10 t = (28.284271247461902, 42.42640687119285, 0).",
+    "volume = pi 5^2 10 = 250 pi = 785.3981633974483 mm^3; surface_area = 2 pi 5 10 + 2 pi 5^2 = 150 pi = 471.23889803846896 mm^2.",
+    "centroid = P + 5 t = (31.81980515339464, 38.890872965260115, 0).",
+    "bounding_box: a cap circle of radius 5 normal to t spans 5 sqrt(1 - t_i^2) = 5 sin 45 = 3.5355339059327378 along x and y and 5 along z: x in [28.2843 - 3.5355, 35.3553 + 3.5355], y in [35.3553 - 3.5355, 42.4264 + 3.5355], z in [-5, 5].",
+    "topology: a cylinder: 3 faces, 3 edges, 1 shell.",
+    "mesh (linear 0.1 / angular 0.1): 506 vertices / 500 triangles, recorded (the straight bar's count: same face kinds, angular-dominated)."
+  ],
+  "tolerance": 1e-06,
+  "tolerance_rationale": "Measured first (2026-10-16): volume, area and centroid within 2e-13 of the closed forms, AABB within 4e-15 mm. 1e-6 as for the pipe goldens; never loosen it to go green.",
+  "properties": {
+    "volume": 785.3981633974482,
+    "surface_area": 471.23889803846896,
+    "centroid": {
+      "x": 31.81980515339464,
+      "y": 38.890872965260115,
+      "z": 0.0
+    },
+    "bounding_box": {
+      "min": {
+        "x": 24.748737341529164,
+        "y": 31.81980515339464,
+        "z": -5.0
+      },
+      "max": {
+        "x": 38.890872965260115,
+        "y": 45.96194077712559,
+        "z": 5.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 3,
+    "edges": 3,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 506,
+    "triangles": 500
+  }
+}

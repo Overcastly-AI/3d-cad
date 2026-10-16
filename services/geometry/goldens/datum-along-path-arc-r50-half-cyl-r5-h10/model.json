@@ -1,0 +1,127 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000b1",
+  "tree_version": 1,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          },
+          "entities": [
+            {
+              "id": "a1",
+              "kind": "arc",
+              "center": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "start": {
+                "x": 50.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 0.0,
+                "y": 50.0
+              }
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "fixed",
+              "point": {
+                "entity": "a1",
+                "point": "center"
+              }
+            },
+            {
+              "kind": "radius",
+              "entity": "a1",
+              "value_mm": 50.0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "feature": {
+        "type": "datum",
+        "version": 1,
+        "params": {
+          "kind": "along_path",
+          "path": {
+            "kind": "sketch_curve",
+            "sketch": {
+              "kind": "feature",
+              "feature_id": "00000000-0000-0000-0000-000000000001"
+            },
+            "entity": "a1"
+          },
+          "flip": false,
+          "measure": "ratio",
+          "ratio": 0.5
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000000002"
+          },
+          "entities": [
+            {
+              "id": "c1",
+              "kind": "circle",
+              "center": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "radius": 5.0
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "fixed",
+              "point": {
+                "entity": "c1",
+                "point": "center"
+              }
+            },
+            {
+              "kind": "radius",
+              "entity": "c1",
+              "value_mm": 5.0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000004",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000000003"
+          },
+          "distance_mm": 10.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

@@ -1,0 +1,45 @@
+{
+  "description": "PIPE ALONG A CHAIN WITH SHARP CORNERS (PIPE-ALONG-PATH): a ring pipe (OD 20, wall 2) along THREE picked sketch lines that meet at two square corners, picked OUT OF ORDER and drawn in MIXED directions: e1 (100,80)->(100,0), then e3 (40,80)->(100,80), then e2 (0,0)->(100,0). The chain orders them, reverses e2, and runs so the first pick is travelled start to end: (40,80) -> (100,80) -> (100,0) -> (0,0). Each corner is MITRED (Fusion's Pipe; Onshape's Sweep): both runs end on the plane bisecting the turn. Locks the chaining (order and sense), the mitre (an exact Pappus volume and a hand-derived centroid that a round or a fold-back corner would both miss), and the open chain's caps.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill); only the mesh counts are recorded from the harness (tessellation is not hand-derivable) and are pinned as a regression.",
+    "The sketch is fully constrained at its drawn position (e2 fixed at the origin, horizontal, 100; e1 vertical 80 from e2's end; e3 horizontal 60 ending at e1's start), so the path is the polyline (40,80) -> (100,80) -> (100,0) -> (0,0), length 60 + 80 + 100 = 240.",
+    "volume: a mitre is a cut by the bisecting plane THROUGH the corner, which removes from one side of the axis exactly what it adds on the other, so volume = A L = 36 pi * 240 = 8640 pi = 27143.36052701581 mm^3.",
+    "surface_area: the same holds for each wall: (2 pi R + 2 pi r) L = 36 pi * 240 = 8640 pi, plus two ring caps 2 * 36 pi: 8712 pi = 27369.55519807428 mm^2.",
+    "centroid: derive.py (closed form, beside this file, re-run by tests/test_golden_derivations.py): per run, moment = A L P0 + d (A L^2 + (k_e^2 - k_s^2) I)/2 + n (k_s - k_e) I with I = pi (R^4 - r^4)/4 and k = tan of half the turn at each mitred end; = (72.17916666666667, 33.33333333333333, 0).",
+    "bounding_box: x from the open end cap at x = 0 (normal to the path, flat) to the vertical run's outer wall x = 100 + 10; y from the bottom run's outer wall -10 to the top run's outer wall 80 + 10; z +-10: [0, -10, -10]..[110, 90, 10]. The mitre ellipses reach exactly the outer walls' extents at a square corner.",
+    "topology: per run an outer and a bore wall (6) + 2 ring caps = 8 faces; 22 edges (cap circles, mitre ellipses, seams), 1 shell; counts pinned as recorded.",
+    "mesh (linear 0.1 / angular 0.1): 2244 vertices / 2232 triangles, recorded."
+  ],
+  "tolerance": 1e-06,
+  "tolerance_rationale": "Measured first (2026-10-16): volume 8.3e-8 mm^3 and area 6.3e-8 mm^2 below the closed forms (the mitre ellipses are B-spline-approximated edges), centroid within 9e-11 mm of derive.py, AABB exact. 1e-6 is 12x the worst observed; never loosen it to go green.",
+  "properties": {
+    "volume": 27143.36052701581,
+    "surface_area": 27369.55519807428,
+    "centroid": {
+      "x": 72.17916666666667,
+      "y": 33.33333333333333,
+      "z": 0.0
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": -10.0,
+        "z": -10.0
+      },
+      "max": {
+        "x": 110.0,
+        "y": 90.0,
+        "z": 10.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 8,
+    "edges": 22,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 2244,
+    "triangles": 2232
+  }
+}

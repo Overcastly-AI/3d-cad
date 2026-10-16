@@ -11,6 +11,7 @@ import uuid
 
 from build123d import Face, Plane
 from loft_wire.features import (
+    DatumAlongPathParams,
     DatumAngleParams,
     DatumFeature,
     DatumMidplaneParams,
@@ -27,6 +28,7 @@ from loft_wire.features import (
 from loft_wire.sketch import classify_overconstraint
 
 from geometry.features.datum_angle import resolve_angle_plane
+from geometry.features.pipe import resolve_along_path_plane
 from geometry.features.sketch_projection import project_entities
 from geometry.features.state import (
     EvaluationState,
@@ -176,7 +178,8 @@ def _resolve_plane_side(
 def _evaluate_datum(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
-    """Resolve one datum plane — offset, on-face, chained, midplane or angle.
+    """Resolve one datum plane — offset, on-face, chained, midplane, angle or
+    along a path.
 
     Not body-affecting: whatever the kind, the resolved plane is recorded under
     the feature id for a later consumer (a sketch's plane FeatureRef, another
@@ -203,6 +206,8 @@ def _evaluate_datum(
       (:func:`~geometry.features.datum_angle.resolve_angle_plane`); the
       reference resolves like a midplane side, the line through its own
       typed funnel.
+    * ``along_path`` — a plane normal to a picked curve at a point along it
+      (:func:`~geometry.features.pipe.resolve_along_path_plane`).
     """
     feature = item.feature
     assert isinstance(feature, DatumFeature), "registry dispatches on type='datum'"
@@ -244,6 +249,13 @@ def _evaluate_datum(
         if isinstance(angled, FeatureError):
             return angled
         state.datum_planes[item.id] = angled
+        return None
+
+    if isinstance(params, DatumAlongPathParams):
+        along = resolve_along_path_plane(params, state)
+        if isinstance(along, FeatureError):
+            return along
+        state.datum_planes[item.id] = along
         return None
 
     assert isinstance(params, DatumOnFaceParams)  # closed union

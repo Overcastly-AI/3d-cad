@@ -2183,6 +2183,8 @@ CUT_ROW_EXEMPT = {
         "80x80x10 plate this matrix composes on; covered by "
         "test_sheet_metal_corner_relief*.py against a sheet fixture"
     ),
+    "pipe": "a circle swept through sweep_cut's own _cut_active funnel; test_pipe.py "
+    "proves a pipe cut mirrored and patterned (the CM-5 shape)",
 }
 
 #: Registered types that do not touch the body at all — they contribute
@@ -2193,6 +2195,7 @@ NON_BODY_AFFECTING = {"sketch", "datum"}
 #: posture as :data:`CUT_ROW_EXEMPT`: an omission has to be argued in writing.
 CATALOGUE_EXEMPT = {
     "boolean": "needs a second operand body — see CUT_ROW_EXEMPT",
+    "pipe": "a sweep of a circle (sweep_cut is the row) — see CUT_ROW_EXEMPT",
     "import": (
         "needs an on-disk STEP fixture rather than params, so it cannot be a "
         "plate row; covered by test_imports.py + the two import-step goldens"
