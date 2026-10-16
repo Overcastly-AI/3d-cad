@@ -63,7 +63,12 @@ from geometry.kernel.boolean_guard import (
     fuzzy_boolean_solids,
     guarded_boolean,
 )
-from geometry.kernel.healing import BodyReading, clean_and_read, shape_volume
+from geometry.kernel.healing import (
+    BodyReading,
+    clean_and_read,
+    measured_solid,
+    shape_volume,
+)
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.naming import OpHistory
 from geometry.kernel.profile_edges import profile_entities
@@ -683,11 +688,13 @@ def combine_body_measured(
                 f"{lump_count}-lump body; an in-chain add/cut must preserve each "
                 "lump (start a new body with merge=False, or a disjoint boolean)."
             )
-        # clean() removes redundant seam faces/edges a boolean can leave behind,
-        # keeping topology counts meaningful (and golden-assertable). k==1 stays
-        # a bare cleaned Solid (byte-identical); a multi-lump body reassembles in
-        # the explicit lump order (RESEARCH §9).
-        lumps = [clean_and_read(solid) for solid in solids]
+        # One face merge per boolean (RESEARCH §15a step 1): build123d's fuse /
+        # cut already merged the plain result's redundant seam faces, so its
+        # lumps are only measured; the raw fuzzy repair gets the guarded merge.
+        # k==1 stays a bare Solid; a multi-lump body reassembles in the explicit
+        # lump order (RESEARCH §9).
+        finish = measured_solid if fuzzy is None else clean_and_read
+        lumps = [finish(solid) for solid in solids]
         reading = sum((lump[1] for lump in lumps), BodyReading(()))
         if lump_count == 1:
             return lumps[0][0], reading

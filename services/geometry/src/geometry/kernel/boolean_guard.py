@@ -37,11 +37,15 @@ A violation is first REPAIRED by re-running the same boolean with a fuzzy value
 (:data:`FUZZY_RETRY_MM`), accepted only if the retry passes the same guard;
 otherwise the feature is refused with :class:`BooleanIntegrityError`
 (``boolean_failed``), naming the coincident contact. A body that passes on the
-first attempt is returned untouched, so every body that shipped before this
-guard ships byte-identical.
+first attempt is returned untouched.
 
-COST. The result's volume comes from the integration the simplification check
-(:func:`~geometry.kernel.healing.clean_and_read`) already performs, and a solid
+ONE FACE MERGE PER BOOLEAN (RESEARCH §15a step 1). The plain attempt is the
+build123d call, which already runs ``UnifySameDomain``; its result is measured
+(:func:`~geometry.kernel.healing.measured_solid`), not merged again. Only the
+raw fuzzy repair gets the guarded merge
+(:func:`~geometry.kernel.healing.clean_and_read`).
+
+COST. The result's volume is one integration of the merged result, and a solid
 without voids has one shell whose sign is that volume's; only a solid WITH voids
 integrates its shells, for their signs. The operand volumes come from the
 evaluation's per-body memo
@@ -69,6 +73,7 @@ from geometry.kernel.healing import (
     BodyReading,
     body_is_valid,
     clean_and_read_shape,
+    measured_shape,
     shape_volume,
 )
 from geometry.kernel.properties import volume_properties
@@ -219,8 +224,8 @@ def fuzzy_boolean(
 ) -> Compound:
     """An OCCT boolean of *target* with every tool, run with *fuzzy* (mm), serially.
 
-    The repair path only. The plain path keeps the build123d call it always
-    made, so a body that passes the guard is byte-identical to before.
+    The repair path only, and raw: the caller gives its result the one guarded
+    face merge. The plain path keeps the build123d call (and its merge).
     """
     if operation == "union":
         op = BRepAlgoAPI_Fuse()
@@ -334,9 +339,10 @@ def guarded_variadic(
 ) -> BodyShape:
     """:func:`guarded_boolean` for a mirror's or a pattern's one-shot boolean.
 
-    *plain* is the op's own raw boolean (its build123d call, unchanged, so a
-    passing body is byte-identical); its result is cleaned as ONE shape exactly
-    as :func:`~geometry.kernel.healing.clean_shape` did, and *finish* turns the
+    *plain* is the op's own boolean (its build123d call, which merges the
+    result's faces itself, so it is only measured); the fuzzy repair's raw
+    result gets its one merge from
+    :func:`~geometry.kernel.healing.clean_and_read_shape`, and *finish* turns the
     lumps into the body, raising the op's own errors (empty, lump count). A
     kernel exception is wrapped by *kernel_failure*, and an integrity refusal is
     raised as *refusal* of its message, so each op keeps its error taxonomy.
@@ -346,13 +352,12 @@ def guarded_variadic(
 
     def attempt(fuzzy: float | None) -> tuple[BodyShape, BodyReading]:
         try:
-            raw = (
-                plain()
-                if fuzzy is None
-                else fuzzy_boolean(body, tools, operation, fuzzy)
-            )
-            cleaned, reading = clean_and_read_shape(raw)
-            solids = list(cleaned.solids())
+            if fuzzy is None:
+                merged, reading = measured_shape(plain())
+            else:
+                raw = fuzzy_boolean(body, tools, operation, fuzzy)
+                merged, reading = clean_and_read_shape(raw)
+            solids = list(merged.solids())
         except Exception as exc:  # OCCT failure modes are not a stable taxonomy
             raise kernel_failure(exc) from exc
         return finish(solids), reading

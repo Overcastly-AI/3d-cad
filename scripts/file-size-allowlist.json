@@ -18,7 +18,7 @@
     "scripts/e2e-shard-plan.py": 1585,
     "services/geometry/src/geometry/sheet_metal/unfold.py": 2489,
     "services/geometry/src/geometry/sketch/planegcs_solver.py": 1898,
-    "services/geometry/tests/test_composition_matrix.py": 3519,
+    "services/geometry/tests/test_composition_matrix.py": 3515,
     "services/geometry/tests/test_drawings_compose.py": 2511,
     "services/geometry/tests/test_evaluate_tree.py": 1572,
     "services/geometry/tests/test_hole.py": 1728,

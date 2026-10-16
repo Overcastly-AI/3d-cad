@@ -48,7 +48,12 @@ from geometry.kernel.boolean_guard import (
     fuzzy_boolean_solids,
     guarded_boolean,
 )
-from geometry.kernel.healing import BodyReading, clean_and_read, shape_volume
+from geometry.kernel.healing import (
+    BodyReading,
+    clean_and_read,
+    measured_solid,
+    shape_volume,
+)
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.types import BodyShape
 
@@ -103,7 +108,7 @@ def boolean_bodies_measured(
     *target* is the surviving body, *tool* the consumed body (multi-body
     §Decisions-3). ``union`` fuses, ``subtract`` cuts *tool* out of *target*, and
     ``intersect`` keeps their common volume — each an OCCT boolean via the
-    build123d method surface, followed by a ``clean()`` per lump that removes the
+    build123d method surface, whose face merge (``UnifySameDomain``) removes the
     redundant seam faces/edges the boolean leaves at the former body boundary (so
     topology counts stay meaningful and golden-assertable — exactly as
     :func:`combine_body` does in-chain).
@@ -154,7 +159,13 @@ def _attempt(
     allow_disjoint: bool,
     fuzzy: float | None,
 ) -> tuple[BodyShape, BodyReading]:
-    """One run of the boolean (plain, or at *fuzzy* mm) with its result rules."""
+    """One run of the boolean (plain, or at *fuzzy* mm) with its result rules.
+
+    One face merge per run (RESEARCH §15a step 1): the plain boolean's is
+    build123d's own, so its lumps are only measured; the raw fuzzy repair's is
+    the guarded :func:`~geometry.kernel.healing.clean_and_read`.
+    """
+    finish = measured_solid if fuzzy is None else clean_and_read
     try:
         if fuzzy is not None:
             solids = fuzzy_boolean_solids(target, tool, operation, fuzzy)
@@ -183,9 +194,9 @@ def _attempt(
     if len(solids) > 1:
         if allow_disjoint:
             # Opt-in multi-lump body (§MB-4): keep the >1 lumps as ONE body — a
-            # lump-sorted Compound of the cleaned lumps (each lump's boolean seams
-            # cleaned, then the explicit total order imposed for determinism).
-            return _lumps([clean_and_read(solid) for solid in solids])
+            # lump-sorted Compound of the merged lumps (the explicit total order
+            # imposed for determinism).
+            return _lumps([finish(solid) for solid in solids])
         if operation == "subtract":
             detail = (
                 f"severed the target into {len(solids)} disconnected pieces — the "
@@ -205,7 +216,7 @@ def _attempt(
             f"Boolean {operation} {detail}. Set 'allow_disjoint' to keep the "
             "result as one multi-lump body (design §MB-4)."
         )
-    return clean_and_read(solids[0])
+    return finish(solids[0])
 
 
 def _lumps(lumps: list[tuple[Solid, BodyReading]]) -> tuple[BodyShape, BodyReading]:

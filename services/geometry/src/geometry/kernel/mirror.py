@@ -48,12 +48,13 @@ revolved groove is TANGENT to one of its own walls, the ``fuse`` below is exact 
 mm^3, 3.48 %, ``is_valid`` false, every feature ``ok``). Both readings above were
 right — the reflected tool genuinely cannot reach the already-cut body, and
 reflect-and-union genuinely is what "complete the symmetric half" means for a body
-that lies wholly on one side of the plane. The guard is therefore in the
-simplification, not in the mirror: every ``clean()`` here goes through
-:func:`geometry.kernel.healing.clean_shape`, which discards a simplification that
-moves material. Measured: hold everything else and move the groove 0.5 mm clear of
-the wall and ``clean()`` behaves, so this is a tangency defect, not a straddling-void
-one.
+that lies wholly on one side of the plane. The defect was the SECOND face merge
+the kernel ran on the fuse's already-merged result: one boolean now gets one
+merge (build123d's own; RESEARCH §15a step 1), and only the raw fuzzy repair is
+merged by :func:`geometry.kernel.healing.clean_and_read_shape`, which discards a
+simplification that moves material. Measured: hold everything else and move the
+groove 0.5 mm clear of the wall and ``clean()`` behaves, so this is a tangency
+defect, not a straddling-void one.
 
 Determinism (RESEARCH §9): the reflection is a pure OCCT isometry of the plane,
 the fuse/clean are pure algorithms on identical inputs, and the resulting lumps
