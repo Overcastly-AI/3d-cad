@@ -25,7 +25,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter
-from loft_wire.features import FEATURE_REGISTRY, FeatureEnvelope, SketchFeature
+from loft_wire.features import AUTHORED_FEATURES, AuthoredEnvelope, SketchFeature
 from loft_wire.in_context import (
     InContextLink,
     InContextResolvedResult,
@@ -52,7 +52,7 @@ router = APIRouter(prefix="/api/v1/parts", tags=["in-context"])
 _MAX_PARTS_WALKED = 500
 
 
-def links_of(envelope: FeatureEnvelope) -> dict[str, InContextLink]:
+def links_of(envelope: AuthoredEnvelope) -> dict[str, InContextLink]:
     """``entity id -> link`` of a sketch envelope (empty for anything else)."""
     if not isinstance(envelope, SketchFeature):
         return {}
@@ -122,7 +122,7 @@ async def check_links(
     session: AsyncSession,
     owner_id: uuid.UUID,
     part: db.Part,
-    envelope: FeatureEnvelope,
+    envelope: AuthoredEnvelope,
     stored: db.Feature | None = None,
 ) -> None:
     """Refuse a write whose new or changed in-context links are invalid
@@ -233,7 +233,7 @@ async def write_resolved(
         if params == row.params:
             continue
         # Re-validated: a stored value must load like any other params.
-        envelope = FEATURE_REGISTRY.load(
+        envelope = AUTHORED_FEATURES.load(
             row.type, row.param_version, params, suppressed=row.suppressed
         )
         await session.execute(

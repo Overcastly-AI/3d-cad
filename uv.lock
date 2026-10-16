@@ -11,6 +11,7 @@ members = [
     "loft-documents",
     "loft-gateway",
     "loft-geometry",
+    "loft-plugins",
     "loft-py-kit",
     "loft-script",
     "loft-wire",
@@ -1176,6 +1177,7 @@ dependencies = [
     { name = "alembic" },
     { name = "asyncpg" },
     { name = "fastapi" },
+    { name = "loft-plugins" },
     { name = "loft-py-kit" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "uvicorn" },
@@ -1186,6 +1188,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
     { name = "asyncpg", specifier = ">=0.30" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "loft-plugins", editable = "packages/loft-plugins" },
     { name = "loft-py-kit", editable = "packages/py-kit" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.36" },
     { name = "uvicorn", specifier = ">=0.32" },
@@ -1254,6 +1257,17 @@ requires-dist = [
     { name = "threadpoolctl", specifier = ">=3.6" },
     { name = "uvicorn", specifier = ">=0.32" },
 ]
+
+[[package]]
+name = "loft-plugins"
+version = "0.1.0"
+source = { editable = "packages/loft-plugins" }
+dependencies = [
+    { name = "loft-wire" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "loft-wire", editable = "packages/loft-wire" }]
 
 [[package]]
 name = "loft-py-kit"
@@ -1328,6 +1342,7 @@ dev = [
     { name = "loft-documents" },
     { name = "loft-gateway" },
     { name = "loft-geometry" },
+    { name = "loft-plugins" },
     { name = "loft-py-kit" },
     { name = "loft-script" },
     { name = "loft-wire" },
@@ -1346,6 +1361,7 @@ dev = [
     { name = "loft-documents", editable = "services/documents" },
     { name = "loft-gateway", editable = "services/gateway" },
     { name = "loft-geometry", editable = "services/geometry" },
+    { name = "loft-plugins", editable = "packages/loft-plugins" },
     { name = "loft-py-kit", editable = "packages/py-kit" },
     { name = "loft-script", editable = "packages/loft-script" },
     { name = "loft-wire", editable = "packages/loft-wire" },

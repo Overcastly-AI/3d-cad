@@ -1,0 +1,21 @@
+[project]
+name = "loft-plugins"
+version = "0.1.0"
+description = "Loft's first-party plugins: custom features that expand to base features (RESEARCH §23). Kernel-free."
+requires-python = ">=3.12"
+license = "MIT"
+# THE DEPENDENCY LIST IS THE POINT OF THIS PACKAGE, as it is loft-wire's: a
+# plugin reads typed inputs and returns base features, so the wire types are
+# all it may use. No kernel, no service kit, no I/O. Enforced, not intended:
+# tests/test_import_lint.py walks every module's imports.
+dependencies = ["loft-wire"]
+
+[tool.uv.sources]
+loft-wire = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/loft_plugins"]

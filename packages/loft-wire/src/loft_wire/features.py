@@ -26,6 +26,8 @@ from typing import Annotated, Any, Literal, Self, assert_never, cast, get_args
 from pydantic import (
     BaseModel,
     Field,
+    StrictFloat,
+    StrictInt,
     StringConstraints,
     model_validator,
 )
@@ -57,6 +59,16 @@ from loft_wire.hole_placement import FACE_X_FIELD, FACE_Y_FIELD, derive_hole_pos
 from loft_wire.instrument import notify_feature_error
 from loft_wire.materials import MaterialAssignment, MaterialKey
 from loft_wire.merge_field import MERGE_FIELD as MERGE_FIELD
+from loft_wire.plugins import (
+    MAX_PLUGIN_EXPANSION,
+    MAX_PLUGIN_INPUTS,
+    MAX_PLUGIN_TEXT,
+    InputName,
+    MemberMetadata,
+    PluginId,
+    RoleName,
+    SemVer,
+)
 from loft_wire.refs import DatumPlaneRef as DatumPlaneRef
 from loft_wire.refs import FeatureRef as FeatureRef
 from loft_wire.refs import GeomRef as GeomRef
@@ -2526,6 +2538,165 @@ FEATURE_REGISTRY.register(BooleanFeature)
 FEATURE_REGISTRY.validate_chains()
 
 
+# --- Custom features (PLUGIN-REGISTRY, RESEARCH §23; manifests: loft_wire.plugins) --
+
+#: One input value: a number (mm, degrees or a count, by the input's kind), an
+#: option or material key, or an earlier feature. Strict, so ``true`` is no 1.
+CustomInputValue = (
+    StrictInt
+    | StrictFloat
+    | Annotated[str, StringConstraints(max_length=MAX_PLUGIN_TEXT)]
+    | FeatureRef
+)
+
+
+class ExpandedMember(BaseModel):
+    """One base feature a custom feature expanded to, as stored with it."""
+
+    role: RoleName = Field(description="The manifest role this member takes.")
+    index: int = Field(ge=0, lt=MAX_PLUGIN_EXPANSION, description="n within role.")
+    id: uuid.UUID = Field(
+        description="loft_wire.plugins.member_id(<feature-id>, role, index): the "
+        "stable id geometry builds, results and picks name this member by."
+    )
+    feature: Feature
+    metadata: MemberMetadata | None = Field(default=None, exclude_if=_is_none)
+
+    @model_validator(mode="after")
+    def _numbers_only(self) -> Self:
+        if self.feature.expressions is not None or self.feature.suppressed:
+            raise ValueError("a generated member carries no formulas or suppression")
+        return self
+
+
+class CustomParamsV1(BaseModel):
+    """A custom feature: the plugin it is pinned to, its inputs, and the last
+    expansion. Documents expands it on every write and evaluation, and geometry
+    only ever receives the base features (RESEARCH §23). The stored expansion
+    is what a server without the plugin (or the pinned version) rebuilds,
+    read-only."""
+
+    plugin_id: PluginId
+    plugin_version: SemVer = Field(
+        description="The pinned plugin version; updating it is an explicit edit."
+    )
+    inputs: dict[InputName, CustomInputValue] = Field(
+        max_length=MAX_PLUGIN_INPUTS,
+        description="Input name -> value, validated against the pinned manifest.",
+    )
+    expansion: list[ExpandedMember] | None = Field(
+        default=None,
+        max_length=MAX_PLUGIN_EXPANSION,
+        exclude_if=_is_none,
+        description="The last expansion, written by documents (a client may omit "
+        "it). Null only on a request.",
+    )
+
+    @model_validator(mode="after")
+    def _members_unique(self) -> Self:
+        keys = [(member.role, member.index) for member in self.expansion or []]
+        if len(set(keys)) != len(keys):
+            raise ValueError("expansion repeats a (role, index)")
+        return self
+
+
+class CustomFeature(FeatureEnvelopeBase):
+    """``{"type": "custom", "version": 1, "params": {...}}``: a plugin's feature.
+
+    Authored and stored like any feature, but NOT in :data:`Feature`: it never
+    reaches geometry, which receives its expansion instead. Formulas drive
+    numeric inputs only (``/inputs/<name>``)."""
+
+    type: Literal["custom"]
+    version: Literal[1]
+    params: CustomParamsV1
+
+    @model_validator(mode="after")
+    def _formulas_drive_inputs(self) -> Self:
+        for pointer in self.expressions or {}:
+            if not pointer.startswith("/inputs/"):
+                raise ValueError(f"expressions[{pointer!r}]: only inputs are driven")
+        return self
+
+
+#: What a client authors and documents stores: a base feature or a custom one.
+AuthoredFeature = Annotated[
+    DatumFeature
+    | SketchFeature
+    | ExtrudeFeature
+    | RevolveFeature
+    | SweepFeature
+    | LoftFeature
+    | FilletFeature
+    | ChamferFeature
+    | ShellFeature
+    | DraftFeature
+    | HoleFeature
+    | PatternFeature
+    | MirrorFeature
+    | ImportFeature
+    | SheetMetalBaseFlangeFeature
+    | SheetMetalEdgeFlangeFeature
+    | SheetMetalHemFeature
+    | SheetMetalCornerReliefFeature
+    | BooleanFeature
+    | CustomFeature,
+    Field(discriminator="type"),
+]
+AuthoredEnvelope = FeatureEnvelope | CustomFeature
+
+
+class AuthoredFeatureRegistry:
+    """:data:`FEATURE_REGISTRY` plus the custom feature: the stored vocabulary.
+
+    Delegates every base type (and so every upcast registered there), and owns
+    ``custom`` itself, so geometry's registry never learns plugins exist."""
+
+    def current_version(self, feature_type: str) -> int:
+        if feature_type == "custom":
+            return 1
+        return FEATURE_REGISTRY.current_version(feature_type)
+
+    def upcast_params(
+        self, feature_type: str, version: int, params: JsonObject
+    ) -> JsonObject:
+        if feature_type != "custom":
+            return FEATURE_REGISTRY.upcast_params(feature_type, version, params)
+        if version != 1:
+            raise UnknownFeatureVersionError(f"'custom' params at v{version}")
+        return params
+
+    def load(
+        self,
+        feature_type: str,
+        version: int,
+        params: JsonObject,
+        *,
+        suppressed: bool = False,
+        expressions: dict[str, str] | None = None,
+    ) -> AuthoredEnvelope:
+        if feature_type != "custom":
+            return FEATURE_REGISTRY.load(
+                feature_type,
+                version,
+                params,
+                suppressed=suppressed,
+                expressions=expressions,
+            )
+        return CustomFeature.model_validate(
+            {
+                "type": "custom",
+                "version": 1,
+                "params": self.upcast_params(feature_type, version, params),
+                "suppressed": suppressed,
+                "expressions": expressions,
+            }
+        )
+
+
+AUTHORED_FEATURES = AuthoredFeatureRegistry()
+
+
 # --- §2.2/§2.3 Reference helpers --------------------------------------------------
 
 
@@ -3007,7 +3178,7 @@ class FeatureCreate(BaseModel):
     immediately after the bar and moves the bar to the new feature (§3)."""
 
     name: FeatureName = Field(description='User-facing name ("Sketch1")')
-    feature: Feature
+    feature: AuthoredFeature
     expected_tree_version: int = Field(
         ge=0,
         description="Optimistic-concurrency guard: the tree_version the client "
@@ -3022,7 +3193,7 @@ class FeatureUpdate(BaseModel):
 
     expected_tree_version: int = Field(ge=0)
     name: FeatureName | None = None
-    feature: Feature | None = None
+    feature: AuthoredFeature | None = None
 
     @model_validator(mode="after")
     def _something_to_update(self) -> Self:
@@ -3065,7 +3236,7 @@ class FeatureResponse(BaseModel):
         "meaningful to clients (design §1.2)"
     )
     name: str
-    feature: Feature
+    feature: AuthoredFeature
     rolled_back: bool = Field(
         description="True when the feature sits after the rollback bar (§3)"
     )

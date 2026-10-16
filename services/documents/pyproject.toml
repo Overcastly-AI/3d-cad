@@ -6,6 +6,8 @@ requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
     "loft-py-kit",
+    # First-party plugins (RESEARCH §23): documents expands custom features.
+    "loft-plugins",
     "fastapi>=0.115",
     "uvicorn>=0.32",
     "sqlalchemy[asyncio]>=2.0.36",
@@ -15,6 +17,7 @@ dependencies = [
 
 [tool.uv.sources]
 loft-py-kit = { workspace = true }
+loft-plugins = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

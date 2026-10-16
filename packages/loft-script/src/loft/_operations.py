@@ -1037,6 +1037,16 @@ POST_PARTS_PART_ID_VERSIONS_SEQ_RESTORE: Final = Operation(
     required_query=(),
 )
 
+GET_PLUGINS: Final = Operation(
+    operation_id="list_plugins_api_v1_plugins_get",
+    method="GET",
+    path="/api/v1/plugins",
+    request_model=None,
+    response_model="PluginCatalog",
+    path_params=(),
+    required_query=(),
+)
+
 #: Every gateway operation, keyed by its OpenAPI ``operationId``. Lets a
 #: caller (and the contract-parity test) enumerate the whole surface
 #: without importing each constant by name.
@@ -1144,5 +1154,6 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "list_part_versions_api_v1_parts__part_id__versions_get": GET_PARTS_PART_ID_VERSIONS,
         "save_part_version_api_v1_parts__part_id__versions_post": POST_PARTS_PART_ID_VERSIONS,
         "restore_part_version_api_v1_parts__part_id__versions__seq__restore_post": POST_PARTS_PART_ID_VERSIONS_SEQ_RESTORE,
+        "list_plugins_api_v1_plugins_get": GET_PLUGINS,
     }
 )

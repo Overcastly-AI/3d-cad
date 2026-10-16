@@ -71,6 +71,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents.assembly_history import ordered_patterns
+from documents.custom_features import member_id_mapping
 from documents.db import (
     Annotation,
     Assembly,
@@ -262,6 +263,10 @@ async def duplicate_part(
     # feature may reference any earlier feature in the tree.
     new_id = {feature.id: uuid.uuid4() for feature in features}
     mapping = {str(old): str(new) for old, new in new_id.items()}
+    # A custom feature's members are named after it: they follow its id.
+    mapping |= member_id_mapping(
+        ((feature.id, feature.type, feature.params) for feature in features), mapping
+    )
     # Per-body overrides are keyed by the id of the feature that CREATED the body
     # (`bodies[].base_feature_id`), so they must follow the new ids or the copy
     # silently falls back to the default material (and the wrong mass).

@@ -44,6 +44,7 @@ from gateway.geometry import DEFAULT_GEOMETRY_TIMEOUT_S, create_geometry_pool
 from gateway.geometry import router as geometry_router
 from gateway.loft_file import router as loft_file_router
 from gateway.materials import router as materials_router
+from gateway.plugins import router as plugins_router
 from gateway.parameters import router as parameters_router
 from gateway.parts import create_documents_client
 from gateway.parts import router as parts_router
@@ -224,6 +225,7 @@ def build_app(
     app.include_router(versions_router)
     app.include_router(parameters_router)
     app.include_router(materials_router)
+    app.include_router(plugins_router)
     app.include_router(features_router)
     app.include_router(assemblies_router)
     app.include_router(assembly_patterns_router)

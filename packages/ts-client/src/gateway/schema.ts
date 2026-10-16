@@ -2148,6 +2148,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Plugins
+         * @description Every released version of every installed plugin, by id, newest first.
+         *
+         *     The newest version of each is flagged ``latest`` (what a new feature is
+         *     inserted with); older ones are listed so a feature pinned to one still gets
+         *     its form.
+         */
+        get: operations["list_plugins_api_v1_plugins_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2232,6 +2256,53 @@ export interface components {
              * @description Resolved angle between the two lines, in DEGREES, measured at their shared corner when they have one. Strictly within (0, 180): the open ends are the parallel/anti-parallel degeneracies, which are the `parallel` constraint's job. The literal value when `expression` is None; otherwise the last resolved value.
              */
             value_deg: number;
+        };
+        /**
+         * AngleInput
+         * @description An angle in degrees. Accepts a §20 expression.
+         */
+        AngleInput: {
+            /**
+             * Default
+             * @description Value a new feature gets.
+             */
+            default: number;
+            /**
+             * Description
+             * @description Help text under the field.
+             */
+            description?: string | null;
+            /**
+             * Exclusive Minimum
+             * @description True: the value must be strictly above `minimum`.
+             * @default false
+             */
+            exclusive_minimum: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "angle";
+            /**
+             * Label
+             * @description Form label, e.g. 'Twist angle'.
+             */
+            label: string;
+            /** Maximum */
+            maximum?: number | null;
+            /** Minimum */
+            minimum?: number | null;
+            /**
+             * Name
+             * @description Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.
+             */
+            name: string;
+            /**
+             * Unit
+             * @default deg
+             * @constant
+             */
+            unit: "deg";
         };
         /**
          * AngleMate
@@ -3080,6 +3151,46 @@ export interface components {
              * @description Which edges of the current body to bevel (geometric predicate, not topological naming — design §2.4; same selector union as fillet)
              */
             edges: components["schemas"]["AllEdgesSelector"] | components["schemas"]["AxisParallelEdgesSelector"] | components["schemas"]["PickedEdgesSelector"];
+        };
+        /**
+         * ChoiceInput
+         * @description One of a fixed list of options (a direction, add or cut).
+         */
+        ChoiceInput: {
+            /** Default */
+            default: string;
+            /**
+             * Description
+             * @description Help text under the field.
+             */
+            description?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "choice";
+            /**
+             * Label
+             * @description Form label, e.g. 'Twist angle'.
+             */
+            label: string;
+            /**
+             * Name
+             * @description Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.
+             */
+            name: string;
+            /** Options */
+            options: components["schemas"]["ChoiceOption"][];
+        };
+        /**
+         * ChoiceOption
+         * @description One option of a choice input.
+         */
+        ChoiceOption: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
         };
         /**
          * CircularComponentPattern
@@ -4032,6 +4143,104 @@ export interface components {
              * @enum {string}
              */
             type: "concentric";
+        };
+        /**
+         * CountInput
+         * @description A whole number of things (studs, rungs). Accepts a §20 expression that
+         *     evaluates to a whole plain number.
+         */
+        CountInput: {
+            /** Default */
+            default: number;
+            /**
+             * Description
+             * @description Help text under the field.
+             */
+            description?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "count";
+            /**
+             * Label
+             * @description Form label, e.g. 'Twist angle'.
+             */
+            label: string;
+            /** Maximum */
+            maximum: number;
+            /**
+             * Minimum
+             * @default 0
+             */
+            minimum: number;
+            /**
+             * Name
+             * @description Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.
+             */
+            name: string;
+        };
+        /**
+         * CustomFeature
+         * @description ``{"type": "custom", "version": 1, "params": {...}}``: a plugin's feature.
+         *
+         *     Authored and stored like any feature, but NOT in :data:`Feature`: it never
+         *     reaches geometry, which receives its expansion instead. Formulas drive
+         *     numeric inputs only (``/inputs/<name>``).
+         */
+        CustomFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
+            params: components["schemas"]["CustomParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "custom";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * CustomParamsV1
+         * @description A custom feature: the plugin it is pinned to, its inputs, and the last
+         *     expansion. Documents expands it on every write and evaluation, and geometry
+         *     only ever receives the base features (RESEARCH §23). The stored expansion
+         *     is what a server without the plugin (or the pinned version) rebuilds,
+         *     read-only.
+         */
+        CustomParamsV1: {
+            /**
+             * Expansion
+             * @description The last expansion, written by documents (a client may omit it). Null only on a request.
+             */
+            expansion?: components["schemas"]["ExpandedMember"][] | null;
+            /**
+             * Inputs
+             * @description Input name -> value, validated against the pinned manifest.
+             */
+            inputs: {
+                [key: string]: number | string | components["schemas"]["FeatureRef"];
+            };
+            /** Plugin Id */
+            plugin_id: string;
+            /**
+             * Plugin Version
+             * @description The pinned plugin version; updating it is an explicit edit.
+             */
+            plugin_version: string;
         };
         /**
          * CylinderParams
@@ -5990,6 +6199,31 @@ export interface components {
             pattern_id: string;
         };
         /**
+         * ExpandedMember
+         * @description One base feature a custom feature expanded to, as stored with it.
+         */
+        ExpandedMember: {
+            /** Feature */
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
+            /**
+             * Id
+             * Format: uuid
+             * @description loft_wire.plugins.member_id(<feature-id>, role, index): the stable id geometry builds, results and picks name this member by.
+             */
+            id: string;
+            /**
+             * Index
+             * @description n within role.
+             */
+            index: number;
+            metadata?: components["schemas"]["MemberMetadata"] | null;
+            /**
+             * Role
+             * @description The manifest role this member takes.
+             */
+            role: string;
+        };
+        /**
          * ExportAssemblyRequest
          * @description Evaluate an assembly graph and export it as one multi-instance CAD file.
          *
@@ -6232,7 +6466,7 @@ export interface components {
              */
             expected_tree_version: number;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"];
             /**
              * Name
              * @description User-facing name ("Sketch1")
@@ -6377,6 +6611,44 @@ export interface components {
             kind: "feature";
         };
         /**
+         * FeatureReferenceInput
+         * @description An earlier feature of one of ``feature_types`` (a host wall, a datum).
+         *     Stored as a ``FeatureRef``. Hosting is by inputs, never by geometry.
+         */
+        FeatureReferenceInput: {
+            /**
+             * Description
+             * @description Help text under the field.
+             */
+            description?: string | null;
+            /**
+             * Feature Types
+             * @description Feature types the picked feature may be (`datum`, `sketch`, `custom`, ...).
+             */
+            feature_types: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "feature";
+            /**
+             * Label
+             * @description Form label, e.g. 'Twist angle'.
+             */
+            label: string;
+            /**
+             * Name
+             * @description Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.
+             */
+            name: string;
+            /**
+             * Optional
+             * @description True: may be left empty.
+             * @default false
+             */
+            optional: boolean;
+        };
+        /**
          * FeatureReorderRequest
          * @description Reorder the whole tree: the complete permutation of feature ids in the
          *     desired evaluation order. Backward-only references (design §2.2 rule 2)
@@ -6403,7 +6675,7 @@ export interface components {
              */
             created_at: string;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"];
             /**
              * Id
              * Format: uuid
@@ -6522,7 +6794,7 @@ export interface components {
             /** Expected Tree Version */
             expected_tree_version: number;
             /** Feature */
-            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"]) | null;
+            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"]) | null;
             /** Name */
             name?: string | null;
         };
@@ -7802,6 +8074,53 @@ export interface components {
             rot_deg?: number | null;
         };
         /**
+         * LengthInput
+         * @description A length in mm (a distance, a spacing). Accepts a §20 expression.
+         */
+        LengthInput: {
+            /**
+             * Default
+             * @description Value a new feature gets.
+             */
+            default: number;
+            /**
+             * Description
+             * @description Help text under the field.
+             */
+            description?: string | null;
+            /**
+             * Exclusive Minimum
+             * @description True: the value must be strictly above `minimum`.
+             * @default false
+             */
+            exclusive_minimum: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "length";
+            /**
+             * Label
+             * @description Form label, e.g. 'Twist angle'.
+             */
+            label: string;
+            /** Maximum */
+            maximum?: number | null;
+            /** Minimum */
+            minimum?: number | null;
+            /**
+             * Name
+             * @description Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.
+             */
+            name: string;
+            /**
+             * Unit
+             * @default mm
+             * @constant
+             */
+            unit: "mm";
+        };
+        /**
          * LinearComponentPattern
          * @description ``count`` copies, ``spacing_mm`` apart along ``direction``.
          */
@@ -8274,6 +8593,34 @@ export interface components {
             default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6") | null;
         };
         /**
+         * MaterialInput
+         * @description A library material for the generated members (their mass and cut list).
+         */
+        MaterialInput: {
+            /** Default */
+            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6") | null;
+            /**
+             * Description
+             * @description Help text under the field.
+             */
+            description?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "material";
+            /**
+             * Label
+             * @description Form label, e.g. 'Twist angle'.
+             */
+            label: string;
+            /**
+             * Name
+             * @description Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.
+             */
+            name: string;
+        };
+        /**
          * MaterialLibraryResponse
          * @description The built-in material library, served so no client hardcodes a density.
          *
@@ -8404,6 +8751,29 @@ export interface components {
              * @enum {string}
              */
             view: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
+        };
+        /**
+         * MemberMetadata
+         * @description What the cut list and mass need about one generated member (RESEARCH §23).
+         *
+         *     All optional: a helper member (a path sketch) carries none.
+         */
+        MemberMetadata: {
+            /**
+             * Material
+             * @description Library material of the member.
+             */
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6") | null;
+            /**
+             * Nominal Size
+             * @description Nominal size as sold, e.g. '2x8x12'.
+             */
+            nominal_size?: string | null;
+            /**
+             * Profile
+             * @description Section the member is cut from, e.g. '2x8'.
+             */
+            profile?: string | null;
         };
         /**
          * MeshStats
@@ -9521,6 +9891,77 @@ export interface components {
             topo_name?: string | null;
         };
         /**
+         * PluginCatalog
+         * @description Every released version of every installed plugin (``GET /api/v1/plugins``),
+         *     ordered by id, newest version first.
+         */
+        PluginCatalog: {
+            /** Plugins */
+            plugins: components["schemas"]["PluginManifest"][];
+        };
+        /**
+         * PluginManifest
+         * @description One released version of a plugin: what the toolbar and form are built
+         *     from (``GET /api/v1/plugins``). Immutable once released: a change to what
+         *     the plugin builds from existing inputs is a new version.
+         */
+        PluginManifest: {
+            /**
+             * Description
+             * @description One-line help for the tool.
+             */
+            description: string;
+            /**
+             * Group
+             * @description Toolbar group the tool sits in.
+             * @default build
+             * @constant
+             */
+            group: "build";
+            /**
+             * Id
+             * @description Stable plugin id, e.g. 'loft.twisted_prism'.
+             */
+            id: string;
+            /** Inputs */
+            inputs: (components["schemas"]["LengthInput"] | components["schemas"]["AngleInput"] | components["schemas"]["CountInput"] | components["schemas"]["ChoiceInput"] | components["schemas"]["ProfileInput"] | components["schemas"]["FeatureReferenceInput"] | components["schemas"]["MaterialInput"])[];
+            /**
+             * Latest
+             * @description True on the newest released version of this plugin: the one a new feature is inserted with. Older versions are listed so a feature pinned to one still gets its form.
+             * @default false
+             */
+            latest: boolean;
+            /**
+             * Members
+             * @description Roles the expansion's members take, in tree order.
+             */
+            members: components["schemas"]["PluginMemberRole"][];
+            /**
+             * Title
+             * @description Toolbar and tree title, e.g. 'Twisted prism'.
+             */
+            title: string;
+            /**
+             * Version
+             * @description Released version, MAJOR.MINOR.PATCH.
+             */
+            version: string;
+        };
+        /**
+         * PluginMemberRole
+         * @description A role the plugin's members take (``joist``, ``path``): the middle
+         *     segment of each member's id, and the group a member unfolds under in the
+         *     tree.
+         */
+        PluginMemberRole: {
+            /** Description */
+            description?: string | null;
+            /** Role */
+            role: string;
+            /** Title */
+            title: string;
+        };
+        /**
          * Point2D
          * @description A point in sketch-plane coordinates (mm).
          */
@@ -9698,6 +10139,33 @@ export interface components {
              * @description Client-chosen identity of this intent (e.g. one per open editor). Namespaced per user by the gateway, so one client can never cancel another's speculation.
              */
             ticket: string;
+        };
+        /**
+         * ProfileInput
+         * @description An earlier SKETCH whose closed wire is the profile (picked in the
+         *     viewport or the tree). Stored as a ``FeatureRef``.
+         */
+        ProfileInput: {
+            /**
+             * Description
+             * @description Help text under the field.
+             */
+            description?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "profile";
+            /**
+             * Label
+             * @description Form label, e.g. 'Twist angle'.
+             */
+            label: string;
+            /**
+             * Name
+             * @description Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.
+             */
+            name: string;
         };
         /**
          * ProjectedPoint
@@ -15605,6 +16073,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_plugins_api_v1_plugins_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginCatalog"];
                 };
             };
         };
