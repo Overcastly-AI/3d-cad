@@ -193,7 +193,12 @@ export function useViewportState({
   // The open command scopes the band + names the mode (breadcrumb + lock).
   // No runtime fallback: COMMAND_LABEL is total over OpenEditor["kind"], so
   // an unmapped editor kind cannot compile, let alone unlock the band.
-  const activeCommand = editor === null ? null : COMMAND_LABEL[editor.kind];
+  const activeCommand =
+    editor === null
+      ? null
+      : editor.kind === "custom"
+        ? editor.title
+        : COMMAND_LABEL[editor.kind];
   return {
     extrudeGhostLayer,
     showExtrudeGhost,

@@ -48,6 +48,14 @@ import {
   REPICK_FACE_ACTION,
 } from "../features/featureErrors";
 import { featureTypeLabel } from "../features/featureLabels";
+import type { PluginManifest } from "../api/plugins";
+import { isCustomRow } from "../features/customFeature";
+import {
+  customFeatureBadge,
+  CustomMemberRows,
+  ReadOnlyBadge,
+  UnfoldToggle,
+} from "./CustomFeatureNode";
 import { useCancelKey } from "../lib/modalGate";
 import {
   conflictMessage,
@@ -154,6 +162,11 @@ export interface FeatureTreePanelProps {
    * order (e.g. a reuse with no write path).
    */
   onReorder?: (order: string[]) => Promise<FeatureOrderRefusal | null>;
+  /**
+   * The installed plugins (PLUGIN-UI): a custom feature's title and member
+   * roles, and whether its plugin is here to edit it. Undefined while loading.
+   */
+  plugins?: readonly PluginManifest[] | undefined;
 }
 
 /** The pair a `reference_not_earlier` refusal named, as ids. */
@@ -234,11 +247,23 @@ export function FeatureTreePanel({
   onCommitRename,
   onCancelRename,
   onReorder,
+  plugins,
 }: FeatureTreePanelProps) {
   const resultById = new Map<string, FeatureResult>(
     (evaluation?.features ?? []).map((f) => [f.feature_id, f]),
   );
   const features = tree?.features ?? [];
+  // Custom features unfolded into their members (PLUGIN-UI); folded at rest.
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleUnfolded = useCallback((id: string) => {
+    setUnfolded((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }, []);
   // The feature count folds into the eyebrow (it was a redundant footer cell —
   // the rows are numbered right above it; UI-REVIEW 2026-07-16, Track B).
   const treeEyebrow =
@@ -532,7 +557,13 @@ export function FeatureTreePanel({
                   status === "suppressed";
                 const suppressBusy = feature.id === suppressingId;
                 const renaming = feature.id === renamingId;
-                const badge = featureBadge(feature.feature, features);
+                // A custom feature (PLUGIN-UI) is named by its plugin and
+                // unfolds into its members; a missing plugin is read-only.
+                const custom = isCustomRow(feature) ? feature : null;
+                const customBadge =
+                  custom === null ? null : customFeatureBadge(custom, plugins);
+                const badge =
+                  customBadge?.text ?? featureBadge(feature.feature, features);
                 // This row was never attempted — and the cause is a DIFFERENT
                 // feature, so the row has to name it.
                 const blockedBy =
@@ -655,6 +686,14 @@ export function FeatureTreePanel({
                           attemptMove(index, index + delta, true)
                         }
                       />
+                      {custom !== null ? (
+                        <UnfoldToggle
+                          open={unfolded.has(feature.id)}
+                          name={feature.name}
+                          index={index}
+                          onToggle={() => toggleUnfolded(feature.id)}
+                        />
+                      ) : null}
                       {renaming ? (
                         <div className="flex min-w-0 grow items-baseline gap-2">
                           <TextField
@@ -727,6 +766,8 @@ export function FeatureTreePanel({
                             >
                               Scope
                             </Stamp>
+                          ) : customBadge?.readOnly && custom !== null ? (
+                            <ReadOnlyBadge row={custom} index={index} />
                           ) : (
                             // Capped, so a pattern's badge naming a long
                             // source ("pattern · Tooth gap (twisted cut)")
@@ -800,6 +841,15 @@ export function FeatureTreePanel({
                               : "—"}
                       </span>
                     </li>
+                    {custom !== null && unfolded.has(feature.id) ? (
+                      <CustomMemberRows
+                        row={custom}
+                        index={index}
+                        catalog={plugins}
+                        resultById={resultById}
+                        rolledBack={rolledBack}
+                      />
+                    ) : null}
                     {status === "error" && result?.error && !rolledBack ? (
                       <li
                         className="border-l-2 border-flag py-1 pr-3 pl-[26px]"

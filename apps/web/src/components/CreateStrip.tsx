@@ -277,6 +277,11 @@ export interface CreateStripProps {
    * have already answered.
    */
   nextStep?: NextStepProposal | null;
+  /**
+   * The Build group (installed plugins, PLUGIN-UI), rendered after Sheet
+   * metal: it is built by its own component from the served catalog.
+   */
+  buildGroup?: ReactNode;
 }
 
 /**
@@ -486,6 +491,7 @@ export function CreateStrip({
   exportPartialQualifier,
   exportState,
   nextStep = null,
+  buildGroup = null,
 }: CreateStripProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
   const importReady =
@@ -1240,6 +1246,8 @@ export function CreateStrip({
             onClick={onExportFlatDxf}
           />
         </ToolGroup>
+
+        {buildGroup}
 
         <ToolGroup eyebrow="Inspect" labelPriority={LABEL_PRIORITY.inspect}>
           <ToolButton

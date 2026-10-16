@@ -74,6 +74,7 @@ import {
   useFormulaSessionStore,
 } from "../../features/fieldFormulas";
 import { usePreselectStore } from "../../features/preselect";
+import { pluginErrorSentence } from "../../features/customFeature";
 import type { EditorFormulas } from "./useEditorFormulas";
 import type { PartDocument } from "./usePartDocument";
 import type { PartBody } from "./usePartBody";
@@ -213,7 +214,11 @@ export function useFeatureSubmit({
             );
           } else {
             setEditorError(
-              error instanceof Error ? error.message : fallbackMessage,
+              error instanceof FeatureWriteError
+                ? pluginErrorSentence(error.code, error.message)
+                : error instanceof Error
+                  ? error.message
+                  : fallbackMessage,
             );
           }
         } finally {
@@ -577,6 +582,7 @@ export function useFeatureSubmit({
     submitHem,
     submitCornerRelief,
     submitCombine,
+    runFeatureSave,
   };
 }
 

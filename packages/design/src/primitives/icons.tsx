@@ -953,6 +953,21 @@ export const SuppressIcon = (p: IconProps) => (
 );
 
 /**
+ * Custom feature = a plugin's feature (PLUGIN-UI): ONE node that stands for
+ * the members it generates. Two stacked member blocks held in a pair of
+ * brackets — "several features, authored as one" — in the square vocabulary
+ * the pattern and combine glyphs speak.
+ */
+export const CustomFeatureIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 4 H3 V20 H6" />
+    <path d="M18 4 H21 V20 H18" />
+    <rect x={7} y={6} width={10} height={4.5} />
+    <rect x={7} y={13.5} width={10} height={4.5} />
+  </Icon>
+);
+
+/**
  * A piece of blank stock — the GENERIC feature mark, used when a feature type
  * has no verb glyph of its own yet (a kernel verb that landed before its
  * frontend icon). Drawn as a chamfered blank so it never reads as a specific

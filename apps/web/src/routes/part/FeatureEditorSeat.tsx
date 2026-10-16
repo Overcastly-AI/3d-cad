@@ -23,6 +23,8 @@ import { ShellEditor } from "../../components/ShellEditor";
 import { SweepEditor } from "../../components/SweepEditor";
 import { PipeEditor } from "../../components/PipeEditor";
 import { pipeCurveOptions } from "../../features/pipe";
+import { PluginFeatureEditor } from "../../components/PluginFeatureEditor";
+import type { CustomFeatureWrite, PluginManifest } from "../../api/plugins";
 import { FormulaSessionContext } from "../../components/ValueField";
 import type { EditorFormulas } from "./useEditorFormulas";
 import type { PartDocument } from "./usePartDocument";
@@ -56,6 +58,8 @@ export function FeatureEditorSeat({
   pickSessions,
   actionFlags,
   datumFacePicking,
+  pluginCatalog,
+  submitCustom,
 }: {
   editorFormulas: Pick<EditorFormulas, "formulaSession" | "editorInputError">;
   partDocument: Pick<PartDocument, "mode">;
@@ -154,6 +158,9 @@ export function FeatureEditorSeat({
     | "datumEdgePicked"
     | "datumEdgePickError"
   >;
+  /** The installed plugins (a custom feature's form), undefined while loading. */
+  pluginCatalog?: readonly PluginManifest[] | undefined;
+  submitCustom?: (write: CustomFeatureWrite) => void;
 }) {
   const { mode } = partDocument;
   const { editor, hasBody } = partBody;
@@ -463,6 +470,21 @@ export function FeatureEditorSeat({
             initial={editor.initial}
             datumPlanes={datumPlaneOptions}
             onSubmit={submitMirror}
+            onCancel={closeEditor}
+            saving={editorSaving}
+            error={seatError}
+          />
+        ) : editor.kind === "custom" ? (
+          <PluginFeatureEditor
+            key={`${editor.pluginId}@${editor.pluginVersion}:${editor.featureId ?? "new"}`}
+            mode={editor.mode}
+            pluginId={editor.pluginId}
+            pluginVersion={editor.pluginVersion}
+            featureId={editor.featureId}
+            stored={editor.stored}
+            catalog={pluginCatalog}
+            features={features}
+            onSubmit={submitCustom ?? (() => undefined)}
             onCancel={closeEditor}
             saving={editorSaving}
             error={seatError}

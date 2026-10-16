@@ -184,6 +184,17 @@ export function editorForFeature(
       initial: formFromCornerReliefParams(feature.feature.params, lengthUnit),
     };
   }
+  if (feature.feature.type === "custom") {
+    return {
+      kind: "custom",
+      mode: "edit",
+      featureId: feature.id,
+      pluginId: feature.feature.params.plugin_id,
+      pluginVersion: feature.feature.params.plugin_version,
+      title: feature.name,
+      stored: feature.feature.params,
+    };
+  }
   if (feature.feature.type === "datum") {
     // Every datum kind is editable here — offset / offset-from / midplane /
     // on_face. A face-referencing datum (on_face or a midplane FACE-side)

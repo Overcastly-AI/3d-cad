@@ -1,0 +1,243 @@
+/**
+ * The form generator (PLUGIN-UI): a custom feature's fields, seeds, checks
+ * and write are derived from the served manifest alone. The fixture is the
+ * twisted prism's real manifest shape (packages/loft-plugins), plus a count,
+ * an optional feature reference and a material to cover every input kind.
+ */
+import { describe, expect, it } from "vitest";
+
+import type { FeatureResponse } from "../api/parts";
+import type { CustomParams, PluginManifest } from "../api/plugins";
+import { TWISTED_PRISM } from "../test/pluginFixture";
+import {
+  boundsPhrase,
+  defaultPluginForm,
+  fieldKind,
+  firstPluginBlocker,
+  formFromCustomParams,
+  inputPointer,
+  inputUnit,
+  isNumericInput,
+  type NumericInput,
+  type PluginForm,
+  pluginInputsFromForm,
+  referenceOptions,
+  validatePluginForm,
+} from "./pluginForm";
+
+const EVERY_KIND: PluginManifest = {
+  ...TWISTED_PRISM,
+  id: "loft.every_kind",
+  inputs: [
+    ...TWISTED_PRISM.inputs,
+    {
+      kind: "count",
+      name: "rungs",
+      label: "Rungs",
+      default: 3,
+      minimum: 1,
+      maximum: 50,
+    },
+    {
+      kind: "feature",
+      name: "host",
+      label: "Host",
+      feature_types: ["datum"],
+      optional: true,
+    },
+    { kind: "material", name: "material", label: "Material", default: null },
+  ],
+};
+
+function row(id: string, name: string, type: string): FeatureResponse {
+  return {
+    id,
+    part_id: "p",
+    order_index: 0,
+    name,
+    feature: { type, version: 1, params: {} },
+    rolled_back: false,
+    created_at: "",
+    updated_at: "",
+  } as unknown as FeatureResponse;
+}
+
+const TREE = [
+  row("s1", "Sketch1", "sketch"),
+  row("d1", "Plane1", "datum"),
+  row("s2", "Sketch2", "sketch"),
+  row("c1", "Twisted prism 1", "custom"),
+  row("s3", "Sketch3", "sketch"),
+];
+
+function numeric(name: string, manifest = EVERY_KIND): NumericInput {
+  const input = manifest.inputs.find((i) => i.name === name);
+  if (input === undefined || !isNumericInput(input)) throw new Error(name);
+  return input;
+}
+
+function withValues(form: PluginForm, values: Record<string, string>) {
+  return { ...form, values: { ...form.values, ...values } };
+}
+
+describe("the generated fields", () => {
+  it("map each numeric kind to its ValueField kind, unit and pointer", () => {
+    expect(fieldKind(numeric("distance_mm"))).toBe("length");
+    expect(fieldKind(numeric("twist_angle_deg"))).toBe("angle");
+    expect(fieldKind(numeric("rungs"))).toBe("int");
+    expect(inputUnit(numeric("distance_mm"), "in")).toBe("in");
+    expect(inputUnit(numeric("twist_angle_deg"), "in")).toBe("°");
+    expect(inputUnit(numeric("rungs"), "mm")).toBe("");
+    // The pointer documents resolves a formula at (`/inputs/<name>`).
+    expect(inputPointer("twist_angle_deg")).toBe("/inputs/twist_angle_deg");
+  });
+
+  it("state the manifest's bounds in the document unit", () => {
+    expect(boundsPhrase(numeric("distance_mm"), "mm")).toBe("more than 0 mm");
+    expect(boundsPhrase(numeric("twist_angle_deg"), "mm")).toBe(
+      "-3600° to 3600°",
+    );
+    expect(boundsPhrase(numeric("rungs"), "mm")).toBe("1 to 50");
+  });
+});
+
+describe("defaultPluginForm", () => {
+  it("seeds every input at its manifest default, lengths in the document unit", () => {
+    const form = defaultPluginForm(EVERY_KIND, "mm", TREE);
+    expect(form.values).toEqual({
+      profile: "s3", // the latest sketch, as Extrude proposes
+      distance_mm: "10",
+      twist_angle_deg: "30",
+      operation: "add",
+      rungs: "3",
+      host: "", // optional: left empty
+      material: "",
+    });
+    // In an inch part the 10 mm default is shown in inches, with the digits
+    // that write back exactly 10 mm on an untouched Create.
+    const inch = defaultPluginForm(TWISTED_PRISM, "in", TREE);
+    expect(inch.values.distance_mm).toMatch(/^0\.3937/);
+    expect(
+      pluginInputsFromForm(TWISTED_PRISM, inch, "in", TREE, null)?.distance_mm,
+    ).toBe(10);
+  });
+});
+
+describe("referenceOptions", () => {
+  it("offers only EARLIER features of the input's types", () => {
+    const profile = TWISTED_PRISM.inputs[0]!;
+    if (profile.kind !== "profile") throw new Error("fixture");
+    expect(referenceOptions(profile, TREE, null).map((o) => o.value)).toEqual([
+      "s1",
+      "s2",
+      "s3",
+    ]);
+    expect(referenceOptions(profile, TREE, "c1").map((o) => o.label)).toEqual([
+      "Sketch1",
+      "Sketch2",
+    ]);
+    const host = EVERY_KIND.inputs.find((i) => i.name === "host")!;
+    if (host.kind !== "feature") throw new Error("fixture");
+    expect(referenceOptions(host, TREE, null)).toEqual([
+      { value: "d1", label: "Plane1" },
+    ]);
+  });
+});
+
+describe("validatePluginForm", () => {
+  const base = defaultPluginForm(EVERY_KIND, "mm", TREE);
+  const check = (values: Record<string, string>, unit: "mm" | "in" = "mm") =>
+    validatePluginForm(EVERY_KIND, withValues(base, values), unit, TREE, null);
+
+  it("passes the defaults", () => {
+    expect(check({})).toEqual({});
+  });
+
+  it("refuses a value on or past a bound, saying the bound", () => {
+    expect(check({ distance_mm: "0" }).distance_mm).toBe(
+      "Must be more than 0 mm.",
+    );
+    expect(check({ twist_angle_deg: "3601" }).twist_angle_deg).toBe(
+      "Must be -3600° to 3600°.",
+    );
+    expect(check({ twist_angle_deg: "-3600" })).toEqual({});
+    expect(check({ rungs: "0" }).rungs).toBe("Must be 1 to 50.");
+  });
+
+  it("refuses an empty, unparseable or fractional count", () => {
+    expect(check({ distance_mm: "" }).distance_mm).toBe("Enter distance.");
+    // A formula that does not resolve leaves its text in the form.
+    expect(check({ twist_angle_deg: "twist*2" }).twist_angle_deg).toBe(
+      "Enter a number or a formula.",
+    );
+    expect(check({ rungs: "2.5" }).rungs).toBe("Must be a whole number.");
+  });
+
+  it("checks references and choices against what the tree and manifest offer", () => {
+    expect(check({ profile: "" }).profile).toBe("Pick profile.");
+    expect(check({ profile: "d1" }).profile).toBe(
+      "Profile must be an earlier feature.",
+    );
+    expect(check({ operation: "fuse" }).operation).toBe("Choose operation.");
+    expect(
+      validatePluginForm(
+        EVERY_KIND,
+        withValues(base, { profile: "" }),
+        "mm",
+        [],
+        null,
+      ).profile,
+    ).toBe("Draw a sketch first.");
+  });
+
+  it("names the first failing field as the Create gate's reason", () => {
+    const errors = check({ distance_mm: "0", rungs: "0" });
+    expect(firstPluginBlocker(EVERY_KIND, errors)).toBe(
+      "Distance: Must be more than 0 mm.",
+    );
+    expect(firstPluginBlocker(EVERY_KIND, {})).toBeNull();
+  });
+});
+
+describe("pluginInputsFromForm", () => {
+  it("writes numbers in the input's own unit and leaves empty optionals out", () => {
+    const form = withValues(defaultPluginForm(EVERY_KIND, "in", TREE), {
+      distance_mm: "2",
+      twist_angle_deg: "90",
+      rungs: "4",
+    });
+    expect(pluginInputsFromForm(EVERY_KIND, form, "in", TREE, null)).toEqual({
+      profile: { kind: "feature", feature_id: "s3" },
+      distance_mm: 50.8,
+      twist_angle_deg: 90,
+      operation: "add",
+      rungs: 4,
+    });
+  });
+
+  it("is null while any field is invalid", () => {
+    const form = withValues(defaultPluginForm(EVERY_KIND, "mm", TREE), {
+      distance_mm: "-1",
+    });
+    expect(pluginInputsFromForm(EVERY_KIND, form, "mm", TREE, null)).toBeNull();
+  });
+
+  it("round-trips stored inputs exactly through an unchanged edit", () => {
+    const stored: CustomParams = {
+      plugin_id: "loft.twisted_prism",
+      plugin_version: "1.0.0",
+      inputs: {
+        profile: { kind: "feature", feature_id: "s1" },
+        distance_mm: 12.345678901234,
+        twist_angle_deg: 33.333333333333336,
+        operation: "cut",
+      },
+    };
+    const form = formFromCustomParams(TWISTED_PRISM, stored, "in");
+    expect(form.values.profile).toBe("s1");
+    expect(form.values.operation).toBe("cut");
+    expect(pluginInputsFromForm(TWISTED_PRISM, form, "in", TREE, "c1")).toEqual(
+      stored.inputs,
+    );
+  });
+});

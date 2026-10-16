@@ -4,7 +4,9 @@
  * Split out of `PartPage.tsx` (SPLIT-PARTPAGE); behaviour unchanged.
  */
 
+import { BuildToolGroup } from "../../components/BuildToolGroup";
 import { CreateStrip } from "../../components/CreateStrip";
+import type { PluginManifest } from "../../api/plugins";
 import { useCommandActionStore } from "../../features/commandActions";
 import { SketchStrip } from "../../components/SketchStrip";
 import { useSketchStore } from "../../sketch/store";
@@ -47,6 +49,8 @@ export function PartCommandBand({
   pickState,
   partParameters,
   openCreateCombine,
+  pluginCatalog,
+  openCreatePlugin,
 }: {
   partDocument: Pick<PartDocument, "mode" | "tree">;
   timelineHistory: Pick<
@@ -124,6 +128,9 @@ export function PartCommandBand({
   >;
   partParameters: Pick<PartParameters, "panelOpen" | "togglePanel">;
   openCreateCombine: () => void;
+  /** The installed plugins (the Build group), undefined while loading. */
+  pluginCatalog?: readonly PluginManifest[] | undefined;
+  openCreatePlugin?: (manifest: PluginManifest) => void;
 }) {
   const { mode, tree } = partDocument;
   const { canUndo, canRedo, historyStep, triggerUndo, triggerRedo } =
@@ -234,6 +241,16 @@ export function PartCommandBand({
           exportPartialQualifier={partExport.gate.qualifier ?? undefined}
           exportState={partExport.gate.state}
           nextStep={nextStep}
+          buildGroup={
+            openCreatePlugin !== undefined ? (
+              <BuildToolGroup
+                catalog={pluginCatalog}
+                treeReady={tree.data !== undefined}
+                activeCommand={activeCommand ?? null}
+                onOpen={openCreatePlugin}
+              />
+            ) : null
+          }
         />
       ) : (
         <SketchStrip
