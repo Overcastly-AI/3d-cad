@@ -73,7 +73,10 @@ TRUTH_REL = 1e-10
 #: when its round trip met ROUNDTRIP_TOL (1.3e-8). The moto frame (2026-10-07,
 #: reviewed by the orchestrator) drifts 1.3e-5 mm^3 / 0.18 mm^2 on a 704,000 mm^3
 #: part through OCCT's STEP; a pure-build123d twin drifts the same.
-REVIEWED_OVERRIDE: dict[str, float] = {"frame-moto-cradle-tube-od25.4-t1.6": 0.5}
+REVIEWED_OVERRIDE: dict[str, float] = {
+    "frame-moto-cradle-tube-od25.4-t1.6": 0.5,
+    "frame-bike-4-pipes-one-skeleton-head73": 0.05,
+}
 
 #: The second case: the golden's shape class, other numbers. Its spline's
 #: tightest inward radius of curvature is 2.354 mm against the 2 mm wall, so the

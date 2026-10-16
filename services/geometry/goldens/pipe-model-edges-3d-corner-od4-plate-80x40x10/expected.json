@@ -1,0 +1,44 @@
+{
+  "description": "PIPE ALONG PICKED MODEL EDGES ROUND A 3D CORNER (PIPE-ALONG-PATH): the 80 x 40 x 10 plate, then a solid pipe (OD 4) as a NEW BODY along three of its edges picked as subshape references: (0,40,0)-(0,0,0), (0,0,0)-(80,0,0), (80,0,0)-(80,0,10). They chain into (0,40,0) -> (0,0,0) -> (80,0,0) -> (80,0,10): one square corner in the XY plane, then one in the XZ plane, both MITRED. Locks the model-edge path (resolved through the picked-edge tiers, reported as 'exact' by the subshape census), the 3D chaining, the non-planar mitre (a centroid that a planar or a rounded corner would miss) and the new-body compound.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill); only the topology and mesh counts are recorded from the harness and are pinned as a regression.",
+    "volume: the plate 80 * 40 * 10 = 32000; the tube A L with A = 4 pi and L = 40 + 80 + 10 = 130 (a mitre removes on one side of the axis exactly what it adds on the other) = 520 pi; the bodies are a compound, so 32000 + 520 pi = 33633.62817986669 mm^3.",
+    "surface_area: the plate 2 (3200 + 800 + 400) = 8800; the tube wall 2 pi r L = 520 pi (each mitre is symmetric about the bisecting plane) plus two flat end caps 2 * 4 pi: 8800 + 528 pi = 10458.76092109541 mm^2.",
+    "centroid, by hand with I = pi r^4 / 4 = 4 pi and k = tan 45 deg = 1 at both corners, moment = A L P0 + d (A L^2 + (k_e^2 - k_s^2) I) / 2 + (k_s m - k_e m') I per run: run -Y from (0,40,0), L 40: (-4 pi, 3198 pi, 0); run +X from the origin, L 80, in from -Y and out to +Z: (12800 pi, -4 pi, -4 pi); run +Z from (80,0,0), L 10: (3204 pi, 0, 198 pi). Tube (16000 pi, 3194 pi, 194 pi) plus plate 32000 (40, 20, 5), over the volume: (39.55164977573672, 19.326914225824755, 4.775264450088031). derive.py beside this file computes the same from model.json (re-run by tests/test_golden_derivations.py).",
+    "bounding_box: the tube's walls reach r = 2 beyond the edges: x from -2 (run along Y at x = 0) to 82 (run along Z at x = 80; the X run's mitre ellipse reaches the same outer wall), y from -2 (runs along X and Z at y = 0) to 40 (plate and the flat open cap at y = 40), z from -2 (runs along Y and X at z = 0) to 10 (plate and the flat open cap at z = 10): [-2, -2, -2]..[82, 40, 10].",
+    "topology: 2 shells (plate, tube); plate 6 faces, tube 3 walls + 2 caps = 11 faces; 24 edges recorded.",
+    "mesh (linear 0.1 / angular 0.1): 1152 vertices / 1130 triangles, recorded."
+  ],
+  "tolerance": 1e-7,
+  "tolerance_rationale": "Measured first (2026-10-16, build123d 0.11.1 / OCCT 7.9): volume 6.1e-9 mm^3 and area 1.2e-9 mm^2 below the closed forms (the mitre ellipses are B-spline-approximated edges), centroid within 3.3e-12 mm, AABB exact. 1e-7 is 16x the worst observed; never loosen it to go green.",
+  "properties": {
+    "volume": 33633.62817986669,
+    "surface_area": 10458.76092109541,
+    "centroid": {
+      "x": 39.55164977573672,
+      "y": 19.326914225824755,
+      "z": 4.775264450088031
+    },
+    "bounding_box": {
+      "min": {
+        "x": -2.0,
+        "y": -2.0,
+        "z": -2.0
+      },
+      "max": {
+        "x": 82.0,
+        "y": 40.0,
+        "z": 10.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 11,
+    "edges": 24,
+    "shells": 2
+  },
+  "mesh": {
+    "vertices": 1152,
+    "triangles": 1130
+  }
+}

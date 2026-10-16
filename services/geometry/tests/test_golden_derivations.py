@@ -22,6 +22,7 @@ GOLDENS = Path(__file__).resolve().parent.parent / "goldens"
 DERIVED_GOLDENS = (
     "extrude-cut-spline-slots-6x-disc-r20-h10",
     "pipe-mitred-corners-ring-od20-t2-100x80x60",
+    "pipe-model-edges-3d-corner-od4-plate-80x40x10",
     "shell-spline-prism-30x10-t1",
     "sketch-fillet-keep-dims-80x50-r15-edit-x10",
     "sketch-fillet-rounded-rect-r10-edit-40x25x10",
