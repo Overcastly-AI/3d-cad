@@ -46,6 +46,7 @@ const BAND_GROUPS = [
   "Create",
   "Modify",
   "Sheet metal",
+  "Build",
   "Inspect",
 ] as const;
 
@@ -96,12 +97,15 @@ async function appScroll(page: Page) {
   }));
 }
 
-// Measured on the part band (empty part, 2026-08-22). At all three widths the
-// graduated tier settles on Export + Inspect labeled and the three big verb
-// families in icons — 1244.6px of content. Before EXPORT-1's group landed the
-// band showed no labels at all here, because the only alternative cost 2650.9.
+// Measured on the part band (empty part, 2026-10-16, with PLUGIN-UI's Build
+// group). At 1440 and 1600 the graduated tier settles on Build + Inspect +
+// Export labeled and the three big verb families in icons — 1435.6px of
+// content. At the 1280 floor the icon row is 1141.4px and Export's format
+// codes would add 160, so the band is all icons there (the codes ride the
+// tooltips). The band is at capacity at 1280: the next group or tool needs
+// the "more" flyout point 4 above names, not another shed.
 for (const { width, height, tier } of [
-  { width: 1280, height: 800, tier: "mixed" },
+  { width: 1280, height: 800, tier: "icon" },
   { width: 1440, height: 900, tier: "mixed" },
   { width: 1600, height: 900, tier: "mixed" },
 ] as const) {
@@ -156,11 +160,13 @@ for (const { width, height, tier } of [
       //    floor — "STEP"/"STL"/"3MF"/"GLB" are identifiers three near-identical
       //    mesh glyphs cannot spell — while the verb families, whose glyph and
       //    eyebrow already name them, go to icons first.
-      expect(fit.labeled).toContain("Export");
       expect(fit.labeled).not.toContain("Sheet metal");
-      await expect(page.getByTestId("part-export-band-step")).toContainText(
-        "STEP",
-      );
+      if (tier === "mixed") {
+        expect(fit.labeled).toContain("Export");
+        await expect(page.getByTestId("part-export-band-step")).toContainText(
+          "STEP",
+        );
+      }
     });
   });
 }
@@ -193,18 +199,18 @@ test.describe("the band buys labels back as it widens (2400)", () => {
   }) => {
     await openEmptyPart(page);
 
-    // At 2400 the band affords four of the five sheddable levels: Export,
-    // Inspect, Create and Modify are labeled (2126.8px), and only Sheet metal
-    // — the widest labels on the band, +524px, for a family inert on every
-    // part that is not sheet metal — is still in icons. So the step-back-up
-    // this spec was written to prove is live, and it is the CREATE group (the
-    // audit's own example) that demonstrates it.
+    // At 2400 the band affords Export, Build, Inspect and Create labeled
+    // (1842.8px); Modify's words would take it to 2407.5, so Modify and Sheet
+    // metal — the widest labels on the band, for a family inert on every part
+    // that is not sheet metal — are in icons (measured 2026-10-16). So the
+    // step-back-up this spec was written to prove is live, and it is the
+    // CREATE group (the audit's own example) that demonstrates it.
     await expect(page.getByTestId("top-toolbar")).toHaveAttribute(
       "data-band-tier",
       "mixed",
     );
     expect(await inlineLabelShown(page, "new-extrude", "Extrude")).toBe(true);
-    expect(await inlineLabelShown(page, "new-fillet", "Fillet")).toBe(true);
+    expect(await inlineLabelShown(page, "new-fillet", "Fillet")).toBe(false);
     expect(await inlineLabelShown(page, "new-base-flange", "Base flange")).toBe(
       false,
     );
@@ -215,17 +221,17 @@ test.describe("the band buys labels back as it widens (2400)", () => {
   });
 });
 
-test.describe("the fully labeled tier returns when it genuinely fits (2800)", () => {
-  test.use({ viewport: { width: 2800, height: 1000 } });
+test.describe("the fully labeled tier returns when it genuinely fits (3000)", () => {
+  test.use({ viewport: { width: 3000, height: 1000 } });
 
   test("every group has its words, and the row still fits", async ({
     page,
   }) => {
     await openEmptyPart(page);
 
-    // 2800 is not a magic number: the fully labeled row measures 2774.7px
-    // (2650.9 until Parameters joined Modify, PART-PARAMETERS), so this is the
-    // first round width above it. It is the top of the ramp — the
+    // 3000 is not a magic number: the fully labeled row measures 2931.6px
+    // (2774.7 until PLUGIN-UI's Build group, 2650.9 until Parameters joined
+    // Modify), so this is the first round width above it. It is the top of the ramp — the
     // guard that the probe really is measuring and not latched to a tier.
     await expect(page.getByTestId("top-toolbar")).toHaveAttribute(
       "data-band-tier",
