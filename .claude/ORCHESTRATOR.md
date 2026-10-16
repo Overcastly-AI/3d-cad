@@ -13,6 +13,11 @@ bigger.
    at a time, on paths that do not overlap. A brief is four things: the task
    and its acceptance line, the paths the agent may edit, its ports, and the
    branch. Do not restate CLAUDE.md.
+   **Questions (founder, 2026-10-16):** when a decision would otherwise go
+   to the founder, launch a `product-manager` agent to work out the goal from
+   VISION, BACKLOG and the founder's past answers and decide it. It records
+   each answer on the backlog item and in VISION's "Delegated decisions" log.
+   Only legal, licensing or business calls still go to the founder.
 3. **Review.** One `code-reviewer` pass per change. Only blocking findings
    (CLAUDE.md, "Severity") go back to the builder. Everything else becomes a
    Note.
