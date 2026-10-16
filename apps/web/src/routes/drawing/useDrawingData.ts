@@ -27,6 +27,7 @@ import {
   fetchDrawingBom,
 } from "../../api/drawings";
 import { fetchFeatureTree, fetchParts } from "../../api/parts";
+import { evaluatedFeatures } from "../../api/evaluatedFeatures";
 import { fetchAssemblies, fetchAssemblyGraph } from "../../api/assemblies";
 import {
   assemblyFaultSummary,
@@ -361,9 +362,9 @@ export function useDrawingData(drawingId: string) {
         tree_version: t.tree_version,
         scale: scaleFromValue(effectiveScaleValue),
         views: requestedViews,
-        features: t.features
-          .filter((feature) => !feature.rolled_back)
-          .map((feature) => ({ id: feature.id, feature: feature.feature })),
+        features: evaluatedFeatures(
+          t.features.filter((feature) => !feature.rolled_back),
+        ),
         dimensions: dimensionInputs,
         section_params: sectionParamsByIndex,
       };
