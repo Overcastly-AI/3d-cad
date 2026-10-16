@@ -11989,6 +11989,12 @@ export interface components {
              */
             auto_place: boolean;
             /**
+             * Clear Title Block
+             * @description Set by Lay out on the views it creates: the composer moves that auto arrangement off the title block. False on every view laid out before it, so a stored drawing composes as it always did.
+             * @default false
+             */
+            clear_title_block: boolean;
+            /**
              * Expected Version
              * @description Optimistic-concurrency guard (design §2.1)
              */
@@ -12045,6 +12051,12 @@ export interface components {
              * @default true
              */
             auto_place: boolean;
+            /**
+             * Clear Title Block
+             * @description Set by Lay out on the views it creates: the composer moves that auto arrangement off the title block. False on every view laid out before it, so a stored drawing composes as it always did.
+             * @default false
+             */
+            clear_title_block: boolean;
             /**
              * Created At
              * Format: date-time

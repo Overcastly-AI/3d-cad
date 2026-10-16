@@ -308,8 +308,9 @@ export function DrawingPage() {
   const draftedSourceName = drawingSourceName(sources, draftedSourceId);
 
   // The composer's own layout measurements (audit N2) — a colliding or crowded
-  // pair of views, in millimetres, with the sentence every export stamps. The
-  // strip below is the on-screen half of that banner.
+  // pair of views, or a view off the sheet, in millimetres and the composer's
+  // words. The strip below is the only place they show: nothing is printed on
+  // the drawing or its exports (BIKE2-DRAWING-SCALE).
   const layoutIssues = composed?.layout_issues ?? [];
   // Which views carry a hand-dragged placement: those are the only ones a
   // "return to auto-layout" fix can act on (the composer honours an

@@ -1,12 +1,38 @@
-"""The placed title block of a composed sheet, and the kind of drawing it names.
+"""A sheet's title block: the authored fields, the placed block, and its kind.
 
 Split out of :mod:`loft_wire.drawings` (FILE-SIZE-RATCHET) and re-exported from it,
 so every import and every generated schema name is unchanged.
 """
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
+
+#: Upper bound for a title-block free-text field (design §9 open-q 6: v1 holds
+#: free text; a structured/field-mapped title block is a fast-follow).
+TITLE_BLOCK_FIELD_MAX_LENGTH = 500
+
+#: A bounded title-block field (whitespace-trimmed; empty allowed → treated as
+#: unset by the caller). Free text in v1 (design §9 open-q 6).
+TitleBlockField = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, max_length=TITLE_BLOCK_FIELD_MAX_LENGTH),
+]
+
+
+class TitleBlock(BaseModel):
+    """Free-text title-block fields (design §9 open-q 6 — v1 holds free text).
+
+    Every field is optional; a structured/field-mapped title block auto-filled
+    from the referenced part is a fast-follow. The composed artifact stamps these
+    geometry-side (design §4.2).
+    """
+
+    title: TitleBlockField | None = Field(default=None, description="Drawing title")
+    author: TitleBlockField | None = Field(default=None, description="Author / drafter")
+    date: TitleBlockField | None = Field(default=None, description="Free-text date")
+    notes: TitleBlockField | None = Field(default=None, description="Free-text notes")
+
 
 #: What a sheet drafts, as its title block names it: a part drawing or an assembly
 #: drawing (bike round 2: an assembly sheet read "PART DRAWING").

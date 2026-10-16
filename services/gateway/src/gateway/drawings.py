@@ -530,6 +530,7 @@ def _compose_request(
                 # (`auto_place=False`) is honored at its authored `position`; the
                 # default `True` keeps bounds-aware auto-layout (§4.2).
                 auto_place=v.auto_place,
+                clear_title_block=v.clear_title_block,
             )
             for v in views
         ],

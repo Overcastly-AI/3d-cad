@@ -14450,6 +14450,12 @@
             "title": "Auto Place",
             "type": "boolean"
           },
+          "clear_title_block": {
+            "default": false,
+            "description": "Set by Lay out on the views it creates: the composer moves that auto arrangement off the title block. False on every view laid out before it, so a stored drawing composes as it always did.",
+            "title": "Clear Title Block",
+            "type": "boolean"
+          },
           "expected_version": {
             "description": "Optimistic-concurrency guard (design \u00a72.1)",
             "minimum": 0.0,
@@ -14543,6 +14549,12 @@
             "default": true,
             "description": "Placement mode (mirrors :class:`SheetViewPlacement`): True (default) = the composer auto-places (bounds-aware); False = a persisted drag-to-place position the composer honors verbatim. Survives reload \u2014 the compose/export path threads it into `SheetViewPlacement.auto_place`.",
             "title": "Auto Place",
+            "type": "boolean"
+          },
+          "clear_title_block": {
+            "default": false,
+            "description": "Set by Lay out on the views it creates: the composer moves that auto arrangement off the title block. False on every view laid out before it, so a stored drawing composes as it always did.",
+            "title": "Clear Title Block",
             "type": "boolean"
           },
           "created_at": {

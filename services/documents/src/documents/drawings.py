@@ -430,6 +430,7 @@ def _view_response(view: db.View) -> ViewResponse:
         scale=ViewScale(numerator=view.scale_num, denominator=view.scale_den),
         position=SheetPointDTO(x_mm=view.pos_x_mm, y_mm=view.pos_y_mm),
         auto_place=view.auto_place,
+        clear_title_block=view.clear_title_block,
         section_params=(
             SectionViewParams.model_validate(view.section_params)
             if view.section_params is not None
@@ -983,6 +984,7 @@ async def create_view(
         pos_x_mm=request.position.x_mm,
         pos_y_mm=request.position.y_mm,
         auto_place=request.auto_place,
+        clear_title_block=request.clear_title_block,
         section_params=(
             request.section_params.model_dump(mode="json")
             if request.section_params is not None

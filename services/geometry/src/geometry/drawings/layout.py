@@ -449,8 +449,14 @@ def bounds_aware_layout(
     bounds_by_projection: dict[ViewProjection, ViewBounds | None],
     dims: Vec2,
     projection: SheetProjectionConvention = "third_angle",
+    clear_title_block: bool = False,
 ) -> dict[ViewProjection, Vec2]:
     """Bounds-aware orthographic placement (layout.ts boundsAwareLayout).
+
+    ``clear_title_block`` (set by "Lay out" on the views it creates) also moves the
+    arrangement off the title block (:func:`_title_block_shift`). It is off for a
+    stored layout, which therefore composes exactly as it always did: its views
+    keep their place relative to the notes and dimensions placed beside them.
 
     Spaces the four views by their OWN projected extents (+ a gutter) then centres
     the arrangement in the sheet; falls back to :func:`standard_layout` when no view
@@ -558,6 +564,8 @@ def bounds_aware_layout(
         SHEET_MARGIN_MM,
         dims.y - SHEET_MARGIN_MM,
     )
+    if not clear_title_block:
+        return {v: Vec2(rel[v].x + dx, rel[v].y + dy) for v in STANDARD_VIEWS}
     ink = [
         (rel[v].x + dx - half_of[v].x, rel[v].y + dy - half_of[v].y, half_of[v], v)
         for v in present
@@ -757,7 +765,14 @@ def resolve_view_anchors(
         r = result_by_proj.get(proj)
         ok = proj in auto_placed and r is not None and r.error is None
         bounds_by_proj[proj] = view_bounds(r.edges) if (ok and r is not None) else None
-    auto = bounds_aware_layout(bounds_by_proj, dims, layout.projection)
+    # A layout opts into the title-block clearance only when EVERY auto-placed
+    # standard view was created by a "Lay out" that set it; a stored sheet never.
+    clear = bool(auto_placed) and all(
+        vp.clear_title_block
+        for vp in layout.views
+        if vp.auto_place and vp.projection in STANDARD_VIEWS
+    )
+    auto = bounds_aware_layout(bounds_by_proj, dims, layout.projection, clear)
 
     anchors: dict[ViewProjection, Vec2] = {}
     occupied: list[_YUpRect] = []

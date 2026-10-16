@@ -198,6 +198,9 @@ export function useLayoutActions(
             // Auto-layout lands each standard view (bounds-aware); a later drag
             // flips this view to auto_place:false with a persisted position.
             auto_place: true,
+            // A NEW arrangement clears the title block (the fit above assumed
+            // it); views laid out before keep composing exactly as they did.
+            clear_title_block: true,
             expected_version: version,
           });
           version = created.doc_version;
@@ -294,6 +297,7 @@ export function useLayoutActions(
           scale: scaleFromValue(scaleValue),
           position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
           auto_place: true,
+          clear_title_block: false,
           expected_version: version,
         });
         version = created.doc_version;
@@ -373,6 +377,7 @@ export function useLayoutActions(
             position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
             section_params: { plane, flip },
             auto_place: true,
+            clear_title_block: false,
             expected_version: version,
           });
           setSectionOpen(false);

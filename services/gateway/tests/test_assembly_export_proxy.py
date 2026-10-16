@@ -413,3 +413,24 @@ def test_a_named_export_does_not_read_the_assembly(db_url: str) -> None:
     assert response.status_code == 200, response.text
     assert documents == []
     assert ExportAssemblyRequest.model_validate_json(geometry[0].content) == request
+
+
+def test_an_unparseable_stored_assembly_keeps_the_id_fallback(db_url: str) -> None:
+    """A 200 from documents that is not an assembly graph must not turn the
+    export into a 500: the name is a nicety, so the request goes on unnamed."""
+    geometry: list[httpx.Request] = []
+
+    def garbled(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"{not json")
+
+    with make_client(db_url, _passthrough(geometry), documents_handler=garbled) as c:
+        bearer = _register(c)
+        response = c.post(
+            "/api/v1/geometry/assembly/export",
+            json=_request("step").model_dump(mode="json"),
+            headers=bearer,
+        )
+
+    assert response.status_code == 200, response.text
+    [upstream] = geometry
+    assert ExportAssemblyRequest.model_validate_json(upstream.content).name is None

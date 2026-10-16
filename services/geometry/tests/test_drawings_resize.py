@@ -483,9 +483,39 @@ def test_the_arrangement_moves_off_the_title_block() -> None:
     y <= 44). The arrangement moves up until the caption clears the block by
     MIN_VIEW_CLEARANCE_MM: to 44 + 6 = 50, a lift of 6.7 mm. x stays centred."""
     dims = sheet_dimensions("A4", "landscape")
-    a = bounds_aware_layout(
-        {v: _square(20) for v in ("front", "top", "right", "iso")}, dims
-    )
+    squares: dict[ViewProjection, ViewBounds | None] = {
+        v: _square(20) for v in ("front", "top", "right", "iso")
+    }
+    a = bounds_aware_layout(squares, dims, clear_title_block=True)
     assert (a["front"].x + a["iso"].x) / 2 == pytest.approx(dims.x / 2, abs=_TOL)
     assert (a["front"].y + a["iso"].y) / 2 == pytest.approx(105.0 + 6.7, abs=_TOL)
     assert a["right"].y - 20 - 9.7 == pytest.approx(50.0, abs=_TOL)
+    # Without the flag (every stored layout) the arrangement stays centred.
+    stored = bounds_aware_layout(squares, dims)
+    assert (stored["front"].y + stored["iso"].y) / 2 == pytest.approx(105.0, abs=_TOL)
+
+
+def test_a_stored_drawing_near_the_title_block_composes_as_before(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The title-block move is for a NEW layout only. A stored drawing (its views
+    carry clear_title_block = false, as every view did before 0020) whose right view
+    sits within 6 mm of the block composes byte-identically to the composer without
+    the move, so opening it moves nothing and its notes stay beside their views.
+    A 100 mm plate on A4 is such a sheet: flagged, its views lift 8.4 mm."""
+    request = _request(width=100.0, dim_width=100.0, size="A4")
+    stored = serialize_svg(_compose(request))
+
+    flagged_views = [
+        v.model_copy(update={"clear_title_block": True}) for v in request.layout.views
+    ]
+    flagged = request.model_copy(
+        update={"layout": request.layout.model_copy(update={"views": flagged_views})}
+    )
+    assert serialize_svg(_compose(flagged)) != stored  # non-vacuous: it is near
+
+    def no_shift(_rects: object, _dims: object) -> Vec2:
+        return Vec2(0.0, 0.0)
+
+    monkeypatch.setattr("geometry.drawings.layout._title_block_shift", no_shift)
+    assert serialize_svg(_compose(request)) == stored

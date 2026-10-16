@@ -61,7 +61,7 @@ from loft_wire.sketch_offset_mirror import (
     SketchOffsetRequest,
     SketchOffsetResult,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from gateway.affinity import GeometryPool, forward_geometry, parse_worker_urls
 from gateway.auth import CurrentUser
@@ -443,8 +443,13 @@ async def _named_export(
     )
     if upstream.status_code != 200:
         return request
-    # Both names are the same bounded, stripped string (200 characters).
-    graph = AssemblyGraphResponse.model_validate_json(upstream.content)
+    # Both names are the same bounded, stripped string (200 characters). A body
+    # that does not parse keeps the id fallback: the name is a nicety, and an
+    # export must never 500 over it.
+    try:
+        graph = AssemblyGraphResponse.model_validate_json(upstream.content)
+    except ValidationError:
+        return request
     return request.model_copy(update={"name": graph.assembly.name})
 
 

@@ -55,8 +55,13 @@ from loft_wire.drawing_section import SectionViewParams as SectionViewParams
 from loft_wire.drawing_title_block import (
     DRAWING_KIND_CAPTION as DRAWING_KIND_CAPTION,
 )
+from loft_wire.drawing_title_block import (
+    TITLE_BLOCK_FIELD_MAX_LENGTH as TITLE_BLOCK_FIELD_MAX_LENGTH,
+)
 from loft_wire.drawing_title_block import ComposedTitleBlock as ComposedTitleBlock
 from loft_wire.drawing_title_block import DrawingKind as DrawingKind
+from loft_wire.drawing_title_block import TitleBlock as TitleBlock
+from loft_wire.drawing_title_block import TitleBlockField as TitleBlockField
 from loft_wire.features import (
     MAX_TREE_FEATURES,
     DocumentName,
@@ -104,9 +109,6 @@ MAX_DRAWING_SHEETS = 100
 #: Upper bound for a per-sheet name ("Sheet 1").
 SHEET_NAME_MAX_LENGTH = 200
 
-#: Upper bound for a title-block free-text field (design §9 open-q 6: v1 holds
-#: free text; a structured/field-mapped title block is a fast-follow).
-TITLE_BLOCK_FIELD_MAX_LENGTH = 500
 
 #: Upper bound for a note annotation's text body.
 NOTE_TEXT_MAX_LENGTH = 5000
@@ -125,13 +127,6 @@ SheetName = Annotated[
     StringConstraints(
         strip_whitespace=True, min_length=1, max_length=SHEET_NAME_MAX_LENGTH
     ),
-]
-
-#: A bounded title-block field (whitespace-trimmed; empty allowed → treated as
-#: unset by the caller). Free text in v1 (design §9 open-q 6).
-TitleBlockField = Annotated[
-    str,
-    StringConstraints(strip_whitespace=True, max_length=TITLE_BLOCK_FIELD_MAX_LENGTH),
 ]
 
 #: Non-empty (post-strip), bounded note text.
@@ -226,20 +221,6 @@ class ViewScale(BaseModel):
 
 #: The default view scale — full size (1:1).
 DEFAULT_VIEW_SCALE = ViewScale(numerator=1, denominator=1)
-
-
-class TitleBlock(BaseModel):
-    """Free-text title-block fields (design §9 open-q 6 — v1 holds free text).
-
-    Every field is optional; a structured/field-mapped title block auto-filled
-    from the referenced part is a fast-follow. The composed artifact stamps these
-    geometry-side (design §4.2).
-    """
-
-    title: TitleBlockField | None = Field(default=None, description="Drawing title")
-    author: TitleBlockField | None = Field(default=None, description="Author / drafter")
-    date: TitleBlockField | None = Field(default=None, description="Free-text date")
-    notes: TitleBlockField | None = Field(default=None, description="Free-text notes")
 
 
 # --- how a dimension names model geometry (design §3.3) -------------------------
@@ -712,6 +693,12 @@ class ViewCreate(BaseModel):
         "`position` verbatim (the drag-to-place seam). Additive — an omitted value "
         "keeps the auto-layout behaviour byte-identical.",
     )
+    clear_title_block: bool = Field(
+        default=False,
+        description="Set by Lay out on the views it creates: the composer moves that "
+        "auto arrangement off the title block. False on every view laid out before "
+        "it, so a stored drawing composes as it always did.",
+    )
     section_params: SectionViewParams | None = Field(
         default=None,
         description="The cutting plane + flip for a `section` view (drawings-"
@@ -766,6 +753,12 @@ class ViewResponse(BaseModel):
         "(default) = the composer auto-places (bounds-aware); False = a persisted "
         "drag-to-place position the composer honors verbatim. Survives reload — the "
         "compose/export path threads it into `SheetViewPlacement.auto_place`.",
+    )
+    clear_title_block: bool = Field(
+        default=False,
+        description="Set by Lay out on the views it creates: the composer moves that "
+        "auto arrangement off the title block. False on every view laid out before "
+        "it, so a stored drawing composes as it always did.",
     )
     section_params: SectionViewParams | None = Field(
         default=None,
@@ -1311,6 +1304,12 @@ class SheetViewPlacement(BaseModel):
         "flat_pattern). False: honor `position` verbatim (the drag-to-place seam, "
         "FINDINGS #6). Additive — an omitted value keeps the auto-layout behaviour "
         "byte-identical.",
+    )
+    clear_title_block: bool = Field(
+        default=False,
+        description="Set by Lay out on the views it creates: the composer moves that "
+        "auto arrangement off the title block. False on every view laid out before "
+        "it, so a stored drawing composes as it always did.",
     )
 
 
