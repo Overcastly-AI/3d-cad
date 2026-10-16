@@ -1,4 +1,6 @@
-# pyright: reportUnknownMemberType=false
+# The OCP wheel ships no type stubs; scoped to this file as in the kernel.
+# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false, reportAttributeAccessIssue=false
 """The bike frame from ONE skeleton: four Pipes, one body (PIPE-ALONG-PATH).
 
 The acceptance of the backlog item, against an independent build: the down,
@@ -18,10 +20,12 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from build123d import Plane, Solid, Vector
+from build123d import Plane, Solid, Vector, export_step, import_step
 from geometry.features import evaluate_tree
 from geometry.kernel import measure_shape
 from loft_wire.features import EvaluateTreeRequest
+from OCP.BRepGProp import BRepGProp
+from OCP.GProp import GProp_GProps
 
 
 def _builder() -> ModuleType:
@@ -130,3 +134,64 @@ def test_the_golden_is_this_tree() -> None:
     """The golden's model.json is exactly the builder's tree, so the test above
     and the golden gates hold the same frame."""
     assert json.loads((GOLDEN / "model.json").read_text()) == pb.bike_frame()
+
+
+def _plain_step_roundtrip(solid: Solid, tmp_path: Path) -> Solid:
+    """build123d's own export_step / import_step: no Loft code on the path."""
+    path = tmp_path / "plain.step"
+    assert export_step(solid, str(path))
+    (reread,) = import_step(str(path)).solids()
+    return reread
+
+
+def _area_adaptive(solid: Solid) -> float:
+    """Surface area by OCCT's ADAPTIVE rule (eps 1e-9), not the product's
+    fixed-order one, to tell a face that moved from an integral that moved."""
+    props = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(solid.wrapped, props, 1e-9)
+    return props.Mass()
+
+
+def test_the_step_drift_is_occts_not_loft_geometry(
+    tmp_path: Path, roundtrip_tol: float
+) -> None:
+    """The executable justification of the golden's ``roundtrip_tolerance``
+    (geometry-QA sign-off 2026-10-16). The plain-build123d twin, which shares no
+    Loft code, round-tripped through build123d's own STEP writer and reader,
+    drifts in volume far past ROUNDTRIP_TOL: the drift is OCCT's STEP
+    re-approximation of the trimmed tube-tube faces, not the Pipe feature. The
+    tree body's larger AREA drift is the product's fixed-order area integral
+    re-evaluated on those faces; the adaptive rule sees the faces move by under
+    1e-5 mm^2. Measured (build123d 0.11.1 / OCCT 7.9): twin volume +8.65e-4 mm^3,
+    area -1.6e-4 mm^2; tree volume +1.6e-5, area -6.09e-3 (adaptive -2.7e-6);
+    the same through Loft's export_step_bytes. The allowance keeps >= 4x over
+    the worst of these."""
+    allowance = json.loads((GOLDEN / "expected.json").read_text())[
+        "roundtrip_tolerance"
+    ]
+    worst = 0.0
+    for name, solid in (("twin", independent_frame(73.0)), ("tree", _evaluate(73.0))):
+        reread = _plain_step_roundtrip(solid, tmp_path)
+        before, after = measure_shape(solid), measure_shape(reread)
+        assert after.topology == before.topology, name
+        d_volume = abs(after.volume - before.volume)
+        d_area = abs(after.surface_area - before.surface_area)
+        worst = max(worst, d_volume, d_area)
+        if name == "twin":
+            # No Loft code built or exported it, and it still breaks the bound
+            # (its centroid moves 5.1e-7 mm too, past ROUNDTRIP_TOL as well).
+            assert d_volume > 100 * roundtrip_tol, d_volume
+            continue
+        # The tree: the faces themselves barely move; the integral does. And
+        # the centroid and bounds hold ROUNDTRIP_TOL with no allowance.
+        moved = abs(_area_adaptive(reread) - _area_adaptive(solid))
+        assert moved < 1e-5, moved
+        for got, want in (
+            (after.centroid, before.centroid),
+            (after.bounding_box.min, before.bounding_box.min),
+            (after.bounding_box.max, before.bounding_box.max),
+        ):
+            assert (got.x, got.y, got.z) == pytest.approx(
+                (want.x, want.y, want.z), abs=roundtrip_tol
+            )
+    assert 4 * worst <= allowance, (worst, allowance)

@@ -25,7 +25,7 @@ ASM-A3-PATTERN and ASM-A3-IN-CONTEXT (§24; e2e `assembly-subassembly`,
    and the drawing's check strip names them. _Decided 2026-10-16 (delegated
    by founder to product-manager):_ yes, now — a script caller gets a short
    STEP with no signal, which is wrong geometry exported.
-2. [x] **PIPE-ALONG-PATH** (done c5babe1, a1f3196, 230a898, 09a5b01; goldens
+2. [x] **PIPE-ALONG-PATH** (done 3370ead, 104b1a6, 7025366, 1bcb6bb, ec30739, 5d6b0e0; goldens
    `pipe-*`, `datum-along-path-*`, `frame-bike-4-pipes-*`; e2e
    `pipe-frame.spec.ts`; RESEARCH §25) (bike BIKE-TUBE-PLANE, BIKE-SWEEP-PATH-PICK,
    BIKE-NO-INCLUDE-SKETCH): Fusion's Pipe (picked chain of sketch or body
