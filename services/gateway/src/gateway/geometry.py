@@ -45,6 +45,10 @@ from loft_wire.geometry import (
     tessellate_responses,
 )
 from loft_wire.measure import MeasureRequest, MeasureResult
+from loft_wire.omitted_occurrences import (
+    OMITTED_OCCURRENCES_HEADER,
+    assembly_export_responses,
+)
 from loft_wire.overlay import OverlayRequest, OverlayResult
 from loft_wire.sketch import (
     SketchEditRequest,
@@ -412,15 +416,16 @@ async def export(
     )
 
 
-_ASSEMBLY_EXPORT_RESPONSES = export_responses(
+_ASSEMBLY_EXPORT_RESPONSES = assembly_export_responses(
     "The exported assembly CAD file, proxied byte-exact from the geometry "
     "service: STEP AP214 part 21 (`model/step`, exact B-rep with product "
     "structure — the root PRODUCT named after the assembly, each sub-assembly a "
     "nested PRODUCT, each part one PRODUCT placed by a named occurrence per "
     "instance or pattern copy, relative to its parent) or "
     "binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the "
-    "suggested download filename. Byte-deterministic: identical requests "
-    "produce identical files."
+    "suggested download filename; `X-Loft-Omitted-Occurrences` names the "
+    "occurrences the file leaves out because their part produced no body. "
+    "Byte-deterministic: identical requests produce identical files."
 )
 
 
@@ -471,7 +476,9 @@ async def assembly_export(
     :class:`ExportAssemblyRequest` DTO validates at the gateway before anything
     goes upstream. Geometry solves the assembly and composes it into ONE
     multi-instance STEP (AP214 product structure) or STL; a body-less assembly is
-    a 422 ``assembly_export_no_body`` envelope, re-surfaced verbatim. A request
+    a 422 ``assembly_export_no_body`` envelope, re-surfaced verbatim; a file that
+    leaves out bodiless occurrences carries geometry's
+    ``X-Loft-Omitted-Occurrences`` through. A request
     without a ``name`` takes the stored assembly's (:func:`_named_export`).
     """
     request = await _named_export(request, user, http_request)
@@ -481,6 +488,12 @@ async def assembly_export(
     headers: dict[str, str] = {}
     if "content-disposition" in upstream.headers:
         headers["Content-Disposition"] = upstream.headers["content-disposition"]
+    # The occurrences the file leaves out, passed through verbatim like
+    # PROPERTIES_HEADER: geometry already bounded and ASCII-encoded it.
+    if OMITTED_OCCURRENCES_HEADER in upstream.headers:
+        headers[OMITTED_OCCURRENCES_HEADER] = upstream.headers[
+            OMITTED_OCCURRENCES_HEADER
+        ]
     return Response(
         content=upstream.content,
         media_type=EXPORT_MEDIA_TYPES[request.format],

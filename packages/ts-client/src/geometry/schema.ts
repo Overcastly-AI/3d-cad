@@ -63,7 +63,11 @@ export interface paths {
          *     An assembly where NO instance produced a body is a clean 422
          *     ``assembly_export_no_body`` envelope (never a zero-solid file or a 500,
          *     mirroring ``/export/tree``'s no-body posture, §4.3); a bad part/mate/solve is
-         *     absorbed by the solve into a best-fit placement, not a failure. The py-kit
+         *     absorbed by the solve into a best-fit placement, not a failure. An assembly
+         *     where SOME occurrences produced no body is still a 200, and the file is
+         *     short, so ``X-Loft-Omitted-Occurrences`` names them by part with their
+         *     counts (ASM-FAILED-PART-API); a file holding every occurrence sends no such
+         *     header. The py-kit
          *     error envelope stays reserved for transport/validation failures of this call.
          */
         post: operations["export_assembly_route_api_v1_assembly_export_post"];
@@ -3697,6 +3701,8 @@ export interface components {
              * @description Per-mate resolution failures (dropped from the solve, §4)
              */
             mate_errors?: components["schemas"]["MateEvaluationError"][];
+            /** @description The parts that produced no body, by part, with how many occurrences each — exactly those an export of this assembly leaves out (ASM-FAILED-PART-API). Omitted when every occurrence has a body. */
+            omitted?: components["schemas"]["OmittedOccurrences"] | null;
             /**
              * Pattern States
              * @description Each component pattern of this assembly: how many it placed per seed, or why it placed none. Omitted while empty.
@@ -6025,6 +6031,65 @@ export interface components {
              * @constant
              */
             type: "note";
+        };
+        /**
+         * OmittedOccurrences
+         * @description The occurrences an assembly's export or drawing leaves out, by part.
+         */
+        OmittedOccurrences: {
+            /**
+             * Complete
+             * @description False when `parts` was cut to fit the header bound; `count` is still the total
+             * @default true
+             */
+            complete: boolean;
+            /**
+             * Count
+             * @description Total occurrences left out
+             */
+            count: number;
+            /**
+             * Parts
+             * @description One entry per part, in the order the solve first meets them
+             */
+            parts: components["schemas"]["OmittedPart"][];
+        };
+        /**
+         * OmittedPart
+         * @description One PART that produced no body, folded over everywhere it occurs.
+         *
+         *     The same fold the web's assembly Partial gate makes (``partFailures.ts``):
+         *     one entry per part document, named as the user knows the part ("Crank arm",
+         *     the instance's ``<n>`` stripped), counting its occurrences at any depth:
+         *     directly, inside sub-assemblies, and as component-pattern copies.
+         */
+        OmittedPart: {
+            /**
+             * Code
+             * @description The kernel's typed code (`no_body`, …)
+             */
+            code: string;
+            /**
+             * Message
+             * @description The kernel's sentence. Empty in the export header, which carries only names, codes and counts.
+             * @default
+             */
+            message: string;
+            /**
+             * Name
+             * @description The part's name as the user knows it ("Crank arm")
+             */
+            name: string;
+            /**
+             * Occurrences
+             * @description Occurrences the file leaves out
+             */
+            occurrences: number;
+            /**
+             * Part Document Id
+             * @description The part document (the `part_key` before `@`); null if unknown
+             */
+            part_document_id?: string | null;
         };
         /**
          * OriginAxis
@@ -9089,11 +9154,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The exported assembly file, in the same four formats as a part, differing in how much assembly structure they keep: STEP AP214 part 21 (`model/step`, exact B-rep) with INSTANCED product structure — each instance a named occurrence of its part at its solved world placement; 3MF (`model/3mf`) with one NAMED OBJECT per instance; STL (`model/stl`) and binary glTF (`model/gltf-binary`, metres and Y-up) as one faceted compound with placements baked in. `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files. */
+            /** @description The exported assembly file, in the same four formats as a part, differing in how much assembly structure they keep: STEP AP214 part 21 (`model/step`, exact B-rep) with INSTANCED product structure — each instance a named occurrence of its part at its solved world placement; 3MF (`model/3mf`) with one NAMED OBJECT per instance; STL (`model/stl`) and binary glTF (`model/gltf-binary`, metres and Y-up) as one faceted compound with placements baked in. `Content-Disposition` carries the suggested download filename; `X-Loft-Omitted-Occurrences` names the occurrences left out because their part produced no body. Byte-deterministic: identical requests produce identical files. */
             200: {
                 headers: {
                     /** @description attachment; filename="<shape>.<format>" */
                     "Content-Disposition"?: string;
+                    /** @description Present only when the file leaves occurrences out because their part produced no body: `OmittedOccurrences` as ASCII-only compact JSON (non-ASCII as \uXXXX escapes), at most 4096 bytes. */
+                    "X-Loft-Omitted-Occurrences"?: string;
                     [name: string]: unknown;
                 };
                 content: {

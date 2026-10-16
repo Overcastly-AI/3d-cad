@@ -57,6 +57,7 @@ from loft_wire.geometry import (
 from loft_wire.in_context import MAX_IN_CONTEXT_LINKS, InContextStatus
 from loft_wire.joints import JointMate, JointState
 from loft_wire.materials import MaterialAssignment
+from loft_wire.omitted_occurrences import OmittedOccurrences
 from loft_wire.units import DEFAULT_LENGTH_UNIT, LengthUnit
 
 
@@ -1185,6 +1186,14 @@ class EvaluateAssemblyResult(BaseModel):
         "(ASM-A3-IN-CONTEXT): resolved, or why not. The meshes above already "
         "use the resolved values. Omitted while empty.",
     )
+    omitted: OmittedOccurrences | None = Field(
+        default=None,
+        exclude_if=_is_none,
+        json_schema_extra=_drop_schema_default,
+        description="The parts that produced no body, by part, with how many "
+        "occurrences each — exactly those an export of this assembly leaves out "
+        "(ASM-FAILED-PART-API). Omitted when every occurrence has a body.",
+    )
 
 
 class AssemblyExtentsResponse(BaseModel):
@@ -1246,6 +1255,14 @@ class AssemblyExtentsResponse(BaseModel):
         description="Mates the solve could not resolve and dropped, as on "
         "EvaluateAssemblyResult. Omitted while empty, so a solve that honoured "
         "every mate dumps exactly as before either field existed.",
+    )
+    omitted: OmittedOccurrences | None = Field(
+        default=None,
+        exclude_if=_is_none,
+        json_schema_extra=_drop_schema_default,
+        description="The parts that produced no body, as on "
+        "EvaluateAssemblyResult. A drawing of this assembly reads it to say "
+        "which parts its views leave out. Omitted when every part built.",
     )
 
 

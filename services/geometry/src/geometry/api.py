@@ -80,6 +80,11 @@ from loft_wire.geometry import (
     tessellate_responses,
 )
 from loft_wire.measure import MeasureRequest, MeasureResult
+from loft_wire.omitted_occurrences import (
+    OMITTED_OCCURRENCES_HEADER,
+    assembly_export_responses,
+    encode_omitted_header,
+)
 from loft_wire.overlay import OverlayRequest, OverlayResult
 from loft_wire.ref_names import RefNamesReport
 from loft_wire.sketch import (
@@ -111,7 +116,7 @@ from geometry.assembly import (
     check_interference,
     count_patterns,
     evaluate_assembly,
-    export_assembly,
+    export_assembly_reporting,
     import_step_assembly,
 )
 from geometry.drawing_store import (
@@ -181,7 +186,7 @@ _EXPORT_RESPONSES = export_responses(
     "Byte-deterministic: identical requests produce identical files."
 )
 
-_ASSEMBLY_EXPORT_RESPONSES = export_responses(
+_ASSEMBLY_EXPORT_RESPONSES = assembly_export_responses(
     "The exported assembly file, in the same four formats as a part, differing "
     "in how much assembly structure they keep: STEP AP214 part 21 "
     "(`model/step`, exact B-rep) with INSTANCED product structure — each "
@@ -189,8 +194,9 @@ _ASSEMBLY_EXPORT_RESPONSES = export_responses(
     "3MF (`model/3mf`) with one NAMED OBJECT per instance; STL (`model/stl`) "
     "and binary glTF (`model/gltf-binary`, metres and Y-up) as one faceted "
     "compound with placements baked in. `Content-Disposition` carries the "
-    "suggested download filename. Byte-deterministic: identical requests "
-    "produce identical files."
+    "suggested download filename; `X-Loft-Omitted-Occurrences` names the "
+    "occurrences left out because their part produced no body. "
+    "Byte-deterministic: identical requests produce identical files."
 )
 
 
@@ -414,25 +420,32 @@ def export_assembly_route(request: ExportAssemblyRequest) -> Response:
     An assembly where NO instance produced a body is a clean 422
     ``assembly_export_no_body`` envelope (never a zero-solid file or a 500,
     mirroring ``/export/tree``'s no-body posture, §4.3); a bad part/mate/solve is
-    absorbed by the solve into a best-fit placement, not a failure. The py-kit
+    absorbed by the solve into a best-fit placement, not a failure. An assembly
+    where SOME occurrences produced no body is still a 200, and the file is
+    short, so ``X-Loft-Omitted-Occurrences`` names them by part with their
+    counts (ASM-FAILED-PART-API); a file holding every occurrence sends no such
+    header. The py-kit
     error envelope stays reserved for transport/validation failures of this call.
     """
     try:
-        data = export_assembly(request)
+        data, omitted = export_assembly_reporting(request)
     except (
         AssemblyExportError,
         MeshExportNotManifoldError,
         MeshExportTooDenseError,
     ) as exc:
         raise ValidationApiError(str(exc), code=exc.code) from exc
+    headers = {
+        "Content-Disposition": (
+            f'attachment; filename="{assembly_export_filename(request)}"'
+        )
+    }
+    if omitted is not None:
+        headers[OMITTED_OCCURRENCES_HEADER] = encode_omitted_header(omitted)
     return Response(
         content=data,
         media_type=EXPORT_MEDIA_TYPES[request.format],
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="{assembly_export_filename(request)}"'
-            )
-        },
+        headers=headers,
     )
 
 

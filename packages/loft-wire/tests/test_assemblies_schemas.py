@@ -30,6 +30,13 @@ from loft_wire.assemblies import (
     assembly_export_root_name,
     mate_instance_ids,
 )
+from loft_wire.omitted_occurrences import (
+    MAX_OMITTED_HEADER_BYTES,
+    OmittedOccurrences,
+    OmittedPart,
+    decode_omitted_header,
+    encode_omitted_header,
+)
 from pydantic import TypeAdapter, ValidationError
 
 INST_A = uuid.UUID("6f3f6b64-0000-4000-8000-0000000000a1")
@@ -265,3 +272,40 @@ def test_evaluate_assembly_request_has_no_name_field() -> None:
     """Export-only, for the same reason the part export's name is: a name must
     never be an input to the SOLVE."""
     assert "name" not in EvaluateAssemblyRequest.model_fields
+
+
+# --- X-Loft-Omitted-Occurrences (ASM-FAILED-PART-API) ----------------------------
+
+
+def _omitted(*names: str) -> OmittedOccurrences:
+    return OmittedOccurrences(
+        count=2 * len(names),
+        parts=[
+            OmittedPart(name=name, code="no_body", message="long " * 50, occurrences=2)
+            for name in names
+        ],
+    )
+
+
+def test_the_omitted_header_is_ascii_and_round_trips_any_name() -> None:
+    """A header value is Latin-1 on the wire: a raw CJK name would not encode,
+    and a CR/LF in a name must not start a second header."""
+    names = ("Kurbelarm ü", "曲柄", "Arm\r\nX-Evil: 1")
+    value = encode_omitted_header(_omitted(*names))
+    assert value.isascii()
+    assert "\r" not in value and "\n" not in value
+    decoded = decode_omitted_header(value)
+    assert [part.name for part in decoded.parts] == list(names)
+    assert decoded.count == 6 and decoded.complete
+    # The kernel sentences stay off the header.
+    assert all(part.message == "" for part in decoded.parts)
+
+
+def test_the_omitted_header_is_bounded_and_says_it_was_cut() -> None:
+    omitted = _omitted(*(f"曲柄 {'x' * 150} {n}" for n in range(40)))
+    value = encode_omitted_header(omitted)
+    assert len(value) <= MAX_OMITTED_HEADER_BYTES
+    decoded = decode_omitted_header(value)
+    assert not decoded.complete
+    assert 0 < len(decoded.parts) < 40
+    assert decoded.count == 80  # still the true total

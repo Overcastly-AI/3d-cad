@@ -28,6 +28,9 @@ from loft_wire.assemblies import (
     ExportAssemblyRequest,
 )
 from loft_wire.geometry import EXPORT_MEDIA_TYPES
+from loft_wire.omitted_occurrences import (
+    OMITTED_OCCURRENCES_HEADER,
+)
 from loft_wire.parts import PRINCIPAL_HEADER
 from py_kit import REQUEST_ID_HEADER
 from py_kit.db import async_dsn
@@ -206,6 +209,40 @@ def test_assembly_export_proxies_file_and_content_disposition(
     assert upstream.headers[REQUEST_ID_HEADER] == response.headers[REQUEST_ID_HEADER]
     assert PRINCIPAL_HEADER not in upstream.headers
     assert "authorization" not in upstream.headers
+
+
+def test_assembly_export_passes_the_omitted_occurrences_header_through(
+    db_url: str,
+) -> None:
+    """ASM-FAILED-PART-API: geometry names the occurrences a short file leaves
+    out; the proxy forwards the header verbatim (like ``X-Loft-Properties``),
+    and a file without one gets none."""
+    value = (
+        '{"count":2,"parts":[{"name":"Crank arm","part_document_id":null,'
+        '"code":"no_body","occurrences":2}],"complete":true}'
+    )
+    sent: list[dict[str, str]] = [
+        {OMITTED_OCCURRENCES_HEADER: value},
+        {},
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=EXPORT_BYTES["step"],
+            headers={"content-type": EXPORT_MEDIA_TYPES["step"], **sent.pop(0)},
+        )
+
+    with make_client(db_url, handler) as client:
+        bearer = _register(client)
+        body = _request("step").model_dump(mode="json")
+        url = "/api/v1/geometry/assembly/export"
+        short = client.post(url, json=body, headers=bearer)
+        full = client.post(url, json=body, headers=bearer)
+        assert short.status_code == 200, short.text
+        assert short.headers[OMITTED_OCCURRENCES_HEADER] == value
+        assert full.status_code == 200, full.text
+        assert OMITTED_OCCURRENCES_HEADER not in full.headers
 
 
 def test_unauthenticated_401_and_nothing_forwarded(db_url: str) -> None:

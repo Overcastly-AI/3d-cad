@@ -451,6 +451,17 @@
             "title": "Mate Errors",
             "type": "array"
           },
+          "omitted": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OmittedOccurrences"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The parts that produced no body, as on EvaluateAssemblyResult. A drawing of this assembly reads it to say which parts its views leave out. Omitted when every part built."
+          },
           "status": {
             "description": "The solve these extents came out of. Anything other than `well_constrained` means the poses are a best fit, not a determined result (\u00a72.4)",
             "enum": [
@@ -4927,6 +4938,17 @@
             },
             "title": "Mate Errors",
             "type": "array"
+          },
+          "omitted": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OmittedOccurrences"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The parts that produced no body, by part, with how many occurrences each \u2014 exactly those an export of this assembly leaves out (ASM-FAILED-PART-API). Omitted when every occurrence has a body."
           },
           "pattern_states": {
             "description": "Each component pattern of this assembly: how many it placed per seed, or why it placed none. Omitted while empty.",
@@ -10189,6 +10211,83 @@
           "position"
         ],
         "title": "NoteAnnotationParams",
+        "type": "object"
+      },
+      "OmittedOccurrences": {
+        "description": "The occurrences an assembly's export or drawing leaves out, by part.",
+        "properties": {
+          "complete": {
+            "default": true,
+            "description": "False when `parts` was cut to fit the header bound; `count` is still the total",
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "count": {
+            "description": "Total occurrences left out",
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "parts": {
+            "description": "One entry per part, in the order the solve first meets them",
+            "items": {
+              "$ref": "#/components/schemas/OmittedPart"
+            },
+            "title": "Parts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "count",
+          "parts"
+        ],
+        "title": "OmittedOccurrences",
+        "type": "object"
+      },
+      "OmittedPart": {
+        "description": "One PART that produced no body, folded over everywhere it occurs.\n\nThe same fold the web's assembly Partial gate makes (``partFailures.ts``):\none entry per part document, named as the user knows the part (\"Crank arm\",\nthe instance's ``<n>`` stripped), counting its occurrences at any depth:\ndirectly, inside sub-assemblies, and as component-pattern copies.",
+        "properties": {
+          "code": {
+            "description": "The kernel's typed code (`no_body`, \u2026)",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "default": "",
+            "description": "The kernel's sentence. Empty in the export header, which carries only names, codes and counts.",
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "description": "The part's name as the user knows it (\"Crank arm\")",
+            "title": "Name",
+            "type": "string"
+          },
+          "occurrences": {
+            "description": "Occurrences the file leaves out",
+            "minimum": 1.0,
+            "title": "Occurrences",
+            "type": "integer"
+          },
+          "part_document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The part document (the `part_key` before `@`); null if unknown",
+            "title": "Part Document Id"
+          }
+        },
+        "required": [
+          "name",
+          "code",
+          "occurrences"
+        ],
+        "title": "OmittedPart",
         "type": "object"
       },
       "OriginAxis": {
@@ -18904,7 +19003,7 @@
     },
     "/api/v1/geometry/assembly/export": {
       "post": {
-        "description": "Proxy an assembly export to the geometry service; pass the file through.\n\nAuth-protected (an assembly graph belongs to a signed-in user); the geometry\nhop stays identity-free, so the principal never travels upstream (same\nposture as ``/export`` + ``/assembly/evaluate``, RESEARCH \u00a73). The shared\n:class:`ExportAssemblyRequest` DTO validates at the gateway before anything\ngoes upstream. Geometry solves the assembly and composes it into ONE\nmulti-instance STEP (AP214 product structure) or STL; a body-less assembly is\na 422 ``assembly_export_no_body`` envelope, re-surfaced verbatim. A request\nwithout a ``name`` takes the stored assembly's (:func:`_named_export`).",
+        "description": "Proxy an assembly export to the geometry service; pass the file through.\n\nAuth-protected (an assembly graph belongs to a signed-in user); the geometry\nhop stays identity-free, so the principal never travels upstream (same\nposture as ``/export`` + ``/assembly/evaluate``, RESEARCH \u00a73). The shared\n:class:`ExportAssemblyRequest` DTO validates at the gateway before anything\ngoes upstream. Geometry solves the assembly and composes it into ONE\nmulti-instance STEP (AP214 product structure) or STL; a body-less assembly is\na 422 ``assembly_export_no_body`` envelope, re-surfaced verbatim; a file that\nleaves out bodiless occurrences carries geometry's\n``X-Loft-Omitted-Occurrences`` through. A request\nwithout a ``name`` takes the stored assembly's (:func:`_named_export`).",
         "operationId": "assembly_export_api_v1_geometry_assembly_export_post",
         "requestBody": {
           "content": {
@@ -18944,10 +19043,16 @@
                 }
               }
             },
-            "description": "The exported assembly CAD file, proxied byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, exact B-rep with product structure \u2014 the root PRODUCT named after the assembly, each sub-assembly a nested PRODUCT, each part one PRODUCT placed by a named occurrence per instance or pattern copy, relative to its parent) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files.",
+            "description": "The exported assembly CAD file, proxied byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, exact B-rep with product structure \u2014 the root PRODUCT named after the assembly, each sub-assembly a nested PRODUCT, each part one PRODUCT placed by a named occurrence per instance or pattern copy, relative to its parent) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename; `X-Loft-Omitted-Occurrences` names the occurrences the file leaves out because their part produced no body. Byte-deterministic: identical requests produce identical files.",
             "headers": {
               "Content-Disposition": {
                 "description": "attachment; filename=\"<shape>.<format>\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Loft-Omitted-Occurrences": {
+                "description": "Present only when the file leaves occurrences out because their part produced no body: `OmittedOccurrences` as ASCII-only compact JSON (non-ASCII as \\uXXXX escapes), at most 4096 bytes.",
                 "schema": {
                   "type": "string"
                 }
