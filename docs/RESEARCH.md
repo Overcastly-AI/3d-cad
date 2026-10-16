@@ -1763,6 +1763,41 @@ and reframe it, a material per member, and a cut list that is always current.
   the same `expand` contract as a first-party plugin.
 - **Lumber.** US dimensional lumber (nominal inches) is the first library;
   metric CLS and European sizes come later (founder, 2026-10-15).
+- **Decided while building the registry** (PLUGIN-REGISTRY, 2026-10-16):
+  - *Storage.* A custom feature is an ordinary `features` row,
+    `type: "custom"`, params `{plugin_id, plugin_version, inputs, expansion}`.
+    No schema change and no migration. `custom` is in the authored union
+    (`FeatureCreate`/`FeatureResponse`) but not in the base `Feature` union, so
+    the geometry contract did not change.
+  - *Member ids.* Feature ids are UUIDs on every wire, so the stable name
+    `<feature-id>/<role>/<n>` travels as `uuid5` of that string. Duplicate and
+    `.loft` re-mint carry the member ids with their feature. A later pick on a
+    member is validated against the member's type, and its dependency edge
+    goes to the custom feature's row.
+  - *Units through names.* An input's name carries its unit, as a base field's
+    does (`*_mm` length, `*_deg` angle, a count is an int). That lets a §20
+    formula drive `/inputs/<name>` with no change to the expression code.
+  - *Re-expansion.* Documents expands on every write and in every evaluation
+    request. A `.loft` export or version refreshes the stored expansion. A
+    failed re-expansion at evaluation keeps the stored members and sends them
+    with an `input_error`, `parameter_value_invalid` with the plugin code in
+    the message. Geometry's input-error codes are unchanged.
+  - *Missing plugin.* A part whose plugin or pinned version this server lacks
+    rebuilds from the stored expansion. The feature can be renamed or saved
+    unchanged, and any other edit is `plugin_read_only`. An imported
+    expansion's ids and references are checked even without the plugin.
+  - *Caps.* The 5,000-member and 2 s caps are checked per member as the
+    expander yields. The 2 s cap is cooperative plus a final check: an
+    in-process first-party plugin cannot be pre-empted, so the third-party
+    sandbox must hard-kill. The tighter bound today is the evaluation
+    request's `MAX_TREE_FEATURES` (1,000) on the whole expanded tree. A write
+    over it is `feature_limit_exceeded`.
+  - *Twisted prism 1.0.0.* It expands to `[axis_plane/0]`, `path/0` and
+    `sweep/0`. The path is placed exactly, with no kernel, when the profile
+    sits on an origin plane or a chain of offset planes. A profile on any
+    other plane is `plugin_input_unsupported`; use Sweep with twist there.
+    Stored twisted extrudes are not migrated: they stay legacy rows and
+    rebuild byte-identical.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

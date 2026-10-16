@@ -34,7 +34,7 @@ ASM-A3-PATTERN and ASM-A3-IN-CONTEXT (§24; e2e `assembly-subassembly`,
    tubes are 4 Pipes on one skeleton sketch, fused into one valid body
    matching a build123d script to 1e-4; editing the head angle 73 -> 72°
    rebuilds every tube; goldens for both features.
-3. [ ] **PLUGIN-REGISTRY** (stops B1; RESEARCH §23): a kernel-free
+3. [x] **PLUGIN-REGISTRY** (stops B1; RESEARCH §23): a kernel-free
    `packages/loft-plugins` registers custom features (manifest, typed inputs,
    a pure expand to base features), pinned by version per feature and
    expanded by documents; the deprecated extrude twist moves there as a

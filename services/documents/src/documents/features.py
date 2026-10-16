@@ -458,6 +458,8 @@ async def create_feature(
     feature_id = uuid.uuid4()
     envelope: AuthoredEnvelope = request.feature
     if isinstance(envelope, CustomFeature):
+        # Inputs name real, earlier features before the plugin reads them.
+        validate_references(envelope, position, features_by_id)
         envelope = prepare_custom_write(part, envelope, feature_id, position, features)
     else:
         envelope = resolve_for_write(part, envelope)
@@ -529,6 +531,7 @@ async def update_feature(
         features_by_id = {row.id: row for row in features}
         envelope: AuthoredEnvelope = request.feature
         if isinstance(envelope, CustomFeature):
+            validate_references(envelope, feature.order_index, features_by_id)
             envelope = prepare_custom_write(
                 part, envelope, feature.id, feature.order_index, features, feature
             )
