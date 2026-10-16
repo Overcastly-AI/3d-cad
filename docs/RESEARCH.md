@@ -1751,8 +1751,9 @@ and reframe it, a material per member, and a cut list that is always current.
   (a `.loft` opened on another server) still rebuilds, read-only, like the
   legacy extrude twist.
 - **Bounds.** An expansion is validated by the same pydantic models and
-  authoring checks as a user's features, and is capped (5,000 base features
-  and 2 s per custom feature); over a cap is a typed error on that feature.
+  authoring checks as a user's features, and is capped (2 s per custom
+  feature; in size, by the part's 1,000-feature tree bound counted after
+  expansion); over a cap is a typed error on that feature.
 - **Security.** First-party plugins are reviewed code in the repo: no I/O, no
   imports beyond `loft-wire`, run in the documents process. Third-party
   plugins are Python too (founder, 2026-10-15: "It should be python code",
@@ -1786,12 +1787,24 @@ and reframe it, a material per member, and a cut list that is always current.
     rebuilds from the stored expansion. The feature can be renamed or saved
     unchanged, and any other edit is `plugin_read_only`. An imported
     expansion's ids and references are checked even without the plugin.
-  - *Caps.* The 5,000-member and 2 s caps are checked per member as the
-    expander yields. The 2 s cap is cooperative plus a final check: an
+  - *Caps.* The effective size cap is the evaluation request's
+    `MAX_TREE_FEATURES` (1,000) on the whole tree counted AFTER expansion (a
+    custom feature counts its members). Every write that can grow the tree
+    checks it: create and edit a feature, a `.loft` import (versions
+    included) and a version restore are `feature_limit_exceeded`; a
+    parameter change whose re-expansion would overflow keeps the stored
+    members. The evaluation request never exceeds it, whatever is stored: a
+    custom feature that does not fit is sent as one member with an
+    `input_error` naming `plugin_expansion_too_large`. The per-plugin
+    `MAX_PLUGIN_EXPANSION` (5,000) is moot under it and stays only as the
+    wire bound on a stored expansion (lowering it is a wire change). The 2 s
+    cap is checked per member as the expander yields, plus a final check: an
     in-process first-party plugin cannot be pre-empted, so the third-party
-    sandbox must hard-kill. The tighter bound today is the evaluation
-    request's `MAX_TREE_FEATURES` (1,000) on the whole expanded tree. A write
-    over it is `feature_limit_exceeded`.
+    sandbox must hard-kill.
+  - *Members obey the write rules.* A stored member (with or without its
+    plugin) may not be an `import` after a body or a deprecated extrude
+    twist, and an edit whose re-expansion drops or retypes a member a later
+    feature references is the delete's 409 `feature_has_dependents`.
   - *Twisted prism 1.0.0.* It expands to `[axis_plane/0]`, `path/0` and
     `sweep/0`. The path is placed exactly, with no kernel, when the profile
     sits on an origin plane or a chain of offset planes. A profile on any

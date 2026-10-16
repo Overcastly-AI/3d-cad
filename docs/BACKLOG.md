@@ -256,6 +256,8 @@ One line each. The founder triages weekly; most are closed without work.
 - LAYOUTISSUE-AT: `ComposedLayoutIssue.at` (the banner anchor) is still on the wire although nothing stamps issues on the sheet since BIKE2-DRAWING-SCALE; drop it or give it a reader.
 
 - LINE-ENTRY-TAB review (90db343): a Tab left in a circle's drag box survives a click/canvas-Esc and refuses the next circle at the same centre ("10" Tab, later "100"; clear `tabbed` on draft change); "W" Tab "/2" is refused as a second value without saying why; the error text overlaps the X AXIS label.
+- PLUGIN-CAP: a custom feature's effective size cap is the part's 1,000-feature tree bound counted after expansion (RESEARCH §23); the wire's per-plugin `MAX_PLUGIN_EXPANSION` (5,000) is moot under it and could drop to 1,000 in a wire change.
+- PLUGIN-UNDO-CAP: undo/redo restores a prior tree state without re-checking the expanded bound (each state was within it when written); an overflow would surface only as the evaluation's `plugin_expansion_too_large`.
 - APEX-BUTTONS: Extrude and Revolve enable with only an apex (point-only) sketch present; clicking does nothing.
 - APEX-SWEEP-PATH: `defaultSweepPathId` and the sweep path picker still offer apex sketches (the kernel refuses with a typed `PathEmptyError`).
 - APEX-OTHER-LISTS: the BaseFlange editor and the revolve axis map still list apex sketches (typed kernel refusal, no crash).

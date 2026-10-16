@@ -73,6 +73,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from documents import db
 from documents.custom_features import (
     check_stored_custom,
+    check_tree_size,
+    expanded_size,
     member_id_mapping,
     refresh_expansions,
 )
@@ -340,6 +342,9 @@ def validated_rows(
         rows.append(row)
         by_id[row.id] = row
         edges.append((row.id, targets))
+    # Counted after expansion: stored members are what geometry receives, and
+    # a tree past the evaluation bound would never evaluate again.
+    check_tree_size(expanded_size(rows), "The .loft tree")
     return rows, edges
 
 

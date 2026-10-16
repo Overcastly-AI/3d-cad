@@ -24,7 +24,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, status
 from loft_wire.features import (
-    MAX_TREE_FEATURES,
     AuthoredEnvelope,
     CustomFeature,
     EvaluatedFeatureInput,
@@ -58,6 +57,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from documents import db, history
 from documents.custom_features import (
     authored_references,
+    check_tree_size,
+    expanded_size,
     is_body_affecting,
     member_targets,
     prepare_custom_write,
@@ -444,13 +445,9 @@ async def create_feature(
     # parse bound (audit G2): a part must never accumulate a tree the
     # evaluation contract rejects, or every later evaluate/export read of the
     # part would fail constructing the DTO (a persistent 500, not a work bound).
-    if len(features) >= MAX_TREE_FEATURES:
-        raise ValidationApiError(
-            f"A part holds at most {MAX_TREE_FEATURES} features (per-request "
-            "work bound); delete features before adding more.",
-            code="feature_limit_exceeded",
-            details={"max_features": MAX_TREE_FEATURES},
-        )
+    # Counted as geometry receives it: a custom feature by its members (a
+    # custom one is re-counted with its own expansion in prepare_custom_write).
+    check_tree_size(expanded_size(features) + 1)
     features_by_id = {feature.id: feature for feature in features}
     bar_index = _bar_index(part, features)
     position = len(features) if bar_index is None else bar_index + 1

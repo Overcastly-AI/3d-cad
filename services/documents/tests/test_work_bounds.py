@@ -82,9 +82,9 @@ def _add_feature(client: TestClient, part_id: str, version: int) -> Any:
 def test_feature_create_refuses_over_tree_ceiling(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import documents.features as features_module
+    import documents.custom_features as custom_features_module
 
-    monkeypatch.setattr(features_module, "MAX_TREE_FEATURES", 2)
+    monkeypatch.setattr(custom_features_module, "MAX_TREE_FEATURES", 2)
     part_id = _create_part(client)
     assert _add_feature(client, part_id, 0).status_code == 201  # 1st: under cap
     assert _add_feature(client, part_id, 1).status_code == 201  # 2nd: reaches cap

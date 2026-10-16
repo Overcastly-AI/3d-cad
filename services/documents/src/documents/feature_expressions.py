@@ -34,6 +34,7 @@ from loft_wire.feature_resolve import (
 )
 from loft_wire.features import (
     AUTHORED_FEATURES,
+    MAX_TREE_FEATURES,
     AuthoredEnvelope,
     CustomFeature,
     EvaluatedFeatureInput,
@@ -175,6 +176,12 @@ def apply_table_change(
     # Every change is computed before any row is touched: a rename that a
     # feature cannot take refuses the whole PUT.
     changes: list[tuple[db.Feature, AuthoredEnvelope]] = []
+    from documents.custom_features import expanded_size, retabled, row_size
+
+    # A re-expansion that would take the part past MAX_TREE_FEATURES keeps its
+    # stored members, as a formula that no longer resolves keeps its numbers;
+    # the next evaluation reports it (plugin_expansion_too_large).
+    size = expanded_size(rows)
     for row, envelope in loaded:
         if row.expressions is not None and envelope.expressions is None:
             continue  # formulas that no longer load are kept as stored
@@ -194,9 +201,12 @@ def apply_table_change(
             continue
         resolved: AuthoredEnvelope
         if isinstance(renamed, CustomFeature):
-            from documents.custom_features import retabled
-
-            resolved = retabled(row, renamed, rows, values) or renamed
+            resolved = renamed
+            expanded = retabled(row, renamed, rows, values)
+            if expanded is not None:
+                grown = len(expanded.params.expansion or []) - row_size(row)
+                if size + grown <= MAX_TREE_FEATURES:
+                    resolved, size = expanded, size + grown
         else:
             try:
                 resolved = resolve_feature(renamed, values)

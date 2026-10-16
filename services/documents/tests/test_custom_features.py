@@ -371,3 +371,184 @@ def test_the_catalog_needs_a_principal(client: TestClient) -> None:
     served = client.get("/api/v1/plugins", headers=HEADERS)
     assert served.status_code == 200
     assert [p["id"] for p in served.json()["plugins"]] == ["loft.twisted_prism"]
+
+
+# --- the tree bound counts members (review of PLUGIN-REGISTRY, 2026-10-16) -----
+
+
+def _forged(
+    client: TestClient, members: list[int], mutate: Any = None
+) -> dict[str, Any]:
+    """A ``.loft`` tree: a sketch, then one custom feature of a plugin this
+    server lacks per entry of *members*, each storing that many empty-sketch
+    members with correctly derived ids (a hand-edited file passes the id and
+    reference checks)."""
+    part = Part(client)
+    sketch_id = part.sketch()
+    assert part.post(_prism(sketch_id)).status_code == 201
+    tree = client.get(f"/api/v1/parts/{part.id}/loft-tree", headers=HEADERS).json()
+    sketch_row, prism_row = tree["features"]
+    rows = [sketch_row]
+    for k, count in enumerate(members):
+        row_id = uuid.uuid4()
+        expansion: list[dict[str, Any]] = [
+            {
+                "role": "m",
+                "index": n,
+                "id": str(member_id(row_id, "m", n)),
+                "feature": {
+                    "type": "sketch",
+                    "version": 1,
+                    "params": {**SQUARE, "entities": []},
+                },
+            }
+            for n in range(count)
+        ]
+        if mutate is not None:
+            mutate(row_id, expansion, sketch_row["id"])
+        params: dict[str, Any] = {
+            **prism_row["params"],
+            "plugin_id": "evil.gone",
+            "inputs": {},
+            "expansion": expansion,
+        }
+        rows.append({**prism_row, "id": str(row_id), "name": f"C{k}", "params": params})
+    tree["features"] = rows
+    tree["rollback_feature_id"] = None
+    return tree
+
+
+def _import(client: TestClient, tree: dict[str, Any]) -> Any:
+    return client.post(
+        "/api/v1/parts/import-loft",
+        json={"document_id": str(uuid.uuid4()), "tree": tree},
+        headers=HEADERS,
+    )
+
+
+def test_a_loft_whose_members_overflow_the_tree_bound_is_refused(
+    client: TestClient,
+) -> None:
+    """Reproduction: two rows of an absent plugin carrying 600 stored members
+    each imported (2 rows), then every evaluation-request was a 500."""
+    response = _import(client, _forged(client, [600, 600]))
+    assert response.status_code == 422, response.text
+    error = response.json()["error"]
+    assert error["code"] == "feature_limit_exceeded"
+    assert error["details"]["expanded"] == 1201
+
+
+def test_an_overflowing_stored_tree_still_builds_a_bounded_request(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Whatever is stored, the evaluation request fits the contract: a custom
+    feature that does not fit is sent as one member with a typed error."""
+    with monkeypatch.context() as m:  # stored as an older build allowed
+        m.setattr(custom_features, "MAX_TREE_FEATURES", 5000)
+        imported = _import(client, _forged(client, [600, 600]))
+    assert imported.status_code == 201, imported.text
+    response = client.get(
+        f"/api/v1/parts/{imported.json()['id']}/evaluation-request", headers=HEADERS
+    )
+    assert response.status_code == 200, response.text
+    features = response.json()["features"]
+    assert len(features) == 1 + 600 + 1
+    assert all(f.get("input_error") is None for f in features[:601])
+    assert "plugin_expansion_too_large" in features[-1]["input_error"]["message"]
+
+
+def test_a_base_feature_after_a_custom_one_counts_its_members(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without tampering: rows under the bound, members over it (999 rows and
+    a twisted prism, at a bound of 4)."""
+    monkeypatch.setattr(custom_features, "MAX_TREE_FEATURES", 4)
+    part = Part(client)
+    sketch_id = part.sketch()
+    assert part.post(_prism(sketch_id)).status_code == 201  # 1 + 2 members
+    sketch = {"type": "sketch", "version": 1, "params": SQUARE}
+    assert part.post(sketch).status_code == 201
+    response = part.post(sketch)
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "feature_limit_exceeded"
+    assert response.json()["error"]["details"]["expanded"] == 5
+
+
+def test_a_restore_over_the_tree_bound_is_refused(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    part = Part(client)
+    sketch_id = part.sketch()
+    assert part.post(_prism(sketch_id)).status_code == 201
+    saved = client.post(
+        f"/api/v1/parts/{part.id}/versions", json={"name": "v1"}, headers=HEADERS
+    )
+    assert saved.status_code == 201, saved.text
+    monkeypatch.setattr(custom_features, "MAX_TREE_FEATURES", 2)
+    response = client.post(
+        f"/api/v1/parts/{part.id}/versions/1/restore",
+        json={"expected_tree_version": part.version},
+        headers=HEADERS,
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "feature_limit_exceeded"
+
+
+def test_an_imported_member_meets_the_write_rules(client: TestClient) -> None:
+    """A stored member may not author what a user cannot: here a deprecated
+    extrude twist, carried in by a plugin this server lacks."""
+
+    def twisted(
+        row_id: uuid.UUID, expansion: list[dict[str, Any]], sketch_id: str
+    ) -> None:
+        expansion.append(
+            {
+                "role": "m",
+                "index": 1,
+                "id": str(member_id(row_id, "m", 1)),
+                "feature": {
+                    "type": "extrude",
+                    "version": 1,
+                    "params": {
+                        "profile": {"kind": "feature", "feature_id": sketch_id},
+                        "distance_mm": 5.0,
+                        "operation": "add",
+                        "twist_angle_deg": 30.0,
+                    },
+                },
+            }
+        )
+
+    response = _import(client, _forged(client, [1], twisted))
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "extrude_twist_deprecated"
+
+
+def test_a_re_expansion_may_not_drop_a_referenced_member(
+    client: TestClient, plugins: list[PluginRegistry]
+) -> None:
+    plugins[0] = PluginRegistry([BLOCKS_V1])
+    part = Part(client)
+    created = part.post(_blocks(count=2))
+    assert created.status_code == 201, created.text
+    blocks_id = created.json()["feature"]["id"]
+    second = str(member_id(uuid.UUID(blocks_id), "profile", 1))
+    later = part.post(
+        {
+            "type": "extrude",
+            "version": 1,
+            "params": {
+                "profile": {"kind": "feature", "feature_id": second},
+                "distance_mm": 5.0,
+                "operation": "add",
+            },
+        },
+        name="Later",
+    )
+    assert later.status_code == 201, later.text
+    response = part.patch(blocks_id, feature=_blocks(count=1))
+    assert response.status_code == 409, response.text
+    error = response.json()["error"]
+    assert error["code"] == "feature_has_dependents"
+    assert [d["name"] for d in error["details"]["dependents"]] == ["Later"]
+    assert part.patch(blocks_id, feature=_blocks(count=3)).status_code == 200
