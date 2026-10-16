@@ -80,6 +80,7 @@ export function PartCommandBand({
     | "openCreateExtrude"
     | "openCreateRevolve"
     | "openCreateSweep"
+    | "openCreatePipe"
     | "openCreateLoft"
     | "openCreateFillet"
     | "openCreateChamfer"
@@ -143,6 +144,7 @@ export function PartCommandBand({
     openCreateExtrude,
     openCreateRevolve,
     openCreateSweep,
+    openCreatePipe,
     openCreateLoft,
     openCreateFillet,
     openCreateChamfer,
@@ -189,6 +191,8 @@ export function PartCommandBand({
           onNewRevolve={openCreateRevolve}
           canSweep={canSweep}
           onNewSweep={openCreateSweep}
+          canPipe={hasSolvedSketch || hasBody}
+          onNewPipe={openCreatePipe}
           canLoft={canLoft}
           onNewLoft={openCreateLoft}
           canModify={hasBody}

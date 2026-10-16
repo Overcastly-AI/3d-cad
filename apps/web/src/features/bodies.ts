@@ -39,7 +39,7 @@ export interface BodyInfo {
 }
 
 /** Body-creating solid features that carry an `operation` + `merge`. */
-const BODY_CREATING = new Set(["extrude", "revolve", "sweep", "loft"]);
+const BODY_CREATING = new Set(["extrude", "revolve", "sweep", "pipe", "loft"]);
 
 /**
  * The bodies a part currently holds, in tree order. See the module docstring for

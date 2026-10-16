@@ -21,6 +21,8 @@ import { PatternEditor } from "../../components/PatternEditor";
 import { RevolveEditor } from "../../components/RevolveEditor";
 import { ShellEditor } from "../../components/ShellEditor";
 import { SweepEditor } from "../../components/SweepEditor";
+import { PipeEditor } from "../../components/PipeEditor";
+import { pipeCurveOptions } from "../../features/pipe";
 import { FormulaSessionContext } from "../../components/ValueField";
 import type { EditorFormulas } from "./useEditorFormulas";
 import type { PartDocument } from "./usePartDocument";
@@ -68,12 +70,14 @@ export function FeatureEditorSeat({
     | "edgeFlangeOpts"
     | "datumPlaneOptions"
     | "bodies"
+    | "features"
   >;
   featureSubmit: Pick<
     FeatureSubmit,
     | "submitExtrude"
     | "submitRevolve"
     | "submitSweep"
+    | "submitPipe"
     | "submitLoft"
     | "submitPattern"
     | "submitFillet"
@@ -162,11 +166,13 @@ export function FeatureEditorSeat({
     edgeFlangeOpts,
     datumPlaneOptions,
     bodies,
+    features,
   } = featureCatalog;
   const {
     submitExtrude,
     submitRevolve,
     submitSweep,
+    submitPipe,
     submitLoft,
     submitPattern,
     submitFillet,
@@ -280,6 +286,28 @@ export function FeatureEditorSeat({
             error={seatError}
             rebuildError={sweepRebuildError}
             profileEntities={profileEntities}
+          />
+        ) : editor.kind === "pipe" ? (
+          <PipeEditor
+            mode={editor.mode}
+            // Curves of sketches BEFORE the pipe only: a later sketch is a
+            // forward reference the write would refuse.
+            curves={pipeCurveOptions(
+              editor.featureId === undefined
+                ? features
+                : features.slice(
+                    0,
+                    Math.max(
+                      0,
+                      features.findIndex((f) => f.id === editor.featureId),
+                    ),
+                  ),
+            )}
+            initial={editor.initial}
+            onSubmit={submitPipe}
+            onCancel={closeEditor}
+            saving={editorSaving}
+            error={seatError}
           />
         ) : editor.kind === "loft" ? (
           <LoftEditor
@@ -445,6 +473,17 @@ export function FeatureEditorSeat({
             initial={editor.initial}
             datumRefs={datumEditorRefs}
             sketchLines={datumSketchLines}
+            pathCurves={pipeCurveOptions(
+              editor.featureId === undefined
+                ? features
+                : features.slice(
+                    0,
+                    Math.max(
+                      0,
+                      features.findIndex((f) => f.id === editor.featureId),
+                    ),
+                  ),
+            )}
             onSubmit={submitDatum}
             onCancel={closeEditor}
             saving={editorSaving}

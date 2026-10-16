@@ -49,6 +49,7 @@
  */
 import { formatLength } from "@loft/design";
 import type { components } from "@loft/ts-client/gateway";
+import { alongPathBasis } from "./pathBasis";
 
 import {
   type AngleLine,
@@ -80,7 +81,8 @@ export type AnyDatumParams =
   | components["schemas"]["DatumOnFaceParams"]
   | components["schemas"]["DatumOffsetFromParams"]
   | components["schemas"]["DatumMidplaneParams"]
-  | components["schemas"]["DatumAngleParams"];
+  | components["schemas"]["DatumAngleParams"]
+  | components["schemas"]["DatumAlongPathParams"];
 /** The stage-1 planar-face fingerprint an on-face datum resolves against. */
 export type PlanarFaceSignature = components["schemas"]["PlanarFaceSignature"];
 
@@ -333,6 +335,20 @@ export function resolveDatumBasis(
       return line === null || normal === null
         ? null
         : angleBasis(line, normal, params.angle_deg, params.flip);
+    }
+    case "along_path": {
+      // A sketch line or arc is placed here; a spline or a model edge is
+      // server-side only (sketch/pathBasis.ts).
+      const path = params.path;
+      if (path.kind !== "sketch_curve") return null;
+      const sketch = sketches.get(path.sketch.feature_id);
+      const entity = sketch?.entities.find((e) => e.id === path.entity);
+      if (sketch === undefined || entity === undefined) return null;
+      const basis =
+        sketch.plane.kind === "datum_plane"
+          ? originBasis(sketch.plane.plane)
+          : resolveDatumBasis(sketch.plane.feature_id, byId, next, sketches);
+      return basis === null ? null : alongPathBasis(params, entity, basis);
     }
     case "on_face":
       // The on_face basis is a scene-frame faceBasis owned by the

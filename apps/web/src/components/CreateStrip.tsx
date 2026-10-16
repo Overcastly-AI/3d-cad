@@ -118,6 +118,12 @@ export interface CreateStripProps {
   canSweep: boolean;
   onNewSweep: () => void;
   /**
+   * True when there is a curve to run a pipe along: a solved sketch, or a body
+   * whose edges can be picked (PIPE-ALONG-PATH).
+   */
+  canPipe?: boolean;
+  onNewPipe?: () => void;
+  /**
    * True when ≥2 sketch features exist to blend through as a loft's ordered
    * sections (a loft references a LIST of earlier sketches, not the implicit
    * one) — the same two-sketch gate as sweep.
@@ -437,6 +443,8 @@ export function CreateStrip({
   onNewRevolve,
   canSweep,
   onNewSweep,
+  canPipe = false,
+  onNewPipe,
   canLoft,
   onNewLoft,
   canModify = false,
@@ -883,6 +891,22 @@ export function CreateStrip({
             )}
             disabled={locked || !canSweep || !treeReady}
             onClick={onNewSweep}
+          />
+          <ToolButton
+            icon={<VerbGlyph verb="pipe" />}
+            showLabel
+            label="Pipe"
+            data-testid="new-pipe"
+            aria-label={
+              canPipe
+                ? "Pipe — a round bar or tube along picked sketch curves or edges"
+                : "Pipe — draw a path sketch first"
+            }
+            caption={captionFor(canPipe && treeReady, "Draw a path sketch")}
+            disabled={
+              locked || !canPipe || !treeReady || onNewPipe === undefined
+            }
+            onClick={onNewPipe}
           />
           <ToolButton
             icon={<VerbGlyph verb="loft" />}

@@ -30,6 +30,7 @@ import {
   defaultSweepProfileId,
 } from "../../features/sweep";
 import { defaultLoftForm, defaultLoftSections } from "../../features/loft";
+import { defaultPipeForm } from "../../features/pipe";
 import {
   defaultBaseFlangeForm,
   defaultCornerReliefForm,
@@ -157,6 +158,28 @@ export function useFeatureOpeners({
       initial: defaultSweepForm(profileId, pathId),
     });
   }, [tree.data]);
+
+  // A pipe follows picked curves (PIPE-ALONG-PATH): sketch curves chosen in
+  // the editor, and the model edges the cursor already has selected (UI-W3,
+  // the fillet's rule) riding along as the first picks.
+  const openCreatePipe = useCallback(() => {
+    const picked = preselectedEdges(
+      usePreselectStore.getState(),
+      bodyFeatureId,
+    );
+    const edges =
+      bodyFeatureId === null
+        ? []
+        : picked.map((signature) => ({ signature, anchorId: bodyFeatureId }));
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "pipe",
+      mode: "create",
+      initial: defaultPipeForm(edges),
+    });
+  }, [bodyFeatureId]);
 
   // A loft references an ORDERED LIST of ≥2 earlier sketches (its sections),
   // so it seeds the first two sketches in build order as the initial stack; the
@@ -477,6 +500,7 @@ export function useFeatureOpeners({
     openCreateExtrude,
     openCreateRevolve,
     openCreateSweep,
+    openCreatePipe,
     openCreateLoft,
     openCreatePattern,
     openCreateFillet,

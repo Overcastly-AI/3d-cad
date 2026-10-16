@@ -59,6 +59,8 @@ import {
   type SketchLineOption,
 } from "../features/datumAngle";
 import type { DatumPlaneName } from "../sketch/plane";
+import { curveLabel, type PipeCurveOption } from "../features/pipe";
+import { pathPositionError } from "../features/datumPath";
 import { EditorCard } from "./EditorCard";
 import { ValueField } from "./ValueField";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
@@ -71,6 +73,8 @@ export interface DatumEditorProps {
   datumRefs: readonly DatumRef[];
   /** Lines of earlier sketches — what a plane at an angle can turn about. */
   sketchLines?: readonly SketchLineOption[];
+  /** Curves of earlier sketches — what a plane along a path is normal to. */
+  pathCurves?: readonly PipeCurveOption[];
   /** Commit the built params (documents/geometry handle the rest). */
   onSubmit: (params: DatumParams) => void;
   onCancel: () => void;
@@ -137,7 +141,13 @@ function datumGaugeSeed(
   unit: LengthUnit,
 ): DatumGaugeSeed | null {
   // A plane at an angle has no offset either: its handle is an angle.
-  if (form.kind === "midplane" || form.kind === "angle") return null;
+  if (
+    form.kind === "midplane" ||
+    form.kind === "angle" ||
+    form.kind === "along_path"
+  ) {
+    return null;
+  }
   const offsetMm = parseOffsetMm(form.offsetInput, unit);
   if (offsetMm === null) return null;
   switch (form.kind) {
@@ -160,6 +170,7 @@ const KIND_OPTIONS: ReadonlyArray<{ value: DatumKind; label: string }> = [
   { value: "midplane", label: "Midplane between two references" },
   { value: "on_face", label: "On a model face" },
   { value: "angle", label: "Plane at angle (about a line or edge)" },
+  { value: "along_path", label: "Plane along path (normal to a curve)" },
 ];
 
 const BASE_OPTIONS: ReadonlyArray<SegmentOption<DatumPlaneName>> =
@@ -344,6 +355,7 @@ export function DatumEditor({
   initial,
   datumRefs,
   sketchLines = [],
+  pathCurves = [],
   onSubmit,
   onCancel,
   saving,
@@ -375,7 +387,7 @@ export function DatumEditor({
     gaugeWrite(
       offsetOverride,
       (f: DatumForm, o) =>
-        f.kind === "midplane" || f.kind === "angle"
+        f.kind === "midplane" || f.kind === "angle" || f.kind === "along_path"
           ? f
           : { ...f, offsetInput: lengthInputValue(o.mm, unit) },
       unit,
@@ -817,6 +829,88 @@ export function DatumEditor({
                   The plane through the line, turned from the reference. 0 is
                   parallel to it; positive turns right-handed about the line.
                   The line must be parallel to the reference.
+                </p>
+                <FlipControl
+                  flip={form.flip}
+                  onChange={(flip) => setForm((f) => ({ ...f, flip }))}
+                />
+              </>
+            ) : null}
+
+            {form.kind === "along_path" ? (
+              <>
+                <SelectField
+                  label="Path"
+                  data-testid="datum-path-curve"
+                  autoFocus
+                  value={form.curve}
+                  options={[
+                    { value: "", label: "Choose a curve…" },
+                    ...pathCurves
+                      .filter(
+                        (c) =>
+                          c.kind === "line" ||
+                          c.kind === "arc" ||
+                          c.kind === "circle",
+                      )
+                      .map((c) => ({
+                        value: c.key,
+                        label: `${c.sketchName} · ${curveLabel(c)}`,
+                      })),
+                  ]}
+                  onChange={(e) => {
+                    const curve = e.target.value;
+                    setForm((f) =>
+                      f.kind === "along_path" ? { ...f, curve } : f,
+                    );
+                  }}
+                  aria-label="Curve the plane is normal to"
+                />
+                <SegmentedControl
+                  label="Position"
+                  value={form.measure}
+                  options={[
+                    {
+                      value: "ratio",
+                      label: "Ratio",
+                      "data-testid": "datum-path-ratio",
+                    },
+                    {
+                      value: "distance",
+                      label: "Distance",
+                      "data-testid": "datum-path-distance",
+                    },
+                  ]}
+                  onChange={(measure) =>
+                    setForm((f) =>
+                      f.kind === "along_path"
+                        ? {
+                            ...f,
+                            measure,
+                            positionInput: measure === "ratio" ? "0.5" : "0",
+                          }
+                        : f,
+                    )
+                  }
+                />
+                <ValueField
+                  label={form.measure === "ratio" ? "Ratio" : "Distance"}
+                  unit={form.measure === "ratio" ? "" : unit}
+                  kind={form.measure === "ratio" ? "unitless" : "length"}
+                  pointer={form.measure === "ratio" ? "/ratio" : "/distance_mm"}
+                  data-testid="datum-path-position"
+                  value={form.positionInput}
+                  error={pathPositionError(form, unit)}
+                  onValueChange={(positionInput) =>
+                    setForm((f) =>
+                      f.kind === "along_path" ? { ...f, positionInput } : f,
+                    )
+                  }
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                <p className="-mt-1 font-body text-xs text-gauge">
+                  The plane through that point of the curve, normal to it,
+                  measured from the curve&apos;s start. It follows the sketch.
                 </p>
                 <FlipControl
                   flip={form.flip}

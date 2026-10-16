@@ -63,6 +63,8 @@ import {
   updateFeature,
 } from "../../api/parts";
 import { FeatureWriteError } from "../../api/envelope";
+import type { PipeParams } from "../../api/parts";
+import { pipeFeatureCreate, pipeFeatureUpdate } from "../../features/pipe";
 import {
   expressionsForParams,
   formulaFieldMounted,
@@ -279,6 +281,23 @@ export function useFeatureSubmit({
         current.mode === "create",
         current.featureId,
         "The sweep could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitPipe = useCallback(
+    (params: PipeParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "pipe") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "pipe").length + 1;
+      runFeatureSave(
+        (version) => pipeFeatureCreate(`Pipe${nextIndex}`, params, version),
+        (version) => pipeFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The pipe could not be saved.",
       );
     },
     [editor, features, runFeatureSave],
@@ -543,6 +562,7 @@ export function useFeatureSubmit({
     submitExtrude,
     submitRevolve,
     submitSweep,
+    submitPipe,
     submitLoft,
     submitPattern,
     submitMirror,

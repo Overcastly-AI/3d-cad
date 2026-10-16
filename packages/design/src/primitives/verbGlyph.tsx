@@ -54,6 +54,8 @@ export const VERB_GLYPHS: Readonly<Record<string, ComponentType<IconProps>>> = {
   extrude: ExtrudeIcon,
   revolve: RevolveIcon,
   sweep: SweepIcon,
+  // A pipe is a sweep of a round section (Fusion draws them alike).
+  pipe: SweepIcon,
   loft: LoftIcon,
   fillet: FilletIcon,
   chamfer: ChamferIcon,

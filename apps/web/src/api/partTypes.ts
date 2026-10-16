@@ -91,6 +91,14 @@ export type RevolveFeature = components["schemas"]["RevolveFeature"];
 export type RevolveParams = components["schemas"]["RevolveParamsV1"];
 export type SweepFeature = components["schemas"]["SweepFeature"];
 export type SweepParams = components["schemas"]["SweepParamsV1"];
+/** Fusion's Pipe: a circle or ring along picked curves (PIPE-ALONG-PATH). */
+export type PipeFeature = components["schemas"]["PipeFeature"];
+export type PipeParams = components["schemas"]["PipeParamsV1"];
+/** One picked curve of a pipe or along-path datum: a sketch curve or an edge. */
+export type PathSegment = PipeParams["path"][number];
+/** A plane normal to a curve at a point along it (Plane Along Path). */
+export type DatumAlongPathParams =
+  components["schemas"]["DatumAlongPathParams"];
 export type LoftFeature = components["schemas"]["LoftFeature"];
 export type LoftParams = components["schemas"]["LoftParamsV1"];
 /** One ordered section slot of a loft — a `FeatureRef` to an earlier sketch. */
