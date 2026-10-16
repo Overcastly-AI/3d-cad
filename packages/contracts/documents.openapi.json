@@ -1538,6 +1538,72 @@
         "title": "CustomParamsV1",
         "type": "object"
       },
+      "DatumAlongPathParams": {
+        "description": "A plane normal to a curve at a point along it (``kind: \"along_path\"``).\n\nFusion 360's *Plane Along Path* (SolidWorks' Plane \"normal to curve\"):\nthe plane passes through the point of ``path`` at ``ratio`` of its length\n(``measure: \"ratio\"``) or ``distance_mm`` along it (``\"distance\"``),\nmeasured from the curve's start (a sketch curve's own start; for an edge,\n``end_a`` of the signature AS PICKED, kept on rebuild), and its normal is\nthe curve's tangent there, in the direction of travel. ``x_dir`` is pinned\nfrom the normal (the on-face rule) and ``flip`` negates the normal,\nkeeping ``x_dir``, as for every datum kind. A distance past the curve's\nend is the typed rebuild error ``datum_path_out_of_range``.",
+        "properties": {
+          "distance_mm": {
+            "default": 0.0,
+            "description": "Distance along the curve from its start (mm); used when `measure` is `distance`.",
+            "minimum": 0.0,
+            "title": "Distance Mm",
+            "type": "number"
+          },
+          "flip": {
+            "default": false,
+            "description": "Reverse the plane normal (negate z_dir, keeping x_dir) \u2014 the same rule as `offset`.",
+            "title": "Flip",
+            "type": "boolean"
+          },
+          "kind": {
+            "const": "along_path",
+            "title": "Kind",
+            "type": "string"
+          },
+          "measure": {
+            "default": "ratio",
+            "description": "`ratio`: place the plane at `ratio` of the curve's length; `distance`: at `distance_mm` along it from its start.",
+            "enum": [
+              "ratio",
+              "distance"
+            ],
+            "title": "Measure",
+            "type": "string"
+          },
+          "path": {
+            "description": "The curve the plane is normal to: a sketch curve of an earlier sketch, or a model edge.",
+            "discriminator": {
+              "mapping": {
+                "sketch_curve": "#/components/schemas/PathSketchCurve",
+                "subshape": "#/components/schemas/EdgeSubshapeRef"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PathSketchCurve"
+              },
+              {
+                "$ref": "#/components/schemas/EdgeSubshapeRef"
+              }
+            ],
+            "title": "Path"
+          },
+          "ratio": {
+            "default": 0.0,
+            "description": "Fraction of the curve's length from its start (0..1); used when `measure` is `ratio`.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Ratio",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "path"
+        ],
+        "title": "DatumAlongPathParams",
+        "type": "object"
+      },
       "DatumAngleParams": {
         "description": "A plane through a line, turned about it from a reference (``kind: \"angle\"``).\n\nSee the module docstring for the conventions. Failures are all typed and\nleave the datum sick rather than crash the rebuild: a missing sketch or\nentity is ``reference_unresolved``, a curved entity or edge (or a line of\nzero length) is ``datum_line_invalid``, an edge or face that no longer\nresolves is ``subshape_unresolved`` / ``subshape_ambiguous``, and a line\nthat is not parallel to the reference is ``datum_line_not_parallel``.",
         "properties": {
@@ -1643,6 +1709,7 @@
           "params": {
             "discriminator": {
               "mapping": {
+                "along_path": "#/components/schemas/DatumAlongPathParams",
                 "angle": "#/components/schemas/DatumAngleParams",
                 "midplane": "#/components/schemas/DatumMidplaneParams",
                 "offset": "#/components/schemas/DatumOffsetParams",
@@ -1666,6 +1733,9 @@
               },
               {
                 "$ref": "#/components/schemas/DatumAngleParams"
+              },
+              {
+                "$ref": "#/components/schemas/DatumAlongPathParams"
               }
             ],
             "title": "Params"
@@ -3221,6 +3291,7 @@
                 "loft": "#/components/schemas/LoftFeature",
                 "mirror": "#/components/schemas/MirrorFeature",
                 "pattern": "#/components/schemas/PatternFeature",
+                "pipe": "#/components/schemas/PipeFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
                 "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
                 "sheet_metal_corner_relief": "#/components/schemas/SheetMetalCornerReliefFeature",
@@ -3247,6 +3318,9 @@
               },
               {
                 "$ref": "#/components/schemas/SweepFeature"
+              },
+              {
+                "$ref": "#/components/schemas/PipeFeature"
               },
               {
                 "$ref": "#/components/schemas/LoftFeature"
@@ -3530,6 +3604,7 @@
                 "loft": "#/components/schemas/LoftFeature",
                 "mirror": "#/components/schemas/MirrorFeature",
                 "pattern": "#/components/schemas/PatternFeature",
+                "pipe": "#/components/schemas/PipeFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
                 "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
                 "sheet_metal_corner_relief": "#/components/schemas/SheetMetalCornerReliefFeature",
@@ -3556,6 +3631,9 @@
               },
               {
                 "$ref": "#/components/schemas/SweepFeature"
+              },
+              {
+                "$ref": "#/components/schemas/PipeFeature"
               },
               {
                 "$ref": "#/components/schemas/LoftFeature"
@@ -8137,6 +8215,33 @@
         "title": "PartVersionRestore",
         "type": "object"
       },
+      "PathSketchCurve": {
+        "description": "``kind: \"sketch_curve\"``: one curve entity of an EARLIER sketch.\n\n``sketch`` materialises into ``feature_dependencies`` like an extrude's\nprofile; ``entity`` is the sketch-local id of a line, arc, circle or spline\n(a construction curve counts: it is what a skeleton is drawn in). The curve\nis read from the SOLVED sketch on every rebuild, so re-dimensioning the\nskeleton moves every pipe on it.",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local id of a line, arc, circle or spline in it.",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "kind": {
+            "const": "sketch_curve",
+            "title": "Kind",
+            "type": "string"
+          },
+          "sketch": {
+            "$ref": "#/components/schemas/FeatureRef",
+            "description": "The EARLIER sketch that owns the curve."
+          }
+        },
+        "required": [
+          "kind",
+          "sketch",
+          "entity"
+        ],
+        "title": "PathSketchCurve",
+        "type": "object"
+      },
       "PatternBodyScope": {
         "description": "``scope: {\"kind\": \"body\"}`` \u2014 repeat the CURRENT BODY (the v1 reading).\n\nThe v1 semantic, NAMED rather than implied (design \u00a72): both inference rules\nabove run verbatim, on the same code path, producing the same bytes \u2014 so the\nshipped pattern goldens' byte identity is STRUCTURAL, not measured. This scope\nstill flips as \u00a71 measures; that is what \"additive\" costs, and the flip is now a\ndocumented property of a legacy reading the UI never authors rather than the\nonly available spelling.",
         "properties": {
@@ -8477,6 +8582,127 @@
           "refs"
         ],
         "title": "PickedEdgesSelector",
+        "type": "object"
+      },
+      "PipeFeature": {
+        "description": "``{\"type\": \"pipe\", \"version\": 1, \"params\": {...}}`` (:mod:`loft_wire.pipe`).",
+        "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
+          "params": {
+            "$ref": "#/components/schemas/PipeParamsV1"
+          },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
+          "type": {
+            "const": "pipe",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "PipeFeature",
+        "type": "object"
+      },
+      "PipeParamsV1": {
+        "description": "A circular or ring section swept along a picked chain of curves.\n\nSee the module docstring. ``operation`` and ``merge`` are the other\nsketch solids' fields: ``add`` with ``merge`` joins the tube to the active\nbody (Fusion's *Join*), ``add`` without it starts a new body (*New Body*),\nand ``cut`` removes it from the active body (*Cut*). Failures are typed\nrebuild errors on the pipe: ``reference_unresolved`` (a missing sketch or\ncurve), ``subshape_unresolved`` / ``subshape_ambiguous`` (an edge),\n``sweep_path_not_connected`` (branched or disjoint picks, or a curve\npicked twice), ``sweep_failed`` (a bend tighter than the section),\n``sweep_self_intersecting`` (the path comes back through the tube).",
+        "properties": {
+          "merge": {
+            "default": true,
+            "description": "ADD only: True joins the tube to the active body (or starts the first body); False starts a NEW body. Ignored for a cut.",
+            "title": "Merge",
+            "type": "boolean"
+          },
+          "operation": {
+            "enum": [
+              "add",
+              "cut"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "outer_diameter_mm": {
+            "description": "Outside diameter of the tube section (mm).",
+            "exclusiveMinimum": 0.0,
+            "title": "Outer Diameter Mm",
+            "type": "number"
+          },
+          "path": {
+            "description": "The picked curves, in pick order (>= 1): sketch curves of earlier sketches and/or edges of an earlier body. They must form one connected chain, open or closed, with no branch.",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "sketch_curve": "#/components/schemas/PathSketchCurve",
+                  "subshape": "#/components/schemas/EdgeSubshapeRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/PathSketchCurve"
+                },
+                {
+                  "$ref": "#/components/schemas/EdgeSubshapeRef"
+                }
+              ]
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Path",
+            "type": "array"
+          },
+          "wall_thickness_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wall thickness (mm) of a HOLLOW pipe: the section is a ring from the outside diameter inwards. Null for a solid round bar. Must be less than the outer radius.",
+            "title": "Wall Thickness Mm"
+          }
+        },
+        "required": [
+          "path",
+          "outer_diameter_mm",
+          "operation"
+        ],
+        "title": "PipeParamsV1",
         "type": "object"
       },
       "Placement": {

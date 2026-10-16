@@ -133,6 +133,22 @@ def _every_slot_tree() -> list[dict[str, Any]]:
             },
         ),
         _feature(
+            "pipe",
+            {
+                "path": [
+                    {
+                        "kind": "sketch_curve",
+                        "sketch": {"kind": "feature", "feature_id": ANCHOR},
+                        "entity": "e1",
+                    },
+                    _edge(8),
+                ],
+                "outer_diameter_mm": 10.0,
+                "operation": "add",
+            },
+        ),
+        _feature("datum", {"kind": "along_path", "path": _edge(9), "ratio": 0.5}),
+        _feature(
             "sheet_metal_edge_flange",
             {"edge": _edge(4), "flange_length_mm": 10.0, "bend_angle_deg": 90.0},
         ),
@@ -177,7 +193,7 @@ def test_the_walk_yields_exactly_the_subshape_refs_iter_feature_refs_yields() ->
         ]
         assert [id(r) for r in walked] == [id(r) for r in expected]
         total += len(walked)
-    assert total == 15
+    assert total == 17
 
 
 def test_every_pointer_lands_on_its_ref_in_the_stored_json() -> None:
@@ -221,6 +237,8 @@ _KNOWN_SLOTS = {
     ("DatumMidplaneParams", "b"),
     ("DatumAngleParams", "line"),
     ("DatumAngleParams", "reference"),
+    ("DatumAlongPathParams", "path"),
+    ("PipeParamsV1", "path"),
     ("HoleParamsV1", "face"),
     ("SheetMetalEdgeFlangeParamsV1", "edge"),
     ("SheetMetalHemParamsV1", "edge"),

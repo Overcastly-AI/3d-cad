@@ -4264,6 +4264,57 @@ export interface components {
             radius: number;
         };
         /**
+         * DatumAlongPathParams
+         * @description A plane normal to a curve at a point along it (``kind: "along_path"``).
+         *
+         *     Fusion 360's *Plane Along Path* (SolidWorks' Plane "normal to curve"):
+         *     the plane passes through the point of ``path`` at ``ratio`` of its length
+         *     (``measure: "ratio"``) or ``distance_mm`` along it (``"distance"``),
+         *     measured from the curve's start (a sketch curve's own start; for an edge,
+         *     ``end_a`` of the signature AS PICKED, kept on rebuild), and its normal is
+         *     the curve's tangent there, in the direction of travel. ``x_dir`` is pinned
+         *     from the normal (the on-face rule) and ``flip`` negates the normal,
+         *     keeping ``x_dir``, as for every datum kind. A distance past the curve's
+         *     end is the typed rebuild error ``datum_path_out_of_range``.
+         */
+        DatumAlongPathParams: {
+            /**
+             * Distance Mm
+             * @description Distance along the curve from its start (mm); used when `measure` is `distance`.
+             * @default 0
+             */
+            distance_mm: number;
+            /**
+             * Flip
+             * @description Reverse the plane normal (negate z_dir, keeping x_dir) — the same rule as `offset`.
+             * @default false
+             */
+            flip: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "along_path";
+            /**
+             * Measure
+             * @description `ratio`: place the plane at `ratio` of the curve's length; `distance`: at `distance_mm` along it from its start.
+             * @default ratio
+             * @enum {string}
+             */
+            measure: "ratio" | "distance";
+            /**
+             * Path
+             * @description The curve the plane is normal to: a sketch curve of an earlier sketch, or a model edge.
+             */
+            path: components["schemas"]["PathSketchCurve"] | components["schemas"]["EdgeSubshapeRef"];
+            /**
+             * Ratio
+             * @description Fraction of the curve's length from its start (0..1); used when `measure` is `ratio`.
+             * @default 0
+             */
+            ratio: number;
+        };
+        /**
          * DatumAngleParams
          * @description A plane through a line, turned about it from a reference (``kind: "angle"``).
          *
@@ -4326,7 +4377,7 @@ export interface components {
                 [key: string]: string;
             } | null;
             /** Params */
-            params: components["schemas"]["DatumOffsetParams"] | components["schemas"]["DatumOnFaceParams"] | components["schemas"]["DatumOffsetFromParams"] | components["schemas"]["DatumMidplaneParams"] | components["schemas"]["DatumAngleParams"];
+            params: components["schemas"]["DatumOffsetParams"] | components["schemas"]["DatumOnFaceParams"] | components["schemas"]["DatumOffsetFromParams"] | components["schemas"]["DatumMidplaneParams"] | components["schemas"]["DatumAngleParams"] | components["schemas"]["DatumAlongPathParams"];
             /**
              * Suppressed
              * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
@@ -6024,7 +6075,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -6210,7 +6261,7 @@ export interface components {
          */
         ExpandedMember: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -9583,6 +9634,30 @@ export interface components {
             expected_tree_version: number;
         };
         /**
+         * PathSketchCurve
+         * @description ``kind: "sketch_curve"``: one curve entity of an EARLIER sketch.
+         *
+         *     ``sketch`` materialises into ``feature_dependencies`` like an extrude's
+         *     profile; ``entity`` is the sketch-local id of a line, arc, circle or spline
+         *     (a construction curve counts: it is what a skeleton is drawn in). The curve
+         *     is read from the SOLVED sketch on every rebuild, so re-dimensioning the
+         *     skeleton moves every pipe on it.
+         */
+        PathSketchCurve: {
+            /**
+             * Entity
+             * @description Sketch-local id of a line, arc, circle or spline in it.
+             */
+            entity: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "sketch_curve";
+            /** @description The EARLIER sketch that owns the curve. */
+            sketch: components["schemas"]["FeatureRef"];
+        };
+        /**
          * PatternBodyScope
          * @description ``scope: {"kind": "body"}`` — repeat the CURRENT BODY (the v1 reading).
          *
@@ -9859,6 +9934,77 @@ export interface components {
              * @description The specific picked edges (>= 1, bounded by MAX_SELECTOR_REFS — work bound, audit G2), each a stage-1 EdgeSignature reference resolved against the current body
              */
             refs: components["schemas"]["EdgeSubshapeRef"][];
+        };
+        /**
+         * PipeFeature
+         * @description ``{"type": "pipe", "version": 1, "params": {...}}`` (:mod:`loft_wire.pipe`).
+         */
+        PipeFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
+            params: components["schemas"]["PipeParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "pipe";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * PipeParamsV1
+         * @description A circular or ring section swept along a picked chain of curves.
+         *
+         *     See the module docstring. ``operation`` and ``merge`` are the other
+         *     sketch solids' fields: ``add`` with ``merge`` joins the tube to the active
+         *     body (Fusion's *Join*), ``add`` without it starts a new body (*New Body*),
+         *     and ``cut`` removes it from the active body (*Cut*). Failures are typed
+         *     rebuild errors on the pipe: ``reference_unresolved`` (a missing sketch or
+         *     curve), ``subshape_unresolved`` / ``subshape_ambiguous`` (an edge),
+         *     ``sweep_path_not_connected`` (branched or disjoint picks, or a curve
+         *     picked twice), ``sweep_failed`` (a bend tighter than the section),
+         *     ``sweep_self_intersecting`` (the path comes back through the tube).
+         */
+        PipeParamsV1: {
+            /**
+             * Merge
+             * @description ADD only: True joins the tube to the active body (or starts the first body); False starts a NEW body. Ignored for a cut.
+             * @default true
+             */
+            merge: boolean;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "add" | "cut";
+            /**
+             * Outer Diameter Mm
+             * @description Outside diameter of the tube section (mm).
+             */
+            outer_diameter_mm: number;
+            /**
+             * Path
+             * @description The picked curves, in pick order (>= 1): sketch curves of earlier sketches and/or edges of an earlier body. They must form one connected chain, open or closed, with no branch.
+             */
+            path: (components["schemas"]["PathSketchCurve"] | components["schemas"]["EdgeSubshapeRef"])[];
+            /**
+             * Wall Thickness Mm
+             * @description Wall thickness (mm) of a HOLLOW pipe: the section is a ring from the outside diameter inwards. Null for a solid round bar. Must be less than the outer radius.
+             */
+            wall_thickness_mm?: number | null;
         };
         /**
          * Placement

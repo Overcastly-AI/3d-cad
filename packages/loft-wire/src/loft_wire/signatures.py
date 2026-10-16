@@ -263,3 +263,51 @@ class EdgeSubshapeRef(BaseModel):
     feature_id: uuid.UUID
     subshape_type: Literal["edge"]
     selector: EdgeSubshapeSelector
+
+
+class CylindricalFaceSignature(BaseModel):
+    """§5 stage-1 geometric fingerprint of a CYLINDRICAL face — typed, kernel-free.
+
+    The bend-provenance sibling of :class:`PlanarFaceSignature`
+    (docs/design/sheet-metal.md §5): a sheet-metal **bend region** is a cylindrical
+    face, and the planar signature cannot name one — an outward *normal* and an
+    in-plane *centroid* are meaningless for a curved surface, so reusing it would
+    be a type error, not a DRY win. This additive schema pins the bend's exact
+    B-rep geometry to full precision (§7.2 forbids quantizing the stored identity):
+    a point on the bend ``axis_origin`` + the unit ``axis_dir`` + the ``radius_mm``
+    + the area ``centroid`` (all world mm). The geometry service EMITS it off a
+    cylindrical face at edge-flange construction time
+    (:func:`geometry.sheet_metal.resolve.cylindrical_face_signature`) and MATCHES
+    it back to the bend face on a rebuilt body
+    (:func:`geometry.sheet_metal.resolve.resolve_cylindrical_face`,
+    nearest-within-tolerance, exactly one or an honest ``subshape_unresolved`` —
+    the same best-effort stage-1 posture as the planar/edge signatures) so the
+    unfold pass finds the bend by PROVENANCE, never blind geometric detection
+    (§2.2 recognition-vs-provenance).
+
+    ``surface`` is the ``"cylinder"`` discriminator mirroring
+    :class:`PlanarFaceSignature`'s structurally-inert ``surface: "plane"`` — the
+    seam §5 anticipates for a future ``SelectorV1.signature`` widening to a
+    ``Field(discriminator="surface")`` union. v1 keeps the shared planar
+    ``SubshapeRef``/``Selector`` machinery unchanged (no feature persists a
+    cylindrical SubshapeRef yet — the signature is geometry-internal unfold
+    provenance), so this schema is a pure additive sibling: it destabilises no
+    persisted planar face reference (DRY — extract the union member on the second
+    real consumer, not the first imagined one).
+    """
+
+    subshape_type: Literal["face"] = "face"
+    surface: Literal["cylinder"] = "cylinder"
+    axis_origin: Vec3 = Field(
+        description="A point on the bend axis line, world mm (full precision)"
+    )
+    axis_dir: Vec3 = Field(
+        description="Unit vector along the bend axis (full precision)"
+    )
+    radius_mm: float = Field(
+        gt=0,
+        description="Cylinder radius (mm) — the bend's inner radius, full precision",
+    )
+    centroid: Vec3 = Field(
+        description="Area centroid of the cylindrical face, world mm (full precision)"
+    )

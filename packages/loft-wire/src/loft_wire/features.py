@@ -69,6 +69,10 @@ from loft_wire.plugins import (
     RoleName,
     SemVer,
 )
+from loft_wire.pipe import DatumAlongPathParams as DatumAlongPathParams
+from loft_wire.pipe import PathSegment as PathSegment
+from loft_wire.pipe import PathSketchCurve as PathSketchCurve
+from loft_wire.pipe import PipeParamsV1 as PipeParamsV1
 from loft_wire.refs import DatumPlaneRef as DatumPlaneRef
 from loft_wire.refs import FeatureRef as FeatureRef
 from loft_wire.refs import GeomRef as GeomRef
@@ -106,6 +110,7 @@ from loft_wire.sheet_metal import (
     resolve_hem_bend_radius_mm as resolve_hem_bend_radius_mm,
 )
 from loft_wire.shell import SHELL_TYPE_FIELD, ShellType
+from loft_wire.signatures import CylindricalFaceSignature as CylindricalFaceSignature
 from loft_wire.signatures import EdgeSelectorV1 as EdgeSelectorV1
 from loft_wire.signatures import EdgeSignature as EdgeSignature
 from loft_wire.signatures import EdgeSubshapeRef as EdgeSubshapeRef
@@ -509,7 +514,8 @@ DatumParams = Annotated[
     | DatumOnFaceParams
     | DatumOffsetFromParams
     | DatumMidplaneParams
-    | DatumAngleParams,
+    | DatumAngleParams
+    | DatumAlongPathParams,
     Field(discriminator="kind"),
 ]
 
@@ -2132,6 +2138,14 @@ class SweepFeature(FeatureEnvelopeBase):
     params: SweepParamsV1
 
 
+class PipeFeature(FeatureEnvelopeBase):
+    """``{"type": "pipe", "version": 1, "params": {...}}`` (:mod:`loft_wire.pipe`)."""
+
+    type: Literal["pipe"]
+    version: Literal[1]
+    params: PipeParamsV1
+
+
 class LoftFeature(FeatureEnvelopeBase):
     """``{"type": "loft", "version": 1, "params": {...}}`` envelope."""
 
@@ -2305,6 +2319,7 @@ Feature = Annotated[
     | ExtrudeFeature
     | RevolveFeature
     | SweepFeature
+    | PipeFeature
     | LoftFeature
     | FilletFeature
     | ChamferFeature
@@ -2329,6 +2344,7 @@ FeatureEnvelope = (
     | ExtrudeFeature
     | RevolveFeature
     | SweepFeature
+    | PipeFeature
     | LoftFeature
     | FilletFeature
     | ChamferFeature
@@ -2521,6 +2537,7 @@ FEATURE_REGISTRY.register(SketchFeature)
 FEATURE_REGISTRY.register(ExtrudeFeature)
 FEATURE_REGISTRY.register(RevolveFeature)
 FEATURE_REGISTRY.register(SweepFeature)
+FEATURE_REGISTRY.register(PipeFeature)
 FEATURE_REGISTRY.register(LoftFeature)
 FEATURE_REGISTRY.register(FilletFeature)
 FEATURE_REGISTRY.register(ChamferFeature)
@@ -2708,6 +2725,7 @@ BODY_AFFECTING_FEATURE_TYPES = frozenset(
         "extrude",
         "revolve",
         "sweep",
+        "pipe",
         "loft",
         "fillet",
         "chamfer",
@@ -2763,7 +2781,7 @@ BODY_AFFECTING_FEATURE_TYPES = frozenset(
 #: body, so they are NOT valid boolean operands; `boolean` itself is excluded too
 #: (it takes over its target's base id, not its own — boolean-on-boolean is MB-4).
 BASE_BODY_AFFECTING_FEATURE_TYPES = frozenset(
-    {"extrude", "revolve", "sweep", "loft", "import", "sheet_metal_base_flange"}
+    {"extrude", "revolve", "sweep", "pipe", "loft", "import", "sheet_metal_base_flange"}
 )
 
 
@@ -2815,6 +2833,17 @@ class FeatureReference:
     slot: str
     ref: AnyRef
     allowed_types: frozenset[str]
+
+
+def _path_references(path: list[PathSegment]) -> list[FeatureReference]:
+    """A pipe's or along-path datum's picked curves: a sketch curve depends on
+    its sketch, a model edge on the body-affecting feature it names."""
+    return [
+        FeatureReference(f"path[{index}]", segment.sketch, frozenset({"sketch"}))
+        if isinstance(segment, PathSketchCurve)
+        else FeatureReference(f"path[{index}]", segment, BODY_AFFECTING_FEATURE_TYPES)
+        for index, segment in enumerate(path)
+    ]
 
 
 def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]:
@@ -2894,6 +2923,8 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                                 "reference", side, BODY_AFFECTING_FEATURE_TYPES
                             )
                         )
+                case DatumAlongPathParams():
+                    references.extend(_path_references([feature.params.path]))
                 case DatumOffsetParams():
                     pass
         case SketchFeature():
@@ -2944,6 +2975,8 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
             references.append(
                 FeatureReference("path", feature.params.path, frozenset({"sketch"}))
             )
+        case PipeFeature():
+            references.extend(_path_references(feature.params.path))
         case LoftFeature():
             # One sketch ref per ordered section (design §4.3). Each resolves to
             # an earlier sketch feature (a whole feature's wire/apex, NOT a
