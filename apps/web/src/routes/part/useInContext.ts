@@ -23,7 +23,8 @@ import {
   fetchAssemblyGraph,
 } from "../../api/assemblies";
 import { fetchBodyMesh } from "../../api/mesh";
-import { fetchOverlay, type OverlayResult } from "../../api/measure";
+import type { OverlayResult } from "../../api/measure";
+import { fetchOverlaysSettled } from "../../assembly/pickOverlays";
 import {
   type ContextComponent,
   contextOf,
@@ -161,23 +162,25 @@ export function useInContext({
       treeVersion,
     ],
     enabled: active && projecting && partKey.size > 0,
+    // Each part settles on its own: one part that failed to build must not
+    // take every other part's edges with it (BIKE2-FAILED-PART-KILLS-PICKS).
     queryFn: async () =>
-      new Map<string, OverlayResult>(
-        await Promise.all(
+      (
+        await fetchOverlaysSettled(
           [...partKey.values()].map(
-            async (c) =>
+            (c) =>
               [
                 c.partId,
-                await fetchOverlay({
+                {
                   part_id: c.partId,
                   tree_version: 0,
                   features: c.features,
                   linear_deflection: MESH_LINEAR_DEFLECTION_MM,
-                }),
+                },
               ] as const,
           ),
-        ),
-      ),
+        )
+      ).overlays,
     staleTime: Infinity,
     retry: false,
   });

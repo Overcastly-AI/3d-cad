@@ -28,6 +28,12 @@ export interface AssemblyBomPanelProps {
   bom: AssemblyBomResponse | undefined;
   loading: boolean;
   error: Error | null;
+  /**
+   * Part documents that failed to build in this assembly's last solve: their
+   * lines still count (they are in the assembly) but are flagged, because no
+   * body of theirs is drawn or exported (BIKE2-FAILED-PART-KILLS-PICKS).
+   */
+  failedDocumentIds?: ReadonlySet<string>;
 }
 
 type BomView = "top" | "indented" | "parts";
@@ -102,6 +108,7 @@ export function AssemblyBomPanel({
   bom,
   loading,
   error,
+  failedDocumentIds,
 }: AssemblyBomPanelProps) {
   const [view, setView] = useState<BomView>("top");
   const rows = rowsOf(bom, view);
@@ -189,6 +196,11 @@ export function AssemblyBomPanel({
                       data-item={item}
                       data-level={level}
                       data-missing={line.missing ? "true" : undefined}
+                      data-failed={
+                        failedDocumentIds?.has(line.ref_document_id)
+                          ? "true"
+                          : undefined
+                      }
                       className="border-b border-hairline/60 last:border-b-0"
                     >
                       <td className="px-2 py-1.5 text-right align-baseline font-data text-2xs tabular-nums text-gauge">
@@ -217,6 +229,15 @@ export function AssemblyBomPanel({
                             </span>
                           )}
                           <KindBadge kind={line.ref_document_kind} />
+                          {failedDocumentIds?.has(line.ref_document_id) ? (
+                            <span
+                              data-testid="bom-failed"
+                              title="This part failed to build: it is not drawn or exported."
+                              className="shrink-0 rounded-sm border border-flag px-1 font-display text-2xs uppercase tracking-[0.14em] text-flag"
+                            >
+                              Failed
+                            </span>
+                          ) : null}
                         </span>
                       </td>
                       <td

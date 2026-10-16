@@ -7,6 +7,7 @@
     "assembly-conflict.spec.ts": 92.5,
     "assembly-drawing-fit.spec.ts": 48.7,
     "assembly-drawing.spec.ts": 14.7,
+    "assembly-failed-part.spec.ts": 33.0,
     "assembly-import-flow.spec.ts": 41.3,
     "assembly-import.spec.ts": 42.3,
     "assembly-in-context.spec.ts": 50.5,

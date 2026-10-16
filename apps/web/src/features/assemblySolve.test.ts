@@ -87,6 +87,28 @@ describe("deriveAssemblySolve — a settled solve", () => {
     expect(solve.diagnosis?.conflicting_mates).toEqual([STALE_MATE]);
   });
 
+  it("claims the rows of parts that failed to build, only while settled", () => {
+    // BIKE2-FAILED-PART-KILLS-PICKS: the export gate and the component rows
+    // read these; a superseded solve must not flag (or clear) a part.
+    const withFailure = {
+      ...mated,
+      instances: [
+        { instance_id: "frame", part_mesh_glb_id: "sha256:a", error: null },
+        {
+          instance_id: "arm",
+          part_mesh_glb_id: null,
+          error: { code: "profile_unsupported", message: "x" },
+        },
+      ],
+    } as unknown as EvaluateAssemblyResult;
+    const solve = deriveAssemblySolve(settled({ evaluation: withFailure }));
+    expect(solve.failedRows.map((r) => r.instance_id)).toEqual(["arm"]);
+    const stale = deriveAssemblySolve(
+      settled({ evaluation: withFailure, evaluating: true }),
+    );
+    expect(stale.failedRows).toEqual([]);
+  });
+
   it("says nothing when there is nothing solved yet", () => {
     const solve = deriveAssemblySolve(settled({ evaluation: undefined }));
     expect(solve.status).toBeNull();

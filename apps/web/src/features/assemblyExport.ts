@@ -25,6 +25,7 @@ import type {
   MateEvaluationError,
   MateResponse,
 } from "../api/assemblies";
+import type { FailedPart } from "../assembly/partFailures";
 import type { AssemblySolve } from "./assemblySolve";
 
 /** What the solve could not honour, counted by kind. */
@@ -153,6 +154,8 @@ export interface AssemblyExportGate {
   readonly qualifier: string | null;
   /** Set = a format click asks first; this is why. */
   readonly confirmReason: string | null;
+  /** The confirm button's words, or null for the pose default. */
+  readonly confirmLabel: string | null;
 }
 
 const READY: AssemblyExportGate = {
@@ -162,23 +165,81 @@ const READY: AssemblyExportGate = {
   notice: null,
   qualifier: null,
   confirmReason: null,
+  confirmLabel: null,
 };
 
+/** How many part names a clause spells out before "and N more". */
+const NAMED_PARTS = 2;
+
+/** "Crank arm", "Crank arm and Pedal", "Crank arm, Pedal and 2 more". */
+function partNames(failed: readonly FailedPart[]): string {
+  const names = [...new Set(failed.map((f) => f.name))];
+  if (names.length === 1) return names[0] as string;
+  if (names.length <= NAMED_PARTS + 1) {
+    return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  }
+  const rest = names.length - NAMED_PARTS;
+  return `${names.slice(0, NAMED_PARTS).join(", ")} and ${rest} more`;
+}
+
+/**
+ * The failed parts in a clause — "Crank arm failed to build" — or null.
+ *
+ * A part that failed is not in the file AT ALL (geometry writes only the
+ * occurrences with a body, BIKE2-FAILED-PART-KILLS-PICKS), which is worse than
+ * a misplaced one: the file is short and nothing in it says so.
+ */
+export function failedPartSummary(
+  failed: readonly FailedPart[],
+): string | null {
+  if (failed.length === 0) return null;
+  return `${partNames(failed)} failed to build`;
+}
+
+/** How many occurrences the file would leave out ("2 bodies"). */
+function omittedBodies(failed: readonly FailedPart[]): string {
+  const n = failed.reduce((sum, f) => sum + f.occurrences, 0);
+  return `${n} ${n === 1 ? "body" : "bodies"}`;
+}
+
+/**
+ * Ready, or Partial and why. `failed` are the parts that produced no body
+ * (`partFailures.ts`), at any depth: the file would leave them out.
+ */
 export function assemblyExportGate(
   facts: AssemblySolveFacts,
   mates: readonly Pick<MateResponse, "id" | "mate">[],
+  failed: readonly FailedPart[] = [],
 ): AssemblyExportGate {
-  const summary = assemblyFaultSummary(assemblySolveFaults(facts, mates));
-  if (summary === null) return READY;
+  const pose = assemblyFaultSummary(assemblySolveFaults(facts, mates));
+  const parts = failedPartSummary(failed);
+  if (pose === null && parts === null) return READY;
+  const summary = [parts, pose].filter((s) => s !== null).join(", ");
+  const sentences: string[] = [];
+  if (parts !== null) {
+    sentences.push(
+      `${parts}, so the file would leave out ${omittedBodies(failed)}.`,
+    );
+  }
+  if (pose !== null) {
+    sentences.push(
+      `${capitalise(pose)}, so the file would hold the ${PARTIAL_POSE_CLAUSE}` +
+        ", not where the mates put them.",
+    );
+  }
+  sentences.push("Its name will say partial.");
   return {
     state: "partial",
     partial: true,
     statusLabel: `Partial · ${summary}`,
-    notice:
-      `${capitalise(summary)}, so the file would hold the ${PARTIAL_POSE_CLAUSE}` +
-      ", not where the mates put them. Its name will say partial.",
+    notice: sentences.join(" "),
     qualifier: `${summary}, marked partial`,
     confirmReason: `${capitalise(summary)}.`,
+    confirmLabel:
+      parts === null
+        ? null
+        : `Export anyway — without ${partNames(failed)}` +
+          (pose === null ? "" : `, ${PARTIAL_POSE_CLAUSE}`),
   };
 }
 

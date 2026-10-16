@@ -302,3 +302,27 @@ def test_step_export_holds_every_nested_part() -> None:
     )
     data = export_assembly(request)
     assert len(_NAUO.findall(data)) == 5
+
+
+def test_a_failed_nested_part_is_reported_on_exactly_the_occurrences_export_omits() -> (
+    None
+):
+    """BIKE2-FAILED-PART-KILLS-PICKS: the STEP of a bike with two failed crank
+    arms held 72 occurrences, not 74, and nothing said so. The web marks such
+    an export Partial from the evaluate rows with no body, so this pins that
+    those rows are exactly the occurrences the file leaves out."""
+    model = _model()
+    model["instances"][1]["part_key"] = "broken-hinge@1"
+    model["instances"][1]["sub_assembly"]["mates"] = []
+    model["instances"][1]["sub_assembly"]["instances"][1]["features"] = []
+    model["instances"][1]["sub_assembly"]["instances"][1]["part_key"] = "empty@1"
+    result = evaluate_assembly(EvaluateAssemblyRequest.model_validate(model))
+    bodiless = [row for row in result.instances if row.part_mesh_glb_id is None]
+    assert [(row.instance_id, row.path) for row in bodiless] == [
+        (nested_occurrence_id(W2, B), [W2, B])
+    ]
+    request = ExportAssemblyRequest.model_validate(
+        {**model, "format": "step", "name": "Nested hinges"}
+    )
+    data = export_assembly(request)
+    assert len(_NAUO.findall(data)) == 5 - len(bodiless)

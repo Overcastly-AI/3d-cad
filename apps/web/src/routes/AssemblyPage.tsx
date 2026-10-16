@@ -34,7 +34,6 @@ import {
 import type { ExportFormat } from "../api/exportPart";
 import { fetchAssemblyBom } from "../api/bom";
 import { MeshNotFoundError, fetchBodyMesh } from "../api/mesh";
-import { fetchOverlay, type OverlayResult } from "../api/measure";
 import type { MaterialAssignment } from "../api/materials";
 import {
   fetchFeatureTree,
@@ -73,14 +72,16 @@ import {
   useMateAuthoringStore,
 } from "../assembly/mateStore";
 import { usePatternPickStore } from "../assembly/patternStore";
+import {
+  failedDocumentIds,
+  failedParts,
+  failuresByComponent,
+} from "../assembly/partFailures";
+import { usePickOverlays } from "../assembly/pickOverlays";
 import { placementToScene } from "../assembly/placement";
 import { buildSceneInstances, componentPose } from "../assembly/sceneInstances";
 import { componentClashIds, componentName } from "../assembly/subAssemblies";
-import {
-  useNestedOverlays,
-  useNestedSolve,
-  useSubAssemblies,
-} from "../assembly/useSubAssemblies";
+import { useNestedSolve, useSubAssemblies } from "../assembly/useSubAssemblies";
 import {
   useJointDialog,
   useReleaseJointHold,
@@ -101,7 +102,6 @@ import {
   posesPending,
   recordDrawnPose,
 } from "../assembly/posePublication";
-import { buildEvaluateTree } from "../measure/geometry";
 import {
   assemblyExportBlockedReason,
   assemblyExporter,
@@ -117,6 +117,7 @@ import { useReducedMotion } from "../lib/useReducedMotion";
 import { KEY_COPY_INSTANCE, KEY_MOVE_INSTANCE } from "../shortcuts/registry";
 import { instanceMenuSections, moveBlocker } from "../components/instanceMenu";
 import { InContextIssues, useEditInPlace } from "../assembly/InContextIssues";
+import { PickGeometryStatus } from "../components/PickGeometryStatus";
 import { assemblyRoute } from "../router";
 import {
   assemblyBounds,
@@ -546,35 +547,18 @@ export function AssemblyPage() {
   // Every mate but lock picks part geometry (faces for coincident / distance /
   // angle, axes for concentric), so all of them want the overlay fetched.
   const overlayActive = (tool !== null && tool !== "lock") || patternPicking;
-  const overlaysQuery = useQuery({
-    queryKey: ["assembly-overlays", assemblyId, docVersion, partDocKey],
-    enabled: overlayActive && partTrees !== undefined && partDocIds.length > 0,
-    queryFn: async () => {
-      const trees = partTrees as Map<string, FeatureTreeResponse>;
-      const entries = await Promise.all(
-        partDocIds.map(async (id) => {
-          const tree = trees.get(id);
-          if (!tree) return [id, null] as const;
-          return [id, await fetchOverlay(buildEvaluateTree(tree))] as const;
-        }),
-      );
-      return new Map<string, OverlayResult | null>(entries);
-    },
-    staleTime: Infinity,
-    retry: false,
+  // Each part's overlay settles on its own: a part that failed to build has
+  // none, and every other part stays pickable (BIKE2-FAILED-PART-KILLS-PICKS).
+  const pickOverlays = usePickOverlays({
+    active: overlayActive,
+    assemblyId,
+    docVersion,
+    partTrees,
+    instances,
+    nested,
+    nestedStamp: subs.stamp,
   });
-  const nestedOverlays = useNestedOverlays(overlayActive, nested, subs.stamp);
-  const overlaysByInstance = useMemo(() => {
-    const map = new Map<string, OverlayResult>(nestedOverlays);
-    if (!overlayActive) return map;
-    const byDoc = overlaysQuery.data;
-    if (!byDoc) return map;
-    for (const instance of instances) {
-      const overlay = byDoc.get(instance.ref_document_id);
-      if (overlay) map.set(instance.id, overlay);
-    }
-    return map;
-  }, [overlayActive, overlaysQuery.data, instances, nestedOverlays]);
+  const overlaysByInstance = pickOverlays.byInstance;
 
   // ---------------------------------------------------------------------
   // Mutations — each reads the freshest doc_version and invalidates the graph
@@ -1158,7 +1142,9 @@ export function AssemblyPage() {
   // A solve that dropped or could not satisfy a mate still places every part
   // it can, so the file is writable but misplaced: "Partial", named, `-partial`
   // in the filename, and one confirm before it writes (QA 2026-10-10).
-  const exportGate = assemblyExportGate(solveFacts(solve), mates);
+  // A part that failed to build is in no file at all: Partial, named, asked.
+  const failed = failedParts(solve.failedRows, evaluateRequest);
+  const exportGate = assemblyExportGate(solveFacts(solve), mates, failed);
   const exportBlockedReason = assemblyExportBlockedReason(
     exportDisabledReason,
     solve,
@@ -1342,6 +1328,10 @@ export function AssemblyPage() {
                   evaluation={evaluation}
                   instances={instances}
                 />
+                <PickGeometryStatus
+                  active={overlayActive}
+                  overlays={pickOverlays}
+                />
                 <VisibilityStamp
                   isolatedName={isolatedName}
                   hiddenCount={hiddenCount}
@@ -1444,6 +1434,7 @@ export function AssemblyPage() {
               // the other direction).
               busy={busy || historyStep !== null}
               patternSection={patterns.treeSection}
+              failedByComponent={failuresByComponent(failed)}
             />
           </FloatingPanel>
           <FloatingPanel side="right" title="Inspect" id="inspector">
@@ -1466,6 +1457,7 @@ export function AssemblyPage() {
               exportDisabledReason={exportBlockedReason}
               exportGate={exportGate}
               nested={nested}
+              failedDocumentIds={failedDocumentIds(failed)}
             />
           </FloatingPanel>
         </main>

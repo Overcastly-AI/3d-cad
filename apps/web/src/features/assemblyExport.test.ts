@@ -12,9 +12,11 @@ import {
   assemblyExportGate,
   assemblyFaultSummary,
   assemblySolveFaults,
+  failedPartSummary,
   solveFacts,
   type AssemblySolveFacts,
 } from "./assemblyExport";
+import type { FailedPart } from "../assembly/partFailures";
 
 const JOINT_A = "00000000-0000-0000-0000-00000000000a";
 const JOINT_B = "00000000-0000-0000-0000-00000000000b";
@@ -121,10 +123,76 @@ describe("assemblyExportGate", () => {
           message: "redundant",
         },
         mateErrors: [],
+        failedRows: [],
       }),
       mates,
     );
     expect(gate.state).toBe("ready");
+  });
+});
+
+describe("assemblyExportGate with a part that failed to build", () => {
+  // BIKE2-FAILED-PART-KILLS-PICKS: STEP silently held 72 of 74 occurrences.
+  const crankArm: FailedPart = {
+    partDocumentId: "doc-crank",
+    name: "Crank arm",
+    code: "profile_unsupported",
+    message: "The profile crosses the arm's end edge.",
+    componentIds: ["crankset"],
+    occurrences: 2,
+  };
+
+  it("is Partial, names the part and counts what the file leaves out", async () => {
+    const gate = assemblyExportGate(facts(), mates, [crankArm]);
+    expect(gate.state).toBe("partial");
+    expect(gate.statusLabel).toBe("Partial · Crank arm failed to build");
+    expect(gate.notice).toBe(
+      "Crank arm failed to build, so the file would leave out 2 bodies. " +
+        "Its name will say partial.",
+    );
+    expect(gate.confirmReason).toBe("Crank arm failed to build.");
+    expect(gate.confirmLabel).toBe("Export anyway — without Crank arm");
+    const raw = async () => ({ blob: new Blob([]), filename: "bike.stl" });
+    const file = await assemblyExporter(raw, gate.partial)("stl");
+    expect(file.filename).toBe("bike-partial.stl");
+  });
+
+  it("says both when a part failed and a joint is unresolved", () => {
+    const gate = assemblyExportGate(
+      facts({ mateErrors: [unresolved(JOINT_A)] }),
+      mates,
+      [crankArm],
+    );
+    expect(gate.statusLabel).toBe(
+      "Partial · Crank arm failed to build, 1 joint unresolved",
+    );
+    expect(gate.confirmLabel).toBe(
+      "Export anyway — without Crank arm, parts at their last solved or initial positions",
+    );
+  });
+
+  it("lists two parts and shortens a longer list", () => {
+    const named = (name: string): FailedPart => ({
+      ...crankArm,
+      partDocumentId: name,
+      name,
+      occurrences: 1,
+    });
+    expect(failedPartSummary([named("Crank arm"), named("Pedal")])).toBe(
+      "Crank arm and Pedal failed to build",
+    );
+    expect(
+      failedPartSummary([
+        named("Crank arm"),
+        named("Pedal"),
+        named("Spindle"),
+        named("Cog"),
+      ]),
+    ).toBe("Crank arm, Pedal and 2 more failed to build");
+  });
+
+  it("is Ready again once the part builds", () => {
+    expect(assemblyExportGate(facts(), mates, []).state).toBe("ready");
   });
 });
 

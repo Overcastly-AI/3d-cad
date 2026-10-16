@@ -72,7 +72,7 @@ stack 570, reach 390, chainstay 410, BB drop 70.
 7. **BIKE-NO-INCLUDE-SKETCH.** The Project tool takes body edges only, so
    skeleton lines must be retyped in every path sketch. Fusion has
    Project/Include of sketch geometry.
-8. One line each:
+6. One line each:
    - Fit (0) ignores sketches when there is no body, so the 1 m skeleton
      stayed off-screen. Zooming out took about 60 wheel ticks.
    - Sketch Fit frames the skeleton under the DRO panel.
@@ -100,3 +100,85 @@ stack 570, reach 390, chainstay 410, BB drop 70.
 - The fork.
 - The whole assembly step: revolute joints, BOM, interference, drawing, STEP.
   Sub-assembly friction (ASM-A3) was not exercised.
+
+## Round 2 (assemblies), 2026-10-15
+
+Branch `claude/frontend-workflow-redesign-8ae3su`, native stack, 30-minute
+cap. Simple parts by API (hub Ø40×100, rim revolved 290–311 mm, 2×2 mm bar
+spoke, 50T chainring blank with 5 Ø10 holes on PCD 130, crank arm, bolt, flat
+frame and fork); the assembly steps through the UI where picks were possible.
+
+**Verdict: the structure works, the motion does not.** In about 15 minutes I
+built a two-level bike: 2 wheels × 32 spokes, a crankset, an indented BOM, a
+clash check, STEP and an assembly drawing. No joint was made. A single part
+that failed to build (my crank arm) silently disabled every edge pick in any
+assembly that contains it: joint origins on nested parts, Edit in Place
+projection and on-holes seeds. Nothing on screen says why. A Fusion user would
+stop at "joint the wheel to the dropout" and would not know what to fix.
+
+| Step | Result | Numbers |
+|---|---|---|
+| Wheel: hub, rim (revolve), spoke | worked (API) | parts build in 21–29 ms |
+| Circular component pattern, 32 spokes, origin Z | worked | create 27–65 ms; wheel evaluate 21 ms warm, 76 ms cold, 34 occurrences |
+| Crankset: chainring, 2 crank arms (2nd rotated 180°), bolt | workaround | 2nd arm is a second instance; no mirror component; both arms fail to build (my profile error, finding 1) |
+| Chainring bolts by an on-holes pattern | worked only without the failed arms | crankset with the arms: no hole rims in 40 s; "Ring only" assembly: rims in 315 ms, the seed hole picked by a viewport click, 5 bolts, 3.6 s to commit |
+| Bike: frame + fork + 2 wheels + crankset | worked | bike evaluate 103 ms cold / 53 ms warm, 74 occurrences, extents 1,622 × 100 × 911 mm |
+| Indented BOM | worked | 1 Crankset / 1.1–1.3, 2 Fork, 3 Frame, 4 Wheel ×2 / 4.3 Spoke 32 (all 64), correct (`bike2-assembled-bom.png`) |
+| Revolute joints (axles, BB, steerer) | **blocked** | glyphs only on the top-level frame and fork (`bike2-joint-nested.png`) |
+| Drag a wheel / the crank | not verified | with no joint, a body drag did not move the wheel |
+| Interference check | worked | 83 clashes in 4.9 s (API) / 5.2 s (UI); the 64 spoke-into-rim slivers total 0.1471 mm³, exactly 64 × 2 mm × ∫(y²/580)dy over ±1 mm by hand |
+| STEP export | worked, flat | 99 ms, 159 kB, 72 NAUO |
+| Assembly drawing + parts list | worked, views off the sheet | layout 9 s; the parts list has the 4 top-level items (`bike2-drawing.png`) |
+| Edit in Place on the frame, project the axle edge | **blocked** | 0 neighbour edges after 90 s (`bike2-edit-in-place.png`) |
+
+### Findings, ranked
+
+1. **BIKE2-FAILED-PART-KILLS-PICKS (blocks joints, Edit in Place and
+   on-holes).** Both crank arms fail to build. The modelling error was mine:
+   the Ø16 BB circle crossed the arm's end edge, and the kernel says so
+   honestly (`profile_unsupported`).
+   - **Picking.** In any assembly holding that part (the crankset, and the
+     bike through it), no `mate-axis` edge glyph is ever offered. The
+     on-holes picker sat at "PICKING…" for 40 s. In Bike, Joint mode showed
+     only the 16 face centres of the top-level frame and fork, and none on
+     the wheels or crankset, hovered or not. Project in Edit in Place offered
+     0 edges in 90 s, not even on the fork. The same chainring in an
+     assembly without the arms offered its rims in 315 ms, and the on-holes
+     pattern placed 5 bolts.
+   - **Reporting.** Nothing tells the user any of this. The crankset row has
+     no warning, the arms are not drawn, the BOM counts 2 crank arms, Export
+     reads "Ready", and STEP silently drops the 2 bodies (72 = 74 − 2 NAUO).
+   - SolidWorks flags the component in the tree, keeps every other
+     component pickable, and warns on export. Triage: a silently partial
+     STEP is close to the "wrong geometry exported" line.
+   - Re-test joint picks on nested patterned wheels (34 occurrences) once
+     the arms build. This run could not separate that case.
+2. **BIKE2-STEP-FLAT.** STEP export flattens the hierarchy. All 72
+   occurrences hang directly off the root, with no Wheel or Crankset
+   product, and the root PRODUCT is named by the assembly UUID, not "Bike".
+   A SolidWorks or Fusion import gets one flat list of 72 parts.
+3. **BIKE2-DRAWING-SCALE.** "Lay out standard views" on a 1.6 m assembly
+   uses A4 at 1:10, so all 4 views run off the paper. The sheet check
+   flags 4 errors, and a red error text is printed on the sheet itself.
+   Fusion and SolidWorks pick a scale that fits the sheet (1:20 here).
+4. **BIKE2-DRAWING-BOM-LEVEL.** The drawing parts list is top level only
+   (Frame, Fork, Wheel ×2, Crankset). It has no indented or parts-only
+   choice, although the assembly BOM has both, and no balloons appear on
+   the views.
+5. **BIKE2-NO-MIRROR-COMPONENT.** There is no mirror component (SolidWorks
+   Mirror Components, Fusion Mirror on components). The left crank arm is a
+   second instance with a hand-typed 180° quaternion.
+6. One line each:
+   - The axis enums disagree: the revolve `origin_axis` wants `"Z"`, the
+     component pattern wants `"z"`. The first rim attempt was a 422.
+   - Clicking Drawing twice makes "Bike — drawing 2" with no prompt.
+   - Assembly drawing title block reads "LOFT · PART DRAWING".
+   - The solve panel says "24 DOF" with no hint to joint the wheels. Fusion
+     makes the first component grounded and suggests joints.
+   - The pattern copies show as one "Spoke ×32" in the BOM, correctly.
+     Pattern edits were not timed.
+
+### Not reached in round 2
+
+Revolute drag of a wheel or the crank,
+steerer revolute, tyre, and joint limits. All of these wait on finding 1 (rebuild with a valid crank arm).
