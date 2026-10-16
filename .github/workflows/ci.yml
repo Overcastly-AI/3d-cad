@@ -163,9 +163,20 @@ jobs:
     # setup); N=5 would give 4.8 and is floored by test_export.py alone
     # (4.8 min), so it would buy nothing. Cost: one more job, ~2 runner-minutes.
     #
+    # N=5 since 2026-10-16. At 135309b shard 1/4 hit its 20-minute timeout
+    # (shards 2-4: 14.4 / 13.1 / 11.7 min): the suite had grown to 7453 tests
+    # and 107 new files were priced by count, i.e. far below what they cost.
+    # Re-measured unsharded on the dev container (now ~1.6x slower than its
+    # 2026-09-25 pace; only ratios matter): 4494 s over 317 files, all green.
+    # Calibrated against those three CI shards (CI ~= 0.6-0.72x this box), the
+    # refreshed manifest packs to 15.0 dev-min per shard at N=5, i.e. ~10.5
+    # CI min (~12.5 with setup). N=6 would give 10.2 for one shard and buy
+    # ~0.3 min: test_export.py ALONE is 869 s here (~10 CI min), the floor for
+    # any N. Past N=5, split that file rather than add shards.
+    #
     # NB a timed-out job is reported `cancelled`, the SAME word GitHub uses for
     # a concurrency eviction — see CLAUDE.md for telling them apart.
-    name: pytest (shard ${{ matrix.shard }}/4)
+    name: pytest (shard ${{ matrix.shard }}/5)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -175,7 +186,7 @@ jobs:
         # Must be 1..N for the `/N` in the Pytest step and `--expect-shards N`
         # in `pytest complete`; `pytest_shards.py --self-test` (in `just lint`)
         # refuses any drift between the three.
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -244,7 +255,7 @@ jobs:
           LOFT_REQUIRE_PG: "1"
         run: >-
           uv run python scripts/pytest_shards.py run
-          --shard "${{ matrix.shard }}/4"
+          --shard "${{ matrix.shard }}/5"
           --ledger "$RUNNER_TEMP/pytest-ledger/shard-${{ matrix.shard }}.json"
       # The ledger is written at session finish whatever the test outcome, so a
       # red shard still hands one in. A shard killed mid-run hands in none, and
@@ -265,7 +276,7 @@ jobs:
 
   pytest-complete:
     # The check the packing cannot make about itself. It refuses unless every
-    # shard 1..4 handed in a ledger, all of them collected the same suite
+    # shard 1..5 handed in a ledger, all of them collected the same suite
     # (otherwise they packed different partitions), no test ran twice, and what
     # ran is exactly what was collected. That is the defect class sharding
     # introduces: a dropped matrix entry, or a shard that died after collection,
@@ -288,7 +299,7 @@ jobs:
         run: >-
           python3 scripts/pytest_shards.py check
           --ledgers "$RUNNER_TEMP/pytest-ledgers"
-          --expect-shards 4
+          --expect-shards 5
           --workflow .github/workflows/ci.yml
       # A red shard fails its own job. This makes the aggregate say so too, so
       # `pytest complete` alone is enough as a required check.
