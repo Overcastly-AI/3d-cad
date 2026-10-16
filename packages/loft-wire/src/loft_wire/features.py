@@ -59,6 +59,10 @@ from loft_wire.hole_placement import FACE_X_FIELD, FACE_Y_FIELD, derive_hole_pos
 from loft_wire.instrument import notify_feature_error
 from loft_wire.materials import MaterialAssignment, MaterialKey
 from loft_wire.merge_field import MERGE_FIELD as MERGE_FIELD
+from loft_wire.pipe import DatumAlongPathParams as DatumAlongPathParams
+from loft_wire.pipe import PathSegment as PathSegment
+from loft_wire.pipe import PathSketchCurve as PathSketchCurve
+from loft_wire.pipe import PipeParamsV1 as PipeParamsV1
 from loft_wire.plugins import (
     MAX_PLUGIN_EXPANSION,
     MAX_PLUGIN_INPUTS,
@@ -69,10 +73,6 @@ from loft_wire.plugins import (
     RoleName,
     SemVer,
 )
-from loft_wire.pipe import DatumAlongPathParams as DatumAlongPathParams
-from loft_wire.pipe import PathSegment as PathSegment
-from loft_wire.pipe import PathSketchCurve as PathSketchCurve
-from loft_wire.pipe import PipeParamsV1 as PipeParamsV1
 from loft_wire.refs import DatumPlaneRef as DatumPlaneRef
 from loft_wire.refs import FeatureRef as FeatureRef
 from loft_wire.refs import GeomRef as GeomRef
@@ -110,7 +110,6 @@ from loft_wire.sheet_metal import (
     resolve_hem_bend_radius_mm as resolve_hem_bend_radius_mm,
 )
 from loft_wire.shell import SHELL_TYPE_FIELD, ShellType
-from loft_wire.signatures import CylindricalFaceSignature as CylindricalFaceSignature
 from loft_wire.signatures import EdgeSelectorV1 as EdgeSelectorV1
 from loft_wire.signatures import EdgeSignature as EdgeSignature
 from loft_wire.signatures import EdgeSubshapeRef as EdgeSubshapeRef
@@ -2643,6 +2642,7 @@ AuthoredFeature = Annotated[
     | ExtrudeFeature
     | RevolveFeature
     | SweepFeature
+    | PipeFeature
     | LoftFeature
     | FilletFeature
     | ChamferFeature

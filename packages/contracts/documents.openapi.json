@@ -3900,6 +3900,7 @@
                 "loft": "#/components/schemas/LoftFeature",
                 "mirror": "#/components/schemas/MirrorFeature",
                 "pattern": "#/components/schemas/PatternFeature",
+                "pipe": "#/components/schemas/PipeFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
                 "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
                 "sheet_metal_corner_relief": "#/components/schemas/SheetMetalCornerReliefFeature",
@@ -3926,6 +3927,9 @@
               },
               {
                 "$ref": "#/components/schemas/SweepFeature"
+              },
+              {
+                "$ref": "#/components/schemas/PipeFeature"
               },
               {
                 "$ref": "#/components/schemas/LoftFeature"
@@ -4236,6 +4240,7 @@
                 "loft": "#/components/schemas/LoftFeature",
                 "mirror": "#/components/schemas/MirrorFeature",
                 "pattern": "#/components/schemas/PatternFeature",
+                "pipe": "#/components/schemas/PipeFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
                 "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
                 "sheet_metal_corner_relief": "#/components/schemas/SheetMetalCornerReliefFeature",
@@ -4262,6 +4267,9 @@
               },
               {
                 "$ref": "#/components/schemas/SweepFeature"
+              },
+              {
+                "$ref": "#/components/schemas/PipeFeature"
               },
               {
                 "$ref": "#/components/schemas/LoftFeature"
@@ -4455,6 +4463,7 @@
                     "loft": "#/components/schemas/LoftFeature",
                     "mirror": "#/components/schemas/MirrorFeature",
                     "pattern": "#/components/schemas/PatternFeature",
+                    "pipe": "#/components/schemas/PipeFeature",
                     "revolve": "#/components/schemas/RevolveFeature",
                     "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
                     "sheet_metal_corner_relief": "#/components/schemas/SheetMetalCornerReliefFeature",
@@ -4481,6 +4490,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/SweepFeature"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PipeFeature"
                   },
                   {
                     "$ref": "#/components/schemas/LoftFeature"
