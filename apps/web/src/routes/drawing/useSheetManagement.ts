@@ -8,6 +8,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { createSheet, updateView } from "../../api/drawings";
 import {
+  AUTO_SCALE,
   reframePinnedCentre,
   sheetDimensions,
   sheetHeaderForNewSheet,
@@ -32,6 +33,7 @@ export function useSheetManagement(
     | "views"
     | "docVersion"
     | "sizeValue"
+    | "scaleValue"
     | "setScaleValue"
     | "orientationFit"
     | "paperOrientation"
@@ -48,6 +50,7 @@ export function useSheetManagement(
     views,
     docVersion,
     sizeValue,
+    scaleValue,
     setScaleValue,
     orientationFit,
     paperOrientation,
@@ -93,7 +96,10 @@ export function useSheetManagement(
           projection: header.projection,
           expected_version: docVersion,
         });
-        if (header.scaleValue !== null) setScaleValue(header.scaleValue);
+        // Auto stays Auto: the next layout fits the new paper itself.
+        if (header.scaleValue !== null && scaleValue !== AUTO_SCALE) {
+          setScaleValue(header.scaleValue);
+        }
         await queryClient.invalidateQueries({
           queryKey: ["drawing", drawingId],
         });
@@ -114,6 +120,7 @@ export function useSheetManagement(
     nextSheetName,
     drawingId,
     sizeValue,
+    scaleValue,
     docVersion,
     queryClient,
     orientationFit,

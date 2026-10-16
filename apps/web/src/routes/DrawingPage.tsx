@@ -22,6 +22,7 @@ import {
   placementReplaces,
   setPlacementOffset,
 } from "../drawing/authoring";
+import { AUTO_SCALE } from "../drawing/layout";
 import { drawingSourceName } from "../drawing/source";
 import { capitalise, PARTIAL_POSE_CLAUSE } from "../features/assemblyExport";
 import { isTypingTarget } from "../lib/isTypingTarget";
@@ -82,7 +83,7 @@ export function DrawingPage() {
     selectedSourceId,
     setSelectedSourceId,
     setScaleValue,
-    setSizeValue,
+    selectSize,
     effectiveSourceKind,
     effectiveScaleValue,
     effectiveSize,
@@ -307,8 +308,9 @@ export function DrawingPage() {
   const draftedSourceName = drawingSourceName(sources, draftedSourceId);
 
   // The composer's own layout measurements (audit N2) — a colliding or crowded
-  // pair of views, in millimetres, with the sentence every export stamps. The
-  // strip below is the on-screen half of that banner.
+  // pair of views, or a view off the sheet, in millimetres and the composer's
+  // words. The strip below is the only place they show: nothing is printed on
+  // the drawing or its exports (BIKE2-DRAWING-SCALE).
   const layoutIssues = composed?.layout_issues ?? [];
   // Which views carry a hand-dragged placement: those are the only ones a
   // "return to auto-layout" fix can act on (the composer honours an
@@ -346,7 +348,7 @@ export function DrawingPage() {
             scaleValue={effectiveScaleValue}
             onSelectScale={setScaleValue}
             sizeValue={effectiveSize}
-            onSelectSize={setSizeValue}
+            onSelectSize={selectSize}
             paperOrientation={paperOrientation}
             paperScale={paperScale}
             hasLayout={hasLayout}
@@ -400,7 +402,11 @@ export function DrawingPage() {
             adding={addingSheet}
             sheet={sheet}
             fit={orientationFit}
-            drawnScale={effectiveScaleValue}
+            drawnScale={
+              effectiveScaleValue === AUTO_SCALE
+                ? (paperScale ?? "1:1")
+                : effectiveScaleValue
+            }
             onFlipConvention={handleFlipConvention}
             onFlipOrientation={handleFlipOrientation}
             reheading={reheading}

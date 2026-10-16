@@ -30,9 +30,13 @@ from geometry.drawings.compose import (
     SHEET_MARGIN_MM,
     STANDARD_VIEWS,
     VIEW_GUTTER_MM,
+    Vec2,
+    ViewBounds,
+    bounds_aware_layout,
     serialize_dxf,
     serialize_pdf,
     serialize_svg,
+    sheet_dimensions,
 )
 from loft_wire.drawings import (
     ComposedDimensionError,
@@ -399,8 +403,10 @@ def test_hand_placed_views_are_honored_and_their_overlap_is_reported(
 ) -> None:
     """The user-intent rule (documented in drawing-export.md): an `auto_place=False`
     position is INTENT and is never re-flowed — so when two hand-placed views collide,
-    composition reports it in millimetres and every export stamps a banner, rather than
-    moving the user's views or shipping the collision silently."""
+    composition reports it in millimetres on ``layout_issues`` (the app's check strip),
+    rather than moving the user's views or shipping the collision silently. No export
+    prints it ON the drawing: error text is never ink on the sheet (BIKE2-DRAWING-SCALE,
+    as SolidWorks and Fusion report a layout problem in the UI, not on the print)."""
     manual = {"front": (150.0, 150.0), "top": (160.0, 150.0)}
     sheet = _compose(_request(width=120.0, dim_width=120.0, manual=manual))
 
@@ -419,15 +425,14 @@ def test_hand_placed_views_are_honored_and_their_overlap_is_reported(
     assert "OVERLAP" in issue.message
 
     svg = serialize_svg(sheet)
-    assert 'data-testid="drawing-layout-issue"' in svg
-    assert "LAYOUT ERROR:" in svg
-    assert b"LAYOUT ERROR:" in serialize_pdf(sheet)
+    assert 'data-testid="drawing-layout-issue"' not in svg
+    assert "LAYOUT" not in svg and "OVERLAP" not in svg
+    assert b"LAYOUT ERROR" not in serialize_pdf(sheet)
     dxf = serialize_dxf(sheet)
-    assert b"LAYOUT ERROR:" in dxf
+    assert b"LAYOUT ERROR" not in dxf
     doc = read_dxf(dxf)
-    assert any(
-        e.dxftype() == "TEXT" and e.dxf.text.startswith("LAYOUT ERROR:")
-        for e in doc.modelspace()
+    assert not any(
+        e.dxftype() == "TEXT" and "OVERLAP" in e.dxf.text for e in doc.modelspace()
     )
     assert not doc.audit().errors
 
@@ -435,8 +440,8 @@ def test_hand_placed_views_are_honored_and_their_overlap_is_reported(
 def test_sub_millimetre_clearance_is_a_warning_not_a_pass() -> None:
     """The 0.70 mm near-tangency the audit measured was the DIAGNOSIS, not the accident:
     a gap that small is one design change from a collision. A hand-placed pair that
-    clears by less than the documented minimum is a `views_crowded` warning, stamped on
-    the sheet — while a genuinely clear pair says nothing."""
+    clears by less than the documented minimum is a `views_crowded` warning reported
+    with the sheet (not printed on it) — while a genuinely clear pair says nothing."""
     # All four views hand-placed on an A2 so only ONE pair is tight: the front view
     # (120 x 10) at y = 100 and the top view (120 x 60) just 1 mm above its caption
     # band; the other two are parked far right, well clear.
@@ -457,14 +462,60 @@ def test_sub_millimetre_clearance_is_a_warning_not_a_pass() -> None:
     assert issue.severity == "warning"
     assert 0.0 < issue.clearance_mm < MIN_VIEW_CLEARANCE_MM
     assert "CLEAR BY ONLY" in issue.message
-    svg = serialize_svg(sheet)
-    assert "LAYOUT WARNING:" in svg
+    assert "LAYOUT WARNING" not in serialize_svg(sheet)
 
 
 def test_a_clean_sheet_carries_no_banner_at_all() -> None:
-    """The additive posture: no issues ⇒ no banner ink ⇒ a clean sheet's bytes are
-    unchanged by this whole mechanism (which is why the committed goldens only moved by
-    the layout fix)."""
+    """A clean sheet has no issues and, like every sheet, no banner ink."""
     svg = serialize_svg(_compose(_request(width=120.0, dim_width=120.0)))
     assert 'data-testid="drawing-layout-issue"' not in svg
     assert "LAYOUT ERROR" not in svg and "LAYOUT WARNING" not in svg
+
+
+def _square(h: float) -> ViewBounds:
+    return ViewBounds(Vec2(-h, -h), Vec2(h, h), Vec2(0, 0))
+
+
+def test_the_arrangement_moves_off_the_title_block() -> None:
+    """BIKE2-DRAWING-SCALE: centring on the paper ignored the title block. By hand,
+    40 mm squares on A4 landscape centre with the right view at x 160.5..200.5 and
+    its caption band down to y = 73 - 20 - 9.7 = 43.3, inside the block (x >= 191,
+    y <= 44). The arrangement moves up until the caption clears the block by
+    MIN_VIEW_CLEARANCE_MM: to 44 + 6 = 50, a lift of 6.7 mm. x stays centred."""
+    dims = sheet_dimensions("A4", "landscape")
+    squares: dict[ViewProjection, ViewBounds | None] = {
+        v: _square(20) for v in ("front", "top", "right", "iso")
+    }
+    a = bounds_aware_layout(squares, dims, clear_title_block=True)
+    assert (a["front"].x + a["iso"].x) / 2 == pytest.approx(dims.x / 2, abs=_TOL)
+    assert (a["front"].y + a["iso"].y) / 2 == pytest.approx(105.0 + 6.7, abs=_TOL)
+    assert a["right"].y - 20 - 9.7 == pytest.approx(50.0, abs=_TOL)
+    # Without the flag (every stored layout) the arrangement stays centred.
+    stored = bounds_aware_layout(squares, dims)
+    assert (stored["front"].y + stored["iso"].y) / 2 == pytest.approx(105.0, abs=_TOL)
+
+
+def test_a_stored_drawing_near_the_title_block_composes_as_before(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The title-block move is for a NEW layout only. A stored drawing (its views
+    carry clear_title_block = false, as every view did before 0020) whose right view
+    sits within 6 mm of the block composes byte-identically to the composer without
+    the move, so opening it moves nothing and its notes stay beside their views.
+    A 100 mm plate on A4 is such a sheet: flagged, its views lift 8.4 mm."""
+    request = _request(width=100.0, dim_width=100.0, size="A4")
+    stored = serialize_svg(_compose(request))
+
+    flagged_views = [
+        v.model_copy(update={"clear_title_block": True}) for v in request.layout.views
+    ]
+    flagged = request.model_copy(
+        update={"layout": request.layout.model_copy(update={"views": flagged_views})}
+    )
+    assert serialize_svg(_compose(flagged)) != stored  # non-vacuous: it is near
+
+    def no_shift(_rects: object, _dims: object) -> Vec2:
+        return Vec2(0.0, 0.0)
+
+    monkeypatch.setattr("geometry.drawings.layout._title_block_shift", no_shift)
+    assert serialize_svg(_compose(request)) == stored

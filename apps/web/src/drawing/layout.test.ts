@@ -4,9 +4,14 @@ import { drawing } from "@loft/design";
 
 import type { EdgeSignature, ProjectedViewEdge } from "../api/drawings";
 import {
+  AUTO_SCALE,
+  SCALE_OPTIONS,
   boxExtents,
+  chooseSheetSize,
+  drawingArea,
   endpointHandlesForEdge,
   fitScale,
+  fitStandardScale,
   proposeOrientation,
   reframePinnedCentre,
   sheetDimensions,
@@ -14,6 +19,8 @@ import {
   sheetSizeLabel,
   sheetSizeOptions,
   standardLayout,
+  standardViewFrames,
+  standardViewsFit,
   vertexGrabMm,
   vertexPaintMm,
 } from "./layout";
@@ -230,19 +237,18 @@ describe("boxExtents (the one min/max -> side-lengths conversion)", () => {
   });
 });
 
-describe("fitScale (auto-layout fit — WB-64 dogfooding fix)", () => {
+describe("fitScale (the standard scale the views fit — BIKE2-DRAWING-SCALE)", () => {
   const a4 = sheetDimensions("A4", "landscape");
 
-  it("keeps 1:1 for a part whose views fit their cells (the plate)", () => {
+  it("keeps 1:1 under a 1:1 ceiling for a part that fits (the plate)", () => {
     expect(fitScale({ x: 40, y: 25, z: 10 }, a4, "1:1").value).toBe("1:1");
   });
 
-  it("reduces a 258 mm bottle to 1:5 on A4 (1:1 and 1:2 overflow)", () => {
+  it("reduces a 258 mm bottle to 1:5 on A4 (1:2 is 307 mm tall)", () => {
     expect(fitScale({ x: 120, y: 120, z: 258 }, a4, "1:1").value).toBe("1:5");
   });
 
-  it("treats the user's picked scale as a ceiling, never upscaling", () => {
-    // A tiny part at an explicit 1:10 stays 1:10 — fit only ever reduces.
+  it("treats a picked scale as a ceiling, never upscaling past it", () => {
     expect(fitScale({ x: 10, y: 10, z: 5 }, a4, "1:10").value).toBe("1:10");
   });
 
@@ -250,68 +256,142 @@ describe("fitScale (auto-layout fit — WB-64 dogfooding fix)", () => {
     expect(fitScale({ x: 8, y: 8, z: 4 }, a4, "5:1").value).toBe("5:1");
   });
 
-  it("falls back to the smallest option when nothing fits (never throws)", () => {
-    expect(fitScale({ x: 5000, y: 5000, z: 5000 }, a4, "1:1").value).toBe(
-      "1:10",
-    );
-  });
-
   it("a magnified choice that overflows steps DOWN through the options", () => {
-    // 5:1 on a 100 mm part overflows; the fit walks down to what fits.
-    const fitted = fitScale({ x: 100, y: 100, z: 50 }, a4, "5:1");
-    expect(fitted.value).toBe("1:2");
+    expect(fitScale({ x: 100, y: 100, z: 50 }, a4, "5:1").value).toBe("1:2");
   });
 
-  it("pancake iso-height bound is honoured (review 2026-07-22 regression)", () => {
-    // A flat, wide part whose ORTHO views all fit at 1:1 but whose iso view is
-    // HEIGHT-dominated by the xy term: true iso height 0.8165·30 + 0.4082·109
-    // ≈ 69.0 mm > the 63.4 mm A4 cell, so 1:1 must be rejected. The previous
-    // 0.3 xy-coefficient accepted exactly this shape at 1:1 (its over-wide
-    // 0.87 width bound sat just inside the old cell, masking nothing here).
-    expect(fitScale({ x: 95, y: 14, z: 30 }, a4, "1:1").value).toBe("1:2");
+  it("reports when even 1:1000 overflows, and still answers 1:1000", () => {
+    // 400 m long: 400 mm on the paper at 1:1000, wider than A4's 277 mm border.
+    const fit = fitStandardScale({ x: 400000, y: 1000, z: 1000 }, a4, "1:1");
+    expect(fit.option.value).toBe("1:1000");
+    expect(fit.fits).toBe(false);
   });
 
   it("a bigger sheet earns a bigger scale (the WB-64 size-control payoff)", () => {
-    // A 200×140×30 part overflows A4's quadrant cells until 1:5, but the larger
-    // A3 sheet fits the same four views at 1:2 — the exact reason the size
-    // picker exists (choosing A3 buys a far more usable scale for a big part).
-    const big = { x: 200, y: 140, z: 30 };
-    const onA4 = fitScale(big, sheetDimensions("A4", "landscape"), "1:1");
-    const onA3 = fitScale(big, sheetDimensions("A3", "landscape"), "1:1");
-    expect(onA4.value).toBe("1:5");
-    expect(onA3.value).toBe("1:2");
-    // The A3 scale is strictly larger than the A4 scale.
-    expect(onA3.numerator / onA3.denominator).toBeGreaterThan(
-      onA4.numerator / onA4.denominator,
-    );
+    const bottle = { x: 120, y: 120, z: 258 };
+    expect(fitScale(bottle, a4, AUTO_SCALE).value).toBe("1:5");
+    expect(
+      fitScale(bottle, sheetDimensions("A2", "landscape"), AUTO_SCALE).value,
+    ).toBe("1:2");
   });
 
   it("the SOLVED and SEEDED readings of the reference rig fit DIFFERENT scales (ASMDRAW-FIT-1b)", () => {
     // The arithmetic the assembly-fit e2e leans on, pinned here so a change to
-    // the cell model cannot quietly make that spec vacuous.
-    //
-    // Two 40x25x10 plates, the second seeded 80 mm along x and then bolted
-    // flush onto the first:
-    //   seeded roll-up  -> 120 x 25 x 10  (front view 120 mm wide, cell is 98.9)
-    //   solved compound ->  40 x 25 x 20  (everything inside its cell at 1:1)
-    // So a client that folded the graph's own placements picks 1:2 where the
-    // right answer is 1:1 — and from a 2:1 ceiling the two readings stay
-    // distinct, which is what makes "the fit ran" and "the fit ran on the
-    // solved pose" separately observable.
+    // the fit cannot quietly make that spec vacuous. Two 40x25x10 plates, the
+    // second seeded 80 mm along x and then bolted flush onto the first:
+    //   seeded roll-up  -> 120 x 25 x 10: at 2:1 the arrangement is 240 + 24
+    //                      + 50 + 2·(0.7071·145) wide, past the 277 mm border
+    //   solved compound ->  40 x 25 x 20: fits at 2:1
     const seeded = { x: 120, y: 25, z: 10 };
     const solved = { x: 40, y: 25, z: 20 };
-    expect(fitScale(seeded, a4, "1:1").value).toBe("1:2");
-    expect(fitScale(solved, a4, "1:1").value).toBe("1:1");
-    expect(fitScale(seeded, a4, "2:1").value).toBe("1:2");
-    expect(fitScale(solved, a4, "2:1").value).toBe("1:1");
+    expect(fitScale(seeded, a4, AUTO_SCALE).value).toBe("1:1");
+    expect(fitScale(solved, a4, AUTO_SCALE).value).toBe("2:1");
+    // The e2e lays out on A3 under a 5:1 ceiling: the seeds stay 1:1, and the
+    // whole band the solved pose is measured in (x 38..60, its best-fit
+    // residual) fits 2:1 and never 5:1, so its expectation is exact.
+    const a3 = sheetDimensions("A3", "landscape");
+    expect(fitScale(seeded, a3, "5:1").value).toBe("1:1");
+    for (const x of [38, 42.2, 60]) {
+      expect(fitScale({ x, y: 30, z: 25 }, a3, "5:1").value).toBe("2:1");
+    }
+  });
+});
+
+describe("the standard-scale chooser (BIKE2-DRAWING-SCALE)", () => {
+  const a4 = sheetDimensions("A4", "landscape");
+  /** The round-2 bike: 1,622 x 100 x 911 mm. */
+  const BIKE = { x: 1622, y: 100, z: 911 };
+
+  it("puts the 1.6 m bike on A4 at 1:20", () => {
+    // 1:10: front 162.2 + 24 + right 10 + iso 2·(0.7071·172.2) = 439 mm wide.
+    // 1:20: 166 x 152 mm of geometry, inside the 277 x 190 mm border.
+    expect(standardViewsFit(BIKE, a4, 1 / 10)).toBe(false);
+    expect(fitStandardScale(BIKE, a4, AUTO_SCALE)).toMatchObject({
+      option: { value: "1:20" },
+      fits: true,
+    });
+    expect(proposeOrientation(BIKE, "A4").scaleByOrientation.landscape).toBe(
+      "1:20",
+    );
   });
 
-  it("portrait sheet swaps the cell aspect", () => {
-    const portrait = sheetDimensions("A4", "portrait");
-    // 210 wide → columns narrow to ~63.6 mm: a 90 mm-wide part no longer fits
-    // its column at 1:1 even though it does on landscape.
-    expect(fitScale({ x: 90, y: 5, z: 20 }, portrait, "1:1").value).toBe("1:2");
-    expect(fitScale({ x: 90, y: 5, z: 20 }, a4, "1:1").value).toBe("1:1");
+  it("enlarges a 20 mm part to 2:1 (5:1 is 297 mm tall)", () => {
+    const cube = { x: 20, y: 20, z: 20 };
+    expect(standardViewsFit(cube, a4, 5)).toBe(false);
+    expect(fitScale(cube, a4, AUTO_SCALE).value).toBe("2:1");
+  });
+
+  it("every view frame lands inside the border and off the title block", () => {
+    // By hand at 1:20: front geometry 81.1 x 45.55 centred at x 106.05, so its
+    // frame (5 mm pad, 13 mm below for the caption) spans x 60.51..151.61,
+    // y 21.06..84.61 (y up from the paper's bottom edge).
+    const frames = standardViewFrames(BIKE, a4, 1 / 20);
+    expect(frames[0]!.minX).toBeCloseTo(60.509345, 6);
+    expect(frames[0]!.maxY).toBeCloseTo(84.6062025, 6);
+    const { border, titleBlock } = drawingArea(a4);
+    for (const frame of frames) {
+      expect(frame.minX).toBeGreaterThanOrEqual(border.minX);
+      expect(frame.maxX).toBeLessThanOrEqual(border.maxX);
+      expect(frame.minY).toBeGreaterThanOrEqual(border.minY);
+      expect(frame.maxY).toBeLessThanOrEqual(border.maxY);
+      expect(
+        frame.maxX <= titleBlock.minX || frame.minY >= titleBlock.maxY,
+      ).toBe(true);
+    }
+  });
+
+  it("moves the arrangement off the title block as the composer does", () => {
+    // The 20 mm cube at 2:1, centred, puts its right view at x 152.2..192.2
+    // with its caption down to y 30.6: on the title block's corner (x >= 191,
+    // y <= 44). Clearing it by 6 mm takes 19.4 mm up or 192.2 - 185 = 7.2 mm
+    // left; left is smaller, so the right frame ends at 185 + 5 = 190.
+    const frames = standardViewFrames({ x: 20, y: 20, z: 20 }, a4, 2);
+    expect(frames[2]!.maxX).toBeCloseTo(190, 9);
+    // The iso is the true-iso bound plus the frame: 0.7071·40·2 + 10 wide,
+    // (0.8165·20 + 0.4082·40)·2 + 5 + 13 tall.
+    expect(frames[3]!.maxX - frames[3]!.minX).toBeCloseTo(66.568, 9);
+    expect(frames[3]!.maxY - frames[3]!.minY).toBeCloseTo(83.316, 9);
+  });
+
+  it("first angle mirrors the trio, and fits it by its own arrangement", () => {
+    // First angle drops the top view BELOW the front: at 1:20 the bike's
+    // geometry is 49.3 + 2.5 + 119.1 = 170.9 mm tall, the composer lifts it
+    // only for the 9.7 mm caption band, and the top view's frame (13 mm below)
+    // dips 3.3 mm under the border. So first angle draws it at 1:50.
+    expect(
+      fitStandardScale(BIKE, a4, AUTO_SCALE, "first_angle").option.value,
+    ).toBe("1:50");
+    const third = standardViewFrames(BIKE, a4, 1 / 20);
+    const first = standardViewFrames(BIKE, a4, 1 / 20, "first_angle");
+    // Right of the front in third angle, left of it in first angle.
+    expect(third[2]!.minX).toBeGreaterThan(third[0]!.maxX);
+    expect(first[2]!.maxX).toBeLessThan(first[0]!.minX);
+  });
+
+  it("grows the paper only when the size is not fixed and nothing fits", () => {
+    const long = { x: 400000, y: 1000, z: 1000 };
+    expect(chooseSheetSize(long, "A4", true)).toBe("A4");
+    // 400 mm at 1:1000 plus its iso needs A1's 821 mm border.
+    expect(chooseSheetSize(long, "A4", false)).toBe("A1");
+    expect(chooseSheetSize(BIKE, "A4", false)).toBe("A4");
+    expect(chooseSheetSize(long, "ANSI_A", false)).toBe("ANSI_D");
+  });
+
+  it("offers Auto plus the ISO 5455 scales, largest first", () => {
+    expect(SCALE_OPTIONS.map((o) => o.value)).toEqual([
+      "5:1",
+      "2:1",
+      "1:1",
+      "1:2",
+      "1:5",
+      "1:10",
+      "1:20",
+      "1:50",
+      "1:100",
+      "1:200",
+      "1:500",
+      "1:1000",
+    ]);
   });
 });
 

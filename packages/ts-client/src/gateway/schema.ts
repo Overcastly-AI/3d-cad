@@ -1070,7 +1070,8 @@ export interface paths {
          *     :class:`ExportAssemblyRequest` DTO validates at the gateway before anything
          *     goes upstream. Geometry solves the assembly and composes it into ONE
          *     multi-instance STEP (AP214 product structure) or STL; a body-less assembly is
-         *     a 422 ``assembly_export_no_body`` envelope, re-surfaced verbatim.
+         *     a 422 ``assembly_export_no_body`` envelope, re-surfaced verbatim. A request
+         *     without a ``name`` takes the stored assembly's (:func:`_named_export`).
          */
         post: operations["assembly_export_api_v1_geometry_assembly_export_post"];
         delete?: never;
@@ -3863,7 +3864,8 @@ export interface components {
          *     drawing ``title`` (truncated to fit), ``scale`` label and ``size`` display, plus
          *     the OPTIONAL free-text :class:`TitleBlock` fields ``author`` / ``date`` / ``notes``
          *     (each truncated to fit its cell, ``None`` when unset). The fixed captions ("TITLE" /
-         *     "SCALE" / "SIZE" / "LOFT · PART DRAWING" and, for the optional fields, "DRAWN" /
+         *     "SCALE" / "SIZE" / the ``kind`` caption ("LOFT · PART DRAWING" or "LOFT · ASSEMBLY
+         *     DRAWING", :data:`DRAWING_KIND_CAPTION`) and, for the optional fields, "DRAWN" /
          *     "DATE" / "NOTES") are the serializer's rendering constants (matching the on-screen
          *     title block). A ``None`` optional field is stamped by NO serializer — caption and
          *     value both omitted — so a title block with no free-text composes byte-identically to
@@ -3882,6 +3884,13 @@ export interface components {
             date?: string | null;
             /** Height */
             height: number;
+            /**
+             * Kind
+             * @description What the sheet drafts; the title block's kind caption reads 'LOFT · PART DRAWING' or 'LOFT · ASSEMBLY DRAWING'
+             * @default part
+             * @enum {string}
+             */
+            kind: "part" | "assembly";
             /**
              * Mid Y
              * @description Y of the horizontal rule in the right cell
@@ -11980,6 +11989,12 @@ export interface components {
              */
             auto_place: boolean;
             /**
+             * Clear Title Block
+             * @description Set by Lay out on the views it creates: the composer moves that auto arrangement off the title block. False on every view laid out before it, so a stored drawing composes as it always did.
+             * @default false
+             */
+            clear_title_block: boolean;
+            /**
              * Expected Version
              * @description Optimistic-concurrency guard (design §2.1)
              */
@@ -12036,6 +12051,12 @@ export interface components {
              * @default true
              */
             auto_place: boolean;
+            /**
+             * Clear Title Block
+             * @description Set by Lay out on the views it creates: the composer moves that auto arrangement off the title block. False on every view laid out before it, so a stored drawing composes as it always did.
+             * @default false
+             */
+            clear_title_block: boolean;
             /**
              * Created At
              * Format: date-time
@@ -13997,7 +14018,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The exported assembly CAD file, proxied byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, exact B-rep with product structure — each instance a named PRODUCT at its solved placement) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files. */
+            /** @description The exported assembly CAD file, proxied byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, exact B-rep with product structure — the root PRODUCT named after the assembly, each sub-assembly a nested PRODUCT, each part one PRODUCT placed by a named occurrence per instance or pattern copy, relative to its parent) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files. */
             200: {
                 headers: {
                     /** @description attachment; filename="<shape>.<format>" */

@@ -6,7 +6,8 @@
     "The bend_table on the ComposedSheet carries one BendTableRow per bend (positional correlation to the edge_role='bend' edges, \u00a76): bend-1, 90 deg, radius 3 mm, up, BA 6.094689747964199 mm \u2014 the analytic nominals hand-derived in ../l-bracket-edge-flange/expected.json.",
     "content_hash is the sha256 of the composed ComposedSheet.model_dump_json() (place_sheet output, scale 1:1, the fixed layout above). It is a DETERMINISM PIN reproducible in-process AND across a fresh interpreter restart (\u00a79 #4) \u2014 composition is a pure function of the deterministic evaluate output. Version-pinned like the unfold golden: the arc-fit inner radius is OCCT/build123d-version-specific FP, so a kernel bump regenerates this hash; a change WITHOUT a kernel bump is a determinism regression (P0), never a retry.",
     "2026-07-31 (BACKLOG #50): content_hash regenerated WITHOUT a kernel bump, which the pin above otherwise calls a P0. The cause is a MODEL-SHAPE change, not a determinism regression: ComposedSheet gained the additive optional thread_schedule field, so model_dump_json() now emits \"thread_schedule\":null for a sheet that has none. The composed PLACEMENT is unchanged and the serialized SVG/PDF/DXF artifact bytes for these two goldens are unchanged except for the N5 white page fill \u2014 both verified.",
-    "2026-10-14 (QA-DRAWING-CENTRE-MARKS): content_hash regenerated WITHOUT a kernel bump, for a MODEL-SHAPE change: ComposedView gained the additive centre_marks list, so model_dump_json() now emits \"centre_marks\":[] for a view with no circles. These blanks have no circles, so the placement and the SVG/PDF/DXF bytes are unchanged."
+    "2026-10-14 (QA-DRAWING-CENTRE-MARKS): content_hash regenerated WITHOUT a kernel bump, for a MODEL-SHAPE change: ComposedView gained the additive centre_marks list, so model_dump_json() now emits \"centre_marks\":[] for a view with no circles. These blanks have no circles, so the placement and the SVG/PDF/DXF bytes are unchanged.",
+    "2026-10-16 (BIKE2-DRAWING-SCALE): content_hash regenerated WITHOUT a kernel bump, for a MODEL-SHAPE change: ComposedTitleBlock gained the additive kind field, so model_dump_json() now emits \"kind\":\"part\". A part sheet stamps the same caption, so the placement and the SVG/PDF/DXF bytes are unchanged."
   ],
   "tolerance": 1e-9,
   "tolerance_rationale": "Measured first, then set. Placement coordinates are exact rational sheet-mm; centring residual (blank bbox centre vs sheet centre) is floating-point only (<1e-12). The bend-table row values are the exact unfold outputs (measured deviation vs the analytic nominals ~1.2e-13, matching ../l-bracket-edge-flange/expected.json). The 1e-9 ceiling gives ~3 orders of headroom while staying tighter than the standing kernel linear tolerance (1e-7 m).",
@@ -24,5 +25,5 @@
       "bend_allowance_mm": 6.094689747964199
     }
   ],
-  "content_hash": "90a102c93f122aa5067088483112b6f37c182b84e6d2b1d2fd23538609652457"
+  "content_hash": "3b3aad55cfb127e84059d8b76ccbdeece7c40c30be1049602579a33cda5322bb"
 }

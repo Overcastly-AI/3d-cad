@@ -581,6 +581,31 @@ class AssemblyComponent:
     twisted: bool = False
 
 
+@dataclass(frozen=True)
+class SubAssemblyComponent:
+    """One sub-assembly occurrence in a STEP assembly export (BIKE2-STEP-FLAT).
+
+    The STEP-only nesting node: SolidWorks, Fusion and Onshape write a
+    sub-assembly as its own PRODUCT used by a ``NEXT_ASSEMBLY_USAGE_OCCURRENCE``
+    under its parent, with its parts placed RELATIVE to it. ``translation`` /
+    ``quaternion`` are this occurrence's pose in its PARENT's frame, and each
+    child's pose is in this node's frame. ``key`` names the sub-assembly
+    document at one version: occurrences with the same key share ONE product
+    (two wheels are one "Wheel" used twice), so their ``children`` must be the
+    same; the first occurrence's children are the ones written.
+    """
+
+    name: str
+    key: str
+    translation: tuple[float, float, float]
+    quaternion: tuple[float, float, float, float]
+    children: tuple["StepAssemblyItem", ...]
+
+
+#: A node of the STEP export tree: a placed part, or a nested sub-assembly.
+StepAssemblyItem = AssemblyComponent | SubAssemblyComponent
+
+
 def placement_trsf(
     translation: tuple[float, float, float],
     quaternion: tuple[float, float, float, float],
@@ -888,52 +913,89 @@ def _single_body_xde_document(shape: BodyShape, name: str | None) -> TDocStd_Doc
     return doc
 
 
+def _compose(
+    items: Sequence[StepAssemblyItem], shared: dict[str, TopoDS_Compound]
+) -> TopoDS_Compound:
+    """One compound of *items*, each moved to its pose in this level's frame.
+
+    A part is :func:`_instanced_shape`; a sub-assembly is ITS compound, built
+    once per ``key`` (*shared*) and then only ``Moved``, so every occurrence of
+    it shares one ``TShape`` and OCCT's instance detection writes it as ONE
+    product, exactly as it does for a part. A flat request builds the same
+    single compound it always did, so its bytes are unchanged.
+    """
+    builder = BRep_Builder()
+    compound = TopoDS_Compound()
+    builder.MakeCompound(compound)
+    for item in items:
+        if isinstance(item, AssemblyComponent):
+            builder.Add(compound, _instanced_shape(item))
+            continue
+        inner = shared.get(item.key)
+        if inner is None:
+            inner = _compose(item.children, shared)
+            shared[item.key] = inner
+        trsf = placement_trsf(item.translation, item.quaternion)
+        builder.Add(compound, inner.Moved(TopLoc_Location(trsf)))
+    return compound
+
+
+def _name_level(
+    label: TDF_Label, items: Sequence[StepAssemblyItem], named: list[TDF_Label]
+) -> None:
+    """Name *label*'s occurrences after *items*, and each product once.
+
+    Occurrence label → item name (the NAUO); the referred product → the
+    :func:`_product_name` of its FIRST occurrence (the PRODUCT). A sub-assembly
+    product is named and then walked the same way, once: a later occurrence of
+    it refers to the label already named. A part is never walked into, so a
+    multi-body part's own level keeps OCCT's labels (STEPDET-1).
+    """
+    occurrences = TDF_LabelSequence()
+    XCAFDoc_ShapeTool.GetComponents_s(label, occurrences)
+    if occurrences.Length() != len(items):
+        raise RuntimeError(
+            "assembly STEP export lost an occurrence: "
+            f"{occurrences.Length()} placed for {len(items)} components"
+        )
+    for index, item in enumerate(items, start=1):
+        occurrence = occurrences.Value(index)
+        TDataStd_Name.Set_s(occurrence, _xcaf_name(item.name))
+        product = TDF_Label()
+        if (
+            not XCAFDoc_ShapeTool.GetReferredShape_s(occurrence, product)
+            or product.IsNull()
+        ):
+            continue
+        if any(product.IsEqual(seen) for seen in named):
+            continue  # a later occurrence of an already-named product
+        named.append(product)
+        TDataStd_Name.Set_s(product, _xcaf_name(_product_name(item.name)))
+        if isinstance(item, SubAssemblyComponent):
+            _name_level(product, item.children, named)
+
+
 def _assembly_xde_document(
-    assembly_name: str, components: Sequence[AssemblyComponent]
+    assembly_name: str, components: Sequence[StepAssemblyItem]
 ) -> TDocStd_Document:
     """Build the XDE document the assembly writer transfers (module docstring).
 
-    One compound of :func:`_instanced_shape`-placed occurrences goes in through
+    One compound of :func:`_compose`-placed occurrences goes in through
     ``AddShape(..., makeAssembly=True)``; OCCT's instance detection gives every
-    UNIQUE part one label and every occurrence a reference to it. We then name
-    the labels: occurrence label → instance name (the NAUO), shared part label →
-    :func:`_product_name` of its FIRST occurrence (the PRODUCT). Deterministic:
-    the compound is built in request order and the components come back in that
-    order, so both the numbering and the chosen product name are fixed by the
-    request.
+    UNIQUE part and every unique sub-assembly one label and every occurrence a
+    reference to it, so the file keeps the product structure: the root named
+    after the assembly, each sub-assembly a nested product (BIKE2-STEP-FLAT).
+    :func:`_name_level` then names the labels. Deterministic: the compounds are
+    built in request order and the components come back in that order, so both
+    the numbering and the chosen product names are fixed by the request.
     """
     # Our labels ARE the names; auto-naming would overwrite them (the single-body
     # path keeps it on for the same reason it is off here — it names per-child,
     # we name per-part).
     doc, shape_tool = _xde_document(auto_naming=False)
-
-    builder = BRep_Builder()
-    compound = TopoDS_Compound()
-    builder.MakeCompound(compound)
-    for component in components:
-        builder.Add(compound, _instanced_shape(component))
-
-    root = shape_tool.AddShape(compound, True)
+    root = shape_tool.AddShape(_compose(components, {}), True)
     TDataStd_Name.Set_s(root, _xcaf_name(assembly_name))
-
-    occurrences = TDF_LabelSequence()
-    XCAFDoc_ShapeTool.GetComponents_s(root, occurrences)
-    if occurrences.Length() != len(components):
-        raise RuntimeError(
-            "assembly STEP export lost an occurrence: "
-            f"{occurrences.Length()} placed for {len(components)} components"
-        )
-    named_parts: list[TDF_Label] = []
-    for index, component in enumerate(components, start=1):
-        occurrence = occurrences.Value(index)
-        TDataStd_Name.Set_s(occurrence, _xcaf_name(component.name))
-        part = TDF_Label()
-        if not XCAFDoc_ShapeTool.GetReferredShape_s(occurrence, part) or part.IsNull():
-            continue
-        if any(part.IsEqual(seen) for seen in named_parts):
-            continue  # a later occurrence of an already-named part
-        named_parts.append(part)
-        TDataStd_Name.Set_s(part, _xcaf_name(_product_name(component.name)))
+    _name_level(root, components, [])
     shape_tool.UpdateAssemblies()
     return doc
 
@@ -989,15 +1051,18 @@ def _write_step_document(doc: TDocStd_Document, header_name: str | None) -> byte
 
 
 def export_step_assembly_bytes(
-    assembly_name: str, components: Sequence[AssemblyComponent]
+    assembly_name: str, components: Sequence[StepAssemblyItem]
 ) -> bytes:
     """Export *components* as ONE AP214 STEP with INSTANCED product structure.
 
     Every UNIQUE part is written once as a named ``PRODUCT``; every component
-    becomes an occurrence of it at its solved world placement, named after its
-    instance. Re-opening the file recovers every body at its placement, traceable
-    to its instance name, and a downstream tool can tell that twenty occurrences
-    of a dowel pin ARE one part (RESEARCH §10/§11; audit N8 — module docstring
+    becomes an occurrence of it at its solved placement, named after its
+    instance. A :class:`SubAssemblyComponent` is a nested product holding its
+    own occurrences, each placed relative to it, and every occurrence of one
+    sub-assembly shares that product (BIKE2-STEP-FLAT). Re-opening the file
+    recovers every body at its placement, traceable to its instance name, and
+    a downstream tool can tell that twenty occurrences of a dowel pin ARE one
+    part (RESEARCH §10/§11; audit N8 — module docstring
     for the encoding and for why ``located()`` used to defeat this).
 
     Deterministic (RESEARCH §9): the creation timestamp is pinned and both

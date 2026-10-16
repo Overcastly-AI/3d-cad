@@ -1092,6 +1092,12 @@ class View(Base):
     auto_place: Mapped[bool] = mapped_column(
         sa.Boolean(), nullable=False, server_default=sa.text("true")
     )
+    #: Set by "Lay out standard views" on the views it creates: the composer moves
+    #: that auto arrangement off the title block (BIKE2-DRAWING-SCALE). Server-default
+    #: false, so every view laid out before keeps composing exactly as it did.
+    clear_title_block: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, server_default=sa.text("false")
+    )
     #: A ``section`` view's cutting plane + flip (drawings-section.md §1) as JSONB —
     #: the validated :class:`~loft_wire.drawings.SectionViewParams` payload; NULL
     #: for every non-section view, so existing views are untouched (additive).

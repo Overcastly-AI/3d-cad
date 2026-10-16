@@ -6,7 +6,7 @@
  * unchanged.
  */
 import { type QueryClient, useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   type AnnotationResponse,
@@ -34,8 +34,10 @@ import {
   type AssemblySolveFacts,
 } from "../../features/assemblyExport";
 import {
+  AUTO_SCALE,
   STANDARD_VIEWS,
   type OrientationFit,
+  chooseSheetSize,
   proposeOrientation,
 } from "../../drawing/layout";
 import { drawingSourceKind, drawingSourceOptions } from "../../drawing/source";
@@ -170,8 +172,18 @@ export function useDrawingData(drawingId: string) {
 
   // Pre-layout picker state (what to draft, on what sheet, at what scale).
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
-  const [scaleValue, setScaleValue] = useState("1:1");
+  // Auto until the user picks a scale: the layout then chooses the largest
+  // standard scale whose views fit the sheet (BIKE2-DRAWING-SCALE).
+  const [scaleValue, setScaleValue] = useState(AUTO_SCALE);
   const [sizeValue, setSizeValue] = useState<SheetSize>("A4");
+  // A size the user picked is FIXED: the layout keeps it whether or not the
+  // views fit. Until then the default may grow to a larger sheet in its series,
+  // and only when no standard scale fits it.
+  const [sizeFixed, setSizeFixed] = useState(false);
+  const selectSize = useCallback((size: SheetSize) => {
+    setSizeValue(size);
+    setSizeFixed(true);
+  }, []);
   // `?source=<id>` pre-selects the picker — how the assembly workspace's
   // "Drawing" action hands off, so the sheet opens already pointed at the
   // assembly you were looking at instead of making you find it in a list.
@@ -214,13 +226,6 @@ export function useDrawingData(drawingId: string) {
   const effectiveScaleValue = hasLayout
     ? `${views[0]?.scale.numerator ?? 1}:${views[0]?.scale.denominator ?? 1}`
     : scaleValue;
-  // Post-layout the sheet SIZE is read from the persisted sheet (mirroring how
-  // the scale readout derives from the stored view scale); pre-layout it is the
-  // user's pick. Changing it after layout is a re-layout, not a re-size in place
-  // (the backend has no re-flow-on-resize; matches how scale re-selection works).
-  const effectiveSize: SheetSize = hasLayout
-    ? (sheet?.size ?? "A4")
-    : sizeValue;
 
   // The drafted part's feature tree (the projection intent).
   const partTreeQuery = useQuery({
@@ -258,14 +263,53 @@ export function useDrawingData(drawingId: string) {
     ),
     enabled: measuredSourceId !== null,
   });
+  // Post-layout the sheet SIZE is read from the persisted sheet (mirroring how
+  // the scale readout derives from the stored view scale); pre-layout it is the
+  // paper the next layout makes: the user's pick, or, while they have not fixed
+  // one, the smallest sheet of the series the views fit (`chooseSheetSize`).
+  // Changing it after layout is a re-layout, not a re-size in place (the backend
+  // has no re-flow-on-resize; matches how scale re-selection works).
+  const sheetProjection = sheet?.projection ?? "third_angle";
+  const effectiveSize: SheetSize = useMemo(() => {
+    if (hasLayout) return sheet?.size ?? "A4";
+    const extents = sourceExtentsQuery.data;
+    if (!extents || sheet) return sizeValue;
+    return chooseSheetSize(
+      extents,
+      sizeValue,
+      sizeFixed,
+      scaleValue,
+      sheetProjection,
+    );
+  }, [
+    hasLayout,
+    sheet,
+    sizeValue,
+    sizeFixed,
+    scaleValue,
+    sheetProjection,
+    sourceExtentsQuery.data,
+  ]);
   // Fitted against the paper the sheet is ACTUALLY on (`effectiveSize`), not the
   // picker's value: a laid-out A3 sheet whose picker still reads A4 would have
-  // had its header cell quote A4's fits.
+  // had its header cell quote A4's fits. Under the picked scale before layout,
+  // so the caption quotes the scale "Lay out" will use.
   const orientationFit = useMemo<OrientationFit | null>(() => {
     const extents = sourceExtentsQuery.data;
     if (!extents) return null;
-    return proposeOrientation(extents, effectiveSize);
-  }, [sourceExtentsQuery.data, effectiveSize]);
+    return proposeOrientation(
+      extents,
+      effectiveSize,
+      hasLayout ? AUTO_SCALE : scaleValue,
+      sheetProjection,
+    );
+  }, [
+    sourceExtentsQuery.data,
+    effectiveSize,
+    hasLayout,
+    scaleValue,
+    sheetProjection,
+  ]);
   // The user's answer to the proposal, before any sheet exists to hold it. Once
   // a sheet exists the SHEET holds the orientation (and the header cell re-heads
   // it), so this only ever governs the very first create. Cleared whenever the
@@ -475,6 +519,8 @@ export function useDrawingData(drawingId: string) {
     setScaleValue,
     sizeValue,
     setSizeValue,
+    sizeFixed,
+    selectSize,
     selectedSourceKind,
     effectiveSourceKind,
     effectivePartId,

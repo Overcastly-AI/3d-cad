@@ -53,3 +53,10 @@ export function titleBlockFields(
   }
   return rows;
 }
+
+/** The title block's fixed kind caption — the server's `DRAWING_KIND_CAPTION`, so
+ * an assembly sheet reads "ASSEMBLY DRAWING" on screen as in every export. */
+export const KIND_CAPTION: Record<ComposedTitleBlock["kind"], string> = {
+  part: "LOFT · PART DRAWING",
+  assembly: "LOFT · ASSEMBLY DRAWING",
+};

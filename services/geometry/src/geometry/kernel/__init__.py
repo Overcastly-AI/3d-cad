@@ -44,6 +44,8 @@ from geometry.kernel.edges import (
 from geometry.kernel.export import (
     AssemblyComponent,
     MeshExportNotManifoldError,
+    StepAssemblyItem,
+    SubAssemblyComponent,
     export_3mf_assembly_bytes,
     export_3mf_bytes,
     export_glb_assembly_bytes,
@@ -266,7 +268,9 @@ __all__ = [
     "RevolveError",
     "ShellError",
     "ShellThicknessError",
+    "StepAssemblyItem",
     "StepAssemblyRead",
+    "SubAssemblyComponent",
     "SubshapeAmbiguousError",
     "SubshapeUnresolvedError",
     "SweepError",

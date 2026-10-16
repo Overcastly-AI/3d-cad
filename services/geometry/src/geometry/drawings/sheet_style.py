@@ -2,7 +2,9 @@
 
 Split out of :mod:`geometry.drawings.compose` (SPLIT-COMPOSE): the ``drawing`` token
 palette, stroke weights, title-block free-text rows, bend/thread table cells and the
-layout-issue banner. One source, so the three export formats print the same sheet.
+One source, so the three export formats print the same sheet. (The layout-issue banner
+they used to stamp is gone: a sheet's layout issues are reported in the app's check
+strip, never printed on the drawing — bike round 2, BIKE2-DRAWING-SCALE.)
 """
 
 # The drawings modules were split out of one file (SPLIT-COMPOSE) and share their
@@ -16,14 +18,8 @@ from typing import NamedTuple
 
 from loft_wire.drawings import (
     BendTableRow,
-    ComposedSheet,
     ComposedTitleBlock,
     ThreadCalloutRow,
-)
-
-from geometry.drawings.layout import (
-    _BANNER_LINE_MM,
-    _BANNER_MAX_LINES,
 )
 
 
@@ -191,52 +187,3 @@ def _thread_row_cells(row: ThreadCalloutRow) -> tuple[str, str, str]:
     decimals are byte-stable across an interpreter restart (§8.3).
     """
     return (f"{row.quantity}x", row.designation, f"{row.tap_drill_mm:.2f}")
-
-
-#: Severity prefix for a stamped banner line (audit N2) — the machinist reads the
-#: severity first. Shared by all three serializers.
-_BANNER_PREFIX: dict[str, str] = {
-    "error": "LAYOUT ERROR: ",
-    "warning": "LAYOUT WARNING: ",
-}
-
-
-class BannerLine(NamedTuple):
-    """One stamped banner line: position, text, and whether it is an error."""
-
-    x: float
-    y: float
-    text: str
-    error: bool
-
-
-def banner_lines(composed: ComposedSheet) -> list[BannerLine]:
-    """The sheet's layout-issue banner, as stamped text lines (audit N2).
-
-    THE single banner layout the SVG / PDF / DXF serializers share (CLAUDE.md DRY): the
-    first :data:`_BANNER_MAX_LINES` issues at their composed anchors, plus a "+N MORE"
-    tail line when there are more, so an unreadable sheet announces itself on the print
-    in every format and a pathological sheet still cannot paper itself over. Empty for a
-    clean sheet — which is why a clean sheet's bytes are unchanged."""
-    issues = composed.layout_issues
-    lines = [
-        BannerLine(
-            x=issue.at.x_mm,
-            y=issue.at.y_mm,
-            text=_BANNER_PREFIX.get(issue.severity, "") + issue.message,
-            error=issue.severity == "error",
-        )
-        for issue in issues[:_BANNER_MAX_LINES]
-    ]
-    remaining = len(issues) - len(lines)
-    if remaining > 0 and lines:
-        last = lines[-1]
-        lines.append(
-            BannerLine(
-                x=last.x,
-                y=last.y + _BANNER_LINE_MM,
-                text=f"+{remaining} MORE LAYOUT ISSUE(S)",
-                error=any(i.severity == "error" for i in issues[_BANNER_MAX_LINES:]),
-            )
-        )
-    return lines

@@ -41,7 +41,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from geometry.main import app
-from loft_wire.drawings import ComposedLineEdge, ComposedSheet
+from loft_wire.drawings import DRAWING_KIND_CAPTION, ComposedLineEdge, ComposedSheet
 
 COORD_TOL_MM = 1e-7
 
@@ -284,9 +284,28 @@ def test_single_instance_assembly_composes_identically_to_the_part() -> None:
     part = client.post("/api/v1/drawing/compose", json=part_payload)
     assembly = client.post("/api/v1/drawing/compose", json=assembly_payload)
     assert part.status_code == assembly.status_code == 200
-    assert assembly.content == part.content, (
+    # The one intended difference: the title block names what the sheet drafts.
+    part_caption = DRAWING_KIND_CAPTION["part"].encode()
+    assembly_caption = DRAWING_KIND_CAPTION["assembly"].encode()
+    assert part.content.count(part_caption) == 1
+    assert assembly.content == part.content.replace(part_caption, assembly_caption), (
         "single-instance assembly sheet diverged from the part sheet"
     )
+
+
+@pytest.mark.parametrize("fmt", ["svg", "pdf", "dxf"])
+def test_an_assembly_sheet_title_block_says_assembly_drawing(fmt: str) -> None:
+    """Bike round 2: the assembly drawing's title block read "LOFT · PART DRAWING".
+    Every export of an assembly sheet now names it an assembly drawing."""
+    payload = {
+        **_assembly_compose_payload(_two_cube_instances(), ["front"]),
+        "format": fmt,
+    }
+    response = client.post("/api/v1/drawing/compose", json=payload)
+    assert response.status_code == 200, response.text
+    body = response.content.decode("latin-1")
+    assert "ASSEMBLY DRAWING" in body
+    assert "PART DRAWING" not in body
 
 
 # --- 3. Typed degradation: never a 500 ------------------------------------------

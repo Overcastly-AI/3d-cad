@@ -29,5 +29,4 @@
       <text x="252.6000" y="191.0000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.3" letter-spacing="0.5">SIZE</text>
       <text x="252.6000" y="196.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.4">A4</text>
     </g>
-  <text data-testid="drawing-layout-issue" x="13.0000" y="15.0000" fill="#B23A2E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.8000" letter-spacing="0.2">LAYOUT ERROR: FRONT VIEW RUNS 13.00 MM PAST THE RIGHT BORDER AND 3.00 MM PAST THE PAPER EDGE - REPOSITION OR USE A LARGER SHEET BEFORE RELEASE</text>
 </svg>

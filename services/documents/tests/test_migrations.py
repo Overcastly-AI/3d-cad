@@ -917,3 +917,63 @@ def test_0019_up_down_up_on_a_populated_database(
         _scalar_rows(pg_url, f"DELETE FROM assemblies WHERE id = '{_PATTERN_ASSEMBLY}'")
     )
     assert run(_scalar_rows(pg_url, "SELECT count(*) FROM assembly_patterns")) == [(0,)]
+
+
+def test_0020_offline_sql_adds_clear_title_block_with_false_default(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0019:0020")
+    # BIKE2-DRAWING-SCALE: only views a new "Lay out" creates opt in; every stored
+    # view backfills to false and composes as it did.
+    assert (
+        "ALTER TABLE views ADD COLUMN clear_title_block BOOLEAN DEFAULT false NOT NULL"
+        in sql
+    )
+
+
+def test_0020_offline_downgrade_drops_clear_title_block(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0020:0019", downgrade=True)
+    assert "ALTER TABLE views DROP COLUMN clear_title_block" in sql
+
+
+_CTB_DRAWING = "6f3f6b64-0000-4000-8000-0000000200aa"
+_CTB_SHEET = "6f3f6b64-0000-4000-8000-0000000200bb"
+
+
+def test_0020_backfills_stored_views_to_false(
+    pg_url: str, alembic_runner: Callable[..., None]
+) -> None:
+    """A view stored before 0020 reads back clear_title_block = false (so the
+    composer leaves its drawing exactly as it was), with every other column
+    untouched; the downgrade drops only the column."""
+    alembic_runner(pg_url, "0019", downgrade=True)
+    run = asyncio.run
+    for statement in (
+        "INSERT INTO drawings (id, owner_id, name, doc_version) "
+        f"VALUES ('{_CTB_DRAWING}', '{_OWNER}', 'Stored sheet', 2)",
+        "INSERT INTO sheets (id, drawing_id, name, size, orientation, projection, "
+        f"order_index) VALUES ('{_CTB_SHEET}', '{_CTB_DRAWING}', 'Sheet 1', 'A4', "
+        "'landscape', 'third_angle', 0)",
+        "INSERT INTO views (id, sheet_id, ref_document_id, ref_document_kind, "
+        "projection, scale_num, scale_den, pos_x_mm, pos_y_mm, order_index) VALUES "
+        f"(gen_random_uuid(), '{_CTB_SHEET}', gen_random_uuid(), 'part', 'right', "
+        "2, 1, 202.0, 75.6, 0)",
+    ):
+        run(_scalar_rows(pg_url, statement))
+    read = (
+        "SELECT projection, scale_num, pos_x_mm, pos_y_mm, auto_place, updated_at "
+        "FROM views"
+    )
+    before = run(_scalar_rows(pg_url, read))
+
+    alembic_runner(pg_url, "0020")
+    assert run(_scalar_rows(pg_url, read)) == before
+    assert run(_scalar_rows(pg_url, "SELECT clear_title_block FROM views")) == [
+        (False,)
+    ]
+
+    alembic_runner(pg_url, "0019", downgrade=True)
+    assert run(_scalar_rows(pg_url, read)) == before
+    alembic_runner(pg_url, "head")

@@ -14,9 +14,11 @@ import {
 } from "../../api/drawings";
 import { fetchFeatureTree } from "../../api/parts";
 import {
+  AUTO_SCALE,
   STANDARD_VIEWS,
   type ModelExtents,
-  fitScale,
+  chooseSheetSize,
+  fitStandardScale,
   proposeOrientation,
   sheetDimensions,
   sheetHeaderForNewSheet,
@@ -37,6 +39,7 @@ export function useLayoutActions(
     | "scaleValue"
     | "setScaleValue"
     | "sizeValue"
+    | "sizeFixed"
     | "partTree"
     | "orientationOverride"
   >,
@@ -51,6 +54,7 @@ export function useLayoutActions(
     scaleValue,
     setScaleValue,
     sizeValue,
+    sizeFixed,
     partTree,
     orientationOverride,
   } = data;
@@ -106,11 +110,26 @@ export function useLayoutActions(
         } catch {
           // unmeasurable — keep the picked scale and the default paper
         }
+        // The paper: the user's size if they fixed one; otherwise the default
+        // grows within its series only when no standard scale fits it.
+        const convention = sheet?.projection ?? "third_angle";
+        const size =
+          extents && sheet === null
+            ? chooseSheetSize(
+                extents,
+                sizeValue,
+                sizeFixed,
+                scaleValue,
+                convention,
+              )
+            : sizeValue;
         const header = sheetHeaderForNewSheet({
           name: "Sheet 1",
-          size: sizeValue,
+          size,
           layout: "standard",
-          fit: extents ? proposeOrientation(extents, sizeValue) : null,
+          fit: extents
+            ? proposeOrientation(extents, size, scaleValue, convention)
+            : null,
           inherit: sheet,
           override: orientationOverride,
         });
@@ -156,9 +175,17 @@ export function useLayoutActions(
         // view is pinned `auto_place:false`), and re-flowing paper under
         // someone editing mates in another tab is the "no surprises" half of
         // the flow rule. The check strip tells them; it never moves them.
+        //
+        // The scale is the largest standard one whose views fit inside the
+        // border, clear of the title block (BIKE2-DRAWING-SCALE): Auto may
+        // enlarge a small part to 2:1 or 5:1, a picked scale is a ceiling. A
+        // source that cannot be measured draws Auto at 1:1.
         const fittedValue = extents
-          ? fitScale(extents, dims, scaleValue).value
-          : scaleValue;
+          ? fitStandardScale(extents, dims, scaleValue, header.projection)
+              .option.value
+          : scaleValue === AUTO_SCALE
+            ? "1:1"
+            : scaleValue;
         const scale = scaleFromValue(fittedValue);
         for (const projection of STANDARD_VIEWS) {
           const anchor = anchors[projection];
@@ -171,6 +198,9 @@ export function useLayoutActions(
             // Auto-layout lands each standard view (bounds-aware); a later drag
             // flips this view to auto_place:false with a persisted position.
             auto_place: true,
+            // A NEW arrangement clears the title block (the fit above assumed
+            // it); views laid out before keep composing exactly as they did.
+            clear_title_block: true,
             expected_version: version,
           });
           version = created.doc_version;
@@ -179,7 +209,10 @@ export function useLayoutActions(
         // state (a FAILED layout must not mutate the user's pick — review
         // 2026-07-22), and post-layout the band's scale readout derives from
         // the stored views either way.
-        if (fittedValue !== scaleValue) setScaleValue(fittedValue);
+        // Auto stays Auto.
+        if (scaleValue !== AUTO_SCALE && fittedValue !== scaleValue) {
+          setScaleValue(fittedValue);
+        }
         await queryClient.invalidateQueries({
           queryKey: ["drawing", drawingId],
         });
@@ -203,6 +236,7 @@ export function useLayoutActions(
     drawingId,
     scaleValue,
     sizeValue,
+    sizeFixed,
     partTree,
     orientationOverride,
     queryClient,
@@ -263,6 +297,7 @@ export function useLayoutActions(
           scale: scaleFromValue(scaleValue),
           position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
           auto_place: true,
+          clear_title_block: false,
           expected_version: version,
         });
         version = created.doc_version;
@@ -342,6 +377,7 @@ export function useLayoutActions(
             position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
             section_params: { plane, flip },
             auto_place: true,
+            clear_title_block: false,
             expected_version: version,
           });
           setSectionOpen(false);

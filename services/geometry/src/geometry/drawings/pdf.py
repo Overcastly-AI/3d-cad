@@ -23,6 +23,7 @@ import io
 from collections.abc import Sequence
 
 from loft_wire.drawings import (
+    DRAWING_KIND_CAPTION,
     ComposedBendTable,
     ComposedCentreMark,
     ComposedCircleEdge,
@@ -47,7 +48,6 @@ from geometry.drawings.dimensioning import (
     _DIM_ERROR_TEXT_MM,
 )
 from geometry.drawings.layout import (
-    _BANNER_TEXT_MM,
     _BEND_COL_DX,
     _BEND_TABLE_CAPTION_MM,
     _BEND_TABLE_CAPTIONS,
@@ -91,7 +91,6 @@ from geometry.drawings.sheet_style import (
     _fit,
     _tb_fields,
     _thread_row_cells,
-    banner_lines,
 )
 
 # ---------------------------------------------------------------------------------
@@ -344,7 +343,7 @@ def _pdf_title_block(c: Canvas, tb: ComposedTitleBlock) -> None:
 
     caption(x + 4, y + 8, "TITLE")
     value(x + 4, y + 18, tb.title)
-    caption(x + 4, y + h - 4, "LOFT · PART DRAWING")
+    caption(x + 4, y + h - 4, DRAWING_KIND_CAPTION[tb.kind])
     caption(tb.split_x + 4, y + 8, "SCALE")
     value(tb.split_x + 4, tb.mid_y - 3, tb.scale)
     caption(tb.split_x + 4, tb.mid_y + 8, "SIZE")
@@ -504,22 +503,6 @@ def serialize_pdf(composed: ComposedSheet) -> bytes:
         _pdf_thread_schedule(c, composed.thread_schedule)
     for note in composed.notes:
         _pdf_note(c, note)
-    # The layout-issue banner (audit N2) — a colliding sheet says so on the PDF too.
-    # Guarded so a CLEAN sheet emits no extra canvas op at all (byte-identity).
-    banner = banner_lines(composed)
-    if banner:
-        c.setDash([])
-    for line in banner:
-        _pdf_text(
-            c,
-            line.x,
-            line.y,
-            line.text,
-            _BANNER_TEXT_MM,
-            _DIM_FLAG if line.error else _LABEL,
-            centred=False,
-            central=False,
-        )
     c.showPage()
     c.save()
     return buf.getvalue()

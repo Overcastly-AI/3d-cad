@@ -1792,7 +1792,7 @@
         "type": "object"
       },
       "ComposedTitleBlock": {
-        "description": "The placed bottom-right title block (drawing-export.md \u00a74.2).\n\nGeometry (box + the two internal rules) plus the stamped values: the always-on\ndrawing ``title`` (truncated to fit), ``scale`` label and ``size`` display, plus\nthe OPTIONAL free-text :class:`TitleBlock` fields ``author`` / ``date`` / ``notes``\n(each truncated to fit its cell, ``None`` when unset). The fixed captions (\"TITLE\" /\n\"SCALE\" / \"SIZE\" / \"LOFT \u00b7 PART DRAWING\" and, for the optional fields, \"DRAWN\" /\n\"DATE\" / \"NOTES\") are the serializer's rendering constants (matching the on-screen\ntitle block). A ``None`` optional field is stamped by NO serializer \u2014 caption and\nvalue both omitted \u2014 so a title block with no free-text composes byte-identically to\nits pre-free-text golden (the additive posture the notes/bend-table fields carry).",
+        "description": "The placed bottom-right title block (drawing-export.md \u00a74.2).\n\nGeometry (box + the two internal rules) plus the stamped values: the always-on\ndrawing ``title`` (truncated to fit), ``scale`` label and ``size`` display, plus\nthe OPTIONAL free-text :class:`TitleBlock` fields ``author`` / ``date`` / ``notes``\n(each truncated to fit its cell, ``None`` when unset). The fixed captions (\"TITLE\" /\n\"SCALE\" / \"SIZE\" / the ``kind`` caption (\"LOFT \u00b7 PART DRAWING\" or \"LOFT \u00b7 ASSEMBLY\nDRAWING\", :data:`DRAWING_KIND_CAPTION`) and, for the optional fields, \"DRAWN\" /\n\"DATE\" / \"NOTES\") are the serializer's rendering constants (matching the on-screen\ntitle block). A ``None`` optional field is stamped by NO serializer \u2014 caption and\nvalue both omitted \u2014 so a title block with no free-text composes byte-identically to\nits pre-free-text golden (the additive posture the notes/bend-table fields carry).",
         "properties": {
           "author": {
             "anyOf": [
@@ -1821,6 +1821,16 @@
           "height": {
             "title": "Height",
             "type": "number"
+          },
+          "kind": {
+            "default": "part",
+            "description": "What the sheet drafts; the title block's kind caption reads 'LOFT \u00b7 PART DRAWING' or 'LOFT \u00b7 ASSEMBLY DRAWING'",
+            "enum": [
+              "part",
+              "assembly"
+            ],
+            "title": "Kind",
+            "type": "string"
           },
           "mid_y": {
             "description": "Y of the horizontal rule in the right cell",
@@ -9138,6 +9148,12 @@
             "default": true,
             "description": "True (default): the composer derives the anchor (bounds-aware for the standard quartet, a non-overlapping free slot for section/flat_pattern). False: honor `position` verbatim (the drag-to-place seam, FINDINGS #6). Additive \u2014 an omitted value keeps the auto-layout behaviour byte-identical.",
             "title": "Auto Place",
+            "type": "boolean"
+          },
+          "clear_title_block": {
+            "default": false,
+            "description": "Set by Lay out on the views it creates: the composer moves that auto arrangement off the title block. False on every view laid out before it, so a stored drawing composes as it always did.",
+            "title": "Clear Title Block",
             "type": "boolean"
           },
           "position": {

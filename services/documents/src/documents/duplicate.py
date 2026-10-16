@@ -516,6 +516,7 @@ async def duplicate_drawing(
                 pos_x_mm=view.pos_x_mm,
                 pos_y_mm=view.pos_y_mm,
                 auto_place=view.auto_place,
+                clear_title_block=view.clear_title_block,
                 # A section plane may name a datum FEATURE of the referenced
                 # part; that part is NOT copied, so those ids stay as they are —
                 # `mapping` only holds this drawing's own sheet/view ids.

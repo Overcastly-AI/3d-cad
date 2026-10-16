@@ -50,6 +50,7 @@
     "draft-gauge.spec.ts": 62.3,
     "draft.spec.ts": 38.8,
     "draw-dimension-arming.spec.ts": 84.9,
+    "drawing-autoscale.spec.ts": 15.4,
     "drawing-centre-marks.spec.ts": 9.6,
     "drawing-parts-list.spec.ts": 36.4,
     "drawing-place-view.spec.ts": 13.3,

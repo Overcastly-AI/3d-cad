@@ -63,6 +63,7 @@ from geometry.assembly.import_step import import_step_assembly
 from geometry.assembly.transform import Pose, as_vector
 from geometry.kernel import measure_shape
 from geometry.kernel.export import STEP_MAGIC, occt_default_product_name
+from geometry.kernel.step_tree import StepTreeNode, read_step_tree
 from geometry.main import app
 from loft_wire.assemblies import (
     EvaluateAssemblyRequest,
@@ -255,15 +256,15 @@ def test_step_assembly_export_roundtrip(
 
     _match_reimported(name, data, _expected_bodies(request), tmp_path, roundtrip_tol)
 
-    # Instance traceability: one named occurrence per PLACED part — an instance,
-    # or a part inside a sub-assembly by its occurrence id. (The goldens carry no
-    # instance names, so the composer falls back to that id — which is exactly the
-    # identity a re-import must be able to hand back.)
-    occurrence_names = {n.decode("ascii") for n in _OCCURRENCE_NAME_RE.findall(data)}
-    for placed_id in _placed_ids(request):
-        assert str(placed_id) in occurrence_names, (
-            f"{name}: part {placed_id} has no named occurrence in the "
-            f"STEP file — not traceable (occurrences: {sorted(occurrence_names)})"
+    # Instance traceability: a named occurrence for every PLACED part, read
+    # through the product tree (a part inside a sub-assembly is an occurrence in
+    # that sub-assembly's product, BIKE2-STEP-FLAT). An unnamed instance falls
+    # back to its id at its own level — the identity a re-import can hand back.
+    occurrence_names = {node.name for node in _nodes(read_step_tree(data))}
+    for placed_name in _placed_names(request):
+        assert placed_name in occurrence_names, (
+            f"{name}: part {placed_name} has no named occurrence in the STEP "
+            f"file — not traceable (occurrences: {sorted(map(str, occurrence_names))})"
         )
 
 
@@ -739,11 +740,21 @@ def test_step_assembly_export_nonidentity_rotation_roundtrip(
 # caller flattens it would still pass a return-value test.
 
 
-def _placed_ids(request: EvaluateAssemblyRequest) -> list[uuid.UUID]:
-    """Every part the file must place: the instances of a flat assembly, and
-    each part inside a sub-assembly (by occurrence id) — one STEP occurrence
-    each. Read from the solve the export composes, so it cannot drift from it."""
-    return [placed.instance_id for placed in solve_assembly(request).placed]
+def _placed_names(request: EvaluateAssemblyRequest) -> list[str]:
+    """The occurrence name of every part the file must place: its instance name,
+    or its id at its own level (a part inside a sub-assembly is named within
+    that sub-assembly's product). Read from the solve the export composes."""
+    return [
+        placed.name
+        if placed.name is not None
+        else str(placed.path[-1] if placed.path else placed.instance_id)
+        for placed in solve_assembly(request).placed
+    ]
+
+
+def _nodes(node: StepTreeNode) -> list[StepTreeNode]:
+    """*node* and every occurrence under it."""
+    return [node, *(below for child in node.children for below in _nodes(child))]
 
 
 def _unique_part_keys(request: ExportAssemblyRequest) -> set[str]:
@@ -782,11 +793,12 @@ def test_step_assembly_export_writes_one_brep_per_unique_part_body(
     ``== unique part count`` rejected it (2 != 1) while being unable to fail for
     any of the reasons it was written for.
 
-    Instance identity is asserted on the NAMED occurrences rather than on the raw
-    entity count for the same reason: OCCT interposes an extra, UNNAMED occurrence
-    per body inside a multi-body component, so the entity total is instances +
-    bodies, while "every instance is in the file exactly once" is a statement
-    about the named ones.
+    Placement is asserted on the product tree's expanded leaves rather than on
+    the raw entity count: OCCT interposes an extra, UNNAMED occurrence per body
+    inside a multi-body component, and a sub-assembly's occurrences are written
+    once in its shared product (BIKE2-STEP-FLAT), so the NAUO total is neither
+    the instance nor the part count. "Every placed body is in the file exactly
+    once" is a statement about the leaves, expanded through every occurrence.
     """
     name = model_path.parent.name
     request = _export_request(model_path, "step")
@@ -800,11 +812,13 @@ def test_step_assembly_export_writes_one_brep_per_unique_part_body(
         f"{len(request.instances)} instances — the geometry is duplicated per "
         f"instance instead of instanced (audit N8)"
     )
-    named = [n for n in _OCCURRENCE_NAME_RE.findall(data) if n]
-    placed = len(_placed_ids(request))
-    assert len(named) == placed, (
-        f"{name}: {len(named)} named occurrences for {placed} "
-        f"placed parts — a part lost its placement"
+    # One shape occurrence per placed BODY once every product is expanded: a
+    # multi-body part's bodies sit one level below its occurrence.
+    leaves = sum(1 for node in _nodes(read_step_tree(data)) if not node.children)
+    placed = sum(len(p.body.solids()) for p in solve_assembly(request).placed)
+    assert leaves == placed, (
+        f"{name}: {leaves} shape occurrences for {placed} "
+        f"placed bodies — a part lost its placement"
     )
 
 
