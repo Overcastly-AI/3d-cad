@@ -30,6 +30,8 @@ export type BoundingBox = components["schemas"]["BoundingBox"];
 /** The SOLVED compound's extents + the solve they came out of (§4). */
 export type AssemblyExtentsResponse =
   components["schemas"]["AssemblyExtentsResponse"];
+/** A part that produced no body, with how many occurrences it leaves out. */
+export type OmittedPart = components["schemas"]["OmittedPart"];
 /** A drawing sheet's numbered bill of materials (design §7 BOM). */
 export type DrawingBomResponse = components["schemas"]["DrawingBomResponse"];
 /** One numbered parts-list line: item number + resolved name + quantity. */

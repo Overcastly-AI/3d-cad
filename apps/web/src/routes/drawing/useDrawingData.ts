@@ -16,6 +16,7 @@ import {
   type DrawingViewResult,
   type EvaluateDrawingViewsRequest,
   type MeasuredDimension,
+  type OmittedPart,
   type RefDocumentKind,
   type SectionViewParams,
   type SheetSize,
@@ -27,6 +28,7 @@ import {
   fetchDrawingBom,
 } from "../../api/drawings";
 import { fetchFeatureTree, fetchParts } from "../../api/parts";
+import { evaluatedFeatures } from "../../api/evaluatedFeatures";
 import { fetchAssemblies, fetchAssemblyGraph } from "../../api/assemblies";
 import {
   assemblyFaultSummary,
@@ -47,6 +49,9 @@ import {
   scaleFromValue,
   sourceExtentsQueryOptions,
 } from "./sheetHeader";
+
+/** One stable empty list, so a clean assembly does not re-render the strip. */
+const NO_FAILED_PARTS: readonly OmittedPart[] = [];
 
 /** The drawing page's reads, keyed by the drawing in the route. */
 export function useDrawingData(drawingId: string) {
@@ -361,9 +366,9 @@ export function useDrawingData(drawingId: string) {
         tree_version: t.tree_version,
         scale: scaleFromValue(effectiveScaleValue),
         views: requestedViews,
-        features: t.features
-          .filter((feature) => !feature.rolled_back)
-          .map((feature) => ({ id: feature.id, feature: feature.feature })),
+        features: evaluatedFeatures(
+          t.features.filter((feature) => !feature.rolled_back),
+        ),
         dimensions: dimensionInputs,
         section_params: sectionParamsByIndex,
       };
@@ -436,12 +441,17 @@ export function useDrawingData(drawingId: string) {
       draftedSourceId !== null &&
       sheetQuery.isSuccess &&
       !sheetQuery.isFetching,
-    queryFn: async (): Promise<AssemblySolveFacts> => {
+    queryFn: async (): Promise<
+      AssemblySolveFacts & { failedParts: readonly OmittedPart[] }
+    > => {
       const solved = await fetchAssemblyExtents(draftedSourceId as string);
       return {
         status: solved.status,
         conflictingMates: solved.conflicting_mates ?? [],
         mateErrors: solved.mate_errors ?? [],
+        // The parts that failed to build: no view can draw them (the check
+        // strip names them, ASM-FAILED-PART-API).
+        failedParts: solved.omitted?.parts ?? [],
       };
     },
     staleTime: Infinity,
@@ -450,6 +460,8 @@ export function useDrawingData(drawingId: string) {
     hasLayout && draftedSourceKind === "assembly"
       ? (sheetSolveQuery.data ?? null)
       : null;
+  const assemblyFailedParts: readonly OmittedPart[] =
+    sheetSolve?.failedParts ?? NO_FAILED_PARTS;
   // The kinds ("joint" / "mate") come from the graph — read only when there is
   // something to name, and named only once it has landed, so the sentence never
   // flips from "1 mate" to "1 joint".
@@ -511,6 +523,7 @@ export function useDrawingData(drawingId: string) {
     hasLayout,
     draftedSourceId,
     assemblyPartial,
+    assemblyFailedParts,
     parts,
     sources,
     selectedSourceId,

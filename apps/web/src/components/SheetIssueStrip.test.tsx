@@ -13,7 +13,11 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ComposedLayoutIssue, ViewProjection } from "../api/drawings";
+import type {
+  ComposedLayoutIssue,
+  OmittedPart,
+  ViewProjection,
+} from "../api/drawings";
 import { SheetIssueStrip } from "./SheetIssueStrip";
 
 function overlap(
@@ -226,5 +230,50 @@ describe("SheetIssueStrip", () => {
     expect(action).toBeDisabled();
     fireEvent.click(action);
     expect(onAutoPlace).not.toHaveBeenCalled();
+  });
+});
+
+describe("SheetIssueStrip — parts that failed to build (ASM-FAILED-PART-API)", () => {
+  const arm: OmittedPart = {
+    name: "Crank arm",
+    part_document_id: "7a0c2a52-0000-4000-8000-00000000c0a7",
+    code: "profile_unsupported",
+    message: "The sketch has no closed profile.",
+    occurrences: 2,
+  };
+
+  it("shows a warning row naming the part on an otherwise clean sheet", () => {
+    const onOpenPart = vi.fn();
+    render(
+      <SheetIssueStrip
+        issues={[]}
+        handPlaced={new Set()}
+        onAutoPlace={() => {}}
+        failedParts={[arm]}
+        onOpenPart={onOpenPart}
+      />,
+    );
+    const strip = screen.getByTestId("sheet-issue-strip");
+    expect(strip).toHaveAttribute("data-severity", "warning");
+    expect(screen.getByTestId("sheet-issue-count")).toHaveTextContent("1");
+    const row = screen.getByTestId("sheet-issue-row");
+    expect(row).toHaveAttribute("data-issue-code", "part_failed");
+    expect(within(row).getByTestId("sheet-issue-message")).toHaveTextContent(
+      "Crank arm failed to build, so these views leave out 2 bodies: The sketch has no closed profile.",
+    );
+    fireEvent.click(within(row).getByTestId("sheet-issue-open-part"));
+    expect(onOpenPart).toHaveBeenCalledWith(arm.part_document_id);
+  });
+
+  it("stays hidden for a clean sheet of a healthy assembly", () => {
+    render(
+      <SheetIssueStrip
+        issues={[]}
+        handPlaced={new Set()}
+        onAutoPlace={() => {}}
+        failedParts={[]}
+      />,
+    );
+    expect(screen.queryByTestId("sheet-issue-strip")).toBeNull();
   });
 });

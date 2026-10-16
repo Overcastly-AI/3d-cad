@@ -14,13 +14,26 @@
  * SolidWorks and Fusion, a layout problem is the application's to report and
  * the drawing carries only the drawing.
  */
-import type { ComposedLayoutIssue } from "../api/drawings";
+import type { ComposedLayoutIssue, OmittedPart } from "../api/drawings";
 
 /** The severity word, tracked-caps — the strip's badge. */
 export const SEVERITY_LABEL: Record<ComposedLayoutIssue["severity"], string> = {
   error: "ERROR",
   warning: "WARNING",
 };
+
+/**
+ * The check strip's sentence for a part of the drafted assembly that failed to
+ * build (ASM-FAILED-PART-API): "Crank arm failed to build, so these views leave
+ * out 2 bodies: <the kernel's sentence>". Its occurrences have no body, so no
+ * view can draw them, and the drawing would otherwise look complete.
+ */
+export function failedPartMessage(part: OmittedPart): string {
+  const bodies =
+    part.occurrences === 1 ? "1 body" : `${part.occurrences} bodies`;
+  const why = part.message === "" ? "" : `: ${part.message}`;
+  return `${part.name} failed to build, so these views leave out ${bodies}${why}`;
+}
 
 /** True when any issue is an error (a collision or a view off the sheet, not
  * merely a crowded pair) — the strip escalates to `role="alert"` only for

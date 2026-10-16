@@ -1,0 +1,290 @@
+[
+  {
+    "role": "profile",
+    "index": 0,
+    "id": "3ee487fe-4606-5d96-8084-0823eafca9fb",
+    "feature": {
+      "suppressed": false,
+      "type": "sketch",
+      "version": 1,
+      "params": {
+        "entities": [
+          {
+            "id": "e1",
+            "construction": false,
+            "kind": "line",
+            "start": {
+              "x": 0.0,
+              "y": -6.0
+            },
+            "end": {
+              "x": 12.0,
+              "y": -6.0
+            }
+          },
+          {
+            "id": "e2",
+            "construction": false,
+            "kind": "line",
+            "start": {
+              "x": 12.0,
+              "y": -6.0
+            },
+            "end": {
+              "x": 12.0,
+              "y": 6.0
+            }
+          },
+          {
+            "id": "e3",
+            "construction": false,
+            "kind": "line",
+            "start": {
+              "x": 12.0,
+              "y": 6.0
+            },
+            "end": {
+              "x": 0.0,
+              "y": 6.0
+            }
+          },
+          {
+            "id": "e4",
+            "construction": false,
+            "kind": "line",
+            "start": {
+              "x": 0.0,
+              "y": 6.0
+            },
+            "end": {
+              "x": 0.0,
+              "y": -6.0
+            }
+          }
+        ],
+        "constraints": [],
+        "plane": {
+          "kind": "datum_plane",
+          "plane": "XY"
+        }
+      }
+    }
+  },
+  {
+    "role": "block",
+    "index": 0,
+    "id": "8683e4da-5da6-5f73-9b90-ac6c71dad851",
+    "feature": {
+      "suppressed": false,
+      "type": "extrude",
+      "version": 1,
+      "params": {
+        "profile": {
+          "kind": "feature",
+          "feature_id": "3ee487fe-4606-5d96-8084-0823eafca9fb"
+        },
+        "distance_mm": 4.0,
+        "operation": "add",
+        "direction": "normal",
+        "merge": false
+      }
+    },
+    "metadata": {
+      "profile": null,
+      "material": "pla",
+      "nominal_size": "12x4"
+    }
+  },
+  {
+    "role": "profile",
+    "index": 1,
+    "id": "b019338d-8ae3-5a15-9f9d-e624d2124748",
+    "feature": {
+      "suppressed": false,
+      "type": "sketch",
+      "version": 1,
+      "params": {
+        "entities": [
+          {
+            "id": "e1",
+            "construction": false,
+            "kind": "line",
+            "start": {
+              "x": 24.0,
+              "y": -6.0
+            },
+            "end": {
+              "x": 36.0,
+              "y": -6.0
+            }
+          },
+          {
+            "id": "e2",
+            "construction": false,
+            "kind": "line",
+            "start": {
+              "x": 36.0,
+              "y": -6.0
+            },
+            "end": {
+              "x": 36.0,
+              "y": 6.0
+            }
+          },
+          {
+            "id": "e3",
+            "construction": false,
+            "kind": "line",
+            "start": {
+              "x": 36.0,
+              "y": 6.0
+            },
+            "end": {
+              "x": 24.0,
+              "y": 6.0
+            }
+          },
+          {
+            "id": "e4",
+            "construction": false,
+            "kind": "line",
+            "start": {
+              "x": 24.0,
+              "y": 6.0
+            },
+            "end": {
+              "x": 24.0,
+              "y": -6.0
+            }
+          }
+        ],
+        "constraints": [],
+        "plane": {
+          "kind": "datum_plane",
+          "plane": "XY"
+        }
+      }
+    }
+  },
+  {
+    "role": "block",
+    "index": 1,
+    "id": "5dacb4b2-c2fd-5735-bb47-4f03c051abb4",
+    "feature": {
+      "suppressed": false,
+      "type": "extrude",
+      "version": 1,
+      "params": {
+        "profile": {
+          "kind": "feature",
+          "feature_id": "b019338d-8ae3-5a15-9f9d-e624d2124748"
+        },
+        "distance_mm": 4.0,
+        "operation": "add",
+        "direction": "normal",
+        "merge": false
+      }
+    },
+    "metadata": {
+      "profile": null,
+      "material": "pla",
+      "nominal_size": "12x4"
+    }
+  },
+  {
+    "role": "profile",
+    "index": 2,
+    "id": "439bc0f2-18e3-5fe1-8ca3-7a7af8513578",
+    "feature": {
+      "suppressed": false,
+      "type": "sketch",
+      "version": 1,
+      "params": {
+        "entities": [
+          {
+            "id": "e1",
+            "construction": false,
+            "kind": "line",
+            "start": {
+              "x": 48.0,
+              "y": -6.0
+            },
+            "end": {
+              "x": 60.0,
+              "y": -6.0
+            }
+          },
+          {
+            "id": "e2",
+            "construction": false,
+            "kind": "line",
+            "start": {
+              "x": 60.0,
+              "y": -6.0
+            },
+            "end": {
+              "x": 60.0,
+              "y": 6.0
+            }
+          },
+          {
+            "id": "e3",
+            "construction": false,
+            "kind": "line",
+            "start": {
+              "x": 60.0,
+              "y": 6.0
+            },
+            "end": {
+              "x": 48.0,
+              "y": 6.0
+            }
+          },
+          {
+            "id": "e4",
+            "construction": false,
+            "kind": "line",
+            "start": {
+              "x": 48.0,
+              "y": 6.0
+            },
+            "end": {
+              "x": 48.0,
+              "y": -6.0
+            }
+          }
+        ],
+        "constraints": [],
+        "plane": {
+          "kind": "datum_plane",
+          "plane": "XY"
+        }
+      }
+    }
+  },
+  {
+    "role": "block",
+    "index": 2,
+    "id": "c696b0bf-ada0-5f34-91c7-be43e204b4cf",
+    "feature": {
+      "suppressed": false,
+      "type": "extrude",
+      "version": 1,
+      "params": {
+        "profile": {
+          "kind": "feature",
+          "feature_id": "439bc0f2-18e3-5fe1-8ca3-7a7af8513578"
+        },
+        "distance_mm": 4.0,
+        "operation": "add",
+        "direction": "normal",
+        "merge": false
+      }
+    },
+    "metadata": {
+      "profile": null,
+      "material": "pla",
+      "nominal_size": "12x4"
+    }
+  }
+]

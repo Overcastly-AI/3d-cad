@@ -8,7 +8,8 @@ docs/design/drawings.md — a layout of sheets/views/dimensions/annotations),
 folder filing (:mod:`documents.folders`, per loft_wire.folders — a
 per-drawer tree plus the document MOVE routes), plus the static material
 library (:mod:`documents.materials`, per
-docs/design/materials.md — densities served so nothing hardcodes one),
+docs/design/materials.md — densities served so nothing hardcodes one) and the
+plugin manifests (:mod:`documents.custom_features`, RESEARCH §23),
 backed by Postgres via the shared :mod:`py_kit.db` plumbing with the schema
 owned by ``services/documents/alembic``. This service never imports kernel
 code (CLAUDE.md service boundaries) — geometry artifacts are referenced by
@@ -26,6 +27,7 @@ from py_kit.db import DatabaseState, postgres_readiness
 from documents.assemblies import router as assemblies_router
 from documents.assembly_joints import router as assembly_joints_router
 from documents.assembly_patterns import router as assembly_patterns_router
+from documents.custom_features import router as plugins_router
 from documents.drawings import router as drawings_router
 from documents.duplicate import assemblies_router as duplicate_assemblies_router
 from documents.duplicate import drawings_router as duplicate_drawings_router
@@ -100,6 +102,8 @@ def build_app(settings: DocumentsSettings | None = None) -> FastAPI:
     app.include_router(parts_router)
     app.include_router(features_router)
     app.include_router(materials_router)
+    # First-party plugin manifests (RESEARCH §23): the Build toolbar's tools.
+    app.include_router(plugins_router)
     app.include_router(assemblies_router)
     app.include_router(assembly_joints_router)
     app.include_router(assembly_patterns_router)

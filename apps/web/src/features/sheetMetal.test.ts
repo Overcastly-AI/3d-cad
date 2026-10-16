@@ -475,7 +475,8 @@ describe("the hem radius rule mirrors loft_wire", () => {
   // COLLECTION and this whole file stopped loading — the suite reported 2516
   // passing AND exit 1, with nothing naming the cause. `src/test/wireSource.ts`
   // owns the path now and reports a moved module as one legible failure.
-  const source = (): string => readWireModule("features");
+  // `777e88b` moved the sheet-metal params (and this rule) to `sheet_metal.py`.
+  const source = (): string => readWireModule("sheet_metal");
 
   it("uses loft_wire's own ratios, not a hand-kept second opinion", () => {
     expect(HEM_CLOSED_RADIUS_RATIO).toBe(

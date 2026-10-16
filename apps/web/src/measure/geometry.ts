@@ -16,6 +16,7 @@ import type {
   Vec3,
 } from "../api/measure";
 import { MESH_LINEAR_DEFLECTION_MM } from "../api/client";
+import { evaluatedFeatures } from "../api/evaluatedFeatures";
 import { formatDro, formatVec3 } from "../lib/format";
 import { occtToSceneTuple } from "../sketch/plane";
 
@@ -62,10 +63,7 @@ export function buildEvaluateTree(
     part_id: tree.part_id,
     tree_version: tree.tree_version,
     linear_deflection: MESH_LINEAR_DEFLECTION_MM,
-    features: kept.map((feature) => ({
-      id: feature.id,
-      feature: feature.feature,
-    })),
+    features: evaluatedFeatures(kept),
   };
 }
 

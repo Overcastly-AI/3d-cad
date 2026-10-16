@@ -26,7 +26,6 @@ from loft_wire.feature_input import PARAMETER_UNRESOLVED
 from loft_wire.feature_resolve import (
     FeatureExpressionError,
     check_dimension_names,
-    evaluation_input,
     parameter_references,
     parameter_values,
     rename_parameters,
@@ -34,9 +33,11 @@ from loft_wire.feature_resolve import (
     uses_parameters,
 )
 from loft_wire.features import (
-    FEATURE_REGISTRY,
+    AUTHORED_FEATURES,
+    MAX_TREE_FEATURES,
+    AuthoredEnvelope,
+    CustomFeature,
     EvaluatedFeatureInput,
-    FeatureEnvelope,
     FeatureError,
 )
 from py_kit import ConflictError, ValidationApiError
@@ -52,7 +53,7 @@ def _api_error(exc: FeatureExpressionError) -> ValidationApiError:
     return ValidationApiError(exc.message, code=exc.code, details=details)
 
 
-def resolve_for_write(part: db.Part, envelope: FeatureEnvelope) -> FeatureEnvelope:
+def resolve_for_write[E: AuthoredEnvelope](part: db.Part, envelope: E) -> E:
     """*envelope* with every formula resolved against the part's table (the
     numbers stored in ``params``, formulas kept where they were written), or
     422."""
@@ -63,7 +64,7 @@ def resolve_for_write(part: db.Part, envelope: FeatureEnvelope) -> FeatureEnvelo
         raise _api_error(exc) from exc
 
 
-def load_feature(row: db.Feature) -> tuple[FeatureEnvelope, FeatureError | None]:
+def load_feature(row: db.Feature) -> tuple[AuthoredEnvelope, FeatureError | None]:
     """The stored row as an envelope, its expressions included.
 
     Expressions whose pointers no longer fit the params (a params upcast moved
@@ -71,7 +72,7 @@ def load_feature(row: db.Feature) -> tuple[FeatureEnvelope, FeatureError | None]
     feature is reported unresolved, never a 500. The stored column is kept.
     """
     try:
-        envelope = FEATURE_REGISTRY.load(
+        envelope = AUTHORED_FEATURES.load(
             row.type,
             row.param_version,
             row.params,
@@ -81,7 +82,7 @@ def load_feature(row: db.Feature) -> tuple[FeatureEnvelope, FeatureError | None]
     except ValidationError:
         if row.expressions is None:
             raise
-        envelope = FEATURE_REGISTRY.load(
+        envelope = AUTHORED_FEATURES.load(
             row.type, row.param_version, row.params, suppressed=row.suppressed
         )
         return envelope, FeatureError(
@@ -95,26 +96,15 @@ def load_feature(row: db.Feature) -> tuple[FeatureEnvelope, FeatureError | None]
 def evaluation_features(
     part: db.Part, rows: Sequence[db.Feature]
 ) -> list[EvaluatedFeatureInput]:
-    """Evaluation-request entries for *rows*, every formula resolved once.
+    """Evaluation-request entries for *rows*, every formula resolved once and
+    every custom feature expanded to its base features
+    (:func:`documents.custom_features.evaluation_entries`)."""
+    from documents.custom_features import evaluation_entries
 
-    A suppressed feature is skipped by geometry, so it carries no error.
-    """
-    values = parameter_values(part.parameters)
-    entries: list[EvaluatedFeatureInput] = []
-    for row in rows:
-        envelope, error = load_feature(row)
-        feature, resolve_error = evaluation_input(envelope, values)
-        entries.append(
-            EvaluatedFeatureInput(
-                id=row.id,
-                feature=feature,
-                input_error=None if row.suppressed else (error or resolve_error),
-            )
-        )
-    return entries
+    return evaluation_entries(part, rows)
 
 
-def _store(row: db.Feature, envelope: FeatureEnvelope) -> None:
+def _store(row: db.Feature, envelope: AuthoredEnvelope) -> None:
     row.param_version = envelope.version
     row.params = envelope.params.model_dump(mode="json")
     row.expressions = envelope.expressions
@@ -185,7 +175,13 @@ def apply_table_change(
     renames = parameter_renames(old_rows, new_rows)
     # Every change is computed before any row is touched: a rename that a
     # feature cannot take refuses the whole PUT.
-    changes: list[tuple[db.Feature, FeatureEnvelope]] = []
+    changes: list[tuple[db.Feature, AuthoredEnvelope]] = []
+    from documents.custom_features import expanded_size, retabled, row_size
+
+    # A re-expansion that would take the part past MAX_TREE_FEATURES keeps its
+    # stored members, as a formula that no longer resolves keeps its numbers;
+    # the next evaluation reports it (plugin_expansion_too_large).
+    size = expanded_size(rows)
     for row, envelope in loaded:
         if row.expressions is not None and envelope.expressions is None:
             continue  # formulas that no longer load are kept as stored
@@ -203,10 +199,19 @@ def apply_table_change(
             ) from exc
         if not uses_parameters(renamed):
             continue
-        try:
-            resolved = resolve_feature(renamed, values)
-        except FeatureExpressionError:
+        resolved: AuthoredEnvelope
+        if isinstance(renamed, CustomFeature):
             resolved = renamed
+            expanded = retabled(row, renamed, rows, values)
+            if expanded is not None:
+                grown = len(expanded.params.expansion or []) - row_size(row)
+                if size + grown <= MAX_TREE_FEATURES:
+                    resolved, size = expanded, size + grown
+        else:
+            try:
+                resolved = resolve_feature(renamed, values)
+            except FeatureExpressionError:
+                resolved = renamed
         if resolved.model_dump(mode="json") != envelope.model_dump(mode="json"):
             changes.append((row, resolved))
     for row, resolved in changes:

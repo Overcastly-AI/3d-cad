@@ -21,7 +21,7 @@ build-constraint-dependencies = [
 # Glob tolerates not-yet-created services. packages/* is NOT globbed: that
 # directory also holds contracts/design/ts-client, which are TS or generated
 # JSON and have no pyproject.toml — so Python members are named explicitly.
-members = ["services/*", "packages/py-kit", "packages/loft-wire", "packages/loft-script"]
+members = ["services/*", "packages/py-kit", "packages/loft-wire", "packages/loft-plugins", "packages/loft-script"]
 
 [dependency-groups]
 dev = [
@@ -31,6 +31,7 @@ dev = [
     # Workspace members under test + shared test deps: `uv run pytest` from the
     # root needs the members importable in the single workspace venv.
     "loft-wire",
+    "loft-plugins",
     "loft-py-kit",
     "loft-gateway",
     "loft-documents",
@@ -50,6 +51,7 @@ dev = [
 
 [tool.uv.sources]
 loft-wire = { workspace = true }
+loft-plugins = { workspace = true }
 loft-py-kit = { workspace = true }
 loft-gateway = { workspace = true }
 loft-documents = { workspace = true }

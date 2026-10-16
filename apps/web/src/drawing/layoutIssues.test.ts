@@ -6,7 +6,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { ComposedLayoutIssue } from "../api/drawings";
-import { SEVERITY_LABEL, hasLayoutError } from "./layoutIssues";
+import {
+  SEVERITY_LABEL,
+  failedPartMessage,
+  hasLayoutError,
+} from "./layoutIssues";
 
 function issue(
   severity: ComposedLayoutIssue["severity"],
@@ -39,5 +43,25 @@ describe("hasLayoutError / SEVERITY_LABEL", () => {
         issue("error", "HIT", 19),
       ]),
     ).toBe(true);
+  });
+});
+
+describe("failedPartMessage", () => {
+  const part = {
+    name: "Crank arm",
+    part_document_id: null,
+    code: "no_body",
+    message: "",
+    occurrences: 1,
+  };
+  it("counts the bodies the views leave out, and drops an empty sentence", () => {
+    expect(failedPartMessage(part)).toBe(
+      "Crank arm failed to build, so these views leave out 1 body",
+    );
+    expect(
+      failedPartMessage({ ...part, occurrences: 2, message: "No profile." }),
+    ).toBe(
+      "Crank arm failed to build, so these views leave out 2 bodies: No profile.",
+    );
   });
 });

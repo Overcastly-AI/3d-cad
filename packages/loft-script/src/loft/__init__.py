@@ -56,6 +56,7 @@ from loft_wire.sketch import Point2D, SolvedSketch
 
 from loft import expr
 from loft._operation import Operation
+from loft.assembly import Assembly, OmittedOccurrencesWarning
 from loft.errors import (
     AuthenticationError,
     Conflict,
@@ -86,6 +87,7 @@ __all__ = [
     "XY",
     "XZ",
     "YZ",
+    "Assembly",
     "AuthenticationError",
     "Conflict",
     "ContractMismatch",
@@ -100,6 +102,7 @@ __all__ = [
     "NoBody",
     "NotFound",
     "Numeric",
+    "OmittedOccurrencesWarning",
     "Operation",
     "ParameterInUse",
     "ParameterNotFound",

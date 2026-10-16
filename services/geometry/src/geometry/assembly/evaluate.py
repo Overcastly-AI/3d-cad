@@ -45,6 +45,7 @@ NON-fatal: a valid seed-consistent placement with the remaining DOF reported.
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass, field, replace
 
@@ -81,6 +82,10 @@ from loft_wire.geometry import (
 )
 from loft_wire.in_context import InContextStatus
 from loft_wire.joints import JointState
+from loft_wire.omitted_occurrences import (
+    OmittedOccurrences,
+    OmittedPart,
+)
 from py_kit.errors import ValidationApiError
 
 from geometry.assembly.in_context import solve_in_context
@@ -509,6 +514,69 @@ class SolvedAssembly:
     #: is instanced). The STEP export rebuilds the product tree from it.
     subs: dict[str, SolvedAssembly] = field(default_factory=dict[str, "SolvedAssembly"])
 
+    def omitted(self) -> OmittedOccurrences | None:
+        """The occurrences with no body — the ones an export leaves out.
+
+        See :func:`omitted_occurrences`; None when every occurrence has a body.
+        """
+        return omitted_occurrences(self.occurrences)
+
+
+#: An instance's trailing ``<n>``.
+_INSTANCE_SUFFIX = re.compile(r"\s*<\d+>$")
+
+
+def part_name_of(instance_name: str | None) -> str:
+    """The part's name of an instance: "Crank arm <2>" -> "Crank arm".
+
+    The web's ``partNameOf`` rule; a request without a name gives "Part" (as
+    the web does). A pattern copy is never the first occurrence of its part
+    met (its seed precedes it), so the part is named from the seed.
+    """
+    if instance_name is None:
+        return "Part"
+    return _INSTANCE_SUFFIX.sub("", instance_name).strip() or instance_name
+
+
+def omitted_occurrences(occurrences: list[Occurrence]) -> OmittedOccurrences | None:
+    """Fold the bodiless *occurrences* into one entry per part (ASM-FAILED-PART-API).
+
+    *occurrences* is :attr:`SolvedAssembly.occurrences`: every part placed at
+    any depth (sub-assemblies opened, each one's own pattern copies included)
+    plus this assembly's pattern copies — so the bodiless ones are exactly the
+    occurrences ``placed`` (and with it every export) leaves out. Grouped by part
+    document (the ``part_key`` before ``@``), in first-seen order, which is
+    deterministic because the occurrence order is.
+    """
+    by_part: dict[str, OmittedPart] = {}
+    count = 0
+    for occ in occurrences:
+        if occ.body is not None:
+            continue
+        count += 1
+        document = occ.part_key.split("@", 1)[0] or None
+        key = document if document is not None else f"name:{occ.name}"
+        known = by_part.get(key)
+        if known is not None:
+            by_part[key] = known.model_copy(
+                update={"occurrences": known.occurrences + 1}
+            )
+            continue
+        by_part[key] = OmittedPart(
+            name=part_name_of(occ.name),
+            part_document_id=document,
+            code=occ.error.code if occ.error is not None else "no_body",
+            message=(
+                occ.error.message
+                if occ.error is not None
+                else "The part produced no body."
+            ),
+            occurrences=1,
+        )
+    if count == 0:
+        return None
+    return OmittedOccurrences(count=count, parts=list(by_part.values()))
+
 
 def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
     """Evaluate + solve an assembly to placements + KERNEL bodies (design §4).
@@ -934,6 +1002,7 @@ def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResul
         ],
         pattern_states=solved_assembly.pattern_states,
         in_context=solved_assembly.in_context,
+        omitted=solved_assembly.omitted(),
     )
 
 

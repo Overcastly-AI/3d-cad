@@ -47,6 +47,7 @@ from gateway.materials import router as materials_router
 from gateway.parameters import router as parameters_router
 from gateway.parts import create_documents_client
 from gateway.parts import router as parts_router
+from gateway.plugins import router as plugins_router
 from gateway.step_import import assembly_router as assembly_import_router
 from gateway.step_import import router as step_import_router
 from gateway.versions import router as versions_router
@@ -224,6 +225,7 @@ def build_app(
     app.include_router(versions_router)
     app.include_router(parameters_router)
     app.include_router(materials_router)
+    app.include_router(plugins_router)
     app.include_router(features_router)
     app.include_router(assemblies_router)
     app.include_router(assembly_patterns_router)

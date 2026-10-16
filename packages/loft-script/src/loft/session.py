@@ -21,6 +21,7 @@ from loft_wire.units import LengthUnit
 from pydantic import SecretStr
 
 from loft import _operations as ops
+from loft.assembly import Assembly
 from loft.errors import AuthenticationError
 from loft.part import Part, create_part, list_parts
 from loft.transport import DEFAULT_TIMEOUT, Transport
@@ -114,6 +115,15 @@ class Session:
         """
         return Part(
             self, part_id if isinstance(part_id, uuid.UUID) else uuid.UUID(part_id)
+        )
+
+    def assembly(self, assembly_id: uuid.UUID | str) -> Assembly:
+        """A handle to an existing assembly, from its id alone (no request)."""
+        return Assembly(
+            self,
+            assembly_id
+            if isinstance(assembly_id, uuid.UUID)
+            else uuid.UUID(assembly_id),
         )
 
     def parts(self) -> Sequence[Part]:

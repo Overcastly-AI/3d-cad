@@ -46,10 +46,9 @@ from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Query
 from loft_wire.features import (
-    FEATURE_REGISTRY,
+    AUTHORED_FEATURES,
+    AuthoredEnvelope,
     EvaluateTreeRequest,
-    FeatureEnvelope,
-    feature_references,
 )
 from loft_wire.ref_names import (
     RefBackfillPart,
@@ -71,6 +70,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db, history
+from documents.custom_features import authored_references
 from documents.feature_expressions import evaluation_features
 from documents.parts import Principal, get_owned_part
 
@@ -93,9 +93,9 @@ async def _features(session: AsyncSession, part_id: uuid.UUID) -> list[db.Featur
     return list(result.scalars())
 
 
-def _load(feature: db.Feature) -> FeatureEnvelope:
+def _load(feature: db.Feature) -> AuthoredEnvelope:
     """The stored row as a current-version envelope (upcast on read, §1.4)."""
-    return FEATURE_REGISTRY.load(
+    return AUTHORED_FEATURES.load(
         feature.type,
         feature.param_version,
         feature.params,
@@ -268,8 +268,8 @@ async def get_ref_names_request(
     )
 
 
-def _referenced(envelope: FeatureEnvelope) -> set[uuid.UUID]:
-    return {reference.ref.feature_id for reference in feature_references(envelope)}
+def _referenced(envelope: AuthoredEnvelope) -> set[uuid.UUID]:
+    return {reference.ref.feature_id for reference in authored_references(envelope)}
 
 
 def _report_digest(request: RefNamesApplyRequest) -> str:
@@ -329,7 +329,7 @@ async def apply_ref_names_route(
         applied = results.count("applied")
         if not applied:
             continue
-        named_envelope = FEATURE_REGISTRY.load(
+        named_envelope = AUTHORED_FEATURES.load(
             row.type, envelope.version, written, suppressed=row.suppressed
         )
         if _referenced(named_envelope) != _referenced(envelope):  # pragma: no cover

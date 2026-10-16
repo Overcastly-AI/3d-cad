@@ -216,6 +216,7 @@ async def get_assembly_extents(
             result.diagnosis.conflicting_mates if result.diagnosis else []
         ),
         mate_errors=result.mate_errors,
+        omitted=result.omitted,
     )
 
 

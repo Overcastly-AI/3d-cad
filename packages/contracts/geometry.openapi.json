@@ -3663,6 +3663,17 @@
             "title": "Mate Errors",
             "type": "array"
           },
+          "omitted": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OmittedOccurrences"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The parts that produced no body, by part, with how many occurrences each \u2014 exactly those an export of this assembly leaves out (ASM-FAILED-PART-API). Omitted when every occurrence has a body."
+          },
           "pattern_states": {
             "description": "Each component pattern of this assembly: how many it placed per seed, or why it placed none. Omitted while empty.",
             "items": {
@@ -7103,6 +7114,83 @@
           "position"
         ],
         "title": "NoteAnnotationParams",
+        "type": "object"
+      },
+      "OmittedOccurrences": {
+        "description": "The occurrences an assembly's export or drawing leaves out, by part.",
+        "properties": {
+          "complete": {
+            "default": true,
+            "description": "False when `parts` was cut to fit the header bound; `count` is still the total",
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "count": {
+            "description": "Total occurrences left out",
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "parts": {
+            "description": "One entry per part, in the order the solve first meets them",
+            "items": {
+              "$ref": "#/components/schemas/OmittedPart"
+            },
+            "title": "Parts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "count",
+          "parts"
+        ],
+        "title": "OmittedOccurrences",
+        "type": "object"
+      },
+      "OmittedPart": {
+        "description": "One PART that produced no body, folded over everywhere it occurs.\n\nThe same fold the web's assembly Partial gate makes (``partFailures.ts``):\none entry per part document, named as the user knows the part (\"Crank arm\",\nthe instance's ``<n>`` stripped), counting its occurrences at any depth:\ndirectly, inside sub-assemblies, and as component-pattern copies.",
+        "properties": {
+          "code": {
+            "description": "The kernel's typed code (`no_body`, \u2026)",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "default": "",
+            "description": "The kernel's sentence. Empty in the export header, which carries only names, codes and counts.",
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "description": "The part's name as the user knows it (\"Crank arm\")",
+            "title": "Name",
+            "type": "string"
+          },
+          "occurrences": {
+            "description": "Occurrences the file leaves out",
+            "minimum": 1.0,
+            "title": "Occurrences",
+            "type": "integer"
+          },
+          "part_document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The part document (the `part_key` before `@`); null if unknown",
+            "title": "Part Document Id"
+          }
+        },
+        "required": [
+          "name",
+          "code",
+          "occurrences"
+        ],
+        "title": "OmittedPart",
         "type": "object"
       },
       "OriginAxis": {
@@ -11434,7 +11522,7 @@
     },
     "/api/v1/assembly/export": {
       "post": {
-        "description": "Evaluate an assembly and export it as ONE multi-instance CAD download.\n\nStateless (CLAUDE.md): documents sends the assembly graph (the SAME\n``EvaluateAssemblyRequest`` fields the evaluate route takes, plus the export\n``format``), geometry solves it through the identical pipeline\n(``solve_assembly`` \u2014 each unique part evaluated once, the mate graph solved\nto per-instance world placements), and composes every instance that produced\na body into a single file. STEP writes **AP214 product structure**: each\ninstance is a named PRODUCT at its solved placement, so a re-import recovers\neach part traceable to its instance; STL bakes the placements into one\nfaceted compound. Deterministic (RESEARCH \u00a79): the STEP timestamp is pinned\nand the per-occurrence ids canonicalised, so identical requests produce\nbyte-identical files.\n\nAn assembly where NO instance produced a body is a clean 422\n``assembly_export_no_body`` envelope (never a zero-solid file or a 500,\nmirroring ``/export/tree``'s no-body posture, \u00a74.3); a bad part/mate/solve is\nabsorbed by the solve into a best-fit placement, not a failure. The py-kit\nerror envelope stays reserved for transport/validation failures of this call.",
+        "description": "Evaluate an assembly and export it as ONE multi-instance CAD download.\n\nStateless (CLAUDE.md): documents sends the assembly graph (the SAME\n``EvaluateAssemblyRequest`` fields the evaluate route takes, plus the export\n``format``), geometry solves it through the identical pipeline\n(``solve_assembly`` \u2014 each unique part evaluated once, the mate graph solved\nto per-instance world placements), and composes every instance that produced\na body into a single file. STEP writes **AP214 product structure**: each\ninstance is a named PRODUCT at its solved placement, so a re-import recovers\neach part traceable to its instance; STL bakes the placements into one\nfaceted compound. Deterministic (RESEARCH \u00a79): the STEP timestamp is pinned\nand the per-occurrence ids canonicalised, so identical requests produce\nbyte-identical files.\n\nAn assembly where NO instance produced a body is a clean 422\n``assembly_export_no_body`` envelope (never a zero-solid file or a 500,\nmirroring ``/export/tree``'s no-body posture, \u00a74.3); a bad part/mate/solve is\nabsorbed by the solve into a best-fit placement, not a failure. An assembly\nwhere SOME occurrences produced no body is still a 200, and the file is\nshort, so ``X-Loft-Omitted-Occurrences`` names them by part with their\ncounts (ASM-FAILED-PART-API); a file holding every occurrence sends no such\nheader. The py-kit\nerror envelope stays reserved for transport/validation failures of this call.",
         "operationId": "export_assembly_route_api_v1_assembly_export_post",
         "requestBody": {
           "content": {
@@ -11474,10 +11562,16 @@
                 }
               }
             },
-            "description": "The exported assembly file, in the same four formats as a part, differing in how much assembly structure they keep: STEP AP214 part 21 (`model/step`, exact B-rep) with INSTANCED product structure \u2014 each instance a named occurrence of its part at its solved world placement; 3MF (`model/3mf`) with one NAMED OBJECT per instance; STL (`model/stl`) and binary glTF (`model/gltf-binary`, metres and Y-up) as one faceted compound with placements baked in. `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files.",
+            "description": "The exported assembly file, in the same four formats as a part, differing in how much assembly structure they keep: STEP AP214 part 21 (`model/step`, exact B-rep) with INSTANCED product structure \u2014 each instance a named occurrence of its part at its solved world placement; 3MF (`model/3mf`) with one NAMED OBJECT per instance; STL (`model/stl`) and binary glTF (`model/gltf-binary`, metres and Y-up) as one faceted compound with placements baked in. `Content-Disposition` carries the suggested download filename; `X-Loft-Omitted-Occurrences` names the occurrences left out because their part produced no body. Byte-deterministic: identical requests produce identical files.",
             "headers": {
               "Content-Disposition": {
                 "description": "attachment; filename=\"<shape>.<format>\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Loft-Omitted-Occurrences": {
+                "description": "Present only when the file leaves occurrences out because their part produced no body: `OmittedOccurrences` as ASCII-only compact JSON (non-ASCII as \\uXXXX escapes), at most 4096 bytes.",
                 "schema": {
                   "type": "string"
                 }

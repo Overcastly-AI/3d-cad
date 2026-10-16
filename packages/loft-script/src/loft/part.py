@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Literal, NoReturn, TypeVar
 from loft_wire.expr import Quantity
 from loft_wire.extrude_extent import ExtrudeExtent
 from loft_wire.features import (
+    AuthoredFeature,
     EvaluateTreeResult,
     ExtrudeFeature,
     ExtrudeParamsV1,
@@ -413,7 +414,7 @@ class Part:
         self,
         feature_id: uuid.UUID,
         *,
-        feature: Feature | None = None,
+        feature: AuthoredFeature | None = None,
         name: str | None = None,
     ) -> FeatureMutationResponse:
         """Rename a feature and/or replace its whole param envelope.
@@ -672,7 +673,7 @@ class Part:
         naming the field before anything is sent.
         """
 
-        def build(stored: Feature) -> Feature:
+        def build(stored: AuthoredFeature) -> AuthoredFeature:
             if not isinstance(stored, SweepFeature):
                 raise TypeError(
                     f"feature {feature_id} is a {stored.type!r}, not a sweep"
@@ -724,7 +725,7 @@ class Part:
     def _update_extrude(
         self, feature_id: uuid.UUID, **changes: Numeric | None
     ) -> FeatureResponse:
-        def build(stored: Feature) -> Feature:
+        def build(stored: AuthoredFeature) -> AuthoredFeature:
             if not isinstance(stored, ExtrudeFeature):
                 raise TypeError(
                     f"feature {feature_id} is a {stored.type!r}, not an extrude"
@@ -755,7 +756,7 @@ class Part:
         return self._replace_feature(feature_id, build)
 
     def _replace_feature(
-        self, feature_id: uuid.UUID, build: Callable[[Feature], Feature]
+        self, feature_id: uuid.UUID, build: Callable[[AuthoredFeature], AuthoredFeature]
     ) -> FeatureResponse:
         """Replace a feature's envelope with ``build(stored)``, never over a
         concurrent edit.

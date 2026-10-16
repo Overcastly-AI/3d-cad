@@ -1,0 +1,126 @@
+{
+  "part_id": "00000000-0000-0000-0000-00000000071d",
+  "tree_version": 1,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-0000000007d1",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "kind": "line",
+              "start": {
+                "x": -10.0,
+                "y": -10.0
+              },
+              "end": {
+                "x": 10.0,
+                "y": -10.0
+              }
+            },
+            {
+              "id": "e2",
+              "kind": "line",
+              "start": {
+                "x": 10.0,
+                "y": -10.0
+              },
+              "end": {
+                "x": 10.0,
+                "y": 10.0
+              }
+            },
+            {
+              "id": "e3",
+              "kind": "line",
+              "start": {
+                "x": 10.0,
+                "y": 10.0
+              },
+              "end": {
+                "x": -10.0,
+                "y": 10.0
+              }
+            },
+            {
+              "id": "e4",
+              "kind": "line",
+              "start": {
+                "x": -10.0,
+                "y": 10.0
+              },
+              "end": {
+                "x": -10.0,
+                "y": -10.0
+              }
+            },
+            {
+              "id": "h1",
+              "kind": "circle",
+              "center": {
+                "x": 4.0,
+                "y": 0.0
+              },
+              "radius": 3.0
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          }
+        }
+      }
+    },
+    {
+      "id": "7ed0af34-5722-5471-bde8-3510a73b3404",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "p1",
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 0.0,
+                "y": 30.0
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XZ"
+          }
+        }
+      }
+    },
+    {
+      "id": "0b0aa84c-e867-5d88-8ab2-ee479afb3482",
+      "feature": {
+        "type": "sweep",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000007d1"
+          },
+          "path": {
+            "kind": "feature",
+            "feature_id": "7ed0af34-5722-5471-bde8-3510a73b3404"
+          },
+          "operation": "add",
+          "twist_angle_deg": 30.0
+        }
+      }
+    }
+  ]
+}

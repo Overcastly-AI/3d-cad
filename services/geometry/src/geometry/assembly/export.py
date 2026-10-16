@@ -48,6 +48,9 @@ from loft_wire.assemblies import (
     Placement,
     assembly_export_root_name,
 )
+from loft_wire.omitted_occurrences import (
+    OmittedOccurrences,
+)
 
 from geometry.assembly.evaluate import (
     Occurrence,
@@ -212,12 +215,24 @@ def _component(placed: PlacedInstance, twisted_parts: set[str]) -> AssemblyCompo
 
 
 def export_assembly(request: ExportAssemblyRequest) -> bytes:
+    """The file :func:`export_assembly_reporting` writes, without the report."""
+    data, _omitted = export_assembly_reporting(request)
+    return data
+
+
+def export_assembly_reporting(
+    request: ExportAssemblyRequest,
+) -> tuple[bytes, OmittedOccurrences | None]:
     """Evaluate + solve *request* and export it as one multi-instance CAD file.
 
     Reuses :func:`solve_assembly` (identical to the evaluate path), then composes
     every instance that produced a body — at its SOLVED world placement — into a
     single STEP (AP214 product structure, named PRODUCTs) or STL (faceted
     compound). Deterministic end to end (RESEARCH §9; module docstring).
+
+    Returns the file and the occurrences it LEFT OUT (their part produced no
+    body; :func:`~geometry.assembly.evaluate.omitted_occurrences`), None when
+    the file holds every occurrence (ASM-FAILED-PART-API).
 
     Raises:
         AssemblyExportError: no instance produced a body (nothing to export); the
@@ -237,6 +252,13 @@ def export_assembly(request: ExportAssemblyRequest) -> bytes:
         for instance in iter_part_instances(request.instances)
         if features_have_twist(instance.features)
     }
+    return _write(request, solved, twisted_parts), solved.omitted()
+
+
+def _write(
+    request: ExportAssemblyRequest, solved: SolvedAssembly, twisted_parts: set[str]
+) -> bytes:
+    """The file in *request*'s format, from the solved bodies."""
     if request.format == "step":
         return export_step_assembly_bytes(
             assembly_export_root_name(request),

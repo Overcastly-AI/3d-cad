@@ -47,6 +47,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY packages/py-kit/pyproject.toml packages/py-kit/
 COPY packages/loft-wire/pyproject.toml packages/loft-wire/
+COPY packages/loft-plugins/pyproject.toml packages/loft-plugins/
 COPY services/gateway/pyproject.toml services/gateway/
 COPY services/documents/pyproject.toml services/documents/
 COPY services/geometry/pyproject.toml services/geometry/
@@ -93,6 +94,7 @@ RUN if [ "${SERVICE_NAME}" = "geometry" ]; then \
 # `deploy-path`, which is the only workflow that can build an image at all.
 COPY packages/py-kit packages/py-kit
 COPY packages/loft-wire packages/loft-wire
+COPY packages/loft-plugins packages/loft-plugins
 COPY services services
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable --package "loft-${SERVICE_NAME}"

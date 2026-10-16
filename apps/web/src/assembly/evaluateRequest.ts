@@ -19,6 +19,7 @@ import type {
   SubAssemblyRequest,
 } from "../api/assemblies";
 import { MESH_LINEAR_DEFLECTION_MM } from "../api/client";
+import { evaluatedFeatures } from "../api/evaluatedFeatures";
 
 /** The dedup key for an instance's referenced document (design §4). */
 export function partKey(instance: InstanceResponse): string {
@@ -31,9 +32,9 @@ export function partKey(instance: InstanceResponse): string {
 
 /** The part's ordered, non-rolled-back feature prefix (feature-tree §4). */
 function featurePrefix(tree: FeatureTreeResponse) {
-  return tree.features
-    .filter((feature) => !feature.rolled_back)
-    .map((feature) => ({ id: feature.id, feature: feature.feature }));
+  return evaluatedFeatures(
+    tree.features.filter((feature) => !feature.rolled_back),
+  );
 }
 
 /**

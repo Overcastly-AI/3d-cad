@@ -92,6 +92,91 @@
         "title": "AngleConstraint",
         "type": "object"
       },
+      "AngleInput": {
+        "description": "An angle in degrees. Accepts a \u00a720 expression.",
+        "properties": {
+          "default": {
+            "description": "Value a new feature gets.",
+            "title": "Default",
+            "type": "number"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Help text under the field.",
+            "title": "Description"
+          },
+          "exclusive_minimum": {
+            "default": false,
+            "description": "True: the value must be strictly above `minimum`.",
+            "title": "Exclusive Minimum",
+            "type": "boolean"
+          },
+          "kind": {
+            "const": "angle",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "Form label, e.g. 'Twist angle'.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum"
+          },
+          "name": {
+            "description": "Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.",
+            "maxLength": 48,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "unit": {
+            "const": "deg",
+            "default": "deg",
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "default",
+          "kind"
+        ],
+        "title": "AngleInput",
+        "type": "object"
+      },
       "AngleMate": {
         "description": "Two planar faces held at a fixed angle (fast-follow, design \u00a75).\n\nThe angular sibling of :class:`DistanceMate`: the coincident residual with\nthe angle between the two normals targeted at ``angle_deg`` (\u00a72.3). In the\nschema now; not v1-solver scope.",
         "properties": {
@@ -909,6 +994,93 @@
         "title": "ChamferParamsV1",
         "type": "object"
       },
+      "ChoiceInput": {
+        "description": "One of a fixed list of options (a direction, add or cut).",
+        "properties": {
+          "default": {
+            "maxLength": 48,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Default",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Help text under the field.",
+            "title": "Description"
+          },
+          "kind": {
+            "const": "choice",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "Form label, e.g. 'Twist angle'.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.",
+            "maxLength": 48,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/ChoiceOption"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Options",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "kind",
+          "options",
+          "default"
+        ],
+        "title": "ChoiceInput",
+        "type": "object"
+      },
+      "ChoiceOption": {
+        "description": "One option of a choice input.",
+        "properties": {
+          "label": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 48,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ],
+        "title": "ChoiceOption",
+        "type": "object"
+      },
       "CircularComponentPattern": {
         "description": "``count`` copies about ``axis``, over ``angle_deg``.\n\n360 degrees is a full ring: the copies are 360/count apart. A smaller\nangle is the angle from the seed to the last copy: they are\nangle/(count - 1) apart (Fusion's Full / Angle, SolidWorks' equal spacing).",
         "properties": {
@@ -1179,6 +1351,191 @@
           "b"
         ],
         "title": "ConcentricMate",
+        "type": "object"
+      },
+      "CountInput": {
+        "description": "A whole number of things (studs, rungs). Accepts a \u00a720 expression that\nevaluates to a whole plain number.",
+        "properties": {
+          "default": {
+            "title": "Default",
+            "type": "integer"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Help text under the field.",
+            "title": "Description"
+          },
+          "kind": {
+            "const": "count",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "Form label, e.g. 'Twist angle'.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "maximum": {
+            "maximum": 5000.0,
+            "title": "Maximum",
+            "type": "integer"
+          },
+          "minimum": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Minimum",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.",
+            "maxLength": 48,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "kind",
+          "default",
+          "maximum"
+        ],
+        "title": "CountInput",
+        "type": "object"
+      },
+      "CustomFeature": {
+        "description": "``{\"type\": \"custom\", \"version\": 1, \"params\": {...}}``: a plugin's feature.\n\nAuthored and stored like any feature, but NOT in :data:`Feature`: it never\nreaches geometry, which receives its expansion instead. Formulas drive\nnumeric inputs only (``/inputs/<name>``).",
+        "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
+          "params": {
+            "$ref": "#/components/schemas/CustomParamsV1"
+          },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
+          "type": {
+            "const": "custom",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "CustomFeature",
+        "type": "object"
+      },
+      "CustomParamsV1": {
+        "description": "A custom feature: the plugin it is pinned to, its inputs, and the last\nexpansion. Documents expands it on every write and evaluation, and geometry\nonly ever receives the base features (RESEARCH \u00a723). The stored expansion\nis what a server without the plugin (or the pinned version) rebuilds,\nread-only.",
+        "properties": {
+          "expansion": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ExpandedMember"
+                },
+                "maxItems": 5000,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The last expansion, written by documents (a client may omit it). Null only on a request.",
+            "title": "Expansion"
+          },
+          "inputs": {
+            "description": "Input name -> value, validated against the pinned manifest.",
+            "maxProperties": 32,
+            "patternProperties": {
+              "^[a-z][a-z0-9_]*$": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "maxLength": 200,
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/components/schemas/FeatureRef"
+                  }
+                ]
+              }
+            },
+            "propertyNames": {
+              "maxLength": 48,
+              "minLength": 1
+            },
+            "title": "Inputs",
+            "type": "object"
+          },
+          "plugin_id": {
+            "maxLength": 64,
+            "minLength": 3,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "plugin_version": {
+            "description": "The pinned plugin version; updating it is an explicit edit.",
+            "maxLength": 32,
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+            "title": "Plugin Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_id",
+          "plugin_version",
+          "inputs"
+        ],
+        "title": "CustomParamsV1",
         "type": "object"
       },
       "DatumAngleParams": {
@@ -3156,6 +3513,136 @@
         "title": "EvaluatedPattern",
         "type": "object"
       },
+      "ExpandedMember": {
+        "description": "One base feature a custom feature expanded to, as stored with it.",
+        "properties": {
+          "feature": {
+            "discriminator": {
+              "mapping": {
+                "boolean": "#/components/schemas/BooleanFeature",
+                "chamfer": "#/components/schemas/ChamferFeature",
+                "datum": "#/components/schemas/DatumFeature",
+                "draft": "#/components/schemas/DraftFeature",
+                "extrude": "#/components/schemas/ExtrudeFeature",
+                "fillet": "#/components/schemas/FilletFeature",
+                "hole": "#/components/schemas/HoleFeature",
+                "import": "#/components/schemas/ImportFeature",
+                "loft": "#/components/schemas/LoftFeature",
+                "mirror": "#/components/schemas/MirrorFeature",
+                "pattern": "#/components/schemas/PatternFeature",
+                "revolve": "#/components/schemas/RevolveFeature",
+                "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
+                "sheet_metal_corner_relief": "#/components/schemas/SheetMetalCornerReliefFeature",
+                "sheet_metal_edge_flange": "#/components/schemas/SheetMetalEdgeFlangeFeature",
+                "sheet_metal_hem": "#/components/schemas/SheetMetalHemFeature",
+                "shell": "#/components/schemas/ShellFeature",
+                "sketch": "#/components/schemas/SketchFeature",
+                "sweep": "#/components/schemas/SweepFeature"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DatumFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SketchFeature"
+              },
+              {
+                "$ref": "#/components/schemas/ExtrudeFeature"
+              },
+              {
+                "$ref": "#/components/schemas/RevolveFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SweepFeature"
+              },
+              {
+                "$ref": "#/components/schemas/LoftFeature"
+              },
+              {
+                "$ref": "#/components/schemas/FilletFeature"
+              },
+              {
+                "$ref": "#/components/schemas/ChamferFeature"
+              },
+              {
+                "$ref": "#/components/schemas/ShellFeature"
+              },
+              {
+                "$ref": "#/components/schemas/DraftFeature"
+              },
+              {
+                "$ref": "#/components/schemas/HoleFeature"
+              },
+              {
+                "$ref": "#/components/schemas/PatternFeature"
+              },
+              {
+                "$ref": "#/components/schemas/MirrorFeature"
+              },
+              {
+                "$ref": "#/components/schemas/ImportFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SheetMetalBaseFlangeFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SheetMetalEdgeFlangeFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SheetMetalHemFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SheetMetalCornerReliefFeature"
+              },
+              {
+                "$ref": "#/components/schemas/BooleanFeature"
+              }
+            ],
+            "title": "Feature"
+          },
+          "id": {
+            "description": "loft_wire.plugins.member_id(<feature-id>, role, index): the stable id geometry builds, results and picks name this member by.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "index": {
+            "description": "n within role.",
+            "exclusiveMaximum": 5000.0,
+            "minimum": 0.0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemberMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "description": "The manifest role this member takes.",
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "index",
+          "id",
+          "feature"
+        ],
+        "title": "ExpandedMember",
+        "type": "object"
+      },
       "ExtrudeFeature": {
         "description": "``{\"type\": \"extrude\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -3325,6 +3812,7 @@
               "mapping": {
                 "boolean": "#/components/schemas/BooleanFeature",
                 "chamfer": "#/components/schemas/ChamferFeature",
+                "custom": "#/components/schemas/CustomFeature",
                 "datum": "#/components/schemas/DatumFeature",
                 "draft": "#/components/schemas/DraftFeature",
                 "extrude": "#/components/schemas/ExtrudeFeature",
@@ -3402,6 +3890,9 @@
               },
               {
                 "$ref": "#/components/schemas/BooleanFeature"
+              },
+              {
+                "$ref": "#/components/schemas/CustomFeature"
               }
             ],
             "title": "Feature"
@@ -3556,6 +4047,69 @@
         "title": "FeatureRef",
         "type": "object"
       },
+      "FeatureReferenceInput": {
+        "description": "An earlier feature of one of ``feature_types`` (a host wall, a datum).\nStored as a ``FeatureRef``. Hosting is by inputs, never by geometry.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Help text under the field.",
+            "title": "Description"
+          },
+          "feature_types": {
+            "description": "Feature types the picked feature may be (`datum`, `sketch`, `custom`, ...).",
+            "items": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Feature Types",
+            "type": "array"
+          },
+          "kind": {
+            "const": "feature",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "Form label, e.g. 'Twist angle'.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.",
+            "maxLength": 48,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "optional": {
+            "default": false,
+            "description": "True: may be left empty.",
+            "title": "Optional",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "kind",
+          "feature_types"
+        ],
+        "title": "FeatureReferenceInput",
+        "type": "object"
+      },
       "FeatureReorderRequest": {
         "description": "Reorder the whole tree: the complete permutation of feature ids in the\ndesired evaluation order. Backward-only references (design \u00a72.2 rule 2)\nare re-checked under the new order.",
         "properties": {
@@ -3594,6 +4148,7 @@
               "mapping": {
                 "boolean": "#/components/schemas/BooleanFeature",
                 "chamfer": "#/components/schemas/ChamferFeature",
+                "custom": "#/components/schemas/CustomFeature",
                 "datum": "#/components/schemas/DatumFeature",
                 "draft": "#/components/schemas/DraftFeature",
                 "extrude": "#/components/schemas/ExtrudeFeature",
@@ -3671,6 +4226,9 @@
               },
               {
                 "$ref": "#/components/schemas/BooleanFeature"
+              },
+              {
+                "$ref": "#/components/schemas/CustomFeature"
               }
             ],
             "title": "Feature"
@@ -3809,6 +4367,7 @@
                   "mapping": {
                     "boolean": "#/components/schemas/BooleanFeature",
                     "chamfer": "#/components/schemas/ChamferFeature",
+                    "custom": "#/components/schemas/CustomFeature",
                     "datum": "#/components/schemas/DatumFeature",
                     "draft": "#/components/schemas/DraftFeature",
                     "extrude": "#/components/schemas/ExtrudeFeature",
@@ -3886,6 +4445,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/BooleanFeature"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CustomFeature"
                   }
                 ]
               },
@@ -5606,6 +6168,91 @@
         "title": "JointValue",
         "type": "object"
       },
+      "LengthInput": {
+        "description": "A length in mm (a distance, a spacing). Accepts a \u00a720 expression.",
+        "properties": {
+          "default": {
+            "description": "Value a new feature gets.",
+            "title": "Default",
+            "type": "number"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Help text under the field.",
+            "title": "Description"
+          },
+          "exclusive_minimum": {
+            "default": false,
+            "description": "True: the value must be strictly above `minimum`.",
+            "title": "Exclusive Minimum",
+            "type": "boolean"
+          },
+          "kind": {
+            "const": "length",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "Form label, e.g. 'Twist angle'.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum"
+          },
+          "name": {
+            "description": "Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.",
+            "maxLength": 48,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "unit": {
+            "const": "mm",
+            "default": "mm",
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "default",
+          "kind"
+        ],
+        "title": "LengthInput",
+        "type": "object"
+      },
       "LinearComponentPattern": {
         "description": "``count`` copies, ``spacing_mm`` apart along ``direction``.",
         "properties": {
@@ -6487,6 +7134,71 @@
         "title": "MaterialAssignment",
         "type": "object"
       },
+      "MaterialInput": {
+        "description": "A library material for the generated members (their mass and cut list).",
+        "properties": {
+          "default": {
+            "anyOf": [
+              {
+                "enum": [
+                  "steel_1018",
+                  "stainless_304",
+                  "aluminium_6061",
+                  "brass_c360",
+                  "abs",
+                  "pla",
+                  "nylon_6"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Help text under the field.",
+            "title": "Description"
+          },
+          "kind": {
+            "const": "material",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "Form label, e.g. 'Twist angle'.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.",
+            "maxLength": 48,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "kind"
+        ],
+        "title": "MaterialInput",
+        "type": "object"
+      },
       "MaterialLibraryResponse": {
         "description": "The built-in material library, served so no client hardcodes a density.\n\nThe picker needs names + densities, and a second copy of the table in TS\nwould be a DRY violation that silently drifts (CLAUDE.md). One table, in\npy-kit, served over the API.",
         "properties": {
@@ -6502,6 +7214,60 @@
           "materials"
         ],
         "title": "MaterialLibraryResponse",
+        "type": "object"
+      },
+      "MemberMetadata": {
+        "description": "What the cut list and mass need about one generated member (RESEARCH \u00a723).\n\nAll optional: a helper member (a path sketch) carries none.",
+        "properties": {
+          "material": {
+            "anyOf": [
+              {
+                "enum": [
+                  "steel_1018",
+                  "stainless_304",
+                  "aluminium_6061",
+                  "brass_c360",
+                  "abs",
+                  "pla",
+                  "nylon_6"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Library material of the member.",
+            "title": "Material"
+          },
+          "nominal_size": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Nominal size as sold, e.g. '2x8x12'.",
+            "title": "Nominal Size"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Section the member is cut from, e.g. '2x8'.",
+            "title": "Profile"
+          }
+        },
+        "title": "MemberMetadata",
         "type": "object"
       },
       "MidpointConstraint": {
@@ -7826,6 +8592,168 @@
         "title": "PlanarFaceSignature",
         "type": "object"
       },
+      "PluginCatalog": {
+        "description": "Every released version of every installed plugin (``GET /api/v1/plugins``),\nordered by id, newest version first.",
+        "properties": {
+          "plugins": {
+            "items": {
+              "$ref": "#/components/schemas/PluginManifest"
+            },
+            "title": "Plugins",
+            "type": "array"
+          }
+        },
+        "required": [
+          "plugins"
+        ],
+        "title": "PluginCatalog",
+        "type": "object"
+      },
+      "PluginManifest": {
+        "description": "One released version of a plugin: what the toolbar and form are built\nfrom (``GET /api/v1/plugins``). Immutable once released: a change to what\nthe plugin builds from existing inputs is a new version.",
+        "properties": {
+          "description": {
+            "description": "One-line help for the tool.",
+            "maxLength": 500,
+            "title": "Description",
+            "type": "string"
+          },
+          "group": {
+            "const": "build",
+            "default": "build",
+            "description": "Toolbar group the tool sits in.",
+            "title": "Group",
+            "type": "string"
+          },
+          "id": {
+            "description": "Stable plugin id, e.g. 'loft.twisted_prism'.",
+            "maxLength": 64,
+            "minLength": 3,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+            "title": "Id",
+            "type": "string"
+          },
+          "inputs": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "angle": "#/components/schemas/AngleInput",
+                  "choice": "#/components/schemas/ChoiceInput",
+                  "count": "#/components/schemas/CountInput",
+                  "feature": "#/components/schemas/FeatureReferenceInput",
+                  "length": "#/components/schemas/LengthInput",
+                  "material": "#/components/schemas/MaterialInput",
+                  "profile": "#/components/schemas/ProfileInput"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/LengthInput"
+                },
+                {
+                  "$ref": "#/components/schemas/AngleInput"
+                },
+                {
+                  "$ref": "#/components/schemas/CountInput"
+                },
+                {
+                  "$ref": "#/components/schemas/ChoiceInput"
+                },
+                {
+                  "$ref": "#/components/schemas/ProfileInput"
+                },
+                {
+                  "$ref": "#/components/schemas/FeatureReferenceInput"
+                },
+                {
+                  "$ref": "#/components/schemas/MaterialInput"
+                }
+              ]
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Inputs",
+            "type": "array"
+          },
+          "latest": {
+            "default": false,
+            "description": "True on the newest released version of this plugin: the one a new feature is inserted with. Older versions are listed so a feature pinned to one still gets its form.",
+            "title": "Latest",
+            "type": "boolean"
+          },
+          "members": {
+            "description": "Roles the expansion's members take, in tree order.",
+            "items": {
+              "$ref": "#/components/schemas/PluginMemberRole"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Members",
+            "type": "array"
+          },
+          "title": {
+            "description": "Toolbar and tree title, e.g. 'Twisted prism'.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "description": "Released version, MAJOR.MINOR.PATCH.",
+            "maxLength": 32,
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "title",
+          "description",
+          "inputs",
+          "members"
+        ],
+        "title": "PluginManifest",
+        "type": "object"
+      },
+      "PluginMemberRole": {
+        "description": "A role the plugin's members take (``joist``, ``path``): the middle\nsegment of each member's id, and the group a member unfolds under in the\ntree.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "role": {
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Role",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "title"
+        ],
+        "title": "PluginMemberRole",
+        "type": "object"
+      },
       "Point2D": {
         "description": "A point in sketch-plane coordinates (mm).",
         "properties": {
@@ -8020,6 +8948,51 @@
           "b"
         ],
         "title": "PointToPointMeasurement",
+        "type": "object"
+      },
+      "ProfileInput": {
+        "description": "An earlier SKETCH whose closed wire is the profile (picked in the\nviewport or the tree). Stored as a ``FeatureRef``.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Help text under the field.",
+            "title": "Description"
+          },
+          "kind": {
+            "const": "profile",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "Form label, e.g. 'Twist angle'.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.",
+            "maxLength": 48,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "kind"
+        ],
+        "title": "ProfileInput",
         "type": "object"
       },
       "Quat": {
@@ -16598,6 +17571,58 @@
         "summary": "Restore Version",
         "tags": [
           "versions"
+        ]
+      }
+    },
+    "/api/v1/plugins": {
+      "get": {
+        "description": "Every released version of every installed plugin, newest first: what\nthe Build toolbar and each custom feature's form are generated from.\nPrincipal-gated like the document routes (the catalog is not scoped).",
+        "operationId": "list_plugins_api_v1_plugins_get",
+        "parameters": [
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginCatalog"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Plugins",
+        "tags": [
+          "plugins"
         ]
       }
     },

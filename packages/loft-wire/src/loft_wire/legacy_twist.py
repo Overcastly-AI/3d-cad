@@ -3,7 +3,9 @@
 Founder decision 2026-10-09 (docs/VISION.md "Base tooling and plugins"): base
 tooling is the Fusion 360 / SolidWorks / Onshape core, and none of them twists
 an extrude. A twisted prism is a Sweep with twist along a straight path, which
-builds the same solid through the same kernel call.
+builds the same solid through the same kernel call. Since PLUGIN-REGISTRY
+that is one tool again: the first-party ``loft.twisted_prism`` plugin
+(``loft_plugins.builtin.twisted_prism``) expands to exactly that Sweep.
 
 User data is never lost: a stored extrude that carries ``twist_angle_deg``
 still loads and rebuilds exactly as before, and an edit that carries its twist
@@ -20,7 +22,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from loft_wire.features import ExtrudeFeature, ExtrudeParamsV1, FeatureEnvelope
+from loft_wire.features import AuthoredEnvelope, ExtrudeFeature, ExtrudeParamsV1
 
 #: The typed error code of a refused extrude twist (a 422 envelope).
 EXTRUDE_TWIST_DEPRECATED_CODE = "extrude_twist_deprecated"
@@ -28,8 +30,9 @@ EXTRUDE_TWIST_DEPRECATED_CODE = "extrude_twist_deprecated"
 #: The one message every authoring surface (API, loft-script) refuses with.
 EXTRUDE_TWIST_DEPRECATED_MESSAGE = (
     "Extrude twist is deprecated: existing twisted extrudes still rebuild "
-    "unchanged, but a twist cannot be added or changed on an extrude. Use a "
-    "Sweep with twist along a straight path instead (the same solid)."
+    "unchanged, but a twist cannot be added or changed on an extrude. Use the "
+    "Twisted prism tool, or a Sweep with twist along a straight path (the same "
+    "solid)."
 )
 
 
@@ -55,7 +58,7 @@ def _stored_twist(
 
 
 def authors_extrude_twist(
-    feature: FeatureEnvelope, stored_params: Mapping[str, Any] | None = None
+    feature: AuthoredEnvelope, stored_params: Mapping[str, Any] | None = None
 ) -> bool:
     """Whether writing *feature* would author a NEW or CHANGED extrude twist.
 

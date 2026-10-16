@@ -44,7 +44,7 @@ from typing import Any, NoReturn, cast
 
 from fastapi import APIRouter, status
 from loft_wire.features import (
-    FEATURE_REGISTRY,
+    AUTHORED_FEATURES,
     FeatureCreate,
     JsonObject,
     UnknownFeatureVersionError,
@@ -71,6 +71,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db
+from documents.custom_features import (
+    check_stored_custom,
+    check_tree_size,
+    expanded_size,
+    member_id_mapping,
+    refresh_expansions,
+)
 from documents.duplicate import remap_ids, taken_names
 from documents.features import (
     part_materials,
@@ -116,10 +123,13 @@ async def build_loft_tree(session: AsyncSession, part: db.Part) -> LoftTree:
             .order_by(db.Feature.order_index)
         )
     ).scalars()
+    rows = list(rows)
     features: list[LoftTreeFeature] = []
-    for row in rows:
-        envelope = FEATURE_REGISTRY.load(
-            row.type, row.param_version, row.params, suppressed=row.suppressed
+    # A custom feature carries the expansion THIS server builds, so the file
+    # rebuilds on a server without its plugin (RESEARCH §23).
+    for row, params in zip(rows, refresh_expansions(part, rows), strict=True):
+        envelope = AUTHORED_FEATURES.load(
+            row.type, row.param_version, params, suppressed=row.suppressed
         )
         features.append(
             LoftTreeFeature(
@@ -211,7 +221,7 @@ def _refuse(
 def _current_params(feature: LoftTreeFeature) -> tuple[int, JsonObject]:
     """The feature's params at the CURRENT version, or a 422 naming it."""
     try:
-        current = FEATURE_REGISTRY.current_version(feature.type)
+        current = AUTHORED_FEATURES.current_version(feature.type)
     except UnknownFeatureVersionError:
         _refuse(
             feature,
@@ -228,7 +238,7 @@ def _current_params(feature: LoftTreeFeature) -> tuple[int, JsonObject]:
             supported_version=current,
         )
     try:
-        params = FEATURE_REGISTRY.upcast_params(
+        params = AUTHORED_FEATURES.upcast_params(
             feature.type, feature.param_version, feature.params
         )
     except UnknownFeatureVersionError:
@@ -312,12 +322,14 @@ def validated_rows(
             feature, version, cast(JsonObject, remap_loft_params(params, mapping))
         )
         try:
+            row_id = uuid.UUID(mapping.get(str(feature.id), str(feature.id)))
             reject_import_with_prior_body(create.feature, position, rows)
             targets = validate_references(create.feature, position, by_id)
+            check_stored_custom(row_id, create.feature, rows)
         except ValidationApiError as exc:
             _refuse(feature, exc.message, exc.code, reason=exc.details)
         row = db.Feature(
-            id=uuid.UUID(mapping.get(str(feature.id), str(feature.id))),
+            id=row_id,
             part_id=part_id,
             order_index=position,
             name=create.name,
@@ -330,6 +342,9 @@ def validated_rows(
         rows.append(row)
         by_id[row.id] = row
         edges.append((row.id, targets))
+    # Counted after expansion: stored members are what geometry receives, and
+    # a tree past the evaluation bound would never evaluate again.
+    check_tree_size(expanded_size(rows), "The .loft tree")
     return rows, edges
 
 
@@ -481,6 +496,15 @@ async def import_loft(
         mapping = {
             str(old): str(uuid.uuid4()) for old in [request.document_id, *all_ids]
         }
+        # A custom feature's members are named after it: they follow its id.
+        mapping |= member_id_mapping(
+            (
+                (feature.id, feature.type, feature.params)
+                for each in (tree, *(version.tree for version in request.versions))
+                for feature in each.features
+            ),
+            mapping,
+        )
     new_id = {old: uuid.UUID(mapping.get(str(old), str(old))) for old in file_ids}
     part_id = uuid.UUID(mapping.get(str(request.document_id), str(request.document_id)))
 

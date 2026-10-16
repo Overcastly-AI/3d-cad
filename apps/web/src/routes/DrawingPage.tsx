@@ -78,6 +78,7 @@ export function DrawingPage() {
     hasLayout,
     draftedSourceId,
     assemblyPartial,
+    assemblyFailedParts,
     parts,
     sources,
     selectedSourceId,
@@ -131,6 +132,14 @@ export function DrawingPage() {
             params: { partId: line.ref_document_id },
           }));
     },
+    [navigate],
+  );
+
+  // A part of the drafted assembly that failed to build: open it, where the
+  // failing feature is marked (the check strip's row action).
+  const handleOpenPart = useCallback(
+    (partId: string) =>
+      void navigate({ to: "/parts/$partId", params: { partId } }),
     [navigate],
   );
 
@@ -442,7 +451,9 @@ export function DrawingPage() {
               // The check strip needs clearance from the sheet switcher, which
               // floats in this same top-left margin; without it the two touch at
               // narrow widths. Only paid for when the strip is there.
-              layoutIssues.length > 0 || assemblyPartial !== null
+              layoutIssues.length > 0 ||
+              assemblyPartial !== null ||
+              assemblyFailedParts.length > 0
                 ? "pt-12 sm:pt-12"
                 : ""
             }`}
@@ -477,6 +488,8 @@ export function DrawingPage() {
               handPlaced={handPlacedViews}
               onAutoPlace={handleAutoPlaceViews}
               busy={placingView}
+              failedParts={assemblyFailedParts}
+              onOpenPart={handleOpenPart}
             />
             <div className="min-h-0 w-full grow">
               <DrawingSheet

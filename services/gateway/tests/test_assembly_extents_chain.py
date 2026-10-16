@@ -644,3 +644,61 @@ def test_a_foreign_caller_gets_a_404_and_no_geometry_is_solved(
             assert anonymous.status_code == 401, anonymous.text
 
     asyncio.run(scenario())
+
+
+def test_a_part_that_failed_to_build_is_named_on_the_extents(
+    tmp_path: Path,
+) -> None:
+    """ASM-FAILED-PART-API: the drawing's check strip names the parts its views
+    leave out, from this route. A crank arm with no body, placed twice beside a
+    plate: one entry, two occurrences, named as the user knows it."""
+
+    async def scenario() -> None:
+        async with _chain(tmp_path) as chain:
+            client = chain.client
+            headers = await _register(client, "extents-failed@example.com")
+            plate = await _create_block_part(
+                client, headers, "Plate", PLATE_W, PLATE_D, PLATE_H
+            )
+            arm = await client.post(
+                "/api/v1/parts", json={"name": "Crank arm"}, headers=headers
+            )
+            assert arm.status_code == 201, arm.text
+            arm_id: str = arm.json()["id"]
+            assembly = await client.post(
+                "/api/v1/assemblies", json={"name": "Bike"}, headers=headers
+            )
+            assert assembly.status_code == 201, assembly.text
+            assembly_id: str = assembly.json()["id"]
+            version: int = assembly.json()["doc_version"]
+            for part_id, name, grounded in (
+                (plate, "Plate <1>", True),
+                (arm_id, "Crank arm <1>", False),
+                (arm_id, "Crank arm <2>", False),
+            ):
+                created = await client.post(
+                    f"/api/v1/assemblies/{assembly_id}/instances",
+                    json={
+                        "expected_version": version,
+                        "ref_document_id": part_id,
+                        "ref_document_kind": "part",
+                        "name": name,
+                        "grounded": grounded,
+                    },
+                    headers=headers,
+                )
+                assert created.status_code == 201, created.text
+                version = created.json()["doc_version"]
+
+            solved = await _extents(client, headers, assembly_id)
+            assert solved.omitted is not None
+            assert solved.omitted.count == 2
+            [part] = solved.omitted.parts
+            assert (part.name, part.part_document_id, part.occurrences) == (
+                "Crank arm",
+                arm_id,
+                2,
+            )
+            assert solved.bounding_box is not None  # the plate still built
+
+    asyncio.run(scenario())

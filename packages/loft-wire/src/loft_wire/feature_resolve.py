@@ -51,7 +51,7 @@ from loft_wire.feature_expressions import (
     strip_for_geometry,
 )
 from loft_wire.feature_input import PARAMETER_UNRESOLVED, PARAMETER_VALUE_INVALID
-from loft_wire.features import FeatureEnvelope, FeatureError
+from loft_wire.features import AuthoredEnvelope, FeatureEnvelope, FeatureError
 
 #: The code a resolved value that its field refuses is reported with at write.
 VALUE_INVALID: Final = PARAMETER_VALUE_INVALID
@@ -86,19 +86,19 @@ def parameter_values(rows: Iterable[Mapping[str, Any]]) -> dict[str, Quantity]:
     }
 
 
-def _dimensions(envelope: FeatureEnvelope) -> list[tuple[int, DimensionLike]]:
+def _dimensions(envelope: AuthoredEnvelope) -> list[tuple[int, DimensionLike]]:
     if envelope.type != "sketch":
         return []
     constraints = cast(list[object], getattr(envelope.params, "constraints", []))
     return [(i, c) for i, c in enumerate(constraints) if isinstance(c, DimensionLike)]
 
 
-def dimension_names(envelope: FeatureEnvelope) -> frozenset[str]:
+def dimension_names(envelope: AuthoredEnvelope) -> frozenset[str]:
     """The names of a sketch's dimensions (empty for any other feature)."""
     return frozenset(c.name for _, c in _dimensions(envelope) if c.name is not None)
 
 
-def parameter_references(envelope: FeatureEnvelope) -> frozenset[str]:
+def parameter_references(envelope: AuthoredEnvelope) -> frozenset[str]:
     """Every name this feature reads from the part's parameter table."""
     found: set[str] = set()
     for text in (envelope.expressions or {}).values():
@@ -111,12 +111,14 @@ def parameter_references(envelope: FeatureEnvelope) -> frozenset[str]:
     return frozenset(found)
 
 
-def uses_parameters(envelope: FeatureEnvelope) -> bool:
+def uses_parameters(envelope: AuthoredEnvelope) -> bool:
     """Does this feature carry a formula resolution has to look at?"""
     return envelope.expressions is not None or bool(outside_dimension_names(envelope))
 
 
-def check_dimension_names(envelope: FeatureEnvelope, parameters: Iterable[str]) -> None:
+def check_dimension_names(
+    envelope: AuthoredEnvelope, parameters: Iterable[str]
+) -> None:
     """A sketch dimension may not take a parameter's name."""
     clash = sorted(dimension_names(envelope) & set(parameters))
     if clash:
@@ -132,7 +134,7 @@ def _rebuild[E: BaseModel](envelope: E, params: dict[str, Any], **extra: Any) ->
     return type(envelope).model_validate(data)
 
 
-def _params(envelope: FeatureEnvelope) -> dict[str, Any]:
+def _params(envelope: AuthoredEnvelope) -> dict[str, Any]:
     params: dict[str, Any] = cast(BaseModel, envelope.params).model_dump(mode="json")
     return params
 
@@ -146,9 +148,9 @@ def _refused(exc: ValidationError) -> FeatureExpressionError:
     )
 
 
-def resolve_feature(
-    envelope: FeatureEnvelope, parameters: Mapping[str, Quantity]
-) -> FeatureEnvelope:
+def resolve_feature[E: AuthoredEnvelope](
+    envelope: E, parameters: Mapping[str, Quantity]
+) -> E:
     """The feature as stored: every formula evaluated, its number written at
     its pointer (and into each sketch dimension's value), formulas kept.
 
@@ -230,9 +232,9 @@ def _checked(text: str, pointer: str) -> str:
     return text
 
 
-def rename_parameters(
-    envelope: FeatureEnvelope, renames: Mapping[str, str]
-) -> FeatureEnvelope:
+def rename_parameters[E: AuthoredEnvelope](
+    envelope: E, renames: Mapping[str, str]
+) -> E:
     """The feature with every reference to a renamed parameter rewritten,
     token by token, in ``expressions`` and in sketch dimension formulas (a
     sketch's own dimension names are never touched).

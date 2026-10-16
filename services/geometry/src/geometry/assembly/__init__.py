@@ -14,7 +14,11 @@ from geometry.assembly.evaluate import (
     evaluate_assembly,
     solve_assembly,
 )
-from geometry.assembly.export import AssemblyExportError, export_assembly
+from geometry.assembly.export import (
+    AssemblyExportError,
+    export_assembly,
+    export_assembly_reporting,
+)
 from geometry.assembly.import_step import import_step_assembly
 from geometry.assembly.interference import check_interference
 from geometry.assembly.protocol import (
@@ -69,6 +73,7 @@ __all__ = [
     "count_patterns",
     "evaluate_assembly",
     "export_assembly",
+    "export_assembly_reporting",
     "import_step_assembly",
     "resolve_mate_geometry",
     "solve_assembly",

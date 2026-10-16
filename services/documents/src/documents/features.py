@@ -24,14 +24,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, status
 from loft_wire.features import (
-    BODY_AFFECTING_FEATURE_TYPES,
-    MAX_TREE_FEATURES,
+    AuthoredEnvelope,
+    CustomFeature,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
     FeatureCreate,
     FeatureDependent,
     FeatureDependents,
-    FeatureEnvelope,
     FeatureMutationResponse,
     FeatureReorderRequest,
     FeatureResponse,
@@ -40,7 +39,6 @@ from loft_wire.features import (
     FeatureUpdate,
     RollbackBarMove,
     UndoRedoRequest,
-    feature_references,
 )
 from loft_wire.in_context import carry_resolved
 from loft_wire.legacy_twist import (
@@ -57,6 +55,14 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db, history
+from documents.custom_features import (
+    authored_references,
+    check_tree_size,
+    expanded_size,
+    is_body_affecting,
+    member_targets,
+    prepare_custom_write,
+)
 from documents.feature_expressions import (
     evaluation_features,
     load_feature,
@@ -120,7 +126,7 @@ async def _get_feature(
 
 
 def reject_import_with_prior_body(
-    envelope: FeatureEnvelope,
+    envelope: AuthoredEnvelope,
     position: int,
     features: list[db.Feature],
 ) -> None:
@@ -140,8 +146,7 @@ def reject_import_with_prior_body(
         (
             feature
             for feature in features
-            if feature.order_index < position
-            and feature.type in BODY_AFFECTING_FEATURE_TYPES
+            if feature.order_index < position and is_body_affecting(feature)
         ),
         None,
     )
@@ -158,7 +163,7 @@ def reject_import_with_prior_body(
 
 
 def reject_new_extrude_twist(
-    envelope: FeatureEnvelope, stored: db.Feature | None = None
+    envelope: AuthoredEnvelope, stored: db.Feature | None = None
 ) -> None:
     """Refuse authoring a deprecated extrude twist (:mod:`loft_wire.legacy_twist`).
 
@@ -170,12 +175,16 @@ def reject_new_extrude_twist(
         raise ValidationApiError(
             EXTRUDE_TWIST_DEPRECATED_MESSAGE,
             code=EXTRUDE_TWIST_DEPRECATED_CODE,
-            details={"field": "twist_angle_deg", "use": "sweep"},
+            details={
+                "field": "twist_angle_deg",
+                "use": "sweep",
+                "plugin": "loft.twisted_prism",
+            },
         )
 
 
 def validate_references(
-    envelope: FeatureEnvelope,
+    envelope: AuthoredEnvelope,
     order_index: int,
     features_by_id: dict[uuid.UUID, db.Feature],
 ) -> list[uuid.UUID]:
@@ -186,12 +195,20 @@ def validate_references(
        backstop.
     2. strictly earlier — target ``order_index`` < the referrer's.
     3. type-compatible — the slot's ``allowed_types`` from py-kit.
+
+    A reference to a custom feature's generated MEMBER (a pick on its
+    geometry, RESEARCH §23) is checked against the member's type and the
+    custom feature's position, and its edge is the custom feature's row.
     """
+    members = member_targets(list(features_by_id.values()))
     target_ids: list[uuid.UUID] = []
-    for reference in feature_references(envelope):
+    for reference in authored_references(envelope):
         ref_id = reference.ref.feature_id
         target = features_by_id.get(ref_id)
-        if target is None:
+        target_type = None if target is None else target.type
+        if target is None and ref_id in members:
+            target, target_type = members[ref_id]
+        if target is None or target_type is None:
             raise ValidationApiError(
                 f"Referenced feature {ref_id} does not exist in this part.",
                 code="reference_not_found",
@@ -203,15 +220,16 @@ def validate_references(
                 code="reference_not_earlier",
                 details={"slot": reference.slot, "feature_id": str(ref_id)},
             )
-        if target.type not in reference.allowed_types:
+        allowed = reference.allowed_types
+        if "*" not in allowed and target_type not in allowed:
             raise ValidationApiError(
-                f"Slot {reference.slot!r} cannot reference a {target.type!r} feature.",
+                f"Slot {reference.slot!r} cannot reference a {target_type!r} feature.",
                 code="reference_type_invalid",
                 details={
                     "slot": reference.slot,
                     "feature_id": str(ref_id),
-                    "actual_type": target.type,
-                    "allowed_types": sorted(reference.allowed_types),
+                    "actual_type": target_type,
+                    "allowed_types": sorted(allowed),
                 },
             )
         target_ids.append(target.id)
@@ -427,18 +445,21 @@ async def create_feature(
     # parse bound (audit G2): a part must never accumulate a tree the
     # evaluation contract rejects, or every later evaluate/export read of the
     # part would fail constructing the DTO (a persistent 500, not a work bound).
-    if len(features) >= MAX_TREE_FEATURES:
-        raise ValidationApiError(
-            f"A part holds at most {MAX_TREE_FEATURES} features (per-request "
-            "work bound); delete features before adding more.",
-            code="feature_limit_exceeded",
-            details={"max_features": MAX_TREE_FEATURES},
-        )
+    # Counted as geometry receives it: a custom feature by its members (a
+    # custom one is re-counted with its own expansion in prepare_custom_write).
+    check_tree_size(expanded_size(features) + 1)
     features_by_id = {feature.id: feature for feature in features}
     bar_index = _bar_index(part, features)
     position = len(features) if bar_index is None else bar_index + 1
 
-    envelope = resolve_for_write(part, request.feature)
+    feature_id = uuid.uuid4()
+    envelope: AuthoredEnvelope = request.feature
+    if isinstance(envelope, CustomFeature):
+        # Inputs name real, earlier features before the plugin reads them.
+        validate_references(envelope, position, features_by_id)
+        envelope = prepare_custom_write(part, envelope, feature_id, position, features)
+    else:
+        envelope = resolve_for_write(part, envelope)
     reject_import_with_prior_body(envelope, position, features)
     reject_new_extrude_twist(envelope)
     target_ids = validate_references(envelope, position, features_by_id)
@@ -446,7 +467,7 @@ async def create_feature(
 
     await _shift_indexes(session, part.id, position, +1)
     feature = db.Feature(
-        id=uuid.uuid4(),
+        id=feature_id,
         part_id=part.id,
         order_index=position,
         name=request.name,
@@ -503,10 +524,17 @@ async def update_feature(
                 code="feature_type_immutable",
                 details={"current": feature.type, "provided": request.feature.type},
             )
-        envelope = resolve_for_write(part, request.feature)
-        reject_new_extrude_twist(envelope, feature)
         features = await _ordered_features(session, part.id)
         features_by_id = {row.id: row for row in features}
+        envelope: AuthoredEnvelope = request.feature
+        if isinstance(envelope, CustomFeature):
+            validate_references(envelope, feature.order_index, features_by_id)
+            envelope = prepare_custom_write(
+                part, envelope, feature.id, feature.order_index, features, feature
+            )
+        else:
+            envelope = resolve_for_write(part, envelope)
+        reject_new_extrude_twist(envelope, feature)
         target_ids = validate_references(envelope, feature.order_index, features_by_id)
         await check_links(session, owner_id, part, envelope, feature)
         # The context assembly owns a link's last resolved value: a save from a
