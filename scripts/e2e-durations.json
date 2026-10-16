@@ -145,6 +145,7 @@
     "pick-mark-seat.spec.ts": 336.4,
     "pick-no-body.spec.ts": 17.7,
     "pick-proxy-collision.spec.ts": 273.7,
+    "pipe-frame.spec.ts": 31.3,
     "plane-pick-framing.spec.ts": 18.2,
     "preselection.spec.ts": 107.9,
     "preview-overrun.spec.ts": 71.2,

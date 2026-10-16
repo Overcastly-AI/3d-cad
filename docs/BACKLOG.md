@@ -25,7 +25,9 @@ ASM-A3-PATTERN and ASM-A3-IN-CONTEXT (§24; e2e `assembly-subassembly`,
    and the drawing's check strip names them. _Decided 2026-10-16 (delegated
    by founder to product-manager):_ yes, now — a script caller gets a short
    STEP with no signal, which is wrong geometry exported.
-2. [ ] **PIPE-ALONG-PATH** (bike BIKE-TUBE-PLANE, BIKE-SWEEP-PATH-PICK,
+2. [x] **PIPE-ALONG-PATH** (done c5babe1, a1f3196, 230a898, 09a5b01; goldens
+   `pipe-*`, `datum-along-path-*`, `frame-bike-4-pipes-*`; e2e
+   `pipe-frame.spec.ts`; RESEARCH §25) (bike BIKE-TUBE-PLANE, BIKE-SWEEP-PATH-PICK,
    BIKE-NO-INCLUDE-SKETCH): Fusion's Pipe (picked chain of sketch or body
    edges, section circle or ring by OD and wall, fused or new body) and
    Plane Along Path (plane normal to an edge at a distance or ratio). One
@@ -230,6 +232,10 @@ step. PLUGIN-REGISTRY and PLUGIN-UI are in Now.
 
 One line each. The founder triages weekly; most are closed without work.
 
+- PIPE-VIEWPORT-PICK: the Pipe path is picked from a list of sketch curves (plus preselected model edges); Fusion also picks sketch curves in the viewport.
+- PIPE-SECTIONS: only circular (and hollow) sections; Fusion's Pipe also has square and triangular sections and a partial "distance" along the path.
+- PIPE-PATH-PLANE-SPLINE: a Plane Along Path on a spline or a curved model edge is placed by the server only, so the client does not offer it as a sketch plane until it can place it.
+- PIPE-MATRIX: `pipe` is exempt from the composition matrix (CUT_ROW_EXEMPT / CATALOGUE_EXEMPT, allowlist +3) on the grounds that sweep_cut covers its funnel; a `pipe_cut` row would remove the exemption.
 - ASM-SUB-FLEXIBLE: sub-assemblies are rigid only; SolidWorks' flexible mode (the wheel's own revolute still turning inside the bike) is not built.
 - ASM-SUB-CHILD-ERRORS: a sub-assembly's own dropped or conflicting mates do not show in the parent's solve status (it is solved silently in its own frame).
 - ASM-SUB-BALLOONS: each part inside a sub-assembly draws its component's balloon, so a two-part wheel shows "1" twice; Fusion shows one per component.
