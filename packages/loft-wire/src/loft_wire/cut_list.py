@@ -27,15 +27,23 @@ lumber lengths :data:`STOCK_LENGTHS_FT`; the shortest that covers the member
 is suggested, with the offcut it leaves. A member longer than the longest
 stock, or one that is not lumber, has no stock suggestion.
 
+Prices (PRICE-BOOK, RESEARCH §27) come from the user's
+:mod:`loft_wire.price_book`: each line is priced on the stock pieces bought
+(:func:`price_lines`), in integer cents, and a line the book does not price
+stays null (blank, never $0); the response totals the priced lines and counts
+the rest.
+
 This module is pure (no I/O, no kernel): the gateway assembles the cut list
 with it, and the B1 acceptance test calls it on geometry's measurements.
 """
 
 import csv
 import io
+import math
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from fractions import Fraction
 from itertools import permutations
 from typing import Final, Literal
 
@@ -46,6 +54,7 @@ from loft_wire.features import EvaluateTreeRequest
 from loft_wire.lumber import (
     LUMBER_PROFILES,
     MM_PER_INCH,
+    STOCK_LENGTHS_FT,
     LumberProfile,
 )
 from loft_wire.materials import (
@@ -54,10 +63,14 @@ from loft_wire.materials import (
     MaterialKey,
 )
 from loft_wire.plugins import MemberMetadata
+from loft_wire.price_book import (
+    EMPTY_PRICE_BOOK,
+    Currency,
+    PriceBookEntry,
+    PriceBookResponse,
+    PriceUnit,
+)
 from loft_wire.units import LengthUnit
-
-#: Standard US lumber stock lengths (ft), shortest first.
-STOCK_LENGTHS_FT: Final[tuple[int, ...]] = (8, 10, 12, 14, 16, 20)
 
 #: Millimetres per foot, exactly.
 MM_PER_FOOT: Final = 12 * MM_PER_INCH
@@ -165,6 +178,25 @@ class CutListLine(BaseModel):
     waste_mm: float | None = Field(
         description="Offcut of each piece from its stock (mm); null with no stock."
     )
+    stock_quantity: int | None = Field(
+        ge=0,
+        description="Stock pieces bought for the line: one per piece (until "
+        "pieces are nested); null with no stock length.",
+    )
+    unit_price_cents: int | None = Field(
+        ge=0,
+        description="Price of ONE stock piece in the book's currency's cents, "
+        "rounded once per piece; null (blank, never 0) when the book has no "
+        "price for the line or the line has no stock length.",
+    )
+    price_unit: PriceUnit | None = Field(
+        description="Which entry priced the line: 'each' for its stock "
+        "length, else 'linear_foot', else 'board_foot'; null when unpriced."
+    )
+    extended_price_cents: int | None = Field(
+        ge=0,
+        description="stock_quantity x unit_price_cents; null when unpriced.",
+    )
 
 
 class CutListMissing(BaseModel):
@@ -191,6 +223,17 @@ class CutListResponse(BaseModel):
         default_factory=list[CutListMissing],
         description="Deleted parts an assembly still places: not measured, "
         "listed so the cut list is not silently short.",
+    )
+    currency: Currency = Field(description="The price book's ISO 4217 code.")
+    total_price_cents: int | None = Field(
+        ge=0,
+        description="Sum of the priced lines' extended prices (cents); null "
+        "when no line is priced.",
+    )
+    unpriced_lines: int = Field(
+        ge=0,
+        description="Lines with no price (no entry, or no stock length): the "
+        "total leaves them out.",
     )
 
 
@@ -369,9 +412,99 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
                 section_mm=[thickness, width],
                 stock_length_ft=stock,
                 waste_mm=waste,
+                stock_quantity=None if stock is None else quantity,
+                unit_price_cents=None,
+                price_unit=None,
+                extended_price_cents=None,
             )
         )
     return lines
+
+
+# --- prices (PRICE-BOOK) ------------------------------------------------------------
+
+
+def nominal_size_in(profile: LumberProfile) -> tuple[Fraction, Fraction]:
+    """A profile's NOMINAL thickness and width (in), exactly, from its name as
+    sold: ``2x4`` is (2, 4), ``5/4x6`` is (5/4, 6). Board feet are counted on
+    the nominal size, as yards sell them."""
+    thickness, width = profile.name.split("x")
+    return Fraction(thickness), Fraction(width)
+
+
+def _round_half_up(value: Fraction) -> int:
+    """*value* (cents, non-negative) to a whole cent, half up, as an invoice."""
+    return math.floor(value + Fraction(1, 2))
+
+
+def stock_piece_price(
+    entry: PriceBookEntry, profile: LumberProfile, stock_length_ft: int
+) -> int:
+    """The price (cents) of ONE stock piece of *stock_length_ft* under *entry*,
+    rounded once per piece: per foot x feet, or per board foot x nominal
+    thickness x width x feet / 12."""
+    if entry.unit == "each":
+        return entry.price_cents
+    if entry.unit == "linear_foot":
+        return entry.price_cents * stock_length_ft
+    thickness, width = nominal_size_in(profile)
+    board_feet = thickness * width * stock_length_ft / 12
+    return _round_half_up(board_feet * entry.price_cents)
+
+
+#: Which unit wins when the book prices a line more than one way.
+PRICE_PRECEDENCE: Final[tuple[PriceUnit, ...]] = ("each", "linear_foot", "board_foot")
+
+
+def price_lines(
+    lines: Sequence[CutListLine], book: PriceBookResponse
+) -> list[CutListLine]:
+    """*lines* priced from *book*, on the stock pieces bought: each line's
+    unit price is an 'each' entry for its stock length, else a per-foot entry,
+    else a per-board-foot entry (for its material and profile), and its
+    extended price is that times its stock quantity, so the offcut is paid
+    for. A line with no stock length or no entry stays unpriced (null)."""
+    entries = {entry.key: entry for entry in book.entries}
+    priced: list[CutListLine] = []
+    for line in lines:
+        lumber = lumber_for(line.profile)
+        stock = line.stock_length_ft
+        quantity = line.stock_quantity
+        unit_price: int | None = None
+        unit: PriceUnit | None = None
+        if (
+            lumber is not None
+            and line.material is not None
+            and stock is not None
+            and quantity is not None
+        ):
+            for candidate in PRICE_PRECEDENCE:
+                entry = entries.get(
+                    (
+                        line.material,
+                        lumber.key,
+                        candidate,
+                        stock if candidate == "each" else None,
+                    )
+                )
+                if entry is not None:
+                    unit_price = stock_piece_price(entry, lumber, stock)
+                    unit = candidate
+                    break
+        priced.append(
+            line.model_copy(
+                update={
+                    "unit_price_cents": unit_price,
+                    "price_unit": unit,
+                    "extended_price_cents": (
+                        None
+                        if unit_price is None or quantity is None
+                        else unit_price * quantity
+                    ),
+                }
+            )
+        )
+    return priced
 
 
 def cut_list_response(
@@ -382,9 +515,17 @@ def cut_list_response(
     length_unit: LengthUnit,
     pieces: Sequence[CutListPiece],
     missing: Sequence[CutListMissing] = (),
+    price_book: PriceBookResponse = EMPTY_PRICE_BOOK,
 ) -> CutListResponse:
-    """The grouped response for *pieces* (and an assembly's deleted parts)."""
-    lines = group_pieces(pieces)
+    """The grouped response for *pieces* (and an assembly's deleted parts),
+    priced from *price_book* (an assembly's list is one grouped list across
+    its parts, so its total is the sum of its lines)."""
+    lines = price_lines(group_pieces(pieces), price_book)
+    extended = [
+        line.extended_price_cents
+        for line in lines
+        if line.extended_price_cents is not None
+    ]
     return CutListResponse(
         document_id=document_id,
         document_kind=document_kind,
@@ -396,6 +537,9 @@ def cut_list_response(
             line.quantity for line in lines if line.classification == "unclassified"
         ),
         missing=list(missing),
+        currency=price_book.currency,
+        total_price_cents=sum(extended) if extended else None,
+        unpriced_lines=len(lines) - len(extended),
     )
 
 
@@ -427,8 +571,8 @@ def format_length(value_mm: float, unit: LengthUnit) -> str:
     return "0" if text in ("-0", "") else text
 
 
-#: The CSV's columns (lengths in the document unit).
-def csv_header(unit: LengthUnit) -> list[str]:
+#: The CSV's columns (lengths in the document unit, money in the currency).
+def csv_header(unit: LengthUnit, currency: Currency = "USD") -> list[str]:
     return [
         "Item",
         "Member",
@@ -440,7 +584,33 @@ def csv_header(unit: LengthUnit) -> list[str]:
         f"Total length ({unit})",
         "Stock",
         f"Waste each ({unit})",
+        "Stock qty",
+        f"Unit price ({currency})",
+        "Price unit",
+        f"Extended ({currency})",
     ]
+
+
+#: How the CSV names each price unit.
+PRICE_UNIT_LABELS: Final[Mapping[PriceUnit, str]] = {
+    "each": "Each",
+    "linear_foot": "Per ft",
+    "board_foot": "Per BF",
+}
+
+
+def format_cents(cents: int) -> str:
+    """*cents* as a plain number of the major unit (``1736.08``), with no
+    symbol or separator, so a spreadsheet reads it as a number."""
+    sign = "-" if cents < 0 else ""
+    whole, part = divmod(abs(cents), 100)
+    return f"{sign}{whole}.{part:02d}"
+
+
+def total_label(unpriced: int) -> str:
+    """The Total row's label: ``Total``, or ``Total of priced lines, N
+    unpriced`` when the total leaves lines out."""
+    return "Total" if unpriced == 0 else f"Total of priced lines, {unpriced} unpriced"
 
 
 #: A cell starting with one of these is a FORMULA to Excel, LibreOffice and
@@ -451,18 +621,31 @@ FORMULA_TRIGGERS: Final = ("=", "+", "-", "@", "\t", "\r")
 
 
 def csv_text(value: str) -> str:
-    """*value* safe as a CSV text cell: a leading formula trigger is escaped
-    with a single quote (OWASP, CSV injection), so it reads as text."""
-    return f"'{value}" if value.startswith(FORMULA_TRIGGERS) else value
+    """*value* safe as a CSV text cell: a formula trigger at its start, or
+    after leading whitespace (a spreadsheet may skip it, so ``" =1+1"`` can
+    still be a formula), is escaped with a single quote (OWASP, CSV
+    injection), so the cell reads as text."""
+    if value.startswith(FORMULA_TRIGGERS) or value.lstrip().startswith(
+        FORMULA_TRIGGERS
+    ):
+        return f"'{value}"
+    return value
+
+
+def _money(cents: int | None) -> str:
+    return "" if cents is None else format_cents(cents)
 
 
 def cut_list_csv(cut_list: CutListResponse) -> str:
-    """The cut list as CSV (RFC 4180, CRLF), one row per line. Every text cell
-    goes through :func:`csv_text`; numbers are written by this module."""
+    """The cut list as CSV (RFC 4180, CRLF), one row per line, then a Total
+    row of the priced lines. Every text cell goes through :func:`csv_text`;
+    numbers are written by this module, money as plain numbers, and an
+    unpriced line's price cells are blank (never 0)."""
     unit = cut_list.length_unit
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\r\n")
-    writer.writerow(csv_header(unit))
+    header = csv_header(unit, cut_list.currency)
+    writer.writerow(header)
     for item, line in enumerate(cut_list.lines, start=1):
         material = "" if line.material is None else MATERIALS_BY_KEY[line.material].name
         writer.writerow(
@@ -477,12 +660,21 @@ def cut_list_csv(cut_list: CutListResponse) -> str:
                 format_length(line.total_length_mm, unit),
                 "" if line.stock_length_ft is None else f"{line.stock_length_ft} ft",
                 "" if line.waste_mm is None else format_length(line.waste_mm, unit),
+                "" if line.stock_quantity is None else line.stock_quantity,
+                _money(line.unit_price_cents),
+                "" if line.price_unit is None else PRICE_UNIT_LABELS[line.price_unit],
+                _money(line.extended_price_cents),
             ]
         )
+    blank: list[object] = [""] * len(header)
     for missing in cut_list.missing:
-        writer.writerow(
-            ["", "Deleted part", "Not listed", "", "", missing.quantity, "", "", "", ""]
-        )
+        row = list(blank)
+        row[1], row[2], row[5] = "Deleted part", "Not listed", missing.quantity
+        writer.writerow(row)
+    total = list(blank)
+    total[1] = total_label(cut_list.unpriced_lines)
+    total[-1] = _money(cut_list.total_price_cents)
+    writer.writerow(total)
     return out.getvalue()
 
 

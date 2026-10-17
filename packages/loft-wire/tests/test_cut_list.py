@@ -157,8 +157,10 @@ def test_csv_writes_unclassified_pieces_with_their_measured_section() -> None:
     assert response.unclassified == 1
     assert cut_list_csv(response) == (
         "Item,Member,Profile,Section (mm),Material,Qty,Length (mm),"
-        "Total length (mm),Stock,Waste each (mm)\r\n"
-        "1,,Unclassified,10 x 20,,1,30,30,,\r\n"
+        "Total length (mm),Stock,Waste each (mm),Stock qty,Unit price (USD),"
+        "Price unit,Extended (USD)\r\n"
+        "1,,Unclassified,10 x 20,,1,30,30,,,,,,\r\n"
+        ',"Total of priced lines, 1 unpriced",,,,,,,,,,,,\r\n'
     )
 
 
@@ -236,4 +238,6 @@ def test_a_deleted_part_is_listed_not_dropped() -> None:
         missing=[CutListMissing(ref_document_id=gone, quantity=3)],
     )
     assert response.missing[0].quantity == 3
-    assert cut_list_csv(response).endswith(",Deleted part,Not listed,,,3,,,,\r\n")
+    assert cut_list_csv(response).endswith(
+        ",Deleted part,Not listed,,,3,,,,,,,,\r\n,Total,,,,,,,,,,,,\r\n"
+    )

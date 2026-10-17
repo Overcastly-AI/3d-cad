@@ -45,6 +45,7 @@ from documents.loft_file import router as loft_file_router
 from documents.materials import router as materials_router
 from documents.parameters import router as parameters_router
 from documents.parts import router as parts_router
+from documents.price_book import router as price_book_router
 from documents.ref_backfill import router as ref_backfill_router
 from documents.ref_backfill import sweep_router as ref_backfill_sweep_router
 from documents.step_import import router as step_import_router
@@ -107,6 +108,7 @@ def build_app(settings: DocumentsSettings | None = None) -> FastAPI:
     # First-party plugin manifests (RESEARCH §23): the Build toolbar's tools.
     app.include_router(plugins_router)
     app.include_router(cut_list_router)
+    app.include_router(price_book_router)
     app.include_router(assemblies_router)
     app.include_router(assembly_joints_router)
     app.include_router(assembly_patterns_router)

@@ -130,7 +130,8 @@ export interface paths {
          * Get Assembly Cut List
          * @description The assembly's cut list: every part at every level (component
          *     patterns counted), each part's members times its quantity, grouped
-         *     across the assembly as one list (Chief Architect's materials list).
+         *     across the assembly as one list (Chief Architect's materials list),
+         *     priced from your price book; the total is the sum of the priced lines.
          */
         get: operations["get_assembly_cut_list_api_v1_assemblies__assembly_id__cut_list_get"];
         put?: never;
@@ -1775,7 +1776,9 @@ export interface paths {
          *     and measured length, with quantity, total length and stock length
          *     (SolidWorks' weldment cut list). Every length is measured from its body;
          *     a body that is no plugin member is matched to a library profile by its
-         *     exact section, else listed as unclassified with its measured size.
+         *     exact section, else listed as unclassified with its measured size. Each
+         *     line is priced from your price book on the stock pieces bought; a line
+         *     the book does not price is null, and `unpriced_lines` counts them.
          */
         get: operations["get_part_cut_list_api_v1_parts__part_id__cut_list_get"];
         put?: never;
@@ -2357,6 +2360,35 @@ export interface paths {
          */
         get: operations["list_plugins_api_v1_plugins_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/price-book": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Price Book
+         * @description Your price book: what you pay per stock piece, linear foot or board
+         *     foot for each material and lumber profile, in integer cents. Empty (USD)
+         *     until you save one.
+         */
+        get: operations["get_price_book_api_v1_price_book_get"];
+        /**
+         * Put Price Book
+         * @description Replace your whole price book. At most 500 entries; each a material,
+         *     a profile, a unit (`each` with its `stock_length_ft`, `linear_foot` or
+         *     `board_foot`) and `price_cents`, an integer from 0 to 10,000,000; one
+         *     price per material, profile, unit and stock length (else a 422).
+         */
+        put: operations["put_price_book_api_v1_price_book_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -4481,6 +4513,11 @@ export interface components {
              */
             classification: "member" | "matched" | "unclassified";
             /**
+             * Extended Price Cents
+             * @description stock_quantity x unit_price_cents; null when unpriced.
+             */
+            extended_price_cents: number | null;
+            /**
              * Length Mm
              * @description Measured length of each piece.
              */
@@ -4495,6 +4532,11 @@ export interface components {
              * @description Member role title (e.g. 'Joist'); null when the body is not a plugin member.
              */
             member: string | null;
+            /**
+             * Price Unit
+             * @description Which entry priced the line: 'each' for its stock length, else 'linear_foot', else 'board_foot'; null when unpriced.
+             */
+            price_unit: ("each" | "linear_foot" | "board_foot") | null;
             /**
              * Profile
              * @description Section as sold (e.g. '2x10'); null when unclassified.
@@ -4513,10 +4555,20 @@ export interface components {
              */
             stock_length_ft: number | null;
             /**
+             * Stock Quantity
+             * @description Stock pieces bought for the line: one per piece (until pieces are nested); null with no stock length.
+             */
+            stock_quantity: number | null;
+            /**
              * Total Length Mm
              * @description quantity x length.
              */
             total_length_mm: number;
+            /**
+             * Unit Price Cents
+             * @description Price of ONE stock piece in the book's currency's cents, rounded once per piece; null (blank, never 0) when the book has no price for the line or the line has no stock length.
+             */
+            unit_price_cents: number | null;
             /**
              * Waste Mm
              * @description Offcut of each piece from its stock (mm); null with no stock.
@@ -4546,6 +4598,12 @@ export interface components {
          */
         CutListResponse: {
             /**
+             * Currency
+             * @description The price book's ISO 4217 code.
+             * @constant
+             */
+            currency: "USD";
+            /**
              * Document Id
              * Format: uuid
              */
@@ -4571,6 +4629,11 @@ export interface components {
             /** Name */
             name: string;
             /**
+             * Total Price Cents
+             * @description Sum of the priced lines' extended prices (cents); null when no line is priced.
+             */
+            total_price_cents: number | null;
+            /**
              * Total Quantity
              * @description Sum of every line's quantity.
              */
@@ -4580,6 +4643,11 @@ export interface components {
              * @description How many pieces matched no profile.
              */
             unclassified: number;
+            /**
+             * Unpriced Lines
+             * @description Lines with no price (no entry, or no stock length): the total leaves them out.
+             */
+            unpriced_lines: number;
         };
         /**
          * CylinderParams
@@ -10970,6 +11038,77 @@ export interface components {
             ticket: string;
         };
         /**
+         * PriceBookEntry
+         * @description One price: a material and profile, per stock piece, foot or board foot.
+         */
+        PriceBookEntry: {
+            /**
+             * Material
+             * @description Library material, e.g. 'spf_lumber'.
+             * @enum {string}
+             */
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
+            /**
+             * Price Cents
+             * @description Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.
+             */
+            price_cents: number;
+            /**
+             * Profile
+             * @description Lumber profile, e.g. 'us_2x4'.
+             * @enum {string}
+             */
+            profile: "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6";
+            /**
+             * Stock Length Ft
+             * @description The stock length an 'each' price is for (ft); null for a per-foot or per-board-foot price.
+             */
+            stock_length_ft?: number | null;
+            /**
+             * Unit
+             * @description 'each' (one stock piece of `stock_length_ft`), 'linear_foot' or 'board_foot' (any stock length).
+             * @enum {string}
+             */
+            unit: "each" | "linear_foot" | "board_foot";
+        };
+        /**
+         * PriceBookResponse
+         * @description The caller's price book. A user who never saved one has an empty USD
+         *     book (``updated_at`` null).
+         */
+        PriceBookResponse: {
+            /**
+             * Currency
+             * @constant
+             */
+            currency: "USD";
+            /** Entries */
+            entries?: components["schemas"]["PriceBookEntry"][];
+            /**
+             * Updated At
+             * @description When the book was last saved; null if never.
+             */
+            updated_at?: string | null;
+        };
+        /**
+         * PriceBookUpdate
+         * @description ``PUT /api/v1/price-book``: the whole book, replacing the stored one.
+         */
+        PriceBookUpdate: {
+            /**
+             * Currency
+             * @description ISO 4217 code.
+             * @default USD
+             * @constant
+             */
+            currency: "USD";
+            /**
+             * Entries
+             * @description Every entry, in the user's order; one per material, profile, unit and stock length.
+             */
+            entries?: components["schemas"]["PriceBookEntry"][];
+        };
+        /**
          * ProfileInput
          * @description An earlier SKETCH whose closed wire is the profile (picked in the
          *     viewport or the tree). Stored as a ``FeatureRef``.
@@ -17268,6 +17407,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PluginCatalog"];
+                };
+            };
+        };
+    };
+    get_price_book_api_v1_price_book_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceBookResponse"];
+                };
+            };
+        };
+    };
+    put_price_book_api_v1_price_book_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PriceBookUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceBookResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

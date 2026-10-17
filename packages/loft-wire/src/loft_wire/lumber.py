@@ -26,6 +26,10 @@ from pydantic import BaseModel, Field
 #: Millimetres per inch, exactly (international inch, 1959).
 MM_PER_INCH: Final = 25.4
 
+#: Standard US lumber stock lengths (ft), shortest first: what the cut list
+#: suggests and what an 'each' price may be for.
+STOCK_LENGTHS_FT: Final[tuple[int, ...]] = (8, 10, 12, 14, 16, 20)
+
 #: The built-in profile keys. A closed literal, like ``MaterialKey``: an
 #: unknown profile is a parse error at the boundary.
 LumberProfileKey = Literal[

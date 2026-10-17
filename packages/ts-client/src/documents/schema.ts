@@ -1598,6 +1598,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/price-book": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Price Book
+         * @description The caller's price book; an empty USD book if they never saved one.
+         */
+        get: operations["get_price_book_api_v1_price_book_get"];
+        /**
+         * Put Price Book
+         * @description Replace the caller's whole price book (at most 500 entries, one price
+         *     per material, profile, unit and stock length, integer cents).
+         */
+        put: operations["put_price_book_api_v1_price_book_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ref-backfill/parts": {
         parameters: {
             query?: never;
@@ -7971,6 +7996,77 @@ export interface components {
             mode: "point_to_point";
         };
         /**
+         * PriceBookEntry
+         * @description One price: a material and profile, per stock piece, foot or board foot.
+         */
+        PriceBookEntry: {
+            /**
+             * Material
+             * @description Library material, e.g. 'spf_lumber'.
+             * @enum {string}
+             */
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
+            /**
+             * Price Cents
+             * @description Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.
+             */
+            price_cents: number;
+            /**
+             * Profile
+             * @description Lumber profile, e.g. 'us_2x4'.
+             * @enum {string}
+             */
+            profile: "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6";
+            /**
+             * Stock Length Ft
+             * @description The stock length an 'each' price is for (ft); null for a per-foot or per-board-foot price.
+             */
+            stock_length_ft?: number | null;
+            /**
+             * Unit
+             * @description 'each' (one stock piece of `stock_length_ft`), 'linear_foot' or 'board_foot' (any stock length).
+             * @enum {string}
+             */
+            unit: "each" | "linear_foot" | "board_foot";
+        };
+        /**
+         * PriceBookResponse
+         * @description The caller's price book. A user who never saved one has an empty USD
+         *     book (``updated_at`` null).
+         */
+        PriceBookResponse: {
+            /**
+             * Currency
+             * @constant
+             */
+            currency: "USD";
+            /** Entries */
+            entries?: components["schemas"]["PriceBookEntry"][];
+            /**
+             * Updated At
+             * @description When the book was last saved; null if never.
+             */
+            updated_at?: string | null;
+        };
+        /**
+         * PriceBookUpdate
+         * @description ``PUT /api/v1/price-book``: the whole book, replacing the stored one.
+         */
+        PriceBookUpdate: {
+            /**
+             * Currency
+             * @description ISO 4217 code.
+             * @default USD
+             * @constant
+             */
+            currency: "USD";
+            /**
+             * Entries
+             * @description Every entry, in the user's order; one per material, profile, unit and stock length.
+             */
+            entries?: components["schemas"]["PriceBookEntry"][];
+        };
+        /**
          * ProfileInput
          * @description An earlier SKETCH whose closed wire is the profile (picked in the
          *     viewport or the tree). Stored as a ``FeatureRef``.
@@ -13033,6 +13129,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PluginCatalog"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_price_book_api_v1_price_book_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceBookResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_price_book_api_v1_price_book_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PriceBookUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceBookResponse"];
                 };
             };
             /** @description Validation Error */

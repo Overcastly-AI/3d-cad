@@ -26,6 +26,9 @@ const RESPONSE: CutListResponse = {
   total_quantity: 15,
   unclassified: 1,
   missing: [{ ref_document_id: "gone", quantity: 2 }],
+  currency: "USD",
+  total_price_cents: 25974,
+  unpriced_lines: 2,
   lines: [
     {
       member: "Joist",
@@ -38,6 +41,10 @@ const RESPONSE: CutListResponse = {
       section_mm: [1.5 * IN, 9.25 * IN],
       stock_length_ft: 12,
       waste_mm: 3 * IN,
+      stock_quantity: 13,
+      unit_price_cents: 1998,
+      price_unit: "each",
+      extended_price_cents: 25974,
     },
     {
       member: null,
@@ -50,6 +57,11 @@ const RESPONSE: CutListResponse = {
       section_mm: [5.5 * IN, 5.5 * IN],
       stock_length_ft: 8,
       waste_mm: 85.5 * IN,
+      // No material, so no price: blank, never 0.
+      stock_quantity: 1,
+      unit_price_cents: null,
+      price_unit: null,
+      extended_price_cents: null,
     },
     {
       member: null,
@@ -62,6 +74,10 @@ const RESPONSE: CutListResponse = {
       section_mm: [1 * IN, 2 * IN],
       stock_length_ft: null,
       waste_mm: null,
+      stock_quantity: null,
+      unit_price_cents: null,
+      price_unit: null,
+      extended_price_cents: null,
     },
   ],
 };

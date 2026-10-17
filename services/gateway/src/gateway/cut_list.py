@@ -10,7 +10,12 @@ each part's pieces times its placed quantity, grouped across the assembly; a
 mirrored copy or opposite hand counts with its source part, and a deleted part
 the assembly still places is listed in ``missing`` rather than dropped.
 
-The CSV is the same lines in the document's display unit, as a download.
+Every line is priced from the CALLER's price book (PRICE-BOOK,
+:func:`loft_wire.cut_list.price_lines`): unit price per stock piece, extended
+price and the total of the priced lines, with an unpriced line null.
+
+The CSV is the same lines in the document's display unit, as a download,
+with the price columns and a Total row.
 """
 
 import asyncio
@@ -37,6 +42,7 @@ from gateway.assemblies import get_assembly_bom
 from gateway.auth import CurrentUser
 from gateway.db import User
 from gateway.parts import forward_documents
+from gateway.price_book import caller_price_book
 from gateway.ratelimit import COMPUTE_RATE_LIMIT
 from gateway.upstream import raise_upstream_error
 
@@ -92,6 +98,7 @@ async def part_cut_list(
         name=request.name,
         length_unit=request.length_unit,
         pieces=pieces,
+        price_book=await caller_price_book(http_request, user),
     )
 
 
@@ -145,6 +152,7 @@ async def assembly_cut_list(
             CutListMissing(ref_document_id=part_id, quantity=count)
             for part_id, count in missing.items()
         ],
+        price_book=await caller_price_book(http_request, user),
     )
 
 
@@ -169,7 +177,9 @@ async def get_part_cut_list(
     and measured length, with quantity, total length and stock length
     (SolidWorks' weldment cut list). Every length is measured from its body;
     a body that is no plugin member is matched to a library profile by its
-    exact section, else listed as unclassified with its measured size."""
+    exact section, else listed as unclassified with its measured size. Each
+    line is priced from your price book on the stock pieces bought; a line
+    the book does not price is null, and `unpriced_lines` counts them."""
     return await part_cut_list(http_request, user, part_id)
 
 
@@ -192,7 +202,8 @@ async def get_assembly_cut_list(
 ) -> CutListResponse:
     """The assembly's cut list: every part at every level (component
     patterns counted), each part's members times its quantity, grouped
-    across the assembly as one list (Chief Architect's materials list)."""
+    across the assembly as one list (Chief Architect's materials list),
+    priced from your price book; the total is the sum of the priced lines."""
     return await assembly_cut_list(http_request, user, assembly_id)
 
 

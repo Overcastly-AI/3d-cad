@@ -2981,6 +2981,19 @@
             "title": "Classification",
             "type": "string"
           },
+          "extended_price_cents": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "stock_quantity x unit_price_cents; null when unpriced.",
+            "title": "Extended Price Cents"
+          },
           "length_mm": {
             "description": "Measured length of each piece.",
             "minimum": 0.0,
@@ -3027,6 +3040,23 @@
             "description": "Member role title (e.g. 'Joist'); null when the body is not a plugin member.",
             "title": "Member"
           },
+          "price_unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "each",
+                  "linear_foot",
+                  "board_foot"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which entry priced the line: 'each' for its stock length, else 'linear_foot', else 'board_foot'; null when unpriced.",
+            "title": "Price Unit"
+          },
           "profile": {
             "anyOf": [
               {
@@ -3066,11 +3096,37 @@
             "description": "Shortest standard stock that covers the piece (ft); null for a piece that is not lumber or is longer than the longest stock.",
             "title": "Stock Length Ft"
           },
+          "stock_quantity": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stock pieces bought for the line: one per piece (until pieces are nested); null with no stock length.",
+            "title": "Stock Quantity"
+          },
           "total_length_mm": {
             "description": "quantity x length.",
             "minimum": 0.0,
             "title": "Total Length Mm",
             "type": "number"
+          },
+          "unit_price_cents": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Price of ONE stock piece in the book's currency's cents, rounded once per piece; null (blank, never 0) when the book has no price for the line or the line has no stock length.",
+            "title": "Unit Price Cents"
           },
           "waste_mm": {
             "anyOf": [
@@ -3095,7 +3151,11 @@
           "total_length_mm",
           "section_mm",
           "stock_length_ft",
-          "waste_mm"
+          "waste_mm",
+          "stock_quantity",
+          "unit_price_cents",
+          "price_unit",
+          "extended_price_cents"
         ],
         "title": "CutListLine",
         "type": "object"
@@ -3125,6 +3185,12 @@
       "CutListResponse": {
         "description": "A part's or an assembly's cut list (``GET .../cut-list``).",
         "properties": {
+          "currency": {
+            "const": "USD",
+            "description": "The price book's ISO 4217 code.",
+            "title": "Currency",
+            "type": "string"
+          },
           "document_id": {
             "format": "uuid",
             "title": "Document Id",
@@ -3169,6 +3235,19 @@
             "title": "Name",
             "type": "string"
           },
+          "total_price_cents": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sum of the priced lines' extended prices (cents); null when no line is priced.",
+            "title": "Total Price Cents"
+          },
           "total_quantity": {
             "description": "Sum of every line's quantity.",
             "minimum": 0.0,
@@ -3180,6 +3259,12 @@
             "minimum": 0.0,
             "title": "Unclassified",
             "type": "integer"
+          },
+          "unpriced_lines": {
+            "description": "Lines with no price (no entry, or no stock length): the total leaves them out.",
+            "minimum": 0.0,
+            "title": "Unpriced Lines",
+            "type": "integer"
           }
         },
         "required": [
@@ -3188,7 +3273,10 @@
           "name",
           "length_unit",
           "total_quantity",
-          "unclassified"
+          "unclassified",
+          "currency",
+          "total_price_cents",
+          "unpriced_lines"
         ],
         "title": "CutListResponse",
         "type": "object"
@@ -13035,6 +13123,149 @@
         "title": "PrefetchRequest",
         "type": "object"
       },
+      "PriceBookEntry": {
+        "additionalProperties": false,
+        "description": "One price: a material and profile, per stock piece, foot or board foot.",
+        "properties": {
+          "material": {
+            "description": "Library material, e.g. 'spf_lumber'.",
+            "enum": [
+              "steel_1018",
+              "stainless_304",
+              "aluminium_6061",
+              "brass_c360",
+              "abs",
+              "pla",
+              "nylon_6",
+              "spf_lumber",
+              "dfl_lumber",
+              "southern_pine_pt",
+              "lvl",
+              "glulam_dfl",
+              "steel_a992",
+              "concrete"
+            ],
+            "title": "Material",
+            "type": "string"
+          },
+          "price_cents": {
+            "description": "Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.",
+            "maximum": 10000000.0,
+            "minimum": 0.0,
+            "title": "Price Cents",
+            "type": "integer"
+          },
+          "profile": {
+            "description": "Lumber profile, e.g. 'us_2x4'.",
+            "enum": [
+              "us_1x4",
+              "us_1x6",
+              "us_5_4x6",
+              "us_2x2",
+              "us_2x3",
+              "us_2x4",
+              "us_2x6",
+              "us_2x8",
+              "us_2x10",
+              "us_2x12",
+              "us_4x4",
+              "us_4x6",
+              "us_6x6"
+            ],
+            "title": "Profile",
+            "type": "string"
+          },
+          "stock_length_ft": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stock length an 'each' price is for (ft); null for a per-foot or per-board-foot price.",
+            "title": "Stock Length Ft"
+          },
+          "unit": {
+            "description": "'each' (one stock piece of `stock_length_ft`), 'linear_foot' or 'board_foot' (any stock length).",
+            "enum": [
+              "each",
+              "linear_foot",
+              "board_foot"
+            ],
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "material",
+          "profile",
+          "unit",
+          "price_cents"
+        ],
+        "title": "PriceBookEntry",
+        "type": "object"
+      },
+      "PriceBookResponse": {
+        "description": "The caller's price book. A user who never saved one has an empty USD\nbook (``updated_at`` null).",
+        "properties": {
+          "currency": {
+            "const": "USD",
+            "title": "Currency",
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/PriceBookEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the book was last saved; null if never.",
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "currency"
+        ],
+        "title": "PriceBookResponse",
+        "type": "object"
+      },
+      "PriceBookUpdate": {
+        "additionalProperties": false,
+        "description": "``PUT /api/v1/price-book``: the whole book, replacing the stored one.",
+        "properties": {
+          "currency": {
+            "const": "USD",
+            "default": "USD",
+            "description": "ISO 4217 code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "entries": {
+            "description": "Every entry, in the user's order; one per material, profile, unit and stock length.",
+            "items": {
+              "$ref": "#/components/schemas/PriceBookEntry"
+            },
+            "maxItems": 500,
+            "title": "Entries",
+            "type": "array"
+          }
+        },
+        "title": "PriceBookUpdate",
+        "type": "object"
+      },
       "ProfileInput": {
         "description": "An earlier SKETCH whose closed wire is the profile (picked in the\nviewport or the tree). Stored as a ``FeatureRef``.",
         "properties": {
@@ -17233,7 +17464,7 @@
     },
     "/api/v1/assemblies/{assembly_id}/cut-list": {
       "get": {
-        "description": "The assembly's cut list: every part at every level (component\npatterns counted), each part's members times its quantity, grouped\nacross the assembly as one list (Chief Architect's materials list).",
+        "description": "The assembly's cut list: every part at every level (component\npatterns counted), each part's members times its quantity, grouped\nacross the assembly as one list (Chief Architect's materials list),\npriced from your price book; the total is the sum of the priced lines.",
         "operationId": "get_assembly_cut_list_api_v1_assemblies__assembly_id__cut_list_get",
         "parameters": [
           {
@@ -21576,7 +21807,7 @@
     },
     "/api/v1/parts/{part_id}/cut-list": {
       "get": {
-        "description": "The part's cut list: its bodies grouped by member, profile, material\nand measured length, with quantity, total length and stock length\n(SolidWorks' weldment cut list). Every length is measured from its body;\na body that is no plugin member is matched to a library profile by its\nexact section, else listed as unclassified with its measured size.",
+        "description": "The part's cut list: its bodies grouped by member, profile, material\nand measured length, with quantity, total length and stock length\n(SolidWorks' weldment cut list). Every length is measured from its body;\na body that is no plugin member is matched to a library profile by its\nexact section, else listed as unclassified with its measured size. Each\nline is priced from your price book on the stock pieces bought; a line\nthe book does not price is null, and `unpriced_lines` counts them.",
         "operationId": "get_part_cut_list_api_v1_parts__part_id__cut_list_get",
         "parameters": [
           {
@@ -23230,6 +23461,78 @@
         "summary": "List Plugins",
         "tags": [
           "plugins"
+        ]
+      }
+    },
+    "/api/v1/price-book": {
+      "get": {
+        "description": "Your price book: what you pay per stock piece, linear foot or board\nfoot for each material and lumber profile, in integer cents. Empty (USD)\nuntil you save one.",
+        "operationId": "get_price_book_api_v1_price_book_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PriceBookResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Price Book",
+        "tags": [
+          "price-book"
+        ]
+      },
+      "put": {
+        "description": "Replace your whole price book. At most 500 entries; each a material,\na profile, a unit (`each` with its `stock_length_ft`, `linear_foot` or\n`board_foot`) and `price_cents`, an integer from 0 to 10,000,000; one\nprice per material, profile, unit and stock length (else a 422).",
+        "operationId": "put_price_book_api_v1_price_book_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PriceBookUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PriceBookResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Price Book",
+        "tags": [
+          "price-book"
         ]
       }
     }
