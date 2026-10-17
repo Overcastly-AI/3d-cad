@@ -1,0 +1,62 @@
+{
+  "description": "B5 SHED SHEATHED (SHEATHING; docs/reference-parts/buildings.md B5 and B2, docs/BACKLOG.md SHEATHING): one loft.floor 1.1.0 feature at its defaults (B5's floor with a 23/32 plywood subfloor), then B2's four loft.wall 1.2.0 walls with 7/16 OSB exterior sheathing and B2's hosted door and window, standing on the subfloor (base elevation 8.75 + 23/32 = 9.46875 in). model.json is EXACTLY the five expansions with their member materials; members.json is each body's member metadata (packages/loft-plugins/tests/test_sheathing.py pins both).",
+  "derivation": [
+    "ANALYTIC, in exact rationals, from members typed by hand from buildings.md, independent of the plugin (the script is services/geometry/tests/test_sheathing_b5.py's spec): B5's 16 floor boxes; 6 subfloor boxes Z 8.75..9.46875 (X 0..96, 96..144 at Y 0..48 and 96..120; X 0..48, 48..144 at Y 48..96); B2's 64 door-and-window framing boxes (28 942.125 in^3) raised 9.46875; and 12 OSB panels 7/16 thick outside each wall's exterior face, Z 9.46875..106.59375, 48 in from each wall's start: front (Y -7/16..0) X 96..144, 48..96 less the door X 53..91 x Z 0..82.5 above the base (a U, 8 corners), 0..48; back (Y 120..120 7/16) X 0..48, 48..96, 96..144; left (X -7/16..0) Y 3.5..51.5, 51.5..99.5, 99.5..116.5; right (X 144..144 7/16) Y 68.5..116.5 less the window Y 68.5..72.25 x Z 46..82.5, 20.5..68.5 less Y 47.75..68.5, 3.5..20.5.",
+    "",
+    "OSB net area = 2 x 144 x 97.125 + 2 x 113 x 97.125 - 38 x 82.5 - 24.5 x 36.5 = 45 893 in^2; x 7/16 = 20 078.1875 in^3. Subfloor 144 x 120 x 23/32 = 12 420 in^3.",
+    "",
+    "volume = 20 030.25 + 12 420 + 28 942.125 + 20 078.1875 = 81 470.5625 in^3 = 1335063321.8035 mm^3.",
+    "",
+    "surface_area = 3 478 243/16 in^2 = 140251453.3675 mm^2 (boxes 2(ab + bc + ca); a panel 2 x face area + perimeter x 7/16).",
+    "",
+    "centroid = (12235819703/166851712, 2503437351/41712928, 3267909265/83425856) in = (1862.6708514456238, 1524.4029073049007, 994.9540743219944) mm.",
+    "",
+    "mass_g = 703905.1696142645 g: SPF 338 391/8 in^3 x 450, PT 13 347/2 x 582, OSB 321 251/16 x 641, plywood 12 420 x 577 kg/m^3; center_of_mass = (6423033159319/87971694464, 1328735564991/21992923616, 1717795861469/43985847232) in = (1854.5174472394099, 1534.5792101154816, 991.9557682083254) mm.",
+    "",
+    "bounding_box: X -7/16..144 7/16, Y -7/16..120 7/16, Z 0..106.59375 in = -11.1125..3668.7125, -11.1125..3059.1125, 0..2707.48125 mm.",
+    "",
+    "topology: 95 boxes (6 faces, 12 edges) and 3 notched panels (8 corners: 10 faces, 24 edges) = 600 faces, 1212 edges, 98 shells. MESH: a box 24 vertices and 12 triangles, a notched panel two 8-corner caps (8 vertices, 6 triangles each) and 8 sides (4, 2) = 48 vertices and 28 triangles: 2424 vertices, 1224 triangles.",
+    "",
+    "Interference none: the subfloor's top (Z 9.46875) only touches the bottom plates, and each panel's inner face only touches its wall's framing (test_sheathing_b5.py probes every pair)."
+  ],
+  "tolerance": 2e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): the bounds are ABSOLUTE and the part is ~1.3e9 mm^3, so the double-precision sum of its 98 bodies carries round-off near the ULP of the sum (~2.4e-7): measured +7.0e-07 mm^3 on the volume, -8e-08 mm^2 on the area, 1.4e-12 mm on the centroid, +8e-10 g on the mass. 2e-6 is 2.9x that and ~1.5e-15 relative, the B5 goldens' bound; a panel 0.001 in too wide adds 7 200 mm^3 to the volume, so it fails by nine orders.",
+  "roundtrip_tolerance": 5e-6,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip re-sums the 98 re-imported solids in another order and moves the VOLUME by +1.9e-06 mm^3 (1.4e-15 relative, 8 ULPs of the sum) and the AREA by under 2e-6 mm^2, above ROUNDTRIP_TOL (1e-7 absolute). 5e-6 is 2.6x the volume's drift; the cause is the other B5 goldens' (3e-6 over 64 bodies). It applies to volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 1335063321.8035,
+    "surface_area": 140251453.3675,
+    "centroid": {
+      "x": 1862.6708514456238,
+      "y": 1524.4029073049007,
+      "z": 994.9540743219944
+    },
+    "mass_g": 703905.1696142645,
+    "center_of_mass": {
+      "x": 1854.5174472394099,
+      "y": 1534.5792101154816,
+      "z": 991.9557682083254
+    },
+    "bounding_box": {
+      "min": {
+        "x": -11.1125,
+        "y": -11.1125,
+        "z": 0.0
+      },
+      "max": {
+        "x": 3668.7125,
+        "y": 3059.1125,
+        "z": 2707.48125
+      }
+    }
+  },
+  "topology": {
+    "faces": 600,
+    "edges": 1212,
+    "shells": 98
+  },
+  "mesh": {
+    "vertices": 2424,
+    "triangles": 1224
+  }
+}

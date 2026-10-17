@@ -267,6 +267,9 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # An L at 1.2.0 framing one common where it framed two
         # (ROOF-L-DOUBLED-COMMON): b4's STEP rounding (8.5e-4 measured).
         "l-hip-16oc-v1.2-one-common",
+        # B5 sheathed: the floor's subfloor and B2's OSB walls on it
+        # (SHEATHING): the same summation drift over 98 bodies.
+        "b5-shed-sheathed",
     }
 )
 

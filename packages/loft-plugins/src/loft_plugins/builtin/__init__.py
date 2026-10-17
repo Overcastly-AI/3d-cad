@@ -14,6 +14,7 @@ from loft_plugins.builtin.roof import ROOF_V1, ROOF_V1_1
 from loft_plugins.builtin.roof_valley import ROOF_V1_2
 from loft_plugins.builtin.timber_frame import TIMBER_FRAME_V1
 from loft_plugins.builtin.roof_valley import ROOF_V1_2, ROOF_V1_3
+from loft_plugins.builtin.sheathing import FLOOR_V1_1, WALL_V1_2
 from loft_plugins.builtin.twisted_prism import TWISTED_PRISM_V1
 from loft_plugins.builtin.wall import WALL_V1, WALL_V1_1
 
@@ -31,4 +32,6 @@ BUILTIN_PLUGINS: tuple[Plugin, ...] = (
     FLOOR_V1,
     TIMBER_FRAME_V1,
     ROOF_V1_3,
+    WALL_V1_2,
+    FLOOR_V1_1,
 )
