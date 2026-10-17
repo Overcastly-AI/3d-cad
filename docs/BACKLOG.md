@@ -113,7 +113,7 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    no interference, a seven-roof overlap sweep, the twin's STEP drift),
    `test_roof_feature.py`; e2e `roof-hip-b3.spec.ts`; RESEARCH §23. Closes
    ROOF-OVERHANG-MIN (1.1.0), ROOF-TWIN-DRIFT-TEST, ROOF-HEEL-RULE-WORDING.
-6. [ ] **PRICE-BOOK** (backend-builder; prices B1, B2): a price book of
+6. [x] **PRICE-BOOK** (backend-builder; prices B1, B2): a price book of
    what the user pays, as Chief Architect's Master List feeds its materials
    list and SolidWorks' Cost property feeds a BOM column. One book per user
    (no workspaces yet), in documents (`price_books` with the currency,
@@ -146,6 +146,13 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    = 90.72, ridge 11.28); an assembly placing B1 once and B2 twice totals
    $1,736.08; the CSVs carry the same numbers; the migration upgrades and
    downgrades; another user cannot read the book.
+   _Done:_ `loft_wire.price_book` and `cut_list.price_lines`; documents
+   `price_books`/`price_book_entries` (migration 0022, CHECKs on price and
+   stock length); gateway `GET`/`PUT /api/v1/price-book`, and every part and
+   assembly cut list priced from the caller's book; `test_cut_list_prices.py`
+   (B1, B2 and the assembly on measured goldens), `test_cut_list_chain.py`,
+   `test_price_book.py` (wire, documents), `test_migrations.py` 0022;
+   RESEARCH §27. Closes CUT-LIST-CSV-HARDEN.
 7. [ ] **CUT-LIST-PRICES** (frontend-builder, after PRICE-BOOK): the cut
    list panel (part, assembly, drawing) shows Stock qty, Unit price,
    Extended and a Total row, money formatted in the book's currency, a
@@ -658,3 +665,6 @@ One line each. The founder triages weekly; most are closed without work.
 - PRICE-PART-COST: purchased parts (joist hangers, screws, a bike's crankset) have no price; SolidWorks' Cost custom property on a part, summed in the assembly BOM, is the convention. Founder to say whether the BOM (not just the cut list) needs it.
 - PRICE-SHEET-GOODS: the price book has no per-sheet unit because the cut list has no sheet goods (plywood, OSB) yet; add it with B2's sheathing.
 - DRAWING-PARTS-LIST-COST: the drawing's parts list has no Cost column; the drawing's cut-list panel gets prices through CUT-LIST-PRICES, and neither is on the exported sheet (CUT-LIST-PDF).
+- PRICE-BOOK-MISSING: a deleted part an assembly still places is listed in `missing`, not as a line, so the total neither prices it nor counts it among the unpriced lines; the panel should say the total leaves it out.
+- PRICE-BOOK-KEY-DRIFT: entries store library keys (`spf_lumber`, `us_2x4`); renaming or removing a key from the closed library would make a stored book fail to read, so such a change needs a data migration of `price_book_entries`.
+- PRICE-BOOK-CUT-LIST-HOP: every cut list (JSON and CSV) now reads the caller's book from documents, one extra internal request per call; cache it per request if the panel polls.

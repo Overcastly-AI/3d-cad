@@ -2230,3 +2230,61 @@ document; the registers and the assembly Add panel now do too.
   document's version so an edit refetches; never shows the previous picture
   while a new version renders.
 - No schema change: nothing is stored in Postgres.
+
+## 27. Price book (PRICE-BOOK)
+
+The founder asked for a price column on the cut sheet. Chief Architect's
+Master List feeds its materials list a price per item, and SolidWorks' Cost
+property feeds a BOM column; Loft's price book feeds the cut list.
+
+- **One book per user, in documents** (`price_books`, unique per owner, with
+  the ISO 4217 currency; `price_book_entries` in the user's order; migration
+  0022). No workspaces yet, so a book is the caller's: there is no id in the
+  route (`GET`/`PUT /api/v1/price-book`) and every query filters on the
+  gateway-forwarded principal. A user who never saved one reads an empty USD
+  book and nothing is written until the first `PUT`. A `PUT` replaces the
+  whole book under a row lock, so two saves serialize and the later wins whole.
+- **An entry is a material, a lumber profile, a unit and integer cents**
+  (`loft_wire.price_book`). Units: `each` (one stock piece, with its stock
+  length, one of `STOCK_LENGTHS_FT`), `linear_foot` or `board_foot`, the last
+  two for any stock length. Material and profile are the library's closed
+  keys (`spf_lumber`, `us_2x4`), so a typo is a 422, not a price that never
+  matches. One price per (material, profile, unit, stock length); at most 500
+  entries; 0 to 10,000,000 cents, a strict JSON integer (`3.98`, `398.0`
+  and `"398"` are refused). The database backs the two rules a bad write
+  would corrupt silently with CHECKs: no negative price, and a stock length
+  exactly when the unit is `each`. Sheet goods and per-part prices are later.
+- **Lines are priced on the stock pieces bought** (`loft_wire.cut_list.
+  price_lines`, pure code the gateway applies to every part and assembly cut
+  list). Stock quantity is one per piece until CUT-LIST-NESTING, so the
+  offcut is paid for, not credited, as a yard invoices. The unit price per
+  stock piece is the `each` price for that stock length, else per foot x the
+  stock length, else per board foot x nominal thickness x nominal width x
+  stock length / 12 (2x4 x 8 ft = 5.333 BF; 5/4x6 counts 1.25 thick). Board
+  feet use the NOMINAL size, as yards sell them, read exactly from the
+  profile's name.
+- **Money is integer cents, rounded once per stock piece, half up.** A
+  board-foot price is the only one that can fall between cents; it is
+  computed as an exact fraction and rounded once per piece, then multiplied
+  by the stock quantity, as an invoice line is (10 x 533, never
+  round(10 x 533.33)). No float touches money: ints and `Fraction` in
+  Python, BIGINT in Postgres, JSON integers on the wire.
+- **A missing price is blank, never $0.** A line with no entry, no material
+  or no stock length (unclassified, or longer than 20 ft) has null unit and
+  extended price; the response has `currency`, `total_price_cents` (the
+  priced lines' sum, null when none is priced) and `unpriced_lines`. An
+  assembly's list is already one grouped list across its parts, so its total
+  is the sum of its lines. A deleted part an assembly still places is in
+  `missing`, not a line, so it is not counted as unpriced.
+- **CSV:** `Stock qty`, `Unit price (USD)`, `Price unit` (Each, Per ft,
+  Per BF) and `Extended (USD)` as plain numbers (`28.47`, no symbol or
+  separator, so a spreadsheet sums them), an unpriced line's cells blank, and
+  a Total row ("Total", or "Total of priced lines, N unpriced"). A formula
+  trigger after leading whitespace is escaped too (`" =1+1"` becomes
+  `"' =1+1"`), closing CUT-LIST-CSV-HARDEN.
+- **Checked:** B1 measured from its golden totals $943.94 with the sample
+  book and $839.54 with 1 line unpriced once the 6x6 price is deleted; B2
+  (walls with door and window, and the 6/12 roof) $396.07; B1 once and B2
+  twice $1,736.08 (`services/geometry/tests/test_cut_list_prices.py`); the
+  same B1 numbers and CSV through the three services
+  (`test_cut_list_chain.py`).
