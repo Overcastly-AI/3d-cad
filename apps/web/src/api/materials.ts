@@ -66,6 +66,22 @@ export async function fetchMaterials(
   return data.materials;
 }
 
+/** The whole served library: materials and the lumber profiles beside them. */
+export type MaterialLibrary = components["schemas"]["MaterialLibraryResponse"];
+
+/** The library with its lumber profiles (the price book picks from both). */
+export async function fetchMaterialLibrary(
+  client: GatewayClient = gatewayClient,
+): Promise<MaterialLibrary> {
+  const { data, error } = await client.GET("/api/v1/materials");
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The material library could not be loaded."),
+    );
+  }
+  return data;
+}
+
 /**
  * Replace the part's WHOLE material assignment (design §2). Wholesale, never a
  * merge: the request states the full intended state, so two concurrent edits

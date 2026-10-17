@@ -25,10 +25,27 @@ import { CutListPanel } from "./CutListPanel";
 import type { NestedPart } from "../assembly/subAssemblies";
 import { AssemblyInspector } from "./AssemblyInspector";
 import { ExportRow } from "./ExportRow";
+import type { FloatingPanelProps } from "./FloatingPanel";
 import type { ExportedFile, ExportFormat } from "../api/exportPart";
 import type { AssemblyExportGate } from "../features/assemblyExport";
 
 export type InspectorView = "solve" | "bom" | "cut" | "clash";
+
+/**
+ * The floating panel the inspector sits in. The cut list's seven columns (with
+ * its prices, CUT-LIST-PRICES) take the Parameters table's width; the other
+ * views keep the inspector's.
+ */
+export function inspectorPanelProps(
+  view: InspectorView,
+): Omit<FloatingPanelProps, "children"> {
+  return {
+    side: "right",
+    title: "Inspect",
+    id: "inspector",
+    width: view === "cut" ? "parameters" : "inspector",
+  };
+}
 
 export interface AssemblyInspectorPanelProps {
   view: InspectorView;

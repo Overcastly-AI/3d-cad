@@ -10,6 +10,12 @@
  * is server-side, so this only formats them in the document's unit. A body that
  * matched no profile is listed as Unclassified with its measured section, never
  * dropped. CSV downloads the same lines.
+ *
+ * Prices (CUT-LIST-PRICES) are the gateway's too, priced from the caller's
+ * price book in integer cents: the unit price of one stock piece, the extended
+ * price, and a Total row of the priced lines. A line the book does not price is
+ * BLANK, never $0, and the Total row counts it; clicking the blank opens the
+ * Price book pre-filled with the line's material, profile and stock length.
  */
 import { Button, lengthUnitLabel, Panel, PanelSection } from "@loft/design";
 import { useQuery } from "@tanstack/react-query";
@@ -23,7 +29,10 @@ import {
 } from "../api/cutList";
 import { downloadBlob } from "../api/exportPart";
 import { fetchMaterials } from "../api/materials";
+import { PRICE_UNIT_LABEL } from "../api/priceBook";
 import { formatCount, formatLength } from "../lib/format";
+import { formatMoney } from "../lib/money";
+import { PriceBookDialog, type PriceBookSeed } from "./PriceBookDialog";
 
 export interface CutListPanelProps {
   kind: CutListSource;
@@ -38,7 +47,50 @@ export interface CutListPanelProps {
 
 const HEAD_BASE =
   "py-1 font-display text-2xs font-normal uppercase tracking-[0.14em]";
-const HEAD = `${HEAD_BASE} px-1.5 text-right`;
+/** Narrow seats (the drawing's 320 px panel) tighten the column gutters. */
+const NARROW_GUTTER = "[@container(max-width:439px)]:px-1";
+const HEAD = `${HEAD_BASE} px-1.5 text-right ${NARROW_GUTTER}`;
+
+const CELL = `px-1.5 py-1.5 text-right align-baseline font-data tabular-nums ${NARROW_GUTTER}`;
+/**
+ * The run (qty x length) column gives way in a narrow seat (the drawing's
+ * 320 px side panel): with the two price columns the table would otherwise
+ * clip its extended price, and the run is the one column a buyer can do
+ * without (Qty and Length are both beside it). Wider, it is shown.
+ */
+const RUN_COLUMN = "[@container(max-width:439px)]:hidden";
+
+/** "1 line unpriced" / "6 lines unpriced". */
+export function unpricedLabel(count: number): string {
+  return `${count} ${count === 1 ? "line" : "lines"} unpriced`;
+}
+
+/** What a blank price would be priced as, or null when no entry could. */
+function seedFor(line: CutListLine): PriceBookSeed | null {
+  if (
+    line.classification === "unclassified" ||
+    line.material === null ||
+    line.profile === null ||
+    line.stock_length_ft === null
+  ) {
+    return null;
+  }
+  return {
+    material: line.material,
+    profile: line.profile,
+    stockLengthFt: line.stock_length_ft,
+  };
+}
+
+/** How the line's unit price was reached, for its tooltip. */
+function priceBasis(line: CutListLine): string | undefined {
+  if (line.price_unit === null) return undefined;
+  const basis =
+    line.price_unit === "each"
+      ? `Each at ${line.stock_length_ft} ft`
+      : `${PRICE_UNIT_LABEL[line.price_unit]}, ${line.stock_length_ft} ft stock`;
+  return `${basis}: one stock piece`;
+}
 
 function describe(line: CutListLine, materialName: (key: string) => string) {
   const parts = [
@@ -67,6 +119,10 @@ export function CutListPanel({
     staleTime: Infinity,
   });
   const [exporting, setExporting] = useState(false);
+  /** The Price book is open: null seed from the button, a line's from a blank. */
+  const [priceBook, setPriceBook] = useState<{
+    seed: PriceBookSeed | null;
+  } | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
   const data = cutList.data;
@@ -134,136 +190,224 @@ export function CutListPanel({
               along its length.
             </p>
           ) : (
-            <table
-              data-testid="cut-list-table"
-              aria-label={`Cut list, ${lines.length} lines, ${data.total_quantity} pieces`}
-              className="w-full border-collapse font-body text-sm"
-            >
-              <thead>
-                <tr className="border-b border-hairline text-gauge">
-                  <th
-                    scope="col"
-                    className={`${HEAD_BASE} pl-3 pr-1 text-left`}
-                  >
-                    Member
-                  </th>
-                  <th scope="col" className={HEAD}>
-                    Qty
-                  </th>
-                  <th
-                    scope="col"
-                    className={HEAD}
-                    title={`Each (${unitLabel})`}
-                  >
-                    Length
-                  </th>
-                  <th
-                    scope="col"
-                    className={HEAD}
-                    title={`Qty × length (${unitLabel})`}
-                  >
-                    Total
-                  </th>
-                  <th
-                    scope="col"
-                    className={`${HEAD_BASE} pl-1.5 pr-3 text-right`}
-                    title="Shortest standard stock that covers each piece"
-                  >
-                    Stock
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((line, index) => {
-                  const unclassified = line.classification === "unclassified";
-                  const caption = unclassified
-                    ? `Unclassified · ${line.section_mm
-                        .map((v) => formatLength(v, unit))
-                        .join(" × ")} ${unitLabel}`
-                    : describe(line, materialName);
-                  return (
-                    <tr
-                      key={index}
-                      data-testid="cut-list-row"
-                      data-member={line.member ?? ""}
-                      data-profile={line.profile ?? ""}
-                      data-classification={line.classification}
-                      className="border-b border-hairline/60 last:border-b-0"
+            <div className="overflow-x-auto [container-type:inline-size]">
+              <table
+                data-testid="cut-list-table"
+                aria-label={`Cut list, ${lines.length} lines, ${data.total_quantity} pieces`}
+                className="w-full border-collapse font-body text-sm"
+              >
+                <thead>
+                  <tr className="border-b border-hairline text-gauge">
+                    <th
+                      scope="col"
+                      className={`${HEAD_BASE} pl-3 pr-1 text-left`}
                     >
-                      <td className="min-w-0 py-1.5 pl-3 pr-1 align-baseline">
-                        <span
-                          data-testid="cut-list-member"
-                          className={`block truncate ${
-                            unclassified ? "italic text-gauge" : "text-mist"
-                          }`}
-                        >
-                          {line.member ?? line.profile ?? "Body"}
-                        </span>
-                        {caption ? (
+                      Member
+                    </th>
+                    <th scope="col" className={HEAD}>
+                      Qty
+                    </th>
+                    <th
+                      scope="col"
+                      className={HEAD}
+                      title={`Each (${unitLabel})`}
+                    >
+                      Length
+                    </th>
+                    <th
+                      scope="col"
+                      className={`${HEAD} ${RUN_COLUMN}`}
+                      title={`Qty × length (${unitLabel})`}
+                    >
+                      Run
+                    </th>
+                    <th
+                      scope="col"
+                      className={HEAD}
+                      title="Shortest standard stock that covers each piece"
+                    >
+                      Stock
+                    </th>
+                    <th
+                      scope="col"
+                      className={HEAD}
+                      title={`Unit price: one stock piece (${data.currency})`}
+                    >
+                      Unit price
+                    </th>
+                    <th
+                      scope="col"
+                      className={`${HEAD_BASE} pl-1.5 pr-3 text-right`}
+                      title={`Extended price: stock qty × unit price (${data.currency})`}
+                    >
+                      Ext. price
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lines.map((line, index) => {
+                    const unclassified = line.classification === "unclassified";
+                    const caption = unclassified
+                      ? `Unclassified · ${line.section_mm
+                          .map((v) => formatLength(v, unit))
+                          .join(" × ")} ${unitLabel}`
+                      : describe(line, materialName);
+                    const seed = seedFor(line);
+                    const name = line.member ?? line.profile ?? "Body";
+                    return (
+                      <tr
+                        key={index}
+                        data-testid="cut-list-row"
+                        data-member={line.member ?? ""}
+                        data-profile={line.profile ?? ""}
+                        data-classification={line.classification}
+                        className="border-b border-hairline/60 last:border-b-0"
+                      >
+                        <td className="w-full max-w-0 py-1.5 pl-3 pr-1 align-baseline">
                           <span
-                            data-testid="cut-list-caption"
-                            className="block truncate text-2xs text-gauge"
-                            title={caption}
+                            data-testid="cut-list-member"
+                            className={`block truncate ${
+                              unclassified ? "italic text-gauge" : "text-mist"
+                            }`}
                           >
-                            {caption}
+                            {line.member ?? line.profile ?? "Body"}
                           </span>
-                        ) : null}
-                      </td>
-                      <td
-                        data-testid="cut-list-qty"
-                        className="px-1.5 py-1.5 text-right align-baseline font-data tabular-nums text-mist"
-                      >
-                        {formatCount(line.quantity)}
-                      </td>
-                      <td
-                        data-testid="cut-list-length"
-                        className="px-1.5 py-1.5 text-right align-baseline font-data tabular-nums text-mist"
-                      >
-                        {formatLength(line.length_mm, unit)}
-                      </td>
-                      <td
-                        data-testid="cut-list-total-length"
-                        className="px-1.5 py-1.5 text-right align-baseline font-data tabular-nums text-gauge"
-                      >
-                        {formatLength(line.total_length_mm, unit)}
-                      </td>
-                      <td
-                        data-testid="cut-list-stock"
-                        className="py-1.5 pl-1.5 pr-3 text-right align-baseline font-data tabular-nums text-mist"
-                        title={
-                          line.waste_mm === null
-                            ? undefined
-                            : `${formatLength(line.waste_mm, unit)} ${unitLabel} offcut each`
-                        }
-                      >
-                        {line.stock_length_ft === null
-                          ? "—"
-                          : `${line.stock_length_ft} ft`}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="border-t border-hairline">
-                  <td className="py-1.5 pl-3 font-display text-2xs uppercase tracking-[0.16em] text-gauge">
-                    Pieces
-                  </td>
-                  <td
-                    data-testid="cut-list-total"
-                    className="px-1.5 py-1.5 text-right font-data tabular-nums text-brass"
-                  >
-                    {formatCount(data.total_quantity)}
-                  </td>
-                  <td
-                    colSpan={3}
-                    className="py-1.5 pr-3 text-right font-body text-2xs text-gauge"
-                  >
-                    Lengths in {unitLabel}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+                          {caption ? (
+                            <span
+                              data-testid="cut-list-caption"
+                              className="block truncate text-2xs text-gauge"
+                              title={caption}
+                            >
+                              {caption}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td
+                          data-testid="cut-list-qty"
+                          className={`${CELL} text-mist`}
+                        >
+                          {formatCount(line.quantity)}
+                        </td>
+                        <td
+                          data-testid="cut-list-length"
+                          className={`${CELL} text-mist`}
+                        >
+                          {formatLength(line.length_mm, unit)}
+                        </td>
+                        <td
+                          data-testid="cut-list-total-length"
+                          className={`${CELL} text-gauge ${RUN_COLUMN}`}
+                        >
+                          {formatLength(line.total_length_mm, unit)}
+                        </td>
+                        <td
+                          data-testid="cut-list-stock"
+                          className={`${CELL} text-mist`}
+                          title={
+                            line.waste_mm === null
+                              ? undefined
+                              : `${formatLength(line.waste_mm, unit)} ${unitLabel} offcut each`
+                          }
+                        >
+                          {line.stock_length_ft === null
+                            ? "—"
+                            : `${line.stock_length_ft} ft`}
+                        </td>
+                        <td
+                          data-testid="cut-list-unit-price"
+                          className={`${CELL} text-mist`}
+                          title={priceBasis(line)}
+                        >
+                          {line.unit_price_cents !== null ? (
+                            formatMoney(line.unit_price_cents, data.currency)
+                          ) : seed !== null ? (
+                            // Blank, never $0: the cell is the way to price it.
+                            <button
+                              type="button"
+                              data-testid="cut-list-price-blank"
+                              aria-label={`Price ${name}, ${line.profile} at ${line.stock_length_ft} ft`}
+                              aria-haspopup="dialog"
+                              title="Not in your price book. Click to price it."
+                              onClick={() => setPriceBook({ seed })}
+                              className="-my-1 inline-flex min-h-target-dense w-full min-w-10 items-center justify-end rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-transparent outline-none transition-colors duration-fast hover:bg-carbide hover:text-brass focus-visible:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass"
+                            >
+                              Price
+                            </button>
+                          ) : null}
+                        </td>
+                        <td
+                          data-testid="cut-list-ext-price"
+                          className="py-1.5 pl-1.5 pr-3 text-right align-baseline font-data tabular-nums text-mist"
+                          title={
+                            line.extended_price_cents === null ||
+                            line.unit_price_cents === null
+                              ? undefined
+                              : `${formatCount(line.stock_quantity ?? 0)} stock × ${formatMoney(line.unit_price_cents, data.currency)}`
+                          }
+                        >
+                          {line.extended_price_cents === null
+                            ? null
+                            : formatMoney(
+                                line.extended_price_cents,
+                                data.currency,
+                              )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-hairline">
+                    <td className="py-1.5 pl-3 font-display text-2xs uppercase tracking-[0.16em] text-gauge">
+                      Pieces
+                    </td>
+                    <td
+                      data-testid="cut-list-total"
+                      className="px-1.5 py-1.5 text-right font-data tabular-nums text-brass"
+                    >
+                      {formatCount(data.total_quantity)}
+                    </td>
+                    <td />
+                    <td className={RUN_COLUMN} />
+                    <td
+                      colSpan={3}
+                      className="py-1.5 pr-3 text-right font-body text-2xs text-gauge"
+                    >
+                      Lengths in {unitLabel}
+                    </td>
+                  </tr>
+                  <tr data-testid="cut-list-price-row">
+                    <th
+                      scope="row"
+                      colSpan={3}
+                      className="py-1.5 pl-3 text-left align-baseline font-normal"
+                    >
+                      <span className="font-display text-2xs uppercase tracking-[0.16em] text-gauge">
+                        Total
+                      </span>
+                      {data.unpriced_lines > 0 ? (
+                        <span
+                          data-testid="cut-list-unpriced"
+                          className="ml-2 font-body text-2xs text-flag"
+                        >
+                          {unpricedLabel(data.unpriced_lines)}
+                        </span>
+                      ) : null}
+                    </th>
+                    <td className={RUN_COLUMN} />
+                    <td colSpan={2} />
+                    <td
+                      data-testid="cut-list-price-total"
+                      className="py-1.5 pl-1.5 pr-3 text-right align-baseline font-data tabular-nums text-brass"
+                    >
+                      {data.total_price_cents === null
+                        ? null
+                        : formatMoney(data.total_price_cents, data.currency)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           )}
         </PanelSection>
         {missingPieces > 0 ? (
@@ -288,6 +432,13 @@ export function CutListPanel({
           ) : null}
           <span className="grow" />
           <Button
+            data-testid="cut-list-price-book"
+            aria-haspopup="dialog"
+            onClick={() => setPriceBook({ seed: null })}
+          >
+            Price book
+          </Button>
+          <Button
             data-testid="cut-list-csv"
             disabled={lines.length === 0 || exporting}
             onClick={() => void downloadCsv()}
@@ -306,6 +457,12 @@ export function CutListPanel({
           </p>
         ) : null}
       </Panel>
+      {priceBook !== null ? (
+        <PriceBookDialog
+          seed={priceBook.seed}
+          onClose={() => setPriceBook(null)}
+        />
+      ) : null}
     </aside>
   );
 }

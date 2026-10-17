@@ -1,7 +1,9 @@
 /**
  * CutListPanel (CUT-LIST): the gateway's lines, formatted in the document's
  * unit; an unclassified body reads with its measured section; CSV downloads
- * the server's file.
+ * the server's file. Prices (CUT-LIST-PRICES) are the gateway's, formatted
+ * from integer cents; an unpriced line is blank, never $0, and its blank
+ * opens the Price book pre-filled.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -14,7 +16,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import type { CutListResponse } from "../api/cutList";
-import { CutListPanel } from "./CutListPanel";
+import { CutListPanel, unpricedLabel } from "./CutListPanel";
 
 const IN = 25.4;
 
@@ -49,7 +51,7 @@ const RESPONSE: CutListResponse = {
     {
       member: null,
       profile: "6x6",
-      material: null,
+      material: "southern_pine_pt",
       classification: "matched",
       quantity: 1,
       length_mm: 10.5 * IN,
@@ -57,7 +59,7 @@ const RESPONSE: CutListResponse = {
       section_mm: [5.5 * IN, 5.5 * IN],
       stock_length_ft: 8,
       waste_mm: 85.5 * IN,
-      // No material, so no price: blank, never 0.
+      // No entry in the book: blank, never 0.
       stock_quantity: 1,
       unit_price_cents: null,
       price_unit: null,
@@ -94,7 +96,27 @@ vi.mock("../api/cutList", () => ({
 
 vi.mock("../api/exportPart", () => ({ downloadBlob: csv.downloadBlob }));
 
+vi.mock("../api/priceBook", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/priceBook")>()),
+  fetchPriceBook: vi.fn(() =>
+    Promise.resolve({ currency: "USD", entries: [], updated_at: null }),
+  ),
+}));
+
 vi.mock("../api/materials", () => ({
+  fetchMaterialLibrary: vi.fn(() =>
+    Promise.resolve({
+      materials: [
+        {
+          key: "southern_pine_pt",
+          name: "Southern pine, pressure-treated",
+          density_kg_m3: 582,
+          source: "",
+        },
+      ],
+      profiles: [{ key: "us_6x6", name: "6x6" }],
+    }),
+  ),
   fetchMaterials: vi.fn(() =>
     Promise.resolve([
       {
@@ -150,6 +172,68 @@ describe("CutListPanel", () => {
     expect(screen.getByTestId("cut-list-missing")).toHaveTextContent(
       "2 placements of deleted parts are not listed.",
     );
+  });
+
+  it("prices each line from integer cents and totals the priced ones", async () => {
+    renderPanel();
+    const rows = await screen.findAllByTestId("cut-list-row");
+    const joist = within(rows[0]!);
+    expect(joist.getByTestId("cut-list-unit-price")).toHaveTextContent(
+      "$19.98",
+    );
+    expect(joist.getByTestId("cut-list-unit-price")).toHaveAttribute(
+      "title",
+      "Each at 12 ft: one stock piece",
+    );
+    expect(joist.getByTestId("cut-list-ext-price")).toHaveTextContent(
+      "$259.74",
+    );
+    // Unpriced: blank, never $0.
+    for (const row of rows.slice(1)) {
+      expect(
+        within(row).getByTestId("cut-list-unit-price"),
+      ).not.toHaveTextContent("$");
+      expect(
+        within(row).getByTestId("cut-list-ext-price"),
+      ).toBeEmptyDOMElement();
+    }
+    // A line with no stock length has nothing the book could price.
+    expect(within(rows[2]!).queryByTestId("cut-list-price-blank")).toBeNull();
+    expect(screen.getByTestId("cut-list-price-total")).toHaveTextContent(
+      "$259.74",
+    );
+    expect(screen.getByTestId("cut-list-unpriced")).toHaveTextContent(
+      "2 lines unpriced",
+    );
+    for (const name of ["Unit price", "Ext. price"]) {
+      expect(screen.getByRole("columnheader", { name })).toBeInTheDocument();
+    }
+    expect(
+      screen.getByRole("rowheader", { name: /Total/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens the Price book pre-filled from a blank price", async () => {
+    renderPanel();
+    const rows = await screen.findAllByTestId("cut-list-row");
+    fireEvent.click(
+      within(rows[1]!).getByRole("button", { name: "Price 6x6, 6x6 at 8 ft" }),
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Price book" }),
+    ).toBeInTheDocument();
+    const seeded = await screen.findByTestId("price-book-row");
+    expect(seeded).toHaveAttribute("data-profile", "us_6x6");
+    expect(within(seeded).getByLabelText("Stock length, price 1")).toHaveValue(
+      "8",
+    );
+    fireEvent.click(screen.getByTestId("price-book-cancel"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("counts the unpriced lines", () => {
+    expect(unpricedLabel(1)).toBe("1 line unpriced");
+    expect(unpricedLabel(6)).toBe("6 lines unpriced");
   });
 
   it("downloads the server's CSV", async () => {

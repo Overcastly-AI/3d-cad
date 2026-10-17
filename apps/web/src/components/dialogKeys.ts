@@ -6,7 +6,7 @@
  * Returns true when it handled the key.
  */
 const FOCUSABLE =
-  'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+  'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
 
 export function containFocus(
   panel: HTMLElement | null,

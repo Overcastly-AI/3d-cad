@@ -44,6 +44,7 @@ import { AddInstancePanel } from "../components/AddInstancePanel";
 import { AssemblyCommandBand } from "../components/AssemblyCommandBand";
 import {
   AssemblyInspectorPanel,
+  inspectorPanelProps,
   type InspectorView,
 } from "../components/AssemblyInspectorPanel";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -1451,7 +1452,7 @@ export function AssemblyPage() {
               failedByComponent={failuresByComponent(failed)}
             />
           </FloatingPanel>
-          <FloatingPanel side="right" title="Inspect" id="inspector">
+          <FloatingPanel {...inspectorPanelProps(inspectorView)}>
             <AssemblyInspectorPanel
               view={inspectorView}
               onViewChange={setInspectorView}
