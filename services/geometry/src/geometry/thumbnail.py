@@ -41,18 +41,18 @@ from typing import Any
 
 import numpy as np
 from loft_wire.drawings import ComposedSheet
+from loft_wire.thumbnails import THUMBNAIL_RENDERER_VERSION, THUMBNAIL_SIZE_PX
 from numpy.typing import NDArray
 from PIL import Image, ImageDraw
 
 from geometry.kernel.tessellate import FACE_TRIANGLES_KEY
 
-#: Bump when the picture for an unchanged model changes (colours, view, size,
-#: algorithm): it is folded into every cache key, so old pictures fall out.
-RENDERER_VERSION = 1
+#: Folded into every cache key (see :data:`THUMBNAIL_RENDERER_VERSION`).
+RENDERER_VERSION = THUMBNAIL_RENDERER_VERSION
 
 #: Final edge length in pixels. Thumbnails are a fixed size: the register tile
 #: and the Add-panel tile both display it at <= 128 CSS px, so 256 covers 2x DPR.
-THUMBNAIL_PX = 256
+THUMBNAIL_PX = THUMBNAIL_SIZE_PX
 
 #: Supersampling factor; the painted image is ``THUMBNAIL_PX * SUPERSAMPLE``.
 SUPERSAMPLE = 2

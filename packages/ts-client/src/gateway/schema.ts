@@ -472,6 +472,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assemblies/{assembly_id}/thumbnail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Assembly Thumbnail
+         * @description The thumbnail of one of the caller's assemblies, at its solved placements.
+         */
+        get: operations["assembly_thumbnail_api_v1_assemblies__assembly_id__thumbnail_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}/undo": {
         parameters: {
             query?: never;
@@ -931,6 +951,26 @@ export interface paths {
          *     ``stale_drawing_version`` 422 are re-surfaced verbatim.
          */
         post: operations["create_view_api_v1_drawings__drawing_id__sheets__sheet_id__views_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}/thumbnail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Drawing Thumbnail
+         * @description The thumbnail of the first sheet of one of the caller's drawings.
+         */
+        get: operations["drawing_thumbnail_api_v1_drawings__drawing_id__thumbnail_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2111,6 +2151,26 @@ export interface paths {
          * @description Move the rollback bar (null = bar at the tip).
          */
         put: operations["move_rollback_bar_api_v1_parts__part_id__rollback_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/thumbnail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Part Thumbnail
+         * @description The thumbnail of one of the caller's parts (404 for unknown/foreign ids).
+         */
+        get: operations["part_thumbnail_api_v1_parts__part_id__thumbnail_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -14073,6 +14133,44 @@ export interface operations {
             };
         };
     };
+    assembly_thumbnail_api_v1_assemblies__assembly_id__thumbnail_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A 256x256 PNG of the document's current state: an isometric render of a part or assembly, or the first sheet of a drawing. `ETag` + `Cache-Control: private, no-cache`; a conditional request whose `If-None-Match` matches is a 304. A document that does not build is a 422 `thumbnail_failed`, one with nothing to draw a 422 `thumbnail_empty`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            /** @description The thumbnail the caller holds (its `ETag`) is current. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     undo_assembly_api_v1_assemblies__assembly_id__undo_post: {
         parameters: {
             query?: never;
@@ -14812,6 +14910,44 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ViewMutationResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    drawing_thumbnail_api_v1_drawings__drawing_id__thumbnail_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A 256x256 PNG of the document's current state: an isometric render of a part or assembly, or the first sheet of a drawing. `ETag` + `Cache-Control: private, no-cache`; a conditional request whose `If-None-Match` matches is a 304. A document that does not build is a 422 `thumbnail_failed`, one with nothing to draw a 422 `thumbnail_empty`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            /** @description The thumbnail the caller holds (its `ETag`) is current. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -16597,6 +16733,44 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["FeatureTreeResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    part_thumbnail_api_v1_parts__part_id__thumbnail_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A 256x256 PNG of the document's current state: an isometric render of a part or assembly, or the first sheet of a drawing. `ETag` + `Cache-Control: private, no-cache`; a conditional request whose `If-None-Match` matches is a 304. A document that does not build is a 422 `thumbnail_failed`, one with nothing to draw a 422 `thumbnail_empty`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            /** @description The thumbnail the caller holds (its `ETag`) is current. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

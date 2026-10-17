@@ -17,6 +17,11 @@ from typing import Any
 
 THUMBNAIL_MEDIA_TYPE = "image/png"
 
+#: Bumped when the picture of an unchanged document changes (view, colours,
+#: size, algorithm). Folded into geometry's cache key and the gateway's ETag, so
+#: a bump re-renders everything and every browser refetches.
+THUMBNAIL_RENDERER_VERSION = 1
+
 #: The edge length of every thumbnail, pixels (square).
 THUMBNAIL_SIZE_PX = 256
 
