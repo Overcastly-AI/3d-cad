@@ -1,12 +1,19 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { fetchThumbnail, type ThumbnailResult } from "../api/thumbnails";
+import {
+  fetchThumbnail,
+  ThumbnailBusyError,
+  type ThumbnailResult,
+} from "../api/thumbnails";
 import { DocumentThumbnail } from "./DocumentThumbnail";
 
-vi.mock("../api/thumbnails", () => ({ fetchThumbnail: vi.fn() }));
+vi.mock("../api/thumbnails", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/thumbnails")>()),
+  fetchThumbnail: vi.fn(),
+}));
 const fetchMock = vi.mocked(fetchThumbnail);
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -90,5 +97,41 @@ describe("DocumentThumbnail", () => {
     );
     expect(screen.queryByRole("img")).toBeNull();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:thumb-1");
+  });
+
+  it("waits out a busy worker with the placeholder, then shows the picture", async () => {
+    fetchMock
+      .mockRejectedValueOnce(new ThumbnailBusyError(5))
+      .mockRejectedValueOnce(new ThumbnailBusyError(5))
+      .mockResolvedValueOnce({ kind: "image", blob: new Blob(["png"]) });
+    tile();
+    expect(thumbnail().dataset.thumbnailState).toBe("loading");
+    await waitFor(() =>
+      expect(thumbnail().dataset.thumbnailState).toBe("ready"),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("asks for nothing until the tile nears the viewport", async () => {
+    let notify: (visible: boolean) => void = () => undefined;
+    class FakeObserver {
+      constructor(callback: (entries: { isIntersecting: boolean }[]) => void) {
+        notify = (visible) => callback([{ isIntersecting: visible }]);
+      }
+      observe() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("IntersectionObserver", FakeObserver);
+    fetchMock.mockResolvedValue({ kind: "image", blob: new Blob(["png"]) });
+    tile();
+    act(() => notify(false));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(thumbnail().dataset.thumbnailState).toBe("loading");
+
+    act(() => notify(true));
+    await waitFor(() =>
+      expect(thumbnail().dataset.thumbnailState).toBe("ready"),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

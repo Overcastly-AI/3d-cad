@@ -16,9 +16,47 @@
  */
 import { cx } from "@loft/design";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { fetchThumbnail, type ThumbnailKind } from "../api/thumbnails";
+import {
+  fetchThumbnail,
+  ThumbnailBusyError,
+  type ThumbnailKind,
+} from "../api/thumbnails";
+
+/** How far outside the viewport a tile starts loading (one or two rows ahead). */
+const LOOKAHEAD = "160px";
+
+/** How many times a tile waits out a busy worker before reading as an error. */
+const BUSY_RETRIES = 30;
+
+/**
+ * True once the element has come within `LOOKAHEAD` of the viewport, and from
+ * then on (a tile that scrolled away keeps its picture). Without an
+ * IntersectionObserver (jsdom, very old browsers) everything counts as visible.
+ */
+function useSeen<T extends Element>() {
+  const ref = useRef<T>(null);
+  const [seen, setSeen] = useState(
+    () => typeof IntersectionObserver === "undefined",
+  );
+  useEffect(() => {
+    const element = ref.current;
+    if (seen || element === null) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setSeen(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: LOOKAHEAD },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [seen]);
+  return [ref, seen] as const;
+}
 
 export type ThumbnailState = "loading" | "ready" | "failed" | "empty" | "error";
 
@@ -52,13 +90,23 @@ export function DocumentThumbnail({
   size = "md",
   className,
 }: DocumentThumbnailProps) {
+  // LAZY: a tile asks for its picture only when it nears the viewport, so a
+  // 200-row register costs the rows on screen, not 200 requests at once.
+  const [tileRef, seen] = useSeen<HTMLSpanElement>();
   const query = useQuery({
     queryKey: ["thumbnail", kind, id, version],
     queryFn: () => fetchThumbnail(kind, id),
+    enabled: seen,
     staleTime: 30_000,
-    // A 503 (the geometry queue is full) is worth one more try; a 422 is an
+    // Busy (503): geometry renders only when idle, so wait out its Retry-After,
+    // keeping the placeholder. Anything else gets one more try. A 422 is an
     // answer, not an error, and never reaches here as one.
-    retry: 1,
+    retry: (failures, error) =>
+      error instanceof ThumbnailBusyError
+        ? failures < BUSY_RETRIES
+        : failures < 1,
+    retryDelay: (_attempt, error) =>
+      error instanceof ThumbnailBusyError ? error.retryAfterMs : 1000,
   });
   const blob = query.data?.kind === "image" ? query.data.blob : null;
   const [url, setUrl] = useState<string | null>(null);
@@ -82,6 +130,7 @@ export function DocumentThumbnail({
 
   return (
     <span
+      ref={tileRef}
       data-testid="document-thumbnail"
       data-thumbnail-state={state}
       data-thumbnail-kind={kind}

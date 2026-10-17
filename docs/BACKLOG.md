@@ -199,7 +199,6 @@ step. The B1 items (LUMBER-MATERIALS, CUT-LIST, DECK) are in Now.
 
 One line each. The founder triages weekly; most are closed without work.
 
-- THUMB-GATE-HIT: a thumbnail cache hit still queues in geometry's admission gate behind a running rebuild (milliseconds of work, possibly seconds of wait); an async route could check the cache before admitting, as `/meshes` skips the gate.
 - THUMB-WARM: thumbnails render on first library view, not on save; Fusion renders at save. A warm after the modeller leaves the editor would hide the first-view wait.
 - THUMB-GRID: the registers show 48 px thumbnails in a list; Fusion and Onshape also offer a grid view with large tiles.
 - THUMB-ASM-PARTIAL: an assembly with any component that fails to build shows the placeholder rather than the components that did build.

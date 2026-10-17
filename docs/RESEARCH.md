@@ -2014,6 +2014,14 @@ document; the registers and the assembly Add panel now do too.
   assembly component without a body, or a failed drawing view, likewise. A
   document with nothing to draw is `thumbnail_empty`. The web shows the
   placeholder for both (flag ink for failed).
+- **Never ahead of modelling** (`geometry/thumbnail_gate.py`). Thumbnails do
+  not enter the modelling admission gate: a register's burst of one request
+  per row would fill its queue and get other users' evaluates refused. A cache
+  hit is served with no gate; a render passes a no-queue gate (1 at a time,
+  `THUMBNAIL_CONCURRENCY`) that admits only while the modelling gate has
+  nothing running or queued, else 503 + `Retry-After: 2`. The web loads a tile
+  only as it nears the viewport (IntersectionObserver), keeps at most 4
+  requests in flight, and waits out a 503 behind the placeholder.
 - **Rendered lazily, on first view, not on save.** Rendering on every
   evaluate would put a render behind the admission gate after each edit,
   ahead of the modeller's next rebuild; the first library view after an edit

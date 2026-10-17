@@ -1,7 +1,11 @@
 import { createGatewayClient } from "@loft/ts-client/gateway";
 import { describe, expect, it } from "vitest";
 
-import { fetchThumbnail } from "./thumbnails";
+import {
+  fetchThumbnail,
+  MAX_IN_FLIGHT,
+  ThumbnailBusyError,
+} from "./thumbnails";
 
 /** Typed client whose transport records the URL and returns a canned response. */
 function clientReturning(response: Response, seen: string[] = []) {
@@ -64,8 +68,55 @@ describe("fetchThumbnail", () => {
     });
   });
 
+  it("turns a 503 into a busy error carrying Retry-After", async () => {
+    const busy = new Response(
+      JSON.stringify({
+        error: { code: "service_overloaded", message: "busy" },
+      }),
+      {
+        status: 503,
+        headers: { "Content-Type": "application/json", "Retry-After": "3" },
+      },
+    );
+    const error: unknown = await fetchThumbnail(
+      "part",
+      ID,
+      clientReturning(busy),
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ThumbnailBusyError);
+    expect((error as ThumbnailBusyError).retryAfterMs).toBe(3000);
+  });
+
+  it("keeps at most MAX_IN_FLIGHT requests in flight", async () => {
+    let running = 0;
+    let peak = 0;
+    const releases: Array<() => void> = [];
+    const client = createGatewayClient({
+      baseUrl: "http://gateway.test",
+      fetch: async () => {
+        running += 1;
+        peak = Math.max(peak, running);
+        await new Promise<void>((resolve) => releases.push(resolve));
+        running -= 1;
+        return new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { "Content-Type": "image/png" },
+        });
+      },
+    });
+    const all = Promise.all(
+      Array.from({ length: 12 }, () => fetchThumbnail("part", ID, client)),
+    );
+    while (releases.length > 0 || running > 0 || peak === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      releases.shift()?.();
+    }
+    await all;
+    expect(peak).toBe(MAX_IN_FLIGHT);
+  });
+
   it("throws on a transport failure so the query can retry", async () => {
-    const client = clientReturning(envelope(503, "service_overloaded"));
+    const client = clientReturning(envelope(502, "upstream_unavailable"));
     await expect(fetchThumbnail("assembly", ID, client)).rejects.toThrow(
       "could not be loaded",
     );
