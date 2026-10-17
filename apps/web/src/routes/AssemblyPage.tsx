@@ -1472,6 +1472,12 @@ export function AssemblyPage() {
               exportGate={exportGate}
               nested={nested}
               failedDocumentIds={failedDocumentIds(failed)}
+              assemblyId={assemblyId}
+              cutListRevision={
+                graph === undefined
+                  ? undefined
+                  : `${docVersion}|${partStamp}|${subs.stamp}`
+              }
             />
           </FloatingPanel>
         </main>

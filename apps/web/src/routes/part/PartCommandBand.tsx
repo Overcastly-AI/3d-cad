@@ -28,6 +28,7 @@ import type { EditorRepick } from "./useEditorRepick";
 import type { SketchPersistence } from "./useSketchPersistence";
 import type { PickState } from "./usePickState";
 import type { PartParameters } from "./usePartParameters";
+import type { CutListToggle } from "./useCutListToggle";
 
 export function PartCommandBand({
   partDocument,
@@ -48,6 +49,7 @@ export function PartCommandBand({
   sketchPersistence,
   pickState,
   partParameters,
+  cutList,
   openCreateCombine,
   pluginCatalog,
   openCreatePlugin,
@@ -128,6 +130,7 @@ export function PartCommandBand({
     "facePicking" | "facePlaneBusy" | "facePlaneError"
   >;
   partParameters: Pick<PartParameters, "panelOpen" | "togglePanel">;
+  cutList: Pick<CutListToggle, "open" | "toggle">;
   openCreateCombine: () => void;
   /** The installed plugins (the Build group), undefined while loading. */
   pluginCatalog?: readonly PluginManifest[] | undefined;
@@ -232,6 +235,8 @@ export function PartCommandBand({
           onCombine={openCreateCombine}
           parametersOpen={partParameters.panelOpen}
           onToggleParameters={partParameters.togglePanel}
+          cutListOpen={cutList.open}
+          onToggleCutList={cutList.toggle}
           canMeasure={hasBody}
           measuring={measureActive}
           onToggleMeasure={toggleMeasure}

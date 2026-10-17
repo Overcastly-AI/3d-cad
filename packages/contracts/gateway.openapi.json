@@ -3045,17 +3045,12 @@
             "type": "integer"
           },
           "section_mm": {
-            "description": "Measured section (mm), smaller dimension first.",
+            "description": "Measured section (mm): [thickness, width], smaller first.",
+            "items": {
+              "type": "number"
+            },
             "maxItems": 2,
             "minItems": 2,
-            "prefixItems": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "number"
-              }
-            ],
             "title": "Section Mm",
             "type": "array"
           },

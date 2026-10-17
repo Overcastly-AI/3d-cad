@@ -3,10 +3,13 @@
 ``services/geometry/goldens/b1-deck-framing-16ft`` holds the expansion at the
 default 16 ft width: ``model.json`` (the base features documents sends) and
 ``members.json`` (each body's member metadata, as documents serves it for the
-cut list). The first test asserts both are exactly the plugin's output, so
-the geometry acceptance (``services/geometry/tests/test_cut_list_b1.py``)
-reads files that cannot drift from the fixture. Regenerate after a
-deliberate change with ``uv run python packages/loft-plugins/tests/test_deck_fixture.py``.
+cut list). ``apps/web/e2e/fixtures/b1-deck.loft`` is the same deck as one
+stored custom feature in an inch part, which the e2e imports (a server
+without the fixture plugin rebuilds its stored expansion, read-only). The
+first tests assert all three are exactly the plugin's output, so the geometry
+acceptance (``services/geometry/tests/test_cut_list_b1.py``) and the e2e read
+files that cannot drift from the fixture. Regenerate after a deliberate
+change with ``uv run python packages/loft-plugins/tests/test_deck_fixture.py``.
 """
 
 import json
@@ -17,7 +20,12 @@ from pathlib import Path
 from loft_plugins import canonical_inputs, expand
 from loft_plugins.testing_deck import DECK_B1, joist_centres, post_centres
 from loft_wire.cut_list import CutListMember
-from loft_wire.features import EvaluatedFeatureInput, EvaluateTreeRequest
+from loft_wire.features import (
+    CustomParamsV1,
+    EvaluatedFeatureInput,
+    EvaluateTreeRequest,
+)
+from loft_wire.loft_file import LoftTree, LoftTreeFeature, pack_part
 from loft_wire.materials import MaterialAssignment
 
 GOLDEN = (
@@ -27,6 +35,9 @@ GOLDEN = (
     / "goldens"
     / "b1-deck-framing-16ft"
 )
+
+LOFT = Path(__file__).resolve().parents[3] / "apps" / "web" / "e2e" / "fixtures"
+LOFT_FILE = LOFT / "b1-deck.loft"
 
 PART_ID = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
 DECK_ID = uuid.UUID("00000000-0000-0000-0000-0000000000d1")
@@ -54,6 +65,33 @@ def golden() -> tuple[EvaluateTreeRequest, list[CutListMember]]:
     return request, metadata
 
 
+def deck_loft() -> bytes:
+    """The deck as a ``.loft``: one stored ``test.deck_b1`` feature in an inch
+    part named "B1 deck", its expansion stored with it."""
+    inputs = canonical_inputs(DECK_B1.manifest, {})
+    members = expand(DECK_B1, DECK_ID, inputs, {})
+    params = CustomParamsV1(
+        plugin_id=DECK_B1.manifest.id,
+        plugin_version=DECK_B1.manifest.version,
+        inputs=inputs,
+        expansion=members,
+    )
+    tree = LoftTree(
+        name="B1 deck",
+        length_unit="in",
+        features=[
+            LoftTreeFeature(
+                id=DECK_ID,
+                name="Deck",
+                type="custom",
+                param_version=1,
+                params=params.model_dump(mode="json"),
+            )
+        ],
+    )
+    return pack_part(document_id=PART_ID, tree=tree, loft_version="0.1.0")
+
+
 def _members_json(members: list[CutListMember]) -> str:
     return json.dumps([m.model_dump(mode="json") for m in members], indent=2) + "\n"
 
@@ -65,6 +103,10 @@ def test_the_golden_is_the_fixtures_expansion() -> None:
     )
     assert committed.model_dump(mode="json") == request.model_dump(mode="json")
     assert (GOLDEN / "members.json").read_text() == _members_json(members)
+
+
+def test_the_e2e_loft_is_the_fixtures_deck() -> None:
+    assert LOFT_FILE.read_bytes() == deck_loft()
 
 
 def test_the_layout_is_the_specs() -> None:
@@ -92,6 +134,7 @@ if __name__ == "__main__":
     GOLDEN.mkdir(parents=True, exist_ok=True)
     (GOLDEN / "model.json").write_text(request.model_dump_json(indent=2) + "\n")
     (GOLDEN / "members.json").write_text(_members_json(members))
+    LOFT_FILE.write_bytes(deck_loft())
     sys.stdout.write(
         f"wrote {len(request.features)} features, {len(members)} members\n"
     )

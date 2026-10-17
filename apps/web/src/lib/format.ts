@@ -79,6 +79,11 @@ export function formatArea(mm2: number, unit: LengthUnit): string {
   return formatIn(fromMmArea(mm2, unit), unit);
 }
 
+/** A canonical-mm length in the document unit, at that unit's precision. */
+export function formatLength(mm: number, unit: LengthUnit): string {
+  return formatIn(fromMm(mm, unit), unit);
+}
+
 /** "10, 20, 30" — compact vector readout, each component in the document unit. */
 export function formatVec3(v: Vec3, unit: LengthUnit = "mm"): string {
   return [v.x, v.y, v.z].map((c) => formatIn(fromMm(c, unit), unit)).join(", ");

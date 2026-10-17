@@ -108,9 +108,9 @@ def test_b1_cut_list_equals_the_spec_table() -> None:
     assert cut_list.total_quantity == 46 and cut_list.unclassified == 0
     sections = {line.profile: line.section_mm for line in cut_list.lines}
     assert sections == {
-        "2x10": pytest.approx((1.5 * IN, 9.25 * IN), abs=1e-6),
-        "6x6": pytest.approx((5.5 * IN, 5.5 * IN), abs=1e-6),
-        "5/4x6": pytest.approx((1.0 * IN, 5.5 * IN), abs=1e-6),
+        "2x10": pytest.approx([1.5 * IN, 9.25 * IN], abs=1e-6),
+        "6x6": pytest.approx([5.5 * IN, 5.5 * IN], abs=1e-6),
+        "5/4x6": pytest.approx([1.0 * IN, 5.5 * IN], abs=1e-6),
     }
 
 

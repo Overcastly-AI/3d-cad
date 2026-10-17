@@ -4504,12 +4504,9 @@ export interface components {
             quantity: number;
             /**
              * Section Mm
-             * @description Measured section (mm), smaller dimension first.
+             * @description Measured section (mm): [thickness, width], smaller first.
              */
-            section_mm: [
-                number,
-                number
-            ];
+            section_mm: number[];
             /**
              * Stock Length Ft
              * @description Shortest standard stock that covers the piece (ft); null for a piece that is not lumber or is longer than the longest stock.

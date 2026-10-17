@@ -25,6 +25,7 @@ import {
   CombineIcon,
   CornerReliefIcon,
   CustomFeatureIcon,
+  CutListIcon,
   DatumIcon,
   DraftIcon,
   EdgeFlangeIcon,
@@ -77,6 +78,7 @@ export const VERB_GLYPHS: Readonly<Record<string, ComponentType<IconProps>>> = {
   flat_pattern: FlatPatternIcon,
   measure: MeasureIcon,
   parameters: ParametersIcon,
+  cut_list: CutListIcon,
 };
 
 export interface VerbGlyphProps extends IconProps {

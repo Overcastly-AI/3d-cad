@@ -8,6 +8,7 @@ import { type FeatureResponse } from "../../api/parts";
 import { BodyInspector } from "../../components/BodyInspector";
 import { BodiesPanel } from "../../components/BodiesPanel";
 import { ChromeRail } from "../../components/ChromeRail";
+import { CutListPanel } from "../../components/CutListPanel";
 import { FloatingPanel } from "../../components/FloatingPanel";
 import { FeatureTreePanel } from "../../components/FeatureTreePanel";
 import { ParametersPanel } from "../../components/ParametersPanel";
@@ -23,6 +24,7 @@ import type { MaterialControls } from "./useMaterialControls";
 import type { PartVersions } from "./usePartVersions";
 import type { PartParameters } from "./usePartParameters";
 import { usePluginCatalog } from "./usePluginCatalog";
+import type { CutListToggle } from "./useCutListToggle";
 
 /** The left rail: the feature tree and the bodies panel. */
 export function FeatureTreeRail({
@@ -133,19 +135,21 @@ export function InspectorRail({
   materialPanel,
   partVersions,
   partParameters,
+  cutList,
 }: {
   viewportState: Pick<
     ViewportState,
     "showInspector" | "build" | "showExportOnly"
   >;
-  partDocument: Pick<PartDocument, "partId" | "lengthUnit">;
+  partDocument: Pick<PartDocument, "partId" | "lengthUnit" | "tree">;
   partBody: Pick<PartBody, "bodyProperties">;
   materialPanel: Pick<MaterialControls, "materialControls">;
   partVersions: Pick<PartVersions, "openPanel">;
   partParameters: PartParameters;
+  cutList: Pick<CutListToggle, "open">;
 }) {
   const { showInspector, build, showExportOnly } = viewportState;
-  const { partId, lengthUnit } = partDocument;
+  const { partId, lengthUnit, tree } = partDocument;
   const { bodyProperties } = partBody;
   const { materialControls } = materialPanel;
   const versionActions = { onShowVersions: partVersions.openPanel };
@@ -178,6 +182,21 @@ export function InspectorRail({
               onDelete={partParameters.deleteRow}
               onRetry={partParameters.retry}
               onClose={partParameters.closePanel}
+            />
+          </FloatingPanel>
+        ) : null}
+        {cutList.open ? (
+          <FloatingPanel
+            side="right"
+            title="Cut list"
+            id="cut-list"
+            width="parameters"
+            holds
+          >
+            <CutListPanel
+              kind="part"
+              documentId={partId}
+              revision={tree.data?.tree_version}
             />
           </FloatingPanel>
         ) : null}

@@ -40,6 +40,7 @@
     "craft-scene.spec.ts": 37.1,
     "craft9b-gauges.spec.ts": 150.2,
     "craft9c-hole-gauge.spec.ts": 358.5,
+    "cut-list.spec.ts": 30.8,
     "datum-face-pick.spec.ts": 142.2,
     "datum-plane-angle-edge.spec.ts": 20.9,
     "datum-plane-angle.spec.ts": 17.8,

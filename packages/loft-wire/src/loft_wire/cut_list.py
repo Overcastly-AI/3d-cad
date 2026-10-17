@@ -153,8 +153,10 @@ class CutListLine(BaseModel):
     quantity: int = Field(ge=1)
     length_mm: float = Field(ge=0, description="Measured length of each piece.")
     total_length_mm: float = Field(ge=0, description="quantity x length.")
-    section_mm: tuple[float, float] = Field(
-        description="Measured section (mm), smaller dimension first."
+    section_mm: list[float] = Field(
+        min_length=2,
+        max_length=2,
+        description="Measured section (mm): [thickness, width], smaller first.",
     )
     stock_length_ft: int | None = Field(
         description="Shortest standard stock that covers the piece (ft); null "
@@ -351,7 +353,7 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
                 quantity=quantity,
                 length_mm=length,
                 total_length_mm=round(length * quantity, 6),
-                section_mm=(thickness, width),
+                section_mm=[thickness, width],
                 stock_length_ft=stock,
                 waste_mm=waste,
             )
