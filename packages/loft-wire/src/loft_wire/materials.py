@@ -43,6 +43,7 @@ MaterialKey = Literal[
     "spf_lumber",
     "dfl_lumber",
     "southern_pine_pt",
+    "white_oak",
     "lvl",
     "glulam_dfl",
     "steel_a992",
@@ -86,7 +87,8 @@ class Material(BaseModel):
 #   G_b = G_0 / (1 + 0.265 G_0)                      basic (green volume)
 #   G_M = G_b / (1 - 0.265 a G_b),  a = (30 - M)/30  at M % moisture
 #   rho = 1000 G_M (1 + M/100)  kg/m^3
-# SPF G_0 0.42 -> 450.35, DF-L 0.50 -> 531.81, southern pine 0.55 -> 582.07.
+# SPF G_0 0.42 -> 450.35, DF-L 0.50 -> 531.81, southern pine 0.55 -> 582.07,
+# white oak 0.73 -> 758.88 (timber-frame pegs, TIMBER-FRAME).
 # packages/loft-wire/tests/test_lumber.py re-derives each one. The engineered
 # and structural entries are the design unit weights their industries publish
 # (lb/ft^3 x 16.0185 = kg/m^3).
@@ -149,6 +151,13 @@ _LIBRARY: tuple[Material, ...] = (
         source="AWC NDS 2018 Table 12.3.3A G = 0.55; Wood Handbook ch. 4, "
         "at 12% moisture content (kiln-dried after treatment; preservative "
         "retention, under 1%, not included)",
+    ),
+    Material(
+        key="white_oak",
+        name="White oak",
+        density_kg_m3=759.0,
+        source="AWC NDS 2018 Table 12.3.3A G = 0.73; Wood Handbook ch. 4, "
+        "at 12% moisture content",
     ),
     Material(
         key="lvl",

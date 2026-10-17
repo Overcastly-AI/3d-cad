@@ -46,6 +46,13 @@ LumberProfileKey = Literal[
     "us_4x4",
     "us_4x6",
     "us_6x6",
+    "us_6x8",
+    "us_8x8",
+    "us_8x10",
+    "us_8x12",
+    "us_10x10",
+    "us_10x12",
+    "us_12x12",
 ]
 
 #: PS 20 product class: what the size rule is.
@@ -111,6 +118,15 @@ LUMBER_PROFILES: tuple[LumberProfile, ...] = (
     _profile("us_4x4", "4x4", "dimension", 3.5, 3.5),
     _profile("us_4x6", "4x6", "dimension", 3.5, 5.5),
     _profile("us_6x6", "6x6", "timber", 5.5, 5.5),
+    # S4S timbers for timber framing (TIMBER-FRAME): green, 1/2 in under
+    # nominal on each face (PS 20-20 Table 3, 5 in and thicker).
+    _profile("us_6x8", "6x8", "timber", 5.5, 7.5),
+    _profile("us_8x8", "8x8", "timber", 7.5, 7.5),
+    _profile("us_8x10", "8x10", "timber", 7.5, 9.5),
+    _profile("us_8x12", "8x12", "timber", 7.5, 11.5),
+    _profile("us_10x10", "10x10", "timber", 9.5, 9.5),
+    _profile("us_10x12", "10x12", "timber", 9.5, 11.5),
+    _profile("us_12x12", "12x12", "timber", 11.5, 11.5),
 )
 
 #: Key -> profile.
