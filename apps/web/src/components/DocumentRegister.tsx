@@ -343,6 +343,12 @@ export interface DocumentRegisterProps<T extends RegisterDocument> {
     props: { className: string; title: string; "data-testid": string },
   ) => ReactNode;
   /**
+   * The document's picture, drawn at the head of its row (LIBRARY-THUMBNAILS).
+   * Supplied per page because the kind and the version that keys it differ
+   * (a part's `tree_version`, a drawing's `updated_at`). Absent = no picture.
+   */
+  thumbnail?: (document: T) => ReactNode;
+  /**
    * Create + invalidate (+ navigate, for parts). Rejects with a field error.
    * `folderId` is the folder the register is standing in, so a document named
    * inside a folder is FILED there in the one create call — a create-then-move
@@ -413,6 +419,7 @@ export function DocumentRegister<T extends RegisterDocument>({
   isError,
   error,
   openLink,
+  thumbnail,
   onCreate,
   onRename,
   onDuplicate,
@@ -635,6 +642,7 @@ export function DocumentRegister<T extends RegisterDocument>({
               sort={sort}
               onSort={setSort}
               openLink={openLink}
+              thumbnail={thumbnail}
               onRename={onRename}
               onDuplicate={onDuplicate}
               onDelete={onDelete}
@@ -1007,6 +1015,7 @@ function RegisterTable<T extends RegisterDocument>({
   sort,
   onSort,
   openLink,
+  thumbnail,
   onRename,
   onDuplicate,
   onDelete,
@@ -1025,6 +1034,7 @@ function RegisterTable<T extends RegisterDocument>({
   sort: RegisterSort;
   onSort: (sort: RegisterSort) => void;
   openLink: DocumentRegisterProps<T>["openLink"];
+  thumbnail?: DocumentRegisterProps<T>["thumbnail"];
   onRename: (document: T, name: string) => Promise<void>;
   onDuplicate: (document: T) => Promise<void>;
   onDelete: (document: T) => Promise<void>;
@@ -1107,6 +1117,7 @@ function RegisterTable<T extends RegisterDocument>({
             showUnits={showUnits}
             showHealth={showHealth}
             openLink={openLink}
+            thumbnail={thumbnail}
             onRename={onRename}
             onDuplicate={onDuplicate}
             onDelete={onDelete}

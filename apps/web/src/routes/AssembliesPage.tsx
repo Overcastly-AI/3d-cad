@@ -28,6 +28,7 @@ import {
   type RegisterCopy,
   REGISTER_GUTTER,
 } from "../components/DocumentRegister";
+import { DocumentThumbnail } from "../components/DocumentThumbnail";
 import { SheetGrid } from "../components/SheetGrid";
 import { TopBar } from "../components/TopBar";
 import { useRegisterFiling } from "../components/useRegisterFiling";
@@ -298,6 +299,14 @@ export function AssembliesPage() {
             isLoading={assemblies.isLoading}
             isError={assemblies.isError}
             error={assemblies.error}
+            thumbnail={(assembly) => (
+              <DocumentThumbnail
+                kind="assembly"
+                id={assembly.id}
+                version={assembly.updated_at}
+                name={assembly.name}
+              />
+            )}
             openLink={(assembly, props) => (
               <Link
                 to="/assemblies/$assemblyId"

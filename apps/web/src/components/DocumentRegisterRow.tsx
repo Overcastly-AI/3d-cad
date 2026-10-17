@@ -87,6 +87,7 @@ export interface DocumentRegisterRowProps<T extends RegisterDocument> {
   showUnits: boolean;
   showHealth: boolean;
   openLink: DocumentRegisterProps<T>["openLink"];
+  thumbnail?: DocumentRegisterProps<T>["thumbnail"];
   onRename: (document: T, name: string) => Promise<void>;
   onDuplicate: (document: T) => Promise<void>;
   onDelete: (document: T) => Promise<void>;
@@ -109,6 +110,7 @@ export function DocumentRegisterRow<T extends RegisterDocument>({
   showUnits,
   showHealth,
   openLink,
+  thumbnail,
   onRename,
   onDuplicate,
   onDelete,
@@ -274,28 +276,31 @@ export function DocumentRegisterRow<T extends RegisterDocument>({
             }}
           />
         ) : (
-          <span className="flex min-w-0 items-baseline gap-x-2">
-            {openLink(entry, {
-              // TRUNCATION IS THE PRIMITIVE'S JOB (`truncatedProps`): it carries
-              // the ellipsis, the `title` with the full name, and the 24 px tap
-              // target the old `inline-flex` was reaching for — and that
-              // inline-flex was exactly why the name clipped raw instead of
-              // ellipsising (UI-REVIEW P1-2).
-              ...truncatedProps(
-                entry.name,
-                "rounded-sm font-body text-md text-mist underline-offset-4 outline-none hover:text-brass hover:underline focus-visible:text-brass focus-visible:underline",
-              ),
-              "data-testid": `${idSingular}-open`,
-            })}
-            {showLocation ? (
-              <span
-                className="shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-gauge"
-                data-testid={`${idSingular}-location`}
-                title="Where this document is filed"
-              >
-                {folderPathLabel(folders, entry.folder_id ?? null)}
-              </span>
-            ) : null}
+          <span className="flex min-w-0 items-center gap-x-3">
+            {thumbnail ? thumbnail(entry) : null}
+            <span className="flex min-w-0 items-baseline gap-x-2">
+              {openLink(entry, {
+                // TRUNCATION IS THE PRIMITIVE'S JOB (`truncatedProps`): it carries
+                // the ellipsis, the `title` with the full name, and the 24 px tap
+                // target the old `inline-flex` was reaching for — and that
+                // inline-flex was exactly why the name clipped raw instead of
+                // ellipsising (UI-REVIEW P1-2).
+                ...truncatedProps(
+                  entry.name,
+                  "rounded-sm font-body text-md text-mist underline-offset-4 outline-none hover:text-brass hover:underline focus-visible:text-brass focus-visible:underline",
+                ),
+                "data-testid": `${idSingular}-open`,
+              })}
+              {showLocation ? (
+                <span
+                  className="shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+                  data-testid={`${idSingular}-location`}
+                  title="Where this document is filed"
+                >
+                  {folderPathLabel(folders, entry.folder_id ?? null)}
+                </span>
+              ) : null}
+            </span>
           </span>
         )}
       </td>

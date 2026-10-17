@@ -14,6 +14,7 @@ import {
   DocumentRegister,
   type RegisterCopy,
 } from "../components/DocumentRegister";
+import { DocumentThumbnail } from "../components/DocumentThumbnail";
 import { OpenLoftButton } from "../components/OpenLoftButton";
 import { ResumeBand } from "../components/ResumeBand";
 import { SheetGrid } from "../components/SheetGrid";
@@ -101,6 +102,14 @@ export function PartsPage() {
             isLoading={parts.isLoading}
             isError={parts.isError}
             error={parts.error}
+            thumbnail={(part) => (
+              <DocumentThumbnail
+                kind="part"
+                id={part.id}
+                version={part.tree_version}
+                name={part.name}
+              />
+            )}
             openLink={(part, props) => (
               <Link to="/parts/$partId" params={{ partId: part.id }} {...props}>
                 {part.name}

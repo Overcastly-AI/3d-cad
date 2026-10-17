@@ -78,8 +78,8 @@ _AMBIENT = 0.38
 _KEY = 0.55
 _FILL = 0.18
 
-#: A neutral machined-metal grey-blue, legible on both themes' tiles.
-_BODY_RGB = np.array([182.0, 192.0, 204.0])
+#: The viewport's default material, machined aluminium (design token `aluminum`).
+_BODY_RGB = np.array([185.0, 192.0, 200.0])
 _EDGE_RGBA = (38, 44, 52, 255)
 
 #: Drawing-sheet palette: paper, ink, and the frame's lighter ink.
