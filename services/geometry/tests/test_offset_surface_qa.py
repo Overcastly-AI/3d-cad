@@ -101,6 +101,13 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     "b2-walls-door-moved-24": 3e-6,
     "b2-walls-window-30": 3e-6,
     "b2-walls-door-deleted": 3e-6,
+    # Those walls and B1's deck at 1.1.0 with a hole in one member
+    # (WALL-MEMBER-RENUMBER): their base goldens' bounds, measured 7.2e-7 and
+    # 2.1e-6 at worst.
+    "b2-walls-v1.1-hole-stud-128": 3e-6,
+    "b2-walls-v1.1-hole-door-moved-24": 3e-6,
+    "plugin-deck-v1.1-b1-16ft-hole-end-joist": 1e-5,
+    "plugin-deck-v1.1-b1-20ft-hole-end-joist": 1e-5,
     # Not an offset surface: the loft.roof B2 gable's sloped rafters drift
     # 3.5e-4 mm^3 through OCCT's STEP, as their build123d twin does (ROOF).
     "b2-roof-6-12": 1e-3,
