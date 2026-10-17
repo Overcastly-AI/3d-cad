@@ -280,26 +280,20 @@
       "mirror_id": "00000000-0000-0000-0000-0000000000d1",
       "order_index": 0,
       "mirror": {
-        "seed_instance_ids": [
-          "00000000-0000-0000-0000-0000000000c1"
-        ],
+        "seed_instance_ids": ["00000000-0000-0000-0000-0000000000c1"],
         "plane": {
           "kind": "origin_plane",
           "plane": "yz",
           "offset_mm": 0.0
         },
-        "opposite_hand_instance_ids": [
-          "00000000-0000-0000-0000-0000000000c1"
-        ]
+        "opposite_hand_instance_ids": ["00000000-0000-0000-0000-0000000000c1"]
       }
     },
     {
       "mirror_id": "00000000-0000-0000-0000-0000000000d2",
       "order_index": 1,
       "mirror": {
-        "seed_instance_ids": [
-          "00000000-0000-0000-0000-0000000000c2"
-        ],
+        "seed_instance_ids": ["00000000-0000-0000-0000-0000000000c2"],
         "plane": {
           "kind": "origin_plane",
           "plane": "xy",
@@ -312,9 +306,7 @@
       "mirror_id": "00000000-0000-0000-0000-0000000000d3",
       "order_index": 2,
       "mirror": {
-        "seed_instance_ids": [
-          "00000000-0000-0000-0000-0000000000c2"
-        ],
+        "seed_instance_ids": ["00000000-0000-0000-0000-0000000000c2"],
         "plane": {
           "kind": "face",
           "instance_id": "00000000-0000-0000-0000-0000000000c1",
@@ -341,9 +333,7 @@
             "outer_perimeter_mm": 40.0
           }
         },
-        "opposite_hand_instance_ids": [
-          "00000000-0000-0000-0000-0000000000c2"
-        ]
+        "opposite_hand_instance_ids": ["00000000-0000-0000-0000-0000000000c2"]
       }
     }
   ]

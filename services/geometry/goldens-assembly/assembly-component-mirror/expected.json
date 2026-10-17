@@ -10,7 +10,7 @@
     "Meshes: the L and its one opposite hand: 2. STEP: 'Crank arm' used 3 times (A, B and B's copy share one body) and 'Crank arm (opposite hand)' twice (one derived body), so 2 B-reps for 5 occurrences.",
     "Clashes: A x 10..70 y 0..30; B x -20..10 y 50..110; M1 x -70..-10 y 0..30; M2 over B but z 30..40; M3 x 130..160 y 50..110: all disjoint, so no clash."
   ],
-  "tolerance": 1e-09,
+  "tolerance": 1e-9,
   "tolerance_rationale": "CLOSED-FORM tolerance: every pose is a grounded seed or a reflection composed with quarter turns, analytic to float64 round-off. Measured first (2026-10-17, build123d / OCCT 7.9, BLAS pinned): positions within 1.5e-14 mm, rotation matrices within 2.3e-16, centroid within 1.1e-14 mm, volume within 1e-11 mm^3. 1e-9 matches the pattern and joint goldens. Loosening it requires a reviewed justification here and in docs/GEOMETRY-QA.md.",
   "status": "well_constrained",
   "remaining_dof": 0,
