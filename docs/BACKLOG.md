@@ -21,7 +21,7 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
 
 0. [x] **DECK** (final gate; B1): one Deck feature builds B1 to the spec
    (64 497.75 in³; 16 -> 20 ft gives 80 212.5 in³). Tick when CI is green.
-1. [ ] **STUD-WALL** (`loft.wall`, stops B2): a straight wall from a start
+1. [x] **STUD-WALL** (`loft.wall`, stops B2): a straight wall from a start
    point, direction, length and height (plate to plate), stud profile and
    spacing, single or double top plate, and a material per role (PT bottom
    plate, SPF studs and top plates). Layout as Chief Architect and Medeek
@@ -34,6 +34,9 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    cut list equal; spacing 16 -> 24 gives 26 studs (20 738.8125 in³); a
    30° wall matches a script. E2e: a Wall placed from the Build group lists
    10 studs in its cut list.
+   _Done:_ `loft.wall` 1.0.0 (goldens `b2-walls-no-openings-16oc`, `-24oc`,
+   `plugin-wall-v1-144-30deg`; `services/geometry/tests/test_walls_b2.py`;
+   e2e `wall-b2.spec.ts`; RESEARCH §23).
 2. [ ] **WINDOW-DOOR** (`loft.window`, `loft.door`, stops B2): two Build
    tools, each hosted in a wall as Revit and Chief Architect do: host wall
    (a feature input), offset of its centre along the wall, unit width and
@@ -514,3 +517,10 @@ One line each. The founder triages weekly; most are closed without work.
 - BIKE3-CUTLIST-ROUND: a Ø44 tube reads "Unclassified · 44 × 44 mm" with no stock, and each row is named "Body" rather than after its Pipe; Fusion and SolidWorks would say "Tube Ø44 × 1.2".
 - BIKE3-PARTS-404: typing `/parts` (the breadcrumb's word) gives a bare "Not Found" page; the parts library lives at `/`.
 - Bike round 3: SKETCH-3D (Create has no 3D sketch), SKETCH-LINE-ANGLE (the Line box shows L only, `bike-r3-line-box.png`) and DRAWING-PARTS-LIST-LEVEL (the drawing lists Frame 1 / Crankset 1 with no structure choice and no balloons, while the assembly BOM has all three levels, `bike-r3-drawing.png`) are still open.
+- WALL-DRAW: a wall is placed by typing its start, direction and length in the form; Chief Architect and Revit draw it with two clicks in plan, chained round a building.
+- BUILD-ROW: the Build row is a web-side list (Wall, Deck) and every other plugin sits in BUILD ▾; Window, Door and Roof must each be measured onto the row or into the menu, as the manifest has no row priority (see PLUGIN-TOOL-ICONS).
+- WALL-CUT-LIST-ORDER: the cut list groups in tree order, so B2 lists Top plate 144, Bottom plate 144, Top plate 113, Bottom plate 113; Chief Architect's materials list groups each member type together.
+- WALL-SHARED-CENTRES (STUD-WALL review): `wall.py` imports `joist_centres` from `deck.py`, so a deck layout change would change loft.wall 1.0.0's output (the golden would catch it); give the wall its own copy.
+- WALL-EPS-OVERLAP: `joist_centres` keeps a layout centre within `<= ... + _EPS` of the end stud, so a layout stud may overlap it by 1e-9 in; harmless, could be strict.
+- BUILD-MENU-CAPTION: in BUILD ▾ a disabled plugin no longer shows its "Finish X first" / "Loading the part" caption.
+- WALL-LEVEL-EQ: `_emit` reuses levels by exact float equality on `z0`; fragile once openings add sill and header levels (WINDOW-DOOR).

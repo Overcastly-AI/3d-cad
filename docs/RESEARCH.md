@@ -1881,6 +1881,40 @@ and reframe it, a material per member, and a cut list that is always current.
     and bottom 3.5 in above it; 2x2 balusters, no clear gap over 4 in.
   - *Units.* Inputs are mm on the wire and rounded to 1e-9 in inside, so a
     width typed as "16 ft" builds exactly 192 in.
+- **Decided while building the wall** (STUD-WALL, 2026-10-17; Chief
+  Architect, Medeek Wall and Revit):
+  - *Placement.* A wall is a start point, a direction (degrees
+    counterclockwise from +X, seen from above) and a length. The line is the
+    exterior framing face and the framing lies to its right, so walls drawn
+    clockwise round a building have their exterior outside, as Chief
+    Architect and Revit expect (Revit's "Core Face: Exterior" location line).
+    A `side` choice flips it (Revit's flip arrows). A base elevation lifts a
+    wall onto a floor. Multiples of 90° use exact cos and sin, so an axis
+    wall carries no 1e-16 noise.
+  - *Height* is plate to plate (underside of the bottom plate to the top of
+    the top plate), Chief Architect's and Medeek's measure; studs are that
+    less the plates (97.125 -> the 92.625 precut). The plates and studs are
+    the stud profile, so a 2x6 wall is 5.5 deep.
+  - *Layout* from the start: 0.75, then on the spacing, an end stud flush,
+    a layout stud that would overlap it dropped (the deck's joist rule).
+    Plates butt at corners; lapped plates and corner assemblies are later.
+  - *Members* are plan polygons on shared level datums extruded up, as the
+    deck's, in the cut list's order (stud, top plate, bottom plate); PT
+    bottom plate and SPF studs and top plates by default.
+  - *The openings seam.* The wall is laid out as pieces in its own frame
+    (`wall_pieces`: u along, v across, z up) and only then placed
+    (`WallFrame`). WINDOW-DOOR adds the hosted openings to that local list
+    (kings, jacks, header, cripples, sill replacing the layout studs inside
+    each rough opening; a door cuts the bottom plate) and gives `expand` the
+    later features that name the wall as host. No stored wall has an
+    opening yet, so that is additive to 1.0.0: no stored expansion changes.
+    A roof or an opening reads a wall's geometry through `WallSpec`.
+  - *Cut length of a turned wall.* The cut list measures each body in its
+    own frame (CUT-LIST), so a 30° wall lists the same lengths; golden
+    `plugin-wall-v1-144-30deg` matches an independent build123d script. Its
+    STEP round trip moves the volume by 6e-4 mm³, which is OCCT's (a plain
+    build123d twin drifts the same), so it carries a reviewed round-trip
+    bound.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
