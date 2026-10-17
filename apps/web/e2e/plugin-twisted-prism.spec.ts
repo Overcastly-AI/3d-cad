@@ -129,9 +129,11 @@ test.describe("plugin UI: the twisted prism", () => {
     const rows = page.getByTestId("feature-row");
     await expect(rows).toHaveCount(1);
 
-    // The Build group lists the plugin as a tool, titled from its manifest.
+    // The Build group lists the plugin as a tool, titled from its manifest,
+    // in BUILD ▾ (the row holds the building generators).
     const build = page.getByTestId("build-tools");
     await expect(build).toBeVisible();
+    await page.getByTestId("build-more").click();
     const tool = page.getByTestId(`plugin-tool-${PLUGIN}`);
     await expect(tool).toBeEnabled();
     await expect(tool).toHaveAccessibleName(/^Twisted prism/);

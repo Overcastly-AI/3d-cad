@@ -6,8 +6,16 @@
  * One tool per plugin, at its latest version (what a new feature is inserted
  * with). The group is absent while the catalog loads and when no plugin is
  * installed: an empty group would be chrome with nothing in it.
+ *
+ * The row holds the building generators ({@link BUILD_ROW}, in Chief
+ * Architect's Build-menu order: walls first); every other plugin sits behind
+ * the group's eyebrow, "BUILD ▾", as Create and Modify keep their
+ * low-frequency verbs (`ToolGroup.more`). Every plugin shares one generic
+ * glyph, so a Build tool cannot shed its label to an icon that names it, and
+ * a row cell per plugin would outgrow the band.
  */
 import { ToolButton, ToolGroup, VerbGlyph } from "@loft/design";
+import type { FlyoutItem } from "@loft/design";
 
 import type { PluginManifest } from "../api/plugins";
 import { buildTools } from "../features/customFeature";
@@ -17,6 +25,9 @@ import { buildTools } from "../features/customFeature";
  * title is the only thing that names it (`CreateStrip`'s LABEL_PRIORITY).
  */
 export const BUILD_LABEL_PRIORITY = 35;
+
+/** The plugins on the Build row, in order; the rest are in BUILD ▾. */
+export const BUILD_ROW: readonly string[] = ["loft.wall", "loft.deck"];
 
 export interface BuildToolGroupProps {
   catalog: readonly PluginManifest[] | undefined;
@@ -36,13 +47,35 @@ export function BuildToolGroup({
   const tools = buildTools(catalog);
   if (tools.length === 0) return null;
   const locked = activeCommand !== null && activeCommand !== "";
+  const caption = locked
+    ? `Finish ${activeCommand} first`
+    : treeReady
+      ? undefined
+      : "Loading the part";
+  const disabled = locked || !treeReady;
+  // A server without the building generators shows its plugins on the row.
+  const pinned = BUILD_ROW.flatMap((id) => tools.filter((m) => m.id === id));
+  const row = pinned.length > 0 ? pinned : tools;
+  const more: FlyoutItem[] = tools
+    .filter((manifest) => !row.includes(manifest))
+    .map((manifest) => ({
+      key: manifest.id,
+      icon: <VerbGlyph verb="custom" />,
+      label: manifest.title,
+      "data-testid": `plugin-tool-${manifest.id}`,
+      "aria-label": `${manifest.title} — ${manifest.description}`,
+      disabled,
+      onSelect: () => onOpen(manifest),
+    }));
   return (
     <ToolGroup
       eyebrow="Build"
       labelPriority={BUILD_LABEL_PRIORITY}
+      more={more}
+      moreTestId="build-more"
       data-testid="build-tools"
     >
-      {tools.map((manifest) => (
+      {row.map((manifest) => (
         <ToolButton
           key={manifest.id}
           icon={<VerbGlyph verb="custom" />}
@@ -50,14 +83,8 @@ export function BuildToolGroup({
           label={manifest.title}
           data-testid={`plugin-tool-${manifest.id}`}
           aria-label={`${manifest.title} — ${manifest.description}`}
-          caption={
-            locked
-              ? `Finish ${activeCommand} first`
-              : treeReady
-                ? undefined
-                : "Loading the part"
-          }
-          disabled={locked || !treeReady}
+          caption={caption}
+          disabled={disabled}
           onClick={() => onOpen(manifest)}
         />
       ))}

@@ -274,11 +274,17 @@ test.describe("nothing is unreachable at the 1280 floor", () => {
       expect(box!.x + box!.width).toBeLessThanOrEqual(1280);
     };
 
-    // Twisted prism (PLUGIN-UI) sits on the band itself, in BUILD.
+    // Wall and Deck sit on the band itself, in BUILD; Twisted prism
+    // (PLUGIN-UI) is one click away in BUILD ▾.
+    await inFrame("plugin-tool-loft.wall");
+    await inFrame("plugin-tool-loft.deck");
+    await page.getByTestId("build-more").click();
     const prism = page.getByTestId("plugin-tool-loft.twisted_prism");
     await expect(prism).toBeEnabled();
     await expect(prism).toHaveAccessibleName(/^Twisted prism/);
     await inFrame("plugin-tool-loft.twisted_prism");
+    await page.keyboard.press("Escape");
+    await expect(prism).toBeHidden();
 
     // CREATE ▾ names itself on hover, like every band control.
     const more = page.getByTestId("create-more");
