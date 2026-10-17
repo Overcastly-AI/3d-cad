@@ -1853,6 +1853,34 @@ and reframe it, a material per member, and a cut list that is always current.
     other plane is `plugin_input_unsupported`; use Sweep with twist there.
     Stored twisted extrudes are not migrated: they stay legacy rows and
     rebuild byte-identical.
+- **Decided while building the deck** (DECK, 2026-10-17; Medeek Deck, Chief
+  Architect and IRC R507 prescriptive practice):
+  - *Members.* Each member is a plan rectangle on a shared `XY` level datum
+    (one per distinct bottom elevation) extruded up as a new body, so joists
+    along either axis and blocking need no per-member datum. Roles emit in
+    the cut list's order (ledger, rim, beam, joist, blocking, post, deck,
+    guard).
+  - *Materials.* A member's metadata material is applied to its body at
+    evaluation (`loft_wire.materials.with_member_materials`): the user's
+    per-body override wins, then the member's, then the part default. It is
+    derived per request and never written to the stored assignment.
+  - *Support.* A ledger carries joist ends, so joists along the house need a
+    freestanding deck (`plugin_input_unsupported` otherwise). Freestanding
+    swaps the ledger for a house-side rim and a second beam at the same
+    setback. Ledger and rims are cut from the joist size, tops flush.
+  - *Beam.* The setback is outer edge to beam centre (the cantilever). A
+    dropped beam bears the joists; a flush one is level with them and the
+    joists are cut at it. Posts run grade to the beam's underside, so post
+    height follows from deck height, joist and beam (footings later).
+  - *Decking.* Whole boards from the house side across the joists; the count
+    is the fewest covering projection + overhang, so the last board may
+    overhang more (B1: 2.125 in). The overhang also runs past both end joists.
+  - *Guard* (optional, off for B1 as the spec's volume excludes it): 4x4
+    posts on the decking at every corner and where a side meets the house,
+    at most 6 ft on centres; 2x4 rails on edge, top 36 in above the decking
+    and bottom 3.5 in above it; 2x2 balusters, no clear gap over 4 in.
+  - *Units.* Inputs are mm on the wire and rounded to 1e-9 in inside, so a
+    width typed as "16 ft" builds exactly 192 in.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

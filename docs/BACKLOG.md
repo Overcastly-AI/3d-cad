@@ -19,7 +19,7 @@ group. Done 2026-10-16..17 and dropped: AUTH-RATE-LIMIT-PROXY,
 LIBRARY-THUMBNAILS (§26), LUMBER-MATERIALS, CUT-LIST, ASM-FAILED-PART-API,
 PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
 
-0. [ ] **DECK** (final gate; B1): one Deck feature builds B1 to the spec
+0. [x] **DECK** (final gate; B1): one Deck feature builds B1 to the spec
    (64 497.75 in³; 16 -> 20 ft gives 80 212.5 in³). Tick when CI is green.
 1. [ ] **STUD-WALL** (`loft.wall`, stops B2): a straight wall from a start
    point, direction, length and height (plate to plate), stud profile and
@@ -504,3 +504,8 @@ One line each. The founder triages weekly; most are closed without work.
 - WINDOW-DOOR-UNIT: a placed window or door frames its rough opening but draws no unit (frame, sash, slab); Revit and Chief Architect draw the unit. Add it as an optional body kept out of the cut list.
 - PLUGIN-PITCH-INPUT: plugin inputs have length, angle, count and choice kinds; a roof pitch typed as 6/12 needs a ratio input (a wire change) or a choice list of x/12.
 - B2-SLAB: buildings.md's 4 in slab is not a Build feature; it is one sketch and extrude in concrete, and the part then needs a material per body (CUT-LIST-MASS-MATERIAL).
+- DECK-BODY-NAMES: the Bodies list and Material panel name every member body after its feature ("Deck 1" x 46); Chief Architect and SolidWorks weldments name them by member ("Joist 3"), as the cut list already does.
+- DECK-DIAGONAL: decking runs across the joists only; Medeek Deck also lays 45° and picture-frame decking.
+- DECK-STAIRS: the guard runs the full open sides with posts where they meet the house; stairs, their guard opening and footings are later rungs.
+- DECK-SIZE-CAP: each member is two features (section sketch + extrude), so the corner of the bounds (40 x 24 ft freestanding at 8 in o.c., 2x4 decking, guard) expands to 1,111 and is refused `feature_limit_exceeded`; a 40 x 24 ft deck at 12 in o.c. with guard fits.
+- UNIT-FT-ULP: `toMm(16, "ft")` is 16 x 304.8, one ulp off 192 x 25.4; the form now hides the noise, and the plugin rounds its inches to 1e-9, but other consumers of a foot-typed length see 4876.800000000001.
