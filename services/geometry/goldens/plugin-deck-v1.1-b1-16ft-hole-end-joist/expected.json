@@ -11,9 +11,9 @@
     "",
     "MESH counts are the kernel's, recorded."
   ],
-  "tolerance": 1e-05,
-  "tolerance_rationale": "Measured 2026-10-17: 1.2e-7 mm^3 on the volume, 0 on the area, <= 3.2e-12 mm on the centroid and centre of mass, 5.8e-10 g on the mass. 1e-5 is plugin-deck-v1-b1-12x16ft's bound (a 1.06e9 mm^3 sum of 46 solids); the bore is 6 145 mm^3.",
-  "roundtrip_tolerance": 1e-05,
+  "tolerance": 1e-5,
+  "tolerance_rationale": "Measured 2026-10-17: 1.2e-7 mm^3 on the volume, 0 on the area, <= 3.2e-12 mm on the centroid and centre of mass, 5.8e-10 g on the mass. 1e-5 is plugin-deck-v1-b1-12x16ft's bound (a 1.06e9 mm^3 sum of 46 solids); the bore is 19 306 mm^3.",
+  "roundtrip_tolerance": 1e-5,
   "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip moves the volume by 1.2e-7 mm^3, the area by 0 and the centroid by 2.0e-12 mm. 1e-5 is the base golden's bound; volume and area only.",
   "properties": {
     "volume": 1056909451.5510464,

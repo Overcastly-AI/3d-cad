@@ -15,9 +15,9 @@
     "",
     "MESH counts are the kernel's, recorded: the bore is tessellated at linear_deflection 0.1."
   ],
-  "tolerance": 1e-06,
-  "tolerance_rationale": "Measured first, then set, as b2-walls-door-window: absolute bounds on a ~4.7e8 mm^3 part whose separate bodies sum with round-off near the ULP. Measured 2026-10-17: 1.2e-7 mm^3 on the volume, 0 on the area, <= 1.6e-12 mm on the centroid and <= 1.9e-12 mm on the centre of mass, 1.2e-10 g on the mass. 1e-6 is 8x the worst; the bore itself is 14 340 mm^3, so a hole in the wrong body or missing fails the mass of the body by orders of magnitude.",
-  "roundtrip_tolerance": 3e-06,
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set, as b2-walls-door-window: absolute bounds on a ~4.7e8 mm^3 part whose separate bodies sum with round-off near the ULP. Measured 2026-10-17: 1.2e-7 mm^3 on the volume, 0 on the area, <= 1.6e-12 mm on the centroid and <= 1.9e-12 mm on the centre of mass, 1.2e-10 g on the mass. 1e-6 is 8x the worst; the bore itself is 45 046 mm^3, so a hole in the wrong body or missing fails the mass of the body by orders of magnitude.",
+  "roundtrip_tolerance": 3e-6,
   "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip moves the volume by 6.0e-7 mm^3 (as b2-walls-door-window, the re-import summing its solids in another order), the area by 0 and the centroid by 2.3e-12 mm. 3e-6 is b2-walls-door-window's bound, 5x the worst; it applies to volume and area only.",
   "properties": {
     "volume": 474231408.3761082,

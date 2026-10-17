@@ -11,9 +11,9 @@
     "",
     "MESH counts are the kernel's, recorded."
   ],
-  "tolerance": 1e-06,
+  "tolerance": 1e-6,
   "tolerance_rationale": "Measured 2026-10-17: 1.2e-7 mm^3 on the volume, 7.5e-9 mm^2 on the area, <= 1.6e-12 mm on the centroid and centre of mass, 8.7e-11 g on the mass. 1e-6 is b2-walls-door-moved-24's bound, 8x the worst.",
-  "roundtrip_tolerance": 3e-06,
+  "roundtrip_tolerance": 3e-6,
   "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip moves the volume by 7.2e-7 mm^3, the area by 0 and the centroid by 1.6e-12 mm (the re-import's summation order, as the base golden). 3e-6 is the base golden's bound, 4.2x the worst; volume and area only.",
   "properties": {
     "volume": 466789632.9371082,
