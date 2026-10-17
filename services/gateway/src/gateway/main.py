@@ -52,6 +52,7 @@ from gateway.parts import router as parts_router
 from gateway.plugins import router as plugins_router
 from gateway.step_import import assembly_router as assembly_import_router
 from gateway.step_import import router as step_import_router
+from gateway.thumbnails import router as thumbnails_router
 from gateway.versions import router as versions_router
 
 TITLE = "Loft Gateway"
@@ -240,6 +241,7 @@ def build_app(
     app.include_router(assembly_patterns_router)
     app.include_router(assembly_mirrors_router)
     app.include_router(drawings_router)
+    app.include_router(thumbnails_router)
     app.include_router(step_import_router)
     app.include_router(assembly_import_router)
     # Filing (:mod:`gateway.folders`): the folder tree + the three document

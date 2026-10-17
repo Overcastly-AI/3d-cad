@@ -15,6 +15,7 @@ import {
   DocumentRegister,
   type RegisterCopy,
 } from "../components/DocumentRegister";
+import { DocumentThumbnail } from "../components/DocumentThumbnail";
 import { SheetGrid } from "../components/SheetGrid";
 import { TopBar } from "../components/TopBar";
 import { useRegisterFiling } from "../components/useRegisterFiling";
@@ -82,6 +83,14 @@ export function DrawingsPage() {
             isLoading={drawings.isLoading}
             isError={drawings.isError}
             error={drawings.error}
+            thumbnail={(drawing) => (
+              <DocumentThumbnail
+                kind="drawing"
+                id={drawing.id}
+                version={drawing.updated_at}
+                name={drawing.name}
+              />
+            )}
             openLink={(drawing, props) => (
               <Link
                 to="/drawings/$drawingId"

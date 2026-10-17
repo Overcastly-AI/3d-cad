@@ -1984,3 +1984,58 @@ Decisions, each Fusion's unless noted:
   Its STEP round trip drifts like the moto frame's (OCCT, shared by the twin).
 - Not built (Fusion has them): square/triangular sections, a partial
   `distance` along the path for the Pipe itself.
+
+## 26. Library thumbnails (LIBRARY-THUMBNAILS)
+
+Fusion's Data Panel and Onshape's document list show a picture of each
+document; the registers and the assembly Add panel now do too.
+
+- **Rendered server-side, in geometry, from what evaluate already makes.** A
+  part renders its content-addressed body GLB; an assembly the solved one-file
+  `glb` export (placements baked in); a drawing its first sheet's
+  `ComposedSheet` (paper, frame, title block, visible edges). Routes
+  `POST /api/v1/thumbnail/{part,assembly,drawing}` take the kind's existing
+  evaluation request (`geometry/thumbnail_api.py`).
+- **Renderer: numpy + Pillow** (`geometry/thumbnail.py`). Back-face culling,
+  painter's algorithm at 2x supersampling, a face-id buffer that draws B-rep
+  edges and the silhouette wherever neighbouring pixels change face, fixed
+  key + fill + ambient light, Lanczos downsample on premultiplied alpha. 256 px
+  RGBA PNG, transparent ground, isometric (+X, -Y, +Z eye), body in the
+  viewport's `aluminum`. No GPU, OpenGL/OSMesa or headless browser, nothing
+  fetched at runtime; Pillow is MIT-CMU (already in the image via reportlab).
+  ~0.1 s for a simple part. Painter's ordering can misdraw interpenetrating
+  geometry; acceptable at 48 px.
+- **Cached by the content address of the inputs** (kind + renderer version +
+  request JSON, `geometry/thumbnail_store.py`) on the drawing-artifact store
+  seam: S3 prefix `thumbnails/` when `S3_URL` is set, else an in-process LRU.
+  So a tree version renders once; a failure is never cached.
+- **Failure is a 422, never a picture.** An errored feature is
+  `thumbnail_failed` even though evaluate still has a last-good body; an
+  assembly component without a body, or a failed drawing view, likewise. A
+  document with nothing to draw is `thumbnail_empty`. The web shows the
+  placeholder for both (flag ink for failed).
+- **Never ahead of modelling** (`geometry/thumbnail_gate.py`). Thumbnails do
+  not enter the modelling admission gate: a register's burst of one request
+  per row would fill its queue and get other users' evaluates refused. A cache
+  hit is served with no gate; a render passes a no-queue gate (1 at a time,
+  `THUMBNAIL_CONCURRENCY`) that admits only while the modelling gate has
+  nothing running or queued, else 503 + `Retry-After: 2`. The web loads a tile
+  only as it nears the viewport (IntersectionObserver), keeps at most 4
+  requests in flight, and waits out a 503 behind the placeholder.
+- **Rendered lazily, on first view, not on save.** Rendering on every
+  evaluate would put a render behind the admission gate after each edit,
+  ahead of the modeller's next rebuild; the first library view after an edit
+  pays once, usually from a warm rebuild cache (the modeller's affinity worker).
+- **Gateway: owner scope and revalidation** (`gateway/thumbnails.py`). GET
+  `/{parts,assemblies,drawings}/{id}/thumbnail` reads the evaluation request
+  from documents with the principal (foreign id = uniform 404), then relays.
+  `ETag` = hash of the same inputs, `Cache-Control: private, no-cache`; a
+  matching `If-None-Match` is a 304 without a geometry hop. Not a version in
+  the URL: an assembly's picture changes when a child part is edited without
+  its own version moving. Own `thumbnail` rate-limit bucket at 600 per
+  window (compute is 120): a register view is one request per row.
+- **Web** (`components/DocumentThumbnail.tsx`): fetched as a blob through the
+  typed client (an `<img>` cannot carry the bearer token), keyed by the
+  document's version so an edit refetches; never shows the previous picture
+  while a new version renders.
+- No schema change: nothing is stored in Postgres.

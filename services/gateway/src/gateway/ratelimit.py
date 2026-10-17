@@ -32,12 +32,13 @@ def get_rate_limiter(request: Request) -> RateLimiter | None:
     return getattr(request.app.state, "rate_limiter", None)
 
 
-def rate_limited(scope: str = "compute") -> DependsMarker:
+def rate_limited(scope: str = "compute", *, limit: int | None = None) -> DependsMarker:
     """A FastAPI dependency enforcing the per-user limit for *scope*.
 
     Runs after auth (depends on the user), so an unauthenticated caller gets a
     401 and never consumes budget. On exceed the limiter raises the shared 429
-    ``rate_limited`` envelope with ``Retry-After``.
+    ``rate_limited`` envelope with ``Retry-After``. *limit* overrides the
+    limiter's per-window budget for this scope (``None`` keeps it).
     """
 
     async def dependency(
@@ -46,7 +47,7 @@ def rate_limited(scope: str = "compute") -> DependsMarker:
     ) -> None:
         if limiter is None:
             return
-        await limiter.check(str(user.id), scope=scope)
+        await limiter.check(str(user.id), scope=scope, limit=limit)
 
     return Depends(dependency)
 

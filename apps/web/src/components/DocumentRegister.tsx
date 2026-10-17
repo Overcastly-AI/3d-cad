@@ -26,6 +26,13 @@ import { validatePartName } from "../lib/partName";
 import { KEY_FILTER, KEY_NEW_DOCUMENT } from "../shortcuts/registry";
 import { DocumentRegisterRow } from "./DocumentRegisterRow";
 import { RegisterFolderRow } from "./RegisterFolderRow";
+import {
+  DEFAULT_SORT,
+  filterDocuments,
+  type RegisterSort,
+  type RegisterSortKey,
+  sortDocuments,
+} from "./registerOrder";
 
 /**
  * THE REGISTER — the index surface behind /, /assemblies and /drawings
@@ -239,86 +246,13 @@ export interface RegisterFiling<T extends RegisterDocument> {
   onMoveDocument: (document: T, folderId: string | null) => Promise<void>;
 }
 
-/** Which column the drawer is ordered by. */
-export type RegisterSortKey = "name" | "activity" | "filed";
-
-export interface RegisterSort {
-  key: RegisterSortKey;
-  direction: "asc" | "desc";
-}
-
-/**
- * LAST WORKED, newest first (REGISTER-2, UI-REVIEW 2026-08-17 P1-3).
- *
- * It used to be FILED ascending, defended as "the order the server already
- * returns, so the initial state is a true description rather than a label over
- * an arbitrary order". That is a good argument about HONESTY and the wrong
- * answer to the question the surface is asked. A returning engineer opens this
- * page to get back into the thing they were doing; oldest-first put that at the
- * BOTTOM — measured at row 120 of 120 — so the register's first screen was the
- * work they had finished with. Fusion's Data Panel and Onshape both default to
- * recently-modified-first for the same reason.
- *
- * The honesty argument survives intact: this order is SORTED, `aria-sort` says
- * so on the LAST WORKED header from the first paint, and the caption says it in
- * words. Nothing is unlabelled.
- */
-export const DEFAULT_SORT: RegisterSort = {
-  key: "activity",
-  direction: "desc",
-};
-
-/**
- * Name-substring filter, case- and accent-insensitive, applied to the list the
- * server returned.
- *
- * Client-side on purpose, and honestly so: the list endpoint returns the
- * caller's WHOLE drawer in one response (no pagination on the wire), so the
- * browser is filtering the complete set — the count can therefore say "4 of 12"
- * and mean it. If that list ever becomes a page, the filter has to move to the
- * server in the same change, because "4 of 12" would silently start meaning
- * "4 of the 12 I happen to be holding".
- */
-export function filterDocuments<T extends RegisterDocument>(
-  documents: T[],
-  query: string,
-): T[] {
-  const needle = query.trim().toLocaleLowerCase();
-  if (needle === "") return documents;
-  return documents.filter((entry) =>
-    entry.name.toLocaleLowerCase().includes(needle),
-  );
-}
-
-/**
- * Order the drawer.
- *
- * NAME uses a numeric collator so "Rib 2" sorts before "Rib 10" — a register
- * full of numbered parts sorted lexically is a register nobody trusts.
- *
- * TIES ARE NOT BROKEN, deliberately: `Array.prototype.sort` is stable, so equal
- * rows keep the order the SERVER sent them in (documents lists by
- * `created_at, id`). Inventing a client-side tiebreak — collating the uuids, say
- * — would order two same-millisecond documents differently from every other
- * surface that shows them, for no gain; borrowing the server's order costs
- * nothing and cannot disagree with it.
- */
-export function sortDocuments<T extends RegisterDocument>(
-  documents: T[],
-  sort: RegisterSort,
-): T[] {
-  const collator = new Intl.Collator(undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
-  const sign = sort.direction === "asc" ? 1 : -1;
-  const compare = (a: T, b: T): number => {
-    if (sort.key === "name") return collator.compare(a.name, b.name);
-    const key = sort.key === "activity" ? "updated_at" : "created_at";
-    return Date.parse(a[key]) - Date.parse(b[key]);
-  };
-  return [...documents].sort((a, b) => sign * compare(a, b));
-}
+export {
+  DEFAULT_SORT,
+  filterDocuments,
+  type RegisterSort,
+  type RegisterSortKey,
+  sortDocuments,
+} from "./registerOrder";
 
 export interface DocumentRegisterProps<T extends RegisterDocument> {
   /** Test-id stem for list-level hooks: "parts" | "assemblies" | "drawings". */
@@ -342,6 +276,12 @@ export interface DocumentRegisterProps<T extends RegisterDocument> {
     document: T,
     props: { className: string; title: string; "data-testid": string },
   ) => ReactNode;
+  /**
+   * The document's picture, drawn at the head of its row (LIBRARY-THUMBNAILS).
+   * Supplied per page because the kind and the version that keys it differ
+   * (a part's `tree_version`, a drawing's `updated_at`). Absent = no picture.
+   */
+  thumbnail?: (document: T) => ReactNode;
   /**
    * Create + invalidate (+ navigate, for parts). Rejects with a field error.
    * `folderId` is the folder the register is standing in, so a document named
@@ -413,6 +353,7 @@ export function DocumentRegister<T extends RegisterDocument>({
   isError,
   error,
   openLink,
+  thumbnail,
   onCreate,
   onRename,
   onDuplicate,
@@ -635,6 +576,7 @@ export function DocumentRegister<T extends RegisterDocument>({
               sort={sort}
               onSort={setSort}
               openLink={openLink}
+              thumbnail={thumbnail}
               onRename={onRename}
               onDuplicate={onDuplicate}
               onDelete={onDelete}
@@ -1007,6 +949,7 @@ function RegisterTable<T extends RegisterDocument>({
   sort,
   onSort,
   openLink,
+  thumbnail,
   onRename,
   onDuplicate,
   onDelete,
@@ -1025,6 +968,7 @@ function RegisterTable<T extends RegisterDocument>({
   sort: RegisterSort;
   onSort: (sort: RegisterSort) => void;
   openLink: DocumentRegisterProps<T>["openLink"];
+  thumbnail?: DocumentRegisterProps<T>["thumbnail"];
   onRename: (document: T, name: string) => Promise<void>;
   onDuplicate: (document: T) => Promise<void>;
   onDelete: (document: T) => Promise<void>;
@@ -1107,6 +1051,7 @@ function RegisterTable<T extends RegisterDocument>({
             showUnits={showUnits}
             showHealth={showHealth}
             openLink={openLink}
+            thumbnail={thumbnail}
             onRename={onRename}
             onDuplicate={onDuplicate}
             onDelete={onDelete}

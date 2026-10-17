@@ -267,6 +267,16 @@ POST_ASSEMBLIES_ASSEMBLY_ID_REDO: Final = Operation(
     required_query=(),
 )
 
+GET_ASSEMBLIES_ASSEMBLY_ID_THUMBNAIL: Final = Operation(
+    operation_id="assembly_thumbnail_api_v1_assemblies__assembly_id__thumbnail_get",
+    method="GET",
+    path="/api/v1/assemblies/{assembly_id}/thumbnail",
+    request_model=None,
+    response_model=None,
+    path_params=("assembly_id",),
+    required_query=(),
+)
+
 POST_ASSEMBLIES_ASSEMBLY_ID_UNDO: Final = Operation(
     operation_id="undo_assembly_api_v1_assemblies__assembly_id__undo_post",
     method="POST",
@@ -494,6 +504,16 @@ POST_DRAWINGS_DRAWING_ID_SHEETS_SHEET_ID_VIEWS: Final = Operation(
     request_model="ViewCreate",
     response_model="ViewMutationResponse",
     path_params=("drawing_id", "sheet_id",),
+    required_query=(),
+)
+
+GET_DRAWINGS_DRAWING_ID_THUMBNAIL: Final = Operation(
+    operation_id="drawing_thumbnail_api_v1_drawings__drawing_id__thumbnail_get",
+    method="GET",
+    path="/api/v1/drawings/{drawing_id}/thumbnail",
+    request_model=None,
+    response_model=None,
+    path_params=("drawing_id",),
     required_query=(),
 )
 
@@ -1027,6 +1047,16 @@ PUT_PARTS_PART_ID_ROLLBACK: Final = Operation(
     required_query=(),
 )
 
+GET_PARTS_PART_ID_THUMBNAIL: Final = Operation(
+    operation_id="part_thumbnail_api_v1_parts__part_id__thumbnail_get",
+    method="GET",
+    path="/api/v1/parts/{part_id}/thumbnail",
+    request_model=None,
+    response_model=None,
+    path_params=("part_id",),
+    required_query=(),
+)
+
 POST_PARTS_PART_ID_UNDO: Final = Operation(
     operation_id="undo_part_api_v1_parts__part_id__undo_post",
     method="POST",
@@ -1107,6 +1137,7 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "delete_pattern_api_v1_assemblies__assembly_id__patterns__pattern_id__delete": DELETE_ASSEMBLIES_ASSEMBLY_ID_PATTERNS_PATTERN_ID,
         "update_pattern_api_v1_assemblies__assembly_id__patterns__pattern_id__patch": PATCH_ASSEMBLIES_ASSEMBLY_ID_PATTERNS_PATTERN_ID,
         "redo_assembly_api_v1_assemblies__assembly_id__redo_post": POST_ASSEMBLIES_ASSEMBLY_ID_REDO,
+        "assembly_thumbnail_api_v1_assemblies__assembly_id__thumbnail_get": GET_ASSEMBLIES_ASSEMBLY_ID_THUMBNAIL,
         "undo_assembly_api_v1_assemblies__assembly_id__undo_post": POST_ASSEMBLIES_ASSEMBLY_ID_UNDO,
         "login_api_v1_auth_login_post": POST_AUTH_LOGIN,
         "logout_api_v1_auth_logout_post": POST_AUTH_LOGOUT,
@@ -1130,6 +1161,7 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "update_sheet_api_v1_drawings__drawing_id__sheets__sheet_id__patch": PATCH_DRAWINGS_DRAWING_ID_SHEETS_SHEET_ID,
         "create_annotation_api_v1_drawings__drawing_id__sheets__sheet_id__annotations_post": POST_DRAWINGS_DRAWING_ID_SHEETS_SHEET_ID_ANNOTATIONS,
         "create_view_api_v1_drawings__drawing_id__sheets__sheet_id__views_post": POST_DRAWINGS_DRAWING_ID_SHEETS_SHEET_ID_VIEWS,
+        "drawing_thumbnail_api_v1_drawings__drawing_id__thumbnail_get": GET_DRAWINGS_DRAWING_ID_THUMBNAIL,
         "delete_view_api_v1_drawings__drawing_id__views__view_id__delete": DELETE_DRAWINGS_DRAWING_ID_VIEWS_VIEW_ID,
         "update_view_api_v1_drawings__drawing_id__views__view_id__patch": PATCH_DRAWINGS_DRAWING_ID_VIEWS_VIEW_ID,
         "create_dimension_api_v1_drawings__drawing_id__views__view_id__dimensions_post": POST_DRAWINGS_DRAWING_ID_VIEWS_VIEW_ID_DIMENSIONS,
@@ -1183,6 +1215,7 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "put_part_parameters_api_v1_parts__part_id__parameters_put": PUT_PARTS_PART_ID_PARAMETERS,
         "redo_part_api_v1_parts__part_id__redo_post": POST_PARTS_PART_ID_REDO,
         "move_rollback_bar_api_v1_parts__part_id__rollback_put": PUT_PARTS_PART_ID_ROLLBACK,
+        "part_thumbnail_api_v1_parts__part_id__thumbnail_get": GET_PARTS_PART_ID_THUMBNAIL,
         "undo_part_api_v1_parts__part_id__undo_post": POST_PARTS_PART_ID_UNDO,
         "list_part_versions_api_v1_parts__part_id__versions_get": GET_PARTS_PART_ID_VERSIONS,
         "save_part_version_api_v1_parts__part_id__versions_post": POST_PARTS_PART_ID_VERSIONS,

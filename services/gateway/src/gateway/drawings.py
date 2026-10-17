@@ -484,7 +484,7 @@ def _compose_request(
     Mirrors the on-screen sheet the frontend evaluates (``apps/web`` DrawingPage):
     composes the REQUESTED ``sheet_content`` (the drawing's first sheet by default —
     the multi-sheet switcher selects any sheet by id, see
-    :func:`_aggregate_compose_request`) — its views (projection + placement + scale)
+    :func:`aggregate_compose_request`) — its views (projection + placement + scale)
     become the :class:`SheetLayout`, its dimensions (each tagged with the projection
     of the view it annotates) become the measured inputs, and the source document's
     ``evaluation-request`` supplies the projection intent. Each placed view carries
@@ -697,7 +697,7 @@ def _download_title(tree: DrawingTreeResponse, sheet: SheetResponse) -> str:
     return f"{tree.drawing.name} {sheet.name}"
 
 
-async def _aggregate_compose_request(
+async def aggregate_compose_request(
     drawing_id: uuid.UUID,
     user: CurrentUser,
     http_request: Request,
@@ -833,7 +833,7 @@ async def export_drawing(
     drawing downloads as ``<drawing>-<sheet>.<ext>`` instead of every sheet
     sharing the drawing's name; a single-sheet drawing keeps ``<drawing>.<ext>``.
     """
-    plan = await _aggregate_compose_request(
+    plan = await aggregate_compose_request(
         drawing_id, user, http_request, format, sheet_id=sheet
     )
 
@@ -887,7 +887,7 @@ async def compose_drawing_sheet(
     source the DE-1c frontend cutover renders from — deleting the browser's
     duplicate placement engine. Deterministic (RESEARCH §9); the gateway just relays.
     """
-    plan = await _aggregate_compose_request(
+    plan = await aggregate_compose_request(
         drawing_id, user, http_request, "svg", sheet_id=sheet
     )
 

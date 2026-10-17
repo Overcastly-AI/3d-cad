@@ -820,6 +820,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/thumbnail/assembly": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assembly Thumbnail
+         * @description The isometric thumbnail of an assembly at its solved placements.
+         */
+        post: operations["assembly_thumbnail_api_v1_thumbnail_assembly_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/thumbnail/drawing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Drawing Thumbnail
+         * @description The thumbnail of a drawing sheet: paper, frame and the visible view edges.
+         */
+        post: operations["drawing_thumbnail_api_v1_thumbnail_drawing_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/thumbnail/part": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Part Thumbnail
+         * @description The isometric thumbnail of a part's current body.
+         */
+        post: operations["part_thumbnail_api_v1_thumbnail_part_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/warm": {
         parameters: {
             query?: never;
@@ -10242,6 +10302,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TessellationMetadata"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assembly_thumbnail_api_v1_thumbnail_assembly_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluateAssemblyRequest"];
+            };
+        };
+        responses: {
+            /** @description A 256x256 PNG thumbnail on a transparent background. A document that fails to build is a 422 `thumbnail_failed` envelope and one with nothing to draw a 422 `thumbnail_empty`: never a picture of an older build. Deterministic, and cached by the content address of the request (`X-Loft-Artifact-Cache`). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    drawing_thumbnail_api_v1_thumbnail_drawing_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComposeDrawingRequest"];
+            };
+        };
+        responses: {
+            /** @description A 256x256 PNG thumbnail on a transparent background. A document that fails to build is a 422 `thumbnail_failed` envelope and one with nothing to draw a 422 `thumbnail_empty`: never a picture of an older build. Deterministic, and cached by the content address of the request (`X-Loft-Artifact-Cache`). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    part_thumbnail_api_v1_thumbnail_part_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluateTreeRequest"];
+            };
+        };
+        responses: {
+            /** @description A 256x256 PNG thumbnail on a transparent background. A document that fails to build is a 422 `thumbnail_failed` envelope and one with nothing to draw a 422 `thumbnail_empty`: never a picture of an older build. Deterministic, and cached by the content address of the request (`X-Loft-Artifact-Cache`). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
                 };
             };
             /** @description Validation Error */

@@ -18104,6 +18104,59 @@
         ]
       }
     },
+    "/api/v1/assemblies/{assembly_id}/thumbnail": {
+      "get": {
+        "description": "The thumbnail of one of the caller's assemblies, at its solved placements.",
+        "operationId": "assembly_thumbnail_api_v1_assemblies__assembly_id__thumbnail_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A 256x256 PNG of the document's current state: an isometric render of a part or assembly, or the first sheet of a drawing. `ETag` + `Cache-Control: private, no-cache`; a conditional request whose `If-None-Match` matches is a 304. A document that does not build is a 422 `thumbnail_failed`, one with nothing to draw a 422 `thumbnail_empty`."
+          },
+          "304": {
+            "description": "The thumbnail the caller holds (its `ETag`) is current."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Assembly Thumbnail",
+        "tags": [
+          "thumbnails"
+        ]
+      }
+    },
     "/api/v1/assemblies/{assembly_id}/undo": {
       "post": {
         "description": "Undo one assembly-graph history step (docs/design/undo-redo.md UR3).\n\nThe restored graph comes back with its new ``doc_version`` (and\n``can_undo``/``can_redo``); at the ring's floor this is documents' clean\nno-op (current graph, version unchanged). Stale ``expected_version`` \u2192\n422, resurfaced verbatim.",
@@ -19415,6 +19468,59 @@
         "summary": "Create View",
         "tags": [
           "drawings"
+        ]
+      }
+    },
+    "/api/v1/drawings/{drawing_id}/thumbnail": {
+      "get": {
+        "description": "The thumbnail of the first sheet of one of the caller's drawings.",
+        "operationId": "drawing_thumbnail_api_v1_drawings__drawing_id__thumbnail_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A 256x256 PNG of the document's current state: an isometric render of a part or assembly, or the first sheet of a drawing. `ETag` + `Cache-Control: private, no-cache`; a conditional request whose `If-None-Match` matches is a 304. A document that does not build is a 422 `thumbnail_failed`, one with nothing to draw a 422 `thumbnail_empty`."
+          },
+          "304": {
+            "description": "The thumbnail the caller holds (its `ETag`) is current."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Drawing Thumbnail",
+        "tags": [
+          "thumbnails"
         ]
       }
     },
@@ -22364,6 +22470,59 @@
         "summary": "Move Rollback Bar",
         "tags": [
           "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/thumbnail": {
+      "get": {
+        "description": "The thumbnail of one of the caller's parts (404 for unknown/foreign ids).",
+        "operationId": "part_thumbnail_api_v1_parts__part_id__thumbnail_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A 256x256 PNG of the document's current state: an isometric render of a part or assembly, or the first sheet of a drawing. `ETag` + `Cache-Control: private, no-cache`; a conditional request whose `If-None-Match` matches is a 304. A document that does not build is a 422 `thumbnail_failed`, one with nothing to draw a 422 `thumbnail_empty`."
+          },
+          "304": {
+            "description": "The thumbnail the caller holds (its `ETag`) is current."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Part Thumbnail",
+        "tags": [
+          "thumbnails"
         ]
       }
     },

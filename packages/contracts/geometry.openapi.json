@@ -13137,6 +13137,136 @@
         ]
       }
     },
+    "/api/v1/thumbnail/assembly": {
+      "post": {
+        "description": "The isometric thumbnail of an assembly at its solved placements.",
+        "operationId": "assembly_thumbnail_api_v1_thumbnail_assembly_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluateAssemblyRequest",
+                "description": "The assembly graph to project (reused VERBATIM \u2014 instances + mates + version); geometry solves it with the SAME solve_assembly the evaluate/interference/export routes use"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A 256x256 PNG thumbnail on a transparent background. A document that fails to build is a 422 `thumbnail_failed` envelope and one with nothing to draw a 422 `thumbnail_empty`: never a picture of an older build. Deterministic, and cached by the content address of the request (`X-Loft-Artifact-Cache`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Assembly Thumbnail",
+        "tags": [
+          "thumbnails"
+        ]
+      }
+    },
+    "/api/v1/thumbnail/drawing": {
+      "post": {
+        "description": "The thumbnail of a drawing sheet: paper, frame and the visible view edges.",
+        "operationId": "drawing_thumbnail_api_v1_thumbnail_drawing_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComposeDrawingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A 256x256 PNG thumbnail on a transparent background. A document that fails to build is a 422 `thumbnail_failed` envelope and one with nothing to draw a 422 `thumbnail_empty`: never a picture of an older build. Deterministic, and cached by the content address of the request (`X-Loft-Artifact-Cache`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Drawing Thumbnail",
+        "tags": [
+          "thumbnails"
+        ]
+      }
+    },
+    "/api/v1/thumbnail/part": {
+      "post": {
+        "description": "The isometric thumbnail of a part's current body.",
+        "operationId": "part_thumbnail_api_v1_thumbnail_part_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluateTreeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A 256x256 PNG thumbnail on a transparent background. A document that fails to build is a 422 `thumbnail_failed` envelope and one with nothing to draw a 422 `thumbnail_empty`: never a picture of an older build. Deterministic, and cached by the content address of the request (`X-Loft-Artifact-Cache`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Part Thumbnail",
+        "tags": [
+          "thumbnails"
+        ]
+      }
+    },
     "/api/v1/warm": {
       "post": {
         "description": "Speculatively cache a feature-tree prefix. **Publishes nothing.**\n\nThe prefetch route (docs/PERF.md PERF-1b). It returns as soon as the work is\nQUEUED \u2014 the warm itself runs on the worker's single speculation thread \u2014 and\nits reply carries no geometry at all (:class:`WarmTreeResult`), because the\none thing a speculative rebuild must never become is an answer. All it can do\nis leave an evaluator checkpoint under the ordinary content-addressed key, so\na later *real* request that hashes to the identical prefix resumes there.\n\nWhy it is safe to spend CPU on a guess:\n\n* **one warm per worker, ever** \u2014 :class:`~geometry.rebuild_cache.WarmScheduler`\n  holds a single slot, so speculation costs at most one core no matter how\n  many clients ask (the reason this is not \"an evaluate nobody awaits\", which\n  would scale the DoS with the client count);\n* **a newer ticket supersedes an older one**, and ``POST /warm/cancel``\n  retires one outright \u2014 both observed between features, so a warm stops\n  within one OCCT call of the editor closing or the travel stop moving;\n* **a spent budget just means a shorter prefix**, which is still a legitimate\n  resume point.\n\nAlways a 200 with ``accepted``; a warm has no failure mode a caller could act\non, since a miss is only ever slower.",

@@ -6,14 +6,17 @@
  * An assembly goes in as a RIGID SUB-ASSEMBLY (Fusion's Insert into Current
  * Design, SolidWorks' Insert Component): one component that moves as a unit.
  * An assembly that already contains this one is refused by the server, whose
- * message names the chain. Kept simple: a flat register pick, not a thumbnail
- * browser we can't render.
+ * message names the chain. Each cell leads with the document's server-rendered
+ * thumbnail (LIBRARY-THUMBNAILS), as Fusion's Insert-into-design list and
+ * Onshape's Insert dialog show one: you pick a part by what it looks like.
  */
 import { Panel, PanelActionCell, PanelSection } from "@loft/design";
 import { useQuery } from "@tanstack/react-query";
 
 import { fetchAssemblies, type AssemblyResponse } from "../api/assemblies";
 import { fetchParts, type PartResponse } from "../api/parts";
+
+import { DocumentThumbnail } from "./DocumentThumbnail";
 
 export interface AddInstancePanelProps {
   /** The id of the document being added (its cell shows busy), or null. */
@@ -86,6 +89,15 @@ export function AddInstancePanel({
                   caption={
                     addingPartId === part.id ? "Adding…" : "Instance this part"
                   }
+                  icon={
+                    <DocumentThumbnail
+                      kind="part"
+                      id={part.id}
+                      version={part.tree_version}
+                      name={part.name}
+                      size="sm"
+                    />
+                  }
                   disabled={addingPartId !== null}
                   data-testid={`add-instance-part-${part.id}`}
                   onClick={() => onAdd(part)}
@@ -108,6 +120,15 @@ export function AddInstancePanel({
                     addingPartId === sub.id
                       ? "Inserting…"
                       : "Insert as one rigid component"
+                  }
+                  icon={
+                    <DocumentThumbnail
+                      kind="assembly"
+                      id={sub.id}
+                      version={sub.updated_at}
+                      name={sub.name}
+                      size="sm"
+                    />
                   }
                   disabled={addingPartId !== null}
                   data-testid={`add-instance-assembly-${sub.id}`}
