@@ -706,3 +706,4 @@ One line each. The founder triages weekly; most are closed without work.
 - CUT-LIST-PRICES-STOCK-LENGTHS: the dialog mirrors `STOCK_LENGTHS_FT` in `api/priceBook.ts` because `/api/v1/materials` does not serve it; serve it beside the profiles and drop the copy (a drift is a 422 on save, not silent).
 - CUT-LIST-PRICES-EDIT-PRICED: clicking a priced cell does nothing; it could open the book on the entry that priced it, as a blank opens a new one.
 - CUT-LIST-PRICES-DRAWING-RUN: the drawing's 320 px side panel hides the Run (qty x length) column to fit the two price columns; a wider drawing panel would bring it back.
+- PRICE-BOOK-VERSION: the dialog re-reads the book just before its `PUT` and refuses a save if it changed elsewhere, but a save landing between that GET and the PUT still wins whole; the real fix is a version (or ETag/If-Match) on `PUT /api/v1/price-book`, a wire change.

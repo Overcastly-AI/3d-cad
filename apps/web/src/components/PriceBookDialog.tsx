@@ -26,6 +26,7 @@ import {
   fetchPriceBook,
   type LumberProfileKey,
   PRICE_UNIT_LABEL,
+  type PriceBook,
   type PriceBookEntry,
   type PriceUnit,
   savePriceBook,
@@ -111,12 +112,37 @@ function validate(rows: DraftRow[]): Map<number, string> {
   return problems;
 }
 
+/** Why a save was refused: the stored book is no longer the one drafted. */
+export const BOOK_CHANGED =
+  "The price book changed elsewhere (another tab or device) since you opened it. Reload it, then make your changes again.";
+
+/** The same stored book: same save stamp and the same entries in order. */
+function sameBook(a: PriceBook, b: PriceBook): boolean {
+  return (
+    (a.updated_at ?? null) === (b.updated_at ?? null) &&
+    JSON.stringify(a.entries ?? []) === JSON.stringify(b.entries ?? [])
+  );
+}
+
+/** Each opening (and each reload) drafts from its own GET, never the cache. */
+let draftCounter = 0;
+
 export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
   const queryClient = useQueryClient();
+  const [draftId, setDraftId] = useState(() => ++draftCounter);
+  // A fresh GET per draft: a cached book may predate a save from another tab,
+  // and a draft built from it would drop that save's entries on the PUT.
   const book = useQuery({
-    queryKey: ["price-book"],
+    queryKey: ["price-book", "draft", draftId],
     queryFn: () => fetchPriceBook(),
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
   });
+  /** The stored book the draft was built from: the save checks it still is. */
+  const base = useRef<PriceBook | null>(null);
+  /** The clicked line's profile is not in the library, so no row was added. */
+  const [seedNotice, setSeedNotice] = useState<string | null>(null);
   const library = useQuery({
     queryKey: ["material-library"],
     queryFn: () => fetchMaterialLibrary(),
@@ -131,7 +157,16 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
   const [focusRow, setFocusRow] = useState<number | null>(null);
 
   const save = useMutation({
-    mutationFn: (entries: PriceBookEntry[]) => savePriceBook(entries),
+    mutationFn: async (entries: PriceBookEntry[]) => {
+      // No version on the PUT (RESEARCH §27), so re-read just before it: a
+      // book saved elsewhere since this draft was built is refused, never
+      // overwritten.
+      const current = await fetchPriceBook();
+      if (base.current === null || !sameBook(current, base.current)) {
+        throw new Error(BOOK_CHANGED);
+      }
+      return savePriceBook(entries);
+    },
     onSuccess: async (saved) => {
       queryClient.setQueryData(["price-book"], saved);
       onClose();
@@ -142,8 +177,14 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
   // The draft starts from the stored book, plus the seed's row, once both the
   // book and the library (which resolves the seed's profile name) are in.
   useEffect(() => {
-    if (rows !== null || book.data === undefined || library.data === undefined)
+    if (
+      rows !== null ||
+      book.data === undefined ||
+      book.isFetching ||
+      library.data === undefined
+    )
       return;
+    base.current = book.data;
     const draft: DraftRow[] = (book.data.entries ?? []).map((entry) => ({
       id: nextId.current++,
       material: entry.material,
@@ -169,8 +210,21 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
       if (existing === undefined) draft.push(row);
       setFocusRow(existing?.id ?? row.id);
     }
+    setSeedNotice(
+      seed !== null && seedProfile === undefined
+        ? `${seed.profile} is not a profile in the library, so the price book cannot price it.`
+        : null,
+    );
     setRows(draft);
-  }, [rows, book.data, library.data, seed]);
+  }, [rows, book.data, book.isFetching, library.data, seed]);
+
+  /** Drop the draft and build a new one from the book as it is stored now. */
+  const reload = () => {
+    save.reset();
+    setProblems(new Map());
+    setRows(null);
+    setDraftId(++draftCounter);
+  };
 
   useEffect(() => {
     returnFocusTo.current = document.activeElement;
@@ -193,16 +247,18 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
     }
   }, [focusRow, rows]);
 
+  const saving = save.isPending;
   const onKeyDown = useCallback(
     (event: KeyboardEvent, insidePanel: boolean) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        // A save in flight finishes (and closes) on its own.
+        if (!saving) onClose();
         return;
       }
       containFocus(panelRef.current, event, insidePanel);
     },
-    [onClose],
+    [onClose, saving],
   );
   useModalLayer("price book", panelRef, onKeyDown);
 
@@ -329,7 +385,11 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
               {loadError.message}
             </p>
           ) : rows === null ? (
-            <p aria-live="polite" className="py-3 font-body text-xs text-gauge">
+            <p
+              aria-live="polite"
+              data-testid="price-book-loading"
+              className="py-3 font-body text-xs text-gauge"
+            >
               Loading the price book…
             </p>
           ) : (
@@ -500,19 +560,34 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
               Add price
             </Button>
           ) : null}
-          {save.error ? (
+          {seedNotice !== null ? (
             <p
+              role="status"
+              data-testid="price-book-seed-notice"
+              className="mt-3 font-body text-xs text-gauge"
+            >
+              {seedNotice}
+            </p>
+          ) : null}
+          {save.error ? (
+            <div
               role="alert"
               data-testid="price-book-error"
-              className="mt-3 border border-flag px-3 py-2 font-body text-xs text-flag"
+              className="mt-3 flex items-center gap-3 border border-flag px-3 py-2 font-body text-xs text-flag"
             >
-              {save.error.message}
-            </p>
+              <span className="grow">{save.error.message}</span>
+              {save.error.message === BOOK_CHANGED ? (
+                <Button data-testid="price-book-reload" onClick={reload}>
+                  Reload the book
+                </Button>
+              ) : null}
+            </div>
           ) : null}
         </div>
         <footer className="mt-4 flex items-center justify-end gap-2 border-t border-hairline px-4 py-2.5">
           <Button
             onClick={onClose}
+            disabled={saving}
             data-testid="price-book-cancel"
             className="gap-2"
           >

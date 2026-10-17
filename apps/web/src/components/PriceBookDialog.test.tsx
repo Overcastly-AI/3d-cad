@@ -14,7 +14,11 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PriceBook } from "../api/priceBook";
-import { PriceBookDialog, type PriceBookSeed } from "./PriceBookDialog";
+import {
+  BOOK_CHANGED,
+  PriceBookDialog,
+  type PriceBookSeed,
+} from "./PriceBookDialog";
 
 const api = vi.hoisted(() => ({
   fetchPriceBook: vi.fn(),
@@ -62,9 +66,11 @@ const BOOK: PriceBook = {
   ],
 };
 
-function renderDialog(seed: PriceBookSeed | null = null) {
+function renderDialog(
+  seed: PriceBookSeed | null = null,
+  client = new QueryClient(),
+) {
   const onClose = vi.fn();
-  const client = new QueryClient();
   const invalidate = vi.spyOn(client, "invalidateQueries");
   render(
     <QueryClientProvider client={client}>
@@ -209,5 +215,89 @@ describe("PriceBookDialog", () => {
     save.focus();
     fireEvent.keyDown(save, { key: "Tab" });
     expect(screen.getByLabelText("Material, price 1")).toHaveFocus();
+  });
+
+  it("drafts from a fresh GET, never a cached book another tab has since replaced", async () => {
+    // The cache holds the book as this tab last saw it: empty.
+    const client = new QueryClient();
+    client.setQueryData(["price-book"], {
+      currency: "USD",
+      entries: [],
+      updated_at: null,
+    });
+    let answer: (book: PriceBook) => void = () => undefined;
+    api.fetchPriceBook.mockImplementationOnce(
+      () =>
+        new Promise<PriceBook>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const { onClose } = renderDialog(null, client);
+    // Until the GET answers there is no draft to save from.
+    expect(screen.getByTestId("price-book-loading")).toBeInTheDocument();
+    expect(screen.queryByTestId("price-book-row")).toBeNull();
+    expect(screen.getByTestId("price-book-save")).toBeDisabled();
+    answer(BOOK);
+    // Another tab saved the 2x10 price: the draft has it, so a save keeps it.
+    const rows = await screen.findAllByTestId("price-book-row");
+    expect(rows).toHaveLength(1);
+    fireEvent.submit(screen.getByTestId("price-book-dialog"));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(api.savePriceBook).toHaveBeenCalledWith(BOOK.entries);
+  });
+
+  it("refuses to overwrite a book saved elsewhere while the draft was open", async () => {
+    const elsewhere: PriceBook = {
+      ...BOOK,
+      updated_at: "2026-10-17T01:00:00Z",
+      entries: [
+        ...BOOK.entries!,
+        { ...BOOK.entries![0]!, stock_length_ft: 16 },
+      ],
+    };
+    api.fetchPriceBook
+      .mockResolvedValueOnce(BOOK)
+      .mockResolvedValueOnce(elsewhere)
+      .mockResolvedValue(elsewhere);
+    const { onClose } = renderDialog();
+    await screen.findAllByTestId("price-book-row");
+    fireEvent.submit(screen.getByTestId("price-book-dialog"));
+    expect(await screen.findByText(BOOK_CHANGED)).toBeInTheDocument();
+    expect(api.savePriceBook).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    // Reload drafts from the book as it is stored now.
+    fireEvent.click(screen.getByTestId("price-book-reload"));
+    await waitFor(() =>
+      expect(screen.getAllByTestId("price-book-row")).toHaveLength(2),
+    );
+    expect(screen.queryByText(BOOK_CHANGED)).toBeNull();
+  });
+
+  it("holds Cancel and Escape while a save is in flight", async () => {
+    api.savePriceBook.mockImplementation(() => new Promise(() => undefined));
+    const { onClose } = renderDialog();
+    await screen.findAllByTestId("price-book-row");
+    fireEvent.submit(screen.getByTestId("price-book-dialog"));
+    await waitFor(() =>
+      expect(screen.getByTestId("price-book-cancel")).toBeDisabled(),
+    );
+    fireEvent.keyDown(screen.getByTestId("price-book-dialog"), {
+      key: "Escape",
+    });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("says so when the clicked line's profile is not in the library", async () => {
+    renderDialog({
+      material: "southern_pine_pt",
+      profile: "2x14",
+      stockLengthFt: 16,
+    });
+    expect(
+      await screen.findByTestId("price-book-seed-notice"),
+    ).toHaveTextContent(
+      "2x14 is not a profile in the library, so the price book cannot price it.",
+    );
+    expect(screen.getAllByTestId("price-book-row")).toHaveLength(1);
   });
 });
