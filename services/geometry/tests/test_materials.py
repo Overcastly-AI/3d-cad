@@ -193,7 +193,8 @@ class TestResolution:
         assert MATERIALS_BY_KEY["abs"].density_kg_m3 == 1040.0
         assert MATERIALS_BY_KEY["pla"].density_kg_m3 == 1240.0
         assert MATERIALS_BY_KEY["nylon_6"].density_kg_m3 == 1140.0
-        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 14
+        assert MATERIALS_BY_KEY["white_oak"].density_kg_m3 == 759.0
+        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 15
 
     def test_a_2x10_x_12ft_spf_member_weighs_the_hand_calculation(self) -> None:
         """LUMBER-MATERIALS: the kernel measures the member, the library weighs it.
