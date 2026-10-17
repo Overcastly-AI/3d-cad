@@ -1,0 +1,60 @@
+{
+  "description": "B1 DECK from ONE loft.deck 1.0.0 custom feature (DECK; docs/reference-parts/buildings.md B1), width 192 in, projection 144 in, everything else the plugin's defaults (2x10 joists at 16 in o.c. on a ledger, a dropped two-ply 2x10 beam set back 18 in, 6x6 posts at most 8 ft apart, 5/4x6 decking with 1/8 in gaps, pressure-treated southern pine). model.json is EXACTLY the plugin's expansion with the member materials documents applies (each member body's material as a per-body assignment: no part default); members.json is each body's member metadata. packages/loft-plugins/tests/test_deck.py asserts both files are the plugin's output; services/geometry/tests/test_deck_b1.py checks the cut list, the exported STEP and interference. Each member is a plan rectangle on an XY level datum extruded up its depth as a new body.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC, from buildings.md's coordinates in exact rational arithmetic (x 25.4 = mm exactly), never from the plugin: ledger X 0..192, Y 0..1.5, Z 19.75..29; rim X 0..192, Y 142.5..144, Z 19.75..29; beam plies X 0..192, Y 124.5..126 and 126..127.5, Z 10.5..19.75; 13 joists centred on X 0.75, 16, 32, ..., 176, 191.25, 1.5 wide, Y 1.5..142.5, Z 19.75..29; 3 posts centred on X 2.75, 96, 189.25, 5.5 x 5.5 on Y 126, Z 0..10.5; boards i = 0..25 X 0..192, Y 5.625 i .. 5.625 i + 5.5, Z 29..30.",
+    "",
+    "volume = sum of box volumes: ledger 2664, rim 2664, beam 2 x 2664, joists 13 x 1956.375, posts 3 x 317.625, decking 26 x 1056 = 64 497.75 in^3 (the spec's figure); x 25.4^3 = 1056928757.106 mm^3.",
+    "",
+    "surface_area = sum of 2(ab + bc + ca) over the 46 boxes (bodies are separate, touching faces are not merged) = 122 449.75 in^2 = 78999680.71 mm^2.",
+    "",
+    "centroid = volume-weighted mean of the box centres (exact rationals): x = 96 in = 2438.4 mm (symmetric about X 96); y = 1973.8564856913613 mm; z = 647.95373196158 mm.",
+    "",
+    "mass_g = volume x 582.0 kg/m^3 (southern_pine_pt, every body by its member material) = 615132.536635692 g; center_of_mass = centroid (one density).",
+    "",
+    "bounding_box: X 0..192 in, Y 0..146.125 in (the last board overhangs the rim by 2.125), Z 0..30 in: 0..4876.8, 0..3711.575, 0..762 mm.",
+    "",
+    "topology: 46 boxes x (6 faces, 12 edges, 1 shell) = 276 faces, 552 edges, 46 shells.",
+    "",
+    "MESH counts are recorded but also exact for boxes: 12 triangles and 24 vertices per box = 552 triangles, 1104 vertices."
+  ],
+  "tolerance": 1e-05,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), as for b1-deck-framing-16ft: the bounds are ABSOLUTE and the part is ~1e9 mm^3, so the double-precision sum of its separate bodies carries ~1e-6 mm^3 of round-off (measured -1.2e-7 mm^3 on the volume, 0 on the area, <= 3.2e-12 mm on the centroid). 1e-5 is still ~1e-14 relative; a member 0.001 in out of place moves the volume by >= 3.5 mm^3 and fails by five orders of magnitude.",
+  "roundtrip_tolerance": 1e-05,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip re-sums the re-imported solids in another order and moves the VOLUME/AREA by ~1e-6 (+3.0e-6 mm^3 on the volume and 0 on the area, ~2e-15 relative; 1e-5 is 3.4x the worst of the two decks), below which ROUNDTRIP_TOL (1e-7 absolute) cannot reach for a sum of this size (ULP ~1.2e-7 at 1e9). 1e-5 applies to volume and area only; centroid and bounds keep ROUNDTRIP_TOL. Same cause and bound as b1-deck-framing-16ft.",
+  "properties": {
+    "volume": 1056928757.106,
+    "surface_area": 78999680.71,
+    "centroid": {
+      "x": 2438.4,
+      "y": 1973.8564856913613,
+      "z": 647.95373196158
+    },
+    "mass_g": 615132.536635692,
+    "center_of_mass": {
+      "x": 2438.4,
+      "y": 1973.8564856913613,
+      "z": 647.95373196158
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 4876.8,
+        "y": 3711.575,
+        "z": 762.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 276,
+    "edges": 552,
+    "shells": 46
+  },
+  "mesh": {
+    "vertices": 1104,
+    "triangles": 552
+  }
+}

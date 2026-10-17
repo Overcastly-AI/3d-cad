@@ -88,7 +88,8 @@ def test_the_catalog_lists_every_version_newest_first() -> None:
     ]
     served = PluginCatalog.model_validate(REGISTRY.catalog().model_dump(mode="json"))
     assert [(m.id, m.version, m.latest) for m in served.plugins] == [
-        ("loft.twisted_prism", "1.0.0", True)
+        ("loft.deck", "1.0.0", True),
+        ("loft.twisted_prism", "1.0.0", True),
     ]
 
 

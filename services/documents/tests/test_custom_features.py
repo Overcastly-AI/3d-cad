@@ -370,7 +370,10 @@ def test_the_catalog_needs_a_principal(client: TestClient) -> None:
     assert client.get("/api/v1/plugins").status_code in (401, 403, 422)
     served = client.get("/api/v1/plugins", headers=HEADERS)
     assert served.status_code == 200
-    assert [p["id"] for p in served.json()["plugins"]] == ["loft.twisted_prism"]
+    assert [p["id"] for p in served.json()["plugins"]] == [
+        "loft.deck",
+        "loft.twisted_prism",
+    ]
 
 
 # --- the tree bound counts members (review of PLUGIN-REGISTRY, 2026-10-16) -----

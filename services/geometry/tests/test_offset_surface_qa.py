@@ -85,6 +85,9 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # Not an offset surface: a 1.06e9 mm^3 sum over 46 re-imported solids moves
     # by 2.1e-6 (2e-15 relative) with summation order (CUT-LIST, expected.json).
     "b1-deck-framing-16ft": 1e-5,
+    # The loft.deck plugin's B1 and its 20 ft edit: the same summation drift.
+    "plugin-deck-v1-b1-12x16ft": 1e-5,
+    "plugin-deck-v1-b1-20ft": 1e-5,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

@@ -218,6 +218,9 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         "frame-bike-4-pipes-one-skeleton-head73",
         # A 1.06e9 mm^3 sum of 46 solids: re-import order moves it by 2e-15.
         "b1-deck-framing-16ft",
+        # The same deck from the loft.deck plugin, and its 20 ft edit (DECK).
+        "plugin-deck-v1-b1-12x16ft",
+        "plugin-deck-v1-b1-20ft",
     }
 )
 
