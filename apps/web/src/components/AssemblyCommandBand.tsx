@@ -20,6 +20,7 @@ import {
   JointIcon,
   LinearPatternIcon,
   MeasureIcon,
+  MirrorIcon,
   MoreIcon,
   MoveIcon,
   ToolButton,
@@ -68,6 +69,8 @@ export interface AssemblyCommandBandProps {
   onCopy: () => void;
   /** Pattern components (ASM-A3): the dialog's toggle; omitted, no button. */
   pattern?: { active: boolean; blocker: string | null; onToggle: () => void };
+  /** Mirror components (ASM-MIRROR-COMPONENT); omitted, no button. */
+  mirror?: { active: boolean; blocker: string | null; onToggle: () => void };
   /** A mate needs two instances; the tools stay disabled until then. */
   canMate: boolean;
   activeTool: MateTool | null;
@@ -142,6 +145,7 @@ export function AssemblyCommandBand({
   copyBlocker,
   onCopy,
   pattern,
+  mirror,
   canMate,
   activeTool,
   onToggleTool,
@@ -207,6 +211,18 @@ export function AssemblyCommandBand({
             }
             data-testid="pattern-components"
             onClick={pattern.onToggle}
+          />
+        ) : null}
+        {mirror !== undefined ? (
+          <ToolButton
+            icon={<MirrorIcon />}
+            label="Mirror"
+            showLabel
+            active={mirror.active}
+            disabled={!mirror.active && mirror.blocker !== null}
+            caption={mirror.active ? undefined : (mirror.blocker ?? undefined)}
+            data-testid="mirror-components"
+            onClick={mirror.onToggle}
           />
         ) : null}
       </ToolGroup>

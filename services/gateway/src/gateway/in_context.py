@@ -61,7 +61,7 @@ def resolved_writes(
 def _structure(request: EvaluateAssemblyRequest) -> Any:
     """What makes a request the stored assembly (and not a draft): its
     version, and every instance's pose, grounding, part and sub-assembly
-    structure, every mate and every pattern, at every level. Part features
+    structure, every mate, every pattern and every mirror, at every level. Part features
     are left out: a part edit is not an assembly draft."""
 
     def level(req: EvaluateAssemblyRequest) -> Any:
@@ -81,6 +81,7 @@ def _structure(request: EvaluateAssemblyRequest) -> Any:
                 for m in req.mates
             ),
             "patterns": sorted(p.model_dump_json() for p in req.patterns),
+            "mirrors": sorted(m.model_dump_json() for m in req.mirrors),
         }
 
     return (str(request.assembly_id), request.version, level(request))

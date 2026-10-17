@@ -59,6 +59,7 @@ from loft_wire.assemblies import (
 from loft_wire.assemblies import (
     Mate as MateParams,
 )
+from loft_wire.component_mirrors import ComponentMirror, mirror_reference_ids
 from loft_wire.component_patterns import pattern_reference_ids
 from loft_wire.drawings import DRAWING_NAME_MAX_LENGTH, DrawingResponse
 from loft_wire.parts import PART_NAME_MAX_LENGTH, PartResponse
@@ -70,11 +71,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from documents.assembly_history import ordered_patterns
+from documents.assembly_history import ordered_mirrors, ordered_patterns
 from documents.custom_features import member_id_mapping
 from documents.db import (
     Annotation,
     Assembly,
+    AssemblyMirror,
     AssemblyPattern,
     Dimension,
     Drawing,
@@ -392,17 +394,30 @@ async def duplicate_assembly(
     # Only the ids the mates name are resolved, and only within the size bound
     # (the copy is a new root exactly as large as its source).
     patterns = await ordered_patterns(session, source.id)
-    named = {
-        instance_id
-        for mate in mates
-        for instance_id in mate_instance_ids(_MATE_PARAMS.validate_python(mate.params))
-    } | {
-        instance_id
-        for row in patterns
-        for instance_id in pattern_reference_ids(
-            PATTERN_ADAPTER.validate_python(row.params)
-        )
-    }
+    mirrors = await ordered_mirrors(session, source.id)
+    named = (
+        {
+            instance_id
+            for mate in mates
+            for instance_id in mate_instance_ids(
+                _MATE_PARAMS.validate_python(mate.params)
+            )
+        }
+        | {
+            instance_id
+            for row in patterns
+            for instance_id in pattern_reference_ids(
+                PATTERN_ADAPTER.validate_python(row.params)
+            )
+        }
+        | {
+            instance_id
+            for row in mirrors
+            for instance_id in mirror_reference_ids(
+                ComponentMirror.model_validate(row.params)
+            )
+        }
+    )
     if not named.issubset(new_id.keys()):
         await OccurrenceWalk(session, source.owner_id).require_within_bounds(source.id)
         mapping.update(
@@ -428,6 +443,15 @@ async def duplicate_assembly(
                 type=row.type,
                 params=remap_ids(row.params, mapping),
                 driven_count=row.driven_count,
+            )
+        )
+    # Component mirrors likewise (seeds, opposite hands, plane face).
+    for row in mirrors:
+        session.add(
+            AssemblyMirror(
+                assembly_id=copy.id,
+                order_index=row.order_index,
+                params=remap_ids(row.params, mapping),
             )
         )
 

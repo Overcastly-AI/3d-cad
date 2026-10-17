@@ -59,6 +59,7 @@ from geometry.assembly.evaluate import (
     iter_part_instances,
     solve_assembly,
 )
+from geometry.assembly.mirrors import mirrored_name, source_part_key
 from geometry.assembly.transform import Pose
 from geometry.features.evaluate import features_have_twist
 from geometry.kernel import (
@@ -110,7 +111,8 @@ def _sub_assembly_item(
     twisted_parts: set[str],
 ) -> SubAssemblyComponent | None:
     """One sub-assembly occurrence of *request* (an instance, or a pattern copy
-    of one), with its own level rebuilt from that sub-assembly's solve.
+    or mirror twin of one), with its own level rebuilt from that
+    sub-assembly's solve.
 
     Its pose in this level's frame is the instance's solved pose; a copy has
     none of its own, so it is read off a member: the member's pose here
@@ -124,11 +126,15 @@ def _sub_assembly_item(
         name = inst.name
         placement = solved.sub_assembly_poses.get(group_id, inst.placement)
     else:
-        assert first.pattern is not None, (
-            "a sub-assembly group is an instance or a copy"
-        )
-        inst = by_id[first.pattern.seed_instance_id]
-        name = _copy_name(inst.name, first.pattern.index)
+        if first.pattern is not None:
+            inst = by_id[first.pattern.seed_instance_id]
+            name = _copy_name(inst.name, first.pattern.index)
+        else:
+            assert first.mirror is not None, (
+                "a sub-assembly group is an instance, a copy or a twin"
+            )
+            inst = by_id[first.mirror.seed_instance_id]
+            name = mirrored_name(inst.name, opposite=False)
         assert first.offset is not None
         frame = Pose.from_placement(first.placement).compose(first.offset.inverse())
         placement = frame.to_placement()
@@ -181,7 +187,7 @@ def _step_items(
                 body=first.body,
                 translation=translation,
                 quaternion=quaternion,
-                twisted=first.part_key in twisted_parts,
+                twisted=source_part_key(first.part_key) in twisted_parts,
             )
         )
     return items
@@ -210,7 +216,7 @@ def _component(placed: PlacedInstance, twisted_parts: set[str]) -> AssemblyCompo
             float(pose.q[2]),
             float(pose.q[3]),
         ),
-        twisted=placed.part_key in twisted_parts,
+        twisted=source_part_key(placed.part_key) in twisted_parts,
     )
 
 

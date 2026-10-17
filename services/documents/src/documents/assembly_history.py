@@ -74,6 +74,20 @@ async def ordered_patterns(
     return list(result.scalars())
 
 
+async def ordered_mirrors(
+    session: AsyncSession, assembly_id: uuid.UUID
+) -> list[db.AssemblyMirror]:
+    """The assembly's component mirrors, ``ORDER BY order_index``
+    (ASM-MIRROR-COMPONENT)."""
+    result = await session.execute(
+        select(db.AssemblyMirror)
+        .where(db.AssemblyMirror.assembly_id == assembly_id)
+        .order_by(db.AssemblyMirror.order_index)
+        .execution_options(populate_existing=True)
+    )
+    return list(result.scalars())
+
+
 async def _serialize_state(
     session: AsyncSession, assembly: db.Assembly
 ) -> dict[str, Any]:
@@ -91,6 +105,7 @@ async def _serialize_state(
     instances = await ordered_instances(session, assembly.id)
     mates = await ordered_mates(session, assembly.id)
     patterns = await ordered_patterns(session, assembly.id)
+    mirrors = await ordered_mirrors(session, assembly.id)
     state: dict[str, Any] = {
         "name": assembly.name,
         "length_unit": assembly.length_unit,
@@ -137,6 +152,19 @@ async def _serialize_state(
             }
             for row in patterns
         ]
+    # Mirrors likewise: absent while there are none (older snapshots restore
+    # as "no mirrors").
+    if mirrors:
+        state["mirrors"] = [
+            {
+                "id": str(row.id),
+                "order_index": row.order_index,
+                "params": copy.deepcopy(row.params),
+                "created_at": row.created_at.isoformat(),
+                "updated_at": row.updated_at.isoformat(),
+            }
+            for row in mirrors
+        ]
     return state
 
 
@@ -154,6 +182,9 @@ async def _apply_state(
     await session.execute(delete(db.Mate).where(db.Mate.assembly_id == assembly.id))
     await session.execute(
         delete(db.AssemblyPattern).where(db.AssemblyPattern.assembly_id == assembly.id)
+    )
+    await session.execute(
+        delete(db.AssemblyMirror).where(db.AssemblyMirror.assembly_id == assembly.id)
     )
     await session.execute(
         delete(db.Instance).where(db.Instance.assembly_id == assembly.id)
@@ -195,6 +226,17 @@ async def _apply_state(
                 type=row["type"],
                 params=row["params"],
                 driven_count=row["driven_count"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+            )
+        )
+    for row in state.get("mirrors", []):
+        session.add(
+            db.AssemblyMirror(
+                id=uuid.UUID(row["id"]),
+                assembly_id=assembly.id,
+                order_index=row["order_index"],
+                params=row["params"],
                 created_at=datetime.fromisoformat(row["created_at"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
             )

@@ -18,6 +18,11 @@ A component pattern's copies count as instances of their seed's document
 the driving part's hole count, which geometry resolves: the gateway passes it
 in (:func:`parse_pattern_counts`), and a pattern it could not resolve counts
 its seeds only and is listed in ``unresolved_patterns``.
+
+A component mirror's twin counts on its seed's line when it is a mirrored copy,
+and on a line of its own, "<part> (opposite hand)" with ``opposite_hand`` set,
+when it is an opposite-hand version: a different part to make, as SolidWorks
+bills a "Create opposite hand version" part (ASM-MIRROR-COMPONENT).
 """
 
 import uuid
@@ -37,10 +42,27 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db
-from documents.assembly_history import ordered_patterns
+from documents.assembly_history import ordered_mirrors, ordered_patterns
 from documents.occurrences import OccurrenceWalk, copies_per_seed
 
 RefKey = tuple[uuid.UUID, RefDocumentKind]
+
+#: A BOM line's identity: the referenced document, and whether the line is
+#: that part's opposite hand.
+LineKey = tuple[uuid.UUID, RefDocumentKind, bool]
+
+#: How an opposite-hand line is named after its part.
+OPPOSITE_HAND_SUFFIX = " (opposite hand)"
+
+
+def line_name(names: Mapping[RefKey, str], key: LineKey) -> str | None:
+    """The name a line of *key* shows: the document's, marked for an
+    opposite hand; None when the document is missing."""
+    ref_id, kind, opposite = key
+    name = names.get((ref_id, kind))
+    if name is None or not opposite:
+        return name
+    return f"{name}{OPPOSITE_HAND_SUFFIX}"
 
 
 def parse_pattern_counts(values: Iterable[str]) -> dict[uuid.UUID, int]:
@@ -63,11 +85,13 @@ async def direct_quantities(
     assembly_id: uuid.UUID,
     counts: Mapping[uuid.UUID, int],
     unresolved: set[uuid.UUID],
-) -> dict[RefKey, int]:
+) -> dict[LineKey, int]:
     """How many of each referenced document *assembly_id* places directly,
     in first-appearance (instance) order: one per instance, plus each
-    pattern's copies of its seeds. Hole-driven patterns missing from *counts*
-    add nothing and are added to *unresolved*."""
+    pattern's copies of its seeds, plus each mirror's twin of its seeds (an
+    opposite-hand twin on its own line, after the instances). Hole-driven
+    patterns missing from *counts* add nothing and are added to
+    *unresolved*."""
     result = await session.execute(
         select(
             db.Instance.id, db.Instance.ref_document_id, db.Instance.ref_document_kind
@@ -75,10 +99,10 @@ async def direct_quantities(
         .where(db.Instance.assembly_id == assembly_id)
         .order_by(db.Instance.order_index)
     )
-    ref_of: dict[uuid.UUID, RefKey] = {}
-    quantities: dict[RefKey, int] = {}
+    ref_of: dict[uuid.UUID, LineKey] = {}
+    quantities: dict[LineKey, int] = {}
     for instance_id, ref_id, kind in result.all():
-        key: RefKey = (ref_id, cast(RefDocumentKind, kind))
+        key: LineKey = (ref_id, cast(RefDocumentKind, kind), False)
         ref_of[instance_id] = key
         quantities[key] = quantities.get(key, 0) + 1
     if not ref_of:
@@ -92,6 +116,15 @@ async def direct_quantities(
             seed_ref = ref_of.get(uuid.UUID(seed))
             if seed_ref is not None:
                 quantities[seed_ref] += copies
+    for mirror in await ordered_mirrors(session, assembly_id):
+        opposite = set(mirror.params.get("opposite_hand_instance_ids", []))
+        for seed in mirror.params.get("seed_instance_ids", []):
+            seed_ref = ref_of.get(uuid.UUID(seed))
+            if seed_ref is None:
+                continue
+            ref_id, kind, _ = seed_ref
+            twin: LineKey = (ref_id, kind, kind == "part" and seed in opposite)
+            quantities[twin] = quantities.get(twin, 0) + 1
     return quantities
 
 
@@ -140,6 +173,7 @@ def _sorted(lines: list[BomLine]) -> list[BomLine]:
             line.name is None,
             line.name or "",
             str(line.ref_document_id),
+            line.opposite_hand,
         ),
     )
 
@@ -167,22 +201,22 @@ class _BomWalk:
         quantities = await direct_quantities(
             self.session, assembly_id, self.counts, self.unresolved
         )
-        groups: list[tuple[uuid.UUID, RefDocumentKind, int]] = [
-            (ref_id, kind, count) for (ref_id, kind), count in quantities.items()
-        ]
         names = await resolve_document_names(
-            self.session, self.owner_id, {(ref_id, kind) for ref_id, kind, _ in groups}
+            self.session,
+            self.owner_id,
+            {(ref_id, kind) for ref_id, kind, _ in quantities},
         )
         lines = _sorted(
             [
                 BomLine(
-                    ref_document_id=ref_id,
-                    ref_document_kind=kind,
-                    name=names.get((ref_id, kind)),
-                    missing=(ref_id, kind) not in names,
+                    ref_document_id=key[0],
+                    ref_document_kind=key[1],
+                    name=line_name(names, key),
+                    missing=(key[0], key[1]) not in names,
                     quantity=count,
+                    opposite_hand=key[2],
                 )
-                for ref_id, kind, count in groups
+                for key, count in quantities.items()
             ]
         )
         self._lines[assembly_id] = lines
@@ -195,8 +229,8 @@ class _BomWalk:
         prefix: str = "",
         level: int = 0,
         multiplier: int = 1,
-        parts: Counter[uuid.UUID],
-        part_lines: dict[uuid.UUID, BomLine],
+        parts: Counter[tuple[uuid.UUID, bool]],
+        part_lines: dict[tuple[uuid.UUID, bool], BomLine],
     ) -> list[IndentedBomLine]:
         """The indented rows under *assembly_id*, tallying parts as it goes."""
         rows: list[IndentedBomLine] = []
@@ -209,8 +243,9 @@ class _BomWalk:
                 )
             )
             if line.ref_document_kind == "part":
-                parts[line.ref_document_id] += total
-                part_lines.setdefault(line.ref_document_id, line)
+                part = (line.ref_document_id, line.opposite_hand)
+                parts[part] += total
+                part_lines.setdefault(part, line)
             elif not line.missing and level + 1 < MAX_ASSEMBLY_DEPTH:
                 rows.extend(
                     await self.indented(
@@ -236,13 +271,13 @@ async def assembly_bom(
     await OccurrenceWalk(session, assembly.owner_id).require_within_bounds(assembly.id)
     walk = _BomWalk(session, assembly.owner_id, counts)
     lines = await walk.top_level(assembly.id)
-    parts: Counter[uuid.UUID] = Counter()
-    part_lines: dict[uuid.UUID, BomLine] = {}
+    parts: Counter[tuple[uuid.UUID, bool]] = Counter()
+    part_lines: dict[tuple[uuid.UUID, bool], BomLine] = {}
     indented = await walk.indented(assembly.id, parts=parts, part_lines=part_lines)
     parts_only = _sorted(
         [
-            part_lines[ref_id].model_copy(update={"quantity": count})
-            for ref_id, count in parts.items()
+            part_lines[part].model_copy(update={"quantity": count})
+            for part, count in parts.items()
         ]
     )
     return AssemblyBomResponse(

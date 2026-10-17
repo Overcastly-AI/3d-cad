@@ -86,8 +86,9 @@ export function nestedParts(
   evaluation.instances.forEach((row, index) => {
     const path = row.path ?? [];
     const groupId = path[0];
-    // Copies of THIS assembly's patterns are drawn with their seed instead.
-    if (groupId === undefined || row.pattern) return;
+    // Copies of THIS assembly's patterns and twins of its mirrors are drawn
+    // with their seed instead.
+    if (groupId === undefined || row.pattern || row.mirror) return;
     const leaf =
       leaves[index] ??
       (row.part_mesh_glb_id ? byMesh.get(row.part_mesh_glb_id) : undefined);

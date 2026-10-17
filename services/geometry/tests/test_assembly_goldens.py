@@ -34,7 +34,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from geometry.assembly import evaluate_assembly
+from geometry.assembly import check_interference, evaluate_assembly
 from geometry.assembly.evaluate import solve_assembly
 from geometry.assembly.export import export_assembly
 from geometry.assembly.transform import Pose
@@ -107,6 +107,17 @@ class ExpectedPatternCount(BaseModel):
 
     pattern_id: str
     count: int
+
+
+class ExpectedMirrorState(BaseModel):
+    """One component mirror's expected state (ASM-MIRROR-COMPONENT): the twins
+    it places and the seeds whose copies are not mirror images."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mirror_id: str
+    placed: int
+    asymmetric: list[str]
 
 
 class ExpectedProbe(BaseModel):
@@ -183,6 +194,12 @@ class AssemblyGoldenExpectation(BaseModel):
     )
     pattern_counts: list[ExpectedPatternCount] | None = Field(
         default=None, description="Per-pattern counts; checked when given"
+    )
+    mirror_states: list[ExpectedMirrorState] | None = Field(
+        default=None, description="Per-mirror states; checked when given"
+    )
+    clashes: int | None = Field(
+        default=None, ge=0, description="Interference clash count; checked when given"
     )
     probes: list[ExpectedProbe] = Field(default_factory=list["ExpectedProbe"])
     in_context: list[ExpectedInContext] | None = Field(
@@ -294,6 +311,19 @@ def test_dof_joint_states_and_probes_match_hand_values(
         ] == [
             (want.pattern_id, want.count, None) for want in expected.pattern_counts
         ], f"{case.name}: pattern counts"
+    if expected.mirror_states is not None:
+        assert [
+            (
+                str(state.mirror_id),
+                state.placed,
+                [str(seed) for seed in state.asymmetric],
+                state.error_code,
+            )
+            for state in result.mirror_states
+        ] == [
+            (want.mirror_id, want.placed, want.asymmetric, None)
+            for want in expected.mirror_states
+        ], f"{case.name}: mirror states"
     if expected.joint_states is not None:
         got_states = result.joint_states
         assert [str(js.mate_id) for js in got_states] == [
@@ -402,6 +432,19 @@ def test_topology_rollup_and_shared_mesh_dedup(case: AssemblyGoldenCase) -> None
     for inst in result.instances:
         assert inst.part_mesh_glb_id is not None
         assert inst.part_mesh_glb_id.startswith("sha256:"), case.name
+
+
+CLASH_CASES = [case for case in GOLDEN_CASES if case.expected.clashes is not None]
+
+
+@pytest.mark.parametrize("case", CLASH_CASES, ids=[c.name for c in CLASH_CASES])
+def test_interference_matches_hand_count(case: AssemblyGoldenCase) -> None:
+    """The interference check sees every placed part, mirror twins included,
+    and finds exactly the hand-derived number of clashes."""
+    result = check_interference(case.request)
+    assert len(result.clashes) == case.expected.clashes, (
+        f"{case.name}: clashes {[(c.instance_a, c.instance_b) for c in result.clashes]}"
+    )
 
 
 @each_golden

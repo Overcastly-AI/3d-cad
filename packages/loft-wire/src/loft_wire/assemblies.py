@@ -24,6 +24,13 @@ from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from loft_wire.component_mirrors import (
+    MAX_ASSEMBLY_MIRRORS,
+    EvaluatedMirror,
+    MirrorCopyRef,
+    MirrorResponse,
+    MirrorState,
+)
 from loft_wire.component_patterns import (
     MAX_ASSEMBLY_PATTERNS,
     EvaluatedPattern,
@@ -69,6 +76,11 @@ def _is_empty(value: object) -> bool:
 def _is_none(value: object) -> bool:
     """``exclude_if`` predicate: an absent optional is not serialized."""
     return value is None
+
+
+def _is_false(value: object) -> bool:
+    """``exclude_if`` predicate: a false flag is not serialized."""
+    return value is False
 
 
 def _drop_schema_default(schema: dict[str, Any]) -> None:
@@ -627,6 +639,13 @@ class AssemblyGraphResponse(BaseModel):
         description="The assembly's component patterns, in order (ASM-A3). "
         "Omitted while empty, so an assembly without patterns reads as before.",
     )
+    mirrors: list[MirrorResponse] = Field(
+        default_factory=list["MirrorResponse"],
+        exclude_if=_is_empty,
+        json_schema_extra=_drop_schema_default,
+        description="The assembly's component mirrors, in order "
+        "(ASM-MIRROR-COMPONENT). Omitted while empty.",
+    )
     can_undo: bool = Field(
         description="True when an earlier history snapshot exists to restore "
         "(docs/design/undo-redo.md UR3) — lets the toolbar disable undo "
@@ -697,6 +716,14 @@ class BomLine(BaseModel):
         description="Count of instances referencing this document: direct "
         "instances on a top-level line, instances inside the parent on an "
         "indented line, every placed occurrence on a parts-only line",
+    )
+    opposite_hand: bool = Field(
+        default=False,
+        exclude_if=_is_false,
+        json_schema_extra=_drop_schema_default,
+        description="True on the line of a part's OPPOSITE-HAND versions "
+        "(placed by component mirrors): a separate item from the part itself, "
+        "named after it. Omitted when false.",
     )
 
 
@@ -975,13 +1002,21 @@ class EvaluateAssemblyRequest(BaseModel):
         "order_index order. Omitted while empty, so a request without patterns "
         "dumps exactly as before they existed.",
     )
+    mirrors: list[EvaluatedMirror] = Field(
+        default_factory=list["EvaluatedMirror"],
+        max_length=MAX_ASSEMBLY_MIRRORS,
+        exclude_if=_is_empty,
+        json_schema_extra=_drop_schema_default,
+        description="Component mirrors (ASM-MIRROR-COMPONENT), placed after the "
+        "patterns in order_index order. Omitted while empty.",
+    )
 
     @model_validator(mode="after")
     def _bounded_nesting(self) -> Self:
         """Sub-assemblies count toward the work bounds by what they PLACE: the
         part occurrences across every level (each one is evaluated, drawn and
         clash-checked) and the nesting depth (each level is a solve)."""
-        leaves = count_leaf_instances(self.instances, self.patterns)
+        leaves = count_leaf_instances(self.instances, self.patterns, self.mirrors)
         if leaves > MAX_ASSEMBLY_INSTANCES:
             raise ValueError(
                 f"the assembly places {leaves} parts across its sub-assemblies; "
@@ -999,23 +1034,29 @@ class EvaluateAssemblyRequest(BaseModel):
 def count_leaf_instances(
     instances: Sequence[EvaluatedInstance],
     patterns: Sequence[EvaluatedPattern] = (),
+    mirrors: Sequence[EvaluatedMirror] = (),
 ) -> int:
     """How many PART occurrences *instances* place, through every sub-assembly,
     counting the copies of the linear and circular *patterns* (a hole-driven
-    pattern's count is only known to geometry, which bounds it on expansion)."""
+    pattern's count is only known to geometry, which bounds it on expansion)
+    and the twin each of the *mirrors* places per seed."""
     leaves: dict[uuid.UUID, int] = {}
     for instance in instances:
         if instance.sub_assembly is None:
             leaves[instance.instance_id] = 1
         else:
+            sub = instance.sub_assembly
             leaves[instance.instance_id] = count_leaf_instances(
-                instance.sub_assembly.instances, instance.sub_assembly.patterns
+                sub.instances, sub.patterns, sub.mirrors
             )
     total = sum(leaves.values())
     for evaluated in patterns:
         copies = explicit_copies(evaluated.pattern) or 0
         for seed in evaluated.pattern.seed_instance_ids:
             total += copies * leaves.get(seed, 0)
+    for mirrored in mirrors:
+        for seed in mirrored.mirror.seed_instance_ids:
+            total += leaves.get(seed, 0)
     return total
 
 
@@ -1073,6 +1114,14 @@ class InstancePlacementResult(BaseModel):
         json_schema_extra=_drop_schema_default,
         description="Set when this row is a copy placed by one of THIS "
         "assembly's component patterns (for a copy of a sub-assembly seed, on "
+        "each of its parts). Omitted otherwise.",
+    )
+    mirror: MirrorCopyRef | None = Field(
+        default=None,
+        exclude_if=_is_none,
+        json_schema_extra=_drop_schema_default,
+        description="Set when this row is a twin placed by one of THIS "
+        "assembly's component mirrors (for a twin of a sub-assembly seed, on "
         "each of its parts). Omitted otherwise.",
     )
 
@@ -1176,6 +1225,14 @@ class EvaluateAssemblyResult(BaseModel):
         json_schema_extra=_drop_schema_default,
         description="Each component pattern of this assembly: how many it "
         "placed per seed, or why it placed none. Omitted while empty.",
+    )
+    mirror_states: list[MirrorState] = Field(
+        default_factory=list["MirrorState"],
+        exclude_if=_is_empty,
+        json_schema_extra=_drop_schema_default,
+        description="Each component mirror of this assembly: the twins it "
+        "placed, which copies are not mirror images, or why it placed none. "
+        "Omitted while empty.",
     )
     in_context: list[InContextStatus] = Field(
         default_factory=list["InContextStatus"],

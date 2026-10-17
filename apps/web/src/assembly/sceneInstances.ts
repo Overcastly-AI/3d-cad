@@ -94,20 +94,22 @@ export function buildSceneInstances(input: SceneInputs): SceneInstance[] {
       visibility,
     });
   });
-  // Component pattern copies (ASM-A3): placed by geometry after the solve and
-  // drawn like their seed. A click on one selects the seed, as in Fusion,
-  // where a pattern's copies follow the component they repeat.
+  // Component pattern copies (ASM-A3) and mirror twins (ASM-MIRROR-COMPONENT):
+  // placed by geometry after the solve and drawn with their own mesh (an
+  // opposite hand's is the reflected part's). A click on one selects the
+  // seed, as in Fusion, where copies follow the component they repeat.
   for (const row of input.evaluation?.instances ?? []) {
-    const ref = row.pattern;
-    if (ref === undefined || ref === null) continue;
-    const index = input.instances.findIndex(
-      (i) => i.id === ref.seed_instance_id,
-    );
+    const seedId =
+      row.pattern?.seed_instance_id ?? row.mirror?.seed_instance_id;
+    if (seedId === undefined) continue;
+    const index = input.instances.findIndex((i) => i.id === seedId);
     const seed = input.instances[index];
     if (seed === undefined) continue;
     out.push({
       id: row.instance_id,
-      name: `${seed.name} (${ref.index + 1})`,
+      name: row.pattern
+        ? `${seed.name} (${row.pattern.index + 1})`
+        : `${seed.name} (${row.mirror?.opposite_hand ? "opposite hand" : "mirror"})`,
       balloon: index + 1,
       grounded: false,
       transform: placementToScene(row.placement),

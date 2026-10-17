@@ -1,0 +1,190 @@
+{
+  "description": "COMPONENT MIRROR GOLDEN (ASM-MIRROR-COMPONENT): an ASYMMETRIC L-shaped 'Crank arm' (sketch (0,0)-(60,0)-(60,10)-(10,10)-(10,30)-(0,30) on XY, extruded 10 mm) instanced twice and mirrored three ways. A, grounded at (10, 0, 0), gets an OPPOSITE HAND about the YZ origin plane; B, grounded at (10, 50, 0) turned +90 deg about Z, gets a mirrored COPY about the XY plane offset to z = 20 (the L is symmetric about its own mid-thickness plane z = 5, so the copy is a true mirror image) and an OPPOSITE HAND about the plane of A's end face (local x = 60, outward +X, world x = 70). Locks: every twin is a PROPER rigid pose (never a reflected placement), the opposite hand is one derived part (one mesh, one STEP product) however its twins are oriented, its volume equals the source's, its box is the seed's box mirrored, nothing clashes with the originals, the face-plane resolution, mirror_copy_id, and the per-mirror states.",
+  "derivation": [
+    "Expectations are HAND-DERIVED. The L: two rectangles, 60x10 at (30, 5) and 10x20 at (5, 20): area 800, so volume 8000 mm^3; centroid x = (600*30 + 200*5)/800 = 23.75, y = (600*5 + 200*20)/800 = 8.75, z = 5; box [0,0,0]..[60,30,10]; perimeter 60+10+50+20+10+30 = 180, so surface area 2*800 + 180*10 = 3400 mm^2; 8 faces, 18 edges, 1 shell.",
+    "Twin rule (mirrors.py): with the plane (p, n), M = I - 2nn^T, the seed pose (R, t), the reflected local axis k and the seed's box centre c_k: R' = M R D_k and t' = M(R(2 c_k e_k) + t - p) + p. A copy takes k as the seed axis most aligned with n; an opposite hand always takes k = x (c_x = 30) and places the L reflected about its own x = 30: (x, y, z) -> (60 - x, y, z), centroid (36.25, 8.75, 5), same box.",
+    "M1 (YZ, opposite hand of A): n = +X, R = I: R' = D_x I D_x = I; t' = D_x((60,0,0) + (10,0,0)) = (-70, 0, 0). World x = -70 + 60 - x = -10 - x, the reflection of A's 10 + x.",
+    "M2 (XY at z = 20, copy of B): n = +Z, R = Rz90, R^T n = +Z so k = z, c_z = 5: R' = D_z Rz90 D_z = Rz90; t' = D_z((0,0,10) + (10,50,0) - (0,0,20)) + (0,0,20) = (10, 50, 30). B spans z 0..10, its twin 30..40.",
+    "M3 (A's end face, opposite hand of B): the face is A-local x = 60, outward +X, so world plane x = 70, n = +X. k = x, c_x = 30: R' = D_x Rz90 D_x = Rz(-90); R(60 e_x) = (0, 60, 0), so t' = D_x((10, 110, 0) - (70, *, *)) + (70, *, *) = (130, 110, 0). World (130 + y, 50 + x, z): the reflection of B's (10 - y, 50 + x, z) about x = 70.",
+    "Roll-up over A, B and the three twins: volume 5 x 8000 = 40000; area 5 x 3400 = 17000; world centroids A (33.75, 8.75, 5), B (1.25, 73.75, 5), M1 (-33.75, 8.75, 5), M2 (1.25, 73.75, 35), M3 (138.75, 73.75, 5), mean (28.25, 47.75, 11); box x -70 (M1) .. 160 (M3), y 0 .. 110, z 0 .. 40 (M2); topology 40 faces, 90 edges, 5 shells.",
+    "Meshes: the L and its one opposite hand: 2. STEP: 'Crank arm' used 3 times (A, B and B's copy share one body) and 'Crank arm (opposite hand)' twice (one derived body), so 2 B-reps for 5 occurrences.",
+    "Clashes: A x 10..70 y 0..30; B x -20..10 y 50..110; M1 x -70..-10 y 0..30; M2 over B but z 30..40; M3 x 130..160 y 50..110: all disjoint, so no clash."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "CLOSED-FORM tolerance: every pose is a grounded seed or a reflection composed with quarter turns, analytic to float64 round-off. Measured first (2026-10-17, build123d / OCCT 7.9, BLAS pinned): positions within 1.5e-14 mm, rotation matrices within 2.3e-16, centroid within 1.1e-14 mm, volume within 1e-11 mm^3. 1e-9 matches the pattern and joint goldens. Loosening it requires a reviewed justification here and in docs/GEOMETRY-QA.md.",
+  "status": "well_constrained",
+  "remaining_dof": 0,
+  "mirror_states": [
+    {
+      "mirror_id": "00000000-0000-0000-0000-0000000000d1",
+      "placed": 1,
+      "asymmetric": []
+    },
+    {
+      "mirror_id": "00000000-0000-0000-0000-0000000000d2",
+      "placed": 1,
+      "asymmetric": []
+    },
+    {
+      "mirror_id": "00000000-0000-0000-0000-0000000000d3",
+      "placed": 1,
+      "asymmetric": []
+    }
+  ],
+  "clashes": 0,
+  "distinct_mesh_count": 2,
+  "instances": [
+    {
+      "instance_id": "00000000-0000-0000-0000-0000000000c1",
+      "placement": {
+        "position": {
+          "x": 10.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-0000000000c2",
+      "placement": {
+        "position": {
+          "x": 10.0,
+          "y": 50.0,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.7071067811865476,
+          "w": 0.7071067811865476
+        }
+      }
+    },
+    {
+      "instance_id": "bb9d1977-f064-5d3e-8407-427ea546303c",
+      "placement": {
+        "position": {
+          "x": -70.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      }
+    },
+    {
+      "instance_id": "ddb4eefd-38b6-5d29-aa01-e0fc1eef64b5",
+      "placement": {
+        "position": {
+          "x": 10.0,
+          "y": 50.0,
+          "z": 30.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.7071067811865476,
+          "w": 0.7071067811865476
+        }
+      }
+    },
+    {
+      "instance_id": "9a90bc5e-fbcc-5365-a23c-46e72531d9fd",
+      "placement": {
+        "position": {
+          "x": 130.0,
+          "y": 110.0,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.7071067811865476,
+          "w": 0.7071067811865476
+        }
+      }
+    }
+  ],
+  "probes": [
+    {
+      "instance_id": "bb9d1977-f064-5d3e-8407-427ea546303c",
+      "local": {
+        "x": 60.0,
+        "y": 30.0,
+        "z": 10.0
+      },
+      "world": {
+        "x": -10.0,
+        "y": 30.0,
+        "z": 10.0
+      },
+      "note": "the opposite hand's upright tip (source (0, 30, 10), at world (10, 30, 10) on A) reflects to x = -10"
+    },
+    {
+      "instance_id": "9a90bc5e-fbcc-5365-a23c-46e72531d9fd",
+      "local": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "world": {
+        "x": 130.0,
+        "y": 110.0,
+        "z": 0.0
+      },
+      "note": "the derived L's corner (source corner (60, 0, 0), world (10, 110, 0) on B) reflects about x = 70 to x = 130"
+    }
+  ],
+  "properties": {
+    "volume": 40000.0,
+    "surface_area": 17000.0,
+    "centroid": {
+      "x": 28.25,
+      "y": 47.75,
+      "z": 11.0
+    },
+    "bounding_box": {
+      "min": {
+        "x": -70.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 160.0,
+        "y": 110.0,
+        "z": 40.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 40,
+    "edges": 90,
+    "shells": 5
+  },
+  "step": {
+    "name": "Crankset",
+    "breps": 2,
+    "children": [
+      {
+        "product": "Crank arm",
+        "count": 3,
+        "children": []
+      },
+      {
+        "product": "Crank arm (opposite hand)",
+        "count": 2,
+        "children": []
+      }
+    ]
+  }
+}

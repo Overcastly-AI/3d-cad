@@ -385,22 +385,33 @@ export function AssemblyScene({
   const { pools, floor } = useInstancePools(instances);
   const tool = useMateAuthoringStore((s) => s.tool);
   const picks = useMateAuthoringStore((s) => s.picks);
-  const pickFace = useMateAuthoringStore((s) => s.pickFace);
+  const pickMateFace = useMateAuthoringStore((s) => s.pickFace);
   const pickAxis = useMateAuthoringStore((s) => s.pickAxis);
   const pickInstance = useMateAuthoringStore((s) => s.pickInstance);
   const pickOrigin = useMateAuthoringStore((s) => s.pickOrigin);
-  // The pattern dialog's edge pick (ASM-A3) takes over the axis overlay.
+  // The pattern dialog's edge pick (ASM-A3) takes over the axis overlay; the
+  // mirror dialog's plane pick (ASM-MIRROR-COMPONENT) the face overlay.
   const patternPick = usePatternPickStore((s) => s.picking);
   const pickPatternEdge = usePatternPickStore((s) => s.pickEdge);
+  const pickMirrorFace = usePatternPickStore((s) => s.pickFace);
+  const pickFace = useCallback(
+    (instanceId: string, index: number, signature: PlanarFaceSignature) =>
+      patternPick === "plane"
+        ? pickMirrorFace(instanceId, signature)
+        : pickMateFace(instanceId, index, signature),
+    [patternPick, pickMirrorFace, pickMateFace],
+  );
 
   // Distance / angle pick two planar faces like coincident, so they reuse the
   // face overlay; concentric picks circular-edge axes; lock picks the body.
   const overlayTool: "coincident" | "concentric" | null =
-    patternPick !== null || tool === "concentric"
-      ? "concentric"
-      : tool !== null && tool !== "lock" && tool !== "joint"
-        ? "coincident"
-        : null;
+    patternPick === "plane"
+      ? "coincident"
+      : patternPick !== null || tool === "concentric"
+        ? "concentric"
+        : tool !== null && tool !== "lock" && tool !== "joint"
+          ? "coincident"
+          : null;
 
   /**
    * The mate entity under the pointer, ACROSS instances — one pointer, one

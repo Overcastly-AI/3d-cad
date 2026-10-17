@@ -15,6 +15,7 @@
     "assembly-joint-hinge.spec.ts": 90.4,
     "assembly-joint-motions.spec.ts": 84.0,
     "assembly-mass.spec.ts": 13.0,
+    "assembly-mirror.spec.ts": 27.4,
     "assembly-move.spec.ts": 92.4,
     "assembly-partial-export.spec.ts": 223.1,
     "assembly-pattern.spec.ts": 82.2,

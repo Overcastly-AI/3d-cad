@@ -47,10 +47,12 @@ function locate(row: InstancePlacementResult): {
   componentId: string;
 } {
   const path = row.path ?? [];
-  if (row.pattern) {
-    // A copy of THIS assembly's pattern: it is its seed, moved. A copy of a
-    // sub-assembly seed keeps the seed's inner path after the copy id.
-    const seed = row.pattern.seed_instance_id;
+  const copied = row.pattern ?? row.mirror;
+  if (copied) {
+    // A copy of THIS assembly's pattern (or a mirror's twin): it is its seed,
+    // moved. A copy of a sub-assembly seed keeps the seed's inner path after
+    // the copy id.
+    const seed = copied.seed_instance_id;
     return { path: [seed, ...path.slice(1)], componentId: seed };
   }
   if (path.length > 0) return { path, componentId: path[0] as string };

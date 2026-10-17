@@ -95,6 +95,7 @@ import {
 } from "../assembly/useMoveSession";
 import { copyBlocker, useCopyComponent } from "../assembly/useCopyComponent";
 import { useOpenDrawing } from "../assembly/useOpenDrawing";
+import { useMirrors } from "../assembly/useMirrors";
 import { usePatterns } from "../assembly/usePatterns";
 import {
   type DrawnPoses,
@@ -747,26 +748,32 @@ export function AssemblyPage() {
   // mutation uses (new doc_version cascades to part-trees → evaluate → meshes,
   // so the solved placements re-render) — never a second pipeline.
   // ---------------------------------------------------------------------
-  // Component patterns (ASM-A3): dialog, tree section, band button.
-  const patterns = usePatterns({
+  // Component patterns (ASM-A3) and mirrors (ASM-MIRROR-COMPONENT): dialogs,
+  // tree sections, band buttons.
+  const copyTools = {
     assemblyId,
     docVersion,
-    patterns: graph?.patterns ?? [],
     instances,
     evaluation,
     stale: evalQuery.isFetching || evalQuery.isPlaceholderData,
     selectedInstanceId,
-    nameOf: (id) => componentName(instances, nested, id) ?? "a part",
+    nameOf: (id: string) => componentName(instances, nested, id) ?? "a part",
     refreshGraph,
     onError: setActionError,
     busy,
+  };
+  const patterns = usePatterns({
+    ...copyTools,
+    patterns: graph?.patterns ?? [],
   });
+  const mirrors = useMirrors({ ...copyTools, mirrors: graph?.mirrors ?? [] });
   const canUndo = graph?.can_undo ?? false;
   const canRedo = graph?.can_redo ?? false;
   /** Any graph mutation in flight — history must never race its version. */
   const mutationInFlight =
     busy ||
     patterns.writing ||
+    mirrors.writing ||
     copying ||
     submitting ||
     unitBusy ||
@@ -1219,6 +1226,7 @@ export function AssemblyPage() {
                     : selectedInstance !== null && startMove(selectedInstance)
               }
               pattern={patterns.band}
+              mirror={mirrors.band}
               copyBlocker={copyBlocker(selectedInstance, copyWriting)}
               onCopy={() =>
                 selectedInstance !== null && copyComponent(selectedInstance)
@@ -1312,6 +1320,7 @@ export function AssemblyPage() {
                   />
                 ) : null}
                 {patterns.hud}
+                {mirrors.hud}
                 {addOpen ? (
                   <AddInstancePanel
                     addingPartId={addingPartId}
@@ -1433,7 +1442,12 @@ export function AssemblyPage() {
               // (the mutual exclusion's visible half — runHistoryStep guards
               // the other direction).
               busy={busy || historyStep !== null}
-              patternSection={patterns.treeSection}
+              patternSection={
+                <>
+                  {patterns.treeSection}
+                  {mirrors.treeSection}
+                </>
+              }
               failedByComponent={failuresByComponent(failed)}
             />
           </FloatingPanel>
