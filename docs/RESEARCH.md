@@ -1965,6 +1965,33 @@ and reframe it, a material per member, and a cut list that is always current.
   - *Version.* The opening roles were added to `loft.wall` 1.0.0 without a
     new version, because no stored wall had an opening; its no-openings
     goldens are byte-identical.
+- **Decided while building the roof** (ROOF, 2026-10-17; framing-square
+  practice, Chief Architect roof framing and Medeek Truss rafter roofs):
+  - *Pitch.* Rise per 12 of run, as a choice of 1/12 .. 24/12 shown as
+    "6/12" (Medeek's pitch list). It is the smallest honest form of
+    PLUGIN-PITCH-INPUT: no wire change, and the stored value
+    (`rise_6`) reads as what it is. Half pitches and a formula-driven pitch
+    need a ratio input kind (a wire change), left for when a user asks.
+  - *Bearing.* The roof takes its bearing as numbers: the span between the
+    walls' outer faces, the length along the ridge, the plate height and the
+    plate width, with the walls at Y 0 and Y span (B2's frame, as the deck
+    sits at the origin). Reading them from two picked Wall features waits for
+    STUD-WALL's inputs (BACKLOG note ROOF-BEARING-WALLS).
+  - *Members.* Each rafter is one side profile on a `YZ` plane at its X (an
+    offset datum shared by the pair at that X), extruded its thickness as
+    its own body; the ridge is its section on `YZ` run the length. Layout is
+    the wall's: half a thickness from X 0, then every spacing, the far end
+    rafter flush, a layout rafter that would overlap it dropped.
+  - *Cuts.* The overhang is level, from the wall's outer face to the tail's
+    plumb cut. The birdsmouth heel is on the wall's outer face; the seat takes
+    the full plate unless the heel would pass 1/3 of the depth, then shortens
+    from the inside. No overhang cuts the rafter flush at the wall line.
+  - *Ridge.* Its top is flush with the rafters' top edge at its face (the
+    sheathing plane touches it), and it must be at least as deep as the
+    rafters' plumb cut (IRC R802.3), else `plugin_input_unsupported`.
+  - *Cut length.* The cut list measures a rafter's overall length from its
+    body (line length + depth x rise/12, a SolidWorks weldment's length); the
+    line length (79.660) is checked on the STEP's faces in the golden test.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

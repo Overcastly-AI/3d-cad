@@ -58,7 +58,7 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    `b2-walls-door-window`, `-door-moved-24`, `-window-30`, `-door-deleted`;
    `test_walls_b2.py`, `test_openings.py`, `test_window_door_feature.py`;
    e2e `window-door-b2.spec.ts`, which edits the offset; RESEARCH §23).
-3. [ ] **ROOF** (`loft.roof`, stops B2): a gable of common rafters from two
+3. [x] **ROOF** (`loft.roof`, stops B2): a gable of common rafters from two
    bearing walls (feature inputs), pitch entered as rise per 12 (6/12, as
    Chief Architect and Medeek Truss), spacing, eave overhang, rafter and
    ridge profiles; each rafter is one sketched side profile (ridge plumb
@@ -71,6 +71,10 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    seat 2.75, heel 1.833. The cut list shows each rafter's overall length
    measured from the body (8 ft stock); this commit adds that overall length
    to buildings.md's roof line. E2e: B2 complete from Build features only.
+   _Done:_ `loft.roof` 1.0.0 (goldens `b2-roof-6-12`, `b2-roof-8-12`;
+   `services/geometry/tests/test_roof_b2.py`; e2e `roof-b2.spec.ts`, roof
+   only); decisions in RESEARCH §23. Bearing is typed, not picked, until
+   STUD-WALL lands (ROOF-BEARING-WALLS); the full B2 e2e is B2-E2E.
 
 ## Next
 
@@ -527,9 +531,23 @@ One line each. The founder triages weekly; most are closed without work.
 - WALL-CUT-LIST-ORDER: the cut list groups in tree order, so B2 lists Top plate 144, Bottom plate 144, Top plate 113, Bottom plate 113; Chief Architect's materials list groups each member type together.
 - WALL-EPS-OVERLAP: `joist_centres` keeps a layout centre within `<= ... + _EPS` of the end stud, so a layout stud may overlap it by 1e-9 in; harmless, could be strict.
 - BUILD-MENU-CAPTION: in BUILD ▾ a disabled plugin no longer shows its "Finish X first" / "Loading the part" caption.
+- ROOF-OVERHANG-MIN (ROOF review): an eave overhang between 0 and about 1e-7 mm (e.g. 2.54e-8) leaves an edge under the kernel tolerance and 35 of 36 features fail "Unexpected Standard_NullObject" (a clean feature error); the input's minimum should be 0 or at least 1/16 in.
+- ROOF-TWIN-DRIFT-TEST: the roof goldens' 1e-3 round-trip bound cites a build123d twin's matching drift in its rationale only; no test re-measures it (the wall's 30° golden has one).
+- ROOF-HEEL-RULE-WORDING: the 1/3-depth heel rule compares the vertical heel with the square-cut depth, which is conservative; RESEARCH §23 should say so.
+- WALL-MEMBER-RENUMBER (WINDOW-DOOR review): adding or moving an opening renumbers a wall's stud indices, so a later feature referencing `stud/k` silently lands on another stud; `_check_vanished_members` catches only vanished members (the deck shares the scheme).
+- OPENING-DELETE-REFUSED: deleting or suppressing a door is refused 422 when its wall cannot re-expand for an unrelated reason (a broken wall formula, another opening that no longer fits).
+- OPENING-PARAM-OVERLAP: a parameter change that makes two openings overlap keeps the wall's stale stored framing (`retabled`); the error shows only at evaluation.
+- OPENING-PARTIAL-CRIPPLE: a replaced layout stud only partly inside the rough opening gets no top cripple, leaving up to one spacing unsupported over a header end.
+- OPENING-HOST-FOLD: the web's `foldCustomResults` takes a memberless row's host from the first object-valued input, not the declared host input.
 - TOOLBAR-ROVING-TABINDEX: every command-band button is its own Tab stop, so each Build tool pushes Export one stop further (36 with Wall and Deck; `export-reach.spec.ts` bound raised 34 -> 36). The WAI-ARIA toolbar pattern (one Tab stop per group, arrows within), as Fusion's ribbon does, would end this.
 - OPENING-DRAG: a door or window moves by its Offset field; Revit and Chief Architect also drag it along its wall in the viewport (and show temporary dimensions to the nearest opening).
 - OPENING-HOST-MISSING-PLUGIN: a door whose plugin a server lacks is not handed to its wall there, so the wall (if that server has `loft.wall`) re-expands without framing it.
 - OPENING-TREE-CHEVRON: a door or window row shows the unfold chevron though it has no members of its own (its framing is under its wall).
 - OPENING-END-STUD: an opening whose king would overlap a wall's end stud is refused; Chief Architect lets the king replace the end stud at a corner.
 - OPENING-CRIPPLE-JACK: bottom cripples sit only at the replaced layout centres inside the rough opening, so a sill end between a jack and the first cripple is unsupported for up to one spacing; framers add a cripple beside each jack.
+- WINDOW-DOOR-UNIT: a placed window or door frames its rough opening but draws no unit (frame, sash, slab); Revit and Chief Architect draw the unit. Add it as an optional body kept out of the cut list.
+- PLUGIN-PITCH-INPUT: plugin inputs have length, angle, count and choice kinds; a roof pitch typed as 6/12 needs a ratio input (a wire change) or a choice list of x/12. ROOF took the choice list (1/12 .. 24/12, stored `rise_6`); half pitches and a formula-driven pitch still need the ratio input.
+- B2-SLAB: buildings.md's 4 in slab is not a Build feature; it is one sketch and extrude in concrete, and the part then needs a material per body (CUT-LIST-MASS-MATERIAL).
+- ROOF-BEARING-WALLS: `loft.roof` 1.0.0 takes its bearing as typed span, length, plate height and plate width with the walls at Y 0 and Y span, because `loft.wall` was not merged yet; once it is, a 1.1.0 adds the two bearing-wall feature inputs (Chief Architect builds the roof on the walls) and reads those numbers, and its position, from them.
+- B2-E2E: the "B2 complete from Build features only" e2e (walls, door, window, roof, cut list equal to buildings.md) waits for STUD-WALL and WINDOW-DOOR; `roof-b2.spec.ts` covers the roof alone.
+- ROOF-RAKE-OVERHANG: the end rafters sit flush with the gable walls; Chief Architect and Medeek also frame a rake overhang (barge rafters on lookouts or a ladder).

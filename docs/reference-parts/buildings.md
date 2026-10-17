@@ -102,7 +102,10 @@ target.
 Wall cut list (2x4 unless named): 36 studs at 92.625, 4 jacks at 81, 4
 cripples at 6.125, 2 at 43, 1 sill at 24.5; top plates 4 at 144 and 4 at
 113; bottom plates 1 at 144, 2 at 113, 2 at 53; headers 2x6, 2 at 41 and 2 at
-27.5. Roof: 14 rafters 2x6 at 79.660 (8 ft stock), 1 ridge 2x8 at 144.
+27.5. Roof: 14 rafters 2x6 at 79.660 line length, listed in the cut list at
+their overall length 82.410 (long point to long point: 79.660 + 5.5 x 6/12,
+as a SolidWorks weldment cut list gives an angled member; 8 ft stock), 1
+ridge 2x8 at 144.
 
 **Edits** (each from the base shed):
 
@@ -113,3 +116,4 @@ cripples at 6.125, 2 at 43, 1 sill at 24.5; top plates 4 at 144 and 4 at
 - Door deleted: the front wall has 10 full studs and one 144 bottom plate.
 - Pitch 6/12 -> 8/12: line length 85.632. A full seat would make a 2.333
   heel, over the 1/3 limit, so the seat shortens to 2.75 with a 1.833 heel.
+  The cut list's overall length is 89.299 (85.632 + 5.5 x 8/12).
