@@ -15,6 +15,8 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * In an inch part: Build ▾ > Floor at its defaults (144 x 120, 2x8 joists at
  * 16 in o.c. along the depth, PT 2x6 sill plates) builds 16 member bodies:
  * 10 joists, 2 rims and 4 sills, whose cut list is the spec's floor list.
+ * Since loft.floor 1.1.0 (SHEATHING) the default floor also has its 23/32
+ * plywood subfloor: 6 panels, 4 sheets of 4x8 by area.
  * Then the spec's edit, joist spacing 16 -> 12: 13 joists. A reload keeps it.
  */
 
@@ -26,6 +28,7 @@ const FLOOR_16OC: CutRow[] = [
   ["Rim", "2", "144", "12 ft"],
   ["Sill", "2", "144", "12 ft"],
   ["Sill", "2", "109", "10 ft"],
+  ["Subfloor", "6", "17,280 in²", "4 × 4x8"],
 ];
 
 /** "Joist spacing 16 -> 12. That gives 13 joists". */
@@ -74,10 +77,11 @@ test.describe("Floor — B5's framed floor from one feature", () => {
     await expect(members.filter({ hasText: "Joist" })).toHaveCount(10);
     await expect(members.filter({ hasText: "Rim" })).toHaveCount(2);
     await expect(members.filter({ hasText: "Sill" })).toHaveCount(4);
+    await expect(members.filter({ hasText: "Subfloor" })).toHaveCount(6);
     await page.getByTestId("feature-unfold-0").click();
 
     await openCutList(page);
-    await expectTable(page, FLOOR_16OC, "16");
+    await expectTable(page, FLOOR_16OC, "22");
     await expect(page.getByTestId("prop-mass")).toContainText(/\d/, {
       timeout: 60_000,
     });
@@ -93,7 +97,7 @@ test.describe("Floor — B5's framed floor from one feature", () => {
     await expect(editor).toBeHidden({ timeout: 30_000 });
     await expectSolved(page);
     await openCutList(page);
-    await expectTable(page, FLOOR_12OC, "19");
+    await expectTable(page, FLOOR_12OC, "25");
     await page.mouse.move(800, 990);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/floor-b5-12oc.png` });
 
@@ -102,7 +106,7 @@ test.describe("Floor — B5's framed floor from one feature", () => {
     await expect(rows).toHaveCount(1);
     await expectSolved(page);
     await openCutList(page);
-    await expectTable(page, FLOOR_12OC, "19");
+    await expectTable(page, FLOOR_12OC, "25");
     const tree = await page.request.get(`/api/v1/parts/${partId}/features`, {
       headers: { Authorization: `Bearer ${account.token}` },
     });

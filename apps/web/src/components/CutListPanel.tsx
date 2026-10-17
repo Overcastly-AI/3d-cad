@@ -330,7 +330,10 @@ export function CutListPanel({
                           {area === null ? (
                             formatLength(line.length_mm, unit)
                           ) : (
-                            <span data-testid="cut-list-area">
+                            <span
+                              data-testid="cut-list-area"
+                              className="whitespace-nowrap"
+                            >
                               {formatArea(area, unit)} {unitLabel}²
                             </span>
                           )}
@@ -345,7 +348,7 @@ export function CutListPanel({
                         </td>
                         <td
                           data-testid="cut-list-stock"
-                          className={`${CELL} text-mist`}
+                          className={`${CELL} whitespace-nowrap text-mist`}
                           title={
                             sheet !== null
                               ? `${formatCount(line.stock_quantity ?? 0)} sheets of ${sheet}, by area`

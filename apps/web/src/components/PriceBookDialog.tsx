@@ -350,7 +350,7 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
   ];
   const sheetOptions = (library.data?.sheet_sizes ?? []).map((size) => ({
     value: size.key,
-    label: `${size.key} sheet`,
+    label: size.key,
   }));
   const profileName = (key: PriceProfileKey) =>
     profileOptions.find((p) => p.value === key)?.label ?? key;
@@ -434,7 +434,7 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
                   <th scope="col" className={HEAD}>
                     Material
                   </th>
-                  <th scope="col" className={`${HEAD} w-[96px]`}>
+                  <th scope="col" className={`${HEAD} w-[152px]`}>
                     Profile
                   </th>
                   <th scope="col" className={`${HEAD} w-[104px]`}>
