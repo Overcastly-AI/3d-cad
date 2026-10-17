@@ -168,14 +168,15 @@ built from Build-group plugins with no member drawn by hand:
 Graded against SolidWorks, Fusion 360 and Onshape: ✅ better, ➖ parity,
 ❌ behind. Grades are from 2026-09-16. Re-grade a row only from a
 reference-part run or a live-app check. The "Why" text was checked against
-main `01e49e2` on 2026-10-09 (commits and tests; no grade changed).
+main `01e49e2` on 2026-10-09 and updated from shipped commits on
+2026-10-17 (no grade changed).
 
 | Area | Grade | Why |
 | --- | --- | --- |
-| Sketching and constraints | ➖ | Solid solver. Lines chain, points dimension to points and lines, and body edges project into a sketch (not splines). Missing: trig in expressions, named parameters. |
-| Part modelling | ➖ | Core features compose on real parts, twist is on Sweep, and Extrude is one-sided or symmetric. Shell fails on a round-to-square loft; no plane at an angle, closed-path sweep or Through All extrude. |
+| Sketching and constraints | ➖ | Solid solver. Lines chain, points dimension to points and lines, and body edges project into a sketch (not splines). Trig expressions and named part parameters drive dimensions. Missing: 3D sketch, typed line angle. |
+| Part modelling | ➖ | Core features compose on real parts, twist is on Sweep, and Extrude is one-sided or symmetric. Plane at an angle, closed-path sweep and Pipe shipped. Shell fails on a round-to-square loft; no Through All extrude. |
 | Selection and picking | ❌ | Overlapping edge marks fixed (2026-10-01 rerun) and one pick rounds its tangent chain. No face or loop selection, and a fillet edit could not re-pick (2026-09-30 run, not rechecked). |
-| Assemblies | ➖ | Five mate types, interference, BOM, assembly STEP. No move handle, drag, limits, motion or component patterns (code read 2026-10-01; re-grade from A1). |
+| Assemblies | ➖ | Joints with drag and limits, Move, sub-assemblies, component patterns and in-context edits shipped (to 2026-10-16). No mirror component or flexible sub-assembly; re-grade from A1-A3. |
 | Interop (import and export) | ➖ | STEP round-trips on foreign parts. No IGES, and no recovery for a zero-solid import. |
 | Drawings | ➖ | Views, sections, dimensions, PDF/DXF. No detail views. |
 | Sheet metal | ➖ | Flanges, hems, flat-pattern DXF. The hard-parts bracket's flat pattern is refused. |
@@ -221,5 +222,11 @@ goal and answer them"); the product-manager decided them. Each is in
   view flagged approximate (TWISTED-BODY-DRAWINGS).
 - **Shelled revolve, shallow angle:** a true offset or a typed refusal
   (SHELL-REVOLVE-SHALLOW).
+- **Next Now (2026-10-17):** AUTH-RATE-LIMIT-PROXY first (one attacker
+  locking out every user is a security hole), then LUMBER-MATERIALS,
+  CUT-LIST and DECK, so B1 passes end to end; B2 and the bike gaps lead Next.
+- **Bike gaps after B1:** SKETCH-3D, ASM-MIRROR-COMPONENT, SKETCH-LINE-ANGLE
+  and DRAWING-PARTS-LIST-LEVEL lead Next; the bike already builds with
+  workarounds, while B1 has no path at all without the three plugins.
 - **Left for the founder:** the object store (MinIO or an Apache-2.0 server),
   because it turns on publishing images under AGPL §6.

@@ -9,82 +9,71 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
-Ranked 2026-10-16 by the product-manager (delegated by the founder). Done
-2026-10-09..16 and dropped: EXTRUDE-SYMMETRIC, LINE-CHAIN, PERF-REBUILD-200
-passes 1-2 (§15a), PART-PARAMETERS, DATUM-PLANE-ANGLE, SKETCH-PLANE-PICK,
-SWEEP-CLOSED-PATH, ASM-JOINTS, ASM-MOVE-DRAG, ASM-LIMITS, and ASM-A3 with
-ASM-A3-PATTERN and ASM-A3-IN-CONTEXT (§24; e2e `assembly-subassembly`,
-`assembly-pattern`, `assembly-in-context`).
+Ranked 2026-10-17 by the product-manager (delegated by the founder): the
+security fix, then the B1 deck end to end in RESEARCH §23's order. Done
+2026-10-16..17 and dropped: ASM-FAILED-PART-API, PIPE-ALONG-PATH (§25),
+PLUGIN-REGISTRY, PLUGIN-UI and PERF-REBUILD-200 step 1 (§15a).
 
-1. [x] **ASM-FAILED-PART-API** (silently short export, next to the blocking
-   line): `POST /geometry/assembly/export` names the occurrences it omitted
-   in an `X-Loft-Omitted-Occurrences` header, forwarded by the gateway like
-   `PROPERTIES_HEADER`, and loft-script warns with their names; an assembly
-   drawing warns for a part that failed to build. _Accept:_ exporting the
-   bike with a failing crank arm through loft-script warns naming both arms,
-   and the drawing's check strip names them. _Decided 2026-10-16 (delegated
-   by founder to product-manager):_ yes, now — a script caller gets a short
-   STEP with no signal, which is wrong geometry exported.
-2. [x] **PIPE-ALONG-PATH** (done 3370ead, 104b1a6, 7025366, 1bcb6bb, ec30739, 5d6b0e0; goldens
-   `pipe-*`, `datum-along-path-*`, `frame-bike-4-pipes-*`; e2e
-   `pipe-frame.spec.ts`; RESEARCH §25) (bike BIKE-TUBE-PLANE, BIKE-SWEEP-PATH-PICK,
-   BIKE-NO-INCLUDE-SKETCH): Fusion's Pipe (picked chain of sketch or body
-   edges, section circle or ring by OD and wall, fused or new body) and
-   Plane Along Path (plane normal to an edge at a distance or ratio). One
-   skeleton sketch drives every tube; a branched pick gives
-   `sweep_path_not_connected`. _Accept:_ the bike's down, seat, top and head
-   tubes are 4 Pipes on one skeleton sketch, fused into one valid body
-   matching a build123d script to 1e-4; editing the head angle 73 -> 72°
-   rebuilds every tube; goldens for both features.
-3. [x] **PLUGIN-REGISTRY** (stops B1; RESEARCH §23): a kernel-free
-   `packages/loft-plugins` registers custom features (manifest, typed inputs,
-   a pure expand to base features), pinned by version per feature and
-   expanded by documents; the deprecated extrude twist moves there as a
-   Twisted prism. _Accept:_ the twisted prism matches the legacy
-   twisted-extrude golden (empty two-way difference), every stored twisted
-   extrude rebuilds byte-identical, and a test plugin's v2 leaves its v1
-   feature's golden byte-identical.
-4. [x] **PLUGIN-UI** (stops B1): a custom feature is an ordinary tool in a
-   Build toolbar group, with a form generated from its input schema (units
-   and parameters accepted), one tree node that unfolds into its members,
-   edited like any feature (Onshape custom features). _Accept:_ an e2e
-   inserts the twisted prism from the toolbar, edits its angle to `twist*2`
-   and sees it regenerate.
-5. [x] **PERF-REBUILD-200 step 1** (done; `housing_tree(200)` cold 29.35 s
-   -> 25.65 s, median of 3 against 514660d at load 0.3-1.1, -12.6 %; only the
-   moto frame's GLB/STEP changed, CM-6 later pocket now 30193.6284 mm^3
-   valid; RESEARCH §15a "Step 1 taken") (RESEARCH §15a step 1): one face-merge per
-   boolean; the guarded merge stays for the fuzzy repair. _Accept:_ every
-   golden byte-identical except the moto frame's `mesh_glb_id` and the
-   coincident-tube BRep bytes, re-recorded with the same counts, volume and
-   STEP round trip, no tolerance touched; the CM-6 later-pocket test asserts
-   the valid analytic body (30193.6284 mm^3) instead of `invalid_body`;
-   bytes equal across 4 processes; `housing_tree(200)` cold, median of 3
-   against `514660d` on an idle host, recorded in §15a. _Decided 2026-10-16
-   (delegated by founder to product-manager):_ step 1 now, step 4 stays in
-   Next, and the 22 s target is retired for PERF-REBUILD-LOCAL's 10 s —
-   step 1 is ~15 % for one small change and turns a refused body into the
-   right one; step 4 re-records every hole and pocket golden, which no
-   reference part needs yet.
+1. [ ] **AUTH-RATE-LIMIT-PROXY** (security hole, so first): auth routes
+   key on the socket address, so behind the bundled nginx every client
+   shares one login bucket and one attacker locks every user out.
+   _Accept:_ two clients behind the bundled proxy get separate buckets, a
+   forged `X-Forwarded-For` sent straight to the gateway is ignored, and
+   nginx sets `X-Forwarded-For $remote_addr` (it appends today; fix its
+   stale comment too). _Decided 2026-10-16 (delegated by founder to
+   product-manager):_ trust `X-Forwarded-For` only from the bundled
+   proxy's address, else key on the socket — the standard trusted-proxy
+   rule. _Decided 2026-10-17:_ Now, ahead of B1 — a lockout of every user
+   is a security hole under CLAUDE.md's Severity, and the fix is small.
+2. [ ] **LUMBER-MATERIALS** (stops B1): the material library gains SPF and
+   Douglas fir-larch lumber, pressure-treated southern pine, LVL, glulam,
+   structural steel and concrete, plus a profile library of US nominal
+   sizes with actual dimensions (2x4 is 1.5 x 3.5 in; 5/4x6 decking 1 x 5.5 in).
+   _Accept:_ a unit test pins every profile's actual size and density, and
+   a 2x10 x 12 ft SPF member's mass matches the hand calculation to 1e-4.
+3. [ ] **CUT-LIST** (stops B1): a part or assembly cut list groups members by
+   profile, material and length, with quantity, total length and stock
+   length (SolidWorks weldment cut list, Chief Architect materials list),
+   exported as CSV and placed on a drawing. _Accept:_ B1's cut list equals
+   the table in `buildings.md`, and every length is measured from its body.
+4. [ ] **DECK** (stops B1): ledger, dropped beam, posts, joists at a spacing,
+   rim, decking boards with gap and overhang, and guard railing, from
+   width, projection, height, spacing and profiles. _Accept:_ B1 builds
+   from one Deck feature in the Build group, with no member drawn by hand,
+   and its STEP matches the spec (counts, cut lengths, 64 497.75 in³,
+   interference none); the 16 -> 20 ft edit gives 80 212.5 in³.
 
 ## Next
 
-- [ ] **PERF-REBUILD-LOCAL** (RESEARCH §15a step 4, after step 1; takes over
-      BIG-PATTERN-COST): holes as `BRepFeat_MakeCylindricalHole` and pockets
-      as `BRepFeat_MakePrism`, costing the faces they touch rather than the
-      whole body; also explain why a 50x mirror/rotate never finished and a
-      24x loft-cut pattern takes 3.6-19 s. _Accept:_ 200 features rebuild
-      cold in under 10 s and 100 in under 3 s; face splits change, so each
-      re-recorded golden gets a reviewed volume and STEP check, no tolerance
-      loosened.
-- [ ] **AUTH-RATE-LIMIT-PROXY** (was a founder decision): behind the
-      bundled nginx every client shares one login bucket, so one attacker
-      locks every user out. _Accept:_ two clients behind the bundled proxy
-      get separate buckets, and a forged `X-Forwarded-For` sent straight to
-      the gateway is ignored. _Decided 2026-10-16 (delegated by founder to
-      product-manager):_ trust `X-Forwarded-For` only from the bundled
-      proxy's address (nginx overwrites it with `$remote_addr`), else key on
-      the socket — the standard trusted-proxy rule.
+Bike gaps first (round 2), then the hard-parts blockers, then speed.
+
+- [ ] **SKETCH-3D** (bike chain and seat stays): a 3D sketch of lines and
+      arcs between picked points and skeleton vertices, usable as a Pipe or
+      Sweep path (SolidWorks 3D Sketch, Fusion's 3D sketch). _Accept:_ the
+      bike's splayed chain stays are Pipes on a 3D sketch tied to the
+      dropouts and BB, matching a script to 1e-4.
+- [ ] **ASM-MIRROR-COMPONENT** (bike crankset): Mirror Components
+      (SolidWorks) / Mirror on components (Fusion) about a plane, as a copy of
+      a symmetric part or an opposite-hand part. _Accept:_ the left crank arm
+      is a mirrored copy of the right that follows an edit of it, and the BOM
+      counts 2 (or 1 + 1 opposite hand).
+- [ ] **SKETCH-LINE-ANGLE** (was DRAW-BOX-LINE-ANGLE): the Line draw box
+      shows Length and Angle cells, as Fusion does; the angle becomes an
+      angle-to-axis dimension, which ships first. _Accept:_ typing 450 Tab 73
+      Enter draws a 450 mm line at 73° to the sketch X axis, dimensioned,
+      and editing the 73 rotates it. _Decided 2026-10-16 (delegated by
+      founder to product-manager):_ yes, after Pipe — it is Fusion's
+      established entry and saves hand trig on every tube frame, but typed
+      coordinates already work (bike skeleton in 18 s).
+- [ ] **DRAWING-PARTS-LIST-LEVEL** (was BIKE2-DRAWING-BOM-LEVEL): the parts
+      list keeps Top level as its default and gains a Structure choice of Top
+      level, Indented and Parts only, editable after placing; balloons follow
+      the chosen level. _Accept:_ the bike's parts list switched to Parts only
+      lists 64 spokes, and to Indented shows 4.3 Spoke 32 under each wheel.
+      _Decided 2026-10-16 (delegated by founder to product-manager):_
+      top-level default plus a choice — SolidWorks (Top-level only / Parts
+      only / Indented) and Fusion (First Level / All Levels) both default to
+      the top level and both let the user change it.
 - [ ] **FILLET-PARTIAL-RESOLVE**: when some of a fillet's picked edges no
       longer exist (an impeller going 7 -> 6 blades), the whole fillet fails.
       Fusion keeps the edges that still resolve and warns about the rest.
@@ -122,33 +111,14 @@ ASM-A3-PATTERN and ASM-A3-IN-CONTEXT (§24; e2e `assembly-subassembly`,
 - [ ] **EMPTY-SKETCH-SAVE**: undoing the last entity of a saved sketch shows
       an empty sheet while the server keeps the old geometry. _Accept:_ an
       empty bound sketch saves as empty.
-- [ ] **ASM-MIRROR-COMPONENT** (bike crankset): Mirror Components
-      (SolidWorks) / Mirror on components (Fusion) about a plane, as a copy of
-      a symmetric part or an opposite-hand part. _Accept:_ the left crank arm
-      is a mirrored copy of the right that follows an edit of it, and the BOM
-      counts 2 (or 1 + 1 opposite hand).
-- [ ] **SKETCH-3D** (bike chain and seat stays): a 3D sketch of lines and
-      arcs between picked points and skeleton vertices, usable as a Pipe or
-      Sweep path (SolidWorks 3D Sketch, Fusion's 3D sketch). _Accept:_ the
-      bike's splayed chain stays are Pipes on a 3D sketch tied to the
-      dropouts and BB, matching a script to 1e-4.
-- [ ] **SKETCH-LINE-ANGLE** (was DRAW-BOX-LINE-ANGLE): the Line draw box
-      shows Length and Angle cells, as Fusion does; the angle becomes an
-      angle-to-axis dimension, which ships first. _Accept:_ typing 450 Tab 73
-      Enter draws a 450 mm line at 73° to the sketch X axis, dimensioned,
-      and editing the 73 rotates it. _Decided 2026-10-16 (delegated by
-      founder to product-manager):_ yes, after Pipe — it is Fusion's
-      established entry and saves hand trig on every tube frame, but typed
-      coordinates already work (bike skeleton in 18 s).
-- [ ] **DRAWING-PARTS-LIST-LEVEL** (was BIKE2-DRAWING-BOM-LEVEL): the parts
-      list keeps Top level as its default and gains a Structure choice of Top
-      level, Indented and Parts only, editable after placing; balloons follow
-      the chosen level. _Accept:_ the bike's parts list switched to Parts only
-      lists 64 spokes, and to Indented shows 4.3 Spoke 32 under each wheel.
-      _Decided 2026-10-16 (delegated by founder to product-manager):_
-      top-level default plus a choice — SolidWorks (Top-level only / Parts
-      only / Indented) and Fusion (First Level / All Levels) both default to
-      the top level and both let the user change it.
+- [ ] **PERF-REBUILD-LOCAL** (RESEARCH §15a step 4, step 1 done; takes over
+      BIG-PATTERN-COST): holes as `BRepFeat_MakeCylindricalHole` and pockets
+      as `BRepFeat_MakePrism`, costing the faces they touch rather than the
+      whole body; also explain why a 50x mirror/rotate never finished and a
+      24x loft-cut pattern takes 3.6-19 s. _Accept:_ 200 features rebuild
+      cold in under 10 s and 100 in under 3 s; face splits change, so each
+      re-recorded golden gets a reviewed volume and STEP check, no tolerance
+      loosened.
 - [ ] **MCP-SERVER**: an MCP server over `loft-script`. _Accept:_ an agent
       creates a sketch, extrudes it, reads mass properties and exports STEP.
 
@@ -163,29 +133,13 @@ ASM-A3-PATTERN and ASM-A3-IN-CONTEXT (§24; e2e `assembly-subassembly`,
       folder. _Accept:_ at o = 0, 40 and 80, A2 lists exactly 5 threaded
       engagements apart from the real clashes, and there are none of those.
 
-### Plugins and buildings (ranked by what stops B1, then B2 in `docs/reference-parts/buildings.md`; after ASM-A3)
+### Plugins and buildings (ranked by what stops B2 in `docs/reference-parts/buildings.md`)
 
 Founder, 2026-10-15: decks, sheds, rafters, windows and doors without drawing
 every member. A plugin registers a custom feature that expands into base
 features (RESEARCH §23). First-party plugins ship preinstalled; no install
-step. PLUGIN-REGISTRY and PLUGIN-UI are in Now.
+step. The B1 items (LUMBER-MATERIALS, CUT-LIST, DECK) are in Now.
 
-- [ ] **LUMBER-MATERIALS** (stops B1): the material library gains SPF and
-      Douglas fir-larch lumber, pressure-treated southern pine, LVL, glulam,
-      structural steel and concrete, plus a profile library of nominal sizes
-      with actual dimensions (2x4 is 1.5 x 3.5 in; 5/4x6 decking 1 x 5.5 in).
-      _Accept:_ a unit test pins every profile's actual size and density, and
-      a 2x10 x 12 ft SPF member's mass matches the hand calculation to 1e-4.
-- [ ] **CUT-LIST** (stops B1): a part or assembly cut list groups members by
-      profile, material and length, with quantity, total length and stock
-      length (SolidWorks weldment cut list, Chief Architect materials list),
-      exported as CSV and placed on a drawing. _Accept:_ B1's cut list equals
-      the table in `buildings.md`, and every length is measured from its body.
-- [ ] **DECK** (stops B1): ledger, dropped beam, posts, joists at a spacing,
-      rim, decking boards with gap and overhang, and guard railing, from
-      width, projection, height, spacing and profiles. _Accept:_ B1 builds
-      from one Deck feature and matches its spec and script (volume, counts,
-      interference none); the 16 -> 20 ft edit regenerates to the spec.
 - [ ] **STUD-WALL** (stops B2): plates, studs on an o.c. layout, corners,
       and openings framed with header, king, jack, sill and cripples (Medeek
       Wall, Chief Architect auto framing). _Accept:_ B2's four walls match the
@@ -259,7 +213,7 @@ One line each. The founder triages weekly; most are closed without work.
 - ASM-SUB-LIMIT-RACE (77884a3 review): part inserts take no per-owner advisory lock, so two concurrent inserts into different assemblies of one tree can push it slightly past 500; the top assembly then 422s on evaluate/BOM until an instance is removed (recoverable, nothing lost). Also add a query-count test for an insert into a sub-assembly many assemblies contain.
 - ASM-PAT-HOLE-PERF (303f000 review): the groove check (`Face.is_inside` per coplanar face, patterns.py:357) is quadratic: one evaluate of a counterbore grid takes 0.14 s at 25, 2.1 s at 100, 28 s at 400; test only level faces whose bounding box holds the centre. A tube flush inside a larger hole still counts the outer groove rim, and a flush pin body over a hole drops that hole (untested).
 - ASM-IC-WRITE-STALE (8265fe9 review): write-back does not compare part tree versions, so an older in-flight committed evaluation that finishes last can store a curve from an older version of the referenced part (until the next committed evaluation; out-of-context rebuild only); send and compare each part's `tree_version`. No test proves the browser's `buildEvaluateAssemblyRequest` passes the gateway's match, so client/server drift would silently stop write-back: add a parity test or an e2e asserting a value was written.
-- ASM-FAILED-PART review (79e6727): the API export gap is now ASM-FAILED-PART-API (Now). A timed-out pick overlay is cached with `staleTime: Infinity` and the request is not aborted (holds an admission slot); a top-level part with a missing tree gets no failure entry. Bike round 2's BIKE2-DRAWING-BOM-LEVEL and BIKE2-NO-MIRROR-COMPONENT are Next items; minor: revolve axis "Z" vs pattern "z", a second Drawing click silently makes "drawing 2".
+- ASM-FAILED-PART review (79e6727): the API export gap was ASM-FAILED-PART-API (done). A timed-out pick overlay is cached with `staleTime: Infinity` and the request is not aborted (holds an admission slot); a top-level part with a missing tree gets no failure entry. Bike round 2's BIKE2-DRAWING-BOM-LEVEL and BIKE2-NO-MIRROR-COMPONENT are Next items; minor: revolve axis "Z" vs pattern "z", a second Drawing click silently makes "drawing 2".
 - DRAWING-AUTOSCALE review (bd9416b, 31bec29): `resolve_view_anchors` drops the title-block shift if any auto-placed standard view lacks `clear_title_block`, so a loft-script user adding a standard view to a laid-out sheet moves the arrangement back (no UI path today); the 0020 migration test does not check the server default on an ORM insert without a value. _Decided 2026-10-16 (delegated by founder to product-manager):_ keep all three — issues stay off the sheet and in the check strip, as Fusion and SolidWorks never print warnings onto a drawing, and export shows the issue count beside the button with no extra confirm; Auto at 2:1 for small parts is the ISO 5455 enlargement a SolidWorks auto-scale picks; the first-angle bike at 1:50 on A4 is right, because a fixed sheet size wins over scale and the user picks A3 for 1:20.
 - ASM-FAILED-PART-API review (a992b8d): `part_name_of` names a part whose first bodiless occurrence is a sub-assembly pattern copy "X (2)"; the header truncation loop re-serialises per dropped part (quadratic, bounded by the instance cap); SheetIssueStrip gives no Open part button for a failed part without `part_document_id` and two same-named ones share a React key; the web could read `EvaluateAssemblyResult.omitted` instead of folding rows in `partFailures.ts`.
 - PLUGIN-CAP review (380836d): a tree over the cap (reached through undo, or stored before the fix) still exports a .loft through `refresh_expansions`, and that file (or a version saved from it) is then refused on import/restore, with the whole import refused if any one version is over; `_check_vanished_members` and `check_members_authorable` run on writes only, not on undo/redo (with PLUGIN-UNDO-CAP). Process: the PLUGIN-REGISTRY builder pushed a338197 unreviewed against its brief; reviewed after the fact (blocking cap bug fixed in 380836d).
