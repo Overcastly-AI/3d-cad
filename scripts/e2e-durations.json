@@ -219,6 +219,7 @@
     "sweep-closed.spec.ts": 24.5,
     "sweep-twist.spec.ts": 26.1,
     "sweep.spec.ts": 58.7,
+    "thumbnails.spec.ts": 25.3,
     "timeline.spec.ts": 58.4,
     "toolbar-overflow.spec.ts": 37.3,
     "undo-redo.spec.ts": 21.9,
