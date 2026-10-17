@@ -31,6 +31,7 @@ from loft_wire.assemblies import (
 )
 from loft_wire.features import EvaluatedFeatureInput, EvaluateTreeRequest
 from loft_wire.geometry import Vec3
+from loft_wire.lumber import MM_PER_INCH, lumber_profile
 from loft_wire.materials import (
     MATERIALS,
     MATERIALS_BY_KEY,
@@ -192,7 +193,21 @@ class TestResolution:
         assert MATERIALS_BY_KEY["abs"].density_kg_m3 == 1040.0
         assert MATERIALS_BY_KEY["pla"].density_kg_m3 == 1240.0
         assert MATERIALS_BY_KEY["nylon_6"].density_kg_m3 == 1140.0
-        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 7
+        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 14
+
+    def test_a_2x10_x_12ft_spf_member_weighs_the_hand_calculation(self) -> None:
+        """LUMBER-MATERIALS: the kernel measures the member, the library weighs it.
+
+        1.5 x 9.25 x 144 in = 1998 in^3 = 1998 x 25.4^3 = 32 741 353.872 mm^3;
+        x SPF 450 kg/m^3 (450e-6 g/mm^3) = 14 733.609 g.
+        """
+        profile = lumber_profile("us_2x10")
+        member = Box(profile.thickness_mm, profile.width_mm, 144 * MM_PER_INCH)
+
+        props = measure_shape(member, density_kg_m3=density_kg_m3("spf_lumber"))
+
+        assert props.mass_g is not None
+        assert abs(props.mass_g - 14_733.609) / 14_733.609 < 1e-4
 
     def test_every_library_density_is_under_one_gram_per_cubic_mm(self) -> None:
         """The premise of the goldens' shared tolerance argument (§6).

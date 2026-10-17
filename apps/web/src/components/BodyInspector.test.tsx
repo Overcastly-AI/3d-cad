@@ -47,8 +47,25 @@ const PROPERTIES: ShapeProperties = {
  * the only place one appears on this side of the wire.
  */
 const LIBRARY: Material[] = [
-  { key: "aluminium_6061", name: "Aluminium 6061", density_kg_m3: 2700 },
-  { key: "steel_1018", name: "Steel (AISI 1018)", density_kg_m3: 7870 },
+  {
+    key: "aluminium_6061",
+    name: "Aluminium 6061",
+    density_kg_m3: 2700,
+    source: "ASM Metals Reference Book, typical",
+  },
+  {
+    key: "steel_1018",
+    name: "Steel (AISI 1018)",
+    density_kg_m3: 7870,
+    source: "ASM Metals Reference Book, typical",
+  },
+  {
+    key: "spf_lumber",
+    name: "Spruce-pine-fir (SPF) lumber",
+    density_kg_m3: 450,
+    source:
+      "AWC NDS 2018 Table 12.3.3A G = 0.42; Wood Handbook ch. 4, at 12% moisture content",
+  },
 ];
 
 function bodyRow(
@@ -384,6 +401,24 @@ describe("BodyInspector — assigning a material", () => {
       target: { value: "steel_1018" },
     });
     expect(onAssignDefault).toHaveBeenCalledWith("steel_1018");
+  });
+
+  it("offers the served building materials, lumber included", () => {
+    const onAssignDefault = vi.fn();
+    renderInspector(
+      "in",
+      PROPERTIES,
+      cleanCube(),
+      controls({ onAssignDefault }),
+    );
+    const select = screen.getByTestId("material-default-select");
+    const labels = Array.from(
+      select.querySelectorAll("option"),
+      (option) => option.textContent,
+    );
+    expect(labels).toContain("Spruce-pine-fir (SPF) lumber");
+    fireEvent.change(select, { target: { value: "spf_lumber" } });
+    expect(onAssignDefault).toHaveBeenCalledWith("spf_lumber");
   });
 
   it("clears back to no material (mass becomes unknown again)", () => {

@@ -19,6 +19,7 @@ from loft_plugins.api import (
     Member,
     Plugin,
     PluginError,
+    lumber_options,
 )
 from loft_plugins.builtin import BUILTIN_PLUGINS
 from loft_plugins.registry import (
@@ -43,5 +44,6 @@ __all__ = [
     "PluginRegistry",
     "canonical_inputs",
     "expand",
+    "lumber_options",
     "validate_members",
 ]

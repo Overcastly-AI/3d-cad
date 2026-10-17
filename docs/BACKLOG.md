@@ -34,7 +34,7 @@ PLUGIN-REGISTRY, PLUGIN-UI and PERF-REBUILD-200 step 1 (§15a).
    edit; a placeholder while rendering or on failure. _Accept:_ an e2e saves
    a part, sees its thumbnail in Parts and in the Add panel, edits it and
    sees the thumbnail change; a failed part shows the placeholder.
-2. [ ] **LUMBER-MATERIALS** (stops B1): the material library gains SPF and
+2. [x] **LUMBER-MATERIALS** (stops B1): the material library gains SPF and
    Douglas fir-larch lumber, pressure-treated southern pine, LVL, glulam,
    structural steel and concrete, plus a profile library of US nominal
    sizes with actual dimensions (2x4 is 1.5 x 3.5 in; 5/4x6 decking 1 x 5.5 in).
@@ -485,3 +485,5 @@ One line each. The founder triages weekly; most are closed without work.
 - TWISTED-BODY-DRAWINGS (was a founder decision): exact HLR is slow and the polygonal fallback loses the arcs. _Decided 2026-10-16 (delegated by founder to product-manager):_ exact HLR within the per-view budget, and past it the polygonal view flagged "approximate" in the check strip (SolidWorks' draft-quality views) — a drawing must never pass faceted arcs off as exact.
 - SHELL-REVOLVE-SHALLOW (was a founder decision): a shelled revolve at a shallow angle — true offset or OCCT's extension? _Decided 2026-10-16 (delegated by founder to product-manager):_ a true offset, or a typed refusal where OCCT cannot make one — Fusion and SolidWorks shells are uniform thickness, and a non-uniform wall is wrong geometry.
 - SHEET-METAL-DOUBLE-MERGE: the edge flange (`clean_shape(body.fuse(flange))`) and corner relief still face-merge a build123d boolean twice, unguarded by the integrity guard; step 1 left them so sheet-metal goldens stay byte-identical (RESEARCH §15a).
+- LUMBER-DENSITY-MC: wood densities are at 12% moisture content (Wood Handbook convention); pressure-treated lumber usually ships wet and weighs 30-50% more than the kiln-dried 582 kg/m^3 shown (review of bc0428a); the SPF source should say NLGA SPF (SG 0.42), not SPF-South (0.36), and the LVL figure is a manufacturer design weight (42 lb/ft^3), not a consensus standard.
+- MATERIAL-PICKER-GROUPS: the material dropdown is one flat list of 14; Fusion and SolidWorks group by category (metal, plastic, wood, masonry).

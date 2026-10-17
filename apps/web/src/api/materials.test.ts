@@ -50,8 +50,10 @@ describe("fetchMaterials", () => {
               key: "aluminium_6061",
               name: "Aluminium 6061",
               density_kg_m3: 2700,
+              source: "ASM Metals Reference Book, typical",
             },
           ],
+          profiles: [],
         }),
       ),
     );
@@ -62,7 +64,9 @@ describe("fetchMaterials", () => {
 
   it("reads it from the GATEWAY, never past it", async () => {
     const seen: { request?: Request } = {};
-    await fetchMaterials(clientReturning(json({ materials: [] }), seen));
+    await fetchMaterials(
+      clientReturning(json({ materials: [], profiles: [] }), seen),
+    );
     expect(seen.request?.url).toBe("http://gateway.test/api/v1/materials");
   });
 

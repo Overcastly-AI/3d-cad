@@ -2867,7 +2867,7 @@ export interface components {
              * Material
              * @description The material RESOLVED for this body (its own override, else the document default); null = none assigned, so no mass.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
         };
         /**
          * BodyMaterialAssignment
@@ -2892,7 +2892,7 @@ export interface components {
              * @description Material for THIS body only
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
         };
         /**
          * BomLine
@@ -8432,6 +8432,57 @@ export interface components {
             password: string;
         };
         /**
+         * LumberProfile
+         * @description One lumber section: nominal name and actual dressed size.
+         *
+         *     ``thickness`` is the smaller dimension and ``width`` the larger (equal for
+         *     a square post), as the trade names them: "2x10" is 2 nominal thick by 10
+         *     nominal wide, 1.5 x 9.25 in actual.
+         */
+        LumberProfile: {
+            /**
+             * Category
+             * @description PS 20 class: board, decking, dimension (2-4 in thick) or timber (5 in and thicker).
+             * @enum {string}
+             */
+            category: "board" | "decking" | "dimension" | "timber";
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6";
+            /**
+             * Name
+             * @description Nominal size as sold, e.g. '2x10' or '5/4x6'.
+             */
+            name: string;
+            /**
+             * Source
+             * @description Standard the actual size comes from.
+             */
+            source: string;
+            /**
+             * Thickness In
+             * @description Actual thickness (in).
+             */
+            thickness_in: number;
+            /**
+             * Thickness Mm
+             * @description Actual thickness (mm).
+             */
+            thickness_mm: number;
+            /**
+             * Width In
+             * @description Actual width (in).
+             */
+            width_in: number;
+            /**
+             * Width Mm
+             * @description Actual width (mm).
+             */
+            width_mm: number;
+        };
+        /**
          * MateAxisRef
          * @description An axis derived from a CIRCULAR edge of an instance's part body (§2.1).
          *
@@ -8617,12 +8668,17 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6";
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
             /**
              * Name
              * @description Display name, e.g. 'Aluminium 6061'
              */
             name: string;
+            /**
+             * Source
+             * @description Where the density comes from (standard, table, and the moisture content for wood), so a user can check it.
+             */
+            source: string;
         };
         /**
          * MaterialAssignment
@@ -8647,7 +8703,7 @@ export interface components {
              * Default Material
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
-            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6") | null;
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
         };
         /**
          * MaterialInput
@@ -8655,7 +8711,7 @@ export interface components {
          */
         MaterialInput: {
             /** Default */
-            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6") | null;
+            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
             /**
              * Description
              * @description Help text under the field.
@@ -8684,10 +8740,19 @@ export interface components {
          *     The picker needs names + densities, and a second copy of the table in TS
          *     would be a DRY violation that silently drifts (CLAUDE.md). One table, in
          *     py-kit, served over the API.
+         *
+         *     ``profiles`` is the section library members are cut from (US lumber,
+         *     ``loft_wire.lumber``), served beside the materials as SolidWorks serves
+         *     weldment profiles beside its material database.
          */
         MaterialLibraryResponse: {
             /** Materials */
             materials: components["schemas"]["Material"][];
+            /**
+             * Profiles
+             * @description Lumber sections: nominal name and actual dressed size.
+             */
+            profiles: components["schemas"]["LumberProfile"][];
         };
         /**
          * MeasureRequest
@@ -8820,7 +8885,7 @@ export interface components {
              * Material
              * @description Library material of the member.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
             /**
              * Nominal Size
              * @description Nominal size as sold, e.g. '2x8x12'.
