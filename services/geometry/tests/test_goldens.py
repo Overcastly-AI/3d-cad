@@ -239,6 +239,10 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # (2.3e-4 at worst); a build123d twin drifts too, its ridge not.
         "b3-hip-6-12",
         "b3-hip-8-12",
+        # B4's L hip roof and its 48 in wing (ROOF-VALLEY): the same STEP
+        # rounding over more sloped members (1.3e-3 at worst); twin drifts too.
+        "b4-l-hip-valley",
+        "b4-wing-48",
     }
 )
 

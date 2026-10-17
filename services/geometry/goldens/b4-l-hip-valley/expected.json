@@ -1,0 +1,58 @@
+{
+  "description": "B4 L-SHAPED HIP ROOF at 6/12 from ONE loft.roof 1.2.0 custom feature, Style Hip, its footprint PICKED from B4's six loft.wall walls (ROOF-VALLEY; docs/reference-parts/buildings.md B4): outer faces round the L (0,120) (0,240) (240,240) (240,0) (120,0) (120,120), plates at Z 97.125 and 3.5 deep, 2x6 commons and jacks at 24 in o.c., 12 in level overhang, 2x8 ridges, dropped hips and a 2x8 valley (not raised), all spf_lumber; hip and valley tails ripped to the commons' depth (ROOF-HIP-TAIL). model.json is EXACTLY the plugin's expansion with the member materials documents applies; members.json is each body's member metadata. packages/loft-plugins/tests/test_roof_valley.py pins both to the plugin; services/geometry/tests/test_roof_valley_b4.py checks the cut list, the lengths on the STEP, every solid against an independent build123d script and interference with the walls.",
+  "derivation": [
+    "Every expectation except the counts is from the INDEPENDENT build123d script (test_roof_valley_b4.script_roof, which shares no code with the plugin: each member is its plan prism cut to the slab between its bottom and top planes, less everything below the plate inside the walls' outer faces, and a hip's or valley's tail less everything below its rip plane outside them).",
+    "",
+    "Planes: slope 6/12, seat 3.5, heel 1.75, plumb depth 6.149187, HAP 4.399187; every plane rises from Z 97.125 + 4.399187 at its wall's outer face. Hips: unit 18 per 12, plumb 7.689690, drop 0.265165; the valley's top centreline on the valley line. A ripped tail's plumb depth is 6.149187 - 0.265165 = 5.884022 on the centreline.",
+    "",
+    "52 bodies: 20 commons (2 tail-cut at the valley), 20 hip jacks, 4 valley jacks, 5 hips, 1 valley, 2 ridges.",
+    "",
+    "volume = 18 x 652.600604 + 2 x 642.817308 (cut commons) + 10 x (428.364413 + 206.993683) + 2 x (426.040328 + 204.669598) (valley jacks) + 5 x 1082.776930 (hips, ripped) + 1091.427939 (valley, ripped) + 1321.3125 + 1305 = 29779.071388 in^3. Without the rips (each hip and the valley 45.967255 more) the script is 30054.874923, the product manager's hand total 30 054.875.",
+    "",
+    "mass_g = volume x 450 kg/m^3 (spf_lumber); center_of_mass = centroid.",
+    "",
+    "bounding_box: X and Y -12..252 (tails at the fascia), Z from the tails' bottoms at the fascia, 97.125 - 1.75 - 6 = 89.375 (the ripped hips' tail points are on that line too), to the main ridge's top 131.149187 in.",
+    "",
+    "topology: 40 rafters x (9 faces, 21 edges) where a cheek replaces a plumb cut, hips and the valley with their stepped tails, 2 ridges (6, 12): 468 faces, 1092 edges, 52 shells; mesh counts recorded from the build."
+  ],
+  "tolerance": 0.0005,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): ABSOLUTE bounds on a ~4e8 mm^3 part of separate bodies. The kernel differs from the independent script by 1.05e-4 mm^3 in volume, 5e-7 mm^2 in area and <= 1e-10 mm in centroid (each body by <= 2e-5 mm^3, symmetric differences 0). 5e-4 is 4.7x the worst; a jack 0.001 in out of place moves the volume by > 10 mm^3.",
+  "roundtrip_tolerance": 0.005,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-17: OCCT's STEP writer rounds the sloped members' irrational coordinates. Round-trip drift: B4 -1.30e-3 mm^3, the 48 wing -7.8e-4 mm^3; the independent build123d twin, exported with build123d's own export_step, drifts -2.37e-3 and -1.90e-3 while its axis-aligned ridges drift nothing (test_roof_valley_b4::test_the_roofs_step_drift_is_occts), so it is OCCT's STEP, not Loft's export. More sloped members than B3 (whose bound is 1e-3) drift more; 5e-3 is 3.8x the plugin's worst. Volume and area only.",
+  "properties": {
+    "volume": 487991548.6967028,
+    "surface_area": 32962470.96180227,
+    "centroid": {
+      "x": 3494.135983754793,
+      "y": 3494.1359837546765,
+      "z": 2806.586176596169
+    },
+    "mass_g": 219596.19691351624,
+    "center_of_mass": {
+      "x": 3494.135983754793,
+      "y": 3494.1359837546765,
+      "z": 2806.586176596169
+    },
+    "bounding_box": {
+      "min": {
+        "x": -304.8,
+        "y": -304.8,
+        "z": 2270.125
+      },
+      "max": {
+        "x": 6400.799999999999,
+        "y": 6400.799999999999,
+        "z": 3331.18934822836
+      }
+    }
+  },
+  "topology": {
+    "faces": 468,
+    "edges": 1092,
+    "shells": 52
+  },
+  "mesh": {
+    "vertices": 2184,
+    "triangles": 1248
+  }
+}

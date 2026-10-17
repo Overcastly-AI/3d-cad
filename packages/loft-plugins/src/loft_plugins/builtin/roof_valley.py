@@ -1285,7 +1285,7 @@ def _side_outline(iso: Iso, eave: Eave, c: float, profile: list[Vec2]) -> list[V
     across the wall, v Z."""
     inward = iso.dir(eave.inward)
     axis = 0 if inward[0] != 0 else 1
-    return [(iso.point(eave.at(c, d))[axis], z) for d, z in profile]
+    return [(iso.exact(eave.at(c, d))[axis], z) for d, z in profile]
 
 
 def _world(iso: Iso, outline: list[Vec2]) -> list[Vec2]:

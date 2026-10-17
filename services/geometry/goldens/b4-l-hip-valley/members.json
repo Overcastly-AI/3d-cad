@@ -1,0 +1,522 @@
+[
+  {
+    "feature_id": "014efad7-4890-50ab-8e53-a12792661cd4",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "28c8390d-533a-5c8c-bbd9-9482597617c0",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b9a84bfa-67a0-5294-aa46-b00fa540a74e",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "1bade546-cbae-5b1c-8b13-5acdd6052d12",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e00883a6-0efd-52c3-98fd-740373a034c0",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "aa12d63d-ce47-53fa-8700-0d7e0fcbd159",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c75a076e-0126-5066-858e-eb68939058ab",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "0ed34a1a-a366-5fd0-9484-5d06c8b9bd4f",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9e89e166-f505-5dbb-bfb9-0ebcada89445",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d328b43e-f278-511e-aecd-701b787da183",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "17949b6d-5ab7-51c5-a3d4-9f9982da5a1e",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c202bf91-695f-53fa-862c-c7f97eb02b9e",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "269423b1-0ed5-555d-90c7-213601e3a5c7",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "66da30c8-4827-594e-8f22-31f5c3003073",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ee0942cd-fd3e-5789-9761-7da859a80893",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8ecef833-cb8a-589e-ae5e-be9b365e4b7a",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d006838b-2f72-5d60-90cc-b52d258472cc",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8136438e-4eb0-5b5b-b593-c53de0a7640f",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c7eb9e70-6f1e-5bec-8d1b-66375dad89ce",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a2913cf5-65f1-5eb9-927d-4fcb4da830ef",
+    "role": "common",
+    "title": "Common",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "65b71418-2e7f-5103-96bd-b6d0f67a7d64",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "0c12a749-b0fa-5dc1-bea5-923d55501637",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9c258249-485f-536d-9057-e2eb767f3eb6",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c2b664ec-86f1-567e-86c8-1ea2549567a5",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "af398733-eb58-5b46-9139-832c46ba89d5",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "139748ac-ef05-5120-853a-a4178bac8eed",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6dbe7d01-eb10-5949-a86e-79e776916f13",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ba19d579-136f-59b5-ae92-a09f0e77921e",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "62ecfdfd-1c18-5eb4-9b0c-894727ebf32e",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "5b199fa5-d5f3-56ba-b8ec-e9601c1cba10",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ff64187d-53e6-5005-8238-67af7f72289f",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "cd2df224-ca0a-5fa9-b36b-27d1a072088c",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a09b3fb0-a866-54b8-a6b3-afa452a7be0c",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "bef770b8-af10-556f-998f-d50b691528d7",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "cb0db8d8-64f9-5005-929c-a98e74cb389e",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8896786f-e496-5408-83b3-fe29fe44a40a",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4786e2bb-dba5-5bf9-8205-1dc0cb176eb9",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "90ccfd61-dca1-594c-82c5-aa9fbb957005",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3b1693a2-ac6c-506c-8edc-d3a1a5b9367a",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c0ff537c-f7ba-597f-b8ad-9583e8927ac3",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "787375ae-51b6-5815-8601-7a22ec84739e",
+    "role": "valley_jack",
+    "title": "Valley jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "86f4843f-39e4-5202-9b61-0503eb67c4ce",
+    "role": "valley_jack",
+    "title": "Valley jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "39e05df6-4bf6-580f-ba17-74dc6726628d",
+    "role": "valley_jack",
+    "title": "Valley jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9912851b-eda5-5cbf-8eb9-bfae9dc3828e",
+    "role": "valley_jack",
+    "title": "Valley jack",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "2fa5751f-65af-52e1-bacd-293dc4bf6df7",
+    "role": "hip",
+    "title": "Hip",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "0ba0e5a8-7578-5565-8ba5-9387c6b1e43a",
+    "role": "hip",
+    "title": "Hip",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "917eacf0-f082-58c2-85e8-e27f94f97be4",
+    "role": "hip",
+    "title": "Hip",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "2503ad25-1960-56e0-b305-abc555c764f3",
+    "role": "hip",
+    "title": "Hip",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "333de484-6170-57f4-96d5-9fbb791fb801",
+    "role": "hip",
+    "title": "Hip",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6d419033-258c-598f-b15c-8b7195315524",
+    "role": "valley",
+    "title": "Valley",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3e45eb11-8cbf-5fbf-a193-d1c5eaf09ebd",
+    "role": "ridge",
+    "title": "Ridge",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e70f1ff9-f8e9-5b34-b7d3-ad4021536e06",
+    "role": "ridge",
+    "title": "Ridge",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  }
+]
