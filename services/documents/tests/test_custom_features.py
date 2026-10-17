@@ -372,8 +372,10 @@ def test_the_catalog_needs_a_principal(client: TestClient) -> None:
     assert served.status_code == 200
     assert [p["id"] for p in served.json()["plugins"]] == [
         "loft.deck",
+        "loft.door",
         "loft.twisted_prism",
         "loft.wall",
+        "loft.window",
     ]
 
 

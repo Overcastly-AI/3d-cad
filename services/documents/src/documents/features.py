@@ -60,9 +60,11 @@ from documents.custom_features import (
     authored_references,
     check_tree_size,
     expanded_size,
+    host_id,
     is_body_affecting,
     member_targets,
     prepare_custom_write,
+    reexpand_hosts,
 )
 from documents.feature_expressions import (
     evaluation_features,
@@ -278,6 +280,16 @@ async def _shift_indexes(
             .where(db.Feature.id == feature_id)
             .values(order_index=order_index + by)
         )
+
+
+async def _reframe_hosts(
+    session: AsyncSession, part: db.Part, hosts: list[uuid.UUID | None]
+) -> None:
+    """Re-expand the hosts (walls) of a written hosted feature (a door), on
+    the tree as written; refuses the write when a host cannot frame it
+    (:func:`documents.custom_features.reexpand_hosts`)."""
+    if any(host is not None for host in hosts):
+        reexpand_hosts(part, await _ordered_features(session, part.id), hosts)
 
 
 def _bar_index(part: db.Part, features: list[db.Feature]) -> int | None:
@@ -507,6 +519,8 @@ async def create_feature(
     session.add(feature)
     await session.flush()  # row must exist before its edges (FK)
     await _rewrite_edges(session, part.id, feature.id, target_ids)
+    # A door or window is framed by its wall: the wall re-expands with it.
+    await _reframe_hosts(session, part, [host_id(envelope)])
     if part.rollback_feature_id is not None:
         part.rollback_feature_id = feature.id  # bar follows the insert (§3)
     part.tree_version += 1
@@ -551,6 +565,7 @@ async def update_feature(
             )
         features = await _ordered_features(session, part.id)
         features_by_id = {row.id: row for row in features}
+        hosts_before = host_id(load_feature(feature)[0])
         envelope: AuthoredEnvelope = request.feature
         if isinstance(envelope, CustomFeature):
             validate_references(envelope, feature.order_index, features_by_id)
@@ -584,6 +599,7 @@ async def update_feature(
         # path, but a full-envelope PATCH must round-trip it — feature-tree §4.3a).
         feature.suppressed = envelope.suppressed
         await _rewrite_edges(session, part.id, feature.id, target_ids)
+        await _reframe_hosts(session, part, [hosts_before, host_id(envelope)])
     if request.name is not None:
         feature.name = request.name
 
@@ -626,6 +642,9 @@ async def suppress_feature(
     feature = await _get_feature(session, part, feature_id)
 
     feature.suppressed = request.suppressed
+    # A suppressed door is not framed (it has no effect, as any suppressed
+    # feature): its wall re-expands without it, and with it again on unsuppress.
+    await _reframe_hosts(session, part, [host_id(load_feature(feature)[0])])
     part.tree_version += 1
     await history.PART_HISTORY.record(session, part, pre_op)
     await session.commit()
@@ -761,6 +780,7 @@ async def delete_feature(
     if part.rollback_feature_id == feature.id:
         part.rollback_feature_id = None  # bar resets to the tip (§3)
     deleted_index = feature.order_index
+    host = host_id(load_feature(feature)[0])
     await session.execute(
         delete(db.FeatureDependency).where(
             db.FeatureDependency.feature_id == feature.id
@@ -769,6 +789,7 @@ async def delete_feature(
     await session.delete(feature)
     await session.flush()
     await _shift_indexes(session, part.id, deleted_index + 1, -1)
+    await _reframe_hosts(session, part, [host])
     part.tree_version += 1
     await history.PART_HISTORY.record(session, part, pre_op)
     await session.commit()

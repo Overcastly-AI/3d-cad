@@ -4598,6 +4598,12 @@ export interface components {
              */
             feature_types: string[];
             /**
+             * Host
+             * @description True: the picked feature HOSTS this one, as a Revit window is hosted in its wall. The host's expansion receives this feature's inputs (it frames the opening), and a write to this feature re-expands its host. Requires `feature_types` `['custom']`, `plugin_ids` and a required pick; one per manifest.
+             * @default false
+             */
+            host: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -4618,6 +4624,11 @@ export interface components {
              * @default false
              */
             optional: boolean;
+            /**
+             * Plugin Ids
+             * @description When the picked feature is a custom feature: the plugins it may be (a window's host is a `loft.wall`). Unset: any.
+             */
+            plugin_ids?: string[] | null;
         };
         /**
          * FeatureReorderRequest

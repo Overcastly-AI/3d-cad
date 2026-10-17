@@ -255,6 +255,35 @@ class FeatureReferenceInput(_InputBase):
         "(`datum`, `sketch`, `custom`, ...).",
     )
     optional: bool = Field(default=False, description="True: may be left empty.")
+    plugin_ids: list[PluginId] | None = Field(
+        default=None,
+        max_length=8,
+        description="When the picked feature is a custom feature: the plugins "
+        "it may be (a window's host is a `loft.wall`). Unset: any.",
+    )
+    host: bool = Field(
+        default=False,
+        description="True: the picked feature HOSTS this one, as a Revit window "
+        "is hosted in its wall. The host's expansion receives this feature's "
+        "inputs (it frames the opening), and a write to this feature "
+        "re-expands its host. Requires `feature_types` `['custom']`, "
+        "`plugin_ids` and a required pick; one per manifest.",
+    )
+
+    @model_validator(mode="after")
+    def _host_names_a_plugin(self) -> Self:
+        if self.host and (
+            self.feature_types != ["custom"] or not self.plugin_ids or self.optional
+        ):
+            raise ValueError(
+                f"host input {self.name!r} must be a required pick of a custom "
+                "feature of named plugins"
+            )
+        if self.plugin_ids is not None and "custom" not in self.feature_types:
+            raise ValueError(
+                f"input {self.name!r}: plugin_ids needs feature type 'custom'"
+            )
+        return self
 
 
 class MaterialInput(_InputBase):
@@ -357,7 +386,21 @@ class PluginManifest(BaseModel):
         roles = [item.role for item in self.members]
         if len(set(roles)) != len(roles):
             raise ValueError(f"plugin {self.id!r} repeats a member role")
+        hosts = [
+            item
+            for item in self.inputs
+            if isinstance(item, FeatureReferenceInput) and item.host
+        ]
+        if len(hosts) > 1:
+            raise ValueError(f"plugin {self.id!r} names more than one host input")
         return self
+
+    def host_input(self) -> FeatureReferenceInput | None:
+        """The input naming this feature's host (a window's wall), if any."""
+        for item in self.inputs:
+            if isinstance(item, FeatureReferenceInput) and item.host:
+                return item
+        return None
 
 
 class PluginCatalog(BaseModel):

@@ -15,6 +15,7 @@ geometry receives base features only and never learns plugins exist.
 from loft_plugins.api import (
     Expander,
     ExpandInputs,
+    Hosted,
     InputValue,
     Member,
     Plugin,
@@ -26,6 +27,7 @@ from loft_plugins.registry import (
     PluginRegistry,
     canonical_inputs,
     expand,
+    host_of,
     validate_members,
 )
 
@@ -37,6 +39,7 @@ __all__ = [
     "REGISTRY",
     "ExpandInputs",
     "Expander",
+    "Hosted",
     "InputValue",
     "Member",
     "Plugin",
@@ -44,6 +47,7 @@ __all__ = [
     "PluginRegistry",
     "canonical_inputs",
     "expand",
+    "host_of",
     "lumber_options",
     "validate_members",
 ]

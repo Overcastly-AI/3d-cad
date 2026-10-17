@@ -12,7 +12,7 @@ name the path sketch emitted before it.
 """
 
 import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast, get_args
 
@@ -61,15 +61,30 @@ class Member:
 
 
 @dataclass(frozen=True)
+class Hosted:
+    """A later custom feature that names this one as its host (a window in a
+    wall, RESEARCH §23): its pin, its name for messages, and its canonical,
+    formula-resolved inputs. Never its expansion, so hosting cannot cycle."""
+
+    feature_id: uuid.UUID
+    plugin_id: str
+    plugin_version: str
+    name: str
+    inputs: "ExpandInputs"
+
+
+@dataclass(frozen=True)
 class ExpandInputs:
-    """The validated inputs of one custom feature, and read-only access to
-    the features before it (so a profile input can be read for its plane)."""
+    """The validated inputs of one custom feature, read-only access to the
+    features before it (so a profile input can be read for its plane), and
+    the later features it hosts, in tree order."""
 
     feature_id: uuid.UUID
     values: Mapping[str, InputValue]
     earlier: Mapping[uuid.UUID, AuthoredEnvelope] = field(
         default_factory=dict[uuid.UUID, AuthoredEnvelope]
     )
+    hosted: Sequence[Hosted] = ()
 
     def _get(self, name: str) -> InputValue:
         if name not in self.values:

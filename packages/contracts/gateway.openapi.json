@@ -6861,6 +6861,12 @@
             "title": "Feature Types",
             "type": "array"
           },
+          "host": {
+            "default": false,
+            "description": "True: the picked feature HOSTS this one, as a Revit window is hosted in its wall. The host's expansion receives this feature's inputs (it frames the opening), and a write to this feature re-expands its host. Requires `feature_types` `['custom']`, `plugin_ids` and a required pick; one per manifest.",
+            "title": "Host",
+            "type": "boolean"
+          },
           "kind": {
             "const": "feature",
             "title": "Kind",
@@ -6886,6 +6892,25 @@
             "description": "True: may be left empty.",
             "title": "Optional",
             "type": "boolean"
+          },
+          "plugin_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 64,
+                  "minLength": 3,
+                  "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the picked feature is a custom feature: the plugins it may be (a window's host is a `loft.wall`). Unset: any.",
+            "title": "Plugin Ids"
           }
         },
         "required": [

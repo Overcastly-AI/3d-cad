@@ -32,23 +32,28 @@ a shared ``XY`` level datum (one per distinct bottom elevation) extruded up
 as a new body, never fused, with role, profile and material metadata. Roles
 emit in the cut list's order: studs, top plates, bottom plate.
 
-**Openings (the WINDOW-DOOR seam).** A window or door names its host wall
-(a feature input), as Revit and Chief Architect host them, and the wall
-frames every opening that names it: kings, jacks, header, cripples and sill
-replace the layout studs inside the rough opening, and a door cuts the
-bottom plate. The framing is laid out in wall-local coordinates
-(:func:`wall_pieces`, a pure list of :class:`Piece`) and only then placed in
-the world (:class:`WallFrame`), so openings change the local list alone.
-Until a hosted feature exists no stored wall has an opening, so adding
-opening framing changes no stored expansion. A roof or opening that reads a
-wall's geometry builds :class:`WallSpec` from the wall's stored inputs.
+**Openings** (WINDOW-DOOR). A window or door names its host wall (a feature
+input, ``loft.window`` and ``loft.door``), as Revit and Chief Architect host
+them, and the wall frames every opening that names it: the registry hands the
+wall the later features hosted in it (``ExpandInputs.hosted``, their inputs
+only). Around each rough opening (RO): full-height kings outside jacks that
+carry a doubled header on edge (two plies at the wall's faces, the spacer
+between them not a member), top cripples from the header to the top plate
+and, for a window, a flat sill with bottom cripples down to the bottom plate,
+at the layout centres the opening replaces. A layout stud that would enter
+the framing's span is dropped; a door cuts the bottom plate out of its RO.
+Every shared face is ONE float, used by both members that meet at it, so no
+two members overlap by rounding. The framing is laid out in wall-local
+coordinates (:func:`wall_pieces`, a pure list of :class:`Piece`) and only
+then placed in the world (:class:`WallFrame`). A roof or opening that reads
+a wall's geometry builds :class:`WallSpec` from the wall's stored inputs.
 
 Inputs are millimetres on the wire (their names end ``_mm``) and inches
 inside, rounded to 1e-9 in so a round trip gives back the exact spec value.
 """
 
 import math
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -65,6 +70,8 @@ from loft_wire.features import (
 from loft_wire.lumber import MM_PER_INCH, LumberProfile, LumberProfileKey
 from loft_wire.materials import MaterialKey
 from loft_wire.plugins import (
+    PLUGIN_INPUT_INVALID,
+    PLUGIN_INPUT_UNSUPPORTED,
     AngleInput,
     ChoiceInput,
     ChoiceOption,
@@ -76,11 +83,20 @@ from loft_wire.plugins import (
 )
 from loft_wire.sketch import Point2D, SketchLine
 
-from loft_plugins.api import ExpandInputs, Member, Plugin, lumber_options
-from loft_plugins.builtin.deck import joist_centres
+from loft_plugins.api import (
+    ExpandInputs,
+    Hosted,
+    Member,
+    Plugin,
+    PluginError,
+    lumber_options,
+)
 
 #: Rounding of an input's inch value (see the module docstring).
 _INCH_DIGITS = 9
+#: A layout stud within this of the end stud is dropped (the deck's joist rule,
+#: kept bit for bit: loft.wall 1.0.0's layout must never change).
+_EPS = 1e-9
 
 _PT_PINE: MaterialKey = "southern_pine_pt"
 _SPF: MaterialKey = "spf_lumber"
@@ -230,6 +246,36 @@ MANIFEST_V1 = PluginManifest(
         PluginMemberRole(role="level", title="Level"),
         PluginMemberRole(role="section", title="Section"),
         PluginMemberRole(role="stud", title="Stud"),
+        # An opening's members (WINDOW-DOOR). Titles are the cut list's words:
+        # a king is a stud as bought and listed (buildings.md B2's "36 studs").
+        PluginMemberRole(
+            role="king",
+            title="Stud",
+            description="King stud: full height beside an opening's jack.",
+        ),
+        PluginMemberRole(
+            role="jack",
+            title="Jack",
+            description="Jack (trimmer) stud: carries an opening's header.",
+        ),
+        PluginMemberRole(
+            role="header",
+            title="Header",
+            description="One ply of an opening's doubled header, on edge.",
+        ),
+        PluginMemberRole(
+            role="cripple",
+            title="Cripple",
+            description="Top cripple: header to top plate at a layout centre.",
+        ),
+        PluginMemberRole(
+            role="sill", title="Sill", description="A window's flat rough sill."
+        ),
+        PluginMemberRole(
+            role="sill_cripple",
+            title="Cripple",
+            description="Bottom cripple: bottom plate to a window's sill.",
+        ),
         PluginMemberRole(role="top_plate", title="Top plate"),
         PluginMemberRole(role="bottom_plate", title="Bottom plate"),
     ],
@@ -305,17 +351,112 @@ class Piece:
 def stud_centres(length: float, spacing: float, thickness: float) -> list[float]:
     """Stud centres along a wall (in): 0.75 from the start, then on *spacing*
     from the start, an end stud flush at the far end, a layout stud that would
-    overlap it dropped (buildings.md B2: 144 -> 10 studs, 113 -> 8)."""
-    return joist_centres(length, spacing, thickness)
+    overlap it dropped (buildings.md B2: 144 -> 10 studs, 113 -> 8). The
+    wall's own copy of the deck's joist layout (WALL-SHARED-CENTRES), so a
+    deck change can never move a stored wall's studs."""
+    first, last = thickness / 2, length - thickness / 2
+    inner: list[float] = []
+    n = 1
+    while spacing * n <= last - thickness + _EPS:
+        inner.append(spacing * n)
+        n += 1
+    return [first, *inner, last]
 
 
-def wall_pieces(wall: WallSpec) -> list[Piece]:
-    """The wall's members in its own frame, in the cut list's order. (The
-    WINDOW-DOOR seam: hosted openings replace the studs inside their rough
-    openings here, and nowhere else.)"""
+# --- Openings (WINDOW-DOOR) ----------------------------------------------------------
+
+#: The hosted plugins a 1.x wall frames, and what each is.
+OPENING_PLUGINS: dict[str, Literal["door", "window"]] = {
+    "loft.door": "door",
+    "loft.window": "window",
+}
+
+#: An opening's member roles, in emission (and cut list) order.
+_OPENING_ROLES = ("king", "jack", "header", "cripple", "sill", "sill_cripple")
+
+
+def _rounded(value: float) -> float:
+    return round(value, _INCH_DIGITS)
+
+
+@dataclass(frozen=True)
+class Opening:
+    """A hosted rough opening (RO) in its wall's frame, inches: ``centre``
+    along the wall, the RO's ``width``, its ``sill`` and ``head`` above the
+    wall's base (a door's sill is the base: it cuts the bottom plate)."""
+
+    kind: Literal["door", "window"]
+    name: str
+    centre: float
+    width: float
+    sill: float
+    head: float
+    header: LumberProfile
+
+    @classmethod
+    def from_inputs(
+        cls, kind: Literal["door", "window"], name: str, inputs: ExpandInputs
+    ) -> "Opening":
+        """An opening from a ``loft.door`` / ``loft.window`` 1.x's inputs: the
+        RO is the unit plus its allowance; a window's head height is the RO's
+        top, and a door's RO stands on the wall's base."""
+        width = _rounded(
+            _inches("width_mm", inputs) + _inches("ro_width_allowance_mm", inputs)
+        )
+        height = _rounded(
+            _inches("height_mm", inputs) + _inches("ro_height_allowance_mm", inputs)
+        )
+        if kind == "door":
+            sill, head = 0.0, height
+        else:
+            head = _inches("head_height_mm", inputs)
+            sill = _rounded(head - height)
+        return cls(
+            kind=kind,
+            name=name,
+            centre=_inches("offset_mm", inputs),
+            width=width,
+            sill=sill,
+            head=head,
+            header=inputs.lumber("header_profile"),
+        )
+
+    @classmethod
+    def from_hosted(cls, hosted: Hosted) -> "Opening | None":
+        """The opening a hosted feature frames; ``None`` for a hosted plugin
+        a wall does not frame. A door or window release this wall does not
+        know is refused rather than guessed at."""
+        kind = OPENING_PLUGINS.get(hosted.plugin_id)
+        if kind is None:
+            return None
+        if not hosted.plugin_version.startswith("1."):
+            raise PluginError(
+                PLUGIN_INPUT_UNSUPPORTED,
+                f"{hosted.name}: Wall 1.0.0 cannot frame {hosted.plugin_id} "
+                f"{hosted.plugin_version}.",
+            )
+        return cls.from_inputs(kind, hosted.name, hosted.inputs)
+
+
+def _refuse(opening: Opening, why: str, field: str = "offset_mm") -> PluginError:
+    return PluginError(PLUGIN_INPUT_INVALID, f"{opening.name}: {why}", input=field)
+
+
+@dataclass(frozen=True)
+class Framing:
+    """One opening's members by role, and the span ``left..right`` (outer
+    face of one king to the other's) that no layout stud may enter."""
+
+    left: float
+    right: float
+    pieces: dict[str, list[Piece]]
+
+
+def _layout(wall: WallSpec) -> tuple[list[Piece], float]:
+    """The layout studs, and the studs' top (the top plates' underside)."""
     t, depth = wall.stud.thickness_in, wall.thickness
     stud_top = t + wall.stud_length
-    pieces = [
+    studs = [
         Piece(
             "stud",
             wall.stud,
@@ -329,6 +470,118 @@ def wall_pieces(wall: WallSpec) -> list[Piece]:
         )
         for c in stud_centres(wall.length, wall.spacing, t)
     ]
+    return studs, stud_top
+
+
+def frame_opening(wall: WallSpec, opening: Opening) -> Framing:
+    """Kings, jacks, header plies, cripples and sill round *opening*, at the
+    layout studs it replaces. Raises a :class:`PluginError` naming the input
+    to change when the opening does not fit the wall (what a door or window
+    checks on its own write, before its wall re-expands)."""
+    layout, stud_top = _layout(wall)
+    t, depth = wall.stud.thickness_in, wall.thickness
+    stud, mat = wall.stud, wall.stud_material
+    u0 = opening.centre - opening.width / 2
+    u1 = opening.centre + opening.width / 2
+    # Each face is computed ONCE and shared by the two members meeting at it.
+    b, e = u0 - t, u1 + t  # the jacks' outer faces: the header's ends
+    a, f = b - t, e + t  # the kings' outer faces
+    first, last = layout[0], layout[-1]
+    if a < first.u1 or f > last.u0:
+        raise _refuse(
+            opening,
+            f"its framing ({a:g} to {f:g} in along the wall) must lie between "
+            f"the wall's end studs ({first.u1:g} to {last.u0:g} in); move it "
+            "along the wall or make it narrower.",
+        )
+    hp = opening.header
+    header_top = opening.head + hp.width_in
+    if header_top > stud_top:
+        raise _refuse(
+            opening,
+            f"its head ({opening.head:g} in) and {hp.name} header reach "
+            f"{header_top:g} in, above the top plate's underside "
+            f"({stud_top:g} in); lower the head or the unit.",
+            "head_height_mm" if opening.kind == "window" else "height_mm",
+        )
+    sill_bottom = opening.sill - t
+    if opening.kind == "window" and sill_bottom < t:
+        raise _refuse(
+            opening,
+            f"its rough sill at {opening.sill:g} in leaves no room for the flat "
+            f"sill on the bottom plate (it needs {2 * t:g} in); raise the head "
+            "or shorten the unit.",
+            "head_height_mm",
+        )
+    replaced = [p for p in layout if p.u1 > a and p.u0 < f]
+    pieces: dict[str, list[Piece]] = {role: [] for role in _OPENING_ROLES}
+    pieces["king"] = [
+        Piece("king", stud, mat, a, b, 0.0, depth, t, stud_top),
+        Piece("king", stud, mat, e, f, 0.0, depth, t, stud_top),
+    ]
+    pieces["jack"] = [
+        Piece("jack", stud, mat, b, u0, 0.0, depth, t, opening.head),
+        Piece("jack", stud, mat, u1, e, 0.0, depth, t, opening.head),
+    ]
+    pieces["header"] = [
+        Piece("header", hp, mat, b, e, v0, v1, opening.head, header_top)
+        for v0, v1 in ((0.0, hp.thickness_in), (depth - hp.thickness_in, depth))
+    ]
+    if header_top < stud_top:
+        pieces["cripple"] = [
+            Piece("cripple", stud, mat, p.u0, p.u1, 0.0, depth, header_top, stud_top)
+            for p in replaced
+            if p.u0 >= b and p.u1 <= e
+        ]
+    if opening.kind == "window":
+        pieces["sill"] = [
+            Piece("sill", stud, mat, u0, u1, 0.0, depth, sill_bottom, opening.sill)
+        ]
+        if sill_bottom > t:
+            pieces["sill_cripple"] = [
+                Piece("sill_cripple", stud, mat, p.u0, p.u1, 0.0, depth, t, sill_bottom)
+                for p in replaced
+                if p.u0 >= u0 and p.u1 <= u1
+            ]
+    return Framing(a, f, pieces)
+
+
+def _bottom_plate_spans(
+    length: float, doors: Iterable[Opening]
+) -> list[tuple[float, float]]:
+    """The bottom plate's pieces along the wall: whole, or cut out of every
+    door's rough opening (doors in order along the wall, never overlapping)."""
+    spans: list[tuple[float, float]] = []
+    start = 0.0
+    for door in doors:
+        spans.append((start, door.centre - door.width / 2))
+        start = door.centre + door.width / 2
+    spans.append((start, length))
+    return spans
+
+
+def wall_pieces(wall: WallSpec, openings: Sequence[Opening] = ()) -> list[Piece]:
+    """The wall's members in its own frame, in the cut list's order: layout
+    studs, every opening's members by role, top plates, bottom plate. Raises
+    a :class:`PluginError` naming an opening that does not fit, or the later
+    of two whose framing overlaps."""
+    t, depth = wall.stud.thickness_in, wall.thickness
+    layout, stud_top = _layout(wall)
+    ordered = sorted(openings, key=lambda o: (o.centre, o.name))
+    framings = [frame_opening(wall, o) for o in ordered]
+    for k in range(1, len(ordered)):
+        if framings[k].left < framings[k - 1].right:
+            raise _refuse(
+                ordered[k],
+                f"its framing overlaps {ordered[k - 1].name}'s; move them "
+                f"{framings[k - 1].right - framings[k].left:g} in further apart.",
+            )
+    pieces = [
+        p for p in layout if all(p.u1 <= f.left or p.u0 >= f.right for f in framings)
+    ]
+    for role in _OPENING_ROLES:
+        for framing in framings:
+            pieces.extend(framing.pieces[role])
     for k in range(wall.top_plates):
         z0 = stud_top + k * t
         pieces.append(
@@ -344,19 +597,21 @@ def wall_pieces(wall: WallSpec) -> list[Piece]:
                 z0 + t,
             )
         )
-    pieces.append(
-        Piece(
-            "bottom_plate",
-            wall.stud,
-            wall.bottom_plate_material,
-            0.0,
-            wall.length,
-            0.0,
-            depth,
-            0.0,
-            t,
+    doors = [o for o in ordered if o.kind == "door"]
+    for u0, u1 in _bottom_plate_spans(wall.length, doors):
+        pieces.append(
+            Piece(
+                "bottom_plate",
+                wall.stud,
+                wall.bottom_plate_material,
+                u0,
+                u1,
+                0.0,
+                depth,
+                0.0,
+                t,
+            )
         )
-    )
     return pieces
 
 
@@ -413,18 +668,23 @@ def _polygon(corners: Sequence[tuple[float, float]]) -> list[SketchLine]:
 def _emit(
     inputs: ExpandInputs, frame: WallFrame, pieces: list[Piece]
 ) -> Iterator[Member]:
-    """Levels, section sketches and member extrudes, with running indices."""
+    """Levels, section sketches and member extrudes, with running indices.
+
+    Levels are shared by their bottom elevation rounded to 1e-9 in
+    (WALL-LEVEL-EQ): a sill, a header and a cripple reach their heights by
+    different sums, and one ulp must not make a second datum."""
     levels: dict[float, int] = {}
     counts: dict[str, int] = {}
     for section, piece in enumerate(pieces):
         z0 = frame.base + piece.z0
+        key = round(z0, _INCH_DIGITS) + 0.0  # + 0.0: -0.0 is the XY plane too
         plane: DatumPlaneRef | FeatureRef
-        if z0 == 0.0:
+        if key == 0.0:
             plane = DatumPlaneRef(kind="datum_plane", plane="XY")
         else:
-            level = levels.get(z0)
+            level = levels.get(key)
             if level is None:
-                level = levels[z0] = len(levels)
+                level = levels[key] = len(levels)
                 yield Member(
                     "level",
                     level,
@@ -474,9 +734,16 @@ def _emit(
         )
 
 
+def hosted_openings(inputs: ExpandInputs) -> list[Opening]:
+    """The openings hosted in this wall (the doors and windows naming it)."""
+    found = (Opening.from_hosted(hosted) for hosted in inputs.hosted)
+    return [opening for opening in found if opening is not None]
+
+
 def expand(inputs: ExpandInputs) -> Iterator[Member]:
     wall = WallSpec.from_inputs(inputs)
-    yield from _emit(inputs, WallFrame.of(wall), wall_pieces(wall))
+    pieces = wall_pieces(wall, hosted_openings(inputs))
+    yield from _emit(inputs, WallFrame.of(wall), pieces)
 
 
 WALL_V1 = Plugin(MANIFEST_V1, expand)

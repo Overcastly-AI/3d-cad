@@ -226,6 +226,11 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         "b2-walls-no-openings-24oc",
         # One wall turned 30 deg: OCCT's STEP drift on turned planes (twin: 5.7e-4).
         "plugin-wall-v1-144-30deg",
+        # B2 with its hosted door and window, and the three edits (WINDOW-DOOR).
+        "b2-walls-door-window",
+        "b2-walls-door-moved-24",
+        "b2-walls-window-30",
+        "b2-walls-door-deleted",
     }
 )
 

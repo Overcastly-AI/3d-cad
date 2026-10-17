@@ -95,6 +95,12 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # One wall turned 30 deg: 6.1e-4 mm^3, OCCT's STEP drift on turned planes
     # (a plain build123d twin drifts 5.7e-4; expected.json).
     "plugin-wall-v1-144-30deg": 2e-3,
+    # B2 with its door and window, and the three edits (WINDOW-DOOR): the same
+    # summation drift, measured 7.2e-7 at worst.
+    "b2-walls-door-window": 3e-6,
+    "b2-walls-door-moved-24": 3e-6,
+    "b2-walls-window-30": 3e-6,
+    "b2-walls-door-deleted": 3e-6,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

@@ -1,5 +1,5 @@
-"""``loft.wall`` 1.0.0: B2's four walls, no openings, from four Wall features
-(STUD-WALL).
+"""``loft.wall`` 1.0.0: B2's four walls from four Wall features (STUD-WALL),
+with and without their hosted door and window (WINDOW-DOOR).
 
 Layouts are checked against ``docs/reference-parts/buildings.md`` B2, typed
 from the spec by hand. The geometry goldens ``b2-walls-no-openings-16oc`` and
@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from loft_plugins import REGISTRY, ExpandInputs, canonical_inputs, expand
+from loft_plugins import REGISTRY, ExpandInputs, Hosted, canonical_inputs, expand
 from loft_plugins.builtin.wall import WallFrame, WallSpec, stud_centres
 from loft_wire.cut_list import CutListMember
 from loft_wire.features import (
@@ -34,6 +34,7 @@ from loft_wire.features import (
     EvaluateTreeRequest,
     ExpandedMember,
     ExtrudeFeature,
+    FeatureRef,
     SketchFeature,
 )
 from loft_wire.materials import with_member_materials
@@ -86,15 +87,53 @@ WALL_30: dict[str, Any] = {
 
 
 def members(
-    raw: dict[str, Any] | None = None, feature_id: uuid.UUID | None = None
+    raw: dict[str, Any] | None = None,
+    feature_id: uuid.UUID | None = None,
+    hosted: tuple[Hosted, ...] = (),
 ) -> list[ExpandedMember]:
     inputs = canonical_inputs(WALL.manifest, raw or {})
-    return expand(WALL, feature_id or B2_WALLS["front"][0], inputs, {})
+    return expand(WALL, feature_id or B2_WALLS["front"][0], inputs, {}, hosted=hosted)
 
 
-def b2(spacing: float = 16.0) -> dict[str, list[ExpandedMember]]:
+def hosted(plugin_id: str, name: str, host: uuid.UUID, raw: dict[str, Any]) -> Hosted:
+    """A door or window naming *host*, as documents hands it to the wall."""
+    plugin = REGISTRY.get(plugin_id, "1.0.0")
+    feature_id = uuid.uuid5(host, name)
+    ref = FeatureRef(kind="feature", feature_id=host)
+    inputs = canonical_inputs(plugin.manifest, {"host_wall": ref, **raw})
+    return Hosted(
+        feature_id, plugin_id, "1.0.0", name, ExpandInputs(feature_id, inputs)
+    )
+
+
+#: buildings.md B2's door (front wall, centred on X 72: wall-local 72 from
+#: the wall's start at X 144) and window (right side wall, centred on Y 60:
+#: wall-local 116.5 - 60 = 56.5), every other input at the defaults (a 36 x
+#: 80 door + 2 x 2.5, a 24 x 36 window + 0.5 x 0.5, head 82.5, 2x6 headers).
+B2_DOOR: dict[str, Any] = {"offset_mm": 72 * IN}
+B2_WINDOW: dict[str, Any] = {"offset_mm": 56.5 * IN}
+
+
+def b2(
+    spacing: float = 16.0,
+    door: dict[str, Any] | None = None,
+    window: dict[str, Any] | None = None,
+) -> dict[str, list[ExpandedMember]]:
+    """B2's four walls; *door* and *window* (raw inputs) hosted in the front
+    and right side walls when given."""
+    openings: dict[str, tuple[Hosted, ...]] = {}
+    if door is not None:
+        host = B2_WALLS["front"][0]
+        openings["front"] = (hosted("loft.door", "Door 1", host, door),)
+    if window is not None:
+        host = B2_WALLS["right"][0]
+        openings["right"] = (hosted("loft.window", "Window 1", host, window),)
     return {
-        name: members({**raw, "stud_spacing_mm": spacing * IN}, feature_id)
+        name: members(
+            {**raw, "stud_spacing_mm": spacing * IN},
+            feature_id,
+            openings.get(name, ()),
+        )
         for name, (feature_id, raw) in B2_WALLS.items()
     }
 
@@ -104,6 +143,11 @@ GOLDEN_WALLS: dict[str, Callable[[], dict[str, list[ExpandedMember]]]] = {
     "b2-walls-no-openings-16oc": lambda: b2(16.0),
     "b2-walls-no-openings-24oc": lambda: b2(24.0),
     "plugin-wall-v1-144-30deg": lambda: {"wall": members(WALL_30, WALL_30_ID)},
+    # WINDOW-DOOR: B2 with its door and window, and the spec's three edits.
+    "b2-walls-door-window": lambda: b2(16.0, B2_DOOR, B2_WINDOW),
+    "b2-walls-door-moved-24": lambda: b2(16.0, {"offset_mm": 48 * IN}, B2_WINDOW),
+    "b2-walls-window-30": lambda: b2(16.0, B2_DOOR, {**B2_WINDOW, "width_mm": 30 * IN}),
+    "b2-walls-door-deleted": lambda: b2(16.0, None, B2_WINDOW),
 }
 
 
