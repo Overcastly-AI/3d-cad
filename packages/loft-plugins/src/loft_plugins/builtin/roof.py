@@ -106,7 +106,7 @@ def _mm(inches: float) -> float:
     return inches * MM_PER_INCH
 
 
-def _inches(name: str, inputs: ExpandInputs) -> float:
+def inches(name: str, inputs: ExpandInputs) -> float:
     return round(inputs.number(name) / MM_PER_INCH, _INCH_DIGITS)
 
 
@@ -124,7 +124,7 @@ def _length(
     )
 
 
-def _material(name: str, label: str) -> MaterialInput:
+def material_input(name: str, label: str) -> MaterialInput:
     return MaterialInput(
         kind="material",
         name=name,
@@ -222,8 +222,8 @@ MANIFEST_V1 = PluginManifest(
             options=lumber_options(_RIDGES),
             default="us_2x8",
         ),
-        _material("rafter_material", "Rafter material"),
-        _material("ridge_material", "Ridge material"),
+        material_input("rafter_material", "Rafter material"),
+        material_input("ridge_material", "Ridge material"),
     ],
     members=[
         PluginMemberRole(role="plane", title="Plane"),
@@ -349,22 +349,22 @@ def _polygon(points: list[tuple[float, float]]) -> list[SketchLine]:
     ]
 
 
-def _unsupported(message: str, input_name: str) -> PluginError:
+def unsupported(message: str, input_name: str) -> PluginError:
     return PluginError(PLUGIN_INPUT_UNSUPPORTED, message, input=input_name)
 
 
 def expand(inputs: ExpandInputs) -> Iterator[Member]:
-    span = _inches("span_mm", inputs)
-    length = _inches("length_mm", inputs)
-    plate_height = _inches("plate_height_mm", inputs)
-    plate_width = _inches("plate_width_mm", inputs)
+    span = inches("span_mm", inputs)
+    length = inches("length_mm", inputs)
+    plate_height = inches("plate_height_mm", inputs)
+    plate_width = inches("plate_width_mm", inputs)
     pitch = inputs.choice("pitch")
     rises = {pitch_value(r): r for r in PITCHES}
     if pitch not in rises:
-        raise _unsupported(f"{pitch!r} is not a pitch", "pitch")
+        raise unsupported(f"{pitch!r} is not a pitch", "pitch")
     rise = rises[pitch]
-    spacing = _inches("spacing_mm", inputs)
-    overhang = _inches("overhang_mm", inputs)
+    spacing = inches("spacing_mm", inputs)
+    overhang = inches("overhang_mm", inputs)
     rafter_p = inputs.lumber("rafter_profile")
     ridge_p = inputs.lumber("ridge_profile")
     rafter_mat = inputs.material("rafter_material")
@@ -374,7 +374,7 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
     # The bounds keep the ridge clear of the walls: the smallest span puts its
     # face 23.25 in in, past the widest plate (11.25).
     if ridge_p.width_in < r.plumb_depth:
-        raise _unsupported(
+        raise unsupported(
             f"The ridge board must be at least as deep as the rafters' plumb cut "
             f"({r.plumb_depth:.3f} in): choose a deeper ridge or a shallower "
             "rafter or pitch.",
@@ -511,7 +511,7 @@ ROOF_V1 = Plugin(MANIFEST_V1, expand)
 #   (the fascia corner and the inside corner at the ridge), less the seat:
 #   everything below the plate inside both walls' outer faces (a double heel
 #   on the corner);
-# * a cutter's outline, and a trimmed member's uncut profile, run _PAST
+# * a cutter's outline, and a trimmed member's uncut profile, run PAST
 #   beyond every face they do not make, so no cutter face coincides with a
 #   member's (the float-coincidence class DECK found).
 #
@@ -526,11 +526,11 @@ STYLE_HIP = "hip"
 MIN_OVERHANG_IN = 1.0 / 16.0
 #: How far (in) a trimmed member's uncut profile, and a cutter's outline, run
 #: past every face they do not make.
-_PAST = 2.0
+PAST = 2.0
 #: How far (in) a cutter prism rises above the ridge's top.
-_HEADROOM = 12.0
+HEADROOM = 12.0
 _ROOT2 = math.sqrt(2.0)
-_HIPS: list[LumberProfileKey] = ["us_2x6", "us_2x8", "us_2x10", "us_2x12"]
+HIP_PROFILES: list[LumberProfileKey] = ["us_2x6", "us_2x8", "us_2x10", "us_2x12"]
 
 
 def _v1_input(name: str) -> PluginInput:
@@ -581,11 +581,11 @@ MANIFEST_V1_1 = PluginManifest(
             label="Hips",
             description="Hip size (Hip style): at least as deep as the commons' "
             "plumb cut. Hips are dropped, not backed.",
-            options=lumber_options(_HIPS),
+            options=lumber_options(HIP_PROFILES),
             default="us_2x8",
         ),
         _v1_input("rafter_material"),
-        _material("ridge_material", "Ridge and hip material"),
+        material_input("ridge_material", "Ridge and hip material"),
     ],
     members=[
         PluginMemberRole(role="plane", title="Plane"),
@@ -718,10 +718,10 @@ class Hip:
         return self.plate_height - (self.top(0.0) - self.plumb_depth)
 
     def profile(self) -> list[tuple[float, float]]:
-        """(s, z) counter-clockwise: the parallelogram, run _PAST past both
+        """(s, z) counter-clockwise: the parallelogram, run PAST past both
         double cheeks (the plan cutter makes them)."""
-        lo = -self.overhang * _ROOT2 - _PAST
-        hi = self.run * _ROOT2 + _PAST
+        lo = -self.overhang * _ROOT2 - PAST
+        hi = self.run * _ROOT2 + PAST
         d = self.plumb_depth
         return [
             (lo, self.top(lo) - d),
@@ -748,7 +748,7 @@ def jack_centres(
         n += 1
 
 
-def _ccw(points: list[Vec2]) -> list[Vec2]:
+def ccw(points: list[Vec2]) -> list[Vec2]:
     """*points* counter-clockwise (a mirrored outline is reversed)."""
     n = len(points)
     twice = sum(
@@ -763,7 +763,7 @@ def _ccw(points: list[Vec2]) -> list[Vec2]:
 PlaneRef = DatumPlaneRef | FeatureRef
 
 
-class _Builder:
+class Builder:
     """One expansion's members: an index per role, datums emitted once."""
 
     def __init__(self, inputs: ExpandInputs) -> None:
@@ -784,7 +784,7 @@ class _Builder:
         return self.inputs.ref(role, index)
 
     def plane(
-        self, base: Literal["XZ", "YZ"], offset_in: float, flip: bool = False
+        self, base: Literal["XY", "XZ", "YZ"], offset_in: float, flip: bool = False
     ) -> PlaneRef:
         """An origin plane, or an offset datum (one per position)."""
         offset_in += 0.0  # never a -0.0 on the wire
@@ -812,7 +812,7 @@ class _Builder:
                 type="sketch",
                 version=1,
                 params=SketchParamsV1(
-                    plane=plane, entities=list(_polygon(_ccw(outline))), constraints=[]
+                    plane=plane, entities=list(_polygon(ccw(outline))), constraints=[]
                 ),
             ),
         )
@@ -863,7 +863,7 @@ class _Builder:
         )
 
 
-def _side_plane(b: _Builder, eave: Eave, centre: float, thickness: float) -> PlaneRef:
+def _side_plane(b: Builder, eave: Eave, centre: float, thickness: float) -> PlaneRef:
     """The datum a member centred at *centre* on *eave* is sketched on, the
     face it extrudes from: on a wall along X its low-X face (YZ, normal +X);
     along Y its high-Y face (XZ, whose normal is -Y)."""
@@ -879,7 +879,7 @@ def _side_outline(eave: Eave, profile: list[Vec2]) -> list[Vec2]:
     return [(eave.world(0.0, d)[axis], z) for d, z in profile]
 
 
-def _hip_sides(corner: Corner) -> tuple[float, bool]:
+def hip_sides(corner: Corner) -> tuple[float, bool]:
     """The XZ side of the hip's midplane datum: the plane at the corner's Y,
     flipped to a +Y normal for the hips along (-1, 1) and (1, -1), so that
     with the YZ side (+X normal) the bisector's normal (1, ny) / sqrt 2 is
@@ -917,13 +917,13 @@ def _along(eave: Eave, p: float, from_far_end: bool) -> float:
 
 
 def _hip_roof(inputs: ExpandInputs) -> list[Member]:
-    span = _inches("span_mm", inputs)
-    length = _inches("length_mm", inputs)
-    plate_height = _inches("plate_height_mm", inputs)
-    plate_width = _inches("plate_width_mm", inputs)
+    span = inches("span_mm", inputs)
+    length = inches("length_mm", inputs)
+    plate_height = inches("plate_height_mm", inputs)
+    plate_width = inches("plate_width_mm", inputs)
     rise = {pitch_value(r): r for r in PITCHES}[inputs.choice("pitch")]
-    spacing = _inches("spacing_mm", inputs)
-    overhang = _inches("overhang_mm", inputs)
+    spacing = inches("spacing_mm", inputs)
+    overhang = inches("overhang_mm", inputs)
     rafter_p = inputs.lumber("rafter_profile")
     ridge_p = inputs.lumber("ridge_profile")
     hip_p = inputs.lumber("hip_profile")
@@ -937,20 +937,20 @@ def _hip_roof(inputs: ExpandInputs) -> list[Member]:
     )
     t = rafter_p.thickness_in
     if ridge_p.width_in < common.plumb_depth:
-        raise _unsupported(
+        raise unsupported(
             f"The ridge board must be at least as deep as the rafters' plumb cut "
             f"({common.plumb_depth:.3f} in): choose a deeper ridge or a shallower "
             "rafter or pitch.",
             "ridge_profile",
         )
     if hip_p.width_in < common.plumb_depth:
-        raise _unsupported(
+        raise unsupported(
             f"The hips must be at least as deep as the commons' plumb cut "
             f"({common.plumb_depth:.3f} in): choose a deeper hip.",
             "hip_profile",
         )
     if length - span < t - 1e-9:
-        raise _unsupported(
+        raise unsupported(
             f"A hip roof's length must be at least its span plus one rafter "
             f"thickness ({span + t:g} in), so the ridge-end commons do not "
             "overlap: lengthen it, or swap span and length.",
@@ -969,8 +969,8 @@ def _hip_roof(inputs: ExpandInputs) -> list[Member]:
         ridge_face=run,
         overhang=overhang,
     )
-    height = common.top_at_ridge + _HEADROOM
-    b = _Builder(inputs)
+    height = common.top_at_ridge + HEADROOM
+    b = Builder(inputs)
 
     # Side commons, front and back, from ridge end to ridge end.
     for offset in joist_centres(length - span + t, spacing, t):
@@ -995,11 +995,11 @@ def _hip_roof(inputs: ExpandInputs) -> list[Member]:
             depth=rafter_p.width_in,
             plate_height=plate_height,
             plate_width=plate_width,
-            ridge_face=c + t / 2 - hs + _PAST,
+            ridge_face=c + t / 2 - hs + PAST,
             overhang=overhang,
         )
-        lo, hi = c - t / 2 - _PAST, c + t / 2 + _PAST
-        tail = -overhang - _PAST
+        lo, hi = c - t / 2 - PAST, c + t / 2 + PAST
+        tail = -overhang - PAST
         plan = [(lo, tail), (hi, tail), (hi, hi - hs), (lo, lo - hs)]
         for eave in (front, back, left, right):
             for far in (False, True):
@@ -1021,9 +1021,9 @@ def _hip_roof(inputs: ExpandInputs) -> list[Member]:
         overhang=overhang,
     )
     hip_meta = MemberMetadata(profile=hip_p.name, material=ridge_mat)
-    seat_from = 0.0 if overhang > 0.0 else -_PAST
+    seat_from = 0.0 if overhang > 0.0 else -PAST
     for corner in footprint.corners():
-        y, flip = _hip_sides(corner)
+        y, flip = hip_sides(corner)
         mid = b.add(
             "plane",
             DatumFeature(
@@ -1040,7 +1040,7 @@ def _hip_roof(inputs: ExpandInputs) -> list[Member]:
         body = b.extrude("hip", section, hip_p.thickness_in, hip_meta, symmetric=True)
         cheeks = b.prism(_corner_box(corner, -overhang, run), height)
         b.trim(body, cheeks, "intersect")
-        seat = b.prism(_corner_box(corner, seat_from, run + _PAST), plate_height)
+        seat = b.prism(_corner_box(corner, seat_from, run + PAST), plate_height)
         b.trim(body, seat, "subtract")
 
     # The ridge: between the ridge-end commons' outer faces.
@@ -1065,9 +1065,9 @@ def _hip_roof(inputs: ExpandInputs) -> list[Member]:
 
 
 def expand_v1_1(inputs: ExpandInputs) -> Iterable[Member]:
-    overhang = _inches("overhang_mm", inputs)
+    overhang = inches("overhang_mm", inputs)
     if 0.0 < overhang < MIN_OVERHANG_IN - 1e-9:
-        raise _unsupported(
+        raise unsupported(
             "The eave overhang must be 0 (cut flush at the wall) or at least 1/16 in.",
             "overhang_mm",
         )
@@ -1075,7 +1075,7 @@ def expand_v1_1(inputs: ExpandInputs) -> Iterable[Member]:
     if style == STYLE_HIP:
         return _hip_roof(inputs)
     if style != STYLE_GABLE:
-        raise _unsupported(f"{style!r} is not a roof style", "style")
+        raise unsupported(f"{style!r} is not a roof style", "style")
     return list(expand(inputs))
 
 

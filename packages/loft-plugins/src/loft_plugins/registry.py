@@ -12,9 +12,9 @@
   validates what comes back exactly as a user's features are validated: the
   same pydantic models, declared roles, unique ``(role, index)``, and every
   reference to a strictly earlier feature of an allowed type (§2.2).
-* Hosting (a window in a wall): a feature input with ``plugin_ids`` must name
-  an earlier custom feature of one of them, and a ``host`` input's target
-  receives the hosted feature's inputs as ``ExpandInputs.hosted``
+* Hosting (a window in a wall): a feature (or feature-list) input with
+  ``plugin_ids`` must name earlier custom features of them, and a ``host``
+  input's target receives the hosted feature's inputs as ``ExpandInputs.hosted``
   (:func:`host_of`). Only inputs cross, never expansions, so a host and its
   hosted features cannot form a cycle.
 
@@ -49,6 +49,7 @@ from loft_wire.plugins import (
     AngleInput,
     ChoiceInput,
     CountInput,
+    FeatureListInput,
     FeatureReferenceInput,
     LengthInput,
     MaterialInput,
@@ -160,6 +161,27 @@ def _count(item: CountInput, value: CustomInputValue, bounds: bool) -> int:
     return value
 
 
+def _feature_list(
+    item: FeatureListInput, value: CustomInputValue | None
+) -> list[FeatureRef] | None:
+    """A feature-list input's stored value: the picks in order, or ``None``
+    (not stored) for an empty pick of an optional input."""
+    if value is None:
+        if item.min_items == 0:
+            return None
+        raise _refuse(item, f"pick at least {item.min_items}")
+    if not isinstance(value, list):
+        raise _refuse(item, "must name features")
+    picks = list(value)
+    if len(picks) < item.min_items:
+        raise _refuse(item, f"pick at least {item.min_items}")
+    if len(picks) > item.max_items:
+        raise _refuse(item, f"pick at most {item.max_items}")
+    if len({ref.feature_id for ref in picks}) != len(picks):
+        raise _refuse(item, "names a feature twice")
+    return picks
+
+
 def _canonical(
     item: PluginInput, value: CustomInputValue | None, bounds: bool
 ) -> CustomInputValue | None:
@@ -179,6 +201,8 @@ def _canonical(
             if value is not None and value not in get_args(MaterialKey):
                 raise _refuse(item, "is not a library material")
             return value
+        case FeatureListInput():
+            return _feature_list(item, value)
         case ProfileInput() | FeatureReferenceInput():
             if value is None:
                 if isinstance(item, FeatureReferenceInput) and item.optional:
@@ -235,19 +259,26 @@ def _check_plugin_references(
     one of those plugins: a window whose host is missing, later, or not a
     wall is refused here, before its plugin runs."""
     for item in manifest.inputs:
-        if not isinstance(item, FeatureReferenceInput) or item.plugin_ids is None:
+        if (
+            not isinstance(item, FeatureReferenceInput | FeatureListInput)
+            or item.plugin_ids is None
+        ):
             continue
         value = inputs.get(item.name)
-        if not isinstance(value, FeatureRef):
-            continue
+        picks = value if isinstance(value, list) else [value]
         wanted = " or ".join(item.plugin_ids)
-        target = earlier.get(value.feature_id)
-        if target is None:
-            raise _refuse(item, f"names no earlier feature; pick a {wanted}")
-        if not isinstance(target, CustomFeature):
-            raise _refuse(item, f"names a {target.type}, not a {wanted}")
-        if target.params.plugin_id not in item.plugin_ids:
-            raise _refuse(item, f"names a {target.params.plugin_id}, not a {wanted}")
+        for pick in picks:
+            if not isinstance(pick, FeatureRef):
+                continue
+            target = earlier.get(pick.feature_id)
+            if target is None:
+                raise _refuse(item, f"names no earlier feature; pick a {wanted}")
+            if not isinstance(target, CustomFeature):
+                raise _refuse(item, f"names a {target.type}, not a {wanted}")
+            if target.params.plugin_id not in item.plugin_ids:
+                raise _refuse(
+                    item, f"names a {target.params.plugin_id}, not a {wanted}"
+                )
 
 
 # --- Expansion -------------------------------------------------------------------

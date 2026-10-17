@@ -64,6 +64,7 @@ from loft_wire.pipe import PathSegment as PathSegment
 from loft_wire.pipe import PathSketchCurve as PathSketchCurve
 from loft_wire.pipe import PipeParamsV1 as PipeParamsV1
 from loft_wire.plugins import (
+    MAX_FEATURE_LIST,
     MAX_PLUGIN_EXPANSION,
     MAX_PLUGIN_INPUTS,
     MAX_PLUGIN_TEXT,
@@ -2557,12 +2558,14 @@ FEATURE_REGISTRY.validate_chains()
 # --- Custom features (PLUGIN-REGISTRY, RESEARCH §23; manifests: loft_wire.plugins) --
 
 #: One input value: a number (mm, degrees or a count, by the input's kind), an
-#: option or material key, or an earlier feature. Strict, so ``true`` is no 1.
+#: option or material key, an earlier feature, or several (a feature-list
+#: input, in pick order). Strict, so ``true`` is no 1.
 CustomInputValue = (
     StrictInt
     | StrictFloat
     | Annotated[str, StringConstraints(max_length=MAX_PLUGIN_TEXT)]
     | FeatureRef
+    | Annotated[list[FeatureRef], Field(min_length=1, max_length=MAX_FEATURE_LIST)]
 )
 
 

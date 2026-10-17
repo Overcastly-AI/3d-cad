@@ -2786,7 +2786,7 @@ export interface components {
              * @description Input name -> value, validated against the pinned manifest.
              */
             inputs: {
-                [key: string]: number | string | components["schemas"]["FeatureRef"];
+                [key: string]: number | string | components["schemas"]["FeatureRef"] | components["schemas"]["FeatureRef"][];
             };
             /** Plugin Id */
             plugin_id: string;
@@ -4579,6 +4579,57 @@ export interface components {
              * @description Set when the root cause is an earlier feature's output
              */
             upstream_feature_id?: string | null;
+        };
+        /**
+         * FeatureListInput
+         * @description Several earlier features of one of ``feature_types``, in pick order:
+         *     a roof's bearing walls, as Revit's Roof by Footprint picks walls. Stored
+         *     as a list of ``FeatureRef`` (no repeats); an empty pick is stored as no
+         *     value, allowed only when ``min_items`` is 0. Never a host.
+         */
+        FeatureListInput: {
+            /**
+             * Description
+             * @description Help text under the field.
+             */
+            description?: string | null;
+            /**
+             * Feature Types
+             * @description Feature types each picked feature may be (`datum`, `sketch`, `custom`, ...).
+             */
+            feature_types: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "features";
+            /**
+             * Label
+             * @description Form label, e.g. 'Twist angle'.
+             */
+            label: string;
+            /**
+             * Max Items
+             * @description Most features to pick.
+             * @default 32
+             */
+            max_items: number;
+            /**
+             * Min Items
+             * @description Fewest features to pick; 0 makes the input optional.
+             * @default 0
+             */
+            min_items: number;
+            /**
+             * Name
+             * @description Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.
+             */
+            name: string;
+            /**
+             * Plugin Ids
+             * @description When a picked feature is a custom feature: the plugins it may be (a roof's walls are `loft.wall`). Unset: any.
+             */
+            plugin_ids?: string[] | null;
         };
         /**
          * FeatureMutationResponse
@@ -7835,7 +7886,7 @@ export interface components {
              */
             id: string;
             /** Inputs */
-            inputs: (components["schemas"]["LengthInput"] | components["schemas"]["AngleInput"] | components["schemas"]["CountInput"] | components["schemas"]["ChoiceInput"] | components["schemas"]["ProfileInput"] | components["schemas"]["FeatureReferenceInput"] | components["schemas"]["MaterialInput"])[];
+            inputs: (components["schemas"]["LengthInput"] | components["schemas"]["AngleInput"] | components["schemas"]["CountInput"] | components["schemas"]["ChoiceInput"] | components["schemas"]["ProfileInput"] | components["schemas"]["FeatureReferenceInput"] | components["schemas"]["FeatureListInput"] | components["schemas"]["MaterialInput"])[];
             /**
              * Latest
              * @description True on the newest released version of this plugin: the one a new feature is inserted with. Older versions are listed so a feature pinned to one still gets its form.

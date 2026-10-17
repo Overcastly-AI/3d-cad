@@ -1575,6 +1575,14 @@
                   },
                   {
                     "$ref": "#/components/schemas/FeatureRef"
+                  },
+                  {
+                    "items": {
+                      "$ref": "#/components/schemas/FeatureRef"
+                    },
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "type": "array"
                   }
                 ]
               }
@@ -4276,6 +4284,98 @@
           "message"
         ],
         "title": "FeatureError",
+        "type": "object"
+      },
+      "FeatureListInput": {
+        "description": "Several earlier features of one of ``feature_types``, in pick order:\na roof's bearing walls, as Revit's Roof by Footprint picks walls. Stored\nas a list of ``FeatureRef`` (no repeats); an empty pick is stored as no\nvalue, allowed only when ``min_items`` is 0. Never a host.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Help text under the field.",
+            "title": "Description"
+          },
+          "feature_types": {
+            "description": "Feature types each picked feature may be (`datum`, `sketch`, `custom`, ...).",
+            "items": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Feature Types",
+            "type": "array"
+          },
+          "kind": {
+            "const": "features",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "Form label, e.g. 'Twist angle'.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "max_items": {
+            "default": 32,
+            "description": "Most features to pick.",
+            "maximum": 32.0,
+            "minimum": 1.0,
+            "title": "Max Items",
+            "type": "integer"
+          },
+          "min_items": {
+            "default": 0,
+            "description": "Fewest features to pick; 0 makes the input optional.",
+            "maximum": 32.0,
+            "minimum": 0.0,
+            "title": "Min Items",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.",
+            "maxLength": 48,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "plugin_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 64,
+                  "minLength": 3,
+                  "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When a picked feature is a custom feature: the plugins it may be (a roof's walls are `loft.wall`). Unset: any.",
+            "title": "Plugin Ids"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "kind",
+          "feature_types"
+        ],
+        "title": "FeatureListInput",
         "type": "object"
       },
       "FeatureMutationResponse": {
@@ -9373,6 +9473,7 @@
                   "choice": "#/components/schemas/ChoiceInput",
                   "count": "#/components/schemas/CountInput",
                   "feature": "#/components/schemas/FeatureReferenceInput",
+                  "features": "#/components/schemas/FeatureListInput",
                   "length": "#/components/schemas/LengthInput",
                   "material": "#/components/schemas/MaterialInput",
                   "profile": "#/components/schemas/ProfileInput"
@@ -9397,6 +9498,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/FeatureReferenceInput"
+                },
+                {
+                  "$ref": "#/components/schemas/FeatureListInput"
                 },
                 {
                   "$ref": "#/components/schemas/MaterialInput"

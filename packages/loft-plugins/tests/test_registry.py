@@ -20,6 +20,8 @@ from loft_plugins import (
 )
 from loft_plugins.testing import BLOCKS_V1, BLOCKS_V2, expand_v1
 from loft_wire.features import (
+    CustomFeature,
+    CustomParamsV1,
     DatumFeature,
     DatumOffsetParams,
     ExtrudeFeature,
@@ -27,8 +29,11 @@ from loft_wire.features import (
     FeatureRef,
 )
 from loft_wire.plugins import (
+    MAX_FEATURE_LIST,
     MAX_PLUGIN_EXPANSION,
+    FeatureListInput,
     PluginCatalog,
+    PluginManifest,
     PluginMemberRole,
     member_id,
     member_key,
@@ -90,7 +95,8 @@ def test_the_catalog_lists_every_version_newest_first() -> None:
     assert [(m.id, m.version, m.latest) for m in served.plugins] == [
         ("loft.deck", "1.0.0", True),
         ("loft.door", "1.0.0", True),
-        ("loft.roof", "1.1.0", True),
+        ("loft.roof", "1.2.0", True),
+        ("loft.roof", "1.1.0", False),
         ("loft.roof", "1.0.0", False),
         ("loft.twisted_prism", "1.0.0", True),
         ("loft.wall", "1.0.0", True),
@@ -237,3 +243,127 @@ def test_members_get_the_authoring_checks() -> None:
     # ...but not when it is a datum
     with pytest.raises(PluginError, match="cannot name a 'datum'"):
         expand(_plugin(dangling), FEATURE_ID, {}, {sketch_id: datum})
+
+
+# --- Feature lists (ROOF-VALLEY: a roof's picked walls) ----------------------------
+
+
+def _picks(minimum: int = 0, maximum: int = 3) -> PluginManifest:
+    return PluginManifest(
+        id="test.picks",
+        version="1.0.0",
+        title="Picks",
+        description="Takes several walls.",
+        inputs=[
+            FeatureListInput(
+                kind="features",
+                name="walls",
+                label="Walls",
+                feature_types=["custom"],
+                plugin_ids=["loft.wall"],
+                min_items=minimum,
+                max_items=maximum,
+            )
+        ],
+        members=[PluginMemberRole(role="block", title="Block")],
+    )
+
+
+def _ref(n: int) -> FeatureRef:
+    return FeatureRef(kind="feature", feature_id=uuid.UUID(int=n))
+
+
+def test_a_feature_list_keeps_its_picks_in_order() -> None:
+    assert canonical_inputs(_picks(), {}) == {}  # optional: left empty
+    picks = [_ref(3), _ref(1), _ref(2)]
+    assert canonical_inputs(_picks(), {"walls": picks}) == {"walls": picks}
+
+
+@pytest.mark.parametrize(
+    ("value", "minimum", "why"),
+    [
+        (None, 1, "pick at least 1"),
+        ([_ref(1)], 2, "pick at least 2"),
+        ([_ref(1), _ref(2), _ref(3), _ref(4)], 0, "pick at most 3"),
+        ([_ref(1), _ref(1)], 0, "twice"),
+        ("walls", 0, "must name features"),
+    ],
+)
+def test_a_feature_list_is_checked(value: Any, minimum: int, why: str) -> None:
+    raw = {} if value is None else {"walls": value}
+    with pytest.raises(PluginError, match=why) as refused:
+        canonical_inputs(_picks(minimum), raw)
+    assert refused.value.code == "plugin_input_invalid"
+    assert refused.value.input == "walls"
+
+
+def test_a_feature_lists_picks_are_earlier_features_of_its_plugins() -> None:
+    plugin = Plugin(_picks(), lambda inputs: iter(()))
+    wall = CustomFeature.model_validate(
+        {
+            "type": "custom",
+            "version": 1,
+            "params": {
+                "plugin_id": "loft.wall",
+                "plugin_version": "1.0.0",
+                "inputs": {},
+            },
+        }
+    )
+    deck = wall.model_copy(
+        update={"params": wall.params.model_copy(update={"plugin_id": "loft.deck"})}
+    )
+    one, two = _ref(1).feature_id, _ref(2).feature_id
+    inputs = canonical_inputs(plugin.manifest, {"walls": [_ref(1), _ref(2)]})
+    assert expand(plugin, FEATURE_ID, inputs, {one: wall, two: wall}) == []
+    with pytest.raises(PluginError, match="names no earlier feature"):
+        expand(plugin, FEATURE_ID, inputs, {one: wall})
+    with pytest.raises(PluginError, match=r"names a loft\.deck"):
+        expand(plugin, FEATURE_ID, inputs, {one: wall, two: deck})
+
+
+def test_a_feature_list_input_is_bounded() -> None:
+    with pytest.raises(ValueError, match="min_items is above max_items"):
+        FeatureListInput(
+            kind="features",
+            name="w",
+            label="W",
+            feature_types=["custom"],
+            min_items=3,
+            max_items=2,
+        )
+    with pytest.raises(ValueError, match="plugin_ids needs"):
+        FeatureListInput(
+            kind="features",
+            name="w",
+            label="W",
+            feature_types=["datum"],
+            plugin_ids=["loft.wall"],
+        )
+    with pytest.raises(ValueError, match="less than or equal"):
+        FeatureListInput(
+            kind="features",
+            name="w",
+            label="W",
+            feature_types=["custom"],
+            max_items=MAX_FEATURE_LIST + 1,
+        )
+
+
+def test_a_custom_feature_stores_a_list_of_picks() -> None:
+    params = CustomParamsV1.model_validate(
+        {
+            "plugin_id": "test.picks",
+            "plugin_version": "1.0.0",
+            "inputs": {"walls": [_ref(1).model_dump(mode="json")]},
+        }
+    )
+    assert params.inputs["walls"] == [_ref(1)]
+    with pytest.raises(ValueError):  # an empty pick is no value, not []
+        CustomParamsV1.model_validate(
+            {
+                "plugin_id": "test.picks",
+                "plugin_version": "1.0.0",
+                "inputs": {"walls": []},
+            }
+        )
