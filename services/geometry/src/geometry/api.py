@@ -385,7 +385,9 @@ def assembly_interference_route(
     failures of this call itself.
     """
     # A sub-assembly counts by the parts it places: those are what get paired.
-    placed_parts = count_leaf_instances(request.instances, request.patterns)
+    placed_parts = count_leaf_instances(
+        request.instances, request.patterns, request.mirrors
+    )
     if placed_parts > MAX_INTERFERENCE_INSTANCES:
         raise ValidationApiError(
             f"Interference checking is limited to {MAX_INTERFERENCE_INSTANCES} "

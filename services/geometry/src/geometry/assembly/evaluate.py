@@ -64,6 +64,7 @@ from loft_wire.assemblies import (
     mate_instance_ids,
     nested_occurrence_id,
 )
+from loft_wire.component_mirrors import MirrorCopyRef, MirrorState
 from loft_wire.component_patterns import (
     PatternCopyRef,
     PatternCount,
@@ -89,6 +90,18 @@ from loft_wire.omitted_occurrences import (
 from py_kit.errors import ValidationApiError
 
 from geometry.assembly.in_context import solve_in_context
+from geometry.assembly.mirrors import (
+    MirrorSeed,
+    MirrorSource,
+    MirrorTarget,
+    OppositeHand,
+    expand_mirror,
+    mirrored_name,
+    opposite_hand_body,
+    opposite_hand_mesh,
+    opposite_hand_properties,
+    source_part_key,
+)
 from geometry.assembly.patterns import PatternTarget, SeedPart, expand_pattern
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,
@@ -103,7 +116,7 @@ from geometry.assembly.resolve import (
 from geometry.assembly.solver import RigidBodyAssemblySolver
 from geometry.assembly.transform import Pose, as_vector
 from geometry.features import evaluate_tree
-from geometry.features.evaluate import TreeEvaluation
+from geometry.features.evaluate import TreeEvaluation, features_have_twist
 from geometry.kernel.faces import SubshapeAmbiguousError, SubshapeUnresolvedError
 from geometry.kernel.types import BodyShape
 
@@ -471,6 +484,8 @@ class Occurrence:
     error: FeatureError | None
     #: Set on a copy placed by one of THIS assembly's component patterns.
     pattern: PatternCopyRef | None = None
+    #: Set on a twin placed by one of THIS assembly's component mirrors.
+    mirror: MirrorCopyRef | None = None
 
 
 @dataclass(frozen=True)
@@ -509,6 +524,8 @@ class SolvedAssembly:
     all_pattern_states: list[PatternCount]
     #: How each in-context link whose context is this assembly resolved.
     in_context: list[InContextStatus] = field(default_factory=list["InContextStatus"])
+    #: Each of this assembly's own mirrors: its twins, or why it placed none.
+    mirror_states: list[MirrorState] = field(default_factory=list["MirrorState"])
     #: Every sub-assembly solved for this tree, at any depth, keyed by its
     #: ``part_key`` (one document at one version, solved once however often it
     #: is instanced). The STEP export rebuilds the product tree from it.
@@ -603,7 +620,8 @@ def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
     parts: dict[str, _PartResult] = {}
 
     def solve(current: EvaluateAssemblyRequest, stale: set[str]) -> SolvedAssembly:
-        for key in stale:
+        # An opposite-hand part derives from its source: stale with it.
+        for key in [k for k in parts if source_part_key(k) in stale]:
             parts.pop(key, None)
         return _solve(current, parts, {})
 
@@ -724,6 +742,13 @@ def _solve(
         if copy.error is not None:
             instance_errors[copy.occurrence_id] = copy.error
     placed_occurrences.extend(copies)
+    twins, mirror_states = _expand_mirrors(
+        request, placed_occurrences, parts, sub_assembly_poses
+    )
+    for twin in twins:
+        if twin.error is not None:
+            instance_errors[twin.occurrence_id] = twin.error
+    placed_occurrences.extend(twins)
     placed = [
         PlacedInstance(
             instance_id=occ.occurrence_id,
@@ -750,6 +775,7 @@ def _solve(
         sub_assembly_poses=sub_assembly_poses,
         pattern_states=pattern_states,
         all_pattern_states=_all_pattern_states(request, pattern_states, subs),
+        mirror_states=mirror_states,
         subs=subs,
     )
 
@@ -839,6 +865,132 @@ def _expand_patterns(
                 )
             )
     return copies, states
+
+
+def _mirror_seeds(
+    request: EvaluateAssemblyRequest,
+    occurrences: list[Occurrence],
+    parts: dict[str, _PartResult],
+    sub_poses: dict[uuid.UUID, Placement],
+) -> dict[uuid.UUID, MirrorSeed]:
+    """Each instance of *request* as a mirror may reflect it: its solved pose
+    and the parts it places (pattern copies excluded)."""
+    members: dict[uuid.UUID, list[Occurrence]] = {}
+    for occ in occurrences:
+        if occ.pattern is None:
+            members.setdefault(occ.group_id, []).append(occ)
+    seeds: dict[uuid.UUID, MirrorSeed] = {}
+    for inst in request.instances:
+        own = members.get(inst.instance_id, [])
+        if inst.sub_assembly is None:
+            if not own:
+                continue
+            pose = Pose.from_placement(own[0].placement)
+        else:
+            pose = Pose.from_placement(sub_poses[inst.instance_id])
+        seeds[inst.instance_id] = MirrorSeed(
+            pose=pose,
+            is_part=inst.sub_assembly is None,
+            parts=tuple(
+                MirrorSource(
+                    inner=occ.path[1:],
+                    offset=occ.offset if occ.offset is not None else Pose.identity(),
+                    part_key=occ.part_key,
+                    body=occ.body,
+                    properties=parts[occ.part_key].properties,
+                )
+                for occ in own
+            ),
+        )
+    return seeds
+
+
+def _opposite_part(
+    source: _PartResult, hand: OppositeHand, deflection: float, twisted: bool
+) -> _PartResult:
+    """The derived opposite-hand part of *source* (``mirrors`` docstring)."""
+    assert source.body is not None
+    body = opposite_hand_body(source.body, hand.axis, hand.centre)
+    return _PartResult(
+        body=body,
+        mesh_glb_id=opposite_hand_mesh(body, deflection, twisted=twisted),
+        properties=(
+            None
+            if source.properties is None
+            else opposite_hand_properties(source.properties, hand.axis, hand.centre)
+        ),
+        error=None,
+    )
+
+
+def _expand_mirrors(
+    request: EvaluateAssemblyRequest,
+    occurrences: list[Occurrence],
+    parts: dict[str, _PartResult],
+    sub_poses: dict[uuid.UUID, Placement],
+) -> tuple[list[Occurrence], list[MirrorState]]:
+    """The twins *request*'s mirrors place, from the solved *occurrences*
+    (pattern copies count toward the bound but are not mirrored). An
+    opposite-hand twin's derived part joins the *parts* cache under its key."""
+    if not request.mirrors:
+        return [], []
+    targets = {
+        occ.occurrence_id: MirrorTarget(
+            body=occ.body,
+            placement=Pose.from_placement(occ.placement),
+            face_names=parts[occ.part_key].face_names,
+        )
+        for occ in occurrences
+        if occ.pattern is None
+    }
+    seeds = _mirror_seeds(request, occurrences, parts, sub_poses)
+    source = {
+        (occ.group_id, occ.path[1:]): occ for occ in occurrences if occ.pattern is None
+    }
+    twisted = {
+        inst.part_key
+        for inst in iter_part_instances(request.instances)
+        if features_have_twist(inst.features)
+    }
+    budget = MAX_ASSEMBLY_INSTANCES - len(occurrences)
+    twins: list[Occurrence] = []
+    states: list[MirrorState] = []
+    for evaluated in sorted(
+        request.mirrors, key=lambda m: (m.order_index, str(m.mirror_id))
+    ):
+        placed, state = expand_mirror(evaluated, seeds, targets, budget)
+        budget -= len(placed)
+        states.append(state)
+        for twin in placed:
+            seed_part = source[(twin.ref.seed_instance_id, twin.inner)]
+            part_key, body = seed_part.part_key, seed_part.body
+            if twin.opposite is not None and body is not None:
+                part_key = twin.opposite.part_key
+                if part_key not in parts:
+                    parts[part_key] = _opposite_part(
+                        parts[seed_part.part_key],
+                        twin.opposite,
+                        request.linear_deflection,
+                        seed_part.part_key in twisted,
+                    )
+                body = parts[part_key].body
+            placement = twin.placement.to_placement()
+            twins.append(
+                Occurrence(
+                    occurrence_id=twin.occurrence_id,
+                    path=twin.path,
+                    group_id=twin.group_id,
+                    offset=seed_part.offset,
+                    part_key=part_key,
+                    name=mirrored_name(seed_part.name, twin.opposite is not None),
+                    seed=placement,
+                    placement=placement,
+                    body=body,
+                    error=seed_part.error,
+                    mirror=twin.ref,
+                )
+            )
+    return twins, states
 
 
 def _seed_occurrences(
@@ -967,6 +1119,7 @@ def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResul
                     error=occ.error,
                     path=path,
                     pattern=occ.pattern,
+                    mirror=occ.mirror,
                 )
             )
             continue
@@ -980,6 +1133,7 @@ def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResul
                 error=None,
                 path=path,
                 pattern=occ.pattern,
+                mirror=occ.mirror,
             )
         )
         if part.properties is not None:
@@ -1001,6 +1155,7 @@ def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResul
             for instance_id, placement in solved_assembly.sub_assembly_poses.items()
         ],
         pattern_states=solved_assembly.pattern_states,
+        mirror_states=solved_assembly.mirror_states,
         in_context=solved_assembly.in_context,
         omitted=solved_assembly.omitted(),
     )

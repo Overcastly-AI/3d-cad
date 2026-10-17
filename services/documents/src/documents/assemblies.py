@@ -46,6 +46,7 @@ from loft_wire.assemblies import (
     Placement,
     mate_instance_ids,
 )
+from loft_wire.component_mirrors import ComponentMirror, EvaluatedMirror
 from loft_wire.component_patterns import EvaluatedPattern
 from loft_wire.features import EvaluatedFeatureInput
 from loft_wire.materials import MaterialAssignment
@@ -61,6 +62,7 @@ from documents.assembly_history import (
     ASSEMBLY_HISTORY,
     ordered_instances,
     ordered_mates,
+    ordered_mirrors,
     ordered_patterns,
 )
 from documents.bom import assembly_bom, parse_pattern_counts
@@ -68,6 +70,10 @@ from documents.features import evaluation_prefix, part_materials
 from documents.filing import resolve_destination
 from documents.history_core import Direction
 from documents.joint_rules import reject_out_of_limits
+from documents.mirror_rows import (
+    cascade_mirrors_on_instance_delete,
+    mirror_response,
+)
 from documents.occurrences import (
     OccurrenceWalk,
     mate_members,
@@ -337,6 +343,7 @@ async def graph_response(
     instances = await ordered_instances(session, assembly.id)
     mates = await ordered_mates(session, assembly.id)
     patterns = await ordered_patterns(session, assembly.id)
+    mirrors = await ordered_mirrors(session, assembly.id)
     can_undo, can_redo = await ASSEMBLY_HISTORY.availability(session, assembly)
     return AssemblyGraphResponse(
         assembly=AssemblyResponse.model_validate(assembly),
@@ -344,6 +351,7 @@ async def graph_response(
         instances=[_instance_response(row) for row in instances],
         mates=[mate_response(row) for row in mates],
         patterns=[pattern_response(row) for row in patterns],
+        mirrors=[mirror_response(row) for row in mirrors],
         can_undo=can_undo,
         can_redo=can_redo,
     )
@@ -478,6 +486,14 @@ async def build_evaluate_assembly_request(
                 pattern=PATTERN_ADAPTER.validate_python(row.params),
             )
             for row in await ordered_patterns(session, assembly.id)
+        ],
+        mirrors=[
+            EvaluatedMirror(
+                mirror_id=row.id,
+                order_index=row.order_index,
+                mirror=ComponentMirror.model_validate(row.params),
+            )
+            for row in await ordered_mirrors(session, assembly.id)
         ],
     )
 
@@ -885,6 +901,9 @@ async def delete_instance(
     # The same for component patterns: it leaves their seeds, and a pattern
     # left without seeds or reading geometry from it goes with it (ASM-A3).
     await cascade_instance_delete(session, owner_id, assembly_id, instance_id)
+    await cascade_mirrors_on_instance_delete(
+        session, owner_id, assembly_id, instance_id
+    )
 
     deleted_index = instance.order_index
     await session.delete(instance)

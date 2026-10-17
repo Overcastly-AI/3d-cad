@@ -76,6 +76,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 from documents import db
 from documents.bom import (
     direct_quantities,
+    line_name,
     parse_pattern_counts,
     resolve_document_names,
 )
@@ -665,21 +666,25 @@ async def _bom_lines(
     assembly BOM's indented and parts-only views. A referenced document deleted while
     still instanced keeps its line with ``missing`` true and a null name — the
     quantity is never silently dropped. A component pattern's copies count on
-    their seed's line (ASM-A3; see :func:`documents.bom.direct_quantities`).
+    their seed's line (ASM-A3; see :func:`documents.bom.direct_quantities`); a
+    mirror's opposite-hand twins are an item of their own, after the instances
+    (ASM-MIRROR-COMPONENT).
     """
     quantities = await direct_quantities(session, assembly.id, counts, unresolved)
-    order = list(quantities)
-    names = await resolve_document_names(session, assembly.owner_id, set(order))
+    names = await resolve_document_names(
+        session, assembly.owner_id, {(ref_id, kind) for ref_id, kind, _ in quantities}
+    )
     return [
         DrawingBomLine(
             item_number=index + 1,
-            ref_document_id=ref_id,
-            ref_document_kind=kind,
-            name=names.get((ref_id, kind)),
-            missing=(ref_id, kind) not in names,
-            quantity=quantities[(ref_id, kind)],
+            ref_document_id=key[0],
+            ref_document_kind=key[1],
+            name=line_name(names, key),
+            missing=(key[0], key[1]) not in names,
+            quantity=count,
+            opposite_hand=key[2],
         )
-        for index, (ref_id, kind) in enumerate(order)
+        for index, (key, count) in enumerate(quantities.items())
     ]
 
 

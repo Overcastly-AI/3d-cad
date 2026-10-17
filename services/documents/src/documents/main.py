@@ -26,6 +26,7 @@ from py_kit.db import DatabaseState, postgres_readiness
 
 from documents.assemblies import router as assemblies_router
 from documents.assembly_joints import router as assembly_joints_router
+from documents.assembly_mirrors import router as assembly_mirrors_router
 from documents.assembly_patterns import router as assembly_patterns_router
 from documents.custom_features import router as plugins_router
 from documents.drawings import router as drawings_router
@@ -107,6 +108,7 @@ def build_app(settings: DocumentsSettings | None = None) -> FastAPI:
     app.include_router(assemblies_router)
     app.include_router(assembly_joints_router)
     app.include_router(assembly_patterns_router)
+    app.include_router(assembly_mirrors_router)
     app.include_router(instance_copy_router)
     app.include_router(drawings_router)
     app.include_router(step_import_router)

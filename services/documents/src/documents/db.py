@@ -894,6 +894,52 @@ class AssemblyPattern(Base):
         )
 
 
+class AssemblyMirror(Base):
+    """One component mirror of an assembly (ASM-MIRROR-COMPONENT).
+
+    ONE entry per mirror, holding its definition (``params`` is the full
+    :class:`~loft_wire.component_mirrors.ComponentMirror` payload, always the
+    output of a pydantic validation), never mirrored instance rows: geometry
+    places the twins after the solve. The seeds and the plane face live inside
+    ``params`` and are app-enforced at write time, like a pattern's.
+    """
+
+    __tablename__ = "assembly_mirrors"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    assembly_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("assemblies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    order_index: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
+    params: Mapped[dict[str, Any]] = mapped_column(_JSON_VARIANT, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        onupdate=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "assembly_id", "order_index", name="uq_assembly_mirrors_order"
+        ),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return f"AssemblyMirror(id={self.id!r}, assembly_id={self.assembly_id!r})"
+
+
 class AssemblySnapshot(Base):
     """One entry of an assembly's bounded undo/redo history (undo-redo.md UR3).
 

@@ -1615,6 +1615,30 @@ export interface components {
             kind: "collinear";
         };
         /**
+         * ComponentMirror
+         * @description Reflect ``seed_instance_ids`` about ``plane`` (see the module docstring).
+         *
+         *     A seed listed in ``opposite_hand_instance_ids`` gets an opposite-hand
+         *     version; every other seed gets a mirrored copy of itself.
+         */
+        ComponentMirror: {
+            /**
+             * Opposite Hand Instance Ids
+             * @description The seeds (parts only) that get an opposite-hand version rather than a mirrored copy of themselves
+             */
+            opposite_hand_instance_ids?: string[];
+            /**
+             * Plane
+             * @description The mirror plane
+             */
+            plane: components["schemas"]["MirrorOriginPlaneRef"] | components["schemas"]["MirrorFaceRef"];
+            /**
+             * Seed Instance Ids
+             * @description The instances to mirror (instances of this assembly: parts or rigid sub-assemblies), in order
+             */
+            seed_instance_ids: string[];
+        };
+        /**
          * ComposeDrawingRequest
          * @description Compose a drawing into a placed sheet + serialized artifact (design §4.2).
          *
@@ -3699,6 +3723,11 @@ export interface components {
              */
             mates?: components["schemas"]["EvaluatedMate"][];
             /**
+             * Mirrors
+             * @description Component mirrors (ASM-MIRROR-COMPONENT), placed after the patterns in order_index order. Omitted while empty.
+             */
+            mirrors?: components["schemas"]["EvaluatedMirror"][];
+            /**
              * Patterns
              * @description Component patterns (ASM-A3), expanded after the solve in order_index order. Omitted while empty, so a request without patterns dumps exactly as before they existed.
              */
@@ -3752,6 +3781,11 @@ export interface components {
              * @description Per-mate resolution failures (dropped from the solve, §4)
              */
             mate_errors?: components["schemas"]["MateEvaluationError"][];
+            /**
+             * Mirror States
+             * @description Each component mirror of this assembly: the twins it placed, which copies are not mirror images, or why it placed none. Omitted while empty.
+             */
+            mirror_states?: components["schemas"]["MirrorState"][];
             /** @description The parts that produced no body, by part, with how many occurrences each — exactly those an export of this assembly leaves out (ASM-FAILED-PART-API). Omitted when every occurrence has a body. */
             omitted?: components["schemas"]["OmittedOccurrences"] | null;
             /**
@@ -4046,6 +4080,23 @@ export interface components {
             order_index: number;
         };
         /**
+         * EvaluatedMirror
+         * @description One mirror as the evaluator sees it: its stored id names its twins.
+         */
+        EvaluatedMirror: {
+            mirror: components["schemas"]["ComponentMirror"];
+            /**
+             * Mirror Id
+             * Format: uuid
+             */
+            mirror_id: string;
+            /**
+             * Order Index
+             * @description Expansion order (determinism)
+             */
+            order_index: number;
+        };
+        /**
          * EvaluatedPattern
          * @description One pattern as the evaluator sees it: its stored id names its copies.
          */
@@ -4116,6 +4167,11 @@ export interface components {
              * @description The mate graph; processed in order_index order (determinism), bounded by MAX_ASSEMBLY_MATES (work bound, audit G2)
              */
             mates?: components["schemas"]["EvaluatedMate"][];
+            /**
+             * Mirrors
+             * @description Component mirrors (ASM-MIRROR-COMPONENT), placed after the patterns in order_index order. Omitted while empty.
+             */
+            mirrors?: components["schemas"]["EvaluatedMirror"][];
             /**
              * Name
              * @description The assembly's human-readable document name. Names the exported STEP's ROOT PRODUCT and the download filename; omitted / null falls back to the assembly id. Export-only (see DocumentName): a name must never be an input to the solve.
@@ -5148,6 +5204,8 @@ export interface components {
              * Format: uuid
              */
             instance_id: string;
+            /** @description Set when this row is a twin placed by one of THIS assembly's component mirrors (for a twin of a sub-assembly seed, on each of its parts). Omitted otherwise. */
+            mirror?: components["schemas"]["MirrorCopyRef"] | null;
             /**
              * Part Mesh Glb Id
              * @description Content-addressed shared part mesh (sha256:<hex>), or null when the part produced no body
@@ -5943,6 +6001,53 @@ export interface components {
             kind: "body";
         };
         /**
+         * MirrorCopyRef
+         * @description Marks a result row as a mirror twin: which mirror, which seed, and
+         *     whether it is an opposite-hand version (its mesh is then the reflected
+         *     part's own).
+         */
+        MirrorCopyRef: {
+            /**
+             * Mirror Id
+             * Format: uuid
+             */
+            mirror_id: string;
+            /**
+             * Opposite Hand
+             * @description An opposite-hand version, not a copy
+             * @default false
+             */
+            opposite_hand: boolean;
+            /**
+             * Seed Instance Id
+             * Format: uuid
+             */
+            seed_instance_id: string;
+        };
+        /**
+         * MirrorFaceRef
+         * @description A planar face picked on a part of the assembly: the plane it lies in.
+         *
+         *     ``instance_id`` may be a part instance of this assembly or a part inside one
+         *     of its sub-assemblies (an occurrence id, as joints use). It may not be a copy
+         *     placed by a pattern or a mirror.
+         */
+        MirrorFaceRef: {
+            /**
+             * Instance Id
+             * Format: uuid
+             * @description The instance (or nested occurrence) whose part carries the face
+             */
+            instance_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "face";
+            /** @description Stage-1 signature of the picked planar face */
+            signature: components["schemas"]["PlanarFaceSignature"];
+        };
+        /**
          * MirrorFeature
          * @description ``{"type": "mirror", "version": 1, "params": {...}}`` envelope.
          *
@@ -6015,6 +6120,29 @@ export interface components {
             kind: "features";
         };
         /**
+         * MirrorOriginPlaneRef
+         * @description An origin plane of the assembly, moved ``offset_mm`` along its normal.
+         */
+        MirrorOriginPlaneRef: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "origin_plane";
+            /**
+             * Offset Mm
+             * @description Distance (mm) the plane is moved along its normal (+Z for XY, +X for YZ, +Y for ZX)
+             * @default 0
+             */
+            offset_mm: number;
+            /**
+             * Plane
+             * @description 'xy', 'yz' or 'zx'
+             * @enum {string}
+             */
+            plane: "xy" | "yz" | "zx";
+        };
+        /**
          * MirrorParamsV1
          * @description Reflect the current body about a plane and union the reflection in.
          *
@@ -6058,6 +6186,37 @@ export interface components {
              * @description WHAT to reflect (discriminated on `kind`): `body` reflects the current body (the v1 reading — cut-aware, with the reflect-and-union fallback), `features` reflects the recorded tool solids of an explicit tree-ordered selection and re-applies each feature's own boolean. Absent reads `body`, so pre-v2 mirrors are unchanged (design §3.2).
              */
             scope?: components["schemas"]["MirrorBodyScope"] | components["schemas"]["MirrorFeaturesScope"];
+        };
+        /**
+         * MirrorState
+         * @description How a mirror evaluated: the twins it placed, or why it placed none.
+         */
+        MirrorState: {
+            /**
+             * Asymmetric
+             * @description Seeds placed as mirrored copies whose part is not symmetric about the plane its copy assumes (its centroid is off that plane): the copy is not a mirror image, and the seed wants an opposite hand instead
+             */
+            asymmetric?: string[];
+            /**
+             * Error Code
+             * @description Why the mirror placed nothing, if it did not
+             */
+            error_code?: string | null;
+            /**
+             * Error Message
+             * @description The same, in words
+             */
+            error_message?: string | null;
+            /**
+             * Mirror Id
+             * Format: uuid
+             */
+            mirror_id: string;
+            /**
+             * Placed
+             * @description Twins placed (one per seed), or 0
+             */
+            placed: number;
         };
         /**
          * NoteAnnotationParams

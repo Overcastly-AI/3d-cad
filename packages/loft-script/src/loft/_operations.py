@@ -187,6 +187,36 @@ PATCH_ASSEMBLIES_ASSEMBLY_ID_MATES_MATE_ID: Final = Operation(
     required_query=(),
 )
 
+POST_ASSEMBLIES_ASSEMBLY_ID_MIRRORS: Final = Operation(
+    operation_id="create_mirror_api_v1_assemblies__assembly_id__mirrors_post",
+    method="POST",
+    path="/api/v1/assemblies/{assembly_id}/mirrors",
+    request_model="MirrorCreate",
+    response_model="MirrorMutationResponse",
+    path_params=("assembly_id",),
+    required_query=(),
+)
+
+DELETE_ASSEMBLIES_ASSEMBLY_ID_MIRRORS_MIRROR_ID: Final = Operation(
+    operation_id="delete_mirror_api_v1_assemblies__assembly_id__mirrors__mirror_id__delete",
+    method="DELETE",
+    path="/api/v1/assemblies/{assembly_id}/mirrors/{mirror_id}",
+    request_model=None,
+    response_model="AssemblyGraphResponse",
+    path_params=("assembly_id", "mirror_id",),
+    required_query=("expected_version",),
+)
+
+PATCH_ASSEMBLIES_ASSEMBLY_ID_MIRRORS_MIRROR_ID: Final = Operation(
+    operation_id="update_mirror_api_v1_assemblies__assembly_id__mirrors__mirror_id__patch",
+    method="PATCH",
+    path="/api/v1/assemblies/{assembly_id}/mirrors/{mirror_id}",
+    request_model="MirrorUpdate",
+    response_model="MirrorMutationResponse",
+    path_params=("assembly_id", "mirror_id",),
+    required_query=(),
+)
+
 POST_ASSEMBLIES_ASSEMBLY_ID_MOVE: Final = Operation(
     operation_id="move_assembly_api_v1_assemblies__assembly_id__move_post",
     method="POST",
@@ -1069,6 +1099,9 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "create_mate_api_v1_assemblies__assembly_id__mates_post": POST_ASSEMBLIES_ASSEMBLY_ID_MATES,
         "delete_mate_api_v1_assemblies__assembly_id__mates__mate_id__delete": DELETE_ASSEMBLIES_ASSEMBLY_ID_MATES_MATE_ID,
         "update_mate_api_v1_assemblies__assembly_id__mates__mate_id__patch": PATCH_ASSEMBLIES_ASSEMBLY_ID_MATES_MATE_ID,
+        "create_mirror_api_v1_assemblies__assembly_id__mirrors_post": POST_ASSEMBLIES_ASSEMBLY_ID_MIRRORS,
+        "delete_mirror_api_v1_assemblies__assembly_id__mirrors__mirror_id__delete": DELETE_ASSEMBLIES_ASSEMBLY_ID_MIRRORS_MIRROR_ID,
+        "update_mirror_api_v1_assemblies__assembly_id__mirrors__mirror_id__patch": PATCH_ASSEMBLIES_ASSEMBLY_ID_MIRRORS_MIRROR_ID,
         "move_assembly_api_v1_assemblies__assembly_id__move_post": POST_ASSEMBLIES_ASSEMBLY_ID_MOVE,
         "create_pattern_api_v1_assemblies__assembly_id__patterns_post": POST_ASSEMBLIES_ASSEMBLY_ID_PATTERNS,
         "delete_pattern_api_v1_assemblies__assembly_id__patterns__pattern_id__delete": DELETE_ASSEMBLIES_ASSEMBLY_ID_PATTERNS_PATTERN_ID,

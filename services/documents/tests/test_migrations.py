@@ -977,3 +977,91 @@ def test_0020_backfills_stored_views_to_false(
     alembic_runner(pg_url, "0019", downgrade=True)
     assert run(_scalar_rows(pg_url, read)) == before
     alembic_runner(pg_url, "head")
+
+
+def test_0021_offline_sql_creates_assembly_mirrors(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0020:0021")
+    assert "CREATE TABLE assembly_mirrors" in sql
+    assert "REFERENCES assemblies (id) ON DELETE CASCADE" in sql
+    assert "params JSONB NOT NULL" in sql
+    assert (
+        "CONSTRAINT uq_assembly_mirrors_order UNIQUE (assembly_id, order_index)" in sql
+    )
+    # Additive only: no existing table is altered or rewritten.
+    assert "ALTER TABLE" not in sql
+    assert "UPDATE " not in sql.replace("UPDATE alembic_version", "")
+
+
+def test_0021_offline_downgrade_drops_assembly_mirrors(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0021:0020", downgrade=True)
+    assert "DROP TABLE assembly_mirrors" in sql
+    assert "ALTER TABLE" not in sql
+
+
+_MIRROR_ASSEMBLY = "6f3f6b64-0000-4000-8000-0000000210aa"
+_MIRROR_INSTANCE = "6f3f6b64-0000-4000-8000-0000000210bb"
+
+
+def test_0021_up_down_up_on_a_populated_database(
+    pg_url: str, alembic_runner: Callable[..., None]
+) -> None:
+    """ASM-MIRROR-COMPONENT: 0021 against real rows. An existing assembly, its
+    instance, pattern and history snapshot come through byte-for-byte; a
+    mirror row stores, keeps its order unique per assembly and cascades with
+    its assembly; the downgrade drops exactly the table; the upgrade applies
+    again."""
+    alembic_runner(pg_url, "0020", downgrade=True)
+    run = asyncio.run
+    placement = '{"position": {"x": 0, "y": 0, "z": 0}}'
+    for statement in (
+        "INSERT INTO assemblies (id, owner_id, name, doc_version) "
+        f"VALUES ('{_MIRROR_ASSEMBLY}', '{_OWNER}', 'Old crankset', 3)",
+        "INSERT INTO instances (id, assembly_id, ref_document_id, "
+        "ref_document_kind, name, placement, order_index) VALUES "
+        f"('{_MIRROR_INSTANCE}', '{_MIRROR_ASSEMBLY}', gen_random_uuid(), "
+        f"'part', 'Crank arm <1>', '{placement}', 0)",
+        "INSERT INTO assembly_patterns (assembly_id, order_index, type, params) "
+        f"VALUES ('{_MIRROR_ASSEMBLY}', 0, 'linear', '{{\"count\": 2}}')",
+        "INSERT INTO assembly_snapshots (assembly_id, seq, state) VALUES "
+        f"('{_MIRROR_ASSEMBLY}', 1, '{{\"instances\": [], \"mates\": []}}')",
+    ):
+        run(_scalar_rows(pg_url, statement))
+    reads = (
+        "SELECT id, name, doc_version, updated_at FROM assemblies",
+        "SELECT id, name, placement::text, order_index, updated_at FROM instances",
+        "SELECT type, params::text, updated_at FROM assembly_patterns",
+        "SELECT seq, state::text FROM assembly_snapshots",
+    )
+    before = [run(_scalar_rows(pg_url, read)) for read in reads]
+
+    alembic_runner(pg_url, "0021")
+    assert [run(_scalar_rows(pg_url, read)) for read in reads] == before
+    params = (
+        f'{{"seed_instance_ids": ["{_MIRROR_INSTANCE}"], '
+        '"plane": {"kind": "origin_plane", "plane": "yz"}}'
+    )
+    insert = (
+        "INSERT INTO assembly_mirrors (assembly_id, order_index, params) "
+        f"VALUES ('{_MIRROR_ASSEMBLY}', 0, '{params}')"
+    )
+    run(_scalar_rows(pg_url, insert))
+    assert run(
+        _scalar_rows(
+            pg_url, "SELECT params->>'seed_instance_ids' FROM assembly_mirrors"
+        )
+    ) == [(f'["{_MIRROR_INSTANCE}"]',)]
+    with pytest.raises(IntegrityError):
+        run(_scalar_rows(pg_url, insert))  # (assembly_id, order_index) is unique
+
+    alembic_runner(pg_url, "0020", downgrade=True)
+    assert "assembly_mirrors" not in run(_table_names(pg_url))
+    assert [run(_scalar_rows(pg_url, read)) for read in reads] == before
+
+    alembic_runner(pg_url, "head")
+    run(_scalar_rows(pg_url, insert))
+    run(_scalar_rows(pg_url, f"DELETE FROM assemblies WHERE id = '{_MIRROR_ASSEMBLY}'"))
+    assert run(_scalar_rows(pg_url, "SELECT count(*) FROM assembly_mirrors")) == [(0,)]

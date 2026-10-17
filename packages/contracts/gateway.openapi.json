@@ -524,6 +524,14 @@
             "title": "Mates",
             "type": "array"
           },
+          "mirrors": {
+            "description": "The assembly's component mirrors, in order (ASM-MIRROR-COMPONENT). Omitted while empty.",
+            "items": {
+              "$ref": "#/components/schemas/MirrorResponse"
+            },
+            "title": "Mirrors",
+            "type": "array"
+          },
           "patterns": {
             "description": "The assembly's component patterns, in order (ASM-A3). Omitted while empty, so an assembly without patterns reads as before.",
             "items": {
@@ -1021,6 +1029,11 @@
             ],
             "description": "The referenced document's CURRENT name, or null when it has been deleted while still instanced (see `missing`)",
             "title": "Name"
+          },
+          "opposite_hand": {
+            "description": "True on the line of a part's OPPOSITE-HAND versions (placed by component mirrors): a separate item from the part itself, named after it. Omitted when false.",
+            "title": "Opposite Hand",
+            "type": "boolean"
           },
           "quantity": {
             "description": "Count of instances referencing this document: direct instances on a top-level line, instances inside the parent on an indented line, every placed occurrence on a parts-only line",
@@ -1655,6 +1668,57 @@
           "b"
         ],
         "title": "CollinearConstraint",
+        "type": "object"
+      },
+      "ComponentMirror": {
+        "description": "Reflect ``seed_instance_ids`` about ``plane`` (see the module docstring).\n\nA seed listed in ``opposite_hand_instance_ids`` gets an opposite-hand\nversion; every other seed gets a mirrored copy of itself.",
+        "properties": {
+          "opposite_hand_instance_ids": {
+            "description": "The seeds (parts only) that get an opposite-hand version rather than a mirrored copy of themselves",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Opposite Hand Instance Ids",
+            "type": "array"
+          },
+          "plane": {
+            "description": "The mirror plane",
+            "discriminator": {
+              "mapping": {
+                "face": "#/components/schemas/MirrorFaceRef",
+                "origin_plane": "#/components/schemas/MirrorOriginPlaneRef"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MirrorOriginPlaneRef"
+              },
+              {
+                "$ref": "#/components/schemas/MirrorFaceRef"
+              }
+            ],
+            "title": "Plane"
+          },
+          "seed_instance_ids": {
+            "description": "The instances to mirror (instances of this assembly: parts or rigid sub-assemblies), in order",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Seed Instance Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "seed_instance_ids",
+          "plane"
+        ],
+        "title": "ComponentMirror",
         "type": "object"
       },
       "ComposedArrow": {
@@ -4144,6 +4208,11 @@
             "description": "The referenced document's CURRENT name, or null when it has been deleted while still instanced (see `missing`)",
             "title": "Name"
           },
+          "opposite_hand": {
+            "description": "True on the line of a part's OPPOSITE-HAND versions (placed by component mirrors): a separate item from the part itself, named after it. Omitted when false.",
+            "title": "Opposite Hand",
+            "type": "boolean"
+          },
           "quantity": {
             "description": "Count of instances referencing this document: direct instances on a top-level line, instances inside the parent on an indented line, every placed occurrence on a parts-only line",
             "minimum": 1.0,
@@ -4881,6 +4950,15 @@
             "title": "Mates",
             "type": "array"
           },
+          "mirrors": {
+            "description": "Component mirrors (ASM-MIRROR-COMPONENT), placed after the patterns in order_index order. Omitted while empty.",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedMirror"
+            },
+            "maxItems": 200,
+            "title": "Mirrors",
+            "type": "array"
+          },
           "patterns": {
             "description": "Component patterns (ASM-A3), expanded after the solve in order_index order. Omitted while empty, so a request without patterns dumps exactly as before they existed.",
             "items": {
@@ -4935,6 +5013,15 @@
             },
             "maxItems": 2000,
             "title": "Mates",
+            "type": "array"
+          },
+          "mirrors": {
+            "description": "Component mirrors (ASM-MIRROR-COMPONENT), placed after the patterns in order_index order. Omitted while empty.",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedMirror"
+            },
+            "maxItems": 200,
+            "title": "Mirrors",
             "type": "array"
           },
           "patterns": {
@@ -5021,6 +5108,14 @@
               "$ref": "#/components/schemas/MateEvaluationError"
             },
             "title": "Mate Errors",
+            "type": "array"
+          },
+          "mirror_states": {
+            "description": "Each component mirror of this assembly: the twins it placed, which copies are not mirror images, or why it placed none. Omitted while empty.",
+            "items": {
+              "$ref": "#/components/schemas/MirrorState"
+            },
+            "title": "Mirror States",
             "type": "array"
           },
           "omitted": {
@@ -5696,6 +5791,32 @@
         "title": "EvaluatedMate",
         "type": "object"
       },
+      "EvaluatedMirror": {
+        "description": "One mirror as the evaluator sees it: its stored id names its twins.",
+        "properties": {
+          "mirror": {
+            "$ref": "#/components/schemas/ComponentMirror"
+          },
+          "mirror_id": {
+            "format": "uuid",
+            "title": "Mirror Id",
+            "type": "string"
+          },
+          "order_index": {
+            "description": "Expansion order (determinism)",
+            "minimum": 0.0,
+            "title": "Order Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mirror_id",
+          "order_index",
+          "mirror"
+        ],
+        "title": "EvaluatedMirror",
+        "type": "object"
+      },
       "EvaluatedPattern": {
         "description": "One pattern as the evaluator sees it: its stored id names its copies.",
         "properties": {
@@ -5924,6 +6045,15 @@
             },
             "maxItems": 2000,
             "title": "Mates",
+            "type": "array"
+          },
+          "mirrors": {
+            "description": "Component mirrors (ASM-MIRROR-COMPONENT), placed after the patterns in order_index order. Omitted while empty.",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedMirror"
+            },
+            "maxItems": 200,
+            "title": "Mirrors",
             "type": "array"
           },
           "name": {
@@ -8116,6 +8246,11 @@
             "description": "The referenced document's CURRENT name, or null when it has been deleted while still instanced (see `missing`)",
             "title": "Name"
           },
+          "opposite_hand": {
+            "description": "True on the line of a part's OPPOSITE-HAND versions (placed by component mirrors): a separate item from the part itself, named after it. Omitted when false.",
+            "title": "Opposite Hand",
+            "type": "boolean"
+          },
           "quantity": {
             "description": "Count of instances referencing this document: direct instances on a top-level line, instances inside the parent on an indented line, every placed occurrence on a parts-only line",
             "minimum": 1.0,
@@ -8296,6 +8431,17 @@
             "format": "uuid",
             "title": "Instance Id",
             "type": "string"
+          },
+          "mirror": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MirrorCopyRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when this row is a twin placed by one of THIS assembly's component mirrors (for a twin of a sub-assembly seed, on each of its parts). Omitted otherwise."
           },
           "part_mesh_glb_id": {
             "anyOf": [
@@ -10287,6 +10433,81 @@
         "title": "MirrorBodyScope",
         "type": "object"
       },
+      "MirrorCopyRef": {
+        "description": "Marks a result row as a mirror twin: which mirror, which seed, and\nwhether it is an opposite-hand version (its mesh is then the reflected\npart's own).",
+        "properties": {
+          "mirror_id": {
+            "format": "uuid",
+            "title": "Mirror Id",
+            "type": "string"
+          },
+          "opposite_hand": {
+            "default": false,
+            "description": "An opposite-hand version, not a copy",
+            "title": "Opposite Hand",
+            "type": "boolean"
+          },
+          "seed_instance_id": {
+            "format": "uuid",
+            "title": "Seed Instance Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mirror_id",
+          "seed_instance_id"
+        ],
+        "title": "MirrorCopyRef",
+        "type": "object"
+      },
+      "MirrorCreate": {
+        "description": "Add a component mirror to an assembly.",
+        "properties": {
+          "expected_version": {
+            "description": "Optimistic-concurrency guard (design \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "mirror": {
+            "$ref": "#/components/schemas/ComponentMirror",
+            "description": "The mirror"
+          }
+        },
+        "required": [
+          "expected_version",
+          "mirror"
+        ],
+        "title": "MirrorCreate",
+        "type": "object"
+      },
+      "MirrorFaceRef": {
+        "description": "A planar face picked on a part of the assembly: the plane it lies in.\n\n``instance_id`` may be a part instance of this assembly or a part inside one\nof its sub-assemblies (an occurrence id, as joints use). It may not be a copy\nplaced by a pattern or a mirror.",
+        "properties": {
+          "instance_id": {
+            "description": "The instance (or nested occurrence) whose part carries the face",
+            "format": "uuid",
+            "title": "Instance Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "face",
+            "default": "face",
+            "title": "Kind",
+            "type": "string"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/PlanarFaceSignature",
+            "description": "Stage-1 signature of the picked planar face"
+          }
+        },
+        "required": [
+          "instance_id",
+          "signature"
+        ],
+        "title": "MirrorFaceRef",
+        "type": "object"
+      },
       "MirrorFeature": {
         "description": "``{\"type\": \"mirror\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-affecting feature (design \u00a77.6): it reflects the current body about a\nplane and boolean-unions the reflection into the single body chain \u2014 the\nreflective sibling of :class:`PatternFeature`. ``params`` is\n:class:`MirrorParamsV1`.",
         "properties": {
@@ -10365,6 +10586,58 @@
         "title": "MirrorFeaturesScope",
         "type": "object"
       },
+      "MirrorMutationResponse": {
+        "description": "Result of a mirror write: the mirror + the new version.",
+        "properties": {
+          "doc_version": {
+            "title": "Doc Version",
+            "type": "integer"
+          },
+          "mirror": {
+            "$ref": "#/components/schemas/MirrorResponse"
+          }
+        },
+        "required": [
+          "mirror",
+          "doc_version"
+        ],
+        "title": "MirrorMutationResponse",
+        "type": "object"
+      },
+      "MirrorOriginPlaneRef": {
+        "description": "An origin plane of the assembly, moved ``offset_mm`` along its normal.",
+        "properties": {
+          "kind": {
+            "const": "origin_plane",
+            "default": "origin_plane",
+            "title": "Kind",
+            "type": "string"
+          },
+          "offset_mm": {
+            "default": 0.0,
+            "description": "Distance (mm) the plane is moved along its normal (+Z for XY, +X for YZ, +Y for ZX)",
+            "maximum": 100000.0,
+            "minimum": -100000.0,
+            "title": "Offset Mm",
+            "type": "number"
+          },
+          "plane": {
+            "description": "'xy', 'yz' or 'zx'",
+            "enum": [
+              "xy",
+              "yz",
+              "zx"
+            ],
+            "title": "Plane",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plane"
+        ],
+        "title": "MirrorOriginPlaneRef",
+        "type": "object"
+      },
       "MirrorParamsV1": {
         "description": "Reflect the current body about a plane and union the reflection in.\n\nThe mirror feature (BACKLOG P2): a whole-body reflection about ``plane``,\nboolean-unioned into the single body chain (design \u00a77.6) \u2014 the reflective\nsibling of the ADD pattern (see the module note for the shared \"replicate the\ncurrent body + union\" semantics). Like a fillet/chamfer/pattern it carries NO\nsource ``FeatureRef``: it mirrors the implicit body chain that exists at its\npoint in the tree, so its dependency on the prior body-affecting feature is\ntree order.\n\n``plane`` is a :data:`GeomRef` \u2014 the SAME plane reference a sketch uses (no\nnew plane taxonomy, DRY): a :class:`DatumPlaneRef` (an origin datum XY/XZ/YZ)\nor a :class:`FeatureRef` to an earlier ``datum`` feature (an offset / on-face\n/ midplane plane). A ``FeatureRef`` that does not resolve to a ``datum`` of\nthis prefix is a write-time 422 (the eval-time backstop is\n``reference_unresolved``, pinned to the referenced feature).\n\nThe reflection is a true handedness-reversing isometry, NOT a translation\n(proven by the ``mirror-triangle-prism-2x`` golden). It handles every case\nsanely: a body that CLEARS the plane mirrors to a disjoint TWO-lump body\n(volume ``2V``); an OVERLAPPING reflection merges to one solid; a SYMMETRIC\nbody is unchanged. A degenerate/failed reflection is a per-feature\n``mirror_failed`` rebuild error; a mirror with no prior body is\n``no_target_body`` \u2014 never a silently wrong body.\n\n``scope`` (v2, design \u00a73) states WHAT is reflected \u2014 the whole ``body`` (the\nreading above, kept verbatim) or an explicit selection of ``features``. It\ndefaults to ``body`` and a persisted params blob with no ``scope`` key reads as\n``body`` (:meth:`_legacy_body_scope`), so every mirror authored before v2\nevaluates on unchanged code.",
         "properties": {
@@ -10411,6 +10684,113 @@
           "plane"
         ],
         "title": "MirrorParamsV1",
+        "type": "object"
+      },
+      "MirrorResponse": {
+        "description": "A mirror as stored.",
+        "properties": {
+          "assembly_id": {
+            "format": "uuid",
+            "title": "Assembly Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mirror": {
+            "$ref": "#/components/schemas/ComponentMirror"
+          },
+          "order_index": {
+            "description": "Stable order in the assembly's tree",
+            "title": "Order Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "assembly_id",
+          "order_index",
+          "mirror"
+        ],
+        "title": "MirrorResponse",
+        "type": "object"
+      },
+      "MirrorState": {
+        "description": "How a mirror evaluated: the twins it placed, or why it placed none.",
+        "properties": {
+          "asymmetric": {
+            "description": "Seeds placed as mirrored copies whose part is not symmetric about the plane its copy assumes (its centroid is off that plane): the copy is not a mirror image, and the seed wants an opposite hand instead",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Asymmetric",
+            "type": "array"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the mirror placed nothing, if it did not",
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The same, in words",
+            "title": "Error Message"
+          },
+          "mirror_id": {
+            "format": "uuid",
+            "title": "Mirror Id",
+            "type": "string"
+          },
+          "placed": {
+            "description": "Twins placed (one per seed), or 0",
+            "minimum": 0.0,
+            "title": "Placed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mirror_id",
+          "placed"
+        ],
+        "title": "MirrorState",
+        "type": "object"
+      },
+      "MirrorUpdate": {
+        "description": "Replace a mirror's definition (its id and position stay).",
+        "properties": {
+          "expected_version": {
+            "description": "Optimistic-concurrency guard (design \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "mirror": {
+            "$ref": "#/components/schemas/ComponentMirror",
+            "description": "The new definition"
+          }
+        },
+        "required": [
+          "expected_version",
+          "mirror"
+        ],
+        "title": "MirrorUpdate",
         "type": "object"
       },
       "NoteAnnotationParams": {
@@ -17207,6 +17587,203 @@
           }
         ],
         "summary": "Update Mate",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/mirrors": {
+      "post": {
+        "description": "Add a component mirror (201).",
+        "operationId": "create_mirror_api_v1_assemblies__assembly_id__mirrors_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MirrorCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MirrorMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Mirror",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/mirrors/{mirror_id}": {
+      "delete": {
+        "description": "Delete a mirror and its twins; returns the updated graph.",
+        "operationId": "delete_mirror_api_v1_assemblies__assembly_id__mirrors__mirror_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "mirror_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Mirror Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optimistic-concurrency guard",
+            "in": "query",
+            "name": "expected_version",
+            "required": true,
+            "schema": {
+              "description": "Optimistic-concurrency guard",
+              "minimum": 0,
+              "title": "Expected Version",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyGraphResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Mirror",
+        "tags": [
+          "assemblies"
+        ]
+      },
+      "patch": {
+        "description": "Replace a mirror's definition (same id, same place).",
+        "operationId": "update_mirror_api_v1_assemblies__assembly_id__mirrors__mirror_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "mirror_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Mirror Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MirrorUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MirrorMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Mirror",
         "tags": [
           "assemblies"
         ]

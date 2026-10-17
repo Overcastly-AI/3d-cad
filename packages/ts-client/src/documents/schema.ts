@@ -285,6 +285,57 @@ export interface paths {
         patch: operations["update_mate_api_v1_assemblies__assembly_id__mates__mate_id__patch"];
         trace?: never;
     };
+    "/api/v1/assemblies/{assembly_id}/mirrors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Mirror
+         * @description Add a component mirror (appended to the assembly's mirrors).
+         *
+         *     Refusals (422): ``mirror_seed_unknown``, ``mirror_opposite_hand_needs_part``,
+         *     ``mirror_reference_unknown``, ``mirror_needs_part``,
+         *     ``mirror_limit_exceeded``, ``assembly_too_large``,
+         *     ``stale_assembly_version``. Another user's assembly is a uniform 404.
+         */
+        post: operations["create_mirror_api_v1_assemblies__assembly_id__mirrors_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assemblies/{assembly_id}/mirrors/{mirror_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Mirror
+         * @description Delete a mirror and with it every twin it placed; its seeds stay.
+         */
+        delete: operations["delete_mirror_api_v1_assemblies__assembly_id__mirrors__mirror_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Mirror
+         * @description Replace a mirror's definition; it keeps its id (and so its twins'
+         *     ids) and its place. The same refusals as a create, plus
+         *     ``mirror_not_found`` (404).
+         */
+        patch: operations["update_mirror_api_v1_assemblies__assembly_id__mirrors__mirror_id__patch"];
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}/move": {
         parameters: {
             query?: never;
@@ -1901,6 +1952,11 @@ export interface components {
             /** Mates */
             mates: components["schemas"]["MateResponse"][];
             /**
+             * Mirrors
+             * @description The assembly's component mirrors, in order (ASM-MIRROR-COMPONENT). Omitted while empty.
+             */
+            mirrors?: components["schemas"]["MirrorResponse"][];
+            /**
              * Patterns
              * @description The assembly's component patterns, in order (ASM-A3). Omitted while empty, so an assembly without patterns reads as before.
              */
@@ -2108,6 +2164,11 @@ export interface components {
              * @description The referenced document's CURRENT name, or null when it has been deleted while still instanced (see `missing`)
              */
             name: string | null;
+            /**
+             * Opposite Hand
+             * @description True on the line of a part's OPPOSITE-HAND versions (placed by component mirrors): a separate item from the part itself, named after it. Omitted when false.
+             */
+            opposite_hand?: boolean;
             /**
              * Quantity
              * @description Count of instances referencing this document: direct instances on a top-level line, instances inside the parent on an indented line, every placed occurrence on a parts-only line
@@ -2522,6 +2583,30 @@ export interface components {
              * @enum {string}
              */
             kind: "collinear";
+        };
+        /**
+         * ComponentMirror
+         * @description Reflect ``seed_instance_ids`` about ``plane`` (see the module docstring).
+         *
+         *     A seed listed in ``opposite_hand_instance_ids`` gets an opposite-hand
+         *     version; every other seed gets a mirrored copy of itself.
+         */
+        ComponentMirror: {
+            /**
+             * Opposite Hand Instance Ids
+             * @description The seeds (parts only) that get an opposite-hand version rather than a mirrored copy of themselves
+             */
+            opposite_hand_instance_ids?: string[];
+            /**
+             * Plane
+             * @description The mirror plane
+             */
+            plane: components["schemas"]["MirrorOriginPlaneRef"] | components["schemas"]["MirrorFaceRef"];
+            /**
+             * Seed Instance Ids
+             * @description The instances to mirror (instances of this assembly: parts or rigid sub-assemblies), in order
+             */
+            seed_instance_ids: string[];
         };
         /**
          * ConcentricConstraint
@@ -3481,6 +3566,11 @@ export interface components {
              */
             name: string | null;
             /**
+             * Opposite Hand
+             * @description True on the line of a part's OPPOSITE-HAND versions (placed by component mirrors): a separate item from the part itself, named after it. Omitted when false.
+             */
+            opposite_hand?: boolean;
+            /**
              * Quantity
              * @description Count of instances referencing this document: direct instances on a top-level line, instances inside the parent on an indented line, every placed occurrence on a parts-only line
              */
@@ -3972,6 +4062,11 @@ export interface components {
              */
             mates?: components["schemas"]["EvaluatedMate"][];
             /**
+             * Mirrors
+             * @description Component mirrors (ASM-MIRROR-COMPONENT), placed after the patterns in order_index order. Omitted while empty.
+             */
+            mirrors?: components["schemas"]["EvaluatedMirror"][];
+            /**
              * Patterns
              * @description Component patterns (ASM-A3), expanded after the solve in order_index order. Omitted while empty, so a request without patterns dumps exactly as before they existed.
              */
@@ -4117,6 +4212,23 @@ export interface components {
             /**
              * Order Index
              * @description Deterministic processing order (design §2.2)
+             */
+            order_index: number;
+        };
+        /**
+         * EvaluatedMirror
+         * @description One mirror as the evaluator sees it: its stored id names its twins.
+         */
+        EvaluatedMirror: {
+            mirror: components["schemas"]["ComponentMirror"];
+            /**
+             * Mirror Id
+             * Format: uuid
+             */
+            mirror_id: string;
+            /**
+             * Order Index
+             * @description Expansion order (determinism)
              */
             order_index: number;
         };
@@ -5388,6 +5500,11 @@ export interface components {
              */
             name: string | null;
             /**
+             * Opposite Hand
+             * @description True on the line of a part's OPPOSITE-HAND versions (placed by component mirrors): a separate item from the part itself, named after it. Omitted when false.
+             */
+            opposite_hand?: boolean;
+            /**
              * Quantity
              * @description Count of instances referencing this document: direct instances on a top-level line, instances inside the parent on an indented line, every placed occurrence on a parts-only line
              */
@@ -6496,6 +6613,42 @@ export interface components {
             kind: "body";
         };
         /**
+         * MirrorCreate
+         * @description Add a component mirror to an assembly.
+         */
+        MirrorCreate: {
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §1.2)
+             */
+            expected_version: number;
+            /** @description The mirror */
+            mirror: components["schemas"]["ComponentMirror"];
+        };
+        /**
+         * MirrorFaceRef
+         * @description A planar face picked on a part of the assembly: the plane it lies in.
+         *
+         *     ``instance_id`` may be a part instance of this assembly or a part inside one
+         *     of its sub-assemblies (an occurrence id, as joints use). It may not be a copy
+         *     placed by a pattern or a mirror.
+         */
+        MirrorFaceRef: {
+            /**
+             * Instance Id
+             * Format: uuid
+             * @description The instance (or nested occurrence) whose part carries the face
+             */
+            instance_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "face";
+            /** @description Stage-1 signature of the picked planar face */
+            signature: components["schemas"]["PlanarFaceSignature"];
+        };
+        /**
          * MirrorFeature
          * @description ``{"type": "mirror", "version": 1, "params": {...}}`` envelope.
          *
@@ -6568,6 +6721,38 @@ export interface components {
             kind: "features";
         };
         /**
+         * MirrorMutationResponse
+         * @description Result of a mirror write: the mirror + the new version.
+         */
+        MirrorMutationResponse: {
+            /** Doc Version */
+            doc_version: number;
+            mirror: components["schemas"]["MirrorResponse"];
+        };
+        /**
+         * MirrorOriginPlaneRef
+         * @description An origin plane of the assembly, moved ``offset_mm`` along its normal.
+         */
+        MirrorOriginPlaneRef: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "origin_plane";
+            /**
+             * Offset Mm
+             * @description Distance (mm) the plane is moved along its normal (+Z for XY, +X for YZ, +Y for ZX)
+             * @default 0
+             */
+            offset_mm: number;
+            /**
+             * Plane
+             * @description 'xy', 'yz' or 'zx'
+             * @enum {string}
+             */
+            plane: "xy" | "yz" | "zx";
+        };
+        /**
          * MirrorParamsV1
          * @description Reflect the current body about a plane and union the reflection in.
          *
@@ -6611,6 +6796,41 @@ export interface components {
              * @description WHAT to reflect (discriminated on `kind`): `body` reflects the current body (the v1 reading — cut-aware, with the reflect-and-union fallback), `features` reflects the recorded tool solids of an explicit tree-ordered selection and re-applies each feature's own boolean. Absent reads `body`, so pre-v2 mirrors are unchanged (design §3.2).
              */
             scope?: components["schemas"]["MirrorBodyScope"] | components["schemas"]["MirrorFeaturesScope"];
+        };
+        /**
+         * MirrorResponse
+         * @description A mirror as stored.
+         */
+        MirrorResponse: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            mirror: components["schemas"]["ComponentMirror"];
+            /**
+             * Order Index
+             * @description Stable order in the assembly's tree
+             */
+            order_index: number;
+        };
+        /**
+         * MirrorUpdate
+         * @description Replace a mirror's definition (its id and position stay).
+         */
+        MirrorUpdate: {
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §1.2)
+             */
+            expected_version: number;
+            /** @description The new definition */
+            mirror: components["schemas"]["ComponentMirror"];
         };
         /**
          * NoteAnnotationParams
@@ -10249,6 +10469,121 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MateMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_mirror_api_v1_assemblies__assembly_id__mirrors_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MirrorCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MirrorMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_mirror_api_v1_assemblies__assembly_id__mirrors__mirror_id__delete: {
+        parameters: {
+            query: {
+                /** @description Optimistic-concurrency guard (design §1.2) */
+                expected_version: number;
+            };
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+                mirror_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyGraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_mirror_api_v1_assemblies__assembly_id__mirrors__mirror_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+                mirror_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MirrorUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MirrorMutationResponse"];
                 };
             };
             /** @description Validation Error */

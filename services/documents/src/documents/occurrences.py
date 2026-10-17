@@ -18,7 +18,8 @@ counted is every COMPONENT occurrence — each part and each sub-assembly
 instance, at every level — so a chain of empty sub-assemblies is bounded too.
 A component pattern's copies count like the instances they copy (ASM-A3): a
 linear or circular pattern by its stored count, a hole-driven one by the count
-geometry gave it when it was last written (see :func:`copies_per_seed`).
+geometry gave it when it was last written (see :func:`copies_per_seed`). A
+component mirror places one twin of each seed (ASM-MIRROR-COMPONENT).
 
 Nothing here enumerates occurrences until the count is known to be within the
 bound; then a walk touches at most :data:`MAX_ASSEMBLY_INSTANCES` of them.
@@ -38,7 +39,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db
-from documents.assembly_history import ordered_instances, ordered_patterns
+from documents.assembly_history import (
+    ordered_instances,
+    ordered_mirrors,
+    ordered_patterns,
+)
 
 #: An occurrence as seen from one assembly: its id and the instance path to it.
 Occurrence = tuple[uuid.UUID, tuple[uuid.UUID, ...]]
@@ -148,6 +153,12 @@ class OccurrenceWalk:
                 copies = copies_per_seed(row) or 0
                 for seed in row.params.get("seed_instance_ids", []):
                     total += copies * each.get(uuid.UUID(seed), 0)
+                if total > MAX_ASSEMBLY_INSTANCES:
+                    total = _OVER
+                    break
+            for mirror in await ordered_mirrors(self.session, assembly_id):
+                for seed in mirror.params.get("seed_instance_ids", []):
+                    total += each.get(uuid.UUID(seed), 0)
                 if total > MAX_ASSEMBLY_INSTANCES:
                     total = _OVER
                     break

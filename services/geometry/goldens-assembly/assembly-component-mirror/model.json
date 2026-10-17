@@ -1,0 +1,350 @@
+{
+  "assembly_id": "00000000-0000-0000-0000-0000000000aa",
+  "version": 1,
+  "instances": [
+    {
+      "instance_id": "00000000-0000-0000-0000-0000000000c1",
+      "part_key": "part-crank-arm-L@1",
+      "name": "Crank arm <1>",
+      "features": [
+        {
+          "id": "00000000-0000-0000-0000-0000000000a1",
+          "feature": {
+            "suppressed": false,
+            "type": "sketch",
+            "version": 1,
+            "params": {
+              "entities": [
+                {
+                  "id": "e1",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 0.0,
+                    "y": 0.0
+                  },
+                  "end": {
+                    "x": 60.0,
+                    "y": 0.0
+                  }
+                },
+                {
+                  "id": "e2",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 60.0,
+                    "y": 0.0
+                  },
+                  "end": {
+                    "x": 60.0,
+                    "y": 10.0
+                  }
+                },
+                {
+                  "id": "e3",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 60.0,
+                    "y": 10.0
+                  },
+                  "end": {
+                    "x": 10.0,
+                    "y": 10.0
+                  }
+                },
+                {
+                  "id": "e4",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 10.0,
+                    "y": 10.0
+                  },
+                  "end": {
+                    "x": 10.0,
+                    "y": 30.0
+                  }
+                },
+                {
+                  "id": "e5",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 10.0,
+                    "y": 30.0
+                  },
+                  "end": {
+                    "x": 0.0,
+                    "y": 30.0
+                  }
+                },
+                {
+                  "id": "e6",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 0.0,
+                    "y": 30.0
+                  },
+                  "end": {
+                    "x": 0.0,
+                    "y": 0.0
+                  }
+                }
+              ],
+              "constraints": [],
+              "plane": {
+                "kind": "datum_plane",
+                "plane": "XY"
+              }
+            }
+          }
+        },
+        {
+          "id": "00000000-0000-0000-0000-0000000000b1",
+          "feature": {
+            "suppressed": false,
+            "type": "extrude",
+            "version": 1,
+            "params": {
+              "profile": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-0000000000a1"
+              },
+              "distance_mm": 10.0,
+              "operation": "add",
+              "direction": "normal",
+              "merge": true
+            }
+          }
+        }
+      ],
+      "materials": null,
+      "placement": {
+        "position": {
+          "x": 10.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0,
+          "w": 1.0
+        }
+      },
+      "grounded": true
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-0000000000c2",
+      "part_key": "part-crank-arm-L@1",
+      "name": "Crank arm <2>",
+      "features": [
+        {
+          "id": "00000000-0000-0000-0000-0000000000a1",
+          "feature": {
+            "suppressed": false,
+            "type": "sketch",
+            "version": 1,
+            "params": {
+              "entities": [
+                {
+                  "id": "e1",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 0.0,
+                    "y": 0.0
+                  },
+                  "end": {
+                    "x": 60.0,
+                    "y": 0.0
+                  }
+                },
+                {
+                  "id": "e2",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 60.0,
+                    "y": 0.0
+                  },
+                  "end": {
+                    "x": 60.0,
+                    "y": 10.0
+                  }
+                },
+                {
+                  "id": "e3",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 60.0,
+                    "y": 10.0
+                  },
+                  "end": {
+                    "x": 10.0,
+                    "y": 10.0
+                  }
+                },
+                {
+                  "id": "e4",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 10.0,
+                    "y": 10.0
+                  },
+                  "end": {
+                    "x": 10.0,
+                    "y": 30.0
+                  }
+                },
+                {
+                  "id": "e5",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 10.0,
+                    "y": 30.0
+                  },
+                  "end": {
+                    "x": 0.0,
+                    "y": 30.0
+                  }
+                },
+                {
+                  "id": "e6",
+                  "construction": false,
+                  "kind": "line",
+                  "start": {
+                    "x": 0.0,
+                    "y": 30.0
+                  },
+                  "end": {
+                    "x": 0.0,
+                    "y": 0.0
+                  }
+                }
+              ],
+              "constraints": [],
+              "plane": {
+                "kind": "datum_plane",
+                "plane": "XY"
+              }
+            }
+          }
+        },
+        {
+          "id": "00000000-0000-0000-0000-0000000000b1",
+          "feature": {
+            "suppressed": false,
+            "type": "extrude",
+            "version": 1,
+            "params": {
+              "profile": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-0000000000a1"
+              },
+              "distance_mm": 10.0,
+              "operation": "add",
+              "direction": "normal",
+              "merge": true
+            }
+          }
+        }
+      ],
+      "materials": null,
+      "placement": {
+        "position": {
+          "x": 10.0,
+          "y": 50.0,
+          "z": 0.0
+        },
+        "orientation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.7071067811865476,
+          "w": 0.7071067811865476
+        }
+      },
+      "grounded": true
+    }
+  ],
+  "mates": [],
+  "linear_deflection": 0.5,
+  "mirrors": [
+    {
+      "mirror_id": "00000000-0000-0000-0000-0000000000d1",
+      "order_index": 0,
+      "mirror": {
+        "seed_instance_ids": [
+          "00000000-0000-0000-0000-0000000000c1"
+        ],
+        "plane": {
+          "kind": "origin_plane",
+          "plane": "yz",
+          "offset_mm": 0.0
+        },
+        "opposite_hand_instance_ids": [
+          "00000000-0000-0000-0000-0000000000c1"
+        ]
+      }
+    },
+    {
+      "mirror_id": "00000000-0000-0000-0000-0000000000d2",
+      "order_index": 1,
+      "mirror": {
+        "seed_instance_ids": [
+          "00000000-0000-0000-0000-0000000000c2"
+        ],
+        "plane": {
+          "kind": "origin_plane",
+          "plane": "xy",
+          "offset_mm": 20.0
+        },
+        "opposite_hand_instance_ids": []
+      }
+    },
+    {
+      "mirror_id": "00000000-0000-0000-0000-0000000000d3",
+      "order_index": 2,
+      "mirror": {
+        "seed_instance_ids": [
+          "00000000-0000-0000-0000-0000000000c2"
+        ],
+        "plane": {
+          "kind": "face",
+          "instance_id": "00000000-0000-0000-0000-0000000000c1",
+          "signature": {
+            "subshape_type": "face",
+            "surface": "plane",
+            "normal": {
+              "x": 1.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            "centroid": {
+              "x": 60.0,
+              "y": 5.0,
+              "z": 5.0
+            },
+            "area_mm2": 100.0,
+            "outer_area_mm2": 100.0,
+            "outer_centroid": {
+              "x": 60.0,
+              "y": 5.0,
+              "z": 5.0
+            },
+            "outer_perimeter_mm": 40.0
+          }
+        },
+        "opposite_hand_instance_ids": [
+          "00000000-0000-0000-0000-0000000000c2"
+        ]
+      }
+    }
+  ]
+}
