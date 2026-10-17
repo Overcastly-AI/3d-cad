@@ -294,6 +294,76 @@
         "title": "BendTableRow",
         "type": "object"
       },
+      "BodyExtent": {
+        "description": "One body's measured size (geometry, ``POST /api/v1/bodies/extents``).\n\n``extents_mm`` is the body's exact extent along the three axes of its own\nframe (the normals of its two largest perpendicular planar faces, else its\nprincipal axes of inertia), longest first. For a straight member that is\nits length and its section, whatever its orientation in the part.",
+        "properties": {
+          "base_feature_id": {
+            "description": "Id of the feature that created the body (its identity).",
+            "format": "uuid",
+            "title": "Base Feature Id",
+            "type": "string"
+          },
+          "extents_mm": {
+            "description": "Extents along the body's own axes (mm), longest first.",
+            "maxItems": 3,
+            "minItems": 3,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Extents Mm",
+            "type": "array"
+          },
+          "volume_mm3": {
+            "description": "The body's volume (mm^3).",
+            "minimum": 0.0,
+            "title": "Volume Mm3",
+            "type": "number"
+          }
+        },
+        "required": [
+          "base_feature_id",
+          "extents_mm",
+          "volume_mm3"
+        ],
+        "title": "BodyExtent",
+        "type": "object"
+      },
+      "BodyExtentsResult": {
+        "description": "Every last-good body of an evaluated tree, measured, in tree order.",
+        "properties": {
+          "bodies": {
+            "items": {
+              "$ref": "#/components/schemas/BodyExtent"
+            },
+            "title": "Bodies",
+            "type": "array"
+          },
+          "part_id": {
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "tree_version": {
+            "minimum": 0.0,
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "tree_version"
+        ],
+        "title": "BodyExtentsResult",
+        "type": "object"
+      },
       "BodyLumpInfo": {
         "description": "Per-body lump count of an evaluated tree (docs/design/multi-body.md \u00a7MB-4).\n\nThe whole-part aggregate ``properties.topology.shells`` cannot tell a\ndisjoint-union / multi-solid-import body (one body, several disjoint LUMPS)\nfrom a single-lump body: a sealed hollow inflates the shell count, and the\naggregate sums across every body. This per-body entry carries the honest\nlump count so a consumer (the Bodies panel) can flag a multi-lump body.\n\n``base_feature_id`` is the body's identity \u2014 the id of the feature that\nCREATED it (\u00a7MB-0 Decision 1), the same key ``EvaluationState.bodies`` uses \u2014\nso a caller maps the count back to the body/row it names. ``lumps`` is the\nnumber of disjoint connected solids (``>= 1``; a single-lump body reports\n``1``), counted by ``geometry.kernel.lumps.lump_count``.",
         "properties": {
@@ -12219,6 +12289,49 @@
         },
         "summary": "Assembly Pattern Counts Route",
         "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/bodies/extents": {
+      "post": {
+        "description": "Every last-good body's extents along its own axes, for the cut list.\n\nEvaluates the tree as ``/evaluate`` does (the rebuild cache serves a repeat)\nand measures each body on the exact B-rep: its frame is the normals of its\ntwo largest perpendicular planar faces (else its principal axes), and its\nextents in that frame, longest first, are a straight member's length and\nsection whatever its orientation. A tree with no body gives an empty list.",
+        "operationId": "bodies_extents_api_v1_bodies_extents_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluateTreeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BodyExtentsResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bodies Extents",
+        "tags": [
+          "geometry",
           "geometry"
         ]
       }

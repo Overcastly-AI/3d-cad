@@ -213,7 +213,12 @@ def test_golden_inventory_is_nonempty() -> None:
 #: mm^3, 0.18 mm^2) is OCCT's, shared by a pure-build123d twin. The bike frame
 #: of four Pipes (2026-10-16) drifts the same way, as does its twin.
 ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
-    {"frame-moto-cradle-tube-od25.4-t1.6", "frame-bike-4-pipes-one-skeleton-head73"}
+    {
+        "frame-moto-cradle-tube-od25.4-t1.6",
+        "frame-bike-4-pipes-one-skeleton-head73",
+        # A 1.06e9 mm^3 sum of 46 solids: re-import order moves it by 2e-15.
+        "b1-deck-framing-16ft",
+    }
 )
 
 

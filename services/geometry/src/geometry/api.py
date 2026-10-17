@@ -46,6 +46,7 @@ from loft_wire.assemblies import (
     count_leaf_instances,
 )
 from loft_wire.component_patterns import PatternCountsResult
+from loft_wire.cut_list import BodyExtentsResult
 from loft_wire.drawings import (
     ARTIFACT_MEDIA_TYPES,
     ComposeDrawingRequest,
@@ -119,6 +120,7 @@ from geometry.assembly import (
     export_assembly_reporting,
     import_step_assembly,
 )
+from geometry.body_extents import evaluate_body_extents
 from geometry.drawing_store import (
     drawing_artifact_key,
     fetch_drawing_artifact,
@@ -858,6 +860,23 @@ def measure(request: MeasureRequest) -> MeasureResult:
     envelope; an out-of-range edge index is a 422 ``edge_index_out_of_range``.
     """
     return evaluate_measure(request)
+
+
+@router.post(
+    "/bodies/extents",
+    tags=["geometry"],
+    dependencies=[ADMISSION_CONTROL],
+)
+def bodies_extents(request: EvaluateTreeRequest) -> BodyExtentsResult:
+    """Every last-good body's extents along its own axes, for the cut list.
+
+    Evaluates the tree as ``/evaluate`` does (the rebuild cache serves a repeat)
+    and measures each body on the exact B-rep: its frame is the normals of its
+    two largest perpendicular planar faces (else its principal axes), and its
+    extents in that frame, longest first, are a straight member's length and
+    section whatever its orientation. A tree with no body gives an empty list.
+    """
+    return evaluate_body_extents(request)
 
 
 @router.post(

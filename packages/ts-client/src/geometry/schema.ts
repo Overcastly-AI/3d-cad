@@ -194,6 +194,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/bodies/extents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bodies Extents
+         * @description Every last-good body's extents along its own axes, for the cut list.
+         *
+         *     Evaluates the tree as ``/evaluate`` does (the rebuild cache serves a repeat)
+         *     and measures each body on the exact B-rep: its frame is the normals of its
+         *     two largest perpendicular planar faces (else its principal axes), and its
+         *     extents in that frame, longest first, are a straight member's length and
+         *     section whatever its orientation. A tree with no body gives an empty list.
+         */
+        post: operations["bodies_extents_api_v1_bodies_extents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drawing/assembly/evaluate": {
         parameters: {
             query?: never;
@@ -1184,6 +1210,52 @@ export interface components {
              * @description Inner bend radius (mm)
              */
             radius_mm: number;
+        };
+        /**
+         * BodyExtent
+         * @description One body's measured size (geometry, ``POST /api/v1/bodies/extents``).
+         *
+         *     ``extents_mm`` is the body's exact extent along the three axes of its own
+         *     frame (the normals of its two largest perpendicular planar faces, else its
+         *     principal axes of inertia), longest first. For a straight member that is
+         *     its length and its section, whatever its orientation in the part.
+         */
+        BodyExtent: {
+            /**
+             * Base Feature Id
+             * Format: uuid
+             * @description Id of the feature that created the body (its identity).
+             */
+            base_feature_id: string;
+            /**
+             * Extents Mm
+             * @description Extents along the body's own axes (mm), longest first.
+             */
+            extents_mm: [
+                number,
+                number,
+                number
+            ];
+            /**
+             * Volume Mm3
+             * @description The body's volume (mm^3).
+             */
+            volume_mm3: number;
+        };
+        /**
+         * BodyExtentsResult
+         * @description Every last-good body of an evaluated tree, measured, in tree order.
+         */
+        BodyExtentsResult: {
+            /** Bodies */
+            bodies?: components["schemas"]["BodyExtent"][];
+            /**
+             * Part Id
+             * Format: uuid
+             */
+            part_id: string;
+            /** Tree Version */
+            tree_version: number;
         };
         /**
          * BodyLumpInfo
@@ -9632,6 +9704,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PatternCountsResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bodies_extents_api_v1_bodies_extents_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluateTreeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BodyExtentsResult"];
                 };
             };
             /** @description Validation Error */
