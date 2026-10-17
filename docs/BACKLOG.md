@@ -61,7 +61,7 @@ Bike gaps first (round 2), then the hard-parts blockers, then speed.
       Sweep path (SolidWorks 3D Sketch, Fusion's 3D sketch). _Accept:_ the
       bike's splayed chain stays are Pipes on a 3D sketch tied to the
       dropouts and BB, matching a script to 1e-4.
-- [ ] **ASM-MIRROR-COMPONENT** (bike crankset): Mirror Components
+- [x] **ASM-MIRROR-COMPONENT** (bike crankset): Mirror Components
       (SolidWorks) / Mirror on components (Fusion) about a plane, as a copy of
       a symmetric part or an opposite-hand part. _Accept:_ the left crank arm
       is a mirrored copy of the right that follows an edit of it, and the BOM
@@ -487,3 +487,8 @@ One line each. The founder triages weekly; most are closed without work.
 - SHEET-METAL-DOUBLE-MERGE: the edge flange (`clean_shape(body.fuse(flange))`) and corner relief still face-merge a build123d boolean twice, unguarded by the integrity guard; step 1 left them so sheet-metal goldens stay byte-identical (RESEARCH §15a).
 - LUMBER-DENSITY-MC: wood densities are at 12% moisture content (Wood Handbook convention); pressure-treated lumber usually ships wet and weighs 30-50% more than the kiln-dried 582 kg/m^3 shown (review of bc0428a); the SPF source should say NLGA SPF (SG 0.42), not SPF-South (0.36), and the LVL figure is a manufacturer design weight (42 lb/ft^3), not a consensus standard.
 - MATERIAL-PICKER-GROUPS: the material dropdown is one flat list of 14; Fusion and SolidWorks group by category (metal, plastic, wood, masonry).
+- ASM-MIRROR-DERIVED-DOC: an opposite hand is a derived part that lives in the assembly (BOM line "<part> (opposite hand)", own mesh and STEP product, rebuilt from the source) rather than a separate part document; SolidWorks writes a new part file the user can open, draw and add features to.
+- ASM-MIRROR-SUB-HAND: a sub-assembly seed mirrors as a copy only; SolidWorks can also make an opposite-hand sub-assembly.
+- ASM-MIRROR-COPY-ORIENT: a copy reflects along the seed axis most aligned with the plane normal about its box centre (SolidWorks' bounding-box-centre default); SolidWorks also lets the user cycle the copy's orientation. An asymmetric part's copy is flagged, not refused.
+- ASM-MIRROR-DATUM: assemblies have no datum planes, so a mirror plane is an origin plane (with an offset) or a picked planar face.
+
