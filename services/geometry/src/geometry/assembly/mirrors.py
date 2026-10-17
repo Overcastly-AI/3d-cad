@@ -21,8 +21,15 @@ of the seed, for any body and any ``k``:
 
 - a **mirrored copy** places the seed's own body there, which is the mirror
   image exactly when the body is symmetric about that plane (SolidWorks'
-  bounding-box-centre copy orientation). A part whose centroid is off the plane
-  cannot be, and is reported in ``MirrorState.asymmetric``;
+  bounding-box-centre copy orientation). So ``k`` is not assumed: each local
+  axis, most aligned with the normal first, is tested by reflecting the body
+  about its own mid-plane ``x_k = c_k`` and measuring the volume in one and not
+  the other (two booleans; :data:`SYMMETRY_TOL`). The copy uses the first axis
+  the body is symmetric about (a Z-shaped plate is symmetric only about its
+  mid-thickness, so that is the axis its copy turns about). A body symmetric
+  about none is never placed as if it were: it is reported in
+  ``MirrorState.asymmetric`` and wants an opposite hand. A sub-assembly is
+  tested the same way, as the compound of its parts in its own frame;
 - an **opposite-hand version** places the body reflected about its own plane
   ``x = c_x`` (always local X, whatever the pose, so a part has ONE opposite
   hand: one body, mesh and STEP product however its twins are oriented). OCCT
@@ -55,7 +62,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
-from build123d import Location, Plane
+from build123d import Compound, Location, Plane
 from loft_wire.assemblies import MAX_ASSEMBLY_INSTANCES, occurrence_id
 from loft_wire.component_mirrors import (
     EvaluatedMirror,
@@ -65,7 +72,7 @@ from loft_wire.component_mirrors import (
     MirrorState,
     mirror_copy_id,
 )
-from loft_wire.geometry import BoundingBox, ShapeProperties, Vec3
+from loft_wire.geometry import ShapeProperties, Vec3
 from loft_wire.joints import JointOrigin
 from numpy.typing import NDArray
 
@@ -80,11 +87,14 @@ from geometry.mesh_store import store_mesh_glb
 
 Vector = NDArray[np.float64]
 
-#: A copy's part counts as symmetric when its centroid is within this distance
-#: (mm) of the plane the copy assumes it is symmetric about: far above the
-#: integration noise of a symmetric body's centroid (measured below 1e-9 mm on
-#: the goldens), far below any asymmetry an engineer would build.
-SYMMETRY_TOL_MM = 1e-4
+#: A copy's body counts as symmetric about a plane when the volume in it and
+#: not in its reflection (and back) is at most this FRACTION of its volume.
+#: Coincident booleans of a truly symmetric body measure exactly 0 on the
+#: goldens; a 0.1 mm chamfer on one edge of a 10 mm cube is ~5e-4.
+SYMMETRY_TOL = 1e-6
+
+#: (seed key, axis) -> (box centre along the axis, symmetric about it).
+SymmetryCache = dict[tuple[str, int], tuple[float, bool]]
 
 _PLANE_NORMALS: dict[str, Vector] = {
     "xy": np.array([0.0, 0.0, 1.0], dtype=np.float64),
@@ -116,6 +126,9 @@ class MirrorSeed:
     pose: Pose
     is_part: bool
     parts: tuple[MirrorSource, ...]
+    #: What the seed instances (its part or sub-assembly key): seeds sharing
+    #: it share their symmetry, measured once.
+    key: str = ""
 
 
 @dataclass(frozen=True)
@@ -239,46 +252,78 @@ def resolve_plane(
     return point, _unit(normal)
 
 
-def mirror_axis(pose: Pose, normal: Vector) -> int:
-    """The seed's local axis most aligned with the plane *normal* (the lowest
-    index on a tie): the axis its twin is reflected along."""
-    local = pose.matrix().T @ normal
-    return int(np.argmax(np.abs(local)))
+def _moved(body: BodyShape, pose: Pose) -> BodyShape:
+    trsf = placement_trsf(
+        (float(pose.t[0]), float(pose.t[1]), float(pose.t[2])),
+        (float(pose.q[0]), float(pose.q[1]), float(pose.q[2]), float(pose.q[3])),
+    )
+    return body.moved(Location(trsf))
 
 
-def _box_centre(box: BoundingBox, axis: int) -> float:
-    lo = (box.min.x, box.min.y, box.min.z)[axis]
-    hi = (box.max.x, box.max.y, box.max.z)[axis]
+def seed_body(seed: MirrorSeed) -> BodyShape | None:
+    """The seed's geometry in its own frame: its part's body, or the compound
+    of a sub-assembly's parts at their poses in it. None when a part of it has
+    no body (nothing can be measured or verified)."""
+    placed: list[BodyShape] = []
+    for part in seed.parts:
+        if part.body is None:
+            return None
+        placed.append(part.body if seed.is_part else _moved(part.body, part.offset))
+    if not placed:
+        return None
+    return placed[0] if seed.is_part else Compound(placed)
+
+
+def _box_centre(body: BodyShape | None, axis: int) -> float:
+    """*body*'s exact box centre along *axis* (0 without a body)."""
+    if body is None:
+        return 0.0
+    box = body.bounding_box(optimal=True)
+    lo = (box.min.X, box.min.Y, box.min.Z)[axis]
+    hi = (box.max.X, box.max.Y, box.max.Z)[axis]
     return 0.5 * (lo + hi)
 
 
-def _seed_centre(seed: MirrorSeed, axis: int) -> float:
-    """The seed's bounding-box centre along local *axis*, in its own frame.
+def is_symmetric(body: BodyShape, axis: int, centre: float) -> bool:
+    """Whether *body* is its own reflection about ``x_axis = centre``: the
+    volume in one and not the other is within :data:`SYMMETRY_TOL` of its
+    volume. A boolean the kernel cannot do counts as not symmetric."""
+    try:
+        reflected = opposite_hand_body(body, axis, centre)
+        gap = float(body.cut(reflected).volume + reflected.cut(body).volume)
+        volume = float(body.volume)
+    except Exception:  # OCCT failure modes are not a stable taxonomy
+        return False
+    return gap <= SYMMETRY_TOL * max(volume, 1.0)
 
-    A part's exact box is in its properties; a sub-assembly's is the union of
-    its parts' exact boxes, each part moved to its pose in the seed's frame.
-    A seed with no body at all mirrors about its origin.
+
+def copy_axis(
+    seed: MirrorSeed, normal: Vector, cache: SymmetryCache
+) -> tuple[int, float, bool]:
+    """The local axis a copy of *seed* reflects along, its box centre on it,
+    and whether the seed is symmetric about that plane (module docstring).
+
+    The axes are tried most aligned with the plane *normal* first; the first
+    the seed is symmetric about wins. With none, the most aligned one is
+    returned with False. A part seed without a body is not flagged (its twin
+    carries the part's own error); a sub-assembly with a bodiless part cannot
+    be verified and is flagged.
     """
-    if seed.is_part:
-        props = seed.parts[0].properties
-        return 0.0 if props is None else _box_centre(props.bounding_box, axis)
-    lo, hi = np.inf, -np.inf
-    for part in seed.parts:
-        if part.body is None:
-            continue
-        trsf = placement_trsf(
-            (float(part.offset.t[0]), float(part.offset.t[1]), float(part.offset.t[2])),
-            (
-                float(part.offset.q[0]),
-                float(part.offset.q[1]),
-                float(part.offset.q[2]),
-                float(part.offset.q[3]),
-            ),
-        )
-        box = part.body.moved(Location(trsf)).bounding_box(optimal=True)
-        lo = min(lo, (box.min.X, box.min.Y, box.min.Z)[axis])
-        hi = max(hi, (box.max.X, box.max.Y, box.max.Z)[axis])
-    return 0.0 if lo > hi else 0.5 * (lo + hi)
+    local = np.abs(seed.pose.matrix().T @ normal)
+    order = sorted(range(3), key=lambda k: (-float(local[k]), k))
+    body = seed_body(seed)
+    if body is None:
+        return order[0], 0.0, seed.is_part and seed.parts[0].body is None
+    for axis in order:
+        found = cache.get((seed.key, axis))
+        if found is None:
+            centre = _box_centre(body, axis)
+            found = (centre, is_symmetric(body, axis, centre))
+            cache[(seed.key, axis)] = found
+        if found[1]:
+            return axis, found[0], True
+    first = order[0]
+    return first, cache[(seed.key, first)][0], False
 
 
 def twin_pose(
@@ -295,22 +340,16 @@ def twin_pose(
     return Pose(t=t, q=matrix_to_quat(rotation))
 
 
-def is_symmetric(props: ShapeProperties | None, axis: int, centre: float) -> bool:
-    """Whether a part's centroid lies on its plane ``x_axis = centre`` (a
-    necessary condition for symmetry about it; a bodiless part says nothing)."""
-    if props is None:
-        return True
-    c = props.centroid
-    return abs((c.x, c.y, c.z)[axis] - centre) <= SYMMETRY_TOL_MM
-
-
 def expand_mirror(
     evaluated: EvaluatedMirror,
     seeds: dict[uuid.UUID, MirrorSeed],
     targets: dict[uuid.UUID, MirrorTarget],
     budget: int,
+    symmetry: SymmetryCache | None = None,
 ) -> tuple[list[MirrorTwin], MirrorState]:
-    """The parts *evaluated* adds, and its state, within *budget* parts."""
+    """The parts *evaluated* adds, and its state, within *budget* parts.
+    *symmetry* caches the copy symmetry tests across mirrors."""
+    cache: SymmetryCache = {} if symmetry is None else symmetry
     mirror = evaluated.mirror
     mirror_id = evaluated.mirror_id
     opposite = set(mirror.opposite_hand_instance_ids)
@@ -348,15 +387,14 @@ def expand_mirror(
     for seed_id in mirror.seed_instance_ids:
         seed = seeds[seed_id]
         hand = seed_id in opposite
-        axis = OPPOSITE_HAND_AXIS if hand else mirror_axis(seed.pose, normal)
-        centre = _seed_centre(seed, axis)
+        if hand:
+            axis = OPPOSITE_HAND_AXIS
+            centre = _box_centre(seed_body(seed), axis)
+        else:
+            axis, centre, symmetric = copy_axis(seed, normal, cache)
+            if not symmetric:
+                asymmetric.append(seed_id)
         pose = twin_pose(seed.pose, point, normal, axis, centre)
-        if (
-            seed.is_part
-            and not hand
-            and not is_symmetric(seed.parts[0].properties, axis, centre)
-        ):
-            asymmetric.append(seed_id)
         copy_id = mirror_copy_id(mirror_id, seed_id)
         ref = MirrorCopyRef(
             mirror_id=mirror_id, seed_instance_id=seed_id, opposite_hand=hand

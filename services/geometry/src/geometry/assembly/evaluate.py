@@ -95,6 +95,7 @@ from geometry.assembly.mirrors import (
     MirrorSource,
     MirrorTarget,
     OppositeHand,
+    SymmetryCache,
     expand_mirror,
     mirrored_name,
     opposite_hand_body,
@@ -889,6 +890,7 @@ def _mirror_seeds(
         else:
             pose = Pose.from_placement(sub_poses[inst.instance_id])
         seeds[inst.instance_id] = MirrorSeed(
+            key=inst.part_key,
             pose=pose,
             is_part=inst.sub_assembly is None,
             parts=tuple(
@@ -955,10 +957,11 @@ def _expand_mirrors(
     budget = MAX_ASSEMBLY_INSTANCES - len(occurrences)
     twins: list[Occurrence] = []
     states: list[MirrorState] = []
+    symmetry: SymmetryCache = {}
     for evaluated in sorted(
         request.mirrors, key=lambda m: (m.order_index, str(m.mirror_id))
     ):
-        placed, state = expand_mirror(evaluated, seeds, targets, budget)
+        placed, state = expand_mirror(evaluated, seeds, targets, budget, symmetry)
         budget -= len(placed)
         states.append(state)
         for twin in placed:

@@ -59,6 +59,7 @@ TOL = 1e-9
 
 #: World plane (point, normal) of each golden mirror (see its derivation).
 _PLANES = {
+    uuid.UUID(int=0xD4): ((0.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
     M1: ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
     M2: ((0.0, 0.0, 20.0), (0.0, 0.0, 1.0)),
     M3: ((70.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
@@ -123,19 +124,148 @@ def test_opposite_hand_volume_centroid_and_meshes() -> None:
     assert rows[mirror_copy_id(M3, B)].part_mesh_glb_id == hand.part_mesh_glb_id
 
 
-def test_a_copy_of_an_asymmetric_part_is_flagged() -> None:
-    """A copy of the L about YZ assumes it is symmetric about its own x = 30,
-    which it is not (centroid x 23.75): the state says so."""
-    model = _model()
-    model["mirrors"][0]["mirror"]["opposite_hand_instance_ids"] = []
-    states = evaluate_assembly(
-        EvaluateAssemblyRequest.model_validate(model)
-    ).mirror_states
-    assert [(s.mirror_id, s.asymmetric) for s in states] == [
-        (M1, [A]),
-        (M2, []),
-        (M3, []),
+#: A Z-shaped plate (10 thick): point-symmetric in its sketch, so its centroid
+#: sits at its box centre, yet it is NOT symmetric about its local X or Y
+#: mid-plane (reflected, a Z is an S); it is only about its mid-thickness.
+_Z: list[tuple[float, float]] = [
+    (5, 0), (30, 0), (30, 10), (20, 10), (20, 30), (25, 30),
+    (25, 40), (0, 40), (0, 30), (10, 30), (10, 10), (5, 10),
+]  # fmt: skip
+
+
+def _sketch(points: list[tuple[float, float]], feature_id: int) -> dict[str, Any]:
+    entities = [
+        {
+            "id": f"e{i + 1}",
+            "construction": False,
+            "kind": "line",
+            "start": {"x": float(a[0]), "y": float(a[1])},
+            "end": {"x": float(b[0]), "y": float(b[1])},
+        }
+        for i, (a, b) in enumerate(zip(points, points[1:] + points[:1], strict=True))
     ]
+    return {
+        "id": str(uuid.UUID(int=feature_id)),
+        "feature": {
+            "suppressed": False,
+            "type": "sketch",
+            "version": 1,
+            "params": {
+                "entities": entities,
+                "constraints": [],
+                "plane": {"kind": "datum_plane", "plane": "XY"},
+            },
+        },
+    }
+
+
+def _extrude(sketch_id: int, feature_id: int, depth: float) -> dict[str, Any]:
+    return {
+        "id": str(uuid.UUID(int=feature_id)),
+        "feature": {
+            "suppressed": False,
+            "type": "extrude",
+            "version": 1,
+            "params": {
+                "profile": {
+                    "kind": "feature",
+                    "feature_id": str(uuid.UUID(int=sketch_id)),
+                },
+                "distance_mm": depth,
+                "operation": "add",
+                "direction": "normal",
+                "merge": True,
+            },
+        },
+    }
+
+
+def _z_plate() -> list[dict[str, Any]]:
+    return [_sketch(_Z, 0xA1), _extrude(0xA1, 0xB1, 10.0)]
+
+
+def _stepped_l() -> list[dict[str, Any]]:
+    """The golden's L with a 15-high block on its upright: symmetric about no
+    mid-plane at all."""
+    model = _model()
+    features: list[dict[str, Any]] = copy.deepcopy(model["instances"][0]["features"])
+    block = [(0.0, 20.0), (10.0, 20.0), (10.0, 30.0), (0.0, 30.0)]
+    return [*features, _sketch(block, 0xA2), _extrude(0xA2, 0xB2, 15.0)]
+
+
+def _copies_about_yz(features: list[dict[str, Any]], key: str) -> dict[str, Any]:
+    """A and B both made of *features*; one mirror copying A about YZ."""
+    model = _model()
+    for inst in model["instances"]:
+        inst["features"] = features
+        inst["part_key"] = key
+    model["mirrors"] = [
+        {
+            "mirror_id": str(M1),
+            "order_index": 0,
+            "mirror": {
+                "seed_instance_ids": [str(A)],
+                "plane": {"kind": "origin_plane", "plane": "yz", "offset_mm": 0.0},
+            },
+        }
+    ]
+    return model
+
+
+def _twin_gap(request: EvaluateAssemblyRequest, mirror: uuid.UUID) -> float:
+    """Volume between every twin of *mirror* and its seed reflected about
+    *mirror*'s plane (0 when every twin is the mirror image)."""
+    solved = solve_assembly(request)
+    by_id = {
+        (occ.group_id, occ.path[1:]): occ
+        for occ in solved.occurrences
+        if occ.mirror is None and occ.pattern is None
+    }
+    point, normal = _PLANES[mirror]
+    gap = 0.0
+    for twin in solved.occurrences:
+        if twin.mirror is None or twin.mirror.mirror_id != mirror:
+            continue
+        seed = by_id[(twin.mirror.seed_instance_id, twin.path[1:])]
+        assert twin.body is not None and seed.body is not None
+        reflected = _world(seed.body, Pose.from_placement(seed.placement)).mirror(
+            Plane(origin=point, z_dir=normal)
+        )
+        gap += _gap_volume(
+            _world(twin.body, Pose.from_placement(twin.placement)), reflected
+        )
+    return gap
+
+
+def test_a_z_plate_copy_turns_about_its_mid_thickness() -> None:
+    """The plane normal is the Z plate's local X, but a Z is not symmetric
+    about its X mid-plane (its centroid is): the copy uses the axis it IS
+    symmetric about, its mid-thickness, and is the exact mirror image."""
+    request = EvaluateAssemblyRequest.model_validate(
+        _copies_about_yz(_z_plate(), "part-z-plate@1")
+    )
+    (state,) = evaluate_assembly(request).mirror_states
+    assert (state.placed, state.asymmetric) == (1, [])
+    assert _twin_gap(request, M1) < 1e-6
+
+
+def test_an_l_copy_is_a_mirror_image_and_a_fully_asymmetric_one_is_flagged() -> None:
+    """The golden's L is symmetric about its mid-thickness, so its copy about
+    YZ is a true mirror image. With a block on its upright it is symmetric
+    about nothing: the copy is flagged for an opposite hand."""
+    l_arm = EvaluateAssemblyRequest.model_validate(
+        _copies_about_yz(_model()["instances"][0]["features"], "part-crank-arm-L@1")
+    )
+    (state,) = evaluate_assembly(l_arm).mirror_states
+    assert state.asymmetric == []
+    assert _twin_gap(l_arm, M1) < 1e-6
+
+    stepped = EvaluateAssemblyRequest.model_validate(
+        _copies_about_yz(_stepped_l(), "part-stepped-L@1")
+    )
+    (state,) = evaluate_assembly(stepped).mirror_states
+    assert (state.placed, state.asymmetric) == (1, [A])
+    assert _twin_gap(stepped, M1) > 100.0  # the flagged copy is not a mirror
 
 
 def _thicker(features: list[dict[str, Any]], depth: float) -> list[dict[str, Any]]:
@@ -233,7 +363,22 @@ def test_a_sub_assembly_is_mirrored_whole() -> None:
         assert Pose.from_placement(row.placement).t == pytest.approx(
             [*at, -60.0], abs=TOL
         )
-    assert result.mirror_states[0].placed == 1
+    assert (result.mirror_states[0].placed, result.mirror_states[0].asymmetric) == (
+        1,
+        [],
+    )
+    # Symmetric as a whole (both arms span z 0..10): its twin is the image.
+    assert _twin_gap(request, uuid.UUID(int=0xD4)) < 1e-6
+
+
+def test_an_asymmetric_sub_assembly_copy_is_flagged() -> None:
+    model = _wheel_model()
+    for inst in model["instances"][2]["sub_assembly"]["instances"]:
+        inst["features"] = _stepped_l()
+        inst["part_key"] = "part-stepped-L@1"
+    request = EvaluateAssemblyRequest.model_validate(model)
+    (state,) = evaluate_assembly(request).mirror_states
+    assert state.asymmetric == [uuid.UUID(int=0xC3)]
 
 
 def test_an_opposite_hand_of_a_sub_assembly_is_refused() -> None:

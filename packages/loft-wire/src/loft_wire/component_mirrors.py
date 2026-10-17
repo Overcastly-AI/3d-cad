@@ -8,8 +8,9 @@ the twin is one of:
 - a **mirrored copy** (the default): the SAME part, placed by a rigid motion.
   This is only a true mirror image of a part that is symmetric about one of
   its own planes, which is what SolidWorks' "copy" orientation assumes (a
-  washer, a bolt, a flat crank arm); geometry reports a seed whose part is not
-  symmetric so the user can switch it to an opposite hand;
+  washer, a bolt, a flat crank arm); geometry tests the part against its own
+  reflection, and reports a seed whose part is not symmetric so the user can
+  switch it to an opposite hand;
 - an **opposite-hand version** (``opposite_hand_instance_ids``, part seeds
   only): a DERIVED part whose geometry is the source part reflected, rebuilt
   from the source on every evaluation so it follows the source's edits
@@ -218,8 +219,8 @@ class MirrorState(BaseModel):
     error_message: str | None = Field(default=None, description="The same, in words")
     asymmetric: list[uuid.UUID] = Field(
         default_factory=list["uuid.UUID"],
-        description="Seeds placed as mirrored copies whose part is not "
-        "symmetric about the plane its copy assumes (its centroid is off that "
-        "plane): the copy is not a mirror image, and the seed wants an opposite "
-        "hand instead",
+        description="Seeds mirrored as copies whose part (or sub-assembly) "
+        "is not symmetric about any of its own mid-planes (checked by "
+        "reflecting it): the copy is not a mirror image, and the seed wants an "
+        "opposite hand instead",
     )

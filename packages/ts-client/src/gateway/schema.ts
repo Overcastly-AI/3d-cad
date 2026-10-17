@@ -9366,7 +9366,7 @@ export interface components {
         MirrorState: {
             /**
              * Asymmetric
-             * @description Seeds placed as mirrored copies whose part is not symmetric about the plane its copy assumes (its centroid is off that plane): the copy is not a mirror image, and the seed wants an opposite hand instead
+             * @description Seeds mirrored as copies whose part (or sub-assembly) is not symmetric about any of its own mid-planes (checked by reflecting it): the copy is not a mirror image, and the seed wants an opposite hand instead
              */
             asymmetric?: string[];
             /**
