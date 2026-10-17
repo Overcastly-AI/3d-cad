@@ -153,7 +153,7 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    (B1, B2 and the assembly on measured goldens), `test_cut_list_chain.py`,
    `test_price_book.py` (wire, documents), `test_migrations.py` 0022;
    RESEARCH §27. Closes CUT-LIST-CSV-HARDEN.
-7. [ ] **CUT-LIST-PRICES** (frontend-builder, after PRICE-BOOK): the cut
+7. [x] **CUT-LIST-PRICES** (frontend-builder, after PRICE-BOOK): the cut
    list panel (part, assembly, drawing) shows Stock qty, Unit price,
    Extended and a Total row, money formatted in the book's currency, a
    blank (not $0.00) where unpriced, and "Total of priced lines, N
@@ -166,6 +166,15 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    6x6 entry blanks Post and reads $839.54 with 1 unpriced, a reload keeps
    it, and the CSV download has the Total row.
 8. [x] **ROOF-VALLEY** (`loft.roof` 1.2.0, stops B4): a footprint picked
+   _Done:_ `CutListPanel` Unit price / Ext. price columns and a Total row
+   ("N lines unpriced"), money via `lib/money` (Intl USD from integer cents,
+   BigInt, no floats); a blank price is a button opening `PriceBookDialog`
+   pre-filled (labelled cells, focus trap, Escape; a save invalidates every
+   cut list); `api/priceBook`; the assembly inspector widens on its cut view
+   and the drawing's 320 px panel hides Run. `cut-list-prices.spec.ts` enters
+   the seven PT entries through the dialog. Screenshots
+   `cut-list-prices.png`, `price-book-dialog.png`.
+8. [ ] **ROOF-VALLEY** (`loft.roof` 1.2.0, stops B4): a footprint picked
    from the bearing walls, as Revit's Roof by Footprint (Pick Walls) and
    Chief Architect's roof from walls: the loop of their outer faces,
    corners where consecutive walls' lines meet, plate height and width read
@@ -693,3 +702,7 @@ One line each. The founder triages weekly; most are closed without work.
 - ROOF-VALLEY-SKIPPED: a layout line whose valley cheek would cut its seat (wing-48's wing left Y 120) is not framed, as ROOF-TAIL-JACKS; framers fill it by hand.
 - ROOF-WALL-EDIT-STALE: a roof re-expands from its walls at each evaluation, but a wall edit does not re-validate the roof at write time; an edit that breaks the outline shows as the roof's rebuild error.
 - ROOF-LOW-PLATE-CUTTERS: 1.1.0's cutters stand on Z 0, so a typed plate under ~70 in with a 36 in overhang at a steep pitch could clip a tail below Z 0; 1.2.0 stands them on a datum below the lowest tail (1.1.0 is released, unchanged).
+- CUT-LIST-PRICES-STOCK-QTY: the panel has no Stock qty column (it equals Qty until CUT-LIST-NESTING; the Ext. price tooltip shows it); add the column when nesting makes them differ. The CSV has it.
+- CUT-LIST-PRICES-STOCK-LENGTHS: the dialog mirrors `STOCK_LENGTHS_FT` in `api/priceBook.ts` because `/api/v1/materials` does not serve it; serve it beside the profiles and drop the copy (a drift is a 422 on save, not silent).
+- CUT-LIST-PRICES-EDIT-PRICED: clicking a priced cell does nothing; it could open the book on the entry that priced it, as a blank opens a new one.
+- CUT-LIST-PRICES-DRAWING-RUN: the drawing's 320 px side panel hides the Run (qty x length) column to fit the two price columns; a wider drawing panel would bring it back.
