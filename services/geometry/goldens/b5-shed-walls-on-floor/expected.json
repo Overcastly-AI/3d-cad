@@ -1,0 +1,60 @@
+{
+  "description": "B5 SHED WALLS ON A FRAMED FLOOR (FLOOR-FRAME; docs/reference-parts/buildings.md B5, without the sheathing that SHEATHING adds): golden b5-floor-2x8-16oc's loft.floor 1.0.0 feature, then B2's four loft.wall 1.0.0 walls exactly as in b2-walls-no-openings-16oc except their base elevation, 8.75 in: the floor's framing top, so each bottom plate bears on a rim or an end joist. model.json is EXACTLY the five expansions with their member materials; members.json is each body's member metadata (packages/loft-plugins/tests/test_floor.py pins both).",
+  "derivation": [
+    "ANALYTIC, in exact rationals: the 16 floor boxes of b5-floor-2x8-16oc plus the 48 wall boxes of b2-walls-no-openings-16oc each raised 8.75 in (plates and studs on Z 8.75 + their B2 heights; tops at 105.875).",
+    "",
+    "volume = 20 030.25 + 25 601.625 = 45 631.875 in^3 = 747772456.065 mm^3.",
+    "",
+    "surface_area = 32 926 + 49 269 = 82 195 in^2 = 53028926.2 mm^2 (raising a box does not change its area).",
+    "",
+    "centroid x = 1828.8, y = 1524.0 (both parts symmetric), z = 14195451/389392 in = 925.9678046801167 mm.",
+    "",
+    "mass_g = 156736.474332876 + 194628.065291478 = 351364.539624354 g (PT: sills 4 174.5 + bottom plates 2 698.5 = 6 873 in^3, the rest SPF); center_of_mass z = 5350296397/152473456 in = 891.2864707664264 mm.",
+    "",
+    "bounding_box: X 0..144, Y 0..120, Z 0..105.875 in = 0..3657.6, 0..3048.0, 0..2689.225 mm.",
+    "",
+    "topology: 64 boxes = 384 faces, 768 edges, 64 shells. MESH: 768 triangles, 1536 vertices (exact for boxes).",
+    "",
+    "Interference none: the bottom plates' undersides (Z 8.75) only touch the rims' and end joists' tops (test_floor_b5.py probes every pair)."
+  ],
+  "tolerance": 2e-06,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): the bounds are ABSOLUTE and the part is ~7.5e8 mm^3, so the double-precision sum of its separate bodies carries round-off near the ULP of the sum (~6e-8): measured +1.2e-07 mm^3 on the volume, +3e-08 mm^2 on the area, <= 0 mm on the centroid, +5.8e-11 g on the mass; worst of the three B5 goldens 5.4e-7 mm^3. 2e-6 is 3.7x that and ~5e-15 relative; a joist 0.001 in too long adds 178 mm^3 to the volume and one 0.001 in out of place moves the centroid by >= 1e-5 mm; both fail by orders of magnitude.",
+  "roundtrip_tolerance": 3e-06,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip re-sums the re-imported solids in another order and moves the VOLUME by -7.2e-07 mm^3 and the AREA by -4.5e-08 mm^2 (~1e-15 relative), above ROUNDTRIP_TOL (1e-7 absolute), which is near the ULP of a 7.5e8 mm^3 sum. 3e-6 is 4.2x the worst of the three B5 goldens (7.2e-7), as WINDOW-DOOR's 3e-6. Same cause as b2-walls-no-openings-16oc and plugin-deck-v1-b1-12x16ft; it applies to volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 747772456.065,
+    "surface_area": 53028926.2,
+    "centroid": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": 925.9678046801167
+    },
+    "mass_g": 351364.539624354,
+    "center_of_mass": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": 891.2864707664264
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 3657.6,
+        "y": 3048.0,
+        "z": 2689.225
+      }
+    }
+  },
+  "topology": {
+    "faces": 384,
+    "edges": 768,
+    "shells": 64
+  },
+  "mesh": {
+    "vertices": 1536,
+    "triangles": 768
+  }
+}

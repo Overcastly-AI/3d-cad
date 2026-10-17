@@ -243,6 +243,11 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # rounding over more sloped members (1.3e-3 at worst); twin drifts too.
         "b4-l-hip-valley",
         "b4-wing-48",
+        # B5's floor (loft.floor), its 12 in o.c. edit, and B2's walls on it
+        # (FLOOR-FRAME): the same summation drift as the B2 walls.
+        "b5-floor-2x8-16oc",
+        "b5-floor-2x8-12oc",
+        "b5-shed-walls-on-floor",
     }
 )
 

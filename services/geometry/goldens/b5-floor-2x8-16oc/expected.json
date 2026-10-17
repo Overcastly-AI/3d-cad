@@ -1,0 +1,60 @@
+{
+  "description": "B5 FLOOR, 2x8 at 16 in o.c. (FLOOR-FRAME; docs/reference-parts/buildings.md B5): ONE loft.floor 1.0.0 custom feature at its defaults: a 144 x 120 platform on a foundation top at Z 0, PT 2x6 sill plates laid flat and butted, 2x8 SPF rims across the joist ends and 2x8 SPF joists along Y with both end joists flush. model.json is EXACTLY the expansion with the member materials documents applies (per-body assignments, no part default); members.json is each body's member metadata. packages/loft-plugins/tests/test_floor.py asserts both files are the plugin's output; services/geometry/tests/test_floor_b5.py checks the cut list, the exported STEP against an independent build123d script, and interference.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC, from buildings.md B5's coordinates in exact rational arithmetic (x 25.4 = mm exactly), never from the plugin. Sills Z 0..1.5: X 0..144 at Y 0..5.5 and 114.5..120, and X 0..5.5 and 138.5..144 at Y 5.5..114.5 (109). Rims X 0..144, Y 0..1.5 and 118.5..120, Z 1.5..8.75. Joists Y 1.5..118.5 (117), Z 1.5..8.75, 1.5 wide centred on X 0.75, 16, 32, ..., 128, 143.25 (10).",
+    "",
+    "volume = sills 2 x 144 x 8.25 + 2 x 109 x 8.25 (4 174.5) + rims 2 x 144 x 10.875 (3 132) + joists 10 x 117 x 10.875 (12 723.75) = 20 030.25 in^3, the spec's figure (an independent build123d script of the spec's boxes agrees and finds no interference).",
+    "",
+    "surface_area = sum of 2(ab + bc + ca) over the 16 boxes (bodies are separate, touching faces are not merged) = 32 926 in^2 = 21242538.16 mm^2.",
+    "",
+    "centroid = volume-weighted mean of the box centres (exact rationals): x = 72 in = 1828.8 mm and y = 60 in = 1524.0 mm (symmetric about both), z = 900177/213656 in = 107.01546317444864 mm.",
+    "",
+    "mass_g = (SPF volume x 450 + PT volume x 582) kg/m^3, the PT being the sills' 4 174.5 in^3 = 156736.474332876 g; center_of_mass x = 1828.8, y = 1524.0, z = 68247987/17003816 in = 101.94763750678084 mm (the denser sills pull it down).",
+    "",
+    "bounding_box: X 0..144, Y 0..120, Z 0..8.75 in = 0..3657.6, 0..3048.0, 0..222.25 mm.",
+    "",
+    "topology: 16 boxes x (6 faces, 12 edges, 1 shell) = 96 faces, 192 edges, 16 shells.",
+    "",
+    "MESH counts are recorded but also exact for boxes: 12 triangles and 24 vertices per box = 192 triangles, 384 vertices."
+  ],
+  "tolerance": 2e-06,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): the bounds are ABSOLUTE and the part is ~3.3e8 mm^3, so the double-precision sum of its separate bodies carries round-off near the ULP of the sum (~6e-8): measured +3e-07 mm^3 on the volume, +3.7e-09 mm^2 on the area, <= 9e-13 mm on the centroid, +1.2e-10 g on the mass; worst of the three B5 goldens 5.4e-7 mm^3. 2e-6 is 3.7x that and ~5e-15 relative; a joist 0.001 in too long adds 178 mm^3 to the volume and one 0.001 in out of place moves the centroid by >= 1e-5 mm; both fail by orders of magnitude.",
+  "roundtrip_tolerance": 3e-06,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip re-sums the re-imported solids in another order and moves the VOLUME by -5.4e-07 mm^3 and the AREA by -1.5e-08 mm^2 (~1e-15 relative), above ROUNDTRIP_TOL (1e-7 absolute), which is near the ULP of a 3.3e8 mm^3 sum. 3e-6 is 4.2x the worst of the three B5 goldens (7.2e-7), as WINDOW-DOOR's 3e-6. Same cause as b2-walls-no-openings-16oc and plugin-deck-v1-b1-12x16ft; it applies to volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 328236988.686,
+    "surface_area": 21242538.16,
+    "centroid": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": 107.01546317444864
+    },
+    "mass_g": 156736.474332876,
+    "center_of_mass": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": 101.94763750678084
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 3657.6,
+        "y": 3048.0,
+        "z": 222.25
+      }
+    }
+  },
+  "topology": {
+    "faces": 96,
+    "edges": 192,
+    "shells": 16
+  },
+  "mesh": {
+    "vertices": 384,
+    "triangles": 192
+  }
+}

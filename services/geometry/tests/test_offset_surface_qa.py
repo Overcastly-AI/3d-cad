@@ -113,6 +113,11 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # mm^3 through OCCT's STEP; test_roof_valley_b4 re-measures the twin.
     "b4-l-hip-valley": 5e-3,
     "b4-wing-48": 5e-3,
+    # B5's floor, its 12 in o.c. edit and B2's walls on it (FLOOR-FRAME): the
+    # B2 walls' summation drift, measured 7.2e-7 at worst.
+    "b5-floor-2x8-16oc": 3e-6,
+    "b5-floor-2x8-12oc": 3e-6,
+    "b5-shed-walls-on-floor": 3e-6,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's
