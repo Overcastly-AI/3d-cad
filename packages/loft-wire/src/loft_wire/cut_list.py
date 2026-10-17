@@ -167,6 +167,14 @@ class CutListLine(BaseModel):
     )
 
 
+class CutListMissing(BaseModel):
+    """A part the assembly still places but that was deleted: its pieces
+    cannot be measured, so the list says so instead of dropping them."""
+
+    ref_document_id: uuid.UUID
+    quantity: int = Field(ge=1, description="Placements of the deleted part.")
+
+
 class CutListResponse(BaseModel):
     """A part's or an assembly's cut list (``GET .../cut-list``)."""
 
@@ -179,6 +187,11 @@ class CutListResponse(BaseModel):
     lines: list[CutListLine] = Field(default_factory=list[CutListLine])
     total_quantity: int = Field(ge=0, description="Sum of every line's quantity.")
     unclassified: int = Field(ge=0, description="How many pieces matched no profile.")
+    missing: list[CutListMissing] = Field(
+        default_factory=list[CutListMissing],
+        description="Deleted parts an assembly still places: not measured, "
+        "listed so the cut list is not silently short.",
+    )
 
 
 # --- classification -----------------------------------------------------------------
@@ -368,8 +381,9 @@ def cut_list_response(
     name: str,
     length_unit: LengthUnit,
     pieces: Sequence[CutListPiece],
+    missing: Sequence[CutListMissing] = (),
 ) -> CutListResponse:
-    """The grouped response for *pieces*."""
+    """The grouped response for *pieces* (and an assembly's deleted parts)."""
     lines = group_pieces(pieces)
     return CutListResponse(
         document_id=document_id,
@@ -381,6 +395,7 @@ def cut_list_response(
         unclassified=sum(
             line.quantity for line in lines if line.classification == "unclassified"
         ),
+        missing=list(missing),
     )
 
 
@@ -428,8 +443,22 @@ def csv_header(unit: LengthUnit) -> list[str]:
     ]
 
 
+#: A cell starting with one of these is a FORMULA to Excel, LibreOffice and
+#: Google Sheets (``=HYPERLINK(...)``, ``+cmd|...``, ``@SUM``, a leading tab or
+#: CR). Member text comes from a plugin's metadata, which a shared ``.loft``
+#: carries for a plugin this server may not have, so it is untrusted.
+FORMULA_TRIGGERS: Final = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_text(value: str) -> str:
+    """*value* safe as a CSV text cell: a leading formula trigger is escaped
+    with a single quote (OWASP, CSV injection), so it reads as text."""
+    return f"'{value}" if value.startswith(FORMULA_TRIGGERS) else value
+
+
 def cut_list_csv(cut_list: CutListResponse) -> str:
-    """The cut list as CSV (RFC 4180, CRLF), one row per line."""
+    """The cut list as CSV (RFC 4180, CRLF), one row per line. Every text cell
+    goes through :func:`csv_text`; numbers are written by this module."""
     unit = cut_list.length_unit
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\r\n")
@@ -439,16 +468,20 @@ def cut_list_csv(cut_list: CutListResponse) -> str:
         writer.writerow(
             [
                 item,
-                line.member or "",
-                line.profile or "Unclassified",
+                csv_text(line.member or ""),
+                csv_text(line.profile or "Unclassified"),
                 " x ".join(format_length(v, unit) for v in line.section_mm),
-                material,
+                csv_text(material),
                 line.quantity,
                 format_length(line.length_mm, unit),
                 format_length(line.total_length_mm, unit),
                 "" if line.stock_length_ft is None else f"{line.stock_length_ft} ft",
                 "" if line.waste_mm is None else format_length(line.waste_mm, unit),
             ]
+        )
+    for missing in cut_list.missing:
+        writer.writerow(
+            ["", "Deleted part", "Not listed", "", "", missing.quantity, "", "", "", ""]
         )
     return out.getvalue()
 

@@ -14,9 +14,10 @@ import pytest
 from documents import custom_features
 from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
-from loft_plugins import PluginRegistry
+from loft_plugins import PluginRegistry, canonical_inputs, expand
 from loft_plugins.testing_deck import DECK_B1
 from loft_wire.cut_list import CutListPartRequest
+from loft_wire.features import CustomParamsV1
 from loft_wire.parts import PRINCIPAL_HEADER
 
 HEADERS = {PRINCIPAL_HEADER: "6f3f6b64-0000-4000-8000-0000000000c7"}
@@ -113,3 +114,50 @@ def test_a_foreign_part_is_a_404(
     other = {PRINCIPAL_HEADER: "6f3f6b64-0000-4000-8000-0000000000c8"}
     response = client.get(f"/api/v1/parts/{part_id}/cut-list-request", headers=other)
     assert response.status_code == 404
+
+
+def _deck_tree() -> dict[str, Any]:
+    """The deck as a ``.loft`` tree: one stored custom feature."""
+    deck_id = uuid.uuid4()
+    inputs = canonical_inputs(DECK_B1.manifest, {})
+    members = expand(DECK_B1, deck_id, inputs, {})
+    params = CustomParamsV1(
+        plugin_id="test.deck_b1",
+        plugin_version="1.0.0",
+        inputs=inputs,
+        expansion=members,
+    ).model_dump(mode="json")
+    feature = {
+        "id": str(deck_id),
+        "name": "Deck",
+        "type": "custom",
+        "param_version": 1,
+        "params": params,
+    }
+    return {"name": f"Deck {uuid.uuid4()}", "length_unit": "in", "features": [feature]}
+
+
+def test_an_imported_member_label_that_is_a_formula_is_refused(
+    client: TestClient, registry: list[PluginRegistry]
+) -> None:
+    """A shared .loft for a plugin this server lacks rebuilds from its stored
+    members, so their metadata is checked on import like an authored one: a
+    formula label (CSV injection) is a 422, and the clean file imports."""
+    registry[0] = PluginRegistry()  # the server has no such plugin
+    clean = _deck_tree()
+    response = client.post(
+        "/api/v1/parts/import-loft",
+        json={"document_id": str(uuid.uuid4()), "tree": clean},
+        headers=HEADERS,
+    )
+    assert response.status_code == 201, response.text
+
+    forged = _deck_tree()
+    member = forged["features"][0]["params"]["expansion"][2]  # the ledger
+    member["metadata"]["profile"] = '=HYPERLINK("http://evil.example","2x10")'
+    response = client.post(
+        "/api/v1/parts/import-loft",
+        json={"document_id": str(uuid.uuid4()), "tree": forged},
+        headers=HEADERS,
+    )
+    assert response.status_code == 422, response.text

@@ -31,7 +31,13 @@ import re
 import uuid
 from typing import Annotated, Final, Literal, Self
 
-from pydantic import BaseModel, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from loft_wire.materials import MaterialKey
 
@@ -299,6 +305,20 @@ class MemberMetadata(BaseModel):
     nominal_size: Annotated[str, StringConstraints(max_length=80)] | None = Field(
         default=None, description="Nominal size as sold, e.g. '2x8x12'."
     )
+
+    @field_validator("profile", "nominal_size")
+    @classmethod
+    def _plain_text(cls, value: str | None) -> str | None:
+        """A label, never a formula or control text: it reaches spreadsheets
+        through the cut-list CSV, and a stored expansion in a shared ``.loft``
+        is checked by the same model whether or not the plugin is installed."""
+        if value is None:
+            return value
+        if value.startswith(("=", "+", "-", "@")):
+            raise ValueError("a member label may not start with =, +, - or @")
+        if any(ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ValueError("a member label may not contain control characters")
+        return value
 
 
 # --- The manifest ----------------------------------------------------------------

@@ -11,7 +11,9 @@ from loft_wire.cut_list import (
     BodyExtent,
     BodyExtentsResult,
     CutListMember,
+    CutListMissing,
     classify_body,
+    csv_text,
     cut_list_csv,
     cut_list_filename,
     cut_list_response,
@@ -21,6 +23,7 @@ from loft_wire.cut_list import (
 )
 from loft_wire.materials import BodyMaterialAssignment, MaterialAssignment
 from loft_wire.plugins import MemberMetadata
+from pydantic import ValidationError
 
 IN = 25.4
 FT = 12 * IN
@@ -171,3 +174,66 @@ def test_lengths_format_in_the_document_unit() -> None:
 def test_the_filename_drops_path_characters() -> None:
     assert cut_list_filename('B1 / "deck"') == "B1  deck cut list.csv"
     assert cut_list_filename("///") == "cut-list cut list.csv"
+
+
+@pytest.mark.parametrize("trigger", ["=", "+", "-", "@", "\t", "\r"])
+def test_a_formula_trigger_is_escaped_as_text(trigger: str) -> None:
+    """OWASP CSV injection: a cell a spreadsheet would run reads as text."""
+    assert csv_text(f"{trigger}HYPERLINK(1)") == f"'{trigger}HYPERLINK(1)"
+
+
+def test_plain_text_is_unchanged() -> None:
+    for value in ("2x10", "Joist", "Southern pine, pressure-treated", "", "5/4x6"):
+        assert csv_text(value) == value
+
+
+def test_csv_escapes_member_and_profile_cells() -> None:
+    """Metadata a shared .loft could carry reaches the CSV inert, even when
+    built past validation (model_construct)."""
+    bar = _body(20, 20, 300)
+    member = CutListMember.model_construct(
+        feature_id=bar.base_feature_id,
+        role="joist",
+        title="=cmd|'/c calc'!A1",
+        metadata=MemberMetadata.model_construct(
+            profile='=HYPERLINK("http://x","y")', material=None, nominal_size=None
+        ),
+    )
+    response = cut_list_response(
+        document_id=uuid.uuid4(),
+        document_kind="part",
+        name="Rack",
+        length_unit="mm",
+        pieces=[classify_body(bar, member, None)],
+    )
+    row = cut_list_csv(response).split("\r\n")[1]
+    assert row.startswith('1,\'=cmd|\'/c calc\'!A1,"\'=HYPERLINK(""http://x"",""y"")",')
+
+
+@pytest.mark.parametrize(
+    "label", ["=1+1", "+1", "-1", "@SUM(A1)", "2x10\t", "a\rb", "x\x7f"]
+)
+def test_member_metadata_refuses_formula_and_control_text(label: str) -> None:
+    with pytest.raises(ValidationError):
+        MemberMetadata(profile=label)
+    with pytest.raises(ValidationError):
+        MemberMetadata(nominal_size=label)
+
+
+def test_member_metadata_keeps_ordinary_labels() -> None:
+    meta = MemberMetadata(profile="5/4x6", nominal_size="2x8x12")
+    assert (meta.profile, meta.nominal_size) == ("5/4x6", "2x8x12")
+
+
+def test_a_deleted_part_is_listed_not_dropped() -> None:
+    gone = uuid.uuid4()
+    response = cut_list_response(
+        document_id=uuid.uuid4(),
+        document_kind="assembly",
+        name="Frame",
+        length_unit="mm",
+        pieces=[],
+        missing=[CutListMissing(ref_document_id=gone, quantity=3)],
+    )
+    assert response.missing[0].quantity == 3
+    assert cut_list_csv(response).endswith(",Deleted part,Not listed,,,3,,,,\r\n")
