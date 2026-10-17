@@ -65,6 +65,7 @@ from documents.custom_features import (
     member_targets,
     prepare_custom_write,
     reexpand_hosts,
+    stored_host_id,
 )
 from documents.feature_expressions import (
     evaluation_features,
@@ -565,7 +566,7 @@ async def update_feature(
             )
         features = await _ordered_features(session, part.id)
         features_by_id = {row.id: row for row in features}
-        hosts_before = host_id(load_feature(feature)[0])
+        hosts_before = stored_host_id(feature)
         envelope: AuthoredEnvelope = request.feature
         if isinstance(envelope, CustomFeature):
             validate_references(envelope, feature.order_index, features_by_id)
@@ -644,7 +645,7 @@ async def suppress_feature(
     feature.suppressed = request.suppressed
     # A suppressed door is not framed (it has no effect, as any suppressed
     # feature): its wall re-expands without it, and with it again on unsuppress.
-    await _reframe_hosts(session, part, [host_id(load_feature(feature)[0])])
+    await _reframe_hosts(session, part, [stored_host_id(feature)])
     part.tree_version += 1
     await history.PART_HISTORY.record(session, part, pre_op)
     await session.commit()
@@ -780,7 +781,7 @@ async def delete_feature(
     if part.rollback_feature_id == feature.id:
         part.rollback_feature_id = None  # bar resets to the tip (§3)
     deleted_index = feature.order_index
-    host = host_id(load_feature(feature)[0])
+    host = stored_host_id(feature)
     await session.execute(
         delete(db.FeatureDependency).where(
             db.FeatureDependency.feature_id == feature.id

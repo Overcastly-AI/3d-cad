@@ -78,6 +78,7 @@ from loft_wire.plugins import (
     member_id,
 )
 from py_kit import ConflictError, ValidationApiError, get_logger
+from pydantic import ValidationError
 
 from documents import db
 from documents.feature_expressions import load_feature
@@ -422,6 +423,18 @@ def host_id(envelope: AuthoredEnvelope) -> uuid.UUID | None:
     return host_of(manifest, envelope.params.inputs)
 
 
+def stored_host_id(row: db.Feature) -> uuid.UUID | None:
+    """The host a STORED row names (a door's wall), or ``None``: not custom,
+    not hosted, or a stored row that no longer loads (a write that would
+    repair it must not fail on reading it)."""
+    if row.type != "custom":
+        return None
+    try:
+        return host_id(load_feature(row)[0])
+    except ValidationError:
+        return None
+
+
 class Hosts:
     """Which rows each host is given (RESEARCH §23 "Hosting is by inputs"):
     every unsuppressed custom row of *rows* whose host input names it, in
@@ -438,7 +451,11 @@ class Hosts:
         for row in rows:
             if row.type != "custom" or row.suppressed:
                 continue
-            envelope = (envelopes or {}).get(row.id) or load_feature(row)[0]
+            envelope = (envelopes or {}).get(row.id)
+            if envelope is None:
+                if stored_host_id(row) is None:
+                    continue
+                envelope = load_feature(row)[0]
             host = host_id(envelope)
             if host is not None and isinstance(envelope, CustomFeature):
                 self._by_host.setdefault(host, []).append((row, envelope))
@@ -779,4 +796,5 @@ __all__ = [
     "reexpand_hosts",
     "refresh_expansions",
     "router",
+    "stored_host_id",
 ]
