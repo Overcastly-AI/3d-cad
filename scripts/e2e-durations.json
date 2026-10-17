@@ -46,6 +46,7 @@
     "datum-plane-angle.spec.ts": 17.8,
     "datum-plane.spec.ts": 157.9,
     "datum-sheet-size.spec.ts": 29.3,
+    "deck-b1.spec.ts": 39.2,
     "dimension-expressions.spec.ts": 94.2,
     "dimension-placement.spec.ts": 85.6,
     "document-units.spec.ts": 56.2,
