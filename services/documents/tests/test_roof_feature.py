@@ -116,3 +116,109 @@ def test_a_shallow_ridge_is_a_typed_refusal(client: TestClient) -> None:
     )
     assert response.status_code == 422, response.text
     assert response.json()["error"]["code"] == "plugin_input_unsupported"
+
+
+# --- 1.1.0: Style Hip (ROOF-HIP) ---------------------------------------------------
+
+
+def _roof_1_1(**inputs: Any) -> dict[str, Any]:
+    feature = _roof(**inputs)
+    feature["params"]["plugin_version"] = "1.1.0"
+    return feature
+
+
+def _shapes(request: EvaluateTreeRequest) -> list[tuple[str, Any]]:
+    """Each member's type and, for a sketch, its outline: the expansion
+    with its ids (derived from the feature's own id) left out."""
+    return [
+        (
+            e.feature.type,
+            e.feature.params.model_dump(mode="json")["entities"]
+            if e.feature.type == "sketch"
+            else None,
+        )
+        for e in request.features
+    ]
+
+
+def test_a_hip_roof_is_b3s_members_and_the_edit_back_is_b2s_gable(
+    client: TestClient,
+) -> None:
+    """B3: Style Hip gives 27 bodies (6 commons, 16 jacks, 4 hips, a ridge),
+    each weighed as spruce-pine-fir; the jacks and hips are trimmed by
+    cutters their booleans consume, so no cutter is left a body. The edit
+    back to Gable is B2's roof exactly as a stored 1.0.0 roof expands."""
+    part_id, version = _part(client)
+    response = client.post(
+        f"/api/v1/parts/{part_id}/features",
+        json={
+            "name": "Roof",
+            "feature": _roof_1_1(style="hip"),
+            "expected_tree_version": version,
+        },
+        headers=HEADERS,
+    )
+    assert response.status_code == 201, response.text
+    feature_id = response.json()["feature"]["id"]
+    stored = response.json()["feature"]["feature"]["params"]
+    assert stored["inputs"]["style"] == "hip"
+    assert stored["inputs"]["hip_profile"] == "us_2x8"
+    roles = [m["role"] for m in stored["expansion"]]
+    assert {r: roles.count(r) for r in ("common", "jack", "hip", "ridge")} == {
+        "common": 6,
+        "jack": 16,
+        "hip": 4,
+        "ridge": 1,
+    }
+    hip = _request(client, part_id)
+    assert hip.materials is not None
+    assigned = {e.base_feature_id: e.material for e in hip.materials.bodies}
+    assert len(assigned) == 27 and set(assigned.values()) == {"spf_lumber"}
+    assert sum(e.feature.type == "boolean" for e in hip.features) == 24
+
+    response = client.patch(
+        f"/api/v1/parts/{part_id}/features/{feature_id}",
+        json={
+            "expected_tree_version": hip.tree_version,
+            "feature": _roof_1_1(style="gable"),
+        },
+        headers=HEADERS,
+    )
+    assert response.status_code == 200, response.text
+    gable = _request(client, part_id)
+    assert len(_bodies(gable)) == 15
+    other, version = _part(client)
+    response = client.post(
+        f"/api/v1/parts/{other}/features",
+        json={"name": "Roof", "feature": _roof(), "expected_tree_version": version},
+        headers=HEADERS,
+    )
+    assert response.status_code == 201, response.text
+    assert _shapes(gable) == _shapes(_request(client, other))
+
+
+@pytest.mark.parametrize(
+    ("inputs", "at"),
+    [
+        ({"style": "hip", "hip_profile": "us_2x6"}, "hip_profile"),
+        ({"style": "hip", "overhang_mm": 2.54e-8}, "overhang_mm"),
+        ({"style": "gable", "overhang_mm": 2.54e-8}, "overhang_mm"),
+    ],
+)
+def test_a_shallow_hip_and_a_sliver_of_overhang_are_typed_refusals(
+    client: TestClient, inputs: dict[str, Any], at: str
+) -> None:
+    part_id, version = _part(client)
+    response = client.post(
+        f"/api/v1/parts/{part_id}/features",
+        json={
+            "name": "Roof",
+            "feature": _roof_1_1(**inputs),
+            "expected_tree_version": version,
+        },
+        headers=HEADERS,
+    )
+    assert response.status_code == 422, response.text
+    error = response.json()["error"]
+    assert error["code"] == "plugin_input_unsupported"
+    assert error["details"]["input"] == at

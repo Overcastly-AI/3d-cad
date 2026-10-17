@@ -105,6 +105,10 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # 3.5e-4 mm^3 through OCCT's STEP, as their build123d twin does (ROOF).
     "b2-roof-6-12": 1e-3,
     "b2-roof-8-12": 1e-3,
+    # B3's hip roof (ROOF-HIP): 1.2e-4 and 2.3e-4 mm^3 through OCCT's STEP;
+    # test_roof_hip_b3 re-measures the twin's drift (ROOF-TWIN-DRIFT-TEST).
+    "b3-hip-6-12": 1e-3,
+    "b3-hip-8-12": 1e-3,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

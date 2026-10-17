@@ -1992,6 +1992,58 @@ and reframe it, a material per member, and a cut list that is always current.
   - *Cut length.* The cut list measures a rafter's overall length from its
     body (line length + depth x rise/12, a SolidWorks weldment's length); the
     line length (79.660) is checked on the STEP's faces in the golden test.
+  - *Heel rule wording.* The 1/3 rule compares the vertical heel with the
+    rafter's square-cut depth (5.5), not its plumb depth (6.149), so it is
+    conservative: it shortens the seat a little before a framer would have to.
+- **Decided while building the hip roof** (ROOF-HIP, 2026-10-17; Chief
+  Architect's roof styles, Medeek's rafter roof types, framing-square hip
+  practice in buildings.md):
+  - *Style, not a new tool.* `loft.roof` 1.1.0 adds Style (Gable, the
+    default, or Hip) and a hip size (2x8). Gable runs 1.0.0's own expander,
+    so it is B2's roof member for member under the same ids; 1.0.0 stays
+    registered and every stored 1.0.0 roof expands byte-identically. New
+    roofs are inserted at 1.1.0.
+  - *Jacks.* A jack is its side profile, run past the hip, intersected (a
+    Boolean) with a vertical prism of its plan outline whose one slanted edge
+    is the hip's side face. The cheek is then a plumb plane 45 deg in plan,
+    which is exactly the cut a framer makes with the saw bevelled 45 deg along
+    the plumb line; on the top edge it reads 48.19 deg off square at 6/12
+    (50.24 at 8/12), so the compound angle is modelled, not approximated.
+    Jacks are laid out on the spacing outward from the ridge-end and king
+    commons and framed while their short point clears the seat; a shorter
+    layout point would be a tail jack, a later rung (ROOF-TAIL-JACKS).
+  - *Hips.* A hip's side profile (top centreline the drop below the planes,
+    so its edges lie in them) is sketched on a midplane datum between the YZ
+    and an XZ plane through its corner, extruded symmetric its thickness,
+    intersected with the box its double cheeks bound (the fascia corner, and
+    the inside corner of the ridge-end and king commons), less the seat:
+    everything below the plate inside both walls (a double heel, 3.556 on the
+    centreline at 6/12). Dropped, not backed (ROOF-HIP-BACKING). The cutters
+    are consumed by their Booleans, so mass, the body list and the cut list
+    see members only.
+  - *Refusals.* Hips shallower than the commons' plumb cut, and a length
+    under span + one rafter thickness (the ridge-end commons would overlap;
+    a pyramid is ROOF-PYRAMID), are `plugin_input_unsupported`. ROOF-OVERHANG
+    -MIN: in 1.1.0 the overhang is 0 or at least 1/16 in (2.54e-8 mm broke
+    the kernel); 1.0.0's released manifest is unchanged.
+  - *No coincident faces.* A cutter's outline and a trimmed member's uncut
+    profile run 2 in past every face they do not make, so no cutter face
+    coincides with a member's (DECK's float class). A kernel sweep over seven
+    roofs (1/12 to 18/12, spans 48 to 200, ridge-end commons touching, 16,
+    19.2 and 24 o.c., overhangs 0, 1/16 and 36, 2x8 commons) finds one solid
+    per member and no overlap.
+  - *Numbers.* The product manager's hand numbers were checked in a kernel
+    before use: an independent build123d script that builds each member
+    another way (its plan prism cut to the slab between its two planes, less
+    the seat) agrees with the closed form to 1.4e-6 mm^3 and with the plugin
+    to 1e-4 per body. One printed overall length was off by rounding (the
+    short jack, 29.236 from summed rounded parts; exactly 29.23549) and is
+    corrected in buildings.md. The STEP round trip drifts 1.2e-4 / 2.3e-4
+    mm^3 (OCCT rounding sloped coordinates; the twin drifts too and its ridge
+    does not), inside the roof goldens' 1e-3 (ROOF-TWIN-DRIFT-TEST).
+  - *Seam for ROOF-VALLEY.* The hip is built from a `Footprint`'s eaves and
+    convex corners; 1.2.0 replaces the typed rectangle with the loop of the
+    picked walls' outer faces, whose reflex corners carry valleys.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

@@ -1,0 +1,60 @@
+{
+  "description": "B3 HIP ROOF at 6/12 from ONE loft.roof 1.1.0 custom feature, Style Hip (ROOF-HIP; docs/reference-parts/buildings.md B3): on walls whose outer faces are X 0..144 and Y 0..120 with top plates at Z 97.125 and 3.5 deep, 2x6 commons and hip jacks at 24 in o.c. with a 12 in level overhang, a 2x8 ridge and 2x8 dropped hips, all spf_lumber. model.json is EXACTLY the plugin's expansion with the member materials documents applies; members.json is each body's member metadata. packages/loft-plugins/tests/test_roof_hip.py asserts both files are the plugin's output; services/geometry/tests/test_roof_hip_b3.py checks the cut list, the lengths on the exported STEP, every solid against an independent build123d script and interference with the walls. Commons are side profiles extruded 1.5; each jack is its side profile intersected with its plan outline (the cheek, 45 deg in plan); each hip is its side profile on a midplane datum, extruded symmetric 1.5, intersected with its double-cheek box and less its seat.",
+  "derivation": [
+    "Every expectation except the counts is ANALYTIC (buildings.md's closed form, the product manager's scratchpad/roof_numbers.py) or from the INDEPENDENT build123d script (test_roof_hip_b3.script_hip_roof, which shares no code with the plugin: each member is its plan prism cut to the slab between its bottom and top planes, less everything below the plate inside the walls). The two agree to 1.4e-6 mm^3.",
+    "",
+    "Planes: slope 6/12, seat 3.5, heel 1.75, plumb depth 5.5 x sqrt(1.25) = 6.149187, HAP 4.399187; every plane rises from Z 97.125 + 4.399187 at its wall's outer face. Ridge 2x8 X 59.25..84.75, Y 59.25..60.75, top flush at 131.149187.",
+    "",
+    "Volumes (in^3): a common (B2's rafter, line 79.660) 1.5 x 435.067069 = 652.600604; jacks at centre runs 34.939 and 10.939 (12 and 36 in from each corner less 0.75 sqrt 2) 428.364413 and 206.993683 (the cheek is 45 deg in plan, so the volume is 1.5 x the centreline profile's area); a hip: unit length 18 per 12, plumb depth 7.25 x 18 / 16.9706 = 7.689690, centreline plan run 71.25 sqrt 2 less 0.375 at each double cheek, prism 1.5 x 7.689690 x 100.0127 = 1153.614615, less a seat of 24.870430 (the hip's bottom, 3.556 below the plate at the corner, rising 0.353553 per plan inch, cut level over both walls' quadrant) = 1128.744185; ridge 25.5 x 1.5 x 7.25 = 277.3125.",
+    "",
+    "volume = 6 x 652.600604 + 8 x (428.364413 + 206.993683) + 4 x 1128.744185 + 277.3125 = 13790.757636 in^3 (buildings.md: 13 790.758) x 25.4^3 = 225990027.985047 mm^3.",
+    "",
+    "surface_area 15289592.284118 mm^2 and centroid z 2729.430753 mm: the independent script's solids (x 1828.8 = 72 in and y 1524 = 60 in by symmetry).",
+    "",
+    "mass_g = volume x 450 kg/m^3 (spf_lumber, every body by its member material); center_of_mass = centroid.",
+    "",
+    "bounding_box: X -12..156 and Y -12..132 (tails and hips' tails at the fascia), Z from the hips' tail tips, 97.125 + 4.399187 - drop 0.265165 - 6 (12 sqrt 2 of plan at 0.353553) - 7.689690 = 87.569236, to the ridge's top 131.149187 in.",
+    "",
+    "topology: 6 commons and 16 jacks x (9 faces, 21 edges), 4 hips x (12, 30: two sides, top, two bottoms either side of the seat, two cheeks at each end, two heels and the seat), the ridge (6, 12) = 252 faces, 594 edges, 27 shells; mesh counts recorded from the build (planar faces: a rafter 24 triangles on 42 vertices, a hip 36 on 60, the ridge 12 on 24)."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): the bounds are ABSOLUTE on a ~2.3e8 mm^3 part of 27 separate bodies; the kernel differs from the closed form by 1.5e-7 mm^3, from the script's area by 5.0e-8 mm^2 and its centroid by <= 1e-12 mm. 1e-6 is 6.7x the worst; a jack 0.001 in out of place moves the volume by > 10 mm^3.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-17: OCCT's STEP writer rounds the sloped members' irrational coordinates. Round-trip drift: volume +1.18e-4 mm^3 and area -1.52e-5 mm^2; centroid <= 5.8e-10 mm. The independent build123d twin, exported with build123d's own export_step, drifts -3.10e-3 mm^3 (it has more sloped vertices) while its axis-aligned ridge drifts nothing (test_roof_hip_b3::test_the_roofs_step_drift_is_occts, ROOF-TWIN-DRIFT-TEST), so it is OCCT's STEP, not Loft's export. 1e-3 is the roof goldens' bound, 8.5x this drift; it applies to volume and area only.",
+  "properties": {
+    "volume": 225990027.9850472,
+    "surface_area": 15289592.284117766,
+    "centroid": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": 2729.430753042609
+    },
+    "mass_g": 101695.51259327124,
+    "center_of_mass": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": 2729.430753042609
+    },
+    "bounding_box": {
+      "min": {
+        "x": -304.8,
+        "y": -304.8,
+        "z": 2224.258585504304
+      },
+      "max": {
+        "x": 3962.4,
+        "y": 3352.8,
+        "z": 3331.18934822836
+      }
+    }
+  },
+  "topology": {
+    "faces": 252,
+    "edges": 594,
+    "shells": 27
+  },
+  "mesh": {
+    "vertices": 1188,
+    "triangles": 684
+  }
+}

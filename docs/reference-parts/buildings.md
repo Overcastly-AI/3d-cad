@@ -191,7 +191,7 @@ Cut list (roof):
 | ------ | ------- | --- | ---------------- | ----- |
 | Common | 2x6     | 6   | 82.410           | 8 ft  |
 | Jack   | 2x6     | 8   | 56.068           | 8 ft  |
-| Jack   | 2x6     | 8   | 29.236           | 8 ft  |
+| Jack   | 2x6     | 8   | 29.235           | 8 ft  |
 | Hip    | 2x8     | 4   | 109.438          | 10 ft |
 | Ridge  | 2x8     | 1   | 25.5             | 8 ft  |
 
@@ -240,7 +240,7 @@ Cut list (roof):
 | Common      | 2x6     | 18  | 82.410           | 8 ft  |
 | Common      | 2x6     | 2   | 82.063           | 8 ft  |
 | Jack        | 2x6     | 10  | 56.068           | 8 ft  |
-| Jack        | 2x6     | 10  | 29.236           | 8 ft  |
+| Jack        | 2x6     | 10  | 29.235           | 8 ft  |
 | Valley jack | 2x6     | 2   | 55.230           | 8 ft  |
 | Valley jack | 2x6     | 2   | 28.397           | 8 ft  |
 | Hip         | 2x8     | 5   | 109.438          | 10 ft |

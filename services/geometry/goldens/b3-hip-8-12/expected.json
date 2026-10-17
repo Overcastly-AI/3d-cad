@@ -1,0 +1,54 @@
+{
+  "description": "B3 HIP ROOF, the pitch edit 6/12 -> 8/12 (ROOF-HIP; docs/reference-parts/buildings.md B3 'Edits'): b3-hip-6-12's loft.roof 1.1.0 feature, Style Hip, at 8/12. model.json is EXACTLY the plugin's expansion with the member materials documents applies; members.json is each body's member metadata, pinned by packages/loft-plugins/tests/test_roof_hip.py and checked by services/geometry/tests/test_roof_hip_b3.py.",
+  "derivation": [
+    "As b3-hip-6-12, at slope 8/12: a full seat would make a 2.333 heel, over 1/3 of the depth, so the seat is 2.75 and the heel 1.833; plumb depth 5.5 x 14.4222 / 12 = 6.610178, HAP 4.776845. Commons are B2's 8/12 rafter (line 85.632), jacks line 56.414 and 27.570 (28.844 apart), hips unit 18.76 and line 111.397, drop 0.353553.",
+    "",
+    "Volumes (in^3): common 702.681453; jacks 461.634791 and 223.668406; hip prism 1202.429372 less a seat of 18.572247 = 1183.857125; ridge 277.3125. volume = 6 x 702.681453 + 8 x (461.634791 + 223.668406) + 4 x 1183.857125 + 277.3125 = 14711.255296 in^3 (buildings.md: 14 711.255) x 25.4^3 = 241074282.051405 mm^3. The independent script agrees to 1.2e-6 mm^3.",
+    "",
+    "surface_area 16299073.620479 mm^2 and centroid z 2809.103490 mm: the independent script's solids (x 72 in, y 60 in by symmetry). mass_g = volume x 450 kg/m^3; center_of_mass = centroid.",
+    "",
+    "bounding_box: X -12..156, Y -12..132; Z from the hips' tail tips 85.533114 to the ridge's top 141.401844 in.",
+    "",
+    "topology and mesh counts: as b3-hip-6-12 (the pitch moves no face)."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set: the kernel differs from the closed form by 6e-8 mm^3, from the script's area by 2.8e-8 mm^2 and its centroid by <= 1.2e-12 mm. 1e-6 is 17x the worst.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-17: OCCT's STEP writer rounds the sloped members' coordinates. Round-trip drift: volume +2.26e-4 mm^3 and area -1.02e-5 mm^2; centroid <= 1.5e-9 mm. The independent build123d twin drifts -1.01e-3 mm^3 through build123d's own export_step while its axis-aligned ridge drifts nothing (test_roof_hip_b3::test_the_roofs_step_drift_is_occts). 1e-3 is the roof goldens' bound, 4.4x this drift; volume and area only.",
+  "properties": {
+    "volume": 241074282.0514054,
+    "surface_area": 16299073.620478828,
+    "centroid": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": 2809.1034898467065
+    },
+    "mass_g": 108483.42692313243,
+    "center_of_mass": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": 2809.1034898467065
+    },
+    "bounding_box": {
+      "min": {
+        "x": -304.8,
+        "y": -304.8,
+        "z": 2172.5410965583883
+      },
+      "max": {
+        "x": 3962.4,
+        "y": 3352.8,
+        "z": 3591.60683772744
+      }
+    }
+  },
+  "topology": {
+    "faces": 252,
+    "edges": 594,
+    "shells": 27
+  },
+  "mesh": {
+    "vertices": 1188,
+    "triangles": 684
+  }
+}

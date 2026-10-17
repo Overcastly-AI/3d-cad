@@ -235,6 +235,10 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # the sloped rafters' coordinates; a build123d twin drifts the same.
         "b2-roof-6-12",
         "b2-roof-8-12",
+        # B3's hip roof at 6/12 and 8/12 (ROOF-HIP): the same STEP rounding
+        # (2.3e-4 at worst); a build123d twin drifts too, its ridge not.
+        "b3-hip-6-12",
+        "b3-hip-8-12",
     }
 )
 
