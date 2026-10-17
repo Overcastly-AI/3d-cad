@@ -87,7 +87,7 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    Interference is not readable in a part (B2-E2E-INTERFERENCE); it is
    `test_roof_b2.py`'s exact probe of every rafter against the walls. The
    slab (B2-SLAB) is left out. Helpers shared in `e2e/buildFlow.ts`.
-5. [ ] **ROOF-HIP** (`loft.roof` 1.1.0, stops B3): a `style` choice, Gable
+5. [x] **ROOF-HIP** (`loft.roof` 1.1.0, stops B3): a `style` choice, Gable
    (default) or Hip, as Chief Architect's roof style and Medeek's rafter
    roof type, plus a hip profile (2x8 default, refused if shallower than the
    commons' plumb cut). Hip on the typed rectangle: ridge L - W + one common
@@ -103,6 +103,13 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    (14 711.255 in³); 1.0.0 goldens byte-identical and Gable equals
    `b2-roof-6-12`. E2e: Roof with Style Hip from Build ▾ on B2's walls lists
    4 Hip and 16 Jack.
+   _Done:_ `loft.roof` 1.1.0 (1.0.0 kept; Gable is its expander), goldens
+   `b3-hip-6-12` and `b3-hip-8-12` (the PM's numbers hold in a kernel; the
+   short jack's printed overall length is corrected to 29.235);
+   `test_roof_hip.py`, `test_roof_hip_b3.py` (STEP lengths, script to 1e-4,
+   no interference, a seven-roof overlap sweep, the twin's STEP drift),
+   `test_roof_feature.py`; e2e `roof-hip-b3.spec.ts`; RESEARCH §23. Closes
+   ROOF-OVERHANG-MIN (1.1.0), ROOF-TWIN-DRIFT-TEST, ROOF-HEEL-RULE-WORDING.
 6. [ ] **ROOF-VALLEY** (`loft.roof` 1.2.0, stops B4): a footprint picked
    from the bearing walls, as Revit's Roof by Footprint (Pick Walls) and
    Chief Architect's roof from walls: the loop of their outer faces,
@@ -576,14 +583,18 @@ One line each. The founder triages weekly; most are closed without work.
 - WALL-CUT-LIST-ORDER: the cut list groups in tree order, so B2 lists Top plate 144, Bottom plate 144, Top plate 113, Bottom plate 113; Chief Architect's materials list groups each member type together.
 - WALL-EPS-OVERLAP: `joist_centres` keeps a layout centre within `<= ... + _EPS` of the end stud, so a layout stud may overlap it by 1e-9 in; harmless, could be strict.
 - BUILD-MENU-CAPTION: in BUILD ▾ a disabled plugin no longer shows its "Finish X first" / "Loading the part" caption.
-- ROOF-OVERHANG-MIN (ROOF review): an eave overhang between 0 and about 1e-7 mm (e.g. 2.54e-8) leaves an edge under the kernel tolerance and 35 of 36 features fail "Unexpected Standard_NullObject" (a clean feature error); the input's minimum should be 0 or at least 1/16 in.
-- ROOF-TWIN-DRIFT-TEST: the roof goldens' 1e-3 round-trip bound cites a build123d twin's matching drift in its rationale only; no test re-measures it (the wall's 30° golden has one).
-- ROOF-HEEL-RULE-WORDING: the 1/3-depth heel rule compares the vertical heel with the square-cut depth, which is conservative; RESEARCH §23 should say so.
+- ROOF-OVERHANG-MIN-1.0: 1.1.0 refuses an overhang between 0 and 1/16 in; a roof pinned to 1.0.0 (released, so unchanged) still accepts one and fails at rebuild with a clean feature error.
+- ROOF-TAIL-JACKS: a hip jack layout point whose cheek would cut into its seat (or lie past the wall, under the overhang) is not framed; framers fill it with a tail jack nailed to the hip. B3 needs none (its next point is the fascia corner); at 16 in o.c. the next point is 4 in past each corner, under the overhang, and is left empty.
+- ROOF-PYRAMID: a hip roof needs length >= span + one rafter thickness; a square (pyramid) roof, its four hips meeting on a post or king block, is refused.
+- ROOF-HIP-TAIL: the dropped 2x8 hip's double-cheek tail hangs 1.8 in below the 2x6 commons' tails at the fascia corner (6/12); Chief Architect trims a hip tail to the commons' depth (or a level fascia cut). buildings.md is silent.
+- ROOF-HIP-SEAT-SPAN: the hip's seat is cut level everywhere inside both walls' faces (buildings.md), not just over the plates; at 1/12 that flattens the 2x8's bottom about 25 in in from the corner.
 - WALL-MEMBER-RENUMBER (WINDOW-DOOR review): adding or moving an opening renumbers a wall's stud indices, so a later feature referencing `stud/k` silently lands on another stud; `_check_vanished_members` catches only vanished members (the deck shares the scheme).
 - OPENING-DELETE-REFUSED: deleting or suppressing a door is refused 422 when its wall cannot re-expand for an unrelated reason (a broken wall formula, another opening that no longer fits).
 - OPENING-PARAM-OVERLAP: a parameter change that makes two openings overlap keeps the wall's stale stored framing (`retabled`); the error shows only at evaluation.
 - OPENING-PARTIAL-CRIPPLE: a replaced layout stud only partly inside the rough opening gets no top cripple, leaving up to one spacing unsupported over a header end.
 - OPENING-HOST-FOLD: the web's `foldCustomResults` takes a memberless row's host from the first object-valued input, not the declared host input.
+- ROOF-TWIN-DRIFT (ROOF-HIP review): the hip twin-drift test allows the twin up to 1e-2 (measured 3.1e-3), so it proves STEP drifts without Loft code but not that the 1e-3 bound covers OCCT's drift in general.
+- ROOF-HIP-SIZE: the largest hip roof (480 x 720 in, 12 o.c., 36 overhang) is 988 features / 201 bodies and built in 32 s against the gateway's 90 s timeout; a slow box has little headroom.
 - TOOLBAR-ROVING-TABINDEX: every command-band button is its own Tab stop, so each Build tool pushes Export one stop further (36 with Wall and Deck; `export-reach.spec.ts` bound raised 34 -> 36). The WAI-ARIA toolbar pattern (one Tab stop per group, arrows within), as Fusion's ribbon does, would end this.
 - OPENING-DRAG: a door or window moves by its Offset field; Revit and Chief Architect also drag it along its wall in the viewport (and show temporary dimensions to the nearest opening).
 - OPENING-HOST-MISSING-PLUGIN: a door whose plugin a server lacks is not handed to its wall there, so the wall (if that server has `loft.wall`) re-expands without framing it.
