@@ -25,6 +25,15 @@ PLUGIN-REGISTRY, PLUGIN-UI and PERF-REBUILD-200 step 1 (§15a).
    proxy's address, else key on the socket — the standard trusted-proxy
    rule. _Decided 2026-10-17:_ Now, ahead of B1 — a lockout of every user
    is a security hole under CLAUDE.md's Severity, and the fix is small.
+1b. [ ] **LIBRARY-THUMBNAILS** (founder 2026-10-17: "we do not have previews
+   in the library of what parts look like"): the Parts, Assemblies and
+   Drawings pages and the assembly Add panel show a thumbnail of each
+   document, as Fusion's Data Panel and Onshape's document list do. Rendered
+   server-side from the evaluated mesh (isometric, fixed lighting) when a
+   part or assembly is saved, cached by tree version, regenerated after an
+   edit; a placeholder while rendering or on failure. _Accept:_ an e2e saves
+   a part, sees its thumbnail in Parts and in the Add panel, edits it and
+   sees the thumbnail change; a failed part shows the placeholder.
 2. [ ] **LUMBER-MATERIALS** (stops B1): the material library gains SPF and
    Douglas fir-larch lumber, pressure-treated southern pine, LVL, glulam,
    structural steel and concrete, plus a profile library of US nominal
