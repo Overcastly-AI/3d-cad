@@ -1168,6 +1168,48 @@ Decided 2026-10-16 (delegated by the founder to the product-manager): step 1
 is taken next and the 22 s target is retired; step 4 (PERF-REBUILD-LOCAL,
 under 10 s) waits until a reference part needs it.
 
+**Step 1 taken (2026-10-16): one face merge per boolean.** The plain path of
+every guarded boolean (the `boolean` feature, the in-chain add/cut, and the
+mirror and pattern one-shots) is the build123d call, which already runs
+`UnifySameDomain`. Its result is now only measured
+(`healing.measured_solid` / `measured_shape`: one integration, no copy, no
+second merge). The raw fuzzy repair keeps the guarded merge
+(`clean_and_read` / `clean_and_read_shape`). The unguarded sheet-metal edge
+flange and corner relief still merge twice (BACKLOG note).
+
+- **Bytes.** Fingerprinted before and after: 96 part goldens, 20 sheet-metal
+  tree goldens, 12 assembly goldens, `housing_tree` 29/100/200 and
+  `heat_sink_tree` 32/128. GLB and result JSON are byte-identical for all but
+  `frame-moto-cradle-tube-od25.4-t1.6` (the coincident-tube frame). Its GLB
+  (`mesh_glb_id`), BRep and STEP bytes change, with the same 130/308/8
+  topology, the same 85304/141490 mesh counts, the volume equal in every
+  printed digit (703888.3768365656) and the STEP round trip inside its
+  unchanged tolerances. Two goldens change their in-memory BRep bytes only,
+  with GLB, result JSON and STEP bytes identical:
+  `mirror-revolve-groove-tangent-wall-40x40x10` (the CM-6 body: its second
+  merge used to be refused, so the `BRepBuilderAPI_Copy` shipped) and
+  `revise-width-lip-inset-projected-rim-130x80x35` (6 orphan pcurves and 1
+  surface left by the second merge are gone). No tolerance was touched. Each
+  changed body is byte-equal across 4 fresh processes.
+- **CM-6.** The later-pocket chain now builds the analytic body,
+  30193.6284 mm^3 (32000 - 384 pi - 600), one shell, valid, as pass 1
+  predicted. The tree-level `invalid_body` refusal keeps its live evidence in
+  the coincident tubes at y = 110.5.
+- **Measured.** `housing_tree(200)` cold, one fresh interpreter per sample,
+  514660d (its sources from `git archive`, same venv) and step 1 interleaved on
+  an otherwise idle host, with the 1-minute load beside each run (our own busy
+  core included):
+
+| round  | 514660d             | step 1              |
+| ------ | ------------------- | ------------------- |
+| 1      | 30.35 s (load 0.29) | 25.65 s (load 0.55) |
+| 2      | 29.35 s (load 0.82) | 25.42 s (load 0.96) |
+| 3      | 28.42 s (load 1.14) | 26.40 s (load 1.08) |
+| median | 29.35 s             | 25.65 s             |
+
+Step 1 bought 3.7 s at N=200 (12.6 %), against the ~15 % estimated. The
+remaining target is PERF-REBUILD-LOCAL's (step 4, under 10 s).
+
 ## 16. Shell corners: sharp by default, rounded where stored
 
 **What mainstream CAD does.** SolidWorks, Onshape and Fusion 360 shell with

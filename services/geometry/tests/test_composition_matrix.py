@@ -90,6 +90,7 @@ from build123d import (
 from geometry.features import evaluate_tree
 from geometry.features.evaluate import TreeEvaluation
 from geometry.kernel import measure_shape
+from geometry.kernel.healing import body_is_valid
 from geometry.schemas import ShapeProperties
 from loft_wire.features import FEATURE_REGISTRY, EvaluateTreeRequest
 
@@ -3437,8 +3438,9 @@ def test_cm6_a_mirror_over_a_tangent_groove_keeps_the_void() -> None:
     body was tessellated into the viewport, measured and exported to STEP:
     **31865.9587 mm^3, 12 faces** against an analytic **30793.6284**. The fix is not
     in the mirror at all — ``mirror_union`` was the right reading and its ``fuse``
-    was already exact — but in ``clean_shape``, which now refuses a simplification
-    that moves material and hands back the un-simplified body.
+    (with build123d's own face merge) was already exact — but in the SECOND merge
+    the kernel ran on that result: first guarded by ``clean_shape``, now not run
+    at all (one merge per boolean, RESEARCH §15a step 1).
 
     The cut step is asserted too (15396.8142 = 16000 - 192*pi): if the groove ever
     stops straddling the plane, the mirror assertion would still pass for the wrong
@@ -3455,8 +3457,7 @@ def test_cm6_a_mirror_over_a_tangent_groove_keeps_the_void() -> None:
     )
     assert props.volume == pytest.approx(2.0 * cut_only.volume, abs=CURVED_TOL)
     # 9 planar + 3 cylindrical. The extra face over the 11 of the same solid built
-    # directly is the outer wall's seam, un-unified because the simplification was
-    # refused — the documented price of the guard.
+    # directly is the outer wall's seam, which the fuse's one merge leaves.
     assert props.topology.faces == 12
     assert props.topology.edges == 24
     assert props.topology.shells == 1
@@ -3484,23 +3485,19 @@ def test_cm6_the_clear_of_plane_control_is_unchanged() -> None:
     assert props.topology.shells == 1
 
 
-def test_cm6_a_body_occt_rejects_is_an_error_not_an_artifact() -> None:
-    """CM-6's DURABLE half: the pipeline now asks ``is_valid``, and refuses to
-    publish an artifact it cannot stand behind.
+def test_cm6_a_later_pocket_builds_the_analytic_body() -> None:
+    """CM-6, the later-pocket chain: one face merge per boolean builds it right.
 
-    The mirrored body above is correct but genuinely degenerate — it pinches to a
-    knife edge along the tangency — and OCCT's boolean rewrites its ARGUMENT's
-    subshapes when it meets that pinch. So a feature AFTER the mirror (here a pocket
-    cut 30 mm away, which touches none of the groove) welds the void shut inside the
-    body it was handed: measured 30793.6284 -> 31865.9587 with nobody assigning to
-    it. That is the same wrong solid QA-1 reported, reached through a different door.
-
-    Both guards fire: the cut's own result fails the body funnel's validity gate
-    (typed ``invalid_body``, pinned to the offending feature), and the publish-time
-    re-check finds the last-good body invalidated in place and WITHHOLDS the
-    artifacts rather than measuring, meshing and exporting it. "No body plus an
-    error" is the honest answer; "3.48 % too much material plus five green ticks"
-    was not.
+    The mirrored body above pinches to a knife edge along the tangency. A pocket
+    cut 30 mm away (touching none of the groove) used to be refused
+    ``invalid_body``: after build123d's own face merge, the kernel merged the
+    result a SECOND time, and that ``UnifySameDomain`` rewrote TShapes the cut
+    shared with the last-good body and welded the void shut inside it
+    (30793.6284 -> 31865.9587 with nobody assigning to it). With one merge per
+    boolean (RESEARCH §15a step 1) the cut builds the analytic body: the
+    mirrored 32000 - 384*pi less the 6 x 10 x 10 pocket, 30193.6284 mm^3,
+    one shell, valid. The tree-level ``invalid_body`` refusal keeps its live
+    evidence in ``test_boolean_coincident_tube`` (tubes ending at y = 110.5).
     """
     evaluation = evaluate(
         [
@@ -3509,11 +3506,10 @@ def test_cm6_a_body_occt_rejects_is_an_error_not_an_artifact() -> None:
             extrude(F_CM6_LATER, S_CM6_LATER, CM6_THICK, operation="cut"),
         ]
     )
-    assert statuses(evaluation) == ["ok"] * 6 + ["error"]
-    assert error_codes(evaluation) == ["invalid_body"]
-    assert evaluation.result.properties is None, (
-        "a body OCCT rejects must not be measured — that is the whole finding"
-    )
-    assert evaluation.result.mesh_glb_id is None
-    assert evaluation.result.bodies == []
-    assert evaluation.result.last_good_feature_id is None
+    assert statuses(evaluation) == ["ok"] * 7
+    props = properties(evaluation, "cm6 later pocket")
+    pocket = 6.0 * 10.0 * CM6_THICK
+    assert props.volume == pytest.approx(CM6_MIRRORED_VOLUME - pocket, abs=CURVED_TOL)
+    assert props.volume == pytest.approx(30193.6284, abs=1e-4)
+    assert props.topology.shells == 1
+    assert evaluation.body is not None and body_is_valid(evaluation.body)

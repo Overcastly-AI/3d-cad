@@ -177,11 +177,15 @@ def clean_shape[ShapeT: BodyShape](
     raw boolean result before its solids are taken — and it returns the SAME type
     it was given, so a caller's ``.solids()`` / ``.volume`` reads are unchanged.
 
-    THE ONE call site of ``Shape.clean()`` in this service. Every kernel op ends
-    its boolean with a simplification so redundant seam faces/edges collapse and
-    topology counts stay meaningful (and golden-assertable); this wraps that call
-    with the invariant it always had implicitly and never checked: *a
-    simplification re-describes a body, it does not re-melt it.* If
+    THE ONE call site of ``Shape.clean()`` in this service. Ops whose result
+    nothing has merged yet (a fillet, a loft, the raw fuzzy boolean repair) end
+    with a simplification so redundant seam faces/edges collapse and topology
+    counts stay meaningful (and golden-assertable). The plain path of a
+    guarded boolean is NOT cleaned again: build123d merged its result, and a
+    second merge is not idempotent (CM-6, RESEARCH §15a step 1; the unguarded
+    sheet-metal edge flange and corner relief still merge twice). This wraps
+    that call with the invariant it always had implicitly and never checked:
+    *a simplification re-describes a body, it does not re-melt it.* If
     ``ShapeUpgrade_UnifySameDomain`` moves the volume by more than
     :data:`CLEAN_VOLUME_REL_TOL` (floor :data:`CLEAN_VOLUME_FLOOR_MM3`), the
     simplification is DISCARDED and the pre-clean shape is returned.
@@ -318,8 +322,39 @@ def read_solids(shape: TopoDS_Shape) -> BodyReading:
     return BodyReading(tuple(solids))
 
 
+def measured_solid(solid: Solid) -> tuple[Solid, BodyReading]:
+    """A solid build123d's boolean has already merged, as it is, and its reading.
+
+    The plain path of every guarded boolean (RESEARCH §15a step 1): build123d
+    runs ``ShapeUpgrade_UnifySameDomain`` inside ``fuse`` / ``cut`` /
+    ``intersect``, so a second merge here would only re-merge merged faces, and
+    it is not idempotent: on the CM-6 body it rewrites TShapes the operands
+    share and welds a void shut. One integration, no copy, no second merge.
+    """
+    if solid.wrapped is None:  # pragma: no cover - never an empty solid here
+        return solid, BodyReading(())
+    return solid, BodyReading((read_solid(solid.wrapped, _volume(solid.wrapped)),))
+
+
+def measured_shape[ShapeT: BodyShape](shape: ShapeT) -> tuple[ShapeT, BodyReading]:
+    """:func:`measured_solid` for a whole variadic boolean result (any lumps)."""
+    if shape.wrapped is None:  # pragma: no cover - never an empty shape here
+        return shape, BodyReading(())
+    solids = shape.solids()
+    if len(solids) == 1:
+        only = solids[0].wrapped
+        assert only is not None
+        return shape, BodyReading((read_solid(only, _volume(shape.wrapped)),))
+    return shape, read_solids(shape.wrapped)
+
+
 def clean_and_read(solid: Solid) -> tuple[Solid, BodyReading]:
     """:func:`clean_shape` for ONE solid, returning its reading as well.
+
+    The guarded merge of the fuzzy repair:
+    :func:`~geometry.kernel.boolean_guard.fuzzy_boolean` runs the raw
+    OCCT boolean, which merges nothing, so this is that result's one merge.
+    The plain path is :func:`measured_solid`.
 
     Exactly :func:`clean_shape`'s rule and integrals (the same "before" and
     "after" volumes, so the same simplifications are kept and every body is
@@ -343,10 +378,10 @@ def clean_and_read_shape[ShapeT: BodyShape](
 ) -> tuple[ShapeT, BodyReading]:
     """:func:`clean_shape` of a whole boolean result (any lumps), and its reading.
 
-    The variadic booleans (mirror, pattern) clean the raw result as ONE shape;
-    this keeps exactly that call and its integrals, so their bodies stay
-    byte-identical. A one-solid result costs nothing more; a multi-lump one
-    integrates each lump once for the reading.
+    The fuzzy repair of the variadic booleans (mirror, pattern) cleans the raw
+    result as ONE shape (their plain path is :func:`measured_shape`). A
+    one-solid result costs nothing more; a multi-lump one integrates each lump
+    once for the reading.
     """
     if shape.wrapped is None:  # pragma: no cover - never an empty shape here
         return shape.clean(), BodyReading(())
