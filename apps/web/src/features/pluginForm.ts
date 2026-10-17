@@ -98,8 +98,16 @@ export function referenceOptions(
   const earlier = at === -1 ? features : features.slice(0, at);
   const types =
     input.kind === "profile" ? ["sketch"] : (input.feature_types ?? []);
+  // A host input names custom features of given plugins (a window's wall).
+  const plugins = input.kind === "feature" ? (input.plugin_ids ?? null) : null;
   return earlier
     .filter((row) => types.includes("*") || types.includes(row.feature.type))
+    .filter(
+      (row) =>
+        plugins === null ||
+        (row.feature.type === "custom" &&
+          plugins.includes(row.feature.params.plugin_id)),
+    )
     .map((row) => ({ value: row.id, label: row.name }));
 }
 
@@ -282,7 +290,9 @@ export function validatePluginForm(
           options.length === 0
             ? input.kind === "profile"
               ? "Draw a sketch first."
-              : `Add a ${input.feature_types.join(" or ")} first.`
+              : input.plugin_ids
+                ? `Add a ${input.label.toLowerCase()} first.`
+                : `Add a ${input.feature_types.join(" or ")} first.`
             : `Pick ${input.label.toLowerCase()}.`;
       } else if (text !== "" && !options.some((o) => o.value === text)) {
         error = `${input.label} must be an earlier feature.`;

@@ -94,6 +94,36 @@ describe("foldMemberResults", () => {
 });
 
 describe("foldCustomResults", () => {
+  it("reads a memberless door as the wall it is hosted in", () => {
+    const door = row("d", {
+      type: "custom",
+      version: 1,
+      params: {
+        plugin_id: "loft.door",
+        plugin_version: "1.0.0",
+        inputs: { host_wall: { kind: "feature", feature_id: "c" }, w: 1 },
+        expansion: [],
+      },
+    });
+    const error = { code: "parameter_value_invalid", message: "Door 1: ..." };
+    const folded = foldCustomResults(
+      evaluation(
+        [
+          { feature_id: "s", status: "ok" },
+          { feature_id: "m-path", status: "ok" },
+          { feature_id: "m-sweep", status: "error", error },
+        ],
+        "m-path",
+      ),
+      [...TREE, door],
+    );
+    expect(folded.features.find((f) => f.feature_id === "d")).toEqual({
+      feature_id: "d",
+      status: "error",
+      error,
+    });
+  });
+
   it("adds one result per custom row after its members, keeping theirs", () => {
     const folded = foldCustomResults(
       evaluation(

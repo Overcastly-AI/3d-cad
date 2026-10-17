@@ -44,6 +44,7 @@ const EVERY_KIND: PluginManifest = {
       label: "Host",
       feature_types: ["datum"],
       optional: true,
+      host: false,
     },
     { kind: "material", name: "material", label: "Material", default: null },
   ],
@@ -141,6 +142,45 @@ describe("referenceOptions", () => {
     expect(referenceOptions(host, TREE, null)).toEqual([
       { value: "d1", label: "Plane1" },
     ]);
+  });
+
+  it("offers a host input only custom features of its plugins (a window's walls)", () => {
+    const custom = (id: string, name: string, pluginId: string) =>
+      ({
+        ...row(id, name, "custom"),
+        feature: {
+          type: "custom",
+          version: 1,
+          params: { plugin_id: pluginId, plugin_version: "1.0.0", inputs: {} },
+        },
+      }) as unknown as FeatureResponse;
+    const tree = [
+      custom("w1", "Wall 1", "loft.wall"),
+      custom("k1", "Deck 1", "loft.deck"),
+      row("d1", "Plane1", "datum"),
+      custom("w2", "Wall 2", "loft.wall"),
+      custom("o1", "Door 1", "loft.door"),
+    ];
+    const wall = {
+      kind: "feature" as const,
+      name: "host_wall",
+      label: "Host wall",
+      feature_types: ["custom"],
+      plugin_ids: ["loft.wall"],
+      optional: false,
+      host: true,
+    };
+    expect(referenceOptions(wall, tree, null).map((o) => o.value)).toEqual([
+      "w1",
+      "w2",
+    ]);
+    // Nothing to host it: the form says what to add.
+    const manifest = { ...EVERY_KIND, inputs: [wall] };
+    const form = defaultPluginForm(manifest, "mm", [tree[1]!]);
+    expect(form.values.host_wall).toBe("");
+    expect(
+      validatePluginForm(manifest, form, "mm", [tree[1]!], null).host_wall,
+    ).toBe("Add a host wall first.");
   });
 });
 
