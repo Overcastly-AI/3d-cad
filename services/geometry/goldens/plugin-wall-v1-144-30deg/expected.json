@@ -1,0 +1,62 @@
+{
+  "description": "ONE loft.wall 1.0.0 custom feature turned 30 degrees (STUD-WALL: 'a 30 deg wall matches a script'): the default wall (144 long, 2x4 at 16 in o.c., 97.125 plate to plate, double SPF top plate, pressure-treated southern pine bottom plate, SPF studs) from (10, 20) in at direction 30 deg, framing to the right of the direction. model.json is EXACTLY the expansion with the member materials documents applies; members.json is each body's member metadata. packages/loft-plugins/tests/test_wall.py asserts both files are the plugin's output; services/geometry/tests/test_walls_b2.py checks every body against an independent build123d script and that the cut list measures the turned members at their true lengths.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC: the wall's members in its own frame (u along from the start, v across from the exterior face, z up), from buildings.md's B2 rules, placed by x = 10 + u cos 30 + v sin 30, y = 20 + u sin 30 - v cos 30 in (cos 30 = sqrt(3)/2), evaluated in exact rationals and 50-digit sqrt(3), x 25.4 = mm.",
+    "",
+    "Members (u, v, z, in): studs centred on u 0.75, 16, 32, ..., 128, 143.25 (10), 1.5 along, v 0..3.5, z 1.5..94.125; top plates u 0..144, v 0..3.5, z 94.125..95.625 and 95.625..97.125; bottom plate u 0..144, v 0..3.5, z 0..1.5.",
+    "",
+    "volume = 10 x 486.28125 + 3 x 144 x 5.25 = 7 130.8125 in^3 (a rotation keeps it) = 116853080.8095 mm^3.",
+    "",
+    "surface_area = sum of 2(ab + bc + ca) over the 13 boxes = 13 719 in^2 = 8850950.04 mm^2.",
+    "",
+    "centroid: local (72, 7/4, 1534599/28976) in, placed: x = 10 + 36 sqrt(3) + 7/8, y = 20 + 36 - (7/8) sqrt(3), z = 1534599/28976 in = 1860.0122584409814, 1383.9051708017817, 1345.210332689122 mm.",
+    "",
+    "mass_g = (SPF volume x 450 + PT volume (144 x 5.25 = 756 in^3) x 582) kg/m^3 = 54219.184254963 g; center_of_mass local (72, 7/4, 12793957/248976) in, placed: 1860.0122584409814, 1383.9051708017817, 1305.2121802904699 mm.",
+    "",
+    "bounding_box: x from the start corner (10) to u 144, v 3.5 (11.75 + 72 sqrt(3)); y from u 0, v 3.5 (20 - 1.75 sqrt(3)) to u 144, v 0 (92); z 0..97.125 in = X 254.0..3466.024516881963, Y 431.0103416035634..2336.8, Z 0..2466.975 mm.",
+    "",
+    "topology: 13 boxes x (6 faces, 12 edges, 1 shell) = 78 faces, 156 edges, 13 shells.",
+    "",
+    "MESH counts are recorded but also exact for boxes: 12 triangles and 24 vertices per box = 156 triangles, 312 vertices."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), as for b2-walls-no-openings-16oc: ABSOLUTE bounds on a ~1.2e8 mm^3 sum of 13 separate bodies whose corners carry the 1e-16-relative round-off of cos 30 and sin 30. 1e-6 is ~1e-14 relative; a stud 0.001 in out of place moves the volume by >= 1.2 mm^3.",
+  "roundtrip_tolerance": 2e-3,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip moves the VOLUME by -6.1e-4 mm^3 and the AREA by -1.6e-5 mm^2 (5e-12 relative), against ~3e-8 for the same wall at 0 deg. It is OCCT's: a plain build123d twin (13 Box solids rotated 30 deg about Z, export_step, import_step; no Loft code) drifts -5.7e-4 mm^3, as the turned planes' points are written and re-read through STEP. 2e-3 is 3.3x the worst; it applies to volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 116853080.8095,
+    "surface_area": 8850950.04,
+    "centroid": {
+      "x": 1860.0122584409814,
+      "y": 1383.9051708017817,
+      "z": 1345.210332689122
+    },
+    "mass_g": 54219.184254963,
+    "center_of_mass": {
+      "x": 1860.0122584409814,
+      "y": 1383.9051708017817,
+      "z": 1305.2121802904699
+    },
+    "bounding_box": {
+      "min": {
+        "x": 254.0,
+        "y": 431.0103416035634,
+        "z": 0.0
+      },
+      "max": {
+        "x": 3466.024516881963,
+        "y": 2336.8,
+        "z": 2466.975
+      }
+    }
+  },
+  "topology": {
+    "faces": 78,
+    "edges": 156,
+    "shells": 13
+  },
+  "mesh": {
+    "vertices": 312,
+    "triangles": 156
+  }
+}

@@ -88,6 +88,13 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # The loft.deck plugin's B1 and its 20 ft edit: the same summation drift.
     "plugin-deck-v1-b1-12x16ft": 1e-5,
     "plugin-deck-v1-b1-20ft": 1e-5,
+    # B2's four walls (loft.wall) and the 24 in o.c. edit: the same drift,
+    # measured 3.0e-7 at worst.
+    "b2-walls-no-openings-16oc": 1e-6,
+    "b2-walls-no-openings-24oc": 1e-6,
+    # One wall turned 30 deg: 6.1e-4 mm^3, OCCT's STEP drift on turned planes
+    # (a plain build123d twin drifts 5.7e-4; expected.json).
+    "plugin-wall-v1-144-30deg": 2e-3,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

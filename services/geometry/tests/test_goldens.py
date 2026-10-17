@@ -221,6 +221,11 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # The same deck from the loft.deck plugin, and its 20 ft edit (DECK).
         "plugin-deck-v1-b1-12x16ft",
         "plugin-deck-v1-b1-20ft",
+        # B2's four walls from loft.wall, and the 24 in o.c. edit (STUD-WALL).
+        "b2-walls-no-openings-16oc",
+        "b2-walls-no-openings-24oc",
+        # One wall turned 30 deg: OCCT's STEP drift on turned planes (twin: 5.7e-4).
+        "plugin-wall-v1-144-30deg",
     }
 )
 
