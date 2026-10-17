@@ -222,3 +222,110 @@ def test_a_shallow_hip_and_a_sliver_of_overhang_are_typed_refusals(
     error = response.json()["error"]
     assert error["code"] == "plugin_input_unsupported"
     assert error["details"]["input"] == at
+
+
+# --- 1.2.0: a hip and valley roof on picked walls (ROOF-VALLEY) --------------------
+
+IN = 25.4
+#: buildings.md B4's six walls: start x, start y, direction, length (in).
+B4_WALLS = [
+    (0, 240, 0, 240),
+    (240, 236.5, 270, 236.5),
+    (236.5, 0, 180, 116.5),
+    (120, 3.5, 90, 116.5),
+    (123.5, 120, 180, 123.5),
+    (0, 123.5, 90, 113),
+]
+
+
+def _wall(x: float, y: float, direction: float, length: float) -> dict[str, Any]:
+    return {
+        "type": "custom",
+        "version": 1,
+        "params": {
+            "plugin_id": "loft.wall",
+            "plugin_version": "1.0.0",
+            "inputs": {
+                "start_x_mm": x * IN,
+                "start_y_mm": y * IN,
+                "direction_deg": float(direction),
+                "length_mm": length * IN,
+            },
+        },
+    }
+
+
+def _roof_1_2(**inputs: Any) -> dict[str, Any]:
+    feature = _roof(**inputs)
+    feature["params"]["plugin_version"] = "1.2.0"
+    return feature
+
+
+def _post(
+    client: TestClient, part_id: str, version: int, name: str, feature: dict[str, Any]
+) -> Any:
+    return client.post(
+        f"/api/v1/parts/{part_id}/features",
+        json={"name": name, "feature": feature, "expected_tree_version": version},
+        headers=HEADERS,
+    )
+
+
+def test_a_roof_on_b4s_picked_walls_frames_the_valley_and_holds_its_walls(
+    client: TestClient,
+) -> None:
+    """B4: six walls, then a 1.2.0 Roof, Style Hip, its walls picked (stored
+    in pick order): 52 members with 1 valley and 4 valley jacks, each weighed.
+    Every picked wall is a dependency, so deleting one is refused (409); a
+    pick that is not an earlier feature is refused (422) naming its slot."""
+    part_id, version = _part(client)
+    walls: list[str] = []
+    for row in B4_WALLS:
+        response = _post(
+            client, part_id, version, f"Wall {len(walls) + 1}", _wall(*row)
+        )
+        assert response.status_code == 201, response.text
+        walls.append(response.json()["feature"]["id"])
+        version = response.json()["tree_version"]
+    picks = [{"kind": "feature", "feature_id": w} for w in reversed(walls)]
+    response = _post(
+        client, part_id, version, "Roof", _roof_1_2(style="hip", walls=picks)
+    )
+    assert response.status_code == 201, response.text
+    stored = response.json()["feature"]["feature"]["params"]
+    assert stored["inputs"]["walls"] == picks
+    roles = [m["role"] for m in stored["expansion"] if "metadata" in m]
+    assert {r: roles.count(r) for r in set(roles)} == {
+        "common": 20,
+        "jack": 20,
+        "valley_jack": 4,
+        "hip": 5,
+        "valley": 1,
+        "ridge": 2,
+    }
+    request = _request(client, part_id)
+    assert request.materials is not None
+    weighed = {e.base_feature_id for e in request.materials.bodies}
+    assert {
+        uuid.UUID(m["id"]) for m in stored["expansion"] if "metadata" in m
+    } <= weighed
+
+    deleted = client.delete(
+        f"/api/v1/parts/{part_id}/features/{walls[2]}",
+        params={"expected_tree_version": request.tree_version},
+        headers=HEADERS,
+    )
+    assert deleted.status_code == 409, deleted.text
+    assert deleted.json()["error"]["code"] == "feature_has_dependents"
+
+    stranger = {"kind": "feature", "feature_id": str(uuid.uuid4())}
+    response = _post(
+        client,
+        part_id,
+        request.tree_version,
+        "Roof 2",
+        _roof_1_2(style="hip", walls=[*picks[:5], stranger]),
+    )
+    assert response.status_code == 422, response.text
+    # The pick is checked as any reference is, before the plugin runs.
+    assert response.json()["error"]["details"]["slot"] == "inputs/walls/5"
