@@ -331,7 +331,14 @@
                   "brass_c360",
                   "abs",
                   "pla",
-                  "nylon_6"
+                  "nylon_6",
+                  "spf_lumber",
+                  "dfl_lumber",
+                  "southern_pine_pt",
+                  "lvl",
+                  "glulam_dfl",
+                  "steel_a992",
+                  "concrete"
                 ],
                 "type": "string"
               },
@@ -368,7 +375,14 @@
               "brass_c360",
               "abs",
               "pla",
-              "nylon_6"
+              "nylon_6",
+              "spf_lumber",
+              "dfl_lumber",
+              "southern_pine_pt",
+              "lvl",
+              "glulam_dfl",
+              "steel_a992",
+              "concrete"
             ],
             "title": "Material",
             "type": "string"
@@ -6693,7 +6707,14 @@
                   "brass_c360",
                   "abs",
                   "pla",
-                  "nylon_6"
+                  "nylon_6",
+                  "spf_lumber",
+                  "dfl_lumber",
+                  "southern_pine_pt",
+                  "lvl",
+                  "glulam_dfl",
+                  "steel_a992",
+                  "concrete"
                 ],
                 "type": "string"
               },

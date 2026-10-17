@@ -22,14 +22,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from documents.db import Base
+from documents.db import Base, Part
 from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
 from loft_wire.assemblies import EvaluateAssemblyRequest
 from loft_wire.features import EvaluateTreeRequest
+from loft_wire.lumber import LUMBER_PROFILES
 from loft_wire.materials import MATERIALS, MaterialLibraryResponse
 from loft_wire.parts import PRINCIPAL_HEADER
 from py_kit.db import async_dsn
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import create_async_engine
 
 OWNER = "6f3f6b64-0000-4000-8000-00000000000a"
@@ -360,3 +362,55 @@ def test_the_material_library_is_served_not_hardcoded(client: TestClient) -> Non
     assert [m.density_kg_m3 for m in library.materials] == [
         m.density_kg_m3 for m in MATERIALS
     ]
+    assert library.profiles == list(LUMBER_PROFILES)
+
+
+async def _store_materials_raw(db_url: str, part_id: str, raw: dict[str, Any]) -> None:
+    """Write ``parts.materials`` as a row written before LUMBER-MATERIALS was."""
+    engine = create_async_engine(async_dsn(db_url))
+    async with engine.begin() as connection:
+        await connection.execute(
+            update(Part).where(Part.id == uuid.UUID(part_id)).values(materials=raw)
+        )
+    await engine.dispose()
+
+
+def test_assignments_stored_before_the_lumber_library_load_unchanged(
+    client: TestClient, db_url: str
+) -> None:
+    """The library grew additively (new keys only, same JSON column), so every
+    stored assignment reads back unchanged and needs no migration."""
+    part = _create_part(client)
+    stored = {
+        "default_material": "aluminium_6061",
+        "bodies": [
+            {"base_feature_id": str(uuid.uuid4()), "material": key}
+            for key in (
+                "steel_1018",
+                "stainless_304",
+                "brass_c360",
+                "abs",
+                "pla",
+                "nylon_6",
+            )
+        ],
+    }
+    asyncio.run(_store_materials_raw(db_url, part["id"], stored))
+
+    response = client.get(f"/api/v1/parts/{part['id']}", headers=_headers())
+
+    assert response.status_code == 200, response.text
+    assert response.json()["materials"] == stored
+
+
+def test_a_lumber_material_round_trips(client: TestClient) -> None:
+    part = _create_part(client)
+
+    response = _patch(
+        client,
+        part["id"],
+        {"expected_tree_version": 0, "materials": {"default_material": "spf_lumber"}},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["materials"]["default_material"] == "spf_lumber"

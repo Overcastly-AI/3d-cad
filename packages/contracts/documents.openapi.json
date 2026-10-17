@@ -696,7 +696,14 @@
               "brass_c360",
               "abs",
               "pla",
-              "nylon_6"
+              "nylon_6",
+              "spf_lumber",
+              "dfl_lumber",
+              "southern_pine_pt",
+              "lvl",
+              "glulam_dfl",
+              "steel_a992",
+              "concrete"
             ],
             "title": "Material",
             "type": "string"
@@ -6874,6 +6881,87 @@
         "title": "LoftVersionList",
         "type": "object"
       },
+      "LumberProfile": {
+        "description": "One lumber section: nominal name and actual dressed size.\n\n``thickness`` is the smaller dimension and ``width`` the larger (equal for\na square post), as the trade names them: \"2x10\" is 2 nominal thick by 10\nnominal wide, 1.5 x 9.25 in actual.",
+        "properties": {
+          "category": {
+            "description": "PS 20 class: board, decking, dimension (2-4 in thick) or timber (5 in and thicker).",
+            "enum": [
+              "board",
+              "decking",
+              "dimension",
+              "timber"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "key": {
+            "enum": [
+              "us_1x4",
+              "us_1x6",
+              "us_5_4x6",
+              "us_2x2",
+              "us_2x3",
+              "us_2x4",
+              "us_2x6",
+              "us_2x8",
+              "us_2x10",
+              "us_2x12",
+              "us_4x4",
+              "us_4x6",
+              "us_6x6"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Nominal size as sold, e.g. '2x10' or '5/4x6'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "description": "Standard the actual size comes from.",
+            "title": "Source",
+            "type": "string"
+          },
+          "thickness_in": {
+            "description": "Actual thickness (in).",
+            "exclusiveMinimum": 0.0,
+            "title": "Thickness In",
+            "type": "number"
+          },
+          "thickness_mm": {
+            "description": "Actual thickness (mm).",
+            "exclusiveMinimum": 0.0,
+            "title": "Thickness Mm",
+            "type": "number"
+          },
+          "width_in": {
+            "description": "Actual width (in).",
+            "exclusiveMinimum": 0.0,
+            "title": "Width In",
+            "type": "number"
+          },
+          "width_mm": {
+            "description": "Actual width (mm).",
+            "exclusiveMinimum": 0.0,
+            "title": "Width Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "category",
+          "thickness_in",
+          "width_in",
+          "thickness_mm",
+          "width_mm",
+          "source"
+        ],
+        "title": "LumberProfile",
+        "type": "object"
+      },
       "MateAxisRef": {
         "description": "An axis derived from a CIRCULAR edge of an instance's part body (\u00a72.1).\n\nv1 derives an axis from a circular edge (``curve == \"circle\"``) \u2014 reusing\n:class:`~loft_wire.features.EdgeSignature`, whose seam-point centre and\nplane give the axis (design \u00a72.1). This deliberately avoids needing a\ncylindrical-face signature (a clean additive future member): a hole rim and\na shaft rim are both circular edges, enough for the canonical bolt joint.",
         "properties": {
@@ -7169,7 +7257,14 @@
               "brass_c360",
               "abs",
               "pla",
-              "nylon_6"
+              "nylon_6",
+              "spf_lumber",
+              "dfl_lumber",
+              "southern_pine_pt",
+              "lvl",
+              "glulam_dfl",
+              "steel_a992",
+              "concrete"
             ],
             "title": "Key",
             "type": "string"
@@ -7178,12 +7273,18 @@
             "description": "Display name, e.g. 'Aluminium 6061'",
             "title": "Name",
             "type": "string"
+          },
+          "source": {
+            "description": "Where the density comes from (standard, table, and the moisture content for wood), so a user can check it.",
+            "title": "Source",
+            "type": "string"
           }
         },
         "required": [
           "key",
           "name",
-          "density_kg_m3"
+          "density_kg_m3",
+          "source"
         ],
         "title": "Material",
         "type": "object"
@@ -7209,7 +7310,14 @@
                   "brass_c360",
                   "abs",
                   "pla",
-                  "nylon_6"
+                  "nylon_6",
+                  "spf_lumber",
+                  "dfl_lumber",
+                  "southern_pine_pt",
+                  "lvl",
+                  "glulam_dfl",
+                  "steel_a992",
+                  "concrete"
                 ],
                 "type": "string"
               },
@@ -7237,7 +7345,14 @@
                   "brass_c360",
                   "abs",
                   "pla",
-                  "nylon_6"
+                  "nylon_6",
+                  "spf_lumber",
+                  "dfl_lumber",
+                  "southern_pine_pt",
+                  "lvl",
+                  "glulam_dfl",
+                  "steel_a992",
+                  "concrete"
                 ],
                 "type": "string"
               },
@@ -7290,7 +7405,7 @@
         "type": "object"
       },
       "MaterialLibraryResponse": {
-        "description": "The built-in material library, served so no client hardcodes a density.\n\nThe picker needs names + densities, and a second copy of the table in TS\nwould be a DRY violation that silently drifts (CLAUDE.md). One table, in\npy-kit, served over the API.",
+        "description": "The built-in material library, served so no client hardcodes a density.\n\nThe picker needs names + densities, and a second copy of the table in TS\nwould be a DRY violation that silently drifts (CLAUDE.md). One table, in\npy-kit, served over the API.\n\n``profiles`` is the section library members are cut from (US lumber,\n``loft_wire.lumber``), served beside the materials as SolidWorks serves\nweldment profiles beside its material database.",
         "properties": {
           "materials": {
             "items": {
@@ -7298,10 +7413,19 @@
             },
             "title": "Materials",
             "type": "array"
+          },
+          "profiles": {
+            "description": "Lumber sections: nominal name and actual dressed size.",
+            "items": {
+              "$ref": "#/components/schemas/LumberProfile"
+            },
+            "title": "Profiles",
+            "type": "array"
           }
         },
         "required": [
-          "materials"
+          "materials",
+          "profiles"
         ],
         "title": "MaterialLibraryResponse",
         "type": "object"
@@ -7319,7 +7443,14 @@
                   "brass_c360",
                   "abs",
                   "pla",
-                  "nylon_6"
+                  "nylon_6",
+                  "spf_lumber",
+                  "dfl_lumber",
+                  "southern_pine_pt",
+                  "lvl",
+                  "glulam_dfl",
+                  "steel_a992",
+                  "concrete"
                 ],
                 "type": "string"
               },
@@ -15491,7 +15622,7 @@
     },
     "/api/v1/materials": {
       "get": {
-        "description": "The built-in materials, in display order (metals, then polymers).\n\nv1 is a closed library (docs/design/materials.md \u00a71/\u00a75): a fixed\n``MaterialKey`` literal means an unknown material is a parse error at the\nboundary instead of a silent \"no mass\" three services later. User-defined\nmaterials extend this response additively when they land.",
+        "description": "The built-in materials and lumber profiles, in display order.\n\nv1 is a closed library (docs/design/materials.md \u00a71/\u00a75): a fixed\n``MaterialKey`` literal means an unknown material is a parse error at the\nboundary instead of a silent \"no mass\" three services later. User-defined\nmaterials extend this response additively when they land.",
         "operationId": "list_materials_api_v1_materials_get",
         "responses": {
           "200": {

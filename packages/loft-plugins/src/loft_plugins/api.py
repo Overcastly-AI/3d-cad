@@ -17,9 +17,16 @@ from dataclasses import dataclass, field
 from typing import cast, get_args
 
 from loft_wire.features import AuthoredEnvelope, FeatureEnvelope, FeatureRef
+from loft_wire.lumber import (
+    LUMBER_PROFILES,
+    LUMBER_PROFILES_BY_KEY,
+    LumberProfile,
+    LumberProfileKey,
+)
 from loft_wire.materials import MaterialKey
 from loft_wire.plugins import (
     PLUGIN_INPUT_INVALID,
+    ChoiceOption,
     MemberMetadata,
     PluginManifest,
     member_id,
@@ -96,6 +103,16 @@ class ExpandInputs:
             raise PluginError(PLUGIN_INPUT_INVALID, f"{name!r} is not a material")
         return cast(MaterialKey, value)
 
+    def lumber(self, name: str) -> LumberProfile:
+        """A choice input whose options are lumber profiles
+        (:func:`lumber_options`), as the profile with its actual size."""
+        value = self._get(name)
+        if not isinstance(value, str) or value not in LUMBER_PROFILES_BY_KEY:
+            raise PluginError(
+                PLUGIN_INPUT_INVALID, f"{name!r} is not a lumber profile", input=name
+            )
+        return LUMBER_PROFILES_BY_KEY[cast(LumberProfileKey, value)]
+
     def feature(self, name: str) -> FeatureRef:
         """A profile or feature input, as the reference to put in a member."""
         value = self._get(name)
@@ -114,6 +131,20 @@ class ExpandInputs:
         return FeatureRef(
             kind="feature", feature_id=member_id(self.feature_id, role, index)
         )
+
+
+def lumber_options(
+    keys: Iterable[LumberProfileKey] | None = None,
+) -> list[ChoiceOption]:
+    """Choice options for a lumber-profile input, labelled by nominal size
+    ("2x10"): every library profile in display order, or just *keys*. Read
+    the chosen one back with :meth:`ExpandInputs.lumber`."""
+    wanted = None if keys is None else set(keys)
+    return [
+        ChoiceOption(value=profile.key, label=profile.name)
+        for profile in LUMBER_PROFILES
+        if wanted is None or profile.key in wanted
+    ]
 
 
 #: ``expand``: inputs in, members out. May return a list or yield.

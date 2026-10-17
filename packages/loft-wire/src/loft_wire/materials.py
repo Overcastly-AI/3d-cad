@@ -25,6 +25,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from loft_wire.lumber import LumberProfile
+
 #: The built-in material library keys (v1). A closed literal, so an unknown
 #: material is a parse error at the boundary rather than a silent "no mass"
 #: three services later. User-defined materials are a follow-up (design §5) and
@@ -38,6 +40,13 @@ MaterialKey = Literal[
     "abs",
     "pla",
     "nylon_6",
+    "spf_lumber",
+    "dfl_lumber",
+    "southern_pine_pt",
+    "lvl",
+    "glulam_dfl",
+    "steel_a992",
+    "concrete",
 ]
 
 
@@ -56,6 +65,10 @@ class Material(BaseModel):
         description="Density (kg/m^3). Handbook NOMINAL value — a production "
         "part uses its supplier's certificate, not this table.",
     )
+    source: str = Field(
+        description="Where the density comes from (standard, table, and the "
+        "moisture content for wood), so a user can check it."
+    )
 
 
 # Densities are handbook nominal values at room temperature, rounded to the
@@ -65,19 +78,106 @@ class Material(BaseModel):
 # a real 6061 extrusion is 2.70 +/- a hair, and a printed part is lighter than
 # solid PLA because it is not solid. Written kg/m^3 so the numbers are the ones
 # an engineer recognises (2700 = 2.70 g/cm^3).
+#
+# Building materials (LUMBER-MATERIALS, RESEARCH §23). Sawn lumber is the
+# species group's specific gravity G from the AWC NDS (2018) Table 12.3.3A
+# (oven-dry weight and volume), taken to density at 12 % moisture content with
+# the Wood Handbook (FPL-GTR-190, 2010) ch. 4 relations:
+#   G_b = G_0 / (1 + 0.265 G_0)                      basic (green volume)
+#   G_M = G_b / (1 - 0.265 a G_b),  a = (30 - M)/30  at M % moisture
+#   rho = 1000 G_M (1 + M/100)  kg/m^3
+# SPF G_0 0.42 -> 450.35, DF-L 0.50 -> 531.81, southern pine 0.55 -> 582.07.
+# packages/loft-wire/tests/test_lumber.py re-derives each one. The engineered
+# and structural entries are the design unit weights their industries publish
+# (lb/ft^3 x 16.0185 = kg/m^3).
+_PCF = "lb/ft^3"
 _LIBRARY: tuple[Material, ...] = (
-    Material(key="steel_1018", name="Steel (AISI 1018)", density_kg_m3=7870.0),
     Material(
-        key="stainless_304", name="Stainless steel (AISI 304)", density_kg_m3=8000.0
+        key="steel_1018",
+        name="Steel (AISI 1018)",
+        density_kg_m3=7870.0,
+        source="ASM Metals Reference Book, typical",
     ),
-    Material(key="aluminium_6061", name="Aluminium 6061", density_kg_m3=2700.0),
-    Material(key="brass_c360", name="Brass (C360)", density_kg_m3=8500.0),
-    Material(key="abs", name="ABS", density_kg_m3=1040.0),
-    Material(key="pla", name="PLA", density_kg_m3=1240.0),
-    Material(key="nylon_6", name="Nylon (PA6)", density_kg_m3=1140.0),
+    Material(
+        key="stainless_304",
+        name="Stainless steel (AISI 304)",
+        density_kg_m3=8000.0,
+        source="ASM Metals Reference Book, typical",
+    ),
+    Material(
+        key="aluminium_6061",
+        name="Aluminium 6061",
+        density_kg_m3=2700.0,
+        source="ASM Metals Reference Book, typical",
+    ),
+    Material(
+        key="brass_c360",
+        name="Brass (C360)",
+        density_kg_m3=8500.0,
+        source="ASM Metals Reference Book, typical",
+    ),
+    Material(
+        key="abs", name="ABS", density_kg_m3=1040.0, source="Resin datasheet, typical"
+    ),
+    Material(
+        key="pla", name="PLA", density_kg_m3=1240.0, source="Resin datasheet, typical"
+    ),
+    Material(
+        key="nylon_6",
+        name="Nylon (PA6)",
+        density_kg_m3=1140.0,
+        source="Resin datasheet, typical",
+    ),
+    Material(
+        key="spf_lumber",
+        name="Spruce-pine-fir (SPF) lumber",
+        density_kg_m3=450.0,
+        source="AWC NDS 2018 Table 12.3.3A G = 0.42; Wood Handbook ch. 4, "
+        "at 12% moisture content",
+    ),
+    Material(
+        key="dfl_lumber",
+        name="Douglas fir-larch lumber",
+        density_kg_m3=532.0,
+        source="AWC NDS 2018 Table 12.3.3A G = 0.50; Wood Handbook ch. 4, "
+        "at 12% moisture content",
+    ),
+    Material(
+        key="southern_pine_pt",
+        name="Southern pine, pressure-treated",
+        density_kg_m3=582.0,
+        source="AWC NDS 2018 Table 12.3.3A G = 0.55; Wood Handbook ch. 4, "
+        "at 12% moisture content (kiln-dried after treatment; preservative "
+        "retention, under 1%, not included)",
+    ),
+    Material(
+        key="lvl",
+        name="LVL (laminated veneer lumber)",
+        density_kg_m3=673.0,
+        source=f"Manufacturer design weight, 42 {_PCF} (1.9E-2.0E LVL)",
+    ),
+    Material(
+        key="glulam_dfl",
+        name="Glulam (Douglas fir)",
+        density_kg_m3=561.0,
+        source=f"APA/AWC glulam design weight, 35 {_PCF}",
+    ),
+    Material(
+        key="steel_a992",
+        name="Structural steel (ASTM A992)",
+        density_kg_m3=7850.0,
+        source=f"AISC Steel Construction Manual, 490 {_PCF}",
+    ),
+    Material(
+        key="concrete",
+        name="Concrete (normal-weight, reinforced)",
+        density_kg_m3=2400.0,
+        source=f"ASCE 7-16 Table C3.1-2, reinforced stone concrete, 150 {_PCF}",
+    ),
 )
 
-#: The library in display order (metals, then polymers) — the order a picker
+#: The library in display order (metals, polymers, wood, then structural steel
+#: and concrete) — the order a picker
 #: shows. A tuple, so no caller can mutate the shared table.
 MATERIALS: tuple[Material, ...] = _LIBRARY
 
@@ -91,9 +191,16 @@ class MaterialLibraryResponse(BaseModel):
     The picker needs names + densities, and a second copy of the table in TS
     would be a DRY violation that silently drifts (CLAUDE.md). One table, in
     py-kit, served over the API.
+
+    ``profiles`` is the section library members are cut from (US lumber,
+    ``loft_wire.lumber``), served beside the materials as SolidWorks serves
+    weldment profiles beside its material database.
     """
 
     materials: list[Material]
+    profiles: list[LumberProfile] = Field(
+        description="Lumber sections: nominal name and actual dressed size."
+    )
 
 
 class BodyMaterialAssignment(BaseModel):

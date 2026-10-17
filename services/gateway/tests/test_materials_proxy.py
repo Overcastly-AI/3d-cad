@@ -16,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 from gateway.db import Base
 from gateway.main import GatewaySettings, build_app
+from loft_wire.lumber import LUMBER_PROFILES
 from loft_wire.materials import MATERIALS, MaterialLibraryResponse
 from py_kit.db import async_dsn
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -56,7 +57,9 @@ def _library(seen: list[httpx.Request]) -> Handler:
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
-        body = MaterialLibraryResponse(materials=list(MATERIALS))
+        body = MaterialLibraryResponse(
+            materials=list(MATERIALS), profiles=list(LUMBER_PROFILES)
+        )
         return httpx.Response(200, content=body.model_dump_json())
 
     return handler
@@ -92,6 +95,7 @@ def test_library_reaches_the_web_app_through_the_gateway(
     # Every density arrives byte-identical to the table geometry multiplies by
     # — a drifted density is a wrong mass nobody notices (materials.md §1).
     assert library.materials == list(MATERIALS)
+    assert library.profiles == list(LUMBER_PROFILES)
     [upstream] = seen
     assert upstream.method == "GET"
     assert upstream.url.path == "/api/v1/materials"
