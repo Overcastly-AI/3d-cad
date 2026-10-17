@@ -85,7 +85,9 @@ test.describe("Roof — B2's gable from one feature", () => {
     const rows = page.getByTestId("feature-row");
     await expect(rows).toHaveCount(0);
 
-    // Build > Roof: the generated form, in the part's inches, B2 by default.
+    // Build ▾ > Roof (the row holds Wall and Deck): the generated form, in
+    // the part's inches, B2 by default.
+    await page.getByTestId("build-more").click();
     const tool = page.getByTestId(`plugin-tool-${PLUGIN}`);
     await expect(tool).toBeEnabled({ timeout: 30_000 });
     await expect(tool).toHaveAccessibleName(/^Roof/);
