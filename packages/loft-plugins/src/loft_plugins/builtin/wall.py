@@ -30,7 +30,8 @@ end; a layout stud that would overlap the end stud is dropped (a 144 wall has
 **Members.** As in ``loft.deck``: each member is one body, a plan polygon on
 a shared ``XY`` level datum (one per distinct bottom elevation) extruded up
 as a new body, never fused, with role, profile and material metadata. Roles
-emit in the cut list's order: studs, top plates, bottom plate.
+emit in the cut list's order: studs, the openings' members, top plates,
+bottom plate.
 
 **Openings** (WINDOW-DOOR). A window or door names its host wall (a feature
 input, ``loft.window`` and ``loft.door``), as Revit and Chief Architect host
