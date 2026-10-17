@@ -253,5 +253,15 @@ goal and answer them"); the product-manager decided them. Each is in
 - **Hip and valley framing:** hips dropped, valleys not raised, jacks laid
   out from the ridge-end commons, 2x8 hips and valleys by default (IRC
   R802.3 depth); the 1/3 heel rule stays the commons' (buildings.md).
+- **Cut-list prices (2026-10-17, founder: "give me a price column on the
+  cut sheet"):** after ROOF-HIP, before ROOF-VALLEY. Prices live in one
+  price book per user (Chief Architect's Master List), keyed by material,
+  profile and unit: Each per stock length, per linear foot or per board
+  foot (nominal). Lines are priced on the stock pieces bought, so the
+  offcut is paid for; a missing price is blank, never $0, and the total
+  says how many lines are unpriced. USD only, integer cents, rounded once
+  per stock piece. The CSV gets the columns and a Total row; the drawing
+  parts list's Cost column, sheet goods and per-part costs are Notes
+  (PRICE-BOOK, CUT-LIST-PRICES).
 - **Left for the founder:** the object store (MinIO or an Apache-2.0 server),
   because it turns on publishing images under AGPL §6.

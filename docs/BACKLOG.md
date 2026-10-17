@@ -16,7 +16,10 @@ order. Each is a first-party plugin in `packages/loft-plugins` (base
 features only), a golden in `services/geometry/goldens/` checked on STEP
 against `docs/reference-parts/buildings.md`, and one e2e from the Build
 group. Then hips and valleys (founder, 2026-10-17: "Yes add hip and valley
-roofs next"), after B2's last gate, against B3 and B4. Done 2026-10-16..17 and dropped: AUTH-RATE-LIMIT-PROXY,
+roofs next"), after B2's last gate, against B3 and B4. Prices on the
+cut list go between them (founder, 2026-10-17: "give me a price column on
+the cut sheet"): B1 and B2 have a cut list, and the next question a builder
+asks of it is what the lumber costs. Done 2026-10-16..17 and dropped: AUTH-RATE-LIMIT-PROXY,
 LIBRARY-THUMBNAILS (§26), LUMBER-MATERIALS, CUT-LIST, ASM-FAILED-PART-API,
 PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
 
@@ -110,7 +113,52 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    no interference, a seven-roof overlap sweep, the twin's STEP drift),
    `test_roof_feature.py`; e2e `roof-hip-b3.spec.ts`; RESEARCH §23. Closes
    ROOF-OVERHANG-MIN (1.1.0), ROOF-TWIN-DRIFT-TEST, ROOF-HEEL-RULE-WORDING.
-6. [ ] **ROOF-VALLEY** (`loft.roof` 1.2.0, stops B4): a footprint picked
+6. [ ] **PRICE-BOOK** (backend-builder; prices B1, B2): a price book of
+   what the user pays, as Chief Architect's Master List feeds its materials
+   list and SolidWorks' Cost property feeds a BOM column. One book per user
+   (no workspaces yet), in documents (`price_books` with the currency,
+   `price_book_entries`; one alembic migration), each entry a material, a
+   profile, a unit and integer cents: Each (per stock piece, with its stock
+   length: "SPF 2x4 x 8 ft = $3.98"), per linear foot or per board foot
+   (nominal size x stock length / 12; 2x4x8 = 5.333 BF), either applied to
+   any stock length. Sheet goods and per-part prices are later. USD only
+   (ISO code stored); no floats: cents on the wire, Python ints and
+   `Decimal`. Gateway `GET`/`PUT /api/v1/price-book` (whole book, at most
+   500 entries, one price per key). The gateway prices the cut list in pure
+   `loft_wire.cut_list` code: each line gets stock quantity (one per piece
+   until CUT-LIST-NESTING), unit price per stock piece (an Each price for
+   that stock length wins, then per foot, then per board foot, rounded half
+   up to the cent once per piece, as an invoice) and extended price; the
+   offcut is paid for, not credited. A line without a price or without a
+   stock length has null price, never 0; the response has `currency`, the
+   total of priced lines and how many lines are unpriced. An assembly's
+   list is already one grouped list across parts, so its total is the sum.
+   CSV adds Stock qty, Unit price (USD), Price unit and Extended (USD) as
+   plain numbers plus a Total row, and escapes a formula trigger after
+   leading spaces (closes CUT-LIST-CSV-HARDEN).
+   _Accept:_ with the sample book (PT southern pine 2x10 x 16 ft $28.47,
+   2x10 x 12 ft $19.98, 6x6 $1.45/BF, 5/4x6 $1.12/ft; PT 2x4 x 8/10/12 ft
+   $5.27/$6.97/$8.37; SPF 2x4 x 8/10/12 ft $3.98/$5.48/$6.58, 2x6 x 8 ft
+   $6.48, 2x8 $0.94/ft): B1 totals $943.94 (beam 2 x 28.47 = 56.94, joists
+   13 x 19.98 = 259.74, posts 3 x 34.80, decking 26 x 17.92 = 465.92); B1
+   with the 6x6 entry deleted shows Post blank, "1 line unpriced" and
+   $839.54; B2 totals $396.07 (studs 36 x 3.98 = 143.28, rafters 14 x 6.48
+   = 90.72, ridge 11.28); an assembly placing B1 once and B2 twice totals
+   $1,736.08; the CSVs carry the same numbers; the migration upgrades and
+   downgrades; another user cannot read the book.
+7. [ ] **CUT-LIST-PRICES** (frontend-builder, after PRICE-BOOK): the cut
+   list panel (part, assembly, drawing) shows Stock qty, Unit price,
+   Extended and a Total row, money formatted in the book's currency, a
+   blank (not $0.00) where unpriced, and "Total of priced lines, N
+   unpriced" when any are. A Price book dialog from the panel edits
+   entries (material, profile, Each with stock length / per ft / per BF,
+   price); clicking an unpriced cell opens it pre-filled with that line's
+   material, profile and stock length. _Accept:_ e2e `cut-list-prices.spec.ts`:
+   on the B1 deck, add the sample book's six PT entries in the dialog, the
+   panel reads Joist 13 at $19.98 = $259.74 and Total $943.94, deleting the
+   6x6 entry blanks Post and reads $839.54 with 1 unpriced, a reload keeps
+   it, and the CSV download has the Total row.
+8. [ ] **ROOF-VALLEY** (`loft.roof` 1.2.0, stops B4): a footprint picked
    from the bearing walls, as Revit's Roof by Footprint (Pick Walls) and
    Chief Architect's roof from walls: the loop of their outer faces,
    corners where consecutive walls' lines meet, plate height and width read
@@ -296,7 +344,6 @@ One line each. The founder triages weekly; most are closed without work.
 - PERF-STEP1 review (bafa5f9): with faces keeping their TShapes, the "exactly one holder kept the original shape" naming rule settles more often, so picks that used to fall back to the geometric tiers may now resolve by name — correct, but untested on old saved parts; add a stored-part fixture check.
 - AUTH-PROXY review (3d70fc6): OPERATIONS §7 should say a CDN/proxy in front of nginx puts everyone back in one bucket (nginx overwrites XFF) and that uvicorn's FORWARDED_ALLOW_IPS (default 127.0.0.1) applies before TRUSTED_PROXIES; after the 30 s cache expires concurrent auth requests each resolve `web` (single-flight it); log/audit lines that record a client address must use `client_address()`.
 - ASM-MIRROR review (70ed729): the symmetry check costs up to 3 axes x 2 booleans per unique part/sub-assembly with no time cap; an OCCT boolean that returns an empty result without raising reads as gap 0 (symmetric) — validate the result; a sub-assembly is checked only as a whole, so a left/right pair inside it is copied, not reflected per arm (combined geometry still correct). Copy symmetry also: a part symmetric only about a plane off its local axes is flagged.
-- CUT-LIST-CSV-HARDEN (4b18125 review): `csv_text` checks only the first character, so a value with leading spaces before `=` passes (LibreOffice may trim on import) — escape after lstrip; full-width lookalikes (U+FF1D, U+FF0B) are not escaped (spreadsheets do not run them from CSV); `title`/`role` are escaped at the CSV but not validated on the wire.
 - LAYOUTISSUE-AT: `ComposedLayoutIssue.at` (the banner anchor) is still on the wire although nothing stamps issues on the sheet since BIKE2-DRAWING-SCALE; drop it or give it a reader.
 
 - LINE-ENTRY-TAB review (90db343): a Tab left in a circle's drag box survives a click/canvas-Esc and refuses the next circle at the same centre ("10" Tab, later "100"; clear `tabbed` on draft change); "W" Tab "/2" is refused as a second value without saying why; the error text overlaps the X AXIS label.
@@ -608,3 +655,6 @@ One line each. The founder triages weekly; most are closed without work.
 - ROOF-RAKE-OVERHANG: the end rafters sit flush with the gable walls; Chief Architect and Medeek also frame a rake overhang (barge rafters on lookouts or a ladder).
 - ROOF-HIP-BACKING: hips are dropped, not backed, and valleys are not raised (buildings.md); Chief Architect also offers backed hips, and an unbacked valley's edges sit 0.265 below the planes at 6/12.
 - ROOF-SKELETON-GENERAL: ROOF-VALLEY takes walls at multiples of 90° and one pitch; angled walls, per-plane pitches and flying hips are later rungs.
+- PRICE-PART-COST: purchased parts (joist hangers, screws, a bike's crankset) have no price; SolidWorks' Cost custom property on a part, summed in the assembly BOM, is the convention. Founder to say whether the BOM (not just the cut list) needs it.
+- PRICE-SHEET-GOODS: the price book has no per-sheet unit because the cut list has no sheet goods (plywood, OSB) yet; add it with B2's sheathing.
+- DRAWING-PARTS-LIST-COST: the drawing's parts list has no Cost column; the drawing's cut-list panel gets prices through CUT-LIST-PRICES, and neither is on the exported sheet (CUT-LIST-PDF).
