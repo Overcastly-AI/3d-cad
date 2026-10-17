@@ -231,6 +231,7 @@
     "viewport-gestures.spec.ts": 14.1,
     "viewport-makeover.spec.ts": 72.7,
     "wall-b2.spec.ts": 23.8,
+    "window-door-b2.spec.ts": 66.0,
     "workspace.spec.ts": 14.8
   }
 }
