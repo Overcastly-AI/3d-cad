@@ -37,7 +37,7 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    _Done:_ `loft.wall` 1.0.0 (goldens `b2-walls-no-openings-16oc`, `-24oc`,
    `plugin-wall-v1-144-30deg`; `services/geometry/tests/test_walls_b2.py`;
    e2e `wall-b2.spec.ts`; RESEARCH §23).
-2. [ ] **WINDOW-DOOR** (`loft.window`, `loft.door`, stops B2): two Build
+2. [x] **WINDOW-DOOR** (`loft.window`, `loft.door`, stops B2): two Build
    tools, each hosted in a wall as Revit and Chief Architect do: host wall
    (a feature input), offset of its centre along the wall, unit width and
    height, rough-opening allowance, head height (window). The host wall
@@ -53,6 +53,11 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    3 top cripples), window 24 -> 30 in (header 33.5, sill 30.5), door
    deleted (10 full studs, one 144 bottom plate). E2e: dragging the door's
    offset regenerates the front wall.
+   _Done:_ `loft.window` and `loft.door` 1.0.0 hosted by a wire `host`
+   feature input; `loft.wall` 1.0.0 frames them (goldens
+   `b2-walls-door-window`, `-door-moved-24`, `-window-30`, `-door-deleted`;
+   `test_walls_b2.py`, `test_openings.py`, `test_window_door_feature.py`;
+   e2e `window-door-b2.spec.ts`, which edits the offset; RESEARCH §23).
 3. [ ] **ROOF** (`loft.roof`, stops B2): a gable of common rafters from two
    bearing walls (feature inputs), pitch entered as rise per 12 (6/12, as
    Chief Architect and Medeek Truss), spacing, eave overhang, rafter and
@@ -518,10 +523,13 @@ One line each. The founder triages weekly; most are closed without work.
 - BIKE3-PARTS-404: typing `/parts` (the breadcrumb's word) gives a bare "Not Found" page; the parts library lives at `/`.
 - Bike round 3: SKETCH-3D (Create has no 3D sketch), SKETCH-LINE-ANGLE (the Line box shows L only, `bike-r3-line-box.png`) and DRAWING-PARTS-LIST-LEVEL (the drawing lists Frame 1 / Crankset 1 with no structure choice and no balloons, while the assembly BOM has all three levels, `bike-r3-drawing.png`) are still open.
 - WALL-DRAW: a wall is placed by typing its start, direction and length in the form; Chief Architect and Revit draw it with two clicks in plan, chained round a building.
-- BUILD-ROW: the Build row is a web-side list (Wall, Deck) and every other plugin sits in BUILD ▾; Window, Door and Roof must each be measured onto the row or into the menu, as the manifest has no row priority (see PLUGIN-TOOL-ICONS).
+- BUILD-ROW: the Build row is a web-side list (Wall, Deck) and every other plugin sits in BUILD ▾; Window and Door sit in BUILD ▾ (the row is full at 1280, toolbar-overflow); Roof must still be measured, as the manifest has no row priority (see PLUGIN-TOOL-ICONS).
 - WALL-CUT-LIST-ORDER: the cut list groups in tree order, so B2 lists Top plate 144, Bottom plate 144, Top plate 113, Bottom plate 113; Chief Architect's materials list groups each member type together.
-- WALL-SHARED-CENTRES (STUD-WALL review): `wall.py` imports `joist_centres` from `deck.py`, so a deck layout change would change loft.wall 1.0.0's output (the golden would catch it); give the wall its own copy.
 - WALL-EPS-OVERLAP: `joist_centres` keeps a layout centre within `<= ... + _EPS` of the end stud, so a layout stud may overlap it by 1e-9 in; harmless, could be strict.
 - BUILD-MENU-CAPTION: in BUILD ▾ a disabled plugin no longer shows its "Finish X first" / "Loading the part" caption.
 - TOOLBAR-ROVING-TABINDEX: every command-band button is its own Tab stop, so each Build tool pushes Export one stop further (36 with Wall and Deck; `export-reach.spec.ts` bound raised 34 -> 36). The WAI-ARIA toolbar pattern (one Tab stop per group, arrows within), as Fusion's ribbon does, would end this.
-- WALL-LEVEL-EQ: `_emit` reuses levels by exact float equality on `z0`; fragile once openings add sill and header levels (WINDOW-DOOR).
+- OPENING-DRAG: a door or window moves by its Offset field; Revit and Chief Architect also drag it along its wall in the viewport (and show temporary dimensions to the nearest opening).
+- OPENING-HOST-MISSING-PLUGIN: a door whose plugin a server lacks is not handed to its wall there, so the wall (if that server has `loft.wall`) re-expands without framing it.
+- OPENING-TREE-CHEVRON: a door or window row shows the unfold chevron though it has no members of its own (its framing is under its wall).
+- OPENING-END-STUD: an opening whose king would overlap a wall's end stud is refused; Chief Architect lets the king replace the end stud at a corner.
+- OPENING-CRIPPLE-JACK: bottom cripples sit only at the replaced layout centres inside the rough opening, so a sill end between a jack and the first cripple is unsupported for up to one spacing; framers add a cripple beside each jack.

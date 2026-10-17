@@ -1915,6 +1915,56 @@ and reframe it, a material per member, and a cut list that is always current.
     STEP round trip moves the volume by 6e-4 mm³, which is OCCT's (a plain
     build123d twin drifts the same), so it carries a reviewed round-trip
     bound.
+- **Decided while building windows and doors** (WINDOW-DOOR, 2026-10-17;
+  Revit, Chief Architect, common platform framing):
+  - *Hosting on the wire.* A `FeatureReferenceInput` may list `plugin_ids`
+    (the picked custom feature's plugin) and be the manifest's one `host`
+    input, as a Revit window family's host category is Walls. The form
+    offers only walls; a host that is missing, later, not custom or another
+    plugin is refused before the opening's plugin runs.
+  - *The wall frames, the opening does not.* As Chief Architect's wall
+    framing includes its openings, `loft.wall` builds the kings, jacks,
+    header, cripples and sill; `loft.window` and `loft.door` expand to no
+    member (the unit body is WINDOW-DOOR-UNIT). Their own expansion only
+    checks that they fit their wall, so a refusal lands on their field.
+  - *Hosted inputs, not expansions.* The registry gives a host the LATER
+    features naming it (`ExpandInputs.hosted`: pin, name, resolved inputs).
+    Nothing crosses the other way and expansions never cross, so there is
+    no cycle and the order stays the tree's. The wall sorts its openings
+    along itself, so the tree order of openings changes nothing.
+  - *Writes.* Creating, editing (including a change of host), suppressing
+    or deleting an opening re-expands its old and new hosts in the same
+    transaction; a wall that cannot frame it refuses the write (422 naming
+    the opening, or the delete's 409 when a referenced member would go).
+    Editing a wall re-frames its openings, so shortening it under a door is
+    refused. A suppressed opening is not framed, as any suppressed feature
+    has no effect. A parameter that drives a door re-frames its wall even
+    when the wall reads no parameter.
+  - *Inputs.* Unit width and height plus a rough-opening allowance each way
+    (door 2 x 2.5, window 0.5 x 0.5: B2's 38 x 82.5 and 24.5 x 36.5), the
+    offset of the unit's centre from the wall's start, a 2x6 to 2x12 header,
+    and for a window the head height: the rough opening's top (the header's
+    underside) above the wall's base, 82.5 by default so window and door
+    heads align. A door's rough opening stands on the wall's base and the
+    bottom plate is cut out of it.
+  - *Members.* Kings full height outside jacks; the header is two plies on
+    edge over the jacks at the wall's two faces (the spacer is not a
+    member); top cripples, and for a window bottom cripples under a flat
+    sill, at the layout centres inside the header and the rough opening.
+    Any layout stud entering the framing is dropped. In the cut list a king
+    is a "Stud" (the same precut, listed with the studs as buildings.md
+    does) and both cripples are "Cripple"; their roles stay distinct so
+    member ids hold.
+  - *Fit.* An opening must keep its kings between the wall's end studs, its
+    header under the top plate and a window's sill on the bottom plate, and
+    two openings' framing may touch but not overlap; each refusal names the
+    opening and the field to change.
+  - *No float overlaps.* Every face two members share is computed once and
+    used by both, and levels are shared by height rounded to 1e-9 in, so a
+    sweep over positions and sizes finds no two members overlapping at all.
+  - *Version.* The opening roles were added to `loft.wall` 1.0.0 without a
+    new version, because no stored wall had an opening; its no-openings
+    goldens are byte-identical.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
