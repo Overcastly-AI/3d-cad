@@ -83,7 +83,7 @@ ROOF-VALLEY.
    second gets 412 and nothing is lost. The migration upgrades and
    downgrades. E2e: a 144 in Wall from Build with OSB ticked lists 3 sheets
    of 4x9, and a $24.98 per-sheet entry in the dialog extends it to $74.94.
-3. [ ] **TIMBER-FRAME** (`loft.timber_frame`, founder goal; kernel-architect):
+3. [x] **TIMBER-FRAME** (`loft.timber_frame`, founder goal; kernel-architect):
    a frame of bents, as built in Cadwork, hsbCAD and the SketchUp timber
    framing extensions. One joint placement cuts both members: a blind
    mortise in the post, a tenon on the beam, and a peg through both (the
@@ -245,6 +245,13 @@ B1-B4 are done. FLOOR-FRAME, SHEATHING and TIMBER-FRAME are in Now (B5, B6).
 ## Notes
 
 One line each. The founder triages weekly; most are closed without work.
+
+- TIMBER-CLEARANCE: joints are line to line (tenon = mortise, peg = hole); hsbCAD and Cadwork offer mortise-depth and width clearances and a drawbore offset, which a shop sets before cutting.
+- TIMBER-OPPOSED: an inner bent's post takes two girt tenons at one height, each shortened to half the post less 1/4 in (3.5 in an 8x8); framers also stagger the girts or house them, which the plugin does not offer.
+- TIMBER-PEG-PROUD: pegs are cut flush with the post faces (B6's 7.5); real pegs are left proud and trimmed, so a peg cut list would add an allowance.
+- TIMBER-BENTS: at most 8 bents (44 joints, ~570 features, an 11 s build); the 1 000-feature tree bound, not time, is the limit beyond that.
+- TIMBER-BODY-SPLIT: a frame's bodies weld into one mesh component in the viewport (tenon corners are mortise corners, peg circles are hole circles), so the Bodies panel cannot hide a post to show its mortise; the evaluate payload carries no per-body face ranges.
+- TIMBER-SPECIES: the frame defaults to Douglas fir-larch (`dfl_lumber`), whose density is NDS's kiln-dried value; timbers are sold green and weigh more until seasoned.
 
 - B2-E2E-INTERFERENCE: a part has no interference check (only assemblies have Clash), so a building's members cannot be checked for overlap in the UI; SolidWorks' Interference Detection and Fusion's Interference both run on a multibody part.
 - B2-E2E-HOSTS: walls placed from the Build row are named "Wall 1".."Wall 4", so the door's and window's host list reads by number, not by side; Chief Architect and Revit pick the host wall in the plan view.

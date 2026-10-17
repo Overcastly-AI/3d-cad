@@ -2144,6 +2144,51 @@ and reframe it, a material per member, and a cut list that is always current.
     `FloorSpec.framing_top` is the joists' top. A 1.1.0 adds a Subfloor input
     and appends its panels at that height, moving no framing member, so 1.0.0
     stays byte-identical.
+- **Decided while building the timber frame** (TIMBER-FRAME, 2026-10-17;
+  Cadwork's and hsbCAD's joint tools, the SketchUp timber framing
+  extensions, buildings.md B6):
+  - *One placement cuts both members.* A joint is emitted after the
+    members as base features: one rectangle sketch extruded twice, once
+    as the tenon (a `boolean` union onto the beam, which consumes it) and
+    once as the mortise cutter (subtracted from the post); one Ø1 circle
+    extruded three times, two bores (subtracted from the post and from the
+    beam) and the peg, a white oak member. Mortise and tenon are one box,
+    and the peg and its holes one cylinder, by construction: coaxial with
+    no tolerance to drift (the drawbore offset is not modelled). A test
+    finds, on the STEP, exactly three hole walls on each peg's axis, two
+    in the post's cheeks and one in the tenon, contiguous end to end.
+  - *Clearance convention: line to line.* The tenon is exactly its mortise
+    and the peg exactly its holes, as hsbCAD and Cadwork draw a joint with
+    their clearances at zero; mating faces coincide and touch, no two
+    bodies share volume (probed pairwise), and the bodies together are
+    exactly the members' shoulder boxes. That is why one joint is 8 775
+    in³ and B6 56 025. A shop's clearances are a later input
+    (TIMBER-CLEARANCE).
+  - *Sections.* `loft-wire` gains the S4S timbers 6x8 to 12x12 at PS 20's
+    green sizes, 1/2 in under nominal (8x8 is 7.5 x 7.5), and the material
+    white oak (NDS G 0.73 at 12 %, 759 kg/m³). Posts are square; a beam
+    lies with its larger face vertical, flush with the frame's outside (an
+    inner bent's tie beam centred), and may be no wider than its posts.
+  - *Joints.* Tenons 1.5 thick, the beam's depth less 1.5 wide, 4 long,
+    centred; the peg 2 in from the shoulder at the tenon's mid-height,
+    through the post's full depth. An inner bent's post takes a girt from
+    each side at one height, so those two tenons are each half the post
+    less 1/4 in (3.5 in an 8x8), and under 3 in (the peg's 2 and a
+    diameter) is refused. Girts sit wholly below the tie beams, so a
+    post's mortises and bores never meet (an overlap sweep of five frames,
+    up to 8 bents and 12x12 posts, checks it).
+  - *Cut list.* Members carry metadata as every building plugin; a beam's
+    length is measured with its tenons (137 for B6's tie beam, as a
+    weldment cut list measures), and the peg's section is named "Ø1" with
+    no stock length.
+  - *Bounded.* 2 to 8 bents, width 6 to 40 ft, length 6 to 80 ft. Eight
+    bents at the largest size are 44 joints, 573 features and an 11 s
+    build (the hip roof's worst was 32 s of the gateway's 90), well inside
+    the 1 000-feature tree.
+  - *Numbers.* The product manager's arithmetic (8 775, 56 025, 58 725
+    in³) held in an independent build123d script before any golden was
+    recorded; the goldens' every mass property is the closed form (area
+    5 025 + 14π in² for a joint), matched by the kernel to 1e-9.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
