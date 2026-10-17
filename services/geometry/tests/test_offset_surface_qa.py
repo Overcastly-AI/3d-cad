@@ -101,6 +101,10 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     "b2-walls-door-moved-24": 3e-6,
     "b2-walls-window-30": 3e-6,
     "b2-walls-door-deleted": 3e-6,
+    # Not an offset surface: the loft.roof B2 gable's sloped rafters drift
+    # 3.5e-4 mm^3 through OCCT's STEP, as their build123d twin does (ROOF).
+    "b2-roof-6-12": 1e-3,
+    "b2-roof-8-12": 1e-3,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

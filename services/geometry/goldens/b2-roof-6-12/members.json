@@ -1,0 +1,152 @@
+[
+  {
+    "feature_id": "aa578a49-0672-58d3-9c8c-5270c5e39347",
+    "role": "rafter",
+    "title": "Rafter",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "184aff38-8d88-5b95-b030-8fcd91a690d8",
+    "role": "rafter",
+    "title": "Rafter",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a88fee11-10da-5383-8f5a-04322cb319a7",
+    "role": "rafter",
+    "title": "Rafter",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "719b58a0-c904-50cb-b7af-716fa23ecf3c",
+    "role": "rafter",
+    "title": "Rafter",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8e1eacd5-8863-5934-9f7e-7ba29e72c154",
+    "role": "rafter",
+    "title": "Rafter",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e6082a69-2eaa-56d1-bd97-f8afea431c38",
+    "role": "rafter",
+    "title": "Rafter",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ea409d23-e4ef-5bf7-99e8-517a94c7e946",
+    "role": "rafter",
+    "title": "Rafter",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f22a6b65-6099-54d6-ae95-ad77529dfc4e",
+    "role": "rafter",
+    "title": "Rafter",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4bec6bb0-363e-5608-b421-1a2f0edb0813",
+    "role": "rafter",
+    "title": "Rafter",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "501503e9-db54-547c-ade9-d42c62f4c997",
+    "role": "rafter",
+    "title": "Rafter",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d706f79b-0cdf-51c6-84a4-de7a3ff09f2c",
+    "role": "rafter",
+    "title": "Rafter",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "849ce9a4-4813-50e2-becd-38429c6bc1ed",
+    "role": "rafter",
+    "title": "Rafter",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ff408609-bca7-57af-8723-db1f7aa5c149",
+    "role": "rafter",
+    "title": "Rafter",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "82eb24c1-c8f2-5b1c-b1ae-858a3a41f7ba",
+    "role": "rafter",
+    "title": "Rafter",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3e45eb11-8cbf-5fbf-a193-d1c5eaf09ebd",
+    "role": "ridge",
+    "title": "Ridge",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  }
+]
