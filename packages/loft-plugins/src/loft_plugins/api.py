@@ -53,12 +53,16 @@ class PluginError(Exception):
 @dataclass(frozen=True)
 class Member:
     """One base feature of an expansion. ``(role, index)`` must be unique and
-    the role declared in the manifest; the id is derived, never chosen."""
+    the role declared in the manifest; the id is derived, never chosen. A
+    member with a ``name`` (``slot/8``) is identified by ``(role, name)``
+    instead, which must be unique too: a plugin names a member by its place
+    in a layout so that an edit elsewhere never renumbers it."""
 
     role: str
     index: int
     feature: FeatureEnvelope
     metadata: MemberMetadata | None = None
+    name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -153,10 +157,11 @@ class ExpandInputs:
         """The earlier feature *ref* names, or ``None``."""
         return self.earlier.get(ref.feature_id)
 
-    def ref(self, role: str, index: int = 0) -> FeatureRef:
-        """A reference to this expansion's member ``(role, index)``."""
+    def ref(self, role: str, index: int = 0, name: str | None = None) -> FeatureRef:
+        """A reference to this expansion's member ``(role, index)``, or
+        ``(role, name)`` for a named member."""
         return FeatureRef(
-            kind="feature", feature_id=member_id(self.feature_id, role, index)
+            kind="feature", feature_id=member_id(self.feature_id, role, index, name)
         )
 
 
@@ -180,7 +185,15 @@ Expander = Callable[[ExpandInputs], Iterable[Member]]
 
 @dataclass(frozen=True)
 class Plugin:
-    """One released version: its manifest and its expander, kept forever."""
+    """One released version: its manifest and its expander, kept forever.
+
+    ``renumbered_roles`` are the roles whose INDEX is an ordinal a re-layout
+    can hand to another physical member (``loft.wall`` 1.0.0's ``stud/6``
+    after a door moves). Documents refuses an edit that moves a referenced
+    member of one of these roles (WALL-MEMBER-RENUMBER), since the reference
+    cannot tell a member that followed the edit from one that was renumbered.
+    A release that names its members by their place (``name``) has none."""
 
     manifest: PluginManifest
     expand: Expander
+    renumbered_roles: frozenset[str] = frozenset()

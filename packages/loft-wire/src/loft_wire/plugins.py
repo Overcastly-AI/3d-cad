@@ -103,6 +103,16 @@ InputName = Annotated[
 RoleName = Annotated[
     str, StringConstraints(min_length=1, max_length=32, pattern=r"^[a-z][a-z0-9_]*$")
 ]
+#: A member's stable name within its role (WALL-MEMBER-RENUMBER, RESEARCH §23):
+#: ``slot/8``, ``end``, ``opening/<door-id>/0``. Slash-separated lowercase
+#: segments, the first starting with a letter, so a name never reads as an
+#: index. A member with a name is identified by it instead of its index.
+MemberName = Annotated[
+    str,
+    StringConstraints(
+        min_length=1, max_length=96, pattern=r"^[a-z][a-z0-9_]*(/[a-z0-9_.-]+)*$"
+    ),
+]
 Label = Annotated[str, StringConstraints(min_length=1, max_length=80)]
 Description = Annotated[str, StringConstraints(max_length=500)]
 
@@ -116,19 +126,28 @@ def semver_key(version: str) -> tuple[int, int, int]:
     return (major, minor, patch)
 
 
-def member_key(feature_id: uuid.UUID, role: str, index: int) -> str:
-    """The member's stable name, ``<feature-id>/<role>/<n>`` (RESEARCH §23)."""
-    return f"{feature_id}/{role}/{index}"
+def member_key(
+    feature_id: uuid.UUID, role: str, index: int, name: str | None = None
+) -> str:
+    """The member's stable name, ``<feature-id>/<role>/<n>`` (RESEARCH §23),
+    or ``<feature-id>/<role>/<name>`` for a member a plugin names by its place
+    in a layout (``stud/slot/8``) rather than by its ordinal."""
+    return f"{feature_id}/{role}/{index if name is None else name}"
 
 
-def member_id(feature_id: uuid.UUID, role: str, index: int) -> uuid.UUID:
+def member_id(
+    feature_id: uuid.UUID, role: str, index: int, name: str | None = None
+) -> uuid.UUID:
     """The member's feature id: a UUIDv5 of :func:`member_key`.
 
     Feature ids are UUIDs on every wire (references, results, face names), so
     the stable name is carried as the UUID derived from it. Same custom
-    feature, role and index -> the same id, on every server and every rebuild.
+    feature, role and index (or name) -> the same id, on every server and
+    every rebuild.
     """
-    return uuid.uuid5(PLUGIN_MEMBER_NAMESPACE, member_key(feature_id, role, index))
+    return uuid.uuid5(
+        PLUGIN_MEMBER_NAMESPACE, member_key(feature_id, role, index, name)
+    )
 
 
 # --- Inputs ----------------------------------------------------------------------

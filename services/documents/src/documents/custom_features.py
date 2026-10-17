@@ -305,23 +305,105 @@ def check_members_authorable(
         prior_body = prior_body or feature.type in BODY_AFFECTING_FEATURE_TYPES
 
 
-def _check_vanished_members(
+def _placements(members: Sequence[Mapping[str, Any]]) -> dict[uuid.UUID, Any]:
+    """Each member's PLACEMENT: its feature as JSON with every reference to
+    another member of the same expansion replaced by that member's placement,
+    and an extrude's distance left out (WALL-MEMBER-RENUMBER). Two members
+    with one placement sit in the same place in plan and on the same plane,
+    whatever their ids; a member whose placement changed has moved (or, under
+    an ordinal id, been renumbered). A taller wall's studs keep theirs."""
+    table = {uuid.UUID(str(m["id"])): m["feature"] for m in members}
+    memo: dict[uuid.UUID, Any] = {}
+
+    def substitute(node: Any) -> Any:
+        if isinstance(node, dict):
+            fields = cast(dict[str, Any], node)
+            target = fields.get("feature_id")
+            if fields.get("kind") == "feature" and isinstance(target, str):
+                ref = uuid.UUID(target)
+                if ref in table:
+                    return {"member": place(ref)}
+            return {key: substitute(value) for key, value in fields.items()}
+        if isinstance(node, list):
+            return [substitute(item) for item in cast(list[Any], node)]
+        return node
+
+    def place(member: uuid.UUID) -> Any:
+        if member not in memo:
+            feature = dict(cast(dict[str, Any], table[member]))
+            if feature.get("type") == "extrude":
+                params = dict(cast(dict[str, Any], feature.get("params", {})))
+                params.pop("distance_mm", None)
+                feature["params"] = params
+            memo[member] = substitute(feature)
+        return memo[member]
+
+    return {member: place(member) for member in table}
+
+
+def _normalised(member: Mapping[str, Any]) -> Mapping[str, Any]:
+    """A stored member as this server would dump it, so a field a later
+    loft-wire added (and omits while default) never reads as a move."""
+    try:
+        return ExpandedMember.model_validate(member).model_dump(mode="json")
+    except ValidationError:
+        return member
+
+
+def _renumbered_roles(
+    stored: db.Feature, envelope_pin: tuple[str, str]
+) -> frozenset[str]:
+    """The roles whose ordinal ids a re-layout can hand to another member,
+    for a stored custom feature re-expanded under the SAME pin (a changed pin
+    names its members afresh, so only a vanished reference counts there)."""
+    pin = (
+        str(stored.params.get("plugin_id")),
+        str(stored.params.get("plugin_version")),
+    )
+    if pin != envelope_pin:
+        return frozenset()
+    try:
+        return PLUGINS.get(*pin).renumbered_roles
+    except PluginError:
+        return frozenset()
+
+
+def check_referenced_members(
     stored: db.Feature,
     members: Sequence[ExpandedMember],
     rows: Sequence[db.Feature],
+    pin: tuple[str, str] | None = None,
 ) -> None:
     """409 ``feature_has_dependents`` when a re-expansion drops (or retypes) a
     member a later feature references: the same refusal a delete of that
-    feature would get, raised at the write instead of as a rebuild error."""
+    feature would get, raised at the write instead of as a rebuild error.
+
+    Also when it MOVES a referenced member whose id is an ordinal a re-layout
+    can renumber (``loft.wall`` 1.0.0's ``stud/6``, WALL-MEMBER-RENUMBER):
+    the reference cannot tell the stud that moved from another stud that
+    took its number, and SolidWorks and Fusion flag such a reference rather
+    than rebind it silently. *pin* is the re-expansion's plugin and version
+    (the stored row's own when omitted)."""
     if stored.type != "custom":
         return
-    new = {member.id: member.feature.type for member in members}
-    old = {
-        uuid.UUID(str(member["id"]))
-        for member in stored_members(stored.params)
-        if "id" in member
-    }
-    broken: list[db.Feature] = []
+    stored_pin = (
+        str(stored.params.get("plugin_id")),
+        str(stored.params.get("plugin_version")),
+    )
+    renumbered = _renumbered_roles(stored, pin or stored_pin)
+    new = {member.id: member for member in members}
+    old_raw = [m for m in stored_members(stored.params) if "id" in m]
+    old = {uuid.UUID(str(m["id"])): m for m in old_raw}
+    moved_check = bool(renumbered) and any(
+        str(m.get("role")) in renumbered for m in old_raw
+    )
+    before: dict[uuid.UUID, Any] = {}
+    after: dict[uuid.UUID, Any] = {}
+    if moved_check:
+        before = _placements([_normalised(m) for m in old_raw])
+        after = _placements([m.model_dump(mode="json") for m in members])
+    removed: list[db.Feature] = []
+    moved: list[db.Feature] = []
     for row in sorted(rows, key=lambda r: r.order_index):
         if row.order_index <= stored.order_index:
             continue
@@ -329,26 +411,47 @@ def _check_vanished_members(
             target = reference.ref.feature_id
             if target not in old:
                 continue
-            kind = new.get(target)
-            if kind is None or (
+            member = new.get(target)
+            if member is None or (
                 "*" not in reference.allowed_types
-                and kind not in reference.allowed_types
+                and member.feature.type not in reference.allowed_types
             ):
-                broken.append(row)
+                removed.append(row)
                 break
-    if broken:
-        dependents = FeatureDependents(
-            dependents=[
-                FeatureDependent(id=row.id, name=row.name, kind="feature")
-                for row in broken
-            ]
-        )
-        raise ConflictError(
+            if (
+                moved_check
+                and str(old[target].get("role")) in renumbered
+                and before.get(target) != after.get(target)
+            ):
+                moved.append(row)
+                break
+    broken = removed + moved
+    if not broken:
+        return
+    dependents = FeatureDependents(
+        dependents=[
+            FeatureDependent(id=row.id, name=row.name, kind="feature")
+            for row in sorted(broken, key=lambda r: r.order_index)
+        ]
+    )
+    if removed:
+        message = (
             f"This change removes geometry that {len(broken)} later feature(s) "
-            "reference; re-point or delete them first.",
-            code="feature_has_dependents",
-            details=dependents.model_dump(mode="json"),
+            "reference; re-point or delete them first."
         )
+    else:
+        names = ", ".join(repr(row.name) for row in moved)
+        message = (
+            f"This change moves a member that {names} reference(s). "
+            f"{stored.name!r} is {stored_pin[0]} {stored_pin[1]}, which numbers "
+            "its members in order, so the reference would land on another "
+            "member; re-point or delete them first."
+        )
+    raise ConflictError(
+        message,
+        code="feature_has_dependents",
+        details=dependents.model_dump(mode="json"),
+    )
 
 
 def prepare_custom_write(
@@ -409,7 +512,12 @@ def prepare_custom_write(
     )
     check_members_authorable(members, earlier_rows)
     if stored is not None:
-        _check_vanished_members(stored, members, rows)
+        check_referenced_members(
+            stored,
+            members,
+            rows,
+            (envelope.params.plugin_id, envelope.params.plugin_version),
+        )
     return result
 
 
@@ -550,7 +658,7 @@ def reexpand_hosts(
             f"Reframing {row.name!r}, the part",
         )
         check_members_authorable(members, earlier_rows)
-        _check_vanished_members(row, members, rows)
+        check_referenced_members(row, members, rows)
         params = result.params.model_dump(mode="json")
         if params != row.params:
             row.params = params
@@ -765,7 +873,15 @@ def member_id_mapping(
             continue
         for member in stored_members(params):
             role, index = str(member["role"]), int(member["index"])
-            out[str(member["id"])] = str(member_id(uuid.UUID(new), role, index))
+            name = member.get("name")
+            out[str(member["id"])] = str(
+                member_id(
+                    uuid.UUID(new),
+                    role,
+                    index,
+                    None if name is None else str(name),
+                )
+            )
     return out
 
 
@@ -792,6 +908,7 @@ __all__ = [
     "SentMembers",
     "authored_references",
     "check_members_authorable",
+    "check_referenced_members",
     "check_tree_size",
     "evaluation_entries",
     "expanded_size",

@@ -182,7 +182,13 @@ def apply_table_change(
     # Every change is computed before any row is touched: a rename that a
     # feature cannot take refuses the whole PUT.
     changes: list[tuple[db.Feature, AuthoredEnvelope]] = []
-    from documents.custom_features import Hosts, expanded_size, retabled, row_size
+    from documents.custom_features import (
+        Hosts,
+        check_referenced_members,
+        expanded_size,
+        retabled,
+        row_size,
+    )
 
     renamed_by_id: dict[uuid.UUID, AuthoredEnvelope] = {}
     for row, envelope in loaded:
@@ -223,6 +229,9 @@ def apply_table_change(
             resolved = renamed
             expanded = retabled(row, renamed, rows, values, hosts)
             if expanded is not None:
+                # A re-expansion that removes, or renumbers, a member a later
+                # feature references is refused as an edit of it would be.
+                check_referenced_members(row, expanded.params.expansion or [], rows)
                 grown = len(expanded.params.expansion or []) - row_size(row)
                 if size + grown <= MAX_TREE_FEATURES:
                     resolved, size = expanded, size + grown

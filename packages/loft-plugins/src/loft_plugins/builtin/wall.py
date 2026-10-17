@@ -53,7 +53,9 @@ Inputs are millimetres on the wire (their names end ``_mm``) and inches
 inside, rounded to 1e-9 in so a round trip gives back the exact spec value.
 """
 
+import dataclasses
 import math
+import uuid
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Literal
@@ -347,6 +349,8 @@ class Piece:
     v1: float
     z0: float
     z1: float
+    #: The member's stable name in 1.1.0 (``slot/8``); ``None`` in 1.0.0.
+    name: str | None = None
 
 
 def stud_centres(length: float, spacing: float, thickness: float) -> list[float]:
@@ -372,6 +376,9 @@ OPENING_PLUGINS: dict[str, Literal["door", "window"]] = {
     "loft.window": "window",
 }
 
+#: An opening built without a feature (a test's): 1.1.0 names need one.
+_NO_FEATURE = uuid.UUID(int=0)
+
 #: An opening's member roles, in emission (and cut list) order.
 _OPENING_ROLES = ("king", "jack", "header", "cripple", "sill", "sill_cripple")
 
@@ -393,6 +400,8 @@ class Opening:
     sill: float
     head: float
     header: LumberProfile
+    #: The door or window feature's id: 1.1.0 names its members after it.
+    feature_id: uuid.UUID = _NO_FEATURE
 
     @classmethod
     def from_inputs(
@@ -420,6 +429,7 @@ class Opening:
             sill=sill,
             head=head,
             header=inputs.lumber("header_profile"),
+            feature_id=inputs.feature_id,
         )
 
     @classmethod
@@ -453,10 +463,33 @@ class Framing:
     pieces: dict[str, list[Piece]]
 
 
-def _layout(wall: WallSpec) -> tuple[list[Piece], float]:
-    """The layout studs, and the studs' top (the top plates' underside)."""
+def stud_slots(length: float, spacing: float, thickness: float) -> list[str]:
+    """The 1.1.0 names of :func:`stud_centres`' studs, in the same order: the
+    start stud, ``slot/n`` for the layout stud at ``n x spacing`` from the
+    start, and the end stud. A slot's name depends on the spacing alone, so
+    an opening or a length change elsewhere never renames a stud."""
+    count = len(stud_centres(length, spacing, thickness))
+    return ["start", *(f"slot/{n}" for n in range(1, count - 1)), "end"]
+
+
+#: 1.1.0's slack on the comparisons that decide which layout studs an
+#: opening replaces (in): two faces that meet are touching even when their
+#: two sums differ by an ulp (WALL-MEMBER-RENUMBER). 1.0.0 compares exactly,
+#: and keeps doing so.
+_TOUCH = 1e-9
+
+
+def _layout(wall: WallSpec, named: bool = False) -> tuple[list[Piece], float]:
+    """The layout studs, and the studs' top (the top plates' underside).
+    *named* (1.1.0) gives each its slot name."""
     t, depth = wall.stud.thickness_in, wall.thickness
     stud_top = t + wall.stud_length
+    centres = stud_centres(wall.length, wall.spacing, t)
+    names: list[str | None] = (
+        list(stud_slots(wall.length, wall.spacing, t))
+        if named
+        else [None] * len(centres)
+    )
     studs = [
         Piece(
             "stud",
@@ -468,27 +501,39 @@ def _layout(wall: WallSpec) -> tuple[list[Piece], float]:
             depth,
             t,
             stud_top,
+            name,
         )
-        for c in stud_centres(wall.length, wall.spacing, t)
+        for c, name in zip(centres, names, strict=True)
     ]
     return studs, stud_top
 
 
-def frame_opening(wall: WallSpec, opening: Opening) -> Framing:
+def _named(pieces: list[Piece], opening: Opening) -> list[Piece]:
+    """*pieces* (one role of one opening) named after the opening, in order."""
+    return [
+        dataclasses.replace(p, name=f"opening/{opening.feature_id}/{k}")
+        for k, p in enumerate(pieces)
+    ]
+
+
+def frame_opening(wall: WallSpec, opening: Opening, named: bool = False) -> Framing:
     """Kings, jacks, header plies, cripples and sill round *opening*, at the
     layout studs it replaces. Raises a :class:`PluginError` naming the input
     to change when the opening does not fit the wall (what a door or window
-    checks on its own write, before its wall re-expands)."""
-    layout, stud_top = _layout(wall)
+    checks on its own write, before its wall re-expands). *named* is 1.1.0:
+    members named after the opening, and faces that meet within
+    :data:`_TOUCH` count as touching."""
+    layout, stud_top = _layout(wall, named)
     t, depth = wall.stud.thickness_in, wall.thickness
     stud, mat = wall.stud, wall.stud_material
+    tol = _TOUCH if named else 0.0
     u0 = opening.centre - opening.width / 2
     u1 = opening.centre + opening.width / 2
     # Each face is computed ONCE and shared by the two members meeting at it.
     b, e = u0 - t, u1 + t  # the jacks' outer faces: the header's ends
     a, f = b - t, e + t  # the kings' outer faces
     first, last = layout[0], layout[-1]
-    if a < first.u1 or f > last.u0:
+    if a < first.u1 - tol or f > last.u0 + tol:
         raise _refuse(
             opening,
             f"its framing ({a:g} to {f:g} in along the wall) must lie between "
@@ -514,7 +559,7 @@ def frame_opening(wall: WallSpec, opening: Opening) -> Framing:
             "or shorten the unit.",
             "head_height_mm",
         )
-    replaced = [p for p in layout if p.u1 > a and p.u0 < f]
+    replaced = [p for p in layout if p.u1 > a + tol and p.u0 < f - tol]
     pieces: dict[str, list[Piece]] = {role: [] for role in _OPENING_ROLES}
     pieces["king"] = [
         Piece("king", stud, mat, a, b, 0.0, depth, t, stud_top),
@@ -532,7 +577,7 @@ def frame_opening(wall: WallSpec, opening: Opening) -> Framing:
         pieces["cripple"] = [
             Piece("cripple", stud, mat, p.u0, p.u1, 0.0, depth, header_top, stud_top)
             for p in replaced
-            if p.u0 >= b and p.u1 <= e
+            if p.u0 >= b - tol and p.u1 <= e + tol
         ]
     if opening.kind == "window":
         pieces["sill"] = [
@@ -542,8 +587,10 @@ def frame_opening(wall: WallSpec, opening: Opening) -> Framing:
             pieces["sill_cripple"] = [
                 Piece("sill_cripple", stud, mat, p.u0, p.u1, 0.0, depth, t, sill_bottom)
                 for p in replaced
-                if p.u0 >= u0 and p.u1 <= u1
+                if p.u0 >= u0 - tol and p.u1 <= u1 + tol
             ]
+    if named:
+        pieces = {role: _named(members, opening) for role, members in pieces.items()}
     return Framing(a, f, pieces)
 
 
@@ -561,24 +608,30 @@ def _bottom_plate_spans(
     return spans
 
 
-def wall_pieces(wall: WallSpec, openings: Sequence[Opening] = ()) -> list[Piece]:
+def wall_pieces(
+    wall: WallSpec, openings: Sequence[Opening] = (), named: bool = False
+) -> list[Piece]:
     """The wall's members in its own frame, in the cut list's order: layout
     studs, every opening's members by role, top plates, bottom plate. Raises
     a :class:`PluginError` naming an opening that does not fit, or the later
-    of two whose framing overlaps."""
+    of two whose framing overlaps. *named* is 1.1.0 (:func:`frame_opening`):
+    every piece carries its stable name."""
     t, depth = wall.stud.thickness_in, wall.thickness
-    layout, stud_top = _layout(wall)
+    tol = _TOUCH if named else 0.0
+    layout, stud_top = _layout(wall, named)
     ordered = sorted(openings, key=lambda o: (o.centre, o.name))
-    framings = [frame_opening(wall, o) for o in ordered]
+    framings = [frame_opening(wall, o, named) for o in ordered]
     for k in range(1, len(ordered)):
-        if framings[k].left < framings[k - 1].right:
+        if framings[k].left < framings[k - 1].right - tol:
             raise _refuse(
                 ordered[k],
                 f"its framing overlaps {ordered[k - 1].name}'s; move them "
                 f"{framings[k - 1].right - framings[k].left:g} in further apart.",
             )
     pieces = [
-        p for p in layout if all(p.u1 <= f.left or p.u0 >= f.right for f in framings)
+        p
+        for p in layout
+        if all(p.u1 <= f.left + tol or p.u0 >= f.right - tol for f in framings)
     ]
     for role in _OPENING_ROLES:
         for framing in framings:
@@ -596,10 +649,15 @@ def wall_pieces(wall: WallSpec, openings: Sequence[Opening] = ()) -> list[Piece]
                 depth,
                 z0,
                 z0 + t,
+                f"course/{k + 1}" if named else None,
             )
         )
     doors = [o for o in ordered if o.kind == "door"]
-    for u0, u1 in _bottom_plate_spans(wall.length, doors):
+    # 1.1.0 names the piece from the wall's start, then one after each door.
+    starts = ["start", *(f"opening/{door.feature_id}" for door in doors)]
+    for (u0, u1), start in zip(
+        _bottom_plate_spans(wall.length, doors), starts, strict=True
+    ):
         pieces.append(
             Piece(
                 "bottom_plate",
@@ -611,6 +669,7 @@ def wall_pieces(wall: WallSpec, openings: Sequence[Opening] = ()) -> list[Piece]
                 depth,
                 0.0,
                 t,
+                start if named else None,
             )
         )
     return pieces
@@ -666,6 +725,12 @@ def _polygon(corners: Sequence[tuple[float, float]]) -> list[SketchLine]:
     ]
 
 
+def level_name(z: float) -> str:
+    """A 1.1.0 level's name: its elevation (in), already rounded to 1e-9 in,
+    printed to 9 places without trailing zeros (``z/1.5``)."""
+    return "z/" + f"{z:.9f}".rstrip("0").rstrip(".")
+
+
 def _emit(
     inputs: ExpandInputs, frame: WallFrame, pieces: list[Piece]
 ) -> Iterator[Member]:
@@ -673,7 +738,11 @@ def _emit(
 
     Levels are shared by their bottom elevation rounded to 1e-9 in
     (WALL-LEVEL-EQ): a sill, a header and a cripple reach their heights by
-    different sums, and one ulp must not make a second datum."""
+    different sums, and one ulp must not make a second datum.
+
+    Pieces that carry a name (1.1.0) emit named members: the member by its
+    piece's name, its section sketch by ``<role>/<name>`` and each level by
+    its elevation, so no member's id depends on what was emitted before it."""
     levels: dict[float, int] = {}
     counts: dict[str, int] = {}
     for section, piece in enumerate(pieces):
@@ -683,6 +752,7 @@ def _emit(
         if key == 0.0:
             plane = DatumPlaneRef(kind="datum_plane", plane="XY")
         else:
+            level_key = None if piece.name is None else level_name(key)
             level = levels.get(key)
             if level is None:
                 level = levels[key] = len(levels)
@@ -694,8 +764,9 @@ def _emit(
                         version=1,
                         params=DatumOffsetParams(base="XY", offset_mm=_mm(z0)),
                     ),
+                    name=level_key,
                 )
-            plane = inputs.ref("level", level)
+            plane = inputs.ref("level", level, level_key)
         corners = [
             frame.plan(u, v)
             for u, v in (
@@ -705,6 +776,7 @@ def _emit(
                 (piece.u0, piece.v1),
             )
         ]
+        section_key = None if piece.name is None else f"{piece.role}/{piece.name}"
         yield Member(
             "section",
             section,
@@ -715,6 +787,7 @@ def _emit(
                     plane=plane, entities=list(_polygon(corners)), constraints=[]
                 ),
             ),
+            name=section_key,
         )
         index = counts.get(piece.role, 0)
         counts[piece.role] = index + 1
@@ -725,13 +798,14 @@ def _emit(
                 type="extrude",
                 version=1,
                 params=ExtrudeParamsV1(
-                    profile=inputs.ref("section", section),
+                    profile=inputs.ref("section", section, section_key),
                     distance_mm=_mm(piece.z1 - piece.z0),
                     operation="add",
                     merge=False,
                 ),
             ),
             MemberMetadata(profile=piece.profile.name, material=piece.material),
+            name=piece.name,
         )
 
 
@@ -747,4 +821,26 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
     yield from _emit(inputs, WallFrame.of(wall), pieces)
 
 
-WALL_V1 = Plugin(MANIFEST_V1, expand)
+def expand_v1_1(inputs: ExpandInputs) -> Iterator[Member]:
+    """1.1.0: 1.0.0's members in 1.0.0's order, each named by its place
+    (WALL-MEMBER-RENUMBER): a layout stud by its slot, an opening's members
+    by the opening, a level by its height."""
+    wall = WallSpec.from_inputs(inputs)
+    pieces = wall_pieces(wall, hosted_openings(inputs), named=True)
+    yield from _emit(inputs, WallFrame.of(wall), pieces)
+
+
+#: 1.0.0 numbers every role in emission order, so all but the top plates
+#: (one per course, always) can pass to another member on a re-layout.
+_RENUMBERED = frozenset({"level", "section", "stud", "bottom_plate", *_OPENING_ROLES})
+
+MANIFEST_V1_1 = MANIFEST_V1.model_copy(
+    update={
+        "version": "1.1.0",
+        "description": MANIFEST_V1.description
+        + " Each member keeps its name when an opening moves.",
+    }
+)
+
+WALL_V1 = Plugin(MANIFEST_V1, expand, renumbered_roles=_RENUMBERED)
+WALL_V1_1 = Plugin(MANIFEST_V1_1, expand_v1_1)

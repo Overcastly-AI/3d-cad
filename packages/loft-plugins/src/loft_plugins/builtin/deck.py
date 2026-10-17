@@ -402,11 +402,23 @@ def _rectangle(rect: Rect) -> list[SketchLine]:
     ]
 
 
-class _Emitter:
-    """Levels, section sketches and member extrudes, with running indices."""
+def level_name(z: float) -> str:
+    """A 1.1.0 level's name: its elevation (in) printed to 9 places without
+    trailing zeros (``z/38.75``)."""
+    return "z/" + f"{z:.9f}".rstrip("0").rstrip(".")
 
-    def __init__(self, inputs: ExpandInputs) -> None:
+
+class _Emitter:
+    """Levels, section sketches and member extrudes, with running indices.
+
+    A ``named`` emitter (1.1.0, WALL-MEMBER-RENUMBER) names every member by
+    its place: the member by the name its caller gives, its section by
+    ``<role>/<name>`` and each level by its height, so no id depends on how
+    many members came before it."""
+
+    def __init__(self, inputs: ExpandInputs, named: bool = False) -> None:
         self.inputs = inputs
+        self.named = named
         self.levels: dict[float, int] = {}
         self.sections = 0
         self.counts: dict[str, int] = {}
@@ -419,12 +431,16 @@ class _Emitter:
         rect: Rect,
         z0: float,
         z1: float,
+        name: str = "",
     ) -> Iterator[Member]:
-        """One body: *rect* in plan from *z0* up to *z1* (inches)."""
+        """One body: *rect* in plan from *z0* up to *z1* (inches), called
+        *name* within its role when the emitter is named."""
+        key = name if self.named else None
         plane: DatumPlaneRef | FeatureRef
         if z0 == 0.0:
             plane = DatumPlaneRef(kind="datum_plane", plane="XY")
         else:
+            level_key = level_name(z0) if self.named else None
             level = self.levels.get(z0)
             if level is None:
                 level = self.levels[z0] = len(self.levels)
@@ -436,10 +452,12 @@ class _Emitter:
                         version=1,
                         params=DatumOffsetParams(base="XY", offset_mm=_mm(z0)),
                     ),
+                    name=level_key,
                 )
-            plane = self.inputs.ref("level", level)
+            plane = self.inputs.ref("level", level, level_key)
         section = self.sections
         self.sections += 1
+        section_key = None if key is None else f"{role}/{key}"
         yield Member(
             "section",
             section,
@@ -450,6 +468,7 @@ class _Emitter:
                     plane=plane, entities=list(_rectangle(rect)), constraints=[]
                 ),
             ),
+            name=section_key,
         )
         index = self.counts.get(role, 0)
         self.counts[role] = index + 1
@@ -460,13 +479,14 @@ class _Emitter:
                 type="extrude",
                 version=1,
                 params=ExtrudeParamsV1(
-                    profile=self.inputs.ref("section", section),
+                    profile=self.inputs.ref("section", section, section_key),
                     distance_mm=_mm(z1 - z0),
                     operation="add",
                     merge=False,
                 ),
             ),
             MemberMetadata(profile=profile.name, material=material),
+            name=key,
         )
 
 
@@ -481,7 +501,27 @@ class _Beam:
     hi: float
 
 
+def joist_names(count: int) -> list[str]:
+    """The 1.1.0 names of :func:`joist_centres`' *count* joists, in order:
+    the start end joist, ``slot/n`` for the layout joist at ``n x spacing``,
+    and the far end joist. Widening the deck adds slots and moves the end
+    joist, but never renames a joist."""
+    return ["start", *(f"slot/{n}" for n in range(1, count - 1)), "end"]
+
+
 def expand(inputs: ExpandInputs) -> Iterator[Member]:
+    """1.0.0: members numbered in emission order."""
+    yield from _expand(inputs, named=False)
+
+
+def expand_v1_1(inputs: ExpandInputs) -> Iterator[Member]:
+    """1.1.0: 1.0.0's members in 1.0.0's order, each named by its place
+    (WALL-MEMBER-RENUMBER): a joist by its layout slot, a ply by its beam
+    line, a board by its row, a guard member by its side and bay."""
+    yield from _expand(inputs, named=True)
+
+
+def _expand(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
     width = _inches("width_mm", inputs)
     depth = _inches("depth_mm", inputs)
     height = _inches("height_mm", inputs)
@@ -551,7 +591,7 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
             "beam_setback_mm",
         )
 
-    e = _Emitter(inputs)
+    e = _Emitter(inputs, named)
 
     # Ledger (attached) and rim joists, full length along a.
     if attached:
@@ -562,6 +602,7 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
             world(0.0, span_a, 0.0, jt),
             joist_bottom,
             joist_top,
+            "house",
         )
     if rims:
         yield from e.member(
@@ -571,6 +612,7 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
             world(0.0, span_a, span_b - jt, span_b),
             joist_bottom,
             joist_top,
+            "outer",
         )
         if not attached:
             yield from e.member(
@@ -580,10 +622,14 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
                 world(0.0, span_a, 0.0, jt),
                 joist_bottom,
                 joist_top,
+                "house",
             )
 
+    # Beam lines by name: the outer one, and a freestanding deck's house one.
+    line_names = ["outer"] if attached else ["house", "outer"]
+
     # Beam plies, full length along a.
-    for line in beams:
+    for line, line_name in zip(beams, line_names, strict=True):
         for ply in range(plies):
             b0 = line.lo + ply * beam.thickness_in
             yield from e.member(
@@ -593,6 +639,7 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
                 world(0.0, span_a, b0, b0 + beam.thickness_in),
                 beam_bottom,
                 beam_top,
+                f"{line_name}/ply/{ply}",
             )
 
     # Joists: whole between the supports, or cut at a flush beam.
@@ -603,8 +650,9 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
         start = line.hi
     segments.append((start, b_end))
     centres = joist_centres(span_a, spacing, jt)
-    for a in centres:
-        for b0, b1 in segments:
+    names = joist_names(len(centres))
+    for a, joist_name in zip(centres, names, strict=True):
+        for k, (b0, b1) in enumerate(segments):
             if b1 - b0 > _EPS:
                 yield from e.member(
                     "joist",
@@ -613,15 +661,19 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
                     world(a - jt / 2, a + jt / 2, b0, b1),
                     joist_bottom,
                     joist_top,
+                    joist_name if len(segments) == 1 else f"{joist_name}/bay/{k}",
                 )
 
     # Mid-span blocking between the near support and the outer beam.
     if blocking:
         near = b_start if attached else beams[0].centre
         mid = (near + beams[-1].centre) / 2
-        for left, right in itertools.pairwise(centres):
+        for (left, right), after in zip(
+            itertools.pairwise(centres), names[:-1], strict=True
+        ):
             a0, a1 = left + jt / 2, right - jt / 2
             if a1 - a0 > _EPS:
+                # Named after the joist it follows from the start.
                 yield from e.member(
                     "blocking",
                     joist,
@@ -629,13 +681,14 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
                     world(a0, a1, mid - jt / 2, mid + jt / 2),
                     joist_bottom,
                     joist_top,
+                    after,
                 )
 
     # Posts under every beam line, grade to the beam's underside. The post's
     # thickness runs along the beam and its width across it.
     pt, pw = post.thickness_in, post.width_in
-    for line in beams:
-        for a in equal_centres(span_a, pt, post_spacing):
+    for line, line_name in zip(beams, line_names, strict=True):
+        for k, a in enumerate(equal_centres(span_a, pt, post_spacing)):
             yield from e.member(
                 "post",
                 post,
@@ -645,6 +698,7 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
                 ),
                 0.0,
                 beam_bottom,
+                f"{line_name}/{k}",
             )
 
     # Decking across the joists, from the house side.
@@ -658,6 +712,7 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
             world(-overhang, span_a + overhang, b0, b0 + board.width_in),
             deck_bottom,
             height,
+            f"row/{i}",
         )
 
     if guard:
@@ -681,37 +736,40 @@ def _guard(
     # Sides as (axis the side runs along, fixed coordinate of its centre line,
     # length): walking left side (house -> out), front, right side (out ->
     # house), and back for a freestanding deck.
-    sides: list[tuple[Axis, float, float, bool]] = [
-        ("y", half, depth, False),
-        ("x", depth - half, width, False),
-        ("y", width - half, depth, True),
+    # Sides are named for 1.1.0's member names (a post by the side that
+    # placed it and its number along it, a rail or baluster by its bay).
+    sides: list[tuple[str, Axis, float, float, bool]] = [
+        ("left", "y", half, depth, False),
+        ("front", "x", depth - half, width, False),
+        ("right", "y", width - half, depth, True),
     ]
     if not attached:
-        sides.append(("x", half, width, True))
-    posts: list[tuple[float, float]] = []
+        sides.append(("back", "x", half, width, True))
+    posts: list[tuple[float, float, str]] = []
     seen: set[tuple[float, float]] = set()
-    bays: list[tuple[Axis, float, float, float]] = []  # axis, line, from, to
+    # side name, bay number, axis, line, from, to
+    bays: list[tuple[str, int, Axis, float, float, float]] = []
 
-    def add_post(x: float, y: float) -> None:
+    def add_post(x: float, y: float, name: str) -> None:
         # A corner post is shared by two sides: dedupe on the position to
         # 1e-6 mm, never exact float equality (DECK review).
         key = (round(_mm(x), 6), round(_mm(y), 6))
         if key not in seen:
             seen.add(key)
-            posts.append((x, y))
+            posts.append((x, y, name))
 
-    for axis, line, length, backwards in sides:
+    for side, axis, line, length, backwards in sides:
         along = equal_centres(length, ps, GUARD_POST_SPACING)
         if backwards:
             along = along[::-1]
-        for s in along:
-            add_post(*((s, line) if axis == "x" else (line, s)))
-        for s0, s1 in itertools.pairwise(along):
+        for k, s in enumerate(along):
+            add_post(*((s, line) if axis == "x" else (line, s)), f"{side}/{k}")
+        for bay, (s0, s1) in enumerate(itertools.pairwise(along)):
             lo, hi = min(s0, s1), max(s0, s1)
-            bays.append((axis, line, lo + half, hi - half))
+            bays.append((side, bay, axis, line, lo + half, hi - half))
 
     top = floor + GUARD_HEIGHT
-    for x, y in posts:
+    for x, y, name in posts:
         yield from e.member(
             "guard_post",
             post_p,
@@ -719,6 +777,7 @@ def _guard(
             (x - half, x + half, y - half, y + half),
             floor,
             top,
+            name,
         )
 
     rt, rw = rail_p.thickness_in, rail_p.width_in
@@ -730,13 +789,19 @@ def _guard(
             return (s0, s1, line - across / 2, line + across / 2)
         return (line - across / 2, line + across / 2, s0, s1)
 
-    for axis, line, s0, s1 in bays:
-        for z0, z1 in (bottom_rail, top_rail):
+    for side, bay, axis, line, s0, s1 in bays:
+        for (z0, z1), course in ((bottom_rail, "bottom"), (top_rail, "top")):
             yield from e.member(
-                "rail", rail_p, material, plan(axis, line, s0, s1, rt), z0, z1
+                "rail",
+                rail_p,
+                material,
+                plan(axis, line, s0, s1, rt),
+                z0,
+                z1,
+                f"{side}/{bay}/{course}",
             )
     bs = baluster_p.width_in
-    for axis, line, s0, s1 in bays:
+    for side, bay, axis, line, s0, s1 in bays:
         clear = s1 - s0
         n = baluster_count(clear, bs)
         space = (clear - n * bs) / (n + 1)
@@ -749,7 +814,34 @@ def _guard(
                 plan(axis, line, c0, c0 + bs, bs),
                 bottom_rail[1],
                 top_rail[0],
+                f"{side}/{bay}/{k}",
             )
 
 
-DECK_V1 = Plugin(MANIFEST_V1, expand)
+#: 1.0.0 numbers every role in emission order. A ledger and the rims are one
+#: per edge and boards count from the house, so those keep their member; any
+#: other role can pass to another member on a re-layout.
+_RENUMBERED = frozenset(
+    {
+        "level",
+        "section",
+        "beam",
+        "joist",
+        "blocking",
+        "post",
+        "guard_post",
+        "rail",
+        "baluster",
+    }
+)
+
+MANIFEST_V1_1 = MANIFEST_V1.model_copy(
+    update={
+        "version": "1.1.0",
+        "description": MANIFEST_V1.description
+        + " Each member keeps its name when the deck is resized.",
+    }
+)
+
+DECK_V1 = Plugin(MANIFEST_V1, expand, renumbered_roles=_RENUMBERED)
+DECK_V1_1 = Plugin(MANIFEST_V1_1, expand_v1_1)

@@ -4348,7 +4348,7 @@ export interface components {
             /**
              * Id
              * Format: uuid
-             * @description loft_wire.plugins.member_id(<feature-id>, role, index): the stable id geometry builds, results and picks name this member by.
+             * @description loft_wire.plugins.member_id(<feature-id>, role, index, name): the stable id geometry builds, results and picks name this member by.
              */
             id: string;
             /**
@@ -4357,6 +4357,11 @@ export interface components {
              */
             index: number;
             metadata?: components["schemas"]["MemberMetadata"] | null;
+            /**
+             * Name
+             * @description The member's stable name within its role (`slot/8`, `end`), when the plugin names it by its place in a layout rather than by its ordinal (loft.wall and loft.deck 1.1.0); absent on members named by index.
+             */
+            name?: string | null;
             /**
              * Role
              * @description The manifest role this member takes.

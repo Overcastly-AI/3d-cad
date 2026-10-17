@@ -300,9 +300,13 @@ def validate_members(
     """A STORED expansion's integrity, with or without its plugin (a ``.loft``
     import): every member id is the one :func:`member_id` derives, and every
     reference passes §2.2. Raises ``plugin_expansion_invalid``."""
+    seen: set[uuid.UUID] = set()
     for member in members:
-        if member.id != member_id(feature_id, member.role, member.index):
+        if member.id != member_id(feature_id, member.role, member.index, member.name):
             raise _invalid(title, f"{member.role}/{member.index} has a foreign id")
+        if member.id in seen:
+            raise _invalid(title, f"{member.role}/{member.index} repeats an id")
+        seen.add(member.id)
     _check_references(title, list(members), earlier)
 
 
@@ -364,6 +368,7 @@ def expand(
     deadline = time.monotonic() + time_limit_s
     members: list[ExpandedMember] = []
     keys: set[tuple[str, int]] = set()
+    ids: set[uuid.UUID] = set()
 
     def over_time() -> PluginError:
         return PluginError(
@@ -387,6 +392,10 @@ def expand(
             if key in keys:
                 raise _invalid(title, f"{member.role}/{member.index} twice")
             keys.add(key)
+            identity = member_id(feature_id, member.role, member.index, member.name)
+            if identity in ids:
+                raise _invalid(title, f"{member.role}/{member.name} twice")
+            ids.add(identity)
             try:
                 feature = _FEATURE.validate_python(
                     member.feature.model_dump(mode="json")
@@ -395,7 +404,8 @@ def expand(
                     ExpandedMember(
                         role=member.role,
                         index=member.index,
-                        id=member_id(feature_id, member.role, member.index),
+                        name=member.name,
+                        id=identity,
                         feature=feature,
                         metadata=member.metadata,
                     )

@@ -6279,7 +6279,7 @@
             "title": "Feature"
           },
           "id": {
-            "description": "loft_wire.plugins.member_id(<feature-id>, role, index): the stable id geometry builds, results and picks name this member by.",
+            "description": "loft_wire.plugins.member_id(<feature-id>, role, index, name): the stable id geometry builds, results and picks name this member by.",
             "format": "uuid",
             "title": "Id",
             "type": "string"
@@ -6300,6 +6300,21 @@
                 "type": "null"
               }
             ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 96,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*(/[a-z0-9_.-]+)*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The member's stable name within its role (`slot/8`, `end`), when the plugin names it by its place in a layout rather than by its ordinal (loft.wall and loft.deck 1.1.0); absent on members named by index.",
+            "title": "Name"
           },
           "role": {
             "description": "The manifest role this member takes.",

@@ -70,6 +70,7 @@ from loft_wire.plugins import (
     MAX_PLUGIN_TEXT,
     InputName,
     MemberMetadata,
+    MemberName,
     PluginId,
     RoleName,
     SemVer,
@@ -2573,9 +2574,16 @@ class ExpandedMember(BaseModel):
 
     role: RoleName = Field(description="The manifest role this member takes.")
     index: int = Field(ge=0, lt=MAX_PLUGIN_EXPANSION, description="n within role.")
+    name: MemberName | None = Field(
+        default=None,
+        exclude_if=_is_none,
+        description="The member's stable name within its role (`slot/8`, `end`), "
+        "when the plugin names it by its place in a layout rather than by its "
+        "ordinal (loft.wall and loft.deck 1.1.0); absent on members named by index.",
+    )
     id: uuid.UUID = Field(
-        description="loft_wire.plugins.member_id(<feature-id>, role, index): the "
-        "stable id geometry builds, results and picks name this member by."
+        description="loft_wire.plugins.member_id(<feature-id>, role, index, name): "
+        "the stable id geometry builds, results and picks name this member by."
     )
     feature: Feature
     metadata: MemberMetadata | None = Field(default=None, exclude_if=_is_none)

@@ -93,7 +93,8 @@ def test_the_catalog_lists_every_version_newest_first() -> None:
     ]
     served = PluginCatalog.model_validate(REGISTRY.catalog().model_dump(mode="json"))
     assert [(m.id, m.version, m.latest) for m in served.plugins] == [
-        ("loft.deck", "1.0.0", True),
+        ("loft.deck", "1.1.0", True),
+        ("loft.deck", "1.0.0", False),
         ("loft.door", "1.0.0", True),
         ("loft.floor", "1.0.0", True),
         ("loft.roof", "1.2.0", True),
@@ -101,7 +102,8 @@ def test_the_catalog_lists_every_version_newest_first() -> None:
         ("loft.roof", "1.0.0", False),
         ("loft.timber_frame", "1.0.0", True),
         ("loft.twisted_prism", "1.0.0", True),
-        ("loft.wall", "1.0.0", True),
+        ("loft.wall", "1.1.0", True),
+        ("loft.wall", "1.0.0", False),
         ("loft.window", "1.0.0", True),
     ]
 
