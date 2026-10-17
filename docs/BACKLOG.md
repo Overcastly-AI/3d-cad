@@ -76,10 +76,17 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    `services/geometry/tests/test_roof_b2.py`; e2e `roof-b2.spec.ts`, roof
    only); decisions in RESEARCH §23. Bearing is typed, not picked, until
    STUD-WALL lands (ROOF-BEARING-WALLS); the full B2 e2e is B2-E2E.
-4. [ ] **B2-E2E** (was a note; B2's pass gate): one e2e builds B2 from Build
+4. [x] **B2-E2E** (was a note; B2's pass gate): one e2e builds B2 from Build
    features only (four walls, door, window, roof) and reads the cut list.
    _Accept:_ the cut list equals buildings.md's wall and roof lists, and
    interference is none.
+   _Done:_ e2e `shed-b2.spec.ts`: four walls from the Build row, the door,
+   window and roof from Build ▾, nothing posted but the empty part; the cut
+   list is buildings.md's 14 rows (79 pieces) and the volume 39 644.5335 in³
+   (the two goldens' sum), again after a reload; screenshot `b2-shed.png`.
+   Interference is not readable in a part (B2-E2E-INTERFERENCE); it is
+   `test_roof_b2.py`'s exact probe of every rafter against the walls. The
+   slab (B2-SLAB) is left out. Helpers shared in `e2e/buildFlow.ts`.
 5. [ ] **ROOF-HIP** (`loft.roof` 1.1.0, stops B3): a `style` choice, Gable
    (default) or Hip, as Chief Architect's roof style and Medeek's rafter
    roof type, plus a hip profile (2x8 default, refused if shallower than the
@@ -209,7 +216,7 @@ every member. A plugin registers a custom feature that expands into base
 features (RESEARCH §23). First-party plugins ship preinstalled; no install
 step.
 
-The B2 items are done; B2-E2E, ROOF-HIP (B3) and ROOF-VALLEY (B4) are in Now.
+The B2 items and B2-E2E are done; ROOF-HIP (B3) and ROOF-VALLEY (B4) are in Now.
 
 ## Later
 
@@ -245,6 +252,8 @@ The B2 items are done; B2-E2E, ROOF-HIP (B3) and ROOF-VALLEY (B4) are in Now.
 
 One line each. The founder triages weekly; most are closed without work.
 
+- B2-E2E-INTERFERENCE: a part has no interference check (only assemblies have Clash), so a building's members cannot be checked for overlap in the UI; SolidWorks' Interference Detection and Fusion's Interference both run on a multibody part.
+- B2-E2E-HOSTS: walls placed from the Build row are named "Wall 1".."Wall 4", so the door's and window's host list reads by number, not by side; Chief Architect and Revit pick the host wall in the plan view.
 - THUMB-WARM: thumbnails render on first library view, not on save; Fusion renders at save. A warm after the modeller leaves the editor would hide the first-view wait.
 - THUMB-GRID: the registers show 48 px thumbnails in a list; Fusion and Onshape also offer a grid view with large tiles.
 - THUMB-ASM-PARTIAL: an assembly with any component that fails to build shows the placeholder rather than the components that did build.
