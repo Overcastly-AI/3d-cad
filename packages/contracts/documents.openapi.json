@@ -1539,7 +1539,7 @@
         "type": "object"
       },
       "CustomParamsV1": {
-        "description": "A custom feature: the plugin it is pinned to, its inputs, and the last\nexpansion. Documents expands it on every write and evaluation, and geometry\nonly ever receives the base features (RESEARCH \u00a723). The stored expansion\nis what a server without the plugin (or the pinned version) rebuilds,\nread-only.",
+        "description": "A custom feature: the plugin it is pinned to, its inputs, and the last\nexpansion. Documents expands it on every write and evaluation; geometry\nonly receives base features (RESEARCH \u00a723). A server without the plugin\n(or the pinned version) rebuilds the stored expansion, read-only.",
         "properties": {
           "expansion": {
             "anyOf": [
@@ -1554,7 +1554,7 @@
                 "type": "null"
               }
             ],
-            "description": "The last expansion, written by documents (a client may omit it). Null only on a request.",
+            "description": "The last expansion, written by documents; a request may omit it.",
             "title": "Expansion"
           },
           "inputs": {

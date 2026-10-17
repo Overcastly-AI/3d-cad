@@ -2770,15 +2770,14 @@ export interface components {
         /**
          * CustomParamsV1
          * @description A custom feature: the plugin it is pinned to, its inputs, and the last
-         *     expansion. Documents expands it on every write and evaluation, and geometry
-         *     only ever receives the base features (RESEARCH §23). The stored expansion
-         *     is what a server without the plugin (or the pinned version) rebuilds,
-         *     read-only.
+         *     expansion. Documents expands it on every write and evaluation; geometry
+         *     only receives base features (RESEARCH §23). A server without the plugin
+         *     (or the pinned version) rebuilds the stored expansion, read-only.
          */
         CustomParamsV1: {
             /**
              * Expansion
-             * @description The last expansion, written by documents (a client may omit it). Null only on a request.
+             * @description The last expansion, written by documents; a request may omit it.
              */
             expansion?: components["schemas"]["ExpandedMember"][] | null;
             /**
