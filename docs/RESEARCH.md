@@ -2348,6 +2348,99 @@ and reframe it, a material per member, and a cut list that is always current.
     a 1.5 x 12 sqrt 2 plan (45.967 in³ at 6/12, as B4's), plus a pair of
     commons and 24 in of ridge, and the bore; the kernel meets them to
     1.2e-7 mm³.
+- **Decided while building the floor** (FLOOR-FRAME, 2026-10-17; Chief
+  Architect's floor framing, Medeek Foundation, common platform framing):
+  - *A rectangle, as a wall is a line.* Start corner, direction (degrees from
+    +X), width along it and depth to its left, so the default floor is
+    X 0..width, Y 0..depth, B2's frame. The base elevation is the top of the
+    foundation (the sills' underside). Walls stand on the floor through their
+    own base elevation, set to the joists' top (B5: 8.75); no wall input
+    reads the floor, as hosting by inputs keeps the order the tree's.
+  - *Framing.* Joists run along the depth by default, or along the width.
+    Rims run the full length across the joist ends; the end joists are the
+    other two sides, flush, between the rims. Rims and end joists are cut
+    from the joist size, tops flush. Layout is the deck's and the wall's
+    (half a thickness, every spacing, the far end joist flush, a layout
+    joist that would overlap it dropped), in the floor's own copy so a deck
+    or wall change cannot move a stored floor.
+  - *Sill plates* (on by default, PT 2x6, Chief's mudsill): laid flat under
+    the rims and end joists, outer edges flush, butted as wall plates are:
+    full length under the rims, between them under the end joists (B5: 2 at
+    144, 2 at 109). Joists and rims default to SPF, as the wall's studs.
+    Anchor bolts, sill gaskets, doubled joists under walls, openings,
+    blocking and beams are later rungs.
+  - *Ids by slot.* Member ids are `<feature>/<role>/<n>` with an integer `n`,
+    so the floor picks `n` to name the place, not the rank: `joist/0` and
+    `joist/1` are the end joists and `joist/k+1` the layout joist k spacings
+    from the start. Widening adds joists after the ones it had, so a hole on
+    any joist stays on it (WALL-MEMBER-RENUMBER is the same bug in 1.0.0's
+    wall and deck, which count by rank). It needs no wire change.
+  - *No float overlaps.* A layout joist within 1e-9 in of the end joist (the
+    drop rule's slack) takes the end joist's face, so the pieces never
+    overlap even by 1e-10. A plugin sweep of 400 random floors (any size in
+    mm, every spacing, profile and direction) finds no pair overlapping by
+    any amount; a kernel sweep of six floors (turned 30, -45 and 117.3 deg,
+    along the width, a joist touching the end joist, no sill, 2x6 to 2x12)
+    probes every pair whose boxes overlap at all and finds none.
+  - *Numbers.* The PM's B5 figures (10 joists at 117, 20 030.25 in³;
+    13 and 23 847.375 at 12 in o.c.) held in an independent build123d script
+    of the spec's boxes before use, with no interference; the STEP matches
+    that script solid for solid. Goldens `b5-floor-2x8-16oc`, `-12oc` and
+    `b5-shed-walls-on-floor` (B2's walls on it, 45 631.875 in³).
+  - *The subfloor seam* (SHEATHING). The framing is a pure list of pieces in
+    the floor's frame (`floor_pieces`), placed only at emission, and
+    `FloorSpec.framing_top` is the joists' top. A 1.1.0 adds a Subfloor input
+    and appends its panels at that height, moving no framing member, so 1.0.0
+    stays byte-identical.
+- **Decided while building sheathing** (SHEATHING, 2026-10-17; Chief
+  Architect's wall and floor structure layers, Medeek's sheathing options):
+  - *An option on the host, a new version each.* `loft.wall` 1.2.0 adds
+    Exterior sheathing (None by default, 7/16 OSB, 15/32 plywood) and
+    `loft.floor` 1.1.0 adds Subfloor (23/32 plywood by default, or None).
+    Each new version's expansion is the old version's, member for member,
+    then the panels on their own roles (`sheathing_plane`/`_section`/
+    `sheathing`, `subfloor_level`/`_section`/`subfloor`), so upgrading the
+    pin keeps every framing id and level, and an unsheathed 1.2.0 wall is a
+    1.0.0 wall byte for byte. The wall takes 1.2.0 because
+    WALL-MEMBER-RENUMBER takes 1.1.0; the panels read only the wall's spec
+    and its openings, never the stud layout, so wall.py is unchanged and
+    1.2.0 rebases onto the renumbered framing by swapping the expander it
+    wraps.
+  - *Wall panels.* The full wall height (base of the bottom plate to the top
+    of the top plate) on the exterior face, outside the framing, 48 in wide
+    from the wall's start with the last cut to the end, butted at corners:
+    each wall sheathes its own length, so the corner's 7/16 x framing-depth
+    strip is left open, as the target's 45 893 in² requires (WALL-SHEATHING-
+    CORNER). Every hosted door's and window's rough opening is cut out; an
+    opening inside a panel is a hole, one across a panel joint notches both,
+    and a panel an opening cuts in two is two panels. A panel's outline is
+    the panel rectangle less the openings, traced as a rectilinear region on
+    the cut edges, so each corner is an input coordinate.
+  - *Wall planes.* An axis wall's panels are sketched on `XZ` or `YZ` offset
+    to the face (exact) and extruded outward; any other direction on a plane
+    through +Z at the outward normal's angle from `YZ`, offset to the face. A
+    kernel sweep (30 and 117.3 deg walls with a door and window across panel
+    joints, a window hole, a left-side wall, turned and width-joisted floors)
+    finds every panel valid and no shared volume with the framing.
+  - *Subfloor.* 4x8 panels on the joists' top, the long edge across the
+    joists, rows 48 along the joists from the start and every other row
+    starting with a 48 piece (staggered 4 ft); the floor's edges cut the last
+    panels. Walls standing on a sheathed floor take the subfloor's top as
+    their base elevation (B5: 9.46875).
+  - *Sheet goods* (`loft_wire.sheet_goods`): a product is a material at a
+    nominal thickness (APA panels are built to it), with the 4x8, 4x9 and
+    4x10 sheets; OSB 641 and plywood 577 kg/m³ (40 and 36 lb/ft³). The cut
+    list measures a panel (thickness its thinnest extent, net area its volume
+    over that) and cuts it from the shortest sheet covering its other two
+    extents; panels group by product, material and sheet, and a line buys
+    ceil(net area / sheet area) sheets, Chief Architect's count.
+  - *Numbers.* The BACKLOG's figures held in an independent exact-rational
+    script before use: B2's walls 12 panels, 45 893 in², 20 078.1875 in³, 9
+    sheets of 4x9; B5's subfloor 6 panels, 12 420 in³, 4 sheets of 4x8 (3.75).
+    Golden `b5-shed-sheathed` (B5's sheathed floor and B2's sheathed walls
+    with the door and window on it, 81 470.5625 in³) matches that script and
+    a build123d one (panels as boxes less the openings) solid for solid, with
+    no interference.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
@@ -2557,7 +2650,7 @@ property feeds a BOM column; Loft's price book feeds the cut list.
   entries; 0 to 10,000,000 cents, a strict JSON integer (`3.98`, `398.0`
   and `"398"` are refused). The database backs the two rules a bad write
   would corrupt silently with CHECKs: no negative price, and a stock length
-  exactly when the unit is `each`. Sheet goods and per-part prices are later.
+  exactly when the unit is `each`. Per-part prices are later.
 - **Lines are priced on the stock pieces bought** (`loft_wire.cut_list.
   price_lines`, pure code the gateway applies to every part and assembly cut
   list). Stock quantity is one per piece until CUT-LIST-NESTING, so the
@@ -2648,3 +2741,24 @@ SolidWorks cut the body the picked face belongs to.
   `hole-scope-through-two-bodies-r3-40x25x10`, each equal to a direct
   build123d construction in volume, area, centroid, topology and mesh
   (`tests/test_hole_owner_body.py`).
+- **Sheet goods are priced Each per sheet** (SHEATHING, migration 0023). An
+  entry's profile is a lumber profile or a sheet product (`osb_7_16`); a
+  sheet product's entry is `each` with its `sheet` ('4x8', '4x9', '4x10')
+  and no stock length. A sheet line (one per product, material and sheet) is
+  priced by that entry times its sheets: B2's OSB 9 x $24.98 = $224.82, B5's
+  plywood 4 x $42.50 = $170.00. The CHECKs became "each has a stock length
+  or a sheet" and "never both". The CSV gains `Area (sq <unit>)`; a sheet
+  line has its area there, `4x9 sheet` as its stock and no lengths.
+- **Saves are versioned** (PRICE-BOOK-VERSION, migration 0023). The book has
+  a `version`, 0 until the first save and one more per save, served in the
+  body and as the `ETag`. A `PUT` sends the version its draft was read at in
+  `If-Match`; documents compares it under the row lock and refuses a book
+  saved since with 412 `price_book_stale` (`details.version` the current
+  one), and a `PUT` with no `If-Match` with 428. Two first saves race on the
+  owner unique, and the loser is a 412 too. So of two saves drafted from one
+  version the second is refused and nothing is lost or merged; the dialog
+  says the book changed elsewhere and Reload drafts from the stored book.
+  This replaces the dialog's re-read before its `PUT` (e50182d), which a
+  save landing between the read and the write could still overwrite.
+  Existing books start at version 1. The downgrade drops the version and the
+  sheet prices (an older Loft cannot hold them) and keeps every lumber price.
