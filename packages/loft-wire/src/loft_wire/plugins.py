@@ -35,12 +35,16 @@ from typing import Annotated, Final, Literal, Self
 from pydantic import (
     BaseModel,
     Field,
+    StrictFloat,
+    StrictInt,
     StringConstraints,
     field_validator,
     model_validator,
 )
 
 from loft_wire.materials import MaterialKey
+from loft_wire.refs import FeatureRef
+from loft_wire.twist import is_none
 
 #: Most base features ONE custom feature may expand to (RESEARCH §23). Over it
 #: is the typed error ``plugin_expansion_too_large`` on that feature. The whole
@@ -113,6 +117,25 @@ MemberName = Annotated[
         min_length=1, max_length=96, pattern=r"^[a-z][a-z0-9_]*(/[a-z0-9_.-]+)*$"
     ),
 ]
+#: ``ExpandedMember.name`` (:mod:`loft_wire.features`): absent while ``None``.
+MemberNameField = Annotated[
+    MemberName | None,
+    Field(
+        exclude_if=is_none,
+        description="The member's stable name within its role (`slot/8`, `end`), "
+        "when the plugin names it by its place in a layout rather than by its "
+        "ordinal (loft.wall and loft.deck 1.1.0); absent on members named by index.",
+    ),
+]
+#: One input value: a number (mm, degrees or a count, by the input's kind), an
+#: option or material key, or one or more earlier features. Strict: no ``true``.
+CustomInputValue = (
+    StrictInt
+    | StrictFloat
+    | Annotated[str, StringConstraints(max_length=MAX_PLUGIN_TEXT)]
+    | FeatureRef
+    | Annotated[list[FeatureRef], Field(min_length=1, max_length=MAX_FEATURE_LIST)]
+)
 Label = Annotated[str, StringConstraints(min_length=1, max_length=80)]
 Description = Annotated[str, StringConstraints(max_length=500)]
 

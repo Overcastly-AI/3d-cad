@@ -26,8 +26,6 @@ from typing import Annotated, Any, Literal, Self, assert_never, cast, get_args
 from pydantic import (
     BaseModel,
     Field,
-    StrictFloat,
-    StrictInt,
     StringConstraints,
     model_validator,
 )
@@ -64,17 +62,16 @@ from loft_wire.pipe import PathSegment as PathSegment
 from loft_wire.pipe import PathSketchCurve as PathSketchCurve
 from loft_wire.pipe import PipeParamsV1 as PipeParamsV1
 from loft_wire.plugins import (
-    MAX_FEATURE_LIST,
     MAX_PLUGIN_EXPANSION,
     MAX_PLUGIN_INPUTS,
-    MAX_PLUGIN_TEXT,
     InputName,
     MemberMetadata,
-    MemberName,
+    MemberNameField,
     PluginId,
     RoleName,
     SemVer,
 )
+from loft_wire.plugins import CustomInputValue as CustomInputValue
 from loft_wire.refs import DatumPlaneRef as DatumPlaneRef
 from loft_wire.refs import FeatureRef as FeatureRef
 from loft_wire.refs import GeomRef as GeomRef
@@ -2558,29 +2555,13 @@ FEATURE_REGISTRY.validate_chains()
 
 # --- Custom features (PLUGIN-REGISTRY, RESEARCH §23; manifests: loft_wire.plugins) --
 
-#: One input value: a number (mm, degrees or a count, by the input's kind), an
-#: option or material key, or one or more earlier features. Strict: no ``true``.
-CustomInputValue = (
-    StrictInt
-    | StrictFloat
-    | Annotated[str, StringConstraints(max_length=MAX_PLUGIN_TEXT)]
-    | FeatureRef
-    | Annotated[list[FeatureRef], Field(min_length=1, max_length=MAX_FEATURE_LIST)]
-)
-
 
 class ExpandedMember(BaseModel):
     """One base feature a custom feature expanded to, as stored with it."""
 
     role: RoleName = Field(description="The manifest role this member takes.")
     index: int = Field(ge=0, lt=MAX_PLUGIN_EXPANSION, description="n within role.")
-    name: MemberName | None = Field(
-        default=None,
-        exclude_if=_is_none,
-        description="The member's stable name within its role (`slot/8`, `end`), "
-        "when the plugin names it by its place in a layout rather than by its "
-        "ordinal (loft.wall and loft.deck 1.1.0); absent on members named by index.",
-    )
+    name: MemberNameField = None
     id: uuid.UUID = Field(
         description="loft_wire.plugins.member_id(<feature-id>, role, index, name): "
         "the stable id geometry builds, results and picks name this member by."
