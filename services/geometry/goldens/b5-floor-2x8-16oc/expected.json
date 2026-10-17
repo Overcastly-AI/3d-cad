@@ -17,9 +17,9 @@
     "",
     "MESH counts are recorded but also exact for boxes: 12 triangles and 24 vertices per box = 192 triangles, 384 vertices."
   ],
-  "tolerance": 2e-06,
+  "tolerance": 2e-6,
   "tolerance_rationale": "Measured first, then set (geometry-gates skill): the bounds are ABSOLUTE and the part is ~3.3e8 mm^3, so the double-precision sum of its separate bodies carries round-off near the ULP of the sum (~6e-8): measured +3e-07 mm^3 on the volume, +3.7e-09 mm^2 on the area, <= 9e-13 mm on the centroid, +1.2e-10 g on the mass; worst of the three B5 goldens 5.4e-7 mm^3. 2e-6 is 3.7x that and ~5e-15 relative; a joist 0.001 in too long adds 178 mm^3 to the volume and one 0.001 in out of place moves the centroid by >= 1e-5 mm; both fail by orders of magnitude.",
-  "roundtrip_tolerance": 3e-06,
+  "roundtrip_tolerance": 3e-6,
   "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip re-sums the re-imported solids in another order and moves the VOLUME by -5.4e-07 mm^3 and the AREA by -1.5e-08 mm^2 (~1e-15 relative), above ROUNDTRIP_TOL (1e-7 absolute), which is near the ULP of a 3.3e8 mm^3 sum. 3e-6 is 4.2x the worst of the three B5 goldens (7.2e-7), as WINDOW-DOOR's 3e-6. Same cause as b2-walls-no-openings-16oc and plugin-deck-v1-b1-12x16ft; it applies to volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
   "properties": {
     "volume": 328236988.686,
