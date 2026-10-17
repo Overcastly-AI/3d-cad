@@ -41,11 +41,14 @@ PLUGIN-REGISTRY, PLUGIN-UI and PERF-REBUILD-200 step 1 (§15a).
    sizes with actual dimensions (2x4 is 1.5 x 3.5 in; 5/4x6 decking 1 x 5.5 in).
    _Accept:_ a unit test pins every profile's actual size and density, and
    a 2x10 x 12 ft SPF member's mass matches the hand calculation to 1e-4.
-3. [ ] **CUT-LIST** (stops B1): a part or assembly cut list groups members by
+3. [x] **CUT-LIST** (stops B1): a part or assembly cut list groups members by
    profile, material and length, with quantity, total length and stock
    length (SolidWorks weldment cut list, Chief Architect materials list),
    exported as CSV and placed on a drawing. _Accept:_ B1's cut list equals
    the table in `buildings.md`, and every length is measured from its body.
+   _Done:_ B1 is built by the test-only `test.deck_b1` fixture plugin
+   (golden `b1-deck-framing-16ft`); DECK must build the same bodies and
+   member metadata, its roles emitted in the table's order.
 4. [ ] **DECK** (stops B1): ledger, dropped beam, posts, joists at a spacing,
    rim, decking boards with gap and overhang, and guard railing, from
    width, projection, height, spacing and profiles. _Accept:_ B1 builds
@@ -497,3 +500,8 @@ One line each. The founder triages weekly; most are closed without work.
 - ASM-MIRROR-COPY-ORIENT: a copy reflects along the seed axis most aligned with the plane normal about its box centre (SolidWorks' bounding-box-centre default); SolidWorks also lets the user cycle the copy's orientation. An asymmetric part's copy is flagged, not refused.
 - ASM-MIRROR-DATUM: assemblies have no datum planes, so a mirror plane is an origin plane (with an offset) or a picked planar face.
 
+- CUT-LIST-MASS-MATERIAL: the cut list reads a member's material from its plugin metadata, but mass still uses only the part's assignment, so the imported B1 deck lists southern pine while the Material panel says "No material"; DECK (or documents) should apply member materials to the bodies.
+- CUT-LIST-STOCK-18FT: stock lengths are 8/10/12/14/16/20 ft as specified; yards also sell 18 ft (buildings.md says "whole even feet"), and longer than 20 ft gets no stock suggestion.
+- CUT-LIST-NESTING: each piece is cut from its own stock length (offcut shown per piece); Chief Architect and cut-list optimisers nest several short pieces into one stock board.
+- CUT-LIST-PDF: the drawing's cut list is a panel beside the sheet, as the parts list is; neither is drawn into the exported PDF/DXF sheet as a table yet.
+- CUT-LIST-SCRIPT: loft-script has no `cut_list()` helper; the gateway routes are generated into `_operations.py` only.
