@@ -21,7 +21,7 @@ from loft_wire.parts import PRINCIPAL_HEADER
 
 HEADERS = {PRINCIPAL_HEADER: "6f3f6b64-0000-4000-8000-0000000000c7"}
 
-DECK = {
+DECK: dict[str, Any] = {
     "type": "custom",
     "version": 1,
     "params": {"plugin_id": "test.deck_b1", "plugin_version": "1.0.0", "inputs": {}},

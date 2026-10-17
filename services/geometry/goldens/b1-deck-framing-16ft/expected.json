@@ -17,9 +17,9 @@
     "",
     "MESH counts are recorded, not derived, as in every golden, but they are also exact for boxes: 12 triangles and 24 vertices (4 per face, unshared normals) per box = 552 triangles, 1104 vertices."
   ],
-  "tolerance": 1e-05,
+  "tolerance": 1e-5,
   "tolerance_rationale": "Measured first, then set (geometry-gates skill). The bounds are ABSOLUTE and this part is large: the volume is ~1.06e9 mm^3, so its double-precision sum over 46 bodies carries ~1e-6 mm^3 of round-off (measured +1.19e-6, 1.1e-15 relative). 1e-5 is 8x that and still 1e-14 relative; every other quantity deviates by <= 1.5e-8. Any real error (a member 0.001 in off moves the volume by >= 3.5 mm^3) fails by five orders of magnitude.",
-  "roundtrip_tolerance": 1e-05,
+  "roundtrip_tolerance": 1e-5,
   "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round-trip moves the VOLUME by 2.1e-6 mm^3 (1056928757.1060019 -> ...1059998), 2.0e-15 relative, because the 46 re-imported solids are summed in a different order; every per-body value and the topology are unchanged. ROUNDTRIP_TOL (1e-7 absolute) is below one ULP-scale rounding of a 1.06e9 mm^3 sum (ULP 1.2e-7), so a 46-body part of this size cannot meet it by summation alone. 1e-5 (5x the drift, 1e-14 relative) applies to volume and area only; the centroid and bounds keep ROUNDTRIP_TOL.",
   "properties": {
     "volume": 1056928757.106,
