@@ -222,18 +222,19 @@ test.describe("the band buys labels back as it widens (2000)", () => {
   });
 });
 
-test.describe("the fully labeled tier returns when it genuinely fits (2800)", () => {
-  test.use({ viewport: { width: 2800, height: 1000 } });
+test.describe("the fully labeled tier returns when it genuinely fits (3000)", () => {
+  test.use({ viewport: { width: 3000, height: 1000 } });
 
   test("every group has its words, and the row still fits", async ({
     page,
   }) => {
     await openEmptyPart(page);
 
-    // 2800 is not a magic number: the fully labeled row measures 2743.1px
-    // since the low-frequency verbs moved into the groups' ▾ menus (it had
-    // grown past 3000 with Pipe on the row), so this is the first round width
-    // above it. It is the top of the ramp — the guard that the probe really
+    // 3000 is not a magic number: the fully labeled row measured 2743.1px
+    // once the low-frequency verbs moved into the groups' ▾ menus (it had
+    // grown past 3000 with Pipe on the row), and 2931.6px after Cut list
+    // joined Inspect and Deck joined Build (measured 2026-10-17), so this is
+    // the first round width above it. It is the top of the ramp — the guard that the probe really
     // is measuring and not latched to a tier.
     await expect(page.getByTestId("top-toolbar")).toHaveAttribute(
       "data-band-tier",
