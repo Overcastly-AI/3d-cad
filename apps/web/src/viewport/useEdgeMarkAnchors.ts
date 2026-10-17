@@ -44,6 +44,7 @@ import {
   chooseAnchor,
   type EdgeAnchor,
 } from "./edgeMarkAnchor";
+import { SeatPoseStamp } from "./seatPoseStamp";
 
 /**
  * A SEAT UNDER A GAUGE IS NOT A SEAT (board item #76).
@@ -534,7 +535,13 @@ export function useEdgeMarkAnchors(
   );
 
   const [anchors, setAnchors] = useState<EdgeMarkAnchor[]>(fallback);
-  const cameraStamp = useRef("");
+  /** Where the edges sit on screen — see `seatPoseStamp.ts`. */
+  const poseStamp = useMemo(() => new SeatPoseStamp(), []);
+  /** The points `poseStamp` projects: every edge's two ends and mid-span. */
+  const probes = useMemo(
+    () => [...corners, ...fallback.map((anchor) => anchor.position)],
+    [corners, fallback],
+  );
   const published = useRef<EdgeMarkAnchor[]>(fallback);
   /** Edges still owed a refresh for the current camera. */
   const owed = useRef(0);
@@ -593,7 +600,7 @@ export function useEdgeMarkAnchors(
     // re-owes every seat and asks for the frame that re-seats them.
     if (addressable !== undefined) {
       keepOuts.refreshAfterFrame(() => {
-        cameraStamp.current = "";
+        poseStamp.invalidate();
         invalidate();
       });
     }
@@ -618,25 +625,23 @@ export function useEdgeMarkAnchors(
       workingFor.current = edges;
       working.current = fallback.slice();
       cursor.current = 0;
-      cameraStamp.current = "";
+      poseStamp.invalidate();
     }
 
     /*
       QUANTISED, and that is not tidiness. `OrbitControls` damping decays
-      asymptotically, so the camera matrix keeps changing by ever-smaller
-      amounts long after the orbit has visibly stopped — and since this
-      callback asks for a frame whenever it has work, a raw comparison makes
-      the two feed each other: every micro-change owes 21 fresh answers, the
-      recompute schedules the frame that produces the next micro-change, and
-      the seats never report settled. Measured: `data-edge-mark-seats` stayed
-      `pending` for the full 30 s after a 60-step drag. Three decimals is
-      0.001 mm of camera travel, far below anything that can move a 24 px mark.
+      asymptotically, so the camera keeps changing by ever-smaller amounts
+      long after the orbit has visibly stopped — and since this callback asks
+      for a frame whenever it has work, an exact comparison makes the two feed
+      each other: every micro-change owes 21 fresh answers, the recompute
+      schedules the frame that produces the next micro-change, and the seats
+      never report settled. The stamp is taken ON SCREEN, in half-pixel cells
+      of the edges' projected ends and mid-spans (`seatPoseStamp.ts` says why
+      half a pixel is the bound): the matrix stamp it replaced, 1e-3 mm of
+      camera travel, re-owed the seats for ~100 more frames of damping tail
+      after the edges had stopped moving half a pixel.
     */
-    const stamp = camera.matrixWorld.elements
-      .map((value) => value.toFixed(3))
-      .join(",");
-    if (stamp !== cameraStamp.current) {
-      cameraStamp.current = stamp;
+    if (poseStamp.update(probes, camera, width, height)) {
       // A new pose owes every edge a fresh answer. The CURSOR is not reset:
       // during a continuous orbit the camera changes every frame, and starting
       // each pass at zero would mean only the first few edges were ever
