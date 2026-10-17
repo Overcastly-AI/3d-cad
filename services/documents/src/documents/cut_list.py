@@ -19,7 +19,7 @@ from loft_wire.units import LengthUnit
 from py_kit.db import SessionDep
 
 from documents.custom_features import PLUGINS, SentMembers
-from documents.features import evaluation_prefix, part_materials
+from documents.features import evaluation_materials, evaluation_prefix
 from documents.parts import Principal, get_owned_part
 
 router = APIRouter(prefix="/api/v1/parts", tags=["cut-list"])
@@ -76,6 +76,6 @@ async def get_cut_list_request(
             part_id=part.id,
             tree_version=part.tree_version,
             features=features,
-            materials=part_materials(part),
+            materials=evaluation_materials(part, sent),
         ),
     )

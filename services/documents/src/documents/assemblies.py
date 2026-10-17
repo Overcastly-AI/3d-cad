@@ -66,7 +66,8 @@ from documents.assembly_history import (
     ordered_patterns,
 )
 from documents.bom import assembly_bom, parse_pattern_counts
-from documents.features import evaluation_prefix, part_materials
+from documents.custom_features import SentMembers
+from documents.features import evaluation_materials, evaluation_prefix
 from documents.filing import resolve_destination
 from documents.history_core import Direction
 from documents.joint_rules import reject_out_of_limits
@@ -398,7 +399,9 @@ async def _instance_part_inputs(
     part = await session.get(db.Part, instance.ref_document_id)
     if part is None or part.owner_id != owner_id:
         return [], None  # deleted / foreign referenced part → typed no_body
-    return await evaluation_prefix(session, part), part_materials(part)
+    sent: SentMembers = {}
+    features = await evaluation_prefix(session, part, members_out=sent)
+    return features, evaluation_materials(part, sent)
 
 
 async def build_evaluate_assembly_request(

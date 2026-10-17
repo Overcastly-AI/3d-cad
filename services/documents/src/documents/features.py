@@ -46,7 +46,7 @@ from loft_wire.legacy_twist import (
     EXTRUDE_TWIST_DEPRECATED_MESSAGE,
     authors_extrude_twist,
 )
-from loft_wire.materials import MaterialAssignment
+from loft_wire.materials import MaterialAssignment, with_member_materials
 from loft_wire.parts import EVALUATE_BEFORE_DESCRIPTION
 from loft_wire.ref_names import carry_ref_names
 from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
@@ -390,6 +390,23 @@ def part_materials(part: db.Part) -> MaterialAssignment | None:
     return MaterialAssignment.model_validate(part.materials)
 
 
+def evaluation_materials(part: db.Part, sent: SentMembers) -> MaterialAssignment | None:
+    """The materials an evaluation of *part* is sent with: the stored
+    assignment plus every plugin member's own material (the members *sent*
+    by :func:`evaluation_prefix`), the user's per-body override winning
+    (:func:`loft_wire.materials.with_member_materials`). Part, assembly and
+    cut-list requests all go through here, so a member weighs the same in each.
+    """
+    return with_member_materials(
+        part_materials(part),
+        {
+            member_id: member.metadata.material
+            for member_id, (_envelope, member) in sent.items()
+            if member.metadata is not None
+        },
+    )
+
+
 @router.get("/{part_id}/evaluation-request")
 async def get_evaluation_request(
     part_id: uuid.UUID,
@@ -411,11 +428,13 @@ async def get_evaluation_request(
     thing on this request that is not pure geometry intent.
     """
     part = await get_owned_part(session, owner_id, part_id)
+    sent: SentMembers = {}
+    features = await evaluation_prefix(session, part, before=before, members_out=sent)
     return EvaluateTreeRequest(
         part_id=part.id,
         tree_version=part.tree_version,
-        features=await evaluation_prefix(session, part, before=before),
-        materials=part_materials(part),
+        features=features,
+        materials=evaluation_materials(part, sent),
     )
 
 
