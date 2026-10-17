@@ -2190,6 +2190,75 @@ and reframe it, a material per member, and a cut list that is always current.
     recorded; the goldens' every mass property is the closed form (area
     5 025 + 14π in² for a joint), which the kernel meets to 1.2e-6 mm³ (the
     16-body sum's round-off).
+- **Decided while fixing renumbered members** (WALL-MEMBER-RENUMBER,
+  2026-10-17; SolidWorks, Fusion and Onshape reference handling, Chief
+  Architect's framing):
+  - *The bug.* 1.0.0 names a member `<role>/<n>`, n its order of emission.
+    Moving B2's door 72 -> 48 turns the front wall's `stud/6` from the stud
+    at 128 along the wall into the end stud at 143.25, and widening B1 turns
+    `joist/12` from the end joist into the layout joist at 192. A Boolean
+    subtract whose target is that member then cuts nothing, with no error
+    (measured: the part reads 8 068.5 in³, the hole gone). SolidWorks and
+    Fusion flag a reference that loses its entity and never rebind it to
+    another; Onshape's queries identify a patterned instance by its place in
+    the pattern, not by a running count; Chief Architect keys a framing
+    member to its layout position so a manual edit survives a rebuild.
+  - *Names, not ordinals.* `ExpandedMember` gains an optional `name`; a
+    named member's id is `uuid5(<feature-id>/<role>/<name>)`. An unnamed
+    member's id is unchanged, so every stored 1.0.0 expansion and every 1.0.0
+    golden is byte-identical. A name is lowercase slash-separated segments,
+    the first starting with a letter, so it never reads as an index.
+  - *What a name says.* Wall 1.1.0: a layout stud by its slot (`start`,
+    `slot/n` at n x spacing from the start, `end`), an opening's members by
+    the opening's feature id and their order in it (`opening/<id>/0`), the
+    bottom plate by what starts it (`start`, `opening/<door-id>`), a top
+    plate by its course, a section by its member (`stud/slot/8`) and a level
+    by its height (`z/94.125`). Deck 1.1.0: joists by slot (and bay when a
+    flush beam cuts them), blocking by the joist it follows, plies and posts
+    by beam line (`outer/ply/0`), boards by row, guard members by side and
+    bay. A slot depends on the spacing alone, so nothing outside a member
+    renames it.
+  - *1.1.0 is 1.0.0 renamed.* Same members, same order, same geometry, so
+    the cut list and every golden's bodies are unchanged; a test proves it
+    member for member over 14 wall and deck cases. New walls and decks are
+    inserted at 1.1.0. Stored ones stay pinned (§23 "Determinism and
+    versions").
+  - *The 1.0.0 guard.* A plugin release lists its renumbered roles (every
+    1.0.0 wall and deck role whose ordinal can pass to another member; not
+    top plates, rims, the ledger or boards). Documents compares a referenced
+    member's placement before and after a re-expansion: its feature with
+    every reference into the expansion replaced by the referenced member's
+    placement, the extrude distance left out. A changed placement under the
+    same pin is 409 `feature_has_dependents` naming the referencing features,
+    on a write to the wall or deck, on a door's or window's write, suppress
+    or delete (its host re-expands), and on a parameter-table `PUT`. A taller
+    wall keeps its studs' placements and is allowed. The check is
+    conservative: a 1.0.0 joist that only grows longer is refused too,
+    because an ordinal id cannot tell growth from a renumber.
+  - *Parameter edits.* The parameter `PUT` now refuses a re-expansion that
+    drops or moves a referenced member, as an edit of the feature does; it
+    used to store it and leave the reference to fail at rebuild.
+  - *No silent upgrade.* Re-pinning a 1.0.0 wall to 1.1.0 renames every
+    member, so it is refused while a member is referenced (the existing
+    vanished-member 409). Rebinding by (role, index), which 1.1.0 keeps
+    identical to 1.0.0's for the same inputs, is WALL-UPDATE-REBIND.
+  - *Openings and roofs.* Doors, windows and the 1.2.0 roof read a wall's
+    stored inputs (`WallSpec`), which 1.1.0 keeps, so they host in and bear
+    on a 1.1.0 wall as on a 1.0.0 one. An opening checks its fit by its
+    wall's release rules.
+  - *Coincident faces.* 1.0.0 decides which layout studs an opening replaces
+    with exact float comparisons, so two faces that meet exactly in decimal
+    (400 mm centres, a 600 mm door) differ by an ulp and a touching stud is
+    dropped or a cripple is lost: 203 of 2 044 constructed touching cases.
+    1.1.0 counts faces within 1e-9 in as touching and matches exact
+    arithmetic in all of them. The deck's comparisons already carried 1e-9.
+  - *Goldens.* `b2-walls-v1.1-hole-stud-128` / `-door-moved-24` and
+    `plugin-deck-v1.1-b1-16ft` / `-20ft-hole-end-joist` are the 1.0.0 goldens'
+    bodies at 1.1.0 with the hole, derived from the base goldens' hand
+    numbers and the cylinder's closed form; the kernel meets them to
+    1.7e-6 mm³. The hole is a Boolean subtract because the Hole feature cuts
+    the ACTIVE body (the last one built), not the picked face's body
+    (HOLE-ACTIVE-BODY).
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

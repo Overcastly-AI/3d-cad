@@ -20,7 +20,7 @@ group. Done 2026-10-16..17 and dropped (`git log --grep=<ID>`): DECK,
 STUD-WALL, WINDOW-DOOR, ROOF, B2-E2E, ROOF-HIP, PRICE-BOOK, CUT-LIST-PRICES,
 ROOF-VALLEY.
 
-0. [ ] **WALL-MEMBER-RENUMBER** (fix now: silent wrong geometry;
+0. [x] **WALL-MEMBER-RENUMBER** (fix now: silent wrong geometry;
    kernel-architect): adding or moving an opening renumbers a wall's studs,
    and widening a deck renumbers its end joist, so a later feature on
    `stud/k` silently lands on another stud. SolidWorks and Fusion flag a
@@ -253,6 +253,11 @@ One line each. The founder triages weekly; most are closed without work.
 - TIMBER-BODY-SPLIT: a frame's bodies weld into one mesh component in the viewport (tenon corners are mortise corners, peg circles are hole circles), so the Bodies panel cannot hide a post to show its mortise; the evaluate payload carries no per-body face ranges.
 - TIMBER-SPECIES: the frame defaults to Douglas fir-larch (`dfl_lumber`), whose density is NDS's kiln-dried value; timbers are sold green and weigh more until seasoned.
 
+- WALL-UPDATE-REBIND: re-pinning a 1.0.0 wall or deck to 1.1.0 renames every member, so it is a 409 while any member is referenced; 1.1.0 keeps 1.0.0's (role, index) for the same inputs, so documents could rebind the references in the same step (Onshape's update badge). No pin-update UI exists yet.
+- ROOF-MEMBER-RENUMBER: `loft.roof` 1.0.0-1.2.0 number rafters, jacks and cripples in emission order, so a length edit can hand a referenced rafter's id to another rafter silently, as walls did; the WALL-MEMBER-RENUMBER guard is not declared for roofs (it would also refuse the pitch edit, which moves every rafter's profile). Same severity class as WALL-MEMBER-RENUMBER: founder to rank.
+- HOLE-ACTIVE-BODY: the Hole feature (and the on_face datum) resolves the picked face against the ACTIVE body, the last one built, so on a framed part a hole on a stud face is `hole_off_body` or cuts the last member; Fusion's Hole cuts the picked face's body. The renumber goldens use a Boolean subtract naming the stud.
+- BOOLEAN-EMPTY-CUT: a Boolean subtract whose tool misses its target removes nothing with no error or warning (how 1.0.0's renumbered hole vanished); SolidWorks' Combine reports a tool that does not intersect.
+- WALL-GUARD-STRICT: the 1.0.0 guard compares a referenced member's placement, so a 1.0.0 joist that only lengthens (a deeper deck) is refused too; an ordinal id cannot tell growth from a renumber.
 - B2-E2E-INTERFERENCE: a part has no interference check (only assemblies have Clash), so a building's members cannot be checked for overlap in the UI; SolidWorks' Interference Detection and Fusion's Interference both run on a multibody part.
 - B2-E2E-HOSTS: walls placed from the Build row are named "Wall 1".."Wall 4", so the door's and window's host list reads by number, not by side; Chief Architect and Revit pick the host wall in the plan view.
 - THUMB-WARM: thumbnails render on first library view, not on save; Fusion renders at save. A warm after the modeller leaves the editor would hide the first-view wait.
