@@ -1,0 +1,57 @@
+{
+  "description": "B6 TIMBER FRAME 12 x 16 ft from ONE loft.timber_frame 1.0.0 custom feature (TIMBER-FRAME; docs/reference-parts/buildings.md B6): two bents of 8x8 S4S timbers (7.5 x 7.5), posts 96 tall at the corners of X 0..144, Y 0..192, tie beams flush with the post tops, girts with tops at Z 60, every joint a pegged blind mortise and tenon (8). Posts, tie beams and girts dfl_lumber, pegs white_oak. model.json is EXACTLY the plugin's expansion with the member materials documents applies; members.json is each body's member metadata. packages/loft-plugins/tests/test_timber_frame.py pins both; services/geometry/tests/test_timber_frame_b6.py checks the cut list, each body against an independent build123d script, the coaxial peg holes and no interference.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC (the members' shoulder boxes, buildings.md B6) and the independent build123d script (test_timber_frame_b6.script_frame) agrees with each body to 1e-4.",
+    "",
+    "Volumes (in^3): 4 posts 7.5 x 7.5 x 96 = 4 x 5400; 2 tie beams of shoulder length 129 x 56.25 = 2 x 7256.25; 2 girts of 177 x 56.25 = 2 x 9956.25; tenons fill their mortises and pegs their holes, so the total is the boxes: 56025 (buildings.md: 56 025).",
+    "",
+    "Surface area (in^2): the boxes 4 x 2992.5 + 2 x (112.5 + 30 x 129) + 2 x (112.5 + 30 x 177) = 30780; each of the 8 joints adds 120 + 14 pi (timber-mt-8x8: mortise and tenon sides +60 each, the holes and peg 5 pi + pi + 8 pi): 31740 + 112 pi.",
+    "",
+    "bounding_box: X 0..144, Y 0..192, Z 0..96 in.",
+    "",
+    "volume = 56025 in^3 x 25.4^3 = 918085260.5999999 mm^3; surface_area as above x 25.4^2 = 20704383.350635678 mm^2.",
+    "centroid = the box sum's moment / volume (pegs fill their holes and tenons their mortises, so the union is the member boxes) = (72.000000000, 96.000000000, 62.394578313) in.",
+    "mass_g = (532 x (V - pegs) + 759 x pegs) x 25.4^3 x 1e-6, pegs = 15 pi in^3 (dfl_lumber members, white_oak pegs) = 488596.6530781787 g; center_of_mass = (532 x (box moment - peg moment) + 759 x peg moment) / (that mass), each peg's centroid its axis's midpoint.",
+    "topology: counted by hand per body in the module docstring of services/geometry/tests/test_timber_frame_b6.py (a post 6 + 7 per mortise faces, 12 + 18 edges; a beam 6 + 6 per tenon, 12 + 15; a peg 3 faces, 3 edges); mesh counts recorded from the build (planar boxes and Ø1 cylinders at linear_deflection 0.1)."
+  ],
+  "tolerance": 1e-05,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), as b1-deck-framing-16ft: the bounds are ABSOLUTE and the part is ~9.2e8 mm^3, so the double-precision sum over its 16 bodies carries round-off near the ULP of the sum. Measured 2026-10-17: volume -1.19e-6 mm^3 (1.3e-15 relative), area -1.5e-8 mm^2, mass -8.1e-10 g, centroid and centre of mass <= 3e-12 mm. 1e-5 is 8x the worst; a tenon 0.001 in out moves the volume by >= 0.15 mm^3 and a member 0.001 in out by >= 0.9 mm^3, failing by four orders of magnitude.",
+  "roundtrip_tolerance": 1e-05,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip moves the VOLUME by +1.5e-6 mm^3 (12x16; 14x16 +1.1e-6) and the AREA by 6.7e-8 mm^2, ~1.7e-15 relative: each re-imported post's volume is re-integrated over its bores' cylinders (<= 7.7e-7 mm^3 per body, 1e-14 relative) and the 16 solids are re-summed in another order. ROUNDTRIP_TOL (1e-7 absolute) is near the ULP of a 9.2e8 mm^3 sum. The independent build123d twin drifts through build123d's own STEP too (test_timber_frame_b6::test_the_frames_step_drift_is_occts), so it is OCCT, not Loft's export. 1e-5 (6.5x the worst) applies to volume and area only; centroid and bounds keep ROUNDTRIP_TOL. Same class as b1-deck-framing-16ft.",
+  "properties": {
+    "volume": 918085260.5999999,
+    "surface_area": 20704383.350635678,
+    "centroid": {
+      "x": 1828.8,
+      "y": 2438.3999999999996,
+      "z": 1584.8222891566265
+    },
+    "mass_g": 488596.6530781787,
+    "center_of_mass": {
+      "x": 1828.8,
+      "y": 2438.3999999999996,
+      "z": 1584.9303251261747
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 3657.6,
+        "y": 4876.799999999999,
+        "z": 2438.3999999999996
+      }
+    }
+  },
+  "topology": {
+    "faces": 176,
+    "edges": 384,
+    "shells": 16
+  },
+  "mesh": {
+    "vertices": 16768,
+    "triangles": 16544
+  }
+}

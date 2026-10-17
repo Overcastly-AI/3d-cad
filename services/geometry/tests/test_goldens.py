@@ -248,6 +248,10 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         "b5-floor-2x8-16oc",
         "b5-floor-2x8-12oc",
         "b5-shed-walls-on-floor",
+        # B6's timber frame and its 14 ft edit (TIMBER-FRAME): 16 bodies of
+        # ~9.2e8 mm^3, the posts' bores re-integrated (1.5e-6 at worst).
+        "b6-frame-12x16",
+        "b6-frame-14x16",
     }
 )
 
