@@ -3,7 +3,8 @@
  * unit; an unclassified body reads with its measured section; CSV downloads
  * the server's file. Prices (CUT-LIST-PRICES) are the gateway's, formatted
  * from integer cents; an unpriced line is blank, never $0, and its blank
- * opens the Price book pre-filled.
+ * opens the Price book pre-filled. Sheet goods (SHEATHING) read their net
+ * area and the sheets it needs.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -15,7 +16,7 @@ import {
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { CutListResponse } from "../api/cutList";
+import { type CutListResponse, fetchCutList } from "../api/cutList";
 import { CutListPanel, unpricedLabel } from "./CutListPanel";
 
 const IN = 25.4;
@@ -99,7 +100,12 @@ vi.mock("../api/exportPart", () => ({ downloadBlob: csv.downloadBlob }));
 vi.mock("../api/priceBook", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/priceBook")>()),
   fetchPriceBook: vi.fn(() =>
-    Promise.resolve({ currency: "USD", entries: [], updated_at: null }),
+    Promise.resolve({
+      currency: "USD",
+      entries: [],
+      updated_at: null,
+      version: 0,
+    }),
   ),
 }));
 
@@ -115,6 +121,11 @@ vi.mock("../api/materials", () => ({
         },
       ],
       profiles: [{ key: "us_6x6", name: "6x6" }],
+      sheet_goods: [{ key: "osb_7_16", name: "7/16 OSB", material: "osb" }],
+      sheet_sizes: [
+        { key: "4x8", width_in: 48, length_in: 96 },
+        { key: "4x9", width_in: 48, length_in: 108 },
+      ],
     }),
   ),
   fetchMaterials: vi.fn(() =>
@@ -229,6 +240,59 @@ describe("CutListPanel", () => {
     );
     fireEvent.click(screen.getByTestId("price-book-cancel"));
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("lists sheet goods by area and the sheets it needs", async () => {
+    // B2's 7/16 OSB (SHEATHING): 12 panels, 45 893 in^2, 9 sheets of 4x9.
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      total_quantity: 12,
+      unclassified: 0,
+      missing: [],
+      total_price_cents: null,
+      unpriced_lines: 1,
+      lines: [
+        {
+          member: "Sheathing",
+          profile: "7/16 OSB",
+          material: "osb",
+          classification: "member",
+          quantity: 12,
+          length_mm: 108 * IN,
+          total_length_mm: 972 * IN,
+          section_mm: [0.4375 * IN, 48 * IN],
+          sheet: "4x9",
+          area_mm2: 45893 * IN * IN,
+          stock_length_ft: null,
+          waste_mm: null,
+          stock_quantity: 9,
+          unit_price_cents: null,
+          price_unit: null,
+          extended_price_cents: null,
+        },
+      ],
+    });
+    renderPanel();
+    const [row] = await screen.findAllByTestId("cut-list-row");
+    const sheet = within(row!);
+    expect(row).toHaveAttribute("data-sheet", "4x9");
+    expect(sheet.getByTestId("cut-list-qty")).toHaveTextContent("12");
+    expect(sheet.getByTestId("cut-list-area")).toHaveTextContent("45,893 in²");
+    expect(sheet.getByTestId("cut-list-total-length")).toBeEmptyDOMElement();
+    expect(sheet.getByTestId("cut-list-stock")).toHaveTextContent("9 × 4x9");
+    expect(sheet.getByTestId("cut-list-stock")).toHaveAttribute(
+      "title",
+      "9 sheets of 4x9, by area",
+    );
+    // Its blank price opens the book on a per-sheet row for its sheet.
+    fireEvent.click(
+      sheet.getByRole("button", {
+        name: "Price Sheathing, 7/16 OSB 4x9 sheet",
+      }),
+    );
+    const seeded = await screen.findByTestId("price-book-row");
+    expect(seeded).toHaveAttribute("data-profile", "osb_7_16");
+    expect(within(seeded).getByLabelText("Sheet, price 1")).toHaveValue("4x9");
   });
 
   it("counts the unpriced lines", () => {

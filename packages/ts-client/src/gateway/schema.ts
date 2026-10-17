@@ -2376,17 +2376,20 @@ export interface paths {
         };
         /**
          * Get Price Book
-         * @description Your price book: what you pay per stock piece, linear foot or board
-         *     foot for each material and lumber profile, in integer cents. Empty (USD)
-         *     until you save one.
+         * @description Your price book: what you pay per stock piece, sheet, linear foot or
+         *     board foot for each material and profile, in integer cents. Empty (USD,
+         *     version 0) until you save one. The `ETag` is its `version`.
          */
         get: operations["get_price_book_api_v1_price_book_get"];
         /**
          * Put Price Book
-         * @description Replace your whole price book. At most 500 entries; each a material,
-         *     a profile, a unit (`each` with its `stock_length_ft`, `linear_foot` or
+         * @description Replace your whole price book, if it is still the version you read.
+         *     Send that version as `If-Match` (the GET's `ETag`); a book saved since is
+         *     refused with 412 `price_book_stale` and kept as it is. At most 500
+         *     entries; each a material, a profile, a unit (`each` with its
+         *     `stock_length_ft`, or its `sheet` for a sheet product; `linear_foot` or
          *     `board_foot`) and `price_cents`, an integer from 0 to 10,000,000; one
-         *     price per material, profile, unit and stock length (else a 422).
+         *     price per material, profile, unit and stock length or sheet (else a 422).
          */
         put: operations["put_price_book_api_v1_price_book_put"];
         post?: never;
@@ -3094,7 +3097,7 @@ export interface components {
              * Material
              * @description The material RESOLVED for this body (its own override, else the document default); null = none assigned, so no mass.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete") | null;
         };
         /**
          * BodyMaterialAssignment
@@ -3119,7 +3122,7 @@ export interface components {
              * @description Material for THIS body only
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete";
         };
         /**
          * BomLine
@@ -4507,6 +4510,11 @@ export interface components {
          */
         CutListLine: {
             /**
+             * Area Mm2
+             * @description A sheet line's net area (mm^2): its panels' faces, openings cut out. Null for lumber.
+             */
+            area_mm2?: number | null;
+            /**
              * Classification
              * @enum {string}
              */
@@ -4518,14 +4526,14 @@ export interface components {
             extended_price_cents: number | null;
             /**
              * Length Mm
-             * @description Measured length of each piece.
+             * @description Measured length of each piece; for a sheet line, the sheet's length.
              */
             length_mm: number;
             /**
              * Material
              * @description Library material, or null.
              */
-            material: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
+            material: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete") | null;
             /**
              * Member
              * @description Member role title (e.g. 'Joist'); null when the body is not a plugin member.
@@ -4538,16 +4546,21 @@ export interface components {
             price_unit: ("each" | "linear_foot" | "board_foot") | null;
             /**
              * Profile
-             * @description Section as sold (e.g. '2x10'); null when unclassified.
+             * @description Section or sheet product as sold (e.g. '2x10', '7/16 OSB'); null when unclassified.
              */
             profile: string | null;
             /** Quantity */
             quantity: number;
             /**
              * Section Mm
-             * @description Measured section (mm): [thickness, width], smaller first.
+             * @description Measured section (mm): [thickness, width], smaller first; for a sheet line, [thickness, the sheet's width].
              */
             section_mm: number[];
+            /**
+             * Sheet
+             * @description A sheet line's sheet ('4x8', '4x9', '4x10'): the shortest that covers each of its panels; null for lumber, or for panels no sheet covers.
+             */
+            sheet?: ("4x8" | "4x9" | "4x10") | null;
             /**
              * Stock Length Ft
              * @description Shortest standard stock that covers the piece (ft); null for a piece that is not lumber or is longer than the longest stock.
@@ -4555,17 +4568,17 @@ export interface components {
             stock_length_ft: number | null;
             /**
              * Stock Quantity
-             * @description Stock pieces bought for the line: one per piece (until pieces are nested); null with no stock length.
+             * @description Stock pieces bought for the line: one per piece (until pieces are nested); for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.
              */
             stock_quantity: number | null;
             /**
              * Total Length Mm
-             * @description quantity x length.
+             * @description quantity x length; for a sheet line, the sheets' lengths (stock_quantity x length).
              */
             total_length_mm: number;
             /**
              * Unit Price Cents
-             * @description Price of ONE stock piece in the book's currency's cents, rounded once per piece; null (blank, never 0) when the book has no price for the line or the line has no stock length.
+             * @description Price of ONE stock piece (or sheet) in the book's currency's cents, rounded once per piece; null (blank, never 0) when the book has no price for the line or the line has no stock.
              */
             unit_price_cents: number | null;
             /**
@@ -9192,7 +9205,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete";
             /**
              * Name
              * @description Display name, e.g. 'Aluminium 6061'
@@ -9227,7 +9240,7 @@ export interface components {
              * Default Material
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
-            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete") | null;
         };
         /**
          * MaterialInput
@@ -9235,7 +9248,7 @@ export interface components {
          */
         MaterialInput: {
             /** Default */
-            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
+            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete") | null;
             /**
              * Description
              * @description Help text under the field.
@@ -9277,6 +9290,16 @@ export interface components {
              * @description Lumber sections: nominal name and actual dressed size.
              */
             profiles: components["schemas"]["LumberProfile"][];
+            /**
+             * Sheet Goods
+             * @description Sheet products (SHEATHING): a material at a thickness, e.g. '7/16 OSB'.
+             */
+            sheet_goods: components["schemas"]["SheetGood"][];
+            /**
+             * Sheet Sizes
+             * @description The sheets they are sold in, shortest first: 4x8, 4x9, 4x10.
+             */
+            sheet_sizes: components["schemas"]["SheetSize"][];
         };
         /**
          * MeasureRequest
@@ -9409,7 +9432,7 @@ export interface components {
              * Material
              * @description Library material of the member.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete") | null;
             /**
              * Nominal Size
              * @description Nominal size as sold, e.g. '2x8x12'.
@@ -11108,7 +11131,7 @@ export interface components {
              * @description Library material, e.g. 'spf_lumber'.
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete";
             /**
              * Price Cents
              * @description Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.
@@ -11116,18 +11139,22 @@ export interface components {
             price_cents: number;
             /**
              * Profile
-             * @description Lumber profile, e.g. 'us_2x4'.
-             * @enum {string}
+             * @description Lumber profile, e.g. 'us_2x4', or sheet product, e.g. 'osb_7_16'.
              */
-            profile: "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12";
+            profile: ("us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32");
+            /**
+             * Sheet
+             * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10'); null for lumber.
+             */
+            sheet?: ("4x8" | "4x9" | "4x10") | null;
             /**
              * Stock Length Ft
-             * @description The stock length an 'each' price is for (ft); null for a per-foot or per-board-foot price.
+             * @description The stock length a lumber 'each' price is for (ft); null for a sheet or a per-foot or per-board-foot price.
              */
             stock_length_ft?: number | null;
             /**
              * Unit
-             * @description 'each' (one stock piece of `stock_length_ft`), 'linear_foot' or 'board_foot' (any stock length).
+             * @description 'each' (one stock piece of `stock_length_ft`, or one sheet of `sheet`), 'linear_foot' or 'board_foot' (any stock length; lumber only).
              * @enum {string}
              */
             unit: "each" | "linear_foot" | "board_foot";
@@ -11135,7 +11162,7 @@ export interface components {
         /**
          * PriceBookResponse
          * @description The caller's price book. A user who never saved one has an empty USD
-         *     book (``updated_at`` null).
+         *     book (``updated_at`` null, ``version`` 0).
          */
         PriceBookResponse: {
             /**
@@ -11150,6 +11177,12 @@ export interface components {
              * @description When the book was last saved; null if never.
              */
             updated_at?: string | null;
+            /**
+             * Version
+             * @description 0 until the first save, then one more per save. Send it back as `If-Match` on the `PUT` (also served as the `ETag`).
+             * @default 0
+             */
+            version: number;
         };
         /**
          * PriceBookUpdate
@@ -11165,9 +11198,45 @@ export interface components {
             currency: "USD";
             /**
              * Entries
-             * @description Every entry, in the user's order; one per material, profile, unit and stock length.
+             * @description Every entry, in the user's order; one per material, profile, unit and stock length or sheet.
              */
             entries?: components["schemas"]["PriceBookEntry"][];
+        };
+        /**
+         * PriceBookVersionDetails
+         * @description A 412's ``details``: the version the book is at now.
+         */
+        PriceBookVersionDetails: {
+            /**
+             * Version
+             * @description The stored book's version now.
+             */
+            version: number;
+        };
+        /**
+         * PriceBookVersionEnvelope
+         * @description A refused save as it appears on the wire (the standard envelope).
+         */
+        PriceBookVersionEnvelope: {
+            error: components["schemas"]["PriceBookVersionError"];
+        };
+        /**
+         * PriceBookVersionError
+         * @description The ``error`` member of a price-book 412 or 428 (the py-kit envelope,
+         *     with typed ``details``).
+         */
+        PriceBookVersionError: {
+            /**
+             * Code
+             * @description 'price_book_stale' (412) or 'price_book_version_required' (428): the machine code a client branches on.
+             */
+            code: string;
+            /** @description The book's version now (412); null on a 428. */
+            details?: components["schemas"]["PriceBookVersionDetails"] | null;
+            /** Message */
+            message: string;
+            /** Request Id */
+            request_id?: string | null;
         };
         /**
          * ProfileInput
@@ -11644,6 +11713,38 @@ export interface components {
             title_block?: components["schemas"]["TitleBlock"] | null;
         };
         /**
+         * SheetGood
+         * @description One sheet product: a material at a thickness.
+         */
+        SheetGood: {
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "osb_7_16" | "plywood_15_32" | "plywood_23_32";
+            /**
+             * Material
+             * @description Library material of the panels.
+             * @enum {string}
+             */
+            material: "osb" | "plywood";
+            /**
+             * Name
+             * @description As sold, e.g. '7/16 OSB'.
+             */
+            name: string;
+            /**
+             * Thickness In
+             * @description Thickness (in).
+             */
+            thickness_in: number;
+            /**
+             * Thickness Mm
+             * @description Thickness (mm).
+             */
+            thickness_mm: number;
+        };
+        /**
          * SheetMetalBaseFlangeFeature
          * @description ``{"type": "sheet_metal_base_flange", "version": 1, "params": {...}}`` envelope.
          *
@@ -12096,6 +12197,27 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * SheetSize
+         * @description One sheet size: 4 ft wide, 8, 9 or 10 ft long.
+         */
+        SheetSize: {
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "4x8" | "4x9" | "4x10";
+            /**
+             * Length In
+             * @description The long side (in).
+             */
+            length_in: number;
+            /**
+             * Width In
+             * @description The short side (in): 48.
+             */
+            width_in: number;
         };
         /**
          * SheetUpdate
@@ -17495,7 +17617,10 @@ export interface operations {
     put_price_book_api_v1_price_book_put: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The book's version as read: its ETag (e.g. "3"), or "0" for a book never saved. Required; a save drafted from an older version is refused with 412 price_book_stale. */
+                "If-Match"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -17514,6 +17639,15 @@ export interface operations {
                     "application/json": components["schemas"]["PriceBookResponse"];
                 };
             };
+            /** @description The book was saved since the If-Match version: `price_book_stale`, `details.version` its version now. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceBookVersionEnvelope"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -17521,6 +17655,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description No If-Match: `price_book_version_required`. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceBookVersionEnvelope"];
                 };
             };
         };

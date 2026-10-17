@@ -53,19 +53,20 @@ B1_TABLE = [
 _PT = '"Southern pine, pressure-treated"'
 _HEADER = (
     "Item,Member,Profile,Section (in),Material,Qty,Length (in),"
-    "Total length (in),Stock,Waste each (in),Stock qty,Unit price (USD),"
+    "Total length (in),Area (sq in),Stock,Waste each (in),"
+    "Stock qty,Unit price (USD),"
     "Price unit,Extended (USD)\r\n"
 )
 
 #: With no price book: every line's stock quantity, no price (blank, not 0).
 B1_CSV = (
-    _HEADER + f"1,Ledger,2x10,1.5 x 9.25,{_PT},1,192,192,16 ft,0,1,,,\r\n"
-    f"2,Rim,2x10,1.5 x 9.25,{_PT},1,192,192,16 ft,0,1,,,\r\n"
-    f"3,Beam,2x10,1.5 x 9.25,{_PT},2,192,384,16 ft,0,2,,,\r\n"
-    f"4,Joist,2x10,1.5 x 9.25,{_PT},13,141,1833,12 ft,3,13,,,\r\n"
-    f"5,Post,6x6,5.5 x 5.5,{_PT},3,10.5,31.5,8 ft,85.5,3,,,\r\n"
-    f"6,Deck,5/4x6,1 x 5.5,{_PT},26,192,4992,16 ft,0,26,,,\r\n"
-    ',"Total of priced lines, 6 unpriced",,,,,,,,,,,,\r\n'
+    _HEADER + f"1,Ledger,2x10,1.5 x 9.25,{_PT},1,192,192,,16 ft,0,1,,,\r\n"
+    f"2,Rim,2x10,1.5 x 9.25,{_PT},1,192,192,,16 ft,0,1,,,\r\n"
+    f"3,Beam,2x10,1.5 x 9.25,{_PT},2,192,384,,16 ft,0,2,,,\r\n"
+    f"4,Joist,2x10,1.5 x 9.25,{_PT},13,141,1833,,12 ft,3,13,,,\r\n"
+    f"5,Post,6x6,5.5 x 5.5,{_PT},3,10.5,31.5,,8 ft,85.5,3,,,\r\n"
+    f"6,Deck,5/4x6,1 x 5.5,{_PT},26,192,4992,,16 ft,0,26,,,\r\n"
+    ',"Total of priced lines, 6 unpriced",,,,,,,,,,,,,\r\n'
 )
 
 #: BACKLOG item 6's sample book, its PT entries (all B1 needs).
@@ -83,13 +84,14 @@ SAMPLE_PT: list[dict[str, Any]] = [
 
 #: B1 priced by hand from the sample book (BACKLOG item 6): $943.94.
 B1_PRICED_CSV = (
-    _HEADER + f"1,Ledger,2x10,1.5 x 9.25,{_PT},1,192,192,16 ft,0,1,28.47,Each,28.47\r\n"
-    f"2,Rim,2x10,1.5 x 9.25,{_PT},1,192,192,16 ft,0,1,28.47,Each,28.47\r\n"
-    f"3,Beam,2x10,1.5 x 9.25,{_PT},2,192,384,16 ft,0,2,28.47,Each,56.94\r\n"
-    f"4,Joist,2x10,1.5 x 9.25,{_PT},13,141,1833,12 ft,3,13,19.98,Each,259.74\r\n"
-    f"5,Post,6x6,5.5 x 5.5,{_PT},3,10.5,31.5,8 ft,85.5,3,34.80,Per BF,104.40\r\n"
-    f"6,Deck,5/4x6,1 x 5.5,{_PT},26,192,4992,16 ft,0,26,17.92,Per ft,465.92\r\n"
-    ",Total,,,,,,,,,,,,943.94\r\n"
+    _HEADER
+    + f"1,Ledger,2x10,1.5 x 9.25,{_PT},1,192,192,,16 ft,0,1,28.47,Each,28.47\r\n"
+    f"2,Rim,2x10,1.5 x 9.25,{_PT},1,192,192,,16 ft,0,1,28.47,Each,28.47\r\n"
+    f"3,Beam,2x10,1.5 x 9.25,{_PT},2,192,384,,16 ft,0,2,28.47,Each,56.94\r\n"
+    f"4,Joist,2x10,1.5 x 9.25,{_PT},13,141,1833,,12 ft,3,13,19.98,Each,259.74\r\n"
+    f"5,Post,6x6,5.5 x 5.5,{_PT},3,10.5,31.5,,8 ft,85.5,3,34.80,Per BF,104.40\r\n"
+    f"6,Deck,5/4x6,1 x 5.5,{_PT},26,192,4992,,16 ft,0,26,17.92,Per ft,465.92\r\n"
+    ",Total,,,,,,,,,,,,,943.94\r\n"
 )
 
 
@@ -272,7 +274,7 @@ def test_the_b1_cut_list_through_the_gateway(tmp_path: Path) -> None:
                 .splitlines()[4]
                 .startswith("4,Joist,2x10,1.5 x 9.25,")
             )
-            assert ",26,141,3666,12 ft,3" in csv.content.decode()
+            assert ",26,141,3666,,12 ft,3" in csv.content.decode()
 
             # Mirror both decks about YZ: deck 1 as a mirrored copy, deck 2 as
             # an opposite hand (its own BOM line, ASM-MIRROR-COMPONENT). A
@@ -357,15 +359,42 @@ def test_the_price_book_prices_b1_and_is_the_callers_alone(tmp_path: Path) -> No
                 "currency": "USD",
                 "entries": [],
                 "updated_at": None,
+                "version": 0,
             }
+            assert empty.headers["etag"] == '"0"'
 
-            saved = await client.put(
+            # PRICE-BOOK-VERSION: a save names the version it read.
+            unversioned = await client.put(
                 "/api/v1/price-book",
                 json={"currency": "USD", "entries": SAMPLE_PT},
                 headers=owner,
             )
+            assert unversioned.status_code == 428, unversioned.text
+            code = unversioned.json()["error"]["code"]
+            assert code == "price_book_version_required"
+            saved = await client.put(
+                "/api/v1/price-book",
+                json={"currency": "USD", "entries": SAMPLE_PT},
+                headers={**owner, "If-Match": '"0"'},
+            )
             assert saved.status_code == 200, saved.text
             assert len(saved.json()["entries"]) == 4
+            assert saved.json()["version"] == 1
+            assert saved.headers["etag"] == '"1"'
+
+            # The race: a second save drafted from the empty book is refused
+            # with 412 and the first save's book is kept whole.
+            stale = await client.put(
+                "/api/v1/price-book",
+                json={"currency": "USD", "entries": [SAMPLE_PT[0]]},
+                headers={**owner, "If-Match": '"0"'},
+            )
+            assert stale.status_code == 412, stale.text
+            assert stale.json()["error"]["code"] == "price_book_stale"
+            assert stale.json()["error"]["details"] == {"version": 1}
+            kept = await client.get("/api/v1/price-book", headers=owner)
+            assert len(kept.json()["entries"]) == 4
+            assert kept.json()["version"] == 1
 
             priced = await _priced(client, cut_list_url, owner)
             assert _prices(priced) == [
@@ -390,7 +419,9 @@ def test_the_price_book_prices_b1_and_is_the_callers_alone(tmp_path: Path) -> No
             # Delete the 6x6 price: the post is blank, never $0.
             without_post = [e for e in SAMPLE_PT if e["profile"] != "us_6x6"]
             put = await client.put(
-                "/api/v1/price-book", json={"entries": without_post}, headers=owner
+                "/api/v1/price-book",
+                json={"entries": without_post},
+                headers={**owner, "If-Match": '"1"'},
             )
             assert put.status_code == 200, put.text
             priced = await _priced(client, cut_list_url, owner)
@@ -398,9 +429,9 @@ def test_the_price_book_prices_b1_and_is_the_callers_alone(tmp_path: Path) -> No
             assert (post.unit_price_cents, post.extended_price_cents) == (None, None)
             assert (priced.total_price_cents, priced.unpriced_lines) == (83954, 1)
             csv_text = (await client.get(f"{cut_list_url}/csv", headers=owner)).text
-            assert ",8 ft,85.5,3,,,\r\n" in csv_text
+            assert ",,8 ft,85.5,3,,,\r\n" in csv_text
             assert csv_text.endswith(
-                ',"Total of priced lines, 1 unpriced",' + "," * 11 + "839.54\r\n"
+                ',"Total of priced lines, 1 unpriced",' + "," * 12 + "839.54\r\n"
             )
 
             # Bad books are refused at the gateway and change nothing.
@@ -411,10 +442,14 @@ def test_the_price_book_prices_b1_and_is_the_callers_alone(tmp_path: Path) -> No
                 [SAMPLE_PT[0]] * 501,
             ):
                 refused = await client.put(
-                    "/api/v1/price-book", json={"entries": bad}, headers=owner
+                    "/api/v1/price-book",
+                    json={"entries": bad},
+                    headers={**owner, "If-Match": '"2"'},
                 )
                 assert refused.status_code == 422, refused.text
-            stored = [{"stock_length_ft": None, **e} for e in without_post]
+            stored = [
+                {"stock_length_ft": None, "sheet": None, **e} for e in without_post
+            ]
             mine = await client.get("/api/v1/price-book", headers=owner)
             assert mine.json()["entries"] == stored
 
@@ -423,10 +458,11 @@ def test_the_price_book_prices_b1_and_is_the_callers_alone(tmp_path: Path) -> No
             other = await _register(client, "other@example.com")
             theirs = await client.get("/api/v1/price-book", headers=other)
             assert theirs.json()["entries"] == []
+            # Their book is at version 0, whatever ours is at.
             put = await client.put(
                 "/api/v1/price-book",
                 json={"entries": [{**SAMPLE_PT[1], "price_cents": 1}]},
-                headers=other,
+                headers={**other, "If-Match": '"0"'},
             )
             assert put.status_code == 200, put.text
             mine = await client.get("/api/v1/price-book", headers=owner)

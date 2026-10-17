@@ -952,6 +952,8 @@
                   "white_oak",
                   "lvl",
                   "glulam_dfl",
+                  "osb",
+                  "plywood",
                   "steel_a992",
                   "concrete"
                 ],
@@ -997,6 +999,8 @@
               "white_oak",
               "lvl",
               "glulam_dfl",
+              "osb",
+              "plywood",
               "steel_a992",
               "concrete"
             ],
@@ -2982,6 +2986,19 @@
       "CutListLine": {
         "description": "One line: pieces with the same member, profile, material and length.",
         "properties": {
+          "area_mm2": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A sheet line's net area (mm^2): its panels' faces, openings cut out. Null for lumber.",
+            "title": "Area Mm2"
+          },
           "classification": {
             "enum": [
               "member",
@@ -3005,7 +3022,7 @@
             "title": "Extended Price Cents"
           },
           "length_mm": {
-            "description": "Measured length of each piece.",
+            "description": "Measured length of each piece; for a sheet line, the sheet's length.",
             "minimum": 0.0,
             "title": "Length Mm",
             "type": "number"
@@ -3027,6 +3044,8 @@
                   "white_oak",
                   "lvl",
                   "glulam_dfl",
+                  "osb",
+                  "plywood",
                   "steel_a992",
                   "concrete"
                 ],
@@ -3077,7 +3096,7 @@
                 "type": "null"
               }
             ],
-            "description": "Section as sold (e.g. '2x10'); null when unclassified.",
+            "description": "Section or sheet product as sold (e.g. '2x10', '7/16 OSB'); null when unclassified.",
             "title": "Profile"
           },
           "quantity": {
@@ -3086,7 +3105,7 @@
             "type": "integer"
           },
           "section_mm": {
-            "description": "Measured section (mm): [thickness, width], smaller first.",
+            "description": "Measured section (mm): [thickness, width], smaller first; for a sheet line, [thickness, the sheet's width].",
             "items": {
               "type": "number"
             },
@@ -3094,6 +3113,23 @@
             "minItems": 2,
             "title": "Section Mm",
             "type": "array"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "enum": [
+                  "4x8",
+                  "4x9",
+                  "4x10"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A sheet line's sheet ('4x8', '4x9', '4x10'): the shortest that covers each of its panels; null for lumber, or for panels no sheet covers.",
+            "title": "Sheet"
           },
           "stock_length_ft": {
             "anyOf": [
@@ -3117,11 +3153,11 @@
                 "type": "null"
               }
             ],
-            "description": "Stock pieces bought for the line: one per piece (until pieces are nested); null with no stock length.",
+            "description": "Stock pieces bought for the line: one per piece (until pieces are nested); for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.",
             "title": "Stock Quantity"
           },
           "total_length_mm": {
-            "description": "quantity x length.",
+            "description": "quantity x length; for a sheet line, the sheets' lengths (stock_quantity x length).",
             "minimum": 0.0,
             "title": "Total Length Mm",
             "type": "number"
@@ -3136,7 +3172,7 @@
                 "type": "null"
               }
             ],
-            "description": "Price of ONE stock piece in the book's currency's cents, rounded once per piece; null (blank, never 0) when the book has no price for the line or the line has no stock length.",
+            "description": "Price of ONE stock piece (or sheet) in the book's currency's cents, rounded once per piece; null (blank, never 0) when the book has no price for the line or the line has no stock.",
             "title": "Unit Price Cents"
           },
           "waste_mm": {
@@ -10355,6 +10391,8 @@
               "white_oak",
               "lvl",
               "glulam_dfl",
+              "osb",
+              "plywood",
               "steel_a992",
               "concrete"
             ],
@@ -10409,6 +10447,8 @@
                   "white_oak",
                   "lvl",
                   "glulam_dfl",
+                  "osb",
+                  "plywood",
                   "steel_a992",
                   "concrete"
                 ],
@@ -10445,6 +10485,8 @@
                   "white_oak",
                   "lvl",
                   "glulam_dfl",
+                  "osb",
+                  "plywood",
                   "steel_a992",
                   "concrete"
                 ],
@@ -10515,11 +10557,29 @@
             },
             "title": "Profiles",
             "type": "array"
+          },
+          "sheet_goods": {
+            "description": "Sheet products (SHEATHING): a material at a thickness, e.g. '7/16 OSB'.",
+            "items": {
+              "$ref": "#/components/schemas/SheetGood"
+            },
+            "title": "Sheet Goods",
+            "type": "array"
+          },
+          "sheet_sizes": {
+            "description": "The sheets they are sold in, shortest first: 4x8, 4x9, 4x10.",
+            "items": {
+              "$ref": "#/components/schemas/SheetSize"
+            },
+            "title": "Sheet Sizes",
+            "type": "array"
           }
         },
         "required": [
           "materials",
-          "profiles"
+          "profiles",
+          "sheet_goods",
+          "sheet_sizes"
         ],
         "title": "MaterialLibraryResponse",
         "type": "object"
@@ -10761,6 +10821,8 @@
                   "white_oak",
                   "lvl",
                   "glulam_dfl",
+                  "osb",
+                  "plywood",
                   "steel_a992",
                   "concrete"
                 ],
@@ -13291,6 +13353,8 @@
               "white_oak",
               "lvl",
               "glulam_dfl",
+              "osb",
+              "plywood",
               "steel_a992",
               "concrete"
             ],
@@ -13305,31 +13369,60 @@
             "type": "integer"
           },
           "profile": {
-            "description": "Lumber profile, e.g. 'us_2x4'.",
-            "enum": [
-              "us_1x4",
-              "us_1x6",
-              "us_5_4x6",
-              "us_2x2",
-              "us_2x3",
-              "us_2x4",
-              "us_2x6",
-              "us_2x8",
-              "us_2x10",
-              "us_2x12",
-              "us_4x4",
-              "us_4x6",
-              "us_6x6",
-              "us_6x8",
-              "us_8x8",
-              "us_8x10",
-              "us_8x12",
-              "us_10x10",
-              "us_10x12",
-              "us_12x12"
+            "anyOf": [
+              {
+                "enum": [
+                  "us_1x4",
+                  "us_1x6",
+                  "us_5_4x6",
+                  "us_2x2",
+                  "us_2x3",
+                  "us_2x4",
+                  "us_2x6",
+                  "us_2x8",
+                  "us_2x10",
+                  "us_2x12",
+                  "us_4x4",
+                  "us_4x6",
+                  "us_6x6",
+                  "us_6x8",
+                  "us_8x8",
+                  "us_8x10",
+                  "us_8x12",
+                  "us_10x10",
+                  "us_10x12",
+                  "us_12x12"
+                ],
+                "type": "string"
+              },
+              {
+                "enum": [
+                  "osb_7_16",
+                  "plywood_15_32",
+                  "plywood_23_32"
+                ],
+                "type": "string"
+              }
             ],
-            "title": "Profile",
-            "type": "string"
+            "description": "Lumber profile, e.g. 'us_2x4', or sheet product, e.g. 'osb_7_16'.",
+            "title": "Profile"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "enum": [
+                  "4x8",
+                  "4x9",
+                  "4x10"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10'); null for lumber.",
+            "title": "Sheet"
           },
           "stock_length_ft": {
             "anyOf": [
@@ -13340,11 +13433,11 @@
                 "type": "null"
               }
             ],
-            "description": "The stock length an 'each' price is for (ft); null for a per-foot or per-board-foot price.",
+            "description": "The stock length a lumber 'each' price is for (ft); null for a sheet or a per-foot or per-board-foot price.",
             "title": "Stock Length Ft"
           },
           "unit": {
-            "description": "'each' (one stock piece of `stock_length_ft`), 'linear_foot' or 'board_foot' (any stock length).",
+            "description": "'each' (one stock piece of `stock_length_ft`, or one sheet of `sheet`), 'linear_foot' or 'board_foot' (any stock length; lumber only).",
             "enum": [
               "each",
               "linear_foot",
@@ -13364,7 +13457,7 @@
         "type": "object"
       },
       "PriceBookResponse": {
-        "description": "The caller's price book. A user who never saved one has an empty USD\nbook (``updated_at`` null).",
+        "description": "The caller's price book. A user who never saved one has an empty USD\nbook (``updated_at`` null, ``version`` 0).",
         "properties": {
           "currency": {
             "const": "USD",
@@ -13390,6 +13483,13 @@
             ],
             "description": "When the book was last saved; null if never.",
             "title": "Updated At"
+          },
+          "version": {
+            "default": 0,
+            "description": "0 until the first save, then one more per save. Send it back as `If-Match` on the `PUT` (also served as the `ETag`).",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
           }
         },
         "required": [
@@ -13410,7 +13510,7 @@
             "type": "string"
           },
           "entries": {
-            "description": "Every entry, in the user's order; one per material, profile, unit and stock length.",
+            "description": "Every entry, in the user's order; one per material, profile, unit and stock length or sheet.",
             "items": {
               "$ref": "#/components/schemas/PriceBookEntry"
             },
@@ -13420,6 +13520,77 @@
           }
         },
         "title": "PriceBookUpdate",
+        "type": "object"
+      },
+      "PriceBookVersionDetails": {
+        "description": "A 412's ``details``: the version the book is at now.",
+        "properties": {
+          "version": {
+            "description": "The stored book's version now.",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "PriceBookVersionDetails",
+        "type": "object"
+      },
+      "PriceBookVersionEnvelope": {
+        "description": "A refused save as it appears on the wire (the standard envelope).",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/PriceBookVersionError"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "PriceBookVersionEnvelope",
+        "type": "object"
+      },
+      "PriceBookVersionError": {
+        "description": "The ``error`` member of a price-book 412 or 428 (the py-kit envelope,\nwith typed ``details``).",
+        "properties": {
+          "code": {
+            "description": "'price_book_stale' (412) or 'price_book_version_required' (428): the machine code a client branches on.",
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceBookVersionDetails"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The book's version now (412); null on a 428."
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "PriceBookVersionError",
         "type": "object"
       },
       "ProfileInput": {
@@ -14145,6 +14316,55 @@
         "title": "SheetCreate",
         "type": "object"
       },
+      "SheetGood": {
+        "description": "One sheet product: a material at a thickness.",
+        "properties": {
+          "key": {
+            "enum": [
+              "osb_7_16",
+              "plywood_15_32",
+              "plywood_23_32"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "material": {
+            "description": "Library material of the panels.",
+            "enum": [
+              "osb",
+              "plywood"
+            ],
+            "title": "Material",
+            "type": "string"
+          },
+          "name": {
+            "description": "As sold, e.g. '7/16 OSB'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "thickness_in": {
+            "description": "Thickness (in).",
+            "exclusiveMinimum": 0.0,
+            "title": "Thickness In",
+            "type": "number"
+          },
+          "thickness_mm": {
+            "description": "Thickness (mm).",
+            "exclusiveMinimum": 0.0,
+            "title": "Thickness Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "material",
+          "thickness_in",
+          "thickness_mm"
+        ],
+        "title": "SheetGood",
+        "type": "object"
+      },
       "SheetMetalBaseFlangeFeature": {
         "description": "``{\"type\": \"sheet_metal_base_flange\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-CREATING base feature (docs/design/sheet-metal.md \u00a74.1): it thickens a\nprofile to gauge, producing the sheet-metal part's first body, and anchors the\npart's sheet-metal defaults (``k_factor``/``bend_radius_mm``). ``params`` is\n:class:`SheetMetalBaseFlangeParamsV1`.",
         "properties": {
@@ -14717,6 +14937,39 @@
           "updated_at"
         ],
         "title": "SheetResponse",
+        "type": "object"
+      },
+      "SheetSize": {
+        "description": "One sheet size: 4 ft wide, 8, 9 or 10 ft long.",
+        "properties": {
+          "key": {
+            "enum": [
+              "4x8",
+              "4x9",
+              "4x10"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "length_in": {
+            "description": "The long side (in).",
+            "exclusiveMinimum": 0.0,
+            "title": "Length In",
+            "type": "number"
+          },
+          "width_in": {
+            "description": "The short side (in): 48.",
+            "exclusiveMinimum": 0.0,
+            "title": "Width In",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "width_in",
+          "length_in"
+        ],
+        "title": "SheetSize",
         "type": "object"
       },
       "SheetUpdate": {
@@ -23622,7 +23875,7 @@
     },
     "/api/v1/price-book": {
       "get": {
-        "description": "Your price book: what you pay per stock piece, linear foot or board\nfoot for each material and lumber profile, in integer cents. Empty (USD)\nuntil you save one.",
+        "description": "Your price book: what you pay per stock piece, sheet, linear foot or\nboard foot for each material and profile, in integer cents. Empty (USD,\nversion 0) until you save one. The `ETag` is its `version`.",
         "operationId": "get_price_book_api_v1_price_book_get",
         "responses": {
           "200": {
@@ -23647,8 +23900,29 @@
         ]
       },
       "put": {
-        "description": "Replace your whole price book. At most 500 entries; each a material,\na profile, a unit (`each` with its `stock_length_ft`, `linear_foot` or\n`board_foot`) and `price_cents`, an integer from 0 to 10,000,000; one\nprice per material, profile, unit and stock length (else a 422).",
+        "description": "Replace your whole price book, if it is still the version you read.\nSend that version as `If-Match` (the GET's `ETag`); a book saved since is\nrefused with 412 `price_book_stale` and kept as it is. At most 500\nentries; each a material, a profile, a unit (`each` with its\n`stock_length_ft`, or its `sheet` for a sheet product; `linear_foot` or\n`board_foot`) and `price_cents`, an integer from 0 to 10,000,000; one\nprice per material, profile, unit and stock length or sheet (else a 422).",
         "operationId": "put_price_book_api_v1_price_book_put",
+        "parameters": [
+          {
+            "description": "The book's version as read: its ETag (e.g. \"3\"), or \"0\" for a book never saved. Required; a save drafted from an older version is refused with 412 price_book_stale.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The book's version as read: its ETag (e.g. \"3\"), or \"0\" for a book never saved. Required; a save drafted from an older version is refused with 412 price_book_stale.",
+              "title": "If-Match"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -23670,6 +23944,16 @@
             },
             "description": "Successful Response"
           },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PriceBookVersionEnvelope"
+                }
+              }
+            },
+            "description": "The book was saved since the If-Match version: `price_book_stale`, `details.version` its version now."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -23679,6 +23963,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PriceBookVersionEnvelope"
+                }
+              }
+            },
+            "description": "No If-Match: `price_book_version_required`."
           }
         },
         "security": [

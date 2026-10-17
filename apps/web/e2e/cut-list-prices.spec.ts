@@ -17,7 +17,10 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  *  - Joist reads 13 at $19.98 = $259.74 and the Total is $943.94;
  *  - deleting the 6x6 entry blanks Post: $839.54 and "1 line unpriced";
  *  - a reload keeps it (the book is the user's, stored in documents);
- *  - the CSV carries the price columns and the Total row.
+ *  - the CSV carries the price columns and the Total row;
+ *  - PRICE-BOOK-VERSION: with the dialog open, another tab saves the book;
+ *    the dialog's save is refused by the server (412), says so, and its
+ *    Reload drafts from the other tab's book, which is never lost.
  */
 
 const PT = "southern_pine_pt";
@@ -261,7 +264,64 @@ test.describe("Cut list prices — the B1 deck", () => {
     expect(csv[5]).toMatch(/^5,Post,.*,8 ft,85\.5,3,,,$/);
     expect(csv[6]).toMatch(/^6,Deck,.*,16 ft,0,26,17\.92,Per ft,465\.92$/);
     expect(csv[7]).toBe(
-      ',"Total of priced lines, 1 unpriced",,,,,,,,,,,,839.54',
+      ',"Total of priced lines, 1 unpriced",,,,,,,,,,,,,839.54',
     );
+
+    // PRICE-BOOK-VERSION: the dialog drafts version N; another tab saves.
+    await reloaded.getByTestId("cut-list-price-book").click();
+    const open = page.getByRole("dialog", { name: "Price book" });
+    await expect(open.getByTestId("price-book-row")).toHaveCount(6);
+    const auth = { Authorization: `Bearer ${account.token}` };
+    const read = await page.request.get("/api/v1/price-book", {
+      headers: auth,
+    });
+    const current = (await read.json()) as {
+      version: number;
+      entries: object[];
+    };
+    expect(read.headers()["etag"]).toBe(`"${current.version}"`);
+    const fourByFour = {
+      material: PT,
+      profile: "us_4x4",
+      unit: "each",
+      stock_length_ft: 8,
+      sheet: null,
+      price_cents: 1298,
+    };
+    const otherTab = await page.request.put("/api/v1/price-book", {
+      headers: { ...auth, "If-Match": `"${current.version}"` },
+      data: { currency: "USD", entries: [...current.entries, fourByFour] },
+    });
+    expect(otherTab.status(), await otherTab.text()).toBe(200);
+    // A second PUT from the same version is refused and changes nothing.
+    const stale = await page.request.put("/api/v1/price-book", {
+      headers: { ...auth, "If-Match": `"${current.version}"` },
+      data: { currency: "USD", entries: [] },
+    });
+    expect(stale.status()).toBe(412);
+    expect(
+      ((await stale.json()) as { error: { code: string } }).error.code,
+    ).toBe("price_book_stale");
+    // The dialog's save is the same stale PUT: refused, with a Reload.
+    await open.getByTestId("price-book-save").click();
+    await expect(open.getByTestId("price-book-error")).toContainText(
+      "changed elsewhere",
+    );
+    await page.mouse.move(10, 10);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/price-book-stale.png`,
+    });
+    await open.getByTestId("price-book-reload").click();
+    await expect(open.getByTestId("price-book-row")).toHaveCount(7);
+    await expect(
+      open.locator('[data-testid="price-book-row"][data-profile="us_4x4"]'),
+    ).toHaveCount(1);
+    await open.getByTestId("price-book-save").click();
+    await expect(open).toBeHidden({ timeout: 15_000 });
+    const saved = (await (
+      await page.request.get("/api/v1/price-book", { headers: auth })
+    ).json()) as { version: number; entries: object[] };
+    expect(saved.version).toBe(current.version + 2);
+    expect(saved.entries).toHaveLength(7);
   });
 });

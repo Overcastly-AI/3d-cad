@@ -2,6 +2,9 @@
  * The Price book dialog (CUT-LIST-PRICES): the stored book as rows, a seed row
  * pre-filled from a cut-list line, prices parsed to integer cents, a bad or
  * duplicate row refused in a sentence, Escape cancels, Tab stays inside.
+ * SHEATHING: a sheet product is priced Each per sheet. PRICE-BOOK-VERSION:
+ * every save names the version its draft was read at, and the server's 412
+ * is shown with a Reload.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -13,7 +16,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PriceBook } from "../api/priceBook";
+import { type PriceBook, PriceBookChangedError } from "../api/priceBook";
 import {
   BOOK_CHANGED,
   PriceBookDialog,
@@ -42,11 +45,22 @@ vi.mock("../api/materials", () => ({
           source: "",
         },
         { key: "spf_lumber", name: "SPF", density_kg_m3: 420, source: "" },
+        { key: "osb", name: "OSB", density_kg_m3: 641, source: "" },
+        { key: "plywood", name: "Plywood", density_kg_m3: 577, source: "" },
       ],
       profiles: [
         { key: "us_2x10", name: "2x10" },
         { key: "us_5_4x6", name: "5/4x6" },
         { key: "us_6x6", name: "6x6" },
+      ],
+      sheet_goods: [
+        { key: "osb_7_16", name: "7/16 OSB", material: "osb" },
+        { key: "plywood_23_32", name: "23/32 plywood", material: "plywood" },
+      ],
+      sheet_sizes: [
+        { key: "4x8", width_in: 48, length_in: 96 },
+        { key: "4x9", width_in: 48, length_in: 108 },
+        { key: "4x10", width_in: 48, length_in: 120 },
       ],
     }),
   ),
@@ -55,12 +69,14 @@ vi.mock("../api/materials", () => ({
 const BOOK: PriceBook = {
   currency: "USD",
   updated_at: "2026-10-17T00:00:00Z",
+  version: 3,
   entries: [
     {
       material: "southern_pine_pt",
       profile: "us_2x10",
       unit: "each",
       stock_length_ft: 12,
+      sheet: null,
       price_cents: 1998,
     },
   ],
@@ -134,16 +150,21 @@ describe("PriceBookDialog", () => {
     fireEvent.submit(screen.getByTestId("price-book-dialog"));
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(api.savePriceBook).toHaveBeenCalledWith([
-      BOOK.entries![0],
-      {
-        material: "southern_pine_pt",
-        profile: "us_6x6",
-        unit: "board_foot",
-        stock_length_ft: null,
-        price_cents: 145,
-      },
-    ]);
+    // Saved over the version the draft was read at.
+    expect(api.savePriceBook).toHaveBeenCalledWith(
+      [
+        BOOK.entries![0],
+        {
+          material: "southern_pine_pt",
+          profile: "us_6x6",
+          unit: "board_foot",
+          stock_length_ft: null,
+          sheet: null,
+          price_cents: 145,
+        },
+      ],
+      3,
+    );
     // Every cut list re-prices without a reload.
     await waitFor(() =>
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["cut-list"] }),
@@ -195,7 +216,7 @@ describe("PriceBookDialog", () => {
     expect(screen.queryAllByTestId("price-book-row")).toHaveLength(0);
     fireEvent.submit(screen.getByTestId("price-book-dialog"));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(api.savePriceBook).toHaveBeenCalledWith([]);
+    expect(api.savePriceBook).toHaveBeenCalledWith([], 3);
   });
 
   it("Escape cancels without saving", async () => {
@@ -224,6 +245,7 @@ describe("PriceBookDialog", () => {
       currency: "USD",
       entries: [],
       updated_at: null,
+      version: 0,
     });
     let answer: (book: PriceBook) => void = () => undefined;
     api.fetchPriceBook.mockImplementationOnce(
@@ -243,34 +265,94 @@ describe("PriceBookDialog", () => {
     expect(rows).toHaveLength(1);
     fireEvent.submit(screen.getByTestId("price-book-dialog"));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(api.savePriceBook).toHaveBeenCalledWith(BOOK.entries);
+    expect(api.savePriceBook).toHaveBeenCalledWith(BOOK.entries, 3);
   });
 
-  it("refuses to overwrite a book saved elsewhere while the draft was open", async () => {
+  it("shows the server's refusal of a book saved elsewhere, and reloads it", async () => {
     const elsewhere: PriceBook = {
       ...BOOK,
       updated_at: "2026-10-17T01:00:00Z",
+      version: 4,
       entries: [
         ...BOOK.entries!,
         { ...BOOK.entries![0]!, stock_length_ft: 16 },
       ],
     };
-    api.fetchPriceBook
-      .mockResolvedValueOnce(BOOK)
-      .mockResolvedValueOnce(elsewhere)
-      .mockResolvedValue(elsewhere);
+    api.fetchPriceBook.mockResolvedValueOnce(BOOK).mockResolvedValue(elsewhere);
+    // The gateway's 412: version 3 is no longer the stored book's.
+    api.savePriceBook.mockRejectedValueOnce(new PriceBookChangedError());
     const { onClose } = renderDialog();
     await screen.findAllByTestId("price-book-row");
     fireEvent.submit(screen.getByTestId("price-book-dialog"));
     expect(await screen.findByText(BOOK_CHANGED)).toBeInTheDocument();
-    expect(api.savePriceBook).not.toHaveBeenCalled();
+    // One PUT, no re-read before it: the version check is the server's.
+    expect(api.savePriceBook).toHaveBeenCalledTimes(1);
+    expect(api.savePriceBook).toHaveBeenLastCalledWith(BOOK.entries, 3);
+    expect(api.fetchPriceBook).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();
-    // Reload drafts from the book as it is stored now.
+    // Reload drafts from the book as it is stored now, at its version.
     fireEvent.click(screen.getByTestId("price-book-reload"));
     await waitFor(() =>
       expect(screen.getAllByTestId("price-book-row")).toHaveLength(2),
     );
     expect(screen.queryByText(BOOK_CHANGED)).toBeNull();
+    fireEvent.submit(screen.getByTestId("price-book-dialog"));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(api.savePriceBook).toHaveBeenLastCalledWith(elsewhere.entries, 4);
+  });
+
+  it("prices a sheet product Each per sheet, seeded from a sheet line", async () => {
+    const { onClose } = renderDialog({
+      material: "osb",
+      profile: "7/16 OSB",
+      stockLengthFt: null,
+      sheet: "4x9",
+    });
+    const rows = await screen.findAllByTestId("price-book-row");
+    expect(rows).toHaveLength(2);
+    const seeded = within(rows[1]!);
+    expect(seeded.getByLabelText("Profile, price 2")).toHaveValue("osb_7_16");
+    expect(seeded.getByLabelText("Sheet, price 2")).toHaveValue("4x9");
+    // A sheet has no unit to choose and no stock length.
+    expect(seeded.queryByLabelText("Priced, price 2")).toBeNull();
+    expect(seeded.getByTestId("price-book-unit-sheet")).toHaveTextContent(
+      "Each",
+    );
+    expect(seeded.queryByLabelText("Stock length, price 2")).toBeNull();
+    const price = seeded.getByLabelText("Price in dollars, price 2");
+    await waitFor(() => expect(price).toHaveFocus());
+    fireEvent.change(price, { target: { value: "24.98" } });
+    fireEvent.submit(screen.getByTestId("price-book-dialog"));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(api.savePriceBook).toHaveBeenCalledWith(
+      [
+        BOOK.entries![0],
+        {
+          material: "osb",
+          profile: "osb_7_16",
+          unit: "each",
+          stock_length_ft: null,
+          sheet: "4x9",
+          price_cents: 2498,
+        },
+      ],
+      3,
+    );
+  });
+
+  it("choosing a sheet product prices it Each in its own material", async () => {
+    renderDialog();
+    const rows = await screen.findAllByTestId("price-book-row");
+    const row = within(rows[0]!);
+    fireEvent.change(row.getByLabelText("Priced, price 1"), {
+      target: { value: "linear_foot" },
+    });
+    fireEvent.change(row.getByLabelText("Profile, price 1"), {
+      target: { value: "plywood_23_32" },
+    });
+    expect(row.getByLabelText("Material, price 1")).toHaveValue("plywood");
+    expect(row.getByLabelText("Sheet, price 1")).toHaveValue("4x8");
+    expect(row.getByTestId("price-book-unit-sheet")).toHaveTextContent("Each");
   });
 
   it("holds Cancel and Escape while a save is in flight", async () => {

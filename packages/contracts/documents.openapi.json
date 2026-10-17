@@ -711,6 +711,8 @@
               "white_oak",
               "lvl",
               "glulam_dfl",
+              "osb",
+              "plywood",
               "steel_a992",
               "concrete"
             ],
@@ -7613,6 +7615,8 @@
               "white_oak",
               "lvl",
               "glulam_dfl",
+              "osb",
+              "plywood",
               "steel_a992",
               "concrete"
             ],
@@ -7667,6 +7671,8 @@
                   "white_oak",
                   "lvl",
                   "glulam_dfl",
+                  "osb",
+                  "plywood",
                   "steel_a992",
                   "concrete"
                 ],
@@ -7703,6 +7709,8 @@
                   "white_oak",
                   "lvl",
                   "glulam_dfl",
+                  "osb",
+                  "plywood",
                   "steel_a992",
                   "concrete"
                 ],
@@ -7773,11 +7781,29 @@
             },
             "title": "Profiles",
             "type": "array"
+          },
+          "sheet_goods": {
+            "description": "Sheet products (SHEATHING): a material at a thickness, e.g. '7/16 OSB'.",
+            "items": {
+              "$ref": "#/components/schemas/SheetGood"
+            },
+            "title": "Sheet Goods",
+            "type": "array"
+          },
+          "sheet_sizes": {
+            "description": "The sheets they are sold in, shortest first: 4x8, 4x9, 4x10.",
+            "items": {
+              "$ref": "#/components/schemas/SheetSize"
+            },
+            "title": "Sheet Sizes",
+            "type": "array"
           }
         },
         "required": [
           "materials",
-          "profiles"
+          "profiles",
+          "sheet_goods",
+          "sheet_sizes"
         ],
         "title": "MaterialLibraryResponse",
         "type": "object"
@@ -7802,6 +7828,8 @@
                   "white_oak",
                   "lvl",
                   "glulam_dfl",
+                  "osb",
+                  "plywood",
                   "steel_a992",
                   "concrete"
                 ],
@@ -9848,6 +9876,8 @@
               "white_oak",
               "lvl",
               "glulam_dfl",
+              "osb",
+              "plywood",
               "steel_a992",
               "concrete"
             ],
@@ -9862,31 +9892,60 @@
             "type": "integer"
           },
           "profile": {
-            "description": "Lumber profile, e.g. 'us_2x4'.",
-            "enum": [
-              "us_1x4",
-              "us_1x6",
-              "us_5_4x6",
-              "us_2x2",
-              "us_2x3",
-              "us_2x4",
-              "us_2x6",
-              "us_2x8",
-              "us_2x10",
-              "us_2x12",
-              "us_4x4",
-              "us_4x6",
-              "us_6x6",
-              "us_6x8",
-              "us_8x8",
-              "us_8x10",
-              "us_8x12",
-              "us_10x10",
-              "us_10x12",
-              "us_12x12"
+            "anyOf": [
+              {
+                "enum": [
+                  "us_1x4",
+                  "us_1x6",
+                  "us_5_4x6",
+                  "us_2x2",
+                  "us_2x3",
+                  "us_2x4",
+                  "us_2x6",
+                  "us_2x8",
+                  "us_2x10",
+                  "us_2x12",
+                  "us_4x4",
+                  "us_4x6",
+                  "us_6x6",
+                  "us_6x8",
+                  "us_8x8",
+                  "us_8x10",
+                  "us_8x12",
+                  "us_10x10",
+                  "us_10x12",
+                  "us_12x12"
+                ],
+                "type": "string"
+              },
+              {
+                "enum": [
+                  "osb_7_16",
+                  "plywood_15_32",
+                  "plywood_23_32"
+                ],
+                "type": "string"
+              }
             ],
-            "title": "Profile",
-            "type": "string"
+            "description": "Lumber profile, e.g. 'us_2x4', or sheet product, e.g. 'osb_7_16'.",
+            "title": "Profile"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "enum": [
+                  "4x8",
+                  "4x9",
+                  "4x10"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10'); null for lumber.",
+            "title": "Sheet"
           },
           "stock_length_ft": {
             "anyOf": [
@@ -9897,11 +9956,11 @@
                 "type": "null"
               }
             ],
-            "description": "The stock length an 'each' price is for (ft); null for a per-foot or per-board-foot price.",
+            "description": "The stock length a lumber 'each' price is for (ft); null for a sheet or a per-foot or per-board-foot price.",
             "title": "Stock Length Ft"
           },
           "unit": {
-            "description": "'each' (one stock piece of `stock_length_ft`), 'linear_foot' or 'board_foot' (any stock length).",
+            "description": "'each' (one stock piece of `stock_length_ft`, or one sheet of `sheet`), 'linear_foot' or 'board_foot' (any stock length; lumber only).",
             "enum": [
               "each",
               "linear_foot",
@@ -9921,7 +9980,7 @@
         "type": "object"
       },
       "PriceBookResponse": {
-        "description": "The caller's price book. A user who never saved one has an empty USD\nbook (``updated_at`` null).",
+        "description": "The caller's price book. A user who never saved one has an empty USD\nbook (``updated_at`` null, ``version`` 0).",
         "properties": {
           "currency": {
             "const": "USD",
@@ -9947,6 +10006,13 @@
             ],
             "description": "When the book was last saved; null if never.",
             "title": "Updated At"
+          },
+          "version": {
+            "default": 0,
+            "description": "0 until the first save, then one more per save. Send it back as `If-Match` on the `PUT` (also served as the `ETag`).",
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
           }
         },
         "required": [
@@ -9967,7 +10033,7 @@
             "type": "string"
           },
           "entries": {
-            "description": "Every entry, in the user's order; one per material, profile, unit and stock length.",
+            "description": "Every entry, in the user's order; one per material, profile, unit and stock length or sheet.",
             "items": {
               "$ref": "#/components/schemas/PriceBookEntry"
             },
@@ -10941,6 +11007,55 @@
         "title": "SheetCreate",
         "type": "object"
       },
+      "SheetGood": {
+        "description": "One sheet product: a material at a thickness.",
+        "properties": {
+          "key": {
+            "enum": [
+              "osb_7_16",
+              "plywood_15_32",
+              "plywood_23_32"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "material": {
+            "description": "Library material of the panels.",
+            "enum": [
+              "osb",
+              "plywood"
+            ],
+            "title": "Material",
+            "type": "string"
+          },
+          "name": {
+            "description": "As sold, e.g. '7/16 OSB'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "thickness_in": {
+            "description": "Thickness (in).",
+            "exclusiveMinimum": 0.0,
+            "title": "Thickness In",
+            "type": "number"
+          },
+          "thickness_mm": {
+            "description": "Thickness (mm).",
+            "exclusiveMinimum": 0.0,
+            "title": "Thickness Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "material",
+          "thickness_in",
+          "thickness_mm"
+        ],
+        "title": "SheetGood",
+        "type": "object"
+      },
       "SheetMetalBaseFlangeFeature": {
         "description": "``{\"type\": \"sheet_metal_base_flange\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-CREATING base feature (docs/design/sheet-metal.md \u00a74.1): it thickens a\nprofile to gauge, producing the sheet-metal part's first body, and anchors the\npart's sheet-metal defaults (``k_factor``/``bend_radius_mm``). ``params`` is\n:class:`SheetMetalBaseFlangeParamsV1`.",
         "properties": {
@@ -11513,6 +11628,39 @@
           "updated_at"
         ],
         "title": "SheetResponse",
+        "type": "object"
+      },
+      "SheetSize": {
+        "description": "One sheet size: 4 ft wide, 8, 9 or 10 ft long.",
+        "properties": {
+          "key": {
+            "enum": [
+              "4x8",
+              "4x9",
+              "4x10"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "length_in": {
+            "description": "The long side (in).",
+            "exclusiveMinimum": 0.0,
+            "title": "Length In",
+            "type": "number"
+          },
+          "width_in": {
+            "description": "The short side (in): 48.",
+            "exclusiveMinimum": 0.0,
+            "title": "Width In",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "width_in",
+          "length_in"
+        ],
+        "title": "SheetSize",
         "type": "object"
       },
       "SheetUpdate": {
@@ -16518,7 +16666,7 @@
     },
     "/api/v1/materials": {
       "get": {
-        "description": "The built-in materials and lumber profiles, in display order.\n\nv1 is a closed library (docs/design/materials.md \u00a71/\u00a75): a fixed\n``MaterialKey`` literal means an unknown material is a parse error at the\nboundary instead of a silent \"no mass\" three services later. User-defined\nmaterials extend this response additively when they land.",
+        "description": "The built-in materials, lumber profiles and sheet goods, in display order.\n\nv1 is a closed library (docs/design/materials.md \u00a71/\u00a75): a fixed\n``MaterialKey`` literal means an unknown material is a parse error at the\nboundary instead of a silent \"no mass\" three services later. User-defined\nmaterials extend this response additively when they land.",
         "operationId": "list_materials_api_v1_materials_get",
         "responses": {
           "200": {
@@ -18955,7 +19103,7 @@
     },
     "/api/v1/price-book": {
       "get": {
-        "description": "The caller's price book; an empty USD book if they never saved one.",
+        "description": "The caller's price book; an empty USD book (version 0) if they never\nsaved one. The ``ETag`` is its version.",
         "operationId": "get_price_book_api_v1_price_book_get",
         "parameters": [
           {
@@ -19005,9 +19153,28 @@
         ]
       },
       "put": {
-        "description": "Replace the caller's whole price book (at most 500 entries, one price\nper material, profile, unit and stock length, integer cents).",
+        "description": "Replace the caller's whole price book (at most 500 entries, one price\nper material, profile, unit and stock length or sheet, integer cents),\nif it is still at the ``If-Match`` version (else 412).",
         "operationId": "put_price_book_api_v1_price_book_put",
         "parameters": [
+          {
+            "description": "The book's version as read (its ETag, e.g. \"3\"; \"0\" for a book never saved). Required: a save drafted from an older version is refused with 412.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The book's version as read (its ETag, e.g. \"3\"; \"0\" for a book never saved). Required: a save drafted from an older version is refused with 412.",
+              "title": "If-Match"
+            }
+          },
           {
             "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
             "in": "header",

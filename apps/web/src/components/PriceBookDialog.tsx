@@ -1,16 +1,20 @@
 /**
  * PRICE BOOK (CUT-LIST-PRICES): what you pay for lumber, the list the cut list
  * prices itself from (RESEARCH §27). Chief Architect's Master List and
- * SolidWorks' Cost property, reduced to the one table a deck builder keeps: a
+ * SolidWorks' Cost property, reduced to the one table a builder keeps: a
  * material and a profile, priced Each at a stock length, per linear foot or
- * per board foot.
+ * per board foot; or a sheet product (SHEATHING), priced Each per sheet.
  *
  * The book is saved whole (`PUT` replaces it), so the dialog edits a draft and
  * Save sends every row; Cancel or Escape drops the draft. Opened from a blank
  * price in the cut list it adds a row pre-filled with that line's material,
- * profile and stock length, its price field focused, so pricing a line is
- * typing a number and pressing Enter. A save refetches every cut list, so the
- * panel re-prices without a reload.
+ * profile and stock length (or sheet), its price field focused, so pricing a
+ * line is typing a number and pressing Enter. A save refetches every cut
+ * list, so the panel re-prices without a reload.
+ *
+ * The save names the book's version it was drafted from (PRICE-BOOK-VERSION):
+ * a book saved elsewhere since is refused by the server with 412, shown as
+ * "the price book changed elsewhere" with a Reload, and never overwritten.
  *
  * Prices are typed as decimals and parsed to integer cents on the digits
  * (`lib/money`); nothing here does float arithmetic on money.
@@ -23,13 +27,17 @@ import { createPortal } from "react-dom";
 import type { MaterialKey } from "../api/materials";
 import { fetchMaterialLibrary } from "../api/materials";
 import {
+  BOOK_CHANGED,
   fetchPriceBook,
   type LumberProfileKey,
   PRICE_UNIT_LABEL,
   type PriceBook,
+  PriceBookChangedError,
   type PriceBookEntry,
+  type PriceProfileKey,
   type PriceUnit,
   savePriceBook,
+  type SheetSizeKey,
   STOCK_LENGTHS_FT,
 } from "../api/priceBook";
 import { useModalLayer } from "../lib/modalGate";
@@ -39,9 +47,12 @@ import { containFocus } from "./dialogKeys";
 /** The line a blank price was clicked on: what the new row starts as. */
 export interface PriceBookSeed {
   material: MaterialKey;
-  /** The profile as the cut list names it ("2x10", "5/4x6"). */
+  /** The profile as the cut list names it ("2x10", "5/4x6", "7/16 OSB"). */
   profile: string;
-  stockLengthFt: number;
+  /** A lumber line's stock length (ft); null for a sheet line. */
+  stockLengthFt: number | null;
+  /** A sheet line's sheet ("4x9"); null or absent for lumber. */
+  sheet?: SheetSizeKey | null;
 }
 
 export interface PriceBookDialogProps {
@@ -53,9 +64,11 @@ export interface PriceBookDialogProps {
 interface DraftRow {
   id: number;
   material: MaterialKey;
-  profile: LumberProfileKey;
+  profile: PriceProfileKey;
   unit: PriceUnit;
   stockLengthFt: number;
+  /** The sheet a sheet product's price is for (unused for lumber). */
+  sheet: SheetSizeKey;
   price: string;
 }
 
@@ -71,16 +84,23 @@ const STOCK_OPTIONS = STOCK_LENGTHS_FT.map((ft) => ({
 const DEFAULT_MATERIAL: MaterialKey = "southern_pine_pt";
 const DEFAULT_PROFILE: LumberProfileKey = "us_2x4";
 const DEFAULT_STOCK_FT = 8;
+const DEFAULT_SHEET: SheetSizeKey = "4x8";
 
 const HEAD =
   "py-1 pr-2 text-left font-display text-2xs font-normal uppercase tracking-[0.14em] text-gauge";
 
+/** Sheet products are keyed like `osb_7_16`; lumber like `us_2x4`. */
+function isSheetProfile(profile: PriceProfileKey): boolean {
+  return !profile.startsWith("us_");
+}
+
 function rowKey(row: DraftRow): string {
+  const sheet = isSheetProfile(row.profile);
   return [
     row.material,
     row.profile,
     row.unit,
-    row.unit === "each" ? row.stockLengthFt : "",
+    row.unit !== "each" ? "" : sheet ? row.sheet : row.stockLengthFt,
   ].join("|");
 }
 
@@ -112,17 +132,7 @@ function validate(rows: DraftRow[]): Map<number, string> {
   return problems;
 }
 
-/** Why a save was refused: the stored book is no longer the one drafted. */
-export const BOOK_CHANGED =
-  "The price book changed elsewhere (another tab or device) since you opened it. Reload it, then make your changes again.";
-
-/** The same stored book: same save stamp and the same entries in order. */
-function sameBook(a: PriceBook, b: PriceBook): boolean {
-  return (
-    (a.updated_at ?? null) === (b.updated_at ?? null) &&
-    JSON.stringify(a.entries ?? []) === JSON.stringify(b.entries ?? [])
-  );
-}
+export { BOOK_CHANGED };
 
 /** Each opening (and each reload) drafts from its own GET, never the cache. */
 let draftCounter = 0;
@@ -157,16 +167,10 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
   const [focusRow, setFocusRow] = useState<number | null>(null);
 
   const save = useMutation({
-    mutationFn: async (entries: PriceBookEntry[]) => {
-      // No version on the PUT (RESEARCH §27), so re-read just before it: a
-      // book saved elsewhere since this draft was built is refused, never
-      // overwritten.
-      const current = await fetchPriceBook();
-      if (base.current === null || !sameBook(current, base.current)) {
-        throw new Error(BOOK_CHANGED);
-      }
-      return savePriceBook(entries);
-    },
+    // The server checks the version (If-Match) and refuses a book saved
+    // elsewhere since this draft was read: 412, never an overwrite.
+    mutationFn: (entries: PriceBookEntry[]) =>
+      savePriceBook(entries, base.current?.version ?? 0),
     onSuccess: async (saved) => {
       queryClient.setQueryData(["price-book"], saved);
       onClose();
@@ -191,19 +195,22 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
       profile: entry.profile,
       unit: entry.unit,
       stockLengthFt: entry.stock_length_ft ?? DEFAULT_STOCK_FT,
+      sheet: entry.sheet ?? DEFAULT_SHEET,
       price: centsToDecimal(entry.price_cents),
     }));
-    const seedProfile =
+    const seedProfile: PriceProfileKey | undefined =
       seed === null
         ? undefined
-        : library.data.profiles.find((p) => p.name === seed.profile)?.key;
+        : (library.data.profiles.find((p) => p.name === seed.profile)?.key ??
+          library.data.sheet_goods.find((g) => g.name === seed.profile)?.key);
     if (seed !== null && seedProfile !== undefined) {
       const row: DraftRow = {
         id: nextId.current++,
         material: seed.material,
         profile: seedProfile,
         unit: "each",
-        stockLengthFt: seed.stockLengthFt,
+        stockLengthFt: seed.stockLengthFt ?? DEFAULT_STOCK_FT,
+        sheet: seed.sheet ?? DEFAULT_SHEET,
         price: "",
       };
       const existing = draft.find((r) => rowKey(r) === rowKey(row));
@@ -285,6 +292,7 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
       profile: last?.profile ?? DEFAULT_PROFILE,
       unit: last?.unit ?? "each",
       stockLengthFt: last?.stockLengthFt ?? DEFAULT_STOCK_FT,
+      sheet: last?.sheet ?? DEFAULT_SHEET,
       price: "",
     };
     setRows((current) => [...(current ?? []), row]);
@@ -310,14 +318,19 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
       return;
     }
     save.mutate(
-      rows.map((row) => ({
-        material: row.material,
-        profile: row.profile,
-        unit: row.unit,
-        stock_length_ft: row.unit === "each" ? row.stockLengthFt : null,
-        // validate() proved every price parses.
-        price_cents: parseMoney(row.price) ?? 0,
-      })),
+      rows.map((row) => {
+        const sheet = isSheetProfile(row.profile);
+        return {
+          material: row.material,
+          profile: row.profile,
+          unit: sheet ? "each" : row.unit,
+          stock_length_ft:
+            !sheet && row.unit === "each" ? row.stockLengthFt : null,
+          sheet: sheet ? row.sheet : null,
+          // validate() proved every price parses.
+          price_cents: parseMoney(row.price) ?? 0,
+        };
+      }),
     );
   };
 
@@ -325,12 +338,29 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
     value: m.key,
     label: m.name,
   }));
-  const profileOptions = (library.data?.profiles ?? []).map((p) => ({
-    value: p.key,
-    label: p.name,
+  const profileOptions: { value: PriceProfileKey; label: string }[] = [
+    ...(library.data?.profiles ?? []).map((p) => ({
+      value: p.key,
+      label: p.name,
+    })),
+    ...(library.data?.sheet_goods ?? []).map((g) => ({
+      value: g.key,
+      label: g.name,
+    })),
+  ];
+  const sheetOptions = (library.data?.sheet_sizes ?? []).map((size) => ({
+    value: size.key,
+    label: `${size.key} sheet`,
   }));
-  const profileName = (key: LumberProfileKey) =>
-    library.data?.profiles.find((p) => p.key === key)?.name ?? key;
+  const profileName = (key: PriceProfileKey) =>
+    profileOptions.find((p) => p.value === key)?.label ?? key;
+  /** A new profile: a sheet product is priced Each in its own material. */
+  const profilePatch = (key: PriceProfileKey): Partial<DraftRow> => {
+    const good = library.data?.sheet_goods.find((g) => g.key === key);
+    return good === undefined
+      ? { profile: key }
+      : { profile: key, unit: "each", material: good.material };
+  };
   const materialName = (key: MaterialKey) =>
     library.data?.materials.find((m) => m.key === key)?.name ?? key;
   const loadError = book.error ?? library.error;
@@ -373,7 +403,8 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
         >
           What you pay for each material and profile. The cut list prices every
           line on the stock pieces it buys: Each at that stock length first,
-          then per linear foot, then per board foot (nominal size).
+          then per linear foot, then per board foot (nominal size). Sheet goods
+          are priced Each per sheet, on the sheets their area needs.
         </p>
         <div className="min-h-0 overflow-y-auto px-4 pt-2">
           {loadError ? (
@@ -435,6 +466,7 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
                 ) : null}
                 {rows.map((row, index) => {
                   const n = index + 1;
+                  const sheet = isSheetProfile(row.profile);
                   const what = `${profileName(row.profile)} ${materialName(row.material)}`;
                   return (
                     <tr
@@ -470,29 +502,56 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
                           disabled={save.isPending}
                           data-testid="price-book-profile"
                           onChange={(event) =>
-                            update(row.id, {
-                              profile: event.target.value as LumberProfileKey,
-                            })
+                            update(
+                              row.id,
+                              profilePatch(
+                                event.target.value as PriceProfileKey,
+                              ),
+                            )
                           }
                         />
                       </td>
                       <td className="py-1.5 pr-2">
-                        <SelectField
-                          hideLabel
-                          label={`Priced, price ${n}`}
-                          options={UNIT_OPTIONS}
-                          value={row.unit}
-                          disabled={save.isPending}
-                          data-testid="price-book-unit"
-                          onChange={(event) =>
-                            update(row.id, {
-                              unit: event.target.value as PriceUnit,
-                            })
-                          }
-                        />
+                        {sheet ? (
+                          <span
+                            className="block px-2 font-data text-xs text-mist"
+                            title="A sheet is priced Each, per sheet"
+                            data-testid="price-book-unit-sheet"
+                          >
+                            Each
+                          </span>
+                        ) : (
+                          <SelectField
+                            hideLabel
+                            label={`Priced, price ${n}`}
+                            options={UNIT_OPTIONS}
+                            value={row.unit}
+                            disabled={save.isPending}
+                            data-testid="price-book-unit"
+                            onChange={(event) =>
+                              update(row.id, {
+                                unit: event.target.value as PriceUnit,
+                              })
+                            }
+                          />
+                        )}
                       </td>
                       <td className="py-1.5 pr-2">
-                        {row.unit === "each" ? (
+                        {sheet ? (
+                          <SelectField
+                            hideLabel
+                            label={`Sheet, price ${n}`}
+                            options={sheetOptions}
+                            value={row.sheet}
+                            disabled={save.isPending}
+                            data-testid="price-book-sheet"
+                            onChange={(event) =>
+                              update(row.id, {
+                                sheet: event.target.value as SheetSizeKey,
+                              })
+                            }
+                          />
+                        ) : row.unit === "each" ? (
                           <SelectField
                             hideLabel
                             label={`Stock length, price ${n}`}
@@ -576,7 +635,7 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
               className="mt-3 flex items-center gap-3 border border-flag px-3 py-2 font-body text-xs text-flag"
             >
               <span className="grow">{save.error.message}</span>
-              {save.error.message === BOOK_CHANGED ? (
+              {save.error instanceof PriceBookChangedError ? (
                 <Button data-testid="price-book-reload" onClick={reload}>
                   Reload the book
                 </Button>

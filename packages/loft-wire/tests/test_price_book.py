@@ -365,12 +365,12 @@ def test_the_csv_carries_the_prices_and_a_total_row() -> None:
     assert rows[0].endswith(
         "Waste each (in),Stock qty,Unit price (USD),Price unit,Extended (USD)"
     )
-    assert rows[4].endswith(",12 ft,3,13,19.98,Each,259.74")
-    assert rows[5].endswith(",8 ft,85.5,3,,,")  # the post: blank, not 0
-    assert rows[6].endswith(",16 ft,0,26,17.92,Per ft,465.92")
-    assert rows[7] == ',"Total of priced lines, 1 unpriced",,,,,,,,,,,,839.54'
+    assert rows[4].endswith(",,12 ft,3,13,19.98,Each,259.74")
+    assert rows[5].endswith(",,8 ft,85.5,3,,,")  # the post: blank, not 0
+    assert rows[6].endswith(",,16 ft,0,26,17.92,Per ft,465.92")
+    assert rows[7] == ',"Total of priced lines, 1 unpriced",,,,,,,,,,,,,839.54'
     full = cut_list_csv(_priced(_pieces(B1))).split("\r\n")
-    assert full[7] == ",Total,,,,,,,,,,,,943.94"
+    assert full[7] == ",Total,,,,,,,,,,,,,943.94"
     assert format_cents(173608) == "1736.08" and format_cents(5) == "0.05"
 
 

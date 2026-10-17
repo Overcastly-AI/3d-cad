@@ -68,6 +68,8 @@ EXPECTED_DENSITIES: dict[str, float] = {
     "white_oak": 759.0,
     "lvl": 673.0,
     "glulam_dfl": 561.0,
+    "osb": 641.0,
+    "plywood": 577.0,
     "steel_a992": 7850.0,
     "concrete": 2400.0,
 }
@@ -137,7 +139,14 @@ def test_wood_density_follows_from_nds_specific_gravity(
 
 @pytest.mark.parametrize(
     ("key", "pcf"),
-    [("lvl", 42), ("glulam_dfl", 35), ("steel_a992", 490), ("concrete", 150)],
+    [
+        ("lvl", 42),
+        ("glulam_dfl", 35),
+        ("osb", 40),
+        ("plywood", 36),
+        ("steel_a992", 490),
+        ("concrete", 150),
+    ],
 )
 def test_unit_weight_densities(key: str, pcf: float) -> None:
     rho = pcf * KG_M3_PER_PCF

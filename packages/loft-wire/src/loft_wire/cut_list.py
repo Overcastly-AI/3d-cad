@@ -27,6 +27,14 @@ lumber lengths :data:`STOCK_LENGTHS_FT`; the shortest that covers the member
 is suggested, with the offcut it leaves. A member longer than the longest
 stock, or one that is not lumber, has no stock suggestion.
 
+**Sheet goods** (SHEATHING): a member whose ``profile`` names a sheet product
+(:mod:`loft_wire.sheet_goods`, "7/16 OSB") is a PANEL. Its thickness is its
+smallest measured extent and its net area its volume over that thickness
+(openings cut out), and it is cut from the shortest sheet covering its other
+two extents. Panels group by product, material and sheet (not by member or
+size), and a line buys ``ceil(net area / sheet area)`` sheets, the count
+Chief Architect's materials list gives.
+
 Prices (PRICE-BOOK, RESEARCH §27) come from the user's
 :mod:`loft_wire.price_book`: each line is priced on the stock pieces bought
 (:func:`price_lines`), in integer cents, and a line the book does not price
@@ -70,6 +78,12 @@ from loft_wire.price_book import (
     PriceBookResponse,
     PriceUnit,
 )
+from loft_wire.sheet_goods import (
+    SheetSize,
+    SheetSizeKey,
+    covering_sheet,
+    sheet_good_for,
+)
 from loft_wire.units import LengthUnit
 
 #: Millimetres per foot, exactly.
@@ -86,6 +100,10 @@ PRISM_TOLERANCE: Final = 1e-6
 
 #: Lengths group when equal to this many decimals of a millimetre (1 um).
 LENGTH_DECIMALS: Final = 3
+
+#: A sheet line buys ``ceil(area / sheet area - SHEET_COUNT_SLACK)`` sheets,
+#: so a panel exactly one sheet's size buys one, not two by a rounding ulp.
+SHEET_COUNT_SLACK: Final = 1e-9
 
 #: How a piece was identified: from a plugin member's metadata, by matching
 #: its section to a library profile, or not at all.
@@ -159,17 +177,39 @@ class CutListLine(BaseModel):
         "not a plugin member."
     )
     profile: str | None = Field(
-        description="Section as sold (e.g. '2x10'); null when unclassified."
+        description="Section or sheet product as sold (e.g. '2x10', '7/16 "
+        "OSB'); null when unclassified."
     )
     material: MaterialKey | None = Field(description="Library material, or null.")
     classification: CutListClassification
     quantity: int = Field(ge=1)
-    length_mm: float = Field(ge=0, description="Measured length of each piece.")
-    total_length_mm: float = Field(ge=0, description="quantity x length.")
+    length_mm: float = Field(
+        ge=0,
+        description="Measured length of each piece; for a sheet line, the "
+        "sheet's length.",
+    )
+    total_length_mm: float = Field(
+        ge=0,
+        description="quantity x length; for a sheet line, the sheets' "
+        "lengths (stock_quantity x length).",
+    )
     section_mm: list[float] = Field(
         min_length=2,
         max_length=2,
-        description="Measured section (mm): [thickness, width], smaller first.",
+        description="Measured section (mm): [thickness, width], smaller first; "
+        "for a sheet line, [thickness, the sheet's width].",
+    )
+    sheet: SheetSizeKey | None = Field(
+        default=None,
+        description="A sheet line's sheet ('4x8', '4x9', '4x10'): the "
+        "shortest that covers each of its panels; null for lumber, or for "
+        "panels no sheet covers.",
+    )
+    area_mm2: float | None = Field(
+        default=None,
+        ge=0,
+        description="A sheet line's net area (mm^2): its panels' faces, "
+        "openings cut out. Null for lumber.",
     )
     stock_length_ft: int | None = Field(
         description="Shortest standard stock that covers the piece (ft); null "
@@ -181,13 +221,14 @@ class CutListLine(BaseModel):
     stock_quantity: int | None = Field(
         ge=0,
         description="Stock pieces bought for the line: one per piece (until "
-        "pieces are nested); null with no stock length.",
+        "pieces are nested); for a sheet line, ceil(area / sheet area) "
+        "sheets; null with no stock length or sheet.",
     )
     unit_price_cents: int | None = Field(
         ge=0,
-        description="Price of ONE stock piece in the book's currency's cents, "
-        "rounded once per piece; null (blank, never 0) when the book has no "
-        "price for the line or the line has no stock length.",
+        description="Price of ONE stock piece (or sheet) in the book's "
+        "currency's cents, rounded once per piece; null (blank, never 0) when "
+        "the book has no price for the line or the line has no stock.",
     )
     price_unit: PriceUnit | None = Field(
         description="Which entry priced the line: 'each' for its stock "
@@ -287,7 +328,9 @@ def stock_length_ft(length_mm: float) -> int | None:
 
 @dataclass(frozen=True)
 class CutListPiece:
-    """One measured piece, before grouping (``count`` copies of it)."""
+    """One measured piece, before grouping (``count`` copies of it). A sheet
+    panel carries its covering ``sheet`` (``None`` if none covers it) and its
+    net ``area_mm2``; a stick of lumber has ``area_mm2`` ``None``."""
 
     member: str | None
     profile: str | None
@@ -297,6 +340,12 @@ class CutListPiece:
     length_mm: float
     section_mm: tuple[float, float]
     count: int = 1
+    sheet: SheetSize | None = None
+    area_mm2: float | None = None
+
+    @property
+    def panel(self) -> bool:
+        return self.area_mm2 is not None
 
 
 def _material(
@@ -325,6 +374,22 @@ def classify_body(
     material = _material(body.base_feature_id, metadata, materials)
     default_section = (min(extents[1], extents[2]), max(extents[1], extents[2]))
     if member is not None:
+        good = sheet_good_for(member.metadata.profile)
+        if good is not None:
+            # A panel: its thinnest extent through it, the other two its face.
+            thickness = extents[2]
+            return CutListPiece(
+                member=member.title,
+                profile=good.name,
+                lumber=False,
+                material=material,
+                classification="member",
+                length_mm=extents[0],
+                section_mm=(thickness, extents[1]),
+                count=count,
+                sheet=covering_sheet(extents[0], extents[1]),
+                area_mm2=body.volume_mm3 / thickness if thickness > 0 else 0.0,
+            )
         lumber = lumber_for(member.metadata.profile)
         split = None if lumber is None else _split(extents, lumber)
         length, section = split if split is not None else (extents[0], default_section)
@@ -378,11 +443,62 @@ def part_pieces(
     ]
 
 
+def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
+    """Panels of one product, material and sheet as one line: their net area,
+    and the sheets that area needs (module docstring)."""
+    first = pieces[0]
+    members: list[str] = []
+    for piece in pieces:
+        if piece.member is not None and piece.member not in members:
+            members.append(piece.member)
+    area = sum((p.area_mm2 or 0.0) * p.count for p in pieces)
+    sheet = first.sheet
+    thickness = round(first.section_mm[0], 6)
+    if sheet is None:
+        length = round(max(p.length_mm for p in pieces), 6)
+        width = round(max(p.section_mm[1] for p in pieces), 6)
+        sheets = None
+    else:
+        length, width = round(sheet.length_mm, 6), round(sheet.width_mm, 6)
+        sheets = math.ceil(area / sheet.area_mm2 - SHEET_COUNT_SLACK)
+    return CutListLine(
+        member=", ".join(members) or None,
+        profile=first.profile,
+        material=first.material,
+        classification=first.classification,
+        quantity=quantity,
+        length_mm=length,
+        total_length_mm=round(length * (sheets or 0), 6),
+        section_mm=[thickness, width],
+        sheet=None if sheet is None else sheet.key,
+        area_mm2=round(area, 6),
+        stock_length_ft=None,
+        waste_mm=None,
+        stock_quantity=sheets,
+        unit_price_cents=None,
+        price_unit=None,
+        extended_price_cents=None,
+    )
+
+
 def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
     """Pieces grouped by member, profile, material and length, in the order
-    each group first appears (the tree order, as SolidWorks lists it)."""
+    each group first appears (the tree order, as SolidWorks lists it); sheet
+    panels by product, material and sheet."""
     groups: dict[tuple[object, ...], tuple[CutListPiece, int]] = {}
+    panels: dict[tuple[object, ...], list[CutListPiece]] = {}
     for piece in pieces:
+        if piece.panel:
+            panel_key: tuple[object, ...] = (
+                "sheet",
+                piece.profile,
+                piece.material,
+                None if piece.sheet is None else piece.sheet.key,
+            )
+            panels.setdefault(panel_key, []).append(piece)
+            first, count = groups.get(panel_key, (piece, 0))
+            groups[panel_key] = (first, count + piece.count)
+            continue
         key: tuple[object, ...] = (
             piece.member,
             piece.profile,
@@ -395,7 +511,10 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
         first, count = groups.get(key, (piece, 0))
         groups[key] = (first, count + piece.count)
     lines: list[CutListLine] = []
-    for piece, quantity in groups.values():
+    for group_key, (piece, quantity) in groups.items():
+        if piece.panel:
+            lines.append(_sheet_line(panels[group_key], quantity))
+            continue
         length = round(piece.length_mm, 6)
         stock = stock_length_ft(length) if piece.lumber else None
         thickness, width = (round(v, 6) for v in piece.section_mm)
@@ -463,16 +582,28 @@ def price_lines(
     unit price is an 'each' entry for its stock length, else a per-foot entry,
     else a per-board-foot entry (for its material and profile), and its
     extended price is that times its stock quantity, so the offcut is paid
-    for. A line with no stock length or no entry stays unpriced (null)."""
+    for. A sheet line is priced by the 'each' entry for its product and
+    sheet, times its sheets. A line with no stock or no entry stays unpriced
+    (null)."""
     entries = {entry.key: entry for entry in book.entries}
     priced: list[CutListLine] = []
     for line in lines:
         lumber = lumber_for(line.profile)
+        good = sheet_good_for(line.profile)
         stock = line.stock_length_ft
         quantity = line.stock_quantity
         unit_price: int | None = None
         unit: PriceUnit | None = None
         if (
+            good is not None
+            and line.sheet is not None
+            and line.material is not None
+            and quantity is not None
+        ):
+            entry = entries.get((line.material, good.key, "each", None, line.sheet))
+            if entry is not None:
+                unit_price, unit = entry.price_cents, "each"
+        elif (
             lumber is not None
             and line.material is not None
             and stock is not None
@@ -485,6 +616,7 @@ def price_lines(
                         lumber.key,
                         candidate,
                         stock if candidate == "each" else None,
+                        None,
                     )
                 )
                 if entry is not None:
@@ -554,6 +686,15 @@ _MM_PER_UNIT: Final[Mapping[LengthUnit, float]] = {
     "ft": MM_PER_FOOT,
 }
 
+#: Decimals an area is written with, per unit (1 mm^2 or finer).
+_AREA_DECIMALS: Final[Mapping[LengthUnit, int]] = {
+    "mm": 0,
+    "cm": 2,
+    "m": 6,
+    "in": 4,
+    "ft": 6,
+}
+
 #: Decimals a length is written with, per unit (about 1 um in each).
 _DECIMALS: Final[Mapping[LengthUnit, int]] = {
     "mm": 3,
@@ -571,6 +712,13 @@ def format_length(value_mm: float, unit: LengthUnit) -> str:
     return "0" if text in ("-0", "") else text
 
 
+def format_area(value_mm2: float, unit: LengthUnit) -> str:
+    """*value_mm2* in square *unit*, trailing zeros trimmed (``45893``)."""
+    text = f"{value_mm2 / _MM_PER_UNIT[unit] ** 2:.{_AREA_DECIMALS[unit]}f}"
+    text = text.rstrip("0").rstrip(".") if "." in text else text
+    return "0" if text in ("-0", "") else text
+
+
 #: The CSV's columns (lengths in the document unit, money in the currency).
 def csv_header(unit: LengthUnit, currency: Currency = "USD") -> list[str]:
     return [
@@ -582,6 +730,7 @@ def csv_header(unit: LengthUnit, currency: Currency = "USD") -> list[str]:
         "Qty",
         f"Length ({unit})",
         f"Total length ({unit})",
+        f"Area (sq {unit})",
         "Stock",
         f"Waste each ({unit})",
         "Stock qty",
@@ -632,6 +781,12 @@ def csv_text(value: str) -> str:
     return value
 
 
+def _stock(line: CutListLine) -> str:
+    if line.sheet is not None:
+        return f"{line.sheet} sheet"
+    return "" if line.stock_length_ft is None else f"{line.stock_length_ft} ft"
+
+
 def _money(cents: int | None) -> str:
     return "" if cents is None else format_cents(cents)
 
@@ -647,6 +802,7 @@ def cut_list_csv(cut_list: CutListResponse) -> str:
     header = csv_header(unit, cut_list.currency)
     writer.writerow(header)
     for item, line in enumerate(cut_list.lines, start=1):
+        sheet = line.area_mm2 is not None
         material = "" if line.material is None else MATERIALS_BY_KEY[line.material].name
         writer.writerow(
             [
@@ -656,9 +812,10 @@ def cut_list_csv(cut_list: CutListResponse) -> str:
                 " x ".join(format_length(v, unit) for v in line.section_mm),
                 csv_text(material),
                 line.quantity,
-                format_length(line.length_mm, unit),
-                format_length(line.total_length_mm, unit),
-                "" if line.stock_length_ft is None else f"{line.stock_length_ft} ft",
+                "" if sheet else format_length(line.length_mm, unit),
+                "" if sheet else format_length(line.total_length_mm, unit),
+                "" if line.area_mm2 is None else format_area(line.area_mm2, unit),
+                _stock(line),
                 "" if line.waste_mm is None else format_length(line.waste_mm, unit),
                 "" if line.stock_quantity is None else line.stock_quantity,
                 _money(line.unit_price_cents),

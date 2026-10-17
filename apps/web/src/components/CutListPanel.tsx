@@ -16,6 +16,11 @@
  * price, and a Total row of the priced lines. A line the book does not price is
  * BLANK, never $0, and the Total row counts it; clicking the blank opens the
  * Price book pre-filled with the line's material, profile and stock length.
+ *
+ * Sheet goods (SHEATHING) are one line per product and sheet: the panels'
+ * count, their net AREA in the Length column (openings cut out), and in Stock
+ * the sheets that area needs ("9 × 4x9"), counted by area as Chief
+ * Architect's materials list counts them; priced Each per sheet.
  */
 import { Button, lengthUnitLabel, Panel, PanelSection } from "@loft/design";
 import { useQuery } from "@tanstack/react-query";
@@ -30,7 +35,7 @@ import {
 import { downloadBlob } from "../api/exportPart";
 import { fetchMaterials } from "../api/materials";
 import { PRICE_UNIT_LABEL } from "../api/priceBook";
-import { formatCount, formatLength } from "../lib/format";
+import { formatArea, formatCount, formatLength } from "../lib/format";
 import { formatMoney } from "../lib/money";
 import { PriceBookDialog, type PriceBookSeed } from "./PriceBookDialog";
 
@@ -70,11 +75,20 @@ function seedFor(line: CutListLine): PriceBookSeed | null {
   if (
     line.classification === "unclassified" ||
     line.material === null ||
-    line.profile === null ||
-    line.stock_length_ft === null
+    line.profile === null
   ) {
     return null;
   }
+  const sheet = line.sheet ?? null;
+  if (sheet !== null) {
+    return {
+      material: line.material,
+      profile: line.profile,
+      stockLengthFt: null,
+      sheet,
+    };
+  }
+  if (line.stock_length_ft === null) return null;
   return {
     material: line.material,
     profile: line.profile,
@@ -82,9 +96,22 @@ function seedFor(line: CutListLine): PriceBookSeed | null {
   };
 }
 
+/** What the line buys: "12 ft" of lumber, "9 × 4x9" sheets, or a dash. */
+function stockLabel(line: CutListLine): string {
+  if (line.area_mm2 !== null && line.area_mm2 !== undefined) {
+    return line.sheet === null || line.sheet === undefined
+      ? "—"
+      : `${formatCount(line.stock_quantity ?? 0)} × ${line.sheet}`;
+  }
+  return line.stock_length_ft === null ? "—" : `${line.stock_length_ft} ft`;
+}
+
 /** How the line's unit price was reached, for its tooltip. */
 function priceBasis(line: CutListLine): string | undefined {
   if (line.price_unit === null) return undefined;
+  if (line.sheet !== null && line.sheet !== undefined) {
+    return `Each per ${line.sheet} sheet`;
+  }
   const basis =
     line.price_unit === "each"
       ? `Each at ${line.stock_length_ft} ft`
@@ -254,6 +281,8 @@ export function CutListPanel({
                       : describe(line, materialName);
                     const seed = seedFor(line);
                     const name = line.member ?? line.profile ?? "Body";
+                    const area = line.area_mm2 ?? null;
+                    const sheet = line.sheet ?? null;
                     return (
                       <tr
                         key={index}
@@ -261,6 +290,7 @@ export function CutListPanel({
                         data-member={line.member ?? ""}
                         data-profile={line.profile ?? ""}
                         data-classification={line.classification}
+                        data-sheet={sheet ?? undefined}
                         className="border-b border-hairline/60 last:border-b-0"
                       >
                         <td className="w-full max-w-0 py-1.5 pl-3 pr-1 align-baseline">
@@ -291,27 +321,40 @@ export function CutListPanel({
                         <td
                           data-testid="cut-list-length"
                           className={`${CELL} text-mist`}
+                          title={
+                            area === null
+                              ? undefined
+                              : "Net area, openings cut out"
+                          }
                         >
-                          {formatLength(line.length_mm, unit)}
+                          {area === null ? (
+                            formatLength(line.length_mm, unit)
+                          ) : (
+                            <span data-testid="cut-list-area">
+                              {formatArea(area, unit)} {unitLabel}²
+                            </span>
+                          )}
                         </td>
                         <td
                           data-testid="cut-list-total-length"
                           className={`${CELL} text-gauge ${RUN_COLUMN}`}
                         >
-                          {formatLength(line.total_length_mm, unit)}
+                          {area === null
+                            ? formatLength(line.total_length_mm, unit)
+                            : null}
                         </td>
                         <td
                           data-testid="cut-list-stock"
                           className={`${CELL} text-mist`}
                           title={
-                            line.waste_mm === null
-                              ? undefined
-                              : `${formatLength(line.waste_mm, unit)} ${unitLabel} offcut each`
+                            sheet !== null
+                              ? `${formatCount(line.stock_quantity ?? 0)} sheets of ${sheet}, by area`
+                              : line.waste_mm === null
+                                ? undefined
+                                : `${formatLength(line.waste_mm, unit)} ${unitLabel} offcut each`
                           }
                         >
-                          {line.stock_length_ft === null
-                            ? "—"
-                            : `${line.stock_length_ft} ft`}
+                          {stockLabel(line)}
                         </td>
                         <td
                           data-testid="cut-list-unit-price"
@@ -325,7 +368,11 @@ export function CutListPanel({
                             <button
                               type="button"
                               data-testid="cut-list-price-blank"
-                              aria-label={`Price ${name}, ${line.profile} at ${line.stock_length_ft} ft`}
+                              aria-label={
+                                sheet === null
+                                  ? `Price ${name}, ${line.profile} at ${line.stock_length_ft} ft`
+                                  : `Price ${name}, ${line.profile} ${sheet} sheet`
+                              }
                               aria-haspopup="dialog"
                               title="Not in your price book. Click to price it."
                               onClick={() => setPriceBook({ seed })}

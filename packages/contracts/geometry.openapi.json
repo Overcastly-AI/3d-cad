@@ -408,6 +408,8 @@
                   "white_oak",
                   "lvl",
                   "glulam_dfl",
+                  "osb",
+                  "plywood",
                   "steel_a992",
                   "concrete"
                 ],
@@ -453,6 +455,8 @@
               "white_oak",
               "lvl",
               "glulam_dfl",
+              "osb",
+              "plywood",
               "steel_a992",
               "concrete"
             ],
@@ -6915,6 +6919,8 @@
                   "white_oak",
                   "lvl",
                   "glulam_dfl",
+                  "osb",
+                  "plywood",
                   "steel_a992",
                   "concrete"
                 ],
