@@ -394,14 +394,16 @@ def check_referenced_members(
     new = {member.id: member for member in members}
     old_raw = [m for m in stored_members(stored.params) if "id" in m]
     old = {uuid.UUID(str(m["id"])): m for m in old_raw}
-    moved_check = bool(renumbered) and any(
-        str(m.get("role")) in renumbered for m in old_raw
-    )
-    before: dict[uuid.UUID, Any] = {}
-    after: dict[uuid.UUID, Any] = {}
-    if moved_check:
-        before = _placements([_normalised(m) for m in old_raw])
-        after = _placements([m.model_dump(mode="json") for m in members])
+    placements: list[dict[uuid.UUID, Any]] = []
+
+    def moved_member(target: uuid.UUID) -> bool:
+        if str(old[target].get("role")) not in renumbered:
+            return False
+        if not placements:  # computed once, and only for a referenced member
+            placements.append(_placements([_normalised(m) for m in old_raw]))
+            placements.append(_placements([m.model_dump(mode="json") for m in members]))
+        return placements[0].get(target) != placements[1].get(target)
+
     removed: list[db.Feature] = []
     moved: list[db.Feature] = []
     for row in sorted(rows, key=lambda r: r.order_index):
@@ -418,11 +420,7 @@ def check_referenced_members(
             ):
                 removed.append(row)
                 break
-            if (
-                moved_check
-                and str(old[target].get("role")) in renumbered
-                and before.get(target) != after.get(target)
-            ):
+            if moved_member(target):
                 moved.append(row)
                 break
     broken = removed + moved
