@@ -125,13 +125,13 @@ DEFAULT_SESSION_MAX_AGE_S = 7 * 24 * 3600
 #: Default budget of the unauthenticated auth routes (register, login,
 #: refresh), requests per client address per ``RATE_LIMIT_WINDOW_S``. Its own
 #: number, not the compute budget: that one counts per USER, this one per
-#: ADDRESS, and behind a reverse proxy one address is every client at once.
-#: 120 is py-kit's default compute budget, which is what login and refresh
-#: had while they shared it. A deployment that set ``RATE_LIMIT_REQUESTS``
-#: (including 0, which used to switch auth limiting off too) no longer moves
-#: the auth budget with it. Tighten the auth budget with
-#: ``AUTH_RATE_LIMIT_REQUESTS`` where clients are not proxied; turn it off with
-#: 0, or all limiting with ``RATE_LIMIT_ENABLED=false``.
+#: client ADDRESS (the real client behind a ``TRUSTED_PROXIES`` proxy, see
+#: :mod:`gateway.client_ip`). 120 is py-kit's default compute budget, which
+#: is what login and refresh had while they shared it. A deployment that set
+#: ``RATE_LIMIT_REQUESTS`` (including 0, which used to switch auth limiting
+#: off too) no longer moves the auth budget with it. Tighten it with
+#: ``AUTH_RATE_LIMIT_REQUESTS``; turn it off with 0, or all limiting with
+#: ``RATE_LIMIT_ENABLED=false``.
 DEFAULT_AUTH_RATE_LIMIT_REQUESTS = 120
 
 

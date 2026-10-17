@@ -14,7 +14,7 @@ security fix, then the B1 deck end to end in RESEARCH §23's order. Done
 2026-10-16..17 and dropped: ASM-FAILED-PART-API, PIPE-ALONG-PATH (§25),
 PLUGIN-REGISTRY, PLUGIN-UI and PERF-REBUILD-200 step 1 (§15a).
 
-1. [ ] **AUTH-RATE-LIMIT-PROXY** (security hole, so first): auth routes
+1. [x] **AUTH-RATE-LIMIT-PROXY** (security hole, so first): auth routes
    key on the socket address, so behind the bundled nginx every client
    shares one login bucket and one attacker locks every user out.
    _Accept:_ two clients behind the bundled proxy get separate buckets, a

@@ -149,12 +149,15 @@ def make_client(
     limiter: RateLimiter | None,
     *,
     auth_rate_limit_requests: int | None = None,
+    trusted_proxies: str = "",
+    peer: str | None = None,
 ) -> TestClient:
     settings = GatewaySettings(
         geometry_url="http://geometry.internal:8002",
         postgres_url=db_url,
         loft_env="dev",
         jwt_secret=TEST_JWT_SECRET,
+        trusted_proxies=trusted_proxies,
     )
     if auth_rate_limit_requests is not None:
         settings = settings.model_copy(
@@ -165,6 +168,8 @@ def make_client(
         geometry_transport=httpx.MockTransport(handler),
         rate_limiter=limiter,
     )
+    if peer is not None:
+        return TestClient(app, raise_server_exceptions=False, client=(peer, 40000))
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -280,6 +285,67 @@ def test_auth_routes_have_their_own_budget(db_url: str) -> None:
     assert compute_refused.status_code == 429
     assert _envelope(compute_refused.json())["details"]["limit"] == 1
     assert len(seen) == 1
+
+
+#: The bundled nginx's address on the compose network, as the gateway sees it.
+NGINX = "172.18.0.5"
+
+
+def _login(client: TestClient, forwarded_for: str | None = None) -> int:
+    headers = {} if forwarded_for is None else {"X-Forwarded-For": forwarded_for}
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "nobody@example.com", "password": "wrong-passphrase"},
+        headers=headers,
+    )
+    return response.status_code
+
+
+def _proxied_client(db_url: str, peer: str) -> TestClient:
+    limiter = RateLimiter(FakeRedis(), limit=100, window_s=60, clock=Clock())
+    return make_client(
+        db_url,
+        _ok_handler([]),
+        limiter,
+        auth_rate_limit_requests=2,
+        trusted_proxies=NGINX,
+        peer=peer,
+    )
+
+
+def test_clients_behind_the_proxy_get_separate_auth_buckets(db_url: str) -> None:
+    """AUTH-RATE-LIMIT-PROXY: one attacker exhausting its sign-in budget
+    through nginx no longer locks every other user out."""
+    with _proxied_client(db_url, NGINX) as client:
+        attacker = [_login(client, "198.51.100.66") for _ in range(3)]
+        victim = _login(client, "203.0.113.10")
+        victim_v6 = _login(client, "2001:db8:aa::1")
+
+    assert attacker == [401, 401, 429]
+    assert victim == 401  # wrong password, but NOT rate limited
+    assert victim_v6 == 401
+
+
+def test_spoofed_left_most_forwarded_entry_cannot_dodge_the_bucket(
+    db_url: str,
+) -> None:
+    """A client-written entry left of the proxy's is never the key, so
+    rotating it does not buy a fresh budget."""
+    with _proxied_client(db_url, NGINX) as client:
+        codes = [_login(client, f"10.9.9.{i}, 198.51.100.66") for i in range(3)]
+
+    assert codes == [401, 401, 429]
+
+
+def test_forged_forwarded_for_straight_to_the_gateway_is_ignored(
+    db_url: str,
+) -> None:
+    """The gateway port is published: a caller there that is not the proxy
+    keys on its socket address whatever header it sends."""
+    with _proxied_client(db_url, "203.0.113.99") as client:
+        codes = [_login(client, f"198.51.100.{i}") for i in range(3)]
+
+    assert codes == [401, 401, 429]
 
 
 def test_backend_outage_fails_open(db_url: str) -> None:

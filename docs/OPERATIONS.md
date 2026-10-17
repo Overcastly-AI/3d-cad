@@ -222,6 +222,15 @@ is down. STEP import is capped at 20 CPU-seconds and a 16 MiB upload.
   (7 d) and `JWT_TTL_S` (1 h), checked at boot. The refresh cookie is
   `Secure`, so run TLS, or sessions on a host other than localhost are capped
   at 1 h (RESEARCH §13).
+- Sign-in rate limits count per client address. The gateway believes
+  `X-Forwarded-For` only from `TRUSTED_PROXIES` (comma-separated IPs, CIDRs
+  or hostnames; compose sets `web`, the bundled nginx) and takes the
+  right-most address that is not a trusted proxy. IPv6 clients count per
+  /64. Behind your own proxy or load balancer, add its address, and have
+  the outermost one overwrite the header with the client address
+  (`proxy_set_header X-Forwarded-For $remote_addr;`), not append to it. Do
+  not trust the compose subnet: the published gateway port can present
+  outside clients with the bridge address.
 - Backups hold password hashes and every part. Protect them like the
   database.
 
