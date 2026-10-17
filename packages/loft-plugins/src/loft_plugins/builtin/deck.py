@@ -440,10 +440,14 @@ class _Emitter:
         if z0 == 0.0:
             plane = DatumPlaneRef(kind="datum_plane", plane="XY")
         else:
-            level_key = level_name(z0) if self.named else None
-            level = self.levels.get(z0)
+            # 1.1.0 shares a level by its height to 1e-9 in, as the wall does
+            # (WALL-LEVEL-EQ): two sums one ulp apart are one datum and one
+            # name. 1.0.0 keys the exact float, as released.
+            at = round(z0, _INCH_DIGITS) + 0.0 if self.named else z0
+            level_key = level_name(at) if self.named else None
+            level = self.levels.get(at)
             if level is None:
-                level = self.levels[z0] = len(self.levels)
+                level = self.levels[at] = len(self.levels)
                 yield Member(
                     "level",
                     level,
