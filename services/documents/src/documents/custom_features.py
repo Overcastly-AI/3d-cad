@@ -473,13 +473,19 @@ class _Budget:
         self._used += 1
 
 
+#: member id -> (the custom feature's envelope, the member as sent).
+SentMembers = dict[uuid.UUID, tuple[CustomFeature, ExpandedMember]]
+
+
 def evaluation_entries(
-    part: db.Part, rows: Sequence[db.Feature]
+    part: db.Part, rows: Sequence[db.Feature], members_out: SentMembers | None = None
 ) -> list[EvaluatedFeatureInput]:
     """Evaluation-request entries for *rows*: every formula resolved once and
     every custom feature replaced by its members (module docstring), never
     more than ``MAX_TREE_FEATURES`` in all (:class:`_Budget`). A suppressed
-    feature is skipped by geometry, so it carries no error."""
+    feature is skipped by geometry, so it carries no error. *members_out*, when
+    given, receives every member sent, so the cut list reads the metadata of
+    exactly the expansion geometry builds."""
     values = parameter_values(part.parameters)
     entries: list[EvaluatedFeatureInput] = []
     earlier: dict[uuid.UUID, AuthoredEnvelope] = {}
@@ -506,6 +512,8 @@ def evaluation_entries(
         members, error, _ = budget.take(stored, members, error)
         for member in members:
             earlier[member.id] = member.feature
+            if members_out is not None:
+                members_out[member.id] = (envelope, member)
             entries.append(
                 EvaluatedFeatureInput(
                     id=member.id,
@@ -611,6 +619,7 @@ def check_stored_custom(
 __all__ = [
     "AUTHORED_FEATURES",
     "PLUGINS",
+    "SentMembers",
     "authored_references",
     "check_members_authorable",
     "check_tree_size",

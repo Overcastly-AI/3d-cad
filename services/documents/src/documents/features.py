@@ -56,6 +56,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db, history
 from documents.custom_features import (
+    SentMembers,
     authored_references,
     check_tree_size,
     expanded_size,
@@ -334,7 +335,11 @@ async def get_feature_tree(
 
 
 async def evaluation_prefix(
-    session: AsyncSession, part: db.Part, *, before: uuid.UUID | None = None
+    session: AsyncSession,
+    part: db.Part,
+    *,
+    before: uuid.UUID | None = None,
+    members_out: SentMembers | None = None,
 ) -> list[EvaluatedFeatureInput]:
     """The part's evaluation-ready feature prefix (design §4.2 / §3 / §1.4).
 
@@ -367,6 +372,7 @@ async def evaluation_prefix(
             for feature in features
             if bar_index is None or feature.order_index <= bar_index
         ],
+        members_out,
     )
 
 

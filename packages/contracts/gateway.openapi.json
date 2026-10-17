@@ -2969,6 +2969,205 @@
         "title": "CustomParamsV1",
         "type": "object"
       },
+      "CutListLine": {
+        "description": "One line: pieces with the same member, profile, material and length.",
+        "properties": {
+          "classification": {
+            "enum": [
+              "member",
+              "matched",
+              "unclassified"
+            ],
+            "title": "Classification",
+            "type": "string"
+          },
+          "length_mm": {
+            "description": "Measured length of each piece.",
+            "minimum": 0.0,
+            "title": "Length Mm",
+            "type": "number"
+          },
+          "material": {
+            "anyOf": [
+              {
+                "enum": [
+                  "steel_1018",
+                  "stainless_304",
+                  "aluminium_6061",
+                  "brass_c360",
+                  "abs",
+                  "pla",
+                  "nylon_6",
+                  "spf_lumber",
+                  "dfl_lumber",
+                  "southern_pine_pt",
+                  "lvl",
+                  "glulam_dfl",
+                  "steel_a992",
+                  "concrete"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Library material, or null.",
+            "title": "Material"
+          },
+          "member": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Member role title (e.g. 'Joist'); null when the body is not a plugin member.",
+            "title": "Member"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Section as sold (e.g. '2x10'); null when unclassified.",
+            "title": "Profile"
+          },
+          "quantity": {
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "section_mm": {
+            "description": "Measured section (mm), smaller dimension first.",
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Section Mm",
+            "type": "array"
+          },
+          "stock_length_ft": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shortest standard stock that covers the piece (ft); null for a piece that is not lumber or is longer than the longest stock.",
+            "title": "Stock Length Ft"
+          },
+          "total_length_mm": {
+            "description": "quantity x length.",
+            "minimum": 0.0,
+            "title": "Total Length Mm",
+            "type": "number"
+          },
+          "waste_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Offcut of each piece from its stock (mm); null with no stock.",
+            "title": "Waste Mm"
+          }
+        },
+        "required": [
+          "member",
+          "profile",
+          "material",
+          "classification",
+          "quantity",
+          "length_mm",
+          "total_length_mm",
+          "section_mm",
+          "stock_length_ft",
+          "waste_mm"
+        ],
+        "title": "CutListLine",
+        "type": "object"
+      },
+      "CutListResponse": {
+        "description": "A part's or an assembly's cut list (``GET .../cut-list``).",
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "document_kind": {
+            "enum": [
+              "part",
+              "assembly"
+            ],
+            "title": "Document Kind",
+            "type": "string"
+          },
+          "length_unit": {
+            "description": "The document's display unit (the CSV is written in it).",
+            "enum": [
+              "mm",
+              "cm",
+              "m",
+              "in",
+              "ft"
+            ],
+            "title": "Length Unit",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/CutListLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "total_quantity": {
+            "description": "Sum of every line's quantity.",
+            "minimum": 0.0,
+            "title": "Total Quantity",
+            "type": "integer"
+          },
+          "unclassified": {
+            "description": "How many pieces matched no profile.",
+            "minimum": 0.0,
+            "title": "Unclassified",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "document_id",
+          "document_kind",
+          "name",
+          "length_unit",
+          "total_quantity",
+          "unclassified"
+        ],
+        "title": "CutListResponse",
+        "type": "object"
+      },
       "CylinderParams": {
         "description": "Right circular cylinder (mm): base disc centred at the origin in the\nXY plane, axis along +Z.",
         "properties": {
@@ -16982,6 +17181,104 @@
         ]
       }
     },
+    "/api/v1/assemblies/{assembly_id}/cut-list": {
+      "get": {
+        "description": "The assembly's cut list: every part at every level (component\npatterns counted), each part's members times its quantity, grouped\nacross the assembly as one list (Chief Architect's materials list).",
+        "operationId": "get_assembly_cut_list_api_v1_assemblies__assembly_id__cut_list_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CutListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Assembly Cut List",
+        "tags": [
+          "cut-list"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/cut-list/csv": {
+      "get": {
+        "description": "The assembly's cut list as a CSV download, in its display unit.",
+        "operationId": "get_assembly_cut_list_csv_api_v1_assemblies__assembly_id__cut_list_csv_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The cut list as CSV (RFC 4180, CRLF, UTF-8), lengths in the document's display unit; `Content-Disposition` names the file."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Assembly Cut List Csv",
+        "tags": [
+          "cut-list"
+        ]
+      }
+    },
     "/api/v1/assemblies/{assembly_id}/duplicate": {
       "post": {
         "description": "Copy an assembly's instances and mates \u2014 NOT the parts they name (201).\n\nBoth assemblies reference the same parts afterwards, because an instance IS\na reference: edit one of those parts and the change shows up in both. See\n:mod:`documents.duplicate` for the full statement of what a copy carries.\nThe copy's name is the server's to assign and the created assembly is\nreturned.",
@@ -21224,6 +21521,104 @@
         "summary": "Update Part",
         "tags": [
           "parts"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/cut-list": {
+      "get": {
+        "description": "The part's cut list: its bodies grouped by member, profile, material\nand measured length, with quantity, total length and stock length\n(SolidWorks' weldment cut list). Every length is measured from its body;\na body that is no plugin member is matched to a library profile by its\nexact section, else listed as unclassified with its measured size.",
+        "operationId": "get_part_cut_list_api_v1_parts__part_id__cut_list_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CutListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Part Cut List",
+        "tags": [
+          "cut-list"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/cut-list/csv": {
+      "get": {
+        "description": "The part's cut list as a CSV download, in the part's display unit.",
+        "operationId": "get_part_cut_list_csv_api_v1_parts__part_id__cut_list_csv_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The cut list as CSV (RFC 4180, CRLF, UTF-8), lengths in the document's display unit; `Content-Disposition` names the file."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Part Cut List Csv",
+        "tags": [
+          "cut-list"
         ]
       }
     },

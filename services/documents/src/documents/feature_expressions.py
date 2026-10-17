@@ -19,7 +19,7 @@ module is where documents applies it:
 """
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loft_wire.expr import Quantity
 from loft_wire.feature_input import PARAMETER_UNRESOLVED
@@ -44,6 +44,9 @@ from py_kit import ConflictError, ValidationApiError
 from pydantic import ValidationError
 
 from documents import db
+
+if TYPE_CHECKING:
+    from documents.custom_features import SentMembers
 
 
 def _api_error(exc: FeatureExpressionError) -> ValidationApiError:
@@ -94,14 +97,16 @@ def load_feature(row: db.Feature) -> tuple[AuthoredEnvelope, FeatureError | None
 
 
 def evaluation_features(
-    part: db.Part, rows: Sequence[db.Feature]
+    part: db.Part,
+    rows: Sequence[db.Feature],
+    members_out: "SentMembers | None" = None,
 ) -> list[EvaluatedFeatureInput]:
     """Evaluation-request entries for *rows*, every formula resolved once and
     every custom feature expanded to its base features
     (:func:`documents.custom_features.evaluation_entries`)."""
     from documents.custom_features import evaluation_entries
 
-    return evaluation_entries(part, rows)
+    return evaluation_entries(part, rows, members_out)
 
 
 def _store(row: db.Feature, envelope: AuthoredEnvelope) -> None:

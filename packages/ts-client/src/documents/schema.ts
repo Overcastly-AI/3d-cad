@@ -997,6 +997,26 @@ export interface paths {
         patch: operations["update_part_api_v1_parts__part_id__patch"];
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/cut-list-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Cut List Request
+         * @description The part's evaluation request and its members' cut-list metadata.
+         */
+        get: operations["get_cut_list_request_api_v1_parts__part_id__cut_list_request_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/duplicate": {
         parameters: {
             query?: never;
@@ -2750,6 +2770,50 @@ export interface components {
              * @description The pinned plugin version; updating it is an explicit edit.
              */
             plugin_version: string;
+        };
+        /**
+         * CutListMember
+         * @description A plugin member that may create a body, with its cut-list metadata.
+         */
+        CutListMember: {
+            /**
+             * Feature Id
+             * Format: uuid
+             * @description The member's id: the base feature id of the body it makes.
+             */
+            feature_id: string;
+            metadata: components["schemas"]["MemberMetadata"];
+            /**
+             * Role
+             * @description Manifest role, e.g. 'joist'.
+             */
+            role: string;
+            /**
+             * Title
+             * @description The role's title, e.g. 'Joist' (from the manifest, or the role itself when this server lacks the plugin).
+             */
+            title: string;
+        };
+        /**
+         * CutListPartRequest
+         * @description What the gateway needs from documents to build one part's cut list.
+         */
+        CutListPartRequest: {
+            evaluation: components["schemas"]["EvaluateTreeRequest"];
+            /**
+             * Length Unit
+             * @enum {string}
+             */
+            length_unit: "mm" | "cm" | "m" | "in" | "ft";
+            /** Members */
+            members?: components["schemas"]["CutListMember"][];
+            /** Name */
+            name: string;
+            /**
+             * Part Id
+             * Format: uuid
+             */
+            part_id: string;
         };
         /**
          * DatumAlongPathParams
@@ -11894,6 +11958,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cut_list_request_api_v1_parts__part_id__cut_list_request_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CutListPartRequest"];
                 };
             };
             /** @description Validation Error */

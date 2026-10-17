@@ -87,6 +87,26 @@ GET_ASSEMBLIES_ASSEMBLY_ID_BOM: Final = Operation(
     required_query=(),
 )
 
+GET_ASSEMBLIES_ASSEMBLY_ID_CUT_LIST: Final = Operation(
+    operation_id="get_assembly_cut_list_api_v1_assemblies__assembly_id__cut_list_get",
+    method="GET",
+    path="/api/v1/assemblies/{assembly_id}/cut-list",
+    request_model=None,
+    response_model="CutListResponse",
+    path_params=("assembly_id",),
+    required_query=(),
+)
+
+GET_ASSEMBLIES_ASSEMBLY_ID_CUT_LIST_CSV: Final = Operation(
+    operation_id="get_assembly_cut_list_csv_api_v1_assemblies__assembly_id__cut_list_csv_get",
+    method="GET",
+    path="/api/v1/assemblies/{assembly_id}/cut-list/csv",
+    request_model=None,
+    response_model=None,
+    path_params=("assembly_id",),
+    required_query=(),
+)
+
 POST_ASSEMBLIES_ASSEMBLY_ID_DUPLICATE: Final = Operation(
     operation_id="duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post",
     method="POST",
@@ -847,6 +867,26 @@ PATCH_PARTS_PART_ID: Final = Operation(
     required_query=(),
 )
 
+GET_PARTS_PART_ID_CUT_LIST: Final = Operation(
+    operation_id="get_part_cut_list_api_v1_parts__part_id__cut_list_get",
+    method="GET",
+    path="/api/v1/parts/{part_id}/cut-list",
+    request_model=None,
+    response_model="CutListResponse",
+    path_params=("part_id",),
+    required_query=(),
+)
+
+GET_PARTS_PART_ID_CUT_LIST_CSV: Final = Operation(
+    operation_id="get_part_cut_list_csv_api_v1_parts__part_id__cut_list_csv_get",
+    method="GET",
+    path="/api/v1/parts/{part_id}/cut-list/csv",
+    request_model=None,
+    response_model=None,
+    path_params=("part_id",),
+    required_query=(),
+)
+
 POST_PARTS_PART_ID_DUPLICATE: Final = Operation(
     operation_id="duplicate_part_api_v1_parts__part_id__duplicate_post",
     method="POST",
@@ -1119,6 +1159,8 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "delete_assembly_api_v1_assemblies__assembly_id__delete": DELETE_ASSEMBLIES_ASSEMBLY_ID,
         "update_assembly_api_v1_assemblies__assembly_id__patch": PATCH_ASSEMBLIES_ASSEMBLY_ID,
         "get_assembly_bom_api_v1_assemblies__assembly_id__bom_get": GET_ASSEMBLIES_ASSEMBLY_ID_BOM,
+        "get_assembly_cut_list_api_v1_assemblies__assembly_id__cut_list_get": GET_ASSEMBLIES_ASSEMBLY_ID_CUT_LIST,
+        "get_assembly_cut_list_csv_api_v1_assemblies__assembly_id__cut_list_csv_get": GET_ASSEMBLIES_ASSEMBLY_ID_CUT_LIST_CSV,
         "duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post": POST_ASSEMBLIES_ASSEMBLY_ID_DUPLICATE,
         "get_assembly_evaluation_request_api_v1_assemblies__assembly_id__evaluation_request_get": GET_ASSEMBLIES_ASSEMBLY_ID_EVALUATION_REQUEST,
         "get_assembly_extents_api_v1_assemblies__assembly_id__extents_get": GET_ASSEMBLIES_ASSEMBLY_ID_EXTENTS,
@@ -1195,6 +1237,8 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "get_part_api_v1_parts__part_id__get": GET_PARTS_PART_ID,
         "delete_part_api_v1_parts__part_id__delete": DELETE_PARTS_PART_ID,
         "update_part_api_v1_parts__part_id__patch": PATCH_PARTS_PART_ID,
+        "get_part_cut_list_api_v1_parts__part_id__cut_list_get": GET_PARTS_PART_ID_CUT_LIST,
+        "get_part_cut_list_csv_api_v1_parts__part_id__cut_list_csv_get": GET_PARTS_PART_ID_CUT_LIST_CSV,
         "duplicate_part_api_v1_parts__part_id__duplicate_post": POST_PARTS_PART_ID_DUPLICATE,
         "evaluate_part_api_v1_parts__part_id__evaluate_post": POST_PARTS_PART_ID_EVALUATE,
         "get_part_evaluation_request_api_v1_parts__part_id__evaluation_request_get": GET_PARTS_PART_ID_EVALUATION_REQUEST,

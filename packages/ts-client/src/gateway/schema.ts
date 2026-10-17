@@ -119,6 +119,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assemblies/{assembly_id}/cut-list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Assembly Cut List
+         * @description The assembly's cut list: every part at every level (component
+         *     patterns counted), each part's members times its quantity, grouped
+         *     across the assembly as one list (Chief Architect's materials list).
+         */
+        get: operations["get_assembly_cut_list_api_v1_assemblies__assembly_id__cut_list_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assemblies/{assembly_id}/cut-list/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Assembly Cut List Csv
+         * @description The assembly's cut list as a CSV download, in its display unit.
+         */
+        get: operations["get_assembly_cut_list_csv_api_v1_assemblies__assembly_id__cut_list_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}/duplicate": {
         parameters: {
             query?: never;
@@ -1718,6 +1760,50 @@ export interface paths {
          *     name.
          */
         patch: operations["update_part_api_v1_parts__part_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/cut-list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Part Cut List
+         * @description The part's cut list: its bodies grouped by member, profile, material
+         *     and measured length, with quantity, total length and stock length
+         *     (SolidWorks' weldment cut list). Every length is measured from its body;
+         *     a body that is no plugin member is matched to a library profile by its
+         *     exact section, else listed as unclassified with its measured size.
+         */
+        get: operations["get_part_cut_list_api_v1_parts__part_id__cut_list_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/cut-list/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Part Cut List Csv
+         * @description The part's cut list as a CSV download, in the part's display unit.
+         */
+        get: operations["get_part_cut_list_csv_api_v1_parts__part_id__cut_list_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/parts/{part_id}/duplicate": {
@@ -4383,6 +4469,98 @@ export interface components {
              * @description The pinned plugin version; updating it is an explicit edit.
              */
             plugin_version: string;
+        };
+        /**
+         * CutListLine
+         * @description One line: pieces with the same member, profile, material and length.
+         */
+        CutListLine: {
+            /**
+             * Classification
+             * @enum {string}
+             */
+            classification: "member" | "matched" | "unclassified";
+            /**
+             * Length Mm
+             * @description Measured length of each piece.
+             */
+            length_mm: number;
+            /**
+             * Material
+             * @description Library material, or null.
+             */
+            material: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
+            /**
+             * Member
+             * @description Member role title (e.g. 'Joist'); null when the body is not a plugin member.
+             */
+            member: string | null;
+            /**
+             * Profile
+             * @description Section as sold (e.g. '2x10'); null when unclassified.
+             */
+            profile: string | null;
+            /** Quantity */
+            quantity: number;
+            /**
+             * Section Mm
+             * @description Measured section (mm), smaller dimension first.
+             */
+            section_mm: [
+                number,
+                number
+            ];
+            /**
+             * Stock Length Ft
+             * @description Shortest standard stock that covers the piece (ft); null for a piece that is not lumber or is longer than the longest stock.
+             */
+            stock_length_ft: number | null;
+            /**
+             * Total Length Mm
+             * @description quantity x length.
+             */
+            total_length_mm: number;
+            /**
+             * Waste Mm
+             * @description Offcut of each piece from its stock (mm); null with no stock.
+             */
+            waste_mm: number | null;
+        };
+        /**
+         * CutListResponse
+         * @description A part's or an assembly's cut list (``GET .../cut-list``).
+         */
+        CutListResponse: {
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /**
+             * Document Kind
+             * @enum {string}
+             */
+            document_kind: "part" | "assembly";
+            /**
+             * Length Unit
+             * @description The document's display unit (the CSV is written in it).
+             * @enum {string}
+             */
+            length_unit: "mm" | "cm" | "m" | "in" | "ft";
+            /** Lines */
+            lines?: components["schemas"]["CutListLine"][];
+            /** Name */
+            name: string;
+            /**
+             * Total Quantity
+             * @description Sum of every line's quantity.
+             */
+            total_quantity: number;
+            /**
+             * Unclassified
+             * @description How many pieces matched no profile.
+             */
+            unclassified: number;
         };
         /**
          * CylinderParams
@@ -13510,6 +13688,68 @@ export interface operations {
             };
         };
     };
+    get_assembly_cut_list_api_v1_assemblies__assembly_id__cut_list_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CutListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_assembly_cut_list_csv_api_v1_assemblies__assembly_id__cut_list_csv_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cut list as CSV (RFC 4180, CRLF, UTF-8), lengths in the document's display unit; `Content-Disposition` names the file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post: {
         parameters: {
             query?: never;
@@ -16039,6 +16279,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_part_cut_list_api_v1_parts__part_id__cut_list_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CutListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_part_cut_list_csv_api_v1_parts__part_id__cut_list_csv_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cut list as CSV (RFC 4180, CRLF, UTF-8), lengths in the document's display unit; `Content-Disposition` names the file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
                 };
             };
             /** @description Validation Error */
