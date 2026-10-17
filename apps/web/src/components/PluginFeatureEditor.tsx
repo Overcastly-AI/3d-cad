@@ -15,6 +15,7 @@
  * shows what it was built from.
  */
 import {
+  Checkbox,
   Notice,
   Panel,
   PanelActionCell,
@@ -48,9 +49,11 @@ import {
   inputPointer,
   inputUnit,
   isNumericInput,
+  pickedIds,
   type PluginForm,
   pluginInputsFromForm,
   referenceOptions,
+  togglePick,
   validatePluginForm,
 } from "../features/pluginForm";
 import { useDocumentLengthUnit } from "../units/documentUnit";
@@ -240,6 +243,36 @@ function GeneratedForm({
                   onFocus={(e) => e.currentTarget.select()}
                 />
               );
+            } else if (input.kind === "features") {
+              // Several picks (a roof's walls): a checklist of the earlier
+              // features it may name, kept in pick order.
+              const picked = pickedIds(value);
+              field = (
+                <fieldset
+                  data-testid={testId}
+                  className="flex flex-col gap-0.5"
+                  aria-invalid={fieldError !== null}
+                >
+                  <legend className="font-body text-xs text-gauge">
+                    {input.label}
+                    {picked.length > 0 ? ` (${picked.length} picked)` : ""}
+                  </legend>
+                  {referenceOptions(input, features, selfId).map((option) => (
+                    <Checkbox
+                      key={option.value}
+                      label={option.label}
+                      checked={picked.includes(option.value)}
+                      data-testid={`${testId}-pick`}
+                      onChange={() =>
+                        setValue(input.name, togglePick(value, option.value))
+                      }
+                    />
+                  ))}
+                  {fieldError !== null ? (
+                    <p className="font-body text-2xs text-flag">{fieldError}</p>
+                  ) : null}
+                </fieldset>
+              );
             } else if (input.kind === "choice" && segmented(input)) {
               field = (
                 <SegmentedControl
@@ -319,7 +352,11 @@ function ReadOnlyCard({
     features.find((row) => row.id === id)?.name ?? id;
   const rows = Object.entries(stored?.inputs ?? {}).map(([key, value]) => [
     key,
-    typeof value === "object" ? name(value.feature_id) : String(value),
+    Array.isArray(value)
+      ? value.map((ref) => name(ref.feature_id)).join(", ")
+      : typeof value === "object"
+        ? name(value.feature_id)
+        : String(value),
   ]);
   return (
     <EditorCard
