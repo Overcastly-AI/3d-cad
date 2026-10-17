@@ -364,6 +364,15 @@ def test_nothing_overlaps() -> None:
         {"guard": "open_sides", "blocking": "midspan"},
         {"beam_position": "flush", "attachment": "freestanding"},
         {"attachment": "freestanding", "joist_direction": "along"},
+        # A non-round metric deck (DECK review): a corner post's two sides
+        # must agree on its centre to the bit, or it is emitted twice.
+        {"width_mm": 4900, "depth_mm": 1300, "guard": "open_sides"},
+        {
+            "width_mm": 4900,
+            "depth_mm": 1300,
+            "guard": "open_sides",
+            "attachment": "freestanding",
+        },
     ]:
         items = list(boxes(members(raw)).items())
         for i, (ka, a) in enumerate(items):
@@ -372,6 +381,20 @@ def test_nothing_overlaps() -> None:
                     min(a[k + 1], b[k + 1]) - max(a[k], b[k]) > 1e-9 for k in (0, 2, 4)
                 )
                 assert not overlap, (raw, ka, kb)
+
+
+def test_metric_sizes_never_double_a_guard_post() -> None:
+    """Whole decimetre sizes from 1.3 to 4.9 m (the review's sweep found 72
+    of 864 doubled a corner post): every guard post stands alone."""
+    for width in range(1300, 4901, 100):
+        for depth in range(1300, 4901, 400):
+            got = boxes(
+                members({"width_mm": width, "depth_mm": depth, "guard": "open_sides"})
+            )
+            posts = [v for (r, _), v in got.items() if r == "guard_post"]
+            assert len({(round(p[0], 6), round(p[2], 6)) for p in posts}) == len(
+                posts
+            ), (width, depth)
 
 
 # --- Refusals and caps -------------------------------------------------------------

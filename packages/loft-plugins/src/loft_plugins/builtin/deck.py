@@ -360,7 +360,12 @@ def equal_centres(length: float, size: float, most: float) -> list[float]:
     no more than *most* apart (posts on a beam, guard posts on a side)."""
     first, last = size / 2, length - size / 2
     bays = max(1, math.ceil((last - first) / most - _EPS))
-    return [first + (last - first) * n / bays for n in range(bays + 1)]
+    # The last centre is `last` exactly: `first + (last - first)` can land one
+    # ulp off it, and a guard corner post shared by two sides must coincide.
+    return [
+        last if n == bays else first + (last - first) * n / bays
+        for n in range(bays + 1)
+    ]
 
 
 def board_count(depth: float, overhang: float, board: float, gap: float) -> int:
@@ -684,10 +689,15 @@ def _guard(
     if not attached:
         sides.append(("x", half, width, True))
     posts: list[tuple[float, float]] = []
+    seen: set[tuple[float, float]] = set()
     bays: list[tuple[Axis, float, float, float]] = []  # axis, line, from, to
 
     def add_post(x: float, y: float) -> None:
-        if (x, y) not in posts:
+        # A corner post is shared by two sides: dedupe on the position to
+        # 1e-6 mm, never exact float equality (DECK review).
+        key = (round(_mm(x), 6), round(_mm(y), 6))
+        if key not in seen:
+            seen.add(key)
             posts.append((x, y))
 
     for axis, line, length, backwards in sides:
