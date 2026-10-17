@@ -9,196 +9,101 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
-Ranked 2026-10-17 (second pass) by the product-manager (delegated by the
-founder): B1 has a path once DECK lands, B2 has none, and the bike builds
-with workarounds, so the three B2 generators go next, in RESEARCH §23's
-order. Each is a first-party plugin in `packages/loft-plugins` (base
-features only), a golden in `services/geometry/goldens/` checked on STEP
-against `docs/reference-parts/buildings.md`, and one e2e from the Build
-group. Then hips and valleys (founder, 2026-10-17: "Yes add hip and valley
-roofs next"), after B2's last gate, against B3 and B4. Prices on the
-cut list go between them (founder, 2026-10-17: "give me a price column on
-the cut sheet"): B1 and B2 have a cut list, and the next question a builder
-asks of it is what the lumber costs. Done 2026-10-16..17 and dropped: AUTH-RATE-LIMIT-PROXY,
-LIBRARY-THUMBNAILS (§26), LUMBER-MATERIALS, CUT-LIST, ASM-FAILED-PART-API,
-PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
+Ranked 2026-10-17 (third pass) by the product-manager (delegated by the
+founder). B1-B4 now build from Build features alone and are priced. A builder
+still cannot frame a house on a floor, sheathe it and price the sheets, or
+frame a timber frame, so those come next, in that order. Before them comes one
+fix that Severity puts first. Each plugin lives in `packages/loft-plugins`
+(base features only), has a golden checked on STEP against
+`docs/reference-parts/buildings.md` (B5, B6), and has one e2e from the Build
+group. Done 2026-10-16..17 and dropped (`git log --grep=<ID>`): DECK,
+STUD-WALL, WINDOW-DOOR, ROOF, B2-E2E, ROOF-HIP, PRICE-BOOK, CUT-LIST-PRICES,
+ROOF-VALLEY.
 
-0. [x] **DECK** (final gate; B1): one Deck feature builds B1 to the spec
-   (64 497.75 in³; 16 -> 20 ft gives 80 212.5 in³). Tick when CI is green.
-1. [x] **STUD-WALL** (`loft.wall`, stops B2): a straight wall from a start
-   point, direction, length and height (plate to plate), stud profile and
-   spacing, single or double top plate, and a material per role (PT bottom
-   plate, SPF studs and top plates). Layout as Chief Architect and Medeek
-   Wall: centres from the wall start at 0.75 then every spacing, an end stud
-   flush at the far end, a layout stud that would overlap it dropped. Plates
-   are butted, not lapped (corner assemblies and lapped plates are later).
-   _Accept:_ golden `b2-walls-no-openings-16oc`: B2's four walls with no
-   openings give 36 studs at 92.625, top plates 4 at 144 and 4 at 113,
-   bottom plates 2 at 144 and 2 at 113, 25 601.625 in³, interference none,
-   cut list equal; spacing 16 -> 24 gives 26 studs (20 738.8125 in³); a
-   30° wall matches a script. E2e: a Wall placed from the Build group lists
-   10 studs in its cut list.
-   _Done:_ `loft.wall` 1.0.0 (goldens `b2-walls-no-openings-16oc`, `-24oc`,
-   `plugin-wall-v1-144-30deg`; `services/geometry/tests/test_walls_b2.py`;
-   e2e `wall-b2.spec.ts`; RESEARCH §23).
-2. [x] **WINDOW-DOOR** (`loft.window`, `loft.door`, stops B2): two Build
-   tools, each hosted in a wall as Revit and Chief Architect do: host wall
-   (a feature input), offset of its centre along the wall, unit width and
-   height, rough-opening allowance, head height (window). The host wall
-   frames every opening that names it: kings, jacks, a doubled 2x6 header,
-   top cripples (and a flat sill plus bottom cripples for a window) at the
-   replaced layout centres, and a door cuts the bottom plate. `expand` sees
-   only earlier features today, so the registry first gives a wall the
-   custom features that name it as host, and a write to an opening
-   re-expands its wall. Frames the rough opening only; no unit body yet. _Accept:_ golden
-   `b2-walls-door-window` equals buildings.md's wall cut list (28 942.125
-   in³ summed from it, the 1/2 in spacer not a member), no member crosses an
-   opening; goldens for the three edits: door moved 24 in (7 layout studs,
-   3 top cripples), window 24 -> 30 in (header 33.5, sill 30.5), door
-   deleted (10 full studs, one 144 bottom plate). E2e: dragging the door's
-   offset regenerates the front wall.
-   _Done:_ `loft.window` and `loft.door` 1.0.0 hosted by a wire `host`
-   feature input; `loft.wall` 1.0.0 frames them (goldens
-   `b2-walls-door-window`, `-door-moved-24`, `-window-30`, `-door-deleted`;
-   `test_walls_b2.py`, `test_openings.py`, `test_window_door_feature.py`;
-   e2e `window-door-b2.spec.ts`, which edits the offset; RESEARCH §23).
-3. [x] **ROOF** (`loft.roof`, stops B2): a gable of common rafters from two
-   bearing walls (feature inputs), pitch entered as rise per 12 (6/12, as
-   Chief Architect and Medeek Truss), spacing, eave overhang, rafter and
-   ridge profiles; each rafter is one sketched side profile (ridge plumb
-   cut, birdsmouth, tail plumb cut) extruded to thickness. The seat takes
-   the full plate unless the heel would pass 1/3 of the depth, then
-   shortens to keep it there. Trusses, hips and rafter ties are later.
-   _Accept:_ golden `b2-roof-6-12`: 14 rafters of line length 79.660 with a
-   1.75 heel, 2x8 ridge at 144, matches an independent build123d script to
-   1e-4, interference none against the walls; golden `b2-roof-8-12`: 85.632,
-   seat 2.75, heel 1.833. The cut list shows each rafter's overall length
-   measured from the body (8 ft stock); this commit adds that overall length
-   to buildings.md's roof line. E2e: B2 complete from Build features only.
-   _Done:_ `loft.roof` 1.0.0 (goldens `b2-roof-6-12`, `b2-roof-8-12`;
-   `services/geometry/tests/test_roof_b2.py`; e2e `roof-b2.spec.ts`, roof
-   only); decisions in RESEARCH §23. Bearing is typed, not picked, until
-   STUD-WALL lands (ROOF-BEARING-WALLS); the full B2 e2e is B2-E2E.
-4. [x] **B2-E2E** (was a note; B2's pass gate): one e2e builds B2 from Build
-   features only (four walls, door, window, roof) and reads the cut list.
-   _Accept:_ the cut list equals buildings.md's wall and roof lists, and
-   interference is none.
-   _Done:_ e2e `shed-b2.spec.ts`: four walls from the Build row, the door,
-   window and roof from Build ▾, nothing posted but the empty part; the cut
-   list is buildings.md's 14 rows (79 pieces) and the volume 39 644.5335 in³
-   (the two goldens' sum), again after a reload; screenshot `b2-shed.png`.
-   Interference is not readable in a part (B2-E2E-INTERFERENCE); it is
-   `test_roof_b2.py`'s exact probe of every rafter against the walls. The
-   slab (B2-SLAB) is left out. Helpers shared in `e2e/buildFlow.ts`.
-5. [x] **ROOF-HIP** (`loft.roof` 1.1.0, stops B3): a `style` choice, Gable
-   (default) or Hip, as Chief Architect's roof style and Medeek's rafter
-   roof type, plus a hip profile (2x8 default, refused if shallower than the
-   commons' plumb cut). Hip on the typed rectangle: ridge L - W + one common
-   thickness, ridge-end and king commons, dropped hips with a double cheek
-   at the ridge and a seat over the corner, hip jacks laid out from the
-   ridge-end commons and cheek-cut 45° at the hip; conventions in
-   buildings.md. Each jack is its side profile intersected with its plan
-   outline; a hip's profile is on a midplane datum (base features only).
-   _Accept:_ golden `b3-hip-6-12`: 27 members (6 commons 79.660, 16 jacks
-   52.480 and 25.647, 4 hips 106.875 on the centreline, ridge 25.5),
-   13 790.758 in³, cut list as buildings.md B3, interference none against
-   the walls, an independent script to 1e-4; golden `b3-hip-8-12`
-   (14 711.255 in³); 1.0.0 goldens byte-identical and Gable equals
-   `b2-roof-6-12`. E2e: Roof with Style Hip from Build ▾ on B2's walls lists
-   4 Hip and 16 Jack.
-   _Done:_ `loft.roof` 1.1.0 (1.0.0 kept; Gable is its expander), goldens
-   `b3-hip-6-12` and `b3-hip-8-12` (the PM's numbers hold in a kernel; the
-   short jack's printed overall length is corrected to 29.235);
-   `test_roof_hip.py`, `test_roof_hip_b3.py` (STEP lengths, script to 1e-4,
-   no interference, a seven-roof overlap sweep, the twin's STEP drift),
-   `test_roof_feature.py`; e2e `roof-hip-b3.spec.ts`; RESEARCH §23. Closes
-   ROOF-OVERHANG-MIN (1.1.0), ROOF-TWIN-DRIFT-TEST, ROOF-HEEL-RULE-WORDING.
-6. [x] **PRICE-BOOK** (backend-builder; prices B1, B2): a price book of
-   what the user pays, as Chief Architect's Master List feeds its materials
-   list and SolidWorks' Cost property feeds a BOM column. One book per user
-   (no workspaces yet), in documents (`price_books` with the currency,
-   `price_book_entries`; one alembic migration), each entry a material, a
-   profile, a unit and integer cents: Each (per stock piece, with its stock
-   length: "SPF 2x4 x 8 ft = $3.98"), per linear foot or per board foot
-   (nominal size x stock length / 12; 2x4x8 = 5.333 BF), either applied to
-   any stock length. Sheet goods and per-part prices are later. USD only
-   (ISO code stored); no floats: cents on the wire, Python ints and
-   `Decimal`. Gateway `GET`/`PUT /api/v1/price-book` (whole book, at most
-   500 entries, one price per key). The gateway prices the cut list in pure
-   `loft_wire.cut_list` code: each line gets stock quantity (one per piece
-   until CUT-LIST-NESTING), unit price per stock piece (an Each price for
-   that stock length wins, then per foot, then per board foot, rounded half
-   up to the cent once per piece, as an invoice) and extended price; the
-   offcut is paid for, not credited. A line without a price or without a
-   stock length has null price, never 0; the response has `currency`, the
-   total of priced lines and how many lines are unpriced. An assembly's
-   list is already one grouped list across parts, so its total is the sum.
-   CSV adds Stock qty, Unit price (USD), Price unit and Extended (USD) as
-   plain numbers plus a Total row, and escapes a formula trigger after
-   leading spaces (closes CUT-LIST-CSV-HARDEN).
-   _Accept:_ with the sample book (PT southern pine 2x10 x 16 ft $28.47,
-   2x10 x 12 ft $19.98, 6x6 $1.45/BF, 5/4x6 $1.12/ft; PT 2x4 x 8/10/12 ft
-   $5.27/$6.97/$8.37; SPF 2x4 x 8/10/12 ft $3.98/$5.48/$6.58, 2x6 x 8 ft
-   $6.48, 2x8 $0.94/ft): B1 totals $943.94 (beam 2 x 28.47 = 56.94, joists
-   13 x 19.98 = 259.74, posts 3 x 34.80, decking 26 x 17.92 = 465.92); B1
-   with the 6x6 entry deleted shows Post blank, "1 line unpriced" and
-   $839.54; B2 totals $396.07 (studs 36 x 3.98 = 143.28, rafters 14 x 6.48
-   = 90.72, ridge 11.28); an assembly placing B1 once and B2 twice totals
-   $1,736.08; the CSVs carry the same numbers; the migration upgrades and
-   downgrades; another user cannot read the book.
-   _Done:_ `loft_wire.price_book` and `cut_list.price_lines`; documents
-   `price_books`/`price_book_entries` (migration 0022, CHECKs on price and
-   stock length); gateway `GET`/`PUT /api/v1/price-book`, and every part and
-   assembly cut list priced from the caller's book; `test_cut_list_prices.py`
-   (B1, B2 and the assembly on measured goldens), `test_cut_list_chain.py`,
-   `test_price_book.py` (wire, documents), `test_migrations.py` 0022;
-   RESEARCH §27. Closes CUT-LIST-CSV-HARDEN.
-7. [x] **CUT-LIST-PRICES** (frontend-builder, after PRICE-BOOK): the cut
-   list panel (part, assembly, drawing) shows Stock qty, Unit price,
-   Extended and a Total row, money formatted in the book's currency, a
-   blank (not $0.00) where unpriced, and "Total of priced lines, N
-   unpriced" when any are. A Price book dialog from the panel edits
-   entries (material, profile, Each with stock length / per ft / per BF,
-   price); clicking an unpriced cell opens it pre-filled with that line's
-   material, profile and stock length. _Accept:_ e2e `cut-list-prices.spec.ts`:
-   on the B1 deck, add the sample book's six PT entries in the dialog, the
-   panel reads Joist 13 at $19.98 = $259.74 and Total $943.94, deleting the
-   6x6 entry blanks Post and reads $839.54 with 1 unpriced, a reload keeps
-   it, and the CSV download has the Total row.
-8. [x] **ROOF-VALLEY** (`loft.roof` 1.2.0, stops B4): a footprint picked
-   _Done:_ `CutListPanel` Unit price / Ext. price columns and a Total row
-   ("N lines unpriced"), money via `lib/money` (Intl USD from integer cents,
-   BigInt, no floats); a blank price is a button opening `PriceBookDialog`
-   pre-filled (labelled cells, focus trap, Escape; a save invalidates every
-   cut list); `api/priceBook`; the assembly inspector widens on its cut view
-   and the drawing's 320 px panel hides Run. `cut-list-prices.spec.ts` enters
-   the seven PT entries through the dialog. Screenshots
-   `cut-list-prices.png`, `price-book-dialog.png`.
-8. [ ] **ROOF-VALLEY** (`loft.roof` 1.2.0, stops B4): a footprint picked
-   from the bearing walls, as Revit's Roof by Footprint (Pick Walls) and
-   Chief Architect's roof from walls: the loop of their outer faces,
-   corners where consecutive walls' lines meet, plate height and width read
-   from the walls. Equal pitch, every wall an eave (hip) and walls at
-   multiples of 90° in this rung; hips and valleys at 45° where planes meet
-   (an orthogonal straight skeleton). Valleys, valley jacks, tails cut at a
-   valley and hip-valley cripples. Needs a feature input that takes several
-   walls (a `loft-wire` change).
-   _Accept:_ golden `b4-l-hip-valley`: 52 members (20 commons, 20 hip jacks,
-   4 valley jacks 51.641 and 24.808, 5 hips, 1 valley 106.875, ridges 121.5
-   and 120), 30 054.875 in³, cut list as buildings.md B4, interference none,
-   a script to 1e-4; golden `b4-wing-48`: 1 hip-valley cripple of line
-   24.461, matching a script. E2e: picking B4's six walls in the Roof form
-   lists 1 Valley and 4 Valley jack.
-   _Done:_ `loft.roof` 1.2.0 (1.0.0 and 1.1.0 kept byte-identical) with a
-   `walls` feature-list input (`loft-wire` FeatureListInput, a checklist in
-   the form) and a valley size; rectangles and L's, every wall an eave;
-   goldens `b4-l-hip-valley` (52 members, the hand numbers hold; 29 779.071
-   in³ with ROOF-HIP-TAIL's ripped tails, 30 054.875 without) and
-   `b4-wing-48` (1 cripple, line 24.461); `test_roof_valley.py`,
-   `test_roof_valley_b4.py` (independent script per body, STEP lengths, no
-   interference, B4's walls by the wall rules, an 11-footprint L sweep);
-   e2e `roof-valley-b4.spec.ts`; RESEARCH §23. Closes ROOF-HIP-TAIL (1.2.0)
-   and, for hips, ROOF-BEARING-WALLS.
+0. [ ] **WALL-MEMBER-RENUMBER** (fix now: silent wrong geometry;
+   kernel-architect): adding or moving an opening renumbers a wall's studs,
+   and widening a deck renumbers its end joist, so a later feature on
+   `stud/k` silently lands on another stud. SolidWorks and Fusion flag a
+   lost reference and never rebind it silently. `loft.wall` 1.1.0 and
+   `loft.deck` 1.1.0 name each layout member by its grid slot (`stud/slot/n`,
+   `stud/end`) and each opening member by its opening's id, so a stud that is
+   not touched keeps its id. Walls and decks stored at 1.0.0 stay pinned, and
+   documents refuses (409 `feature_has_dependents`) a re-expansion that
+   moves a referenced member, as it already refuses one that removes it.
+   _Accept:_ a Ø1 hole goes through B2's front-wall stud at X 128 (1.1.0).
+   Moving the door 24 in keeps the hole in that stud; under 1.0.0 the hole
+   would land on the end stud at 143.25. B1's 16 -> 20 ft edit keeps a hole
+   on the end joist. Under 1.0.0 both edits are a 409 naming the hole. The
+   1.0.0 goldens stay byte-identical.
+1. [ ] **FLOOR-FRAME** (`loft.floor`, homes; kernel-architect): a platform
+   floor, as in Chief Architect's floor framing and Medeek Foundation. It
+   takes a rectangle (start point, width, depth, direction), a joist profile,
+   spacing and direction (along the depth by default), and a base elevation
+   (the top of the foundation). A PT 2x6 sill plate is laid flat and butted
+   like wall plates (on by default). Rims run across the joist ends, and the
+   end joists are flush on the other two sides. Layout follows the deck and
+   wall: 0.75, then every spacing, the end joist flush, and a joist that would
+   overlap it dropped. Walls stand on the floor through their base elevation.
+   The subfloor is SHEATHING. Stairwell openings, doubled joists under
+   walls, blocking and beams are later rungs.
+   _Accept:_ golden `b5-floor-2x8-16oc` (buildings.md B5) has 10 joists at
+   117, 2 rims at 144 and sills of 2 at 144 and 2 at 109, with joist tops at
+   Z 8.75. It totals 20 030.25 in³, matches an independent script to 1e-4
+   and has no interference. Its cut list is Joist 2x8 10 @ 117 (10 ft),
+   Rim 2x8 2 @ 144 (12 ft), and Sill PT 2x6 2 @ 144 (12 ft) plus 2 @ 109
+   (10 ft). Spacing 16 -> 12 gives 13 joists and 23 847.375 in³.
+   E2e: a Floor from the Build group lists 10 Joist, 2 Rim and 4 Sill.
+2. [ ] **SHEATHING** (sheet goods, priced per sheet; kernel-architect for
+   the plugins and goldens, backend-builder for the price book and cut list,
+   frontend-builder for the dialog's sheet unit): sheathing is an option on
+   the host tool, not a tool of its own, as in Chief Architect's wall and
+   floor structure layers and Medeek's sheathing options.
+   - `loft.wall` gets Exterior sheathing (None, 7/16 OSB or 15/32 plywood):
+     full wall height on the exterior face, 48 in panels from the wall
+     start, rough openings cut out, butted at corners.
+   - `loft.floor` gets Subfloor (23/32 plywood by default): 4x8 panels with
+     the long edge across the joists and rows staggered 4 ft.
+   - Sheet goods join the library with their thickness and the 4x8, 4x9 and
+     4x10 sheets. Each panel's sheet is the shortest one that covers it.
+   - Cut-list sheet lines are grouped by material, thickness and sheet.
+     Qty is ceil(net area / sheet area), the count in Chief Architect's
+     materials list, and the area is shown.
+   - The price book gets a per-sheet unit (Each, keyed by sheet) through one
+     migration and wire change. The same change puts a `version` on the
+     book (ETag and If-Match, 412 on a stale `PUT`), which closes
+     PRICE-BOOK-VERSION. Roof sheathing is ROOF-SHEATHING (Next).
+
+   _Accept:_ golden `b5-shed-sheathed`. B2's four walls in 7/16 OSB give 12
+   panels and 20 078.1875 in³: a net area of 45 893 in² once the door's 38 x
+   82.5 and the window's 24.5 x 36.5 are cut out. That is 9 sheets of 4x9,
+   since the walls are 97.125 tall. B5's subfloor is 6 panels, 12 420 in³ and
+   4 sheets of 4x8 (3.75 by area). Neither has interference with the
+   framing. At $24.98 a 4x9 OSB sheet and $42.50 a 4x8 plywood sheet, the
+   lines extend to $224.82 and $170.00. Of two `PUT`s from one version, the
+   second gets 412 and nothing is lost. The migration upgrades and
+   downgrades. E2e: a 144 in Wall from Build with OSB ticked lists 3 sheets
+   of 4x9, and a $24.98 per-sheet entry in the dialog extends it to $74.94.
+3. [ ] **TIMBER-FRAME** (`loft.timber_frame`, founder goal; kernel-architect):
+   a frame of bents, as built in Cadwork, hsbCAD and the SketchUp timber
+   framing extensions. One joint placement cuts both members: a blind
+   mortise in the post, a tenon on the beam, and a peg through both (the
+   holes are coaxial in the model; the drawbore offset is not modelled). It
+   takes width, length, bent count (at least 2), post height, post and beam
+   sections, and a girt height. The sections are S4S timbers, which are new
+   profiles: 8x8 is 7.5 x 7.5. Tie beams sit flush with the post tops. Girts
+   run between the bents. Tenons are 1.5 thick, the beam depth less 1.5
+   wide and 4 long, centred. The peg is Ø1, in white oak (a new material),
+   and runs through the post 2 in from the shoulder. The cut list gives a
+   beam's overall length with its tenons, as a weldment cut list does.
+   Plates, braces, rafters and other joints are later rungs.
+   _Accept:_ golden `timber-mt-8x8` (B6) joins a 96 post and a beam with a
+   60 shoulder length. The post is 5 364 - 1.5π, the beam 3 411 - 0.375π and
+   the peg 1.875π, so the total is exactly the two boxes, 8 775 in³, with no
+   interference. Golden `b6-frame-12x16` has 4 posts at 96, 2 tie beams at
+   137 overall (129 + 2 x 4), 2 girts at 185 overall and 8 pegs, totalling
+   56 025 in³. Width 12 -> 14 ft gives tie beams of 161 and 58 725 in³. Both
+   match an independent script to 1e-4. E2e: a Timber frame from Build lists
+   4 Post, 2 Tie beam, 2 Girt and 8 Peg.
 
 ## Next
 
@@ -209,11 +114,6 @@ Bike gaps first (round 2), then the hard-parts blockers, then speed.
       Sweep path (SolidWorks 3D Sketch, Fusion's 3D sketch). _Accept:_ the
       bike's splayed chain stays are Pipes on a 3D sketch tied to the
       dropouts and BB, matching a script to 1e-4.
-- [x] **ASM-MIRROR-COMPONENT** (bike crankset): Mirror Components
-      (SolidWorks) / Mirror on components (Fusion) about a plane, as a copy of
-      a symmetric part or an opposite-hand part. _Accept:_ the left crank arm
-      is a mirrored copy of the right that follows an edit of it, and the BOM
-      counts 2 (or 1 + 1 opposite hand).
 - [ ] **SKETCH-LINE-ANGLE** (was DRAW-BOX-LINE-ANGLE): the Line draw box
       shows Length and Angle cells, as Fusion does; the angle becomes an
       angle-to-axis dimension, which ships first. _Accept:_ typing 450 Tab 73
@@ -262,9 +162,6 @@ Bike gaps first (round 2), then the hard-parts blockers, then speed.
 - [ ] **HOLE-ANY-BODY**: Hole drills only the active body, although the face
       pick offers every body. _Accept:_ a hole on body 1 of a two-body part
       drills body 1 (checked by the change in volume).
-- [ ] **SHELL-EDGE-DETERMINISM**: the sealed cross-bored rod rebuilds with 21
-      or 20 edges depending on OCCT's address order (46c075f); volume and
-      faces agree. _Accept:_ one edge count in every process.
 - [ ] **EMPTY-SKETCH-SAVE**: undoing the last entity of a saved sketch shows
       an empty sheet while the server keeps the old geometry. _Accept:_ an
       empty bound sketch saves as empty.
@@ -297,13 +194,29 @@ every member. A plugin registers a custom feature that expands into base
 features (RESEARCH §23). First-party plugins ship preinstalled; no install
 step.
 
-The B2 items, B2-E2E, ROOF-HIP (B3) and ROOF-VALLEY (B4) are done.
+B1-B4 are done. FLOOR-FRAME, SHEATHING and TIMBER-FRAME are in Now (B5, B6).
+
+- [ ] **ROOF-GABLE-WALLS** (was the note ROOF-BEARING-WALLS): a gable on
+      picked walls, each wall marked as defining a slope or not (Revit's
+      "Defines Slope", Chief Architect's gable wall). _Accept:_ B2's roof
+      picked from its four walls, with the front and back defining slope,
+      equals golden `b2-roof-6-12` member for member.
+- [ ] **SLAB** (was the note B2-SLAB): a slab-on-grade Build tool in
+      concrete, with an optional thickened edge, listed in the cut list in
+      cubic yards and priced per cubic yard. _Accept:_ B2's 144 x 120 x 4
+      slab is 69 120 in³ and lists 1.48 yd³.
+- [ ] **STEEL-STUDS**: a light-gauge steel choice on `loft.wall` with C
+      studs and tracks (362S162-33 and 362T125-33), as in Chief Architect's
+      metal-stud wall types. _Accept:_ B2's walls in steel give the same
+      layout counts, with Stud and Track lines in the cut list.
+- [ ] **STAIRS** (was the note DECK-STAIRS): a straight stair of cut
+      stringers and treads from the total rise, as Chief Architect's stair
+      tool, with risers of at most 7.75 and treads of at least 10 (IRC
+      R311.7). _Accept:_ B1's 30 in rise gives 4 risers of 7.5, 3 treads and
+      3 stringers, matching a script to 1e-4.
 
 ## Later
 
-- [ ] **TIMBER-FRAME**: posts and beams joined by mortise and tenon with
-      pegs, one placement cutting both members. _Accept:_ a golden two-member
-      joint whose tenon fills its mortise (interference none, volume by hand).
 - [ ] **HOUSE**: composes walls, floor platform and roof into an assembly of
       sub-assemblies (needs ASM-A3), with one cut list. _Accept:_ B2 built as
       wall, floor and roof sub-assemblies gives the same cut list as the
@@ -639,11 +552,8 @@ One line each. The founder triages weekly; most are closed without work.
 - CUT-LIST-SCRIPT: loft-script has no `cut_list()` helper; the gateway routes are generated into `_operations.py` only.
 - CUT-LIST-OPPOSITE-HAND: an opposite-hand (or mirrored-copy) part counts on its source's cut-list lines, since a mirror of a straight member is the same stock; a left/right pair with asymmetric end cuts is not told apart, as SolidWorks' cut list would by body.
 - WINDOW-DOOR-UNIT: a placed window or door frames its rough opening but draws no unit (frame, sash, slab); Revit and Chief Architect draw the unit. Add it as an optional body kept out of the cut list.
-- PLUGIN-PITCH-INPUT: plugin inputs have length, angle, count and choice kinds; a roof pitch typed as 6/12 needs a ratio input (a wire change) or a choice list of x/12.
-- B2-SLAB: buildings.md's 4 in slab is not a Build feature; it is one sketch and extrude in concrete, and the part then needs a material per body (CUT-LIST-MASS-MATERIAL).
 - DECK-BODY-NAMES: the Bodies list and Material panel name every member body after its feature ("Deck 1" x 46); Chief Architect and SolidWorks weldments name them by member ("Joist 3"), as the cut list already does.
 - DECK-DIAGONAL: decking runs across the joists only; Medeek Deck also lays 45° and picture-frame decking.
-- DECK-STAIRS: the guard runs the full open sides with posts where they meet the house; stairs, their guard opening and footings are later rungs.
 - PLUGIN-TOOL-ICONS: every plugin tool gets the same generic icon, so at 1280 the icon-only Build group shows Deck and Twisted prism as two identical glyphs; the manifest has no icon field.
 - DECK-SIZE-CAP: each member is two features (section sketch + extrude), so the corner of the bounds (40 x 24 ft freestanding at 8 in o.c., 2x4 decking, guard) expands to 1,111 and is refused `feature_limit_exceeded`; a 40 x 24 ft deck at 12 in o.c. with guard fits.
 - UNIT-FT-ULP: `toMm(16, "ft")` is 16 x 304.8, one ulp off 192 x 25.4; the form now hides the noise, and the plugin rounds its inches to 1e-9, but other consumers of a foot-typed length see 4876.800000000001.
@@ -661,13 +571,11 @@ One line each. The founder triages weekly; most are closed without work.
 - ROOF-PYRAMID: a hip roof needs length >= span + one rafter thickness; a square (pyramid) roof, its four hips meeting on a post or king block, is refused.
 - ROOF-HIP-TAIL (closed in 1.2.0): hip and valley tails are ripped to the commons' depth; 1.1.0 hips keep the 1.8 in hang (released). The rip also makes the hip's heel on the corner the commons' 1.75 (was 3.556).
 - ROOF-HIP-SEAT-SPAN: the hip's seat is cut level everywhere inside both walls' faces (buildings.md), not just over the plates; at 1/12 that flattens the 2x8's bottom about 25 in in from the corner.
-- WALL-MEMBER-RENUMBER (WINDOW-DOOR review): adding or moving an opening renumbers a wall's stud indices, so a later feature referencing `stud/k` silently lands on another stud; `_check_vanished_members` catches only vanished members (the deck shares the scheme).
 - OPENING-DELETE-REFUSED: deleting or suppressing a door is refused 422 when its wall cannot re-expand for an unrelated reason (a broken wall formula, another opening that no longer fits).
 - OPENING-PARAM-OVERLAP: a parameter change that makes two openings overlap keeps the wall's stale stored framing (`retabled`); the error shows only at evaluation.
 - OPENING-PARTIAL-CRIPPLE: a replaced layout stud only partly inside the rough opening gets no top cripple, leaving up to one spacing unsupported over a header end.
 - OPENING-HOST-FOLD: the web's `foldCustomResults` takes a memberless row's host from the first object-valued input, not the declared host input.
 - ROOF-TWIN-DRIFT (ROOF-HIP review): the hip twin-drift test allows the twin up to 1e-2 (measured 3.1e-3), so it proves STEP drifts without Loft code but not that the 1e-3 bound covers OCCT's drift in general.
-- ROOF-HIP-SIZE: the largest hip roof (480 x 720 in, 12 o.c., 36 overhang) is 988 features / 201 bodies and built in 32 s against the gateway's 90 s timeout; a slow box has little headroom.
 - PRICE-CSV-TOTAL-LABEL (PRICE-BOOK review): the CSV Total row reads plain "Total" even when deleted parts are not listed; `cut_list.total_label` should add "N deleted parts not listed".
 - PRICE-BOOK-USER-DELETE: `price_books.owner_id` has no cascade on user delete (as every documents table); an account-deletion path must purge price books.
 - PRICE-BOOK-DB-UNIQUE: `price_book_entries` has no DB unique index on (book, material, profile, unit, stock_length); only the pydantic model enforces one price per key. Add it as a backstop.
@@ -683,15 +591,11 @@ One line each. The founder triages weekly; most are closed without work.
 - OPENING-TREE-CHEVRON: a door or window row shows the unfold chevron though it has no members of its own (its framing is under its wall).
 - OPENING-END-STUD: an opening whose king would overlap a wall's end stud is refused; Chief Architect lets the king replace the end stud at a corner.
 - OPENING-CRIPPLE-JACK: bottom cripples sit only at the replaced layout centres inside the rough opening, so a sill end between a jack and the first cripple is unsupported for up to one spacing; framers add a cripple beside each jack.
-- WINDOW-DOOR-UNIT: a placed window or door frames its rough opening but draws no unit (frame, sash, slab); Revit and Chief Architect draw the unit. Add it as an optional body kept out of the cut list.
 - PLUGIN-PITCH-INPUT: plugin inputs have length, angle, count and choice kinds; a roof pitch typed as 6/12 needs a ratio input (a wire change) or a choice list of x/12. ROOF took the choice list (1/12 .. 24/12, stored `rise_6`); half pitches and a formula-driven pitch still need the ratio input.
-- B2-SLAB: buildings.md's 4 in slab is not a Build feature; it is one sketch and extrude in concrete, and the part then needs a material per body (CUT-LIST-MASS-MATERIAL).
-- ROOF-BEARING-WALLS: `loft.roof` 1.0.0 takes its bearing as typed span, length, plate height and plate width with the walls at Y 0 and Y span, because `loft.wall` was not merged then. ROOF-VALLEY picks the footprint from walls for a hip roof; the gable still needs a per-wall "defines slope" choice (Revit), which closes this.
 - ROOF-RAKE-OVERHANG: the end rafters sit flush with the gable walls; Chief Architect and Medeek also frame a rake overhang (barge rafters on lookouts or a ladder).
 - ROOF-HIP-BACKING: hips are dropped, not backed, and valleys are not raised (buildings.md); Chief Architect also offers backed hips, and an unbacked valley's edges sit 0.265 below the planes at 6/12.
 - ROOF-SKELETON-GENERAL: ROOF-VALLEY takes walls at multiples of 90° and one pitch; angled walls, per-plane pitches and flying hips are later rungs.
 - PRICE-PART-COST: purchased parts (joist hangers, screws, a bike's crankset) have no price; SolidWorks' Cost custom property on a part, summed in the assembly BOM, is the convention. Founder to say whether the BOM (not just the cut list) needs it.
-- PRICE-SHEET-GOODS: the price book has no per-sheet unit because the cut list has no sheet goods (plywood, OSB) yet; add it with B2's sheathing.
 - DRAWING-PARTS-LIST-COST: the drawing's parts list has no Cost column; the drawing's cut-list panel gets prices through CUT-LIST-PRICES, and neither is on the exported sheet (CUT-LIST-PDF).
 - PRICE-BOOK-MISSING: a deleted part an assembly still places is listed in `missing`, not as a line, so the total neither prices it nor counts it among the unpriced lines; the panel should say the total leaves it out.
 - PRICE-BOOK-KEY-DRIFT: entries store library keys (`spf_lumber`, `us_2x4`); renaming or removing a key from the closed library would make a stored book fail to read, so such a change needs a data migration of `price_book_entries`.
@@ -706,4 +610,5 @@ One line each. The founder triages weekly; most are closed without work.
 - CUT-LIST-PRICES-STOCK-LENGTHS: the dialog mirrors `STOCK_LENGTHS_FT` in `api/priceBook.ts` because `/api/v1/materials` does not serve it; serve it beside the profiles and drop the copy (a drift is a 422 on save, not silent).
 - CUT-LIST-PRICES-EDIT-PRICED: clicking a priced cell does nothing; it could open the book on the entry that priced it, as a blank opens a new one.
 - CUT-LIST-PRICES-DRAWING-RUN: the drawing's 320 px side panel hides the Run (qty x length) column to fit the two price columns; a wider drawing panel would bring it back.
-- PRICE-BOOK-VERSION: the dialog re-reads the book just before its `PUT` and refuses a save if it changed elsewhere, but a save landing between that GET and the PUT still wins whole; the real fix is a version (or ETag/If-Match) on `PUT /api/v1/price-book`, a wire change.
+- SHELL-EDGE-DETERMINISM (was in Next): the sealed cross-bored rod rebuilds with 21 or 20 edges depending on OCCT's address order (46c075f); volume and faces agree, so it is a determinism nit, not wrong geometry.
+- ROOF-SHEATHING: roof planes get no sheathing; after SHEATHING, a gable's two planes first (rectangles), then hips and valleys (triangles and trapezoids).
