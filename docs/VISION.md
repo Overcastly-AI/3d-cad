@@ -228,5 +228,16 @@ goal and answer them"); the product-manager decided them. Each is in
 - **Bike gaps after B1:** SKETCH-3D, ASM-MIRROR-COMPONENT, SKETCH-LINE-ANGLE
   and DRAWING-PARTS-LIST-LEVEL lead Next; the bike already builds with
   workarounds, while B1 has no path at all without the three plugins.
+- **Now after B1 (2026-10-17, second pass):** STUD-WALL, WINDOW-DOOR, then
+  ROOF, so B2 passes; the bike gaps stay first in Next, because the bike
+  builds with workarounds and B2 has no path at all.
+- **B2 conventions:** a wall frames the openings that name it as host
+  (Revit, Chief Architect), so the registry gives a host its later hosted
+  features; a window or door frames its rough opening only, with the unit
+  body later (WINDOW-DOOR-UNIT); pitch is typed as rise per 12; B2's slab is
+  a plain sketch and extrude, not a Build feature.
+- **Cut length of an angled member:** the overall length measured from the
+  body, as a SolidWorks weldment cut list reports it; a rafter's line length
+  (79.660) is checked in its golden, not read from the cut list.
 - **Left for the founder:** the object store (MinIO or an Apache-2.0 server),
   because it turns on publishing images under AGPL §6.

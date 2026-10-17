@@ -9,52 +9,60 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
-Ranked 2026-10-17 by the product-manager (delegated by the founder): the
-security fix, then the B1 deck end to end in RESEARCH §23's order. Done
-2026-10-16..17 and dropped: ASM-FAILED-PART-API, PIPE-ALONG-PATH (§25),
-PLUGIN-REGISTRY, PLUGIN-UI and PERF-REBUILD-200 step 1 (§15a).
+Ranked 2026-10-17 (second pass) by the product-manager (delegated by the
+founder): B1 has a path once DECK lands, B2 has none, and the bike builds
+with workarounds, so the three B2 generators go next, in RESEARCH §23's
+order. Each is a first-party plugin in `packages/loft-plugins` (base
+features only), a golden in `services/geometry/goldens/` checked on STEP
+against `docs/reference-parts/buildings.md`, and one e2e from the Build
+group. Done 2026-10-16..17 and dropped: AUTH-RATE-LIMIT-PROXY,
+LIBRARY-THUMBNAILS (§26), LUMBER-MATERIALS, CUT-LIST, ASM-FAILED-PART-API,
+PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
 
-1. [x] **AUTH-RATE-LIMIT-PROXY** (security hole, so first): auth routes
-   key on the socket address, so behind the bundled nginx every client
-   shares one login bucket and one attacker locks every user out.
-   _Accept:_ two clients behind the bundled proxy get separate buckets, a
-   forged `X-Forwarded-For` sent straight to the gateway is ignored, and
-   nginx sets `X-Forwarded-For $remote_addr` (it appends today; fix its
-   stale comment too). _Decided 2026-10-16 (delegated by founder to
-   product-manager):_ trust `X-Forwarded-For` only from the bundled
-   proxy's address, else key on the socket — the standard trusted-proxy
-   rule. _Decided 2026-10-17:_ Now, ahead of B1 — a lockout of every user
-   is a security hole under CLAUDE.md's Severity, and the fix is small.
-1b. [x] **LIBRARY-THUMBNAILS** (founder 2026-10-17: "we do not have previews
-   in the library of what parts look like"): the Parts, Assemblies and
-   Drawings pages and the assembly Add panel show a thumbnail of each
-   document, as Fusion's Data Panel and Onshape's document list do. Rendered
-   server-side from the evaluated mesh (isometric, fixed lighting) when a
-   part or assembly is saved, cached by tree version, regenerated after an
-   edit; a placeholder while rendering or on failure. _Accept:_ an e2e saves
-   a part, sees its thumbnail in Parts and in the Add panel, edits it and
-   sees the thumbnail change; a failed part shows the placeholder.
-   _Done:_ RESEARCH §26; `e2e/thumbnails.spec.ts`.
-2. [x] **LUMBER-MATERIALS** (stops B1): the material library gains SPF and
-   Douglas fir-larch lumber, pressure-treated southern pine, LVL, glulam,
-   structural steel and concrete, plus a profile library of US nominal
-   sizes with actual dimensions (2x4 is 1.5 x 3.5 in; 5/4x6 decking 1 x 5.5 in).
-   _Accept:_ a unit test pins every profile's actual size and density, and
-   a 2x10 x 12 ft SPF member's mass matches the hand calculation to 1e-4.
-3. [x] **CUT-LIST** (stops B1): a part or assembly cut list groups members by
-   profile, material and length, with quantity, total length and stock
-   length (SolidWorks weldment cut list, Chief Architect materials list),
-   exported as CSV and placed on a drawing. _Accept:_ B1's cut list equals
-   the table in `buildings.md`, and every length is measured from its body.
-   _Done:_ B1 is built by the test-only `test.deck_b1` fixture plugin
-   (golden `b1-deck-framing-16ft`); DECK must build the same bodies and
-   member metadata, its roles emitted in the table's order.
-4. [ ] **DECK** (stops B1): ledger, dropped beam, posts, joists at a spacing,
-   rim, decking boards with gap and overhang, and guard railing, from
-   width, projection, height, spacing and profiles. _Accept:_ B1 builds
-   from one Deck feature in the Build group, with no member drawn by hand,
-   and its STEP matches the spec (counts, cut lengths, 64 497.75 in³,
-   interference none); the 16 -> 20 ft edit gives 80 212.5 in³.
+0. [ ] **DECK** (final gate; B1): one Deck feature builds B1 to the spec
+   (64 497.75 in³; 16 -> 20 ft gives 80 212.5 in³). Tick when CI is green.
+1. [ ] **STUD-WALL** (`loft.wall`, stops B2): a straight wall from a start
+   point, direction, length and height (plate to plate), stud profile and
+   spacing, single or double top plate, and a material per role (PT bottom
+   plate, SPF studs and top plates). Layout as Chief Architect and Medeek
+   Wall: centres from the wall start at 0.75 then every spacing, an end stud
+   flush at the far end, a layout stud that would overlap it dropped. Plates
+   are butted, not lapped (corner assemblies and lapped plates are later).
+   _Accept:_ golden `b2-walls-no-openings-16oc`: B2's four walls with no
+   openings give 36 studs at 92.625, top plates 4 at 144 and 4 at 113,
+   bottom plates 2 at 144 and 2 at 113, 25 601.625 in³, interference none,
+   cut list equal; spacing 16 -> 24 gives 26 studs (20 738.8125 in³); a
+   30° wall matches a script. E2e: a Wall placed from the Build group lists
+   10 studs in its cut list.
+2. [ ] **WINDOW-DOOR** (`loft.window`, `loft.door`, stops B2): two Build
+   tools, each hosted in a wall as Revit and Chief Architect do: host wall
+   (a feature input), offset of its centre along the wall, unit width and
+   height, rough-opening allowance, head height (window). The host wall
+   frames every opening that names it: kings, jacks, a doubled 2x6 header,
+   top cripples (and a flat sill plus bottom cripples for a window) at the
+   replaced layout centres, and a door cuts the bottom plate. `expand` sees
+   only earlier features today, so the registry first gives a wall the
+   custom features that name it as host, and a write to an opening
+   re-expands its wall. Frames the rough opening only; no unit body yet. _Accept:_ golden
+   `b2-walls-door-window` equals buildings.md's wall cut list (28 942.125
+   in³ summed from it, the 1/2 in spacer not a member), no member crosses an
+   opening; goldens for the three edits: door moved 24 in (7 layout studs,
+   3 top cripples), window 24 -> 30 in (header 33.5, sill 30.5), door
+   deleted (10 full studs, one 144 bottom plate). E2e: dragging the door's
+   offset regenerates the front wall.
+3. [ ] **ROOF** (`loft.roof`, stops B2): a gable of common rafters from two
+   bearing walls (feature inputs), pitch entered as rise per 12 (6/12, as
+   Chief Architect and Medeek Truss), spacing, eave overhang, rafter and
+   ridge profiles; each rafter is one sketched side profile (ridge plumb
+   cut, birdsmouth, tail plumb cut) extruded to thickness. The seat takes
+   the full plate unless the heel would pass 1/3 of the depth, then
+   shortens to keep it there. Trusses, hips and rafter ties are later.
+   _Accept:_ golden `b2-roof-6-12`: 14 rafters of line length 79.660 with a
+   1.75 heel, 2x8 ridge at 144, matches an independent build123d script to
+   1e-4, interference none against the walls; golden `b2-roof-8-12`: 85.632,
+   seat 2.75, heel 1.833. The cut list shows each rafter's overall length
+   measured from the body (8 ft stock); this commit adds that overall length
+   to buildings.md's roof line. E2e: B2 complete from Build features only.
 
 ## Next
 
@@ -151,22 +159,9 @@ Bike gaps first (round 2), then the hard-parts blockers, then speed.
 Founder, 2026-10-15: decks, sheds, rafters, windows and doors without drawing
 every member. A plugin registers a custom feature that expands into base
 features (RESEARCH §23). First-party plugins ship preinstalled; no install
-step. The B1 items (LUMBER-MATERIALS, CUT-LIST, DECK) are in Now.
+step.
 
-- [ ] **STUD-WALL** (stops B2): plates, studs on an o.c. layout, corners,
-      and openings framed with header, king, jack, sill and cripples (Medeek
-      Wall, Chief Architect auto framing). _Accept:_ B2's four walls match the
-      spec's member counts and lengths, and no member crosses an opening.
-- [ ] **WINDOW-DOOR** (stops B2): a window or door is placed in a wall by
-      offset and head height, cuts its opening and drives the wall's framing
-      (Revit hosted families). _Accept:_ moving B2's door 24 in along its wall
-      and widening the window 24 -> 30 in regenerate the framing to the spec;
-      deleting the door restores full studs.
-- [ ] **ROOF** (stops B2): a gable roof of common rafters at a pitch and
-      spacing, with ridge board, birdsmouth seat cuts and eave overhang,
-      bearing on the walls (Medeek Truss, Chief Architect Build Roof). Trusses
-      come later. _Accept:_ B2's 14 rafters measure 79.660 in with a 1.75 in
-      heel, and the 6/12 -> 8/12 edit regenerates to the spec.
+The B2 items (STUD-WALL, WINDOW-DOOR, ROOF) are in Now.
 
 ## Later
 
@@ -506,3 +501,6 @@ One line each. The founder triages weekly; most are closed without work.
 - CUT-LIST-PDF: the drawing's cut list is a panel beside the sheet, as the parts list is; neither is drawn into the exported PDF/DXF sheet as a table yet.
 - CUT-LIST-SCRIPT: loft-script has no `cut_list()` helper; the gateway routes are generated into `_operations.py` only.
 - CUT-LIST-OPPOSITE-HAND: an opposite-hand (or mirrored-copy) part counts on its source's cut-list lines, since a mirror of a straight member is the same stock; a left/right pair with asymmetric end cuts is not told apart, as SolidWorks' cut list would by body.
+- WINDOW-DOOR-UNIT: a placed window or door frames its rough opening but draws no unit (frame, sash, slab); Revit and Chief Architect draw the unit. Add it as an optional body kept out of the cut list.
+- PLUGIN-PITCH-INPUT: plugin inputs have length, angle, count and choice kinds; a roof pitch typed as 6/12 needs a ratio input (a wire change) or a choice list of x/12.
+- B2-SLAB: buildings.md's 4 in slab is not a Build feature; it is one sketch and extrude in concrete, and the part then needs a material per body (CUT-LIST-MASS-MATERIAL).
