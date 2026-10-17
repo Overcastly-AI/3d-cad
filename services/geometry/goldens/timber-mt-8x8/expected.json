@@ -14,7 +14,7 @@
     "mass_g = (532 x (V - pegs) + 759 x pegs) x 25.4^3 x 1e-6, pegs = 1.875 pi in^3 (dfl_lumber members, white_oak pegs) = 76521.64267607234 g; center_of_mass = (532 x (box moment - peg moment) + 759 x peg moment) / (that mass), each peg's centroid its axis's midpoint.",
     "topology: counted by hand per body in the module docstring of services/geometry/tests/test_timber_frame_b6.py (a post 6 + 7 per mortise faces, 12 + 18 edges; a beam 6 + 6 per tenon, 12 + 15; a peg 3 faces, 3 edges); mesh counts recorded from the build (planar boxes and Ø1 cylinders at linear_deflection 0.1)."
   ],
-  "tolerance": 1e-06,
+  "tolerance": 1e-6,
   "tolerance_rationale": "Measured first, then set (geometry-gates skill): the bounds are ABSOLUTE on a 1.44e8 mm^3 part of 3 bodies. Measured 2026-10-17: volume 0.0, area 4.7e-10 mm^2, mass 1.5e-11 g, centroid and centre of mass <= 1e-12 mm off the hand values. 1e-6 is >2000x the worst; a peg 0.001 in off its hole changes nothing in volume, but a tenon 0.001 in long or a mortise 0.001 in deep moves it by >= 0.15 mm^3.",
   "properties": {
     "volume": 143796486.6,

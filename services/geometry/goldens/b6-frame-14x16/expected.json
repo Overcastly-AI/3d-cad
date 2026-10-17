@@ -14,9 +14,9 @@
     "mass_g = (532 x (V - pegs) + 759 x pegs) x 25.4^3 x 1e-6, pegs = 15 pi in^3 (dfl_lumber members, white_oak pegs) = 512135.03180777875 g; center_of_mass = (532 x (box moment - peg moment) + 759 x peg moment) / (that mass), each peg's centroid its axis's midpoint.",
     "topology: counted by hand per body in the module docstring of services/geometry/tests/test_timber_frame_b6.py (a post 6 + 7 per mortise faces, 12 + 18 edges; a beam 6 + 6 per tenon, 12 + 15; a peg 3 faces, 3 edges); mesh counts recorded from the build (planar boxes and Ø1 cylinders at linear_deflection 0.1)."
   ],
-  "tolerance": 1e-05,
+  "tolerance": 1e-5,
   "tolerance_rationale": "Measured first, then set (geometry-gates skill), as b1-deck-framing-16ft: the bounds are ABSOLUTE and the part is ~9.2e8 mm^3, so the double-precision sum over its 16 bodies carries round-off near the ULP of the sum. Measured 2026-10-17: volume -1.19e-6 mm^3 (1.3e-15 relative), area -1.5e-8 mm^2, mass -8.1e-10 g, centroid and centre of mass <= 3e-12 mm. 1e-5 is 8x the worst; a tenon 0.001 in out moves the volume by >= 0.15 mm^3 and a member 0.001 in out by >= 0.9 mm^3, failing by four orders of magnitude.",
-  "roundtrip_tolerance": 1e-05,
+  "roundtrip_tolerance": 1e-5,
   "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip moves the VOLUME by +1.5e-6 mm^3 (12x16; 14x16 +1.1e-6) and the AREA by 6.7e-8 mm^2, ~1.7e-15 relative: each re-imported post's volume is re-integrated over its bores' cylinders (<= 7.7e-7 mm^3 per body, 1e-14 relative) and the 16 solids are re-summed in another order. ROUNDTRIP_TOL (1e-7 absolute) is near the ULP of a 9.2e8 mm^3 sum. The independent build123d twin drifts through build123d's own STEP too (test_timber_frame_b6::test_the_frames_step_drift_is_occts), so it is OCCT, not Loft's export. 1e-5 (6.5x the worst) applies to volume and area only; centroid and bounds keep ROUNDTRIP_TOL. Same class as b1-deck-framing-16ft.",
   "properties": {
     "volume": 962330333.3999999,
