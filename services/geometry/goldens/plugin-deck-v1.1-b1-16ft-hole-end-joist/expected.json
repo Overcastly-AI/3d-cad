@@ -1,0 +1,54 @@
+{
+  "description": "WALL-MEMBER-RENUMBER: B1 (plugin-deck-v1-b1-12x16ft's deck) at loft.deck 1.1.0, plus a 1 in hole along X through the end joist (X 190.5..192) at Y 72 and mid-depth Z 24.375. The hole is a circle on a YZ datum at X 191.25 extruded symmetric 3 in as a new body and subtracted by a Boolean whose target is the joist by its 1.1.0 id, joist/end. model.json is the plugin's expansion plus the hole (packages/loft-plugins/tests/test_member_names.py pins it).",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC, derived in services/geometry/tests/test_member_renumber.py (derived()) from the BASE golden's hand-derived expected.json and the cylinder's closed form, never from the kernel; that test asserts this file equals the derivation.",
+    "",
+    "bore = pi r^2 L with r = 0.5 in, L = 1.5 in (the joist's thickness) = 0.375 pi in^3; area change = 2 pi r L - 2 pi r^2 = pi in^2; centre (191.25, 72, 24.375) in.",
+    "",
+    "volume = plugin-deck-v1-b1-12x16ft's 64497.75 in^3 - 0.375 pi in^3, x 25.4^3; centroid re-weighted by the bore; mass_g = its mass - 582 kg/m^3 x the bore (all PT); center_of_mass re-weighted the same way.",
+    "",
+    "bounding_box: unchanged. topology: the base's + 1 face + 3 edges = 277, 555, 46.",
+    "",
+    "MESH counts are the kernel's, recorded."
+  ],
+  "tolerance": 1e-05,
+  "tolerance_rationale": "Measured 2026-10-17: 1.2e-7 mm^3 on the volume, 0 on the area, <= 3.2e-12 mm on the centroid and centre of mass, 5.8e-10 g on the mass. 1e-5 is plugin-deck-v1-b1-12x16ft's bound (a 1.06e9 mm^3 sum of 46 solids); the bore is 6 145 mm^3.",
+  "roundtrip_tolerance": 1e-05,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip moves the volume by 1.2e-7 mm^3, the area by 0 and the centroid by 2.0e-12 mm. 1e-5 is the base golden's bound; volume and area only.",
+  "properties": {
+    "volume": 1056909451.5510464,
+    "surface_area": 79001707.53991638,
+    "centroid": {
+      "x": 2438.355808045516,
+      "y": 1973.8591352995672,
+      "z": 647.9542585484776
+    },
+    "mass_g": 615121.300802709,
+    "center_of_mass": {
+      "x": 2438.355808045516,
+      "y": 1973.8591352995675,
+      "z": 647.9542585484777
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 4876.8,
+        "y": 3711.575,
+        "z": 762.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 277,
+    "edges": 555,
+    "shells": 46
+  },
+  "mesh": {
+    "vertices": 1610,
+    "triangles": 1060
+  }
+}

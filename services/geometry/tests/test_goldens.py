@@ -231,6 +231,12 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         "b2-walls-door-moved-24",
         "b2-walls-window-30",
         "b2-walls-door-deleted",
+        # Those walls and B1's deck at 1.1.0 with a hole in one member, before
+        # and after the edit that renumbered 1.0.0 (WALL-MEMBER-RENUMBER).
+        "b2-walls-v1.1-hole-stud-128",
+        "b2-walls-v1.1-hole-door-moved-24",
+        "plugin-deck-v1.1-b1-16ft-hole-end-joist",
+        "plugin-deck-v1.1-b1-20ft-hole-end-joist",
         # The loft.roof B2 gable at 6/12 and 8/12 (ROOF): OCCT's STEP rounds
         # the sloped rafters' coordinates; a build123d twin drifts the same.
         "b2-roof-6-12",

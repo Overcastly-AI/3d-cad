@@ -1,0 +1,54 @@
+{
+  "description": "WALL-MEMBER-RENUMBER acceptance: b2-walls-v1.1-hole-stud-128 after B2's first edit, the door's offset 72 -> 48 (b2-walls-door-moved-24's walls at loft.wall 1.1.0). The Boolean still names stud/slot/8 and the hole is still in the stud at 128 along the front wall. Under 1.0.0 the same reference (stud/6) would name the end stud at 143.25, and the subtract would cut nothing: documents refuses that edit with a 409 instead.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC, derived in services/geometry/tests/test_member_renumber.py (derived()) from the BASE golden's hand-derived expected.json and the cylinder's closed form, never from the kernel; that test asserts this file equals the derivation.",
+    "",
+    "bore = 0.875 pi in^3, area change 3 pi in^2, centre (16, 1.75, 48) in, as b2-walls-v1.1-hole-stud-128.",
+    "",
+    "volume = b2-walls-door-moved-24's 28488 in^3 - 0.875 pi in^3, x 25.4^3; centroid, mass (450 kg/m^3 SPF) and centre of mass re-weighted from b2-walls-door-moved-24's by the bore.",
+    "",
+    "bounding_box: unchanged. topology: b2-walls-door-moved-24's + 1 face + 3 edges = 385, 771, 64.",
+    "",
+    "MESH counts are the kernel's, recorded."
+  ],
+  "tolerance": 1e-06,
+  "tolerance_rationale": "Measured 2026-10-17: 1.2e-7 mm^3 on the volume, 7.5e-9 mm^2 on the area, <= 1.6e-12 mm on the centroid and centre of mass, 8.7e-11 g on the mass. 1e-6 is b2-walls-door-moved-24's bound, 8x the worst.",
+  "roundtrip_tolerance": 3e-06,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip moves the volume by 7.2e-7 mm^3, the area by 0 and the centroid by 1.6e-12 mm (the re-import's summation order, as the base golden). 3e-6 is the base golden's bound, 4.2x the worst; volume and area only.",
+  "properties": {
+    "volume": 466789632.9371082,
+    "surface_area": 35311816.329749174,
+    "centroid": {
+      "x": 1971.072393938178,
+      "y": 1475.2347939307006,
+      "z": 1364.4931310456673
+    },
+    "mass_g": 215460.9028492507,
+    "center_of_mass": {
+      "x": 1966.282067661305,
+      "y": 1479.4215587285269,
+      "z": 1330.738123636465
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 3657.6,
+        "y": 3048.0,
+        "z": 2466.975
+      }
+    }
+  },
+  "topology": {
+    "faces": 385,
+    "edges": 771,
+    "shells": 64
+  },
+  "mesh": {
+    "vertices": 2042,
+    "triangles": 1276
+  }
+}

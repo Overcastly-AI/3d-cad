@@ -1,0 +1,642 @@
+[
+  {
+    "feature_id": "5fa6b1d0-c2c9-59c4-a49d-32499816939e",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b1b296d9-14eb-5e85-8644-a220b57450af",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "93e459ff-8847-5bc9-a20d-3330fd16dd19",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "88117901-7e98-5c4b-b643-11d5e7bc1cff",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d9f468e2-0556-52bc-b6cc-7707719c3573",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8e23b43a-52e4-50e8-9b54-9673b196d906",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d5314c02-a6d6-5f31-ad99-894d8fda69ba",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "da381070-c6c2-5dc4-85cf-b0305b73e9c8",
+    "role": "king",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "0d68b57a-b345-5efa-ba43-63b42ec50140",
+    "role": "king",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "16fb8775-ac28-51e8-a2e3-68b3ea878987",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6a714512-cf9a-5069-9af3-5bf42a493bd2",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6ce96f4c-8724-51df-b88c-7eb040b4d3d2",
+    "role": "header",
+    "title": "Header",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "575f46e8-d1aa-5228-ab04-d73b4b252c66",
+    "role": "header",
+    "title": "Header",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ad1bcf88-4528-5602-803b-2b4545a99036",
+    "role": "cripple",
+    "title": "Cripple",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "bd4d6a5e-70be-5482-986b-1cfe898a41d7",
+    "role": "cripple",
+    "title": "Cripple",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "2817b15a-a1ec-537e-b22e-733873098aa0",
+    "role": "cripple",
+    "title": "Cripple",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6b6266c4-ca7c-5559-81fe-1aae55f53262",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b8c0af5e-05ee-5a12-9c83-04c3e6f07ef1",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d86c7249-3a82-5a10-8426-b2d0547a837f",
+    "role": "bottom_plate",
+    "title": "Bottom plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "96576e51-f04d-5286-85f8-608a477df8a7",
+    "role": "bottom_plate",
+    "title": "Bottom plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "efb31dad-4686-5df3-992d-29f2e5fcd8a5",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "7a083818-4bf3-5371-8cfa-c7fe35a96af5",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "dddc7149-b1b6-5ee4-bf88-cfce23df0394",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c4b60363-0d67-5303-a2b1-1ed6b73fa923",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "724311f9-97ad-5c0b-9d98-e56400025880",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "83c80b02-840f-5af6-9cfe-52ee4a2d730c",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ce5024ed-2906-5cfb-9541-7773df61ec03",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "61659553-1230-50b3-a871-a9bb5fa6a510",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9a1656b8-df56-51e5-9d83-bf4d3495564e",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "bc562ff9-4594-562f-b877-2486b33be500",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "59d41f9d-7996-517f-8d4e-2bef83a883c3",
+    "role": "bottom_plate",
+    "title": "Bottom plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "34972f25-5d37-5ee6-bdd9-a4a296f42681",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "31e3fc27-0bc0-5e9a-9750-80f55d9ad2d0",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "54e35da0-d037-5b10-93a9-f43aa0019d0c",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ccaaf0c2-ce94-5244-b3a6-e27dab3d7677",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "743bfbc7-cf21-5751-80b2-3ce0c7055760",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "dc7503d5-e543-55e8-b54f-616614d8c8c7",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fcbb42ef-f26c-5902-af8f-563b40cd62b2",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6bbe67e8-d9b9-5278-9718-25a7f82fd2f7",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d6d78683-2368-5200-a0cb-306839d3a3af",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "572e413a-1ea8-5ceb-a06e-6ce2936707fb",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d443567f-af01-5a1d-bf58-e9a0b5ccf957",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f3537fa7-76ce-5de8-9f9c-90518f667c55",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "709a7251-fa53-5845-a6d6-241e031f62f9",
+    "role": "bottom_plate",
+    "title": "Bottom plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "2c04e74b-3a63-5c71-b801-f74ee35bf523",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a55e20fc-f4ee-547d-b284-ed02b88e974c",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ca8c94d4-6719-58ab-b20b-a2845090fcd2",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "435382da-9559-568b-8ff5-b918ad0460dd",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6d72000e-b369-5499-855a-fc3767b9ee04",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8e306aa3-341c-579e-aa35-3d32ee669db4",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ed10b2e7-e094-529e-bf8b-e6a324917e15",
+    "role": "king",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d118b47b-4920-53b6-a151-cde8a9186e7f",
+    "role": "king",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "260f3d6c-0cf4-5689-aba5-1d444a6e9c9f",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9cb539d5-5763-58ab-8f82-de8f2ad1f17a",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "34297161-4423-5d86-8787-e91f150a52dd",
+    "role": "header",
+    "title": "Header",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "78b616df-c243-54ac-be8b-b876fe0bb2f6",
+    "role": "header",
+    "title": "Header",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "7ab26805-43e5-5da1-8276-80624b213fc3",
+    "role": "cripple",
+    "title": "Cripple",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c0d5a6e7-0c26-5d30-94c6-4c83f28fb1c3",
+    "role": "cripple",
+    "title": "Cripple",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "75e790eb-0eb5-568c-a9ec-db7cc0076d1e",
+    "role": "sill",
+    "title": "Sill",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "480026c3-8495-5374-9518-f734feeca4b9",
+    "role": "sill_cripple",
+    "title": "Cripple",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "43302a25-5293-5b01-92fb-f9e94a6cebde",
+    "role": "sill_cripple",
+    "title": "Cripple",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "0e29df49-dd11-52ef-bd0c-4bfd9bc7b6d1",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e9ffd669-15ac-5820-b3bb-8079ba2c5751",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "128691b1-28b7-55c0-8a00-3c624ed1f5ef",
+    "role": "bottom_plate",
+    "title": "Bottom plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  }
+]

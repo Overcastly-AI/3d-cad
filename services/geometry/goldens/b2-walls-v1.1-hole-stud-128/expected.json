@@ -1,0 +1,58 @@
+{
+  "description": "WALL-MEMBER-RENUMBER: B2's four walls at loft.wall 1.1.0 with the door (front wall, 72) and window (right side wall, 56.5) of b2-walls-door-window, plus a 1 in hole through the front wall's stud at 128 along the wall (world X 16) at Z 48, along Y through its 3.5 depth. The hole is a circle on XZ extruded symmetric 7 in as a new body and subtracted by a Boolean whose target is the stud by its 1.1.0 id, stud/slot/8. model.json is the plugins' expansion plus the hole (packages/loft-plugins/tests/test_member_names.py pins it); the 1.1.0 members are 1.0.0's renamed, so the bodies are b2-walls-door-window's.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC, derived in services/geometry/tests/test_member_renumber.py (derived()) from the BASE golden's hand-derived expected.json and the cylinder's closed form, never from the kernel; that test asserts this file equals the derivation.",
+    "",
+    "bore = pi r^2 L with r = 0.5 in, L = 3.5 in = 0.875 pi in^3; area change = 2 pi r L - 2 pi r^2 = 3 pi in^2 (the bore's wall less its two discs); centre (16, 1.75, 48) in.",
+    "",
+    "volume = b2-walls-door-window's 28942.125 in^3 - 0.875 pi in^3, x 25.4^3.",
+    "",
+    "centroid = (V c - v c_bore) / (V - v) on b2-walls-door-window's centroid; mass_g = its mass - 450 kg/m^3 x the bore (the stud is SPF); center_of_mass re-weighted the same way with the bore's mass.",
+    "",
+    "bounding_box: unchanged (the bore is inside the stud).",
+    "",
+    "topology: b2-walls-door-window's + 1 face (the bore's cylinder) + 3 edges (its two circles and seam), shells unchanged = 385, 771, 64.",
+    "",
+    "MESH counts are the kernel's, recorded: the bore is tessellated at linear_deflection 0.1."
+  ],
+  "tolerance": 1e-06,
+  "tolerance_rationale": "Measured first, then set, as b2-walls-door-window: absolute bounds on a ~4.7e8 mm^3 part whose separate bodies sum with round-off near the ULP. Measured 2026-10-17: 1.2e-7 mm^3 on the volume, 0 on the area, <= 1.6e-12 mm on the centroid and <= 1.9e-12 mm on the centre of mass, 1.2e-10 g on the mass. 1e-6 is 8x the worst; the bore itself is 14 340 mm^3, so a hole in the wrong body or missing fails the mass of the body by orders of magnitude.",
+  "roundtrip_tolerance": 3e-06,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip moves the volume by 6.0e-7 mm^3 (as b2-walls-door-window, the re-import summing its solids in another order), the area by 0 and the centroid by 2.3e-12 mm. 3e-6 is b2-walls-door-window's bound, 5x the worst; it applies to volume and area only.",
+  "properties": {
+    "volume": 474231408.3761082,
+    "surface_area": 35869879.72974917,
+    "centroid": {
+      "x": 1949.0876853336322,
+      "y": 1452.782508084792,
+      "z": 1360.9177512065999
+    },
+    "mass_g": 218809.7017968007,
+    "center_of_mass": {
+      "x": 1946.1160471447936,
+      "y": 1457.4598668740362,
+      "z": 1327.7676790043097
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 3657.6,
+        "y": 3048.0,
+        "z": 2466.975
+      }
+    }
+  },
+  "topology": {
+    "faces": 385,
+    "edges": 771,
+    "shells": 64
+  },
+  "mesh": {
+    "vertices": 2042,
+    "triangles": 1276
+  }
+}
