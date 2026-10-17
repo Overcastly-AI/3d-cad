@@ -93,6 +93,11 @@ export function CutListPanel({
   }
 
   const lines = data?.lines ?? [];
+  // Deleted parts an assembly still places: listed, never silently dropped.
+  const missingPieces = (data?.missing ?? []).reduce(
+    (sum, part) => sum + part.quantity,
+    0,
+  );
   return (
     <aside
       className="flex w-full flex-col gap-3"
@@ -261,6 +266,17 @@ export function CutListPanel({
             </table>
           )}
         </PanelSection>
+        {missingPieces > 0 ? (
+          <p
+            role="note"
+            data-testid="cut-list-missing"
+            className="border-t border-hairline px-3 py-2 font-body text-2xs text-flag"
+          >
+            {missingPieces === 1
+              ? "1 placement of a deleted part is not listed."
+              : `${missingPieces} placements of deleted parts are not listed.`}
+          </p>
+        ) : null}
         <div className="flex items-center gap-2 border-t border-hairline px-3 py-2">
           {data !== undefined && data.unclassified > 0 ? (
             <span

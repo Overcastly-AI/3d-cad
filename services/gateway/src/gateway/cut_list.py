@@ -6,7 +6,9 @@ with its plugin members' metadata (``cut-list-request``), geometry MEASURES
 every body (``/bodies/extents``), and the grouping is
 :mod:`loft_wire.cut_list`, applied here. An assembly's cut list is every part
 at every level (the BOM's parts-only view, component patterns resolved),
-each part's pieces times its placed quantity, grouped across the assembly.
+each part's pieces times its placed quantity, grouped across the assembly; a
+mirrored copy or opposite hand counts with its source part, and a deleted part
+the assembly still places is listed in ``missing`` rather than dropped.
 
 The CSV is the same lines in the document's display unit, as a download.
 """
@@ -16,9 +18,10 @@ import uuid
 from urllib.parse import quote
 
 from fastapi import APIRouter, Request, Response, status
-from loft_wire.assemblies import AssemblyGraphResponse
+from loft_wire.assemblies import MAX_ASSEMBLY_INSTANCES, AssemblyGraphResponse
 from loft_wire.cut_list import (
     BodyExtentsResult,
+    CutListMissing,
     CutListPartRequest,
     CutListPiece,
     CutListResponse,
@@ -27,6 +30,7 @@ from loft_wire.cut_list import (
     cut_list_response,
     part_pieces,
 )
+from py_kit import ValidationApiError
 
 from gateway.affinity import forward_geometry
 from gateway.assemblies import get_assembly_bom
@@ -91,6 +95,12 @@ async def part_cut_list(
     )
 
 
+#: Parts measured at once for an assembly's cut list. Each is a geometry
+#: evaluation, so the fan-out is bounded (the unique parts are already bounded
+#: by ``MAX_ASSEMBLY_INSTANCES``, which the BOM read enforces).
+CUT_LIST_CONCURRENCY = 4
+
+
 async def assembly_cut_list(
     http_request: Request, user: User, assembly_id: uuid.UUID
 ) -> CutListResponse:
@@ -101,19 +111,40 @@ async def assembly_cut_list(
         raise_upstream_error(upstream, service=_SERVICE)
     assembly = AssemblyGraphResponse.model_validate_json(upstream.content).assembly
     bom = await get_assembly_bom(assembly_id, user, http_request)
-    parts = [line for line in bom.parts_only if not line.missing]
-    measured = await asyncio.gather(
-        *(
-            _part_pieces(http_request, user, line.ref_document_id, line.quantity)
-            for line in parts
+    # One measurement per PART: an opposite-hand line (ASM-MIRROR-COMPONENT)
+    # names its source part, and a mirror image has the same profiles,
+    # materials and lengths, so its pieces join the source's lines.
+    quantities: dict[uuid.UUID, int] = {}
+    missing: dict[uuid.UUID, int] = {}
+    for line in bom.parts_only:
+        bucket = missing if line.missing else quantities
+        bucket[line.ref_document_id] = (
+            bucket.get(line.ref_document_id, 0) + line.quantity
         )
+    if len(quantities) > MAX_ASSEMBLY_INSTANCES:  # the BOM read bounds it first
+        raise ValidationApiError(
+            "The assembly places too many parts for a cut list.",
+            code="cut_list_too_large",
+        )
+    gate = asyncio.Semaphore(CUT_LIST_CONCURRENCY)
+
+    async def measure(part_id: uuid.UUID, count: int) -> list[CutListPiece]:
+        async with gate:
+            return (await _part_pieces(http_request, user, part_id, count))[1]
+
+    measured = await asyncio.gather(
+        *(measure(part_id, count) for part_id, count in quantities.items())
     )
     return cut_list_response(
         document_id=assembly_id,
         document_kind="assembly",
         name=assembly.name,
         length_unit=assembly.length_unit,
-        pieces=[piece for _request, pieces in measured for piece in pieces],
+        pieces=[piece for pieces in measured for piece in pieces],
+        missing=[
+            CutListMissing(ref_document_id=part_id, quantity=count)
+            for part_id, count in missing.items()
+        ],
     )
 
 

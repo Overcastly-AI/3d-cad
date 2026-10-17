@@ -499,9 +499,9 @@ One line each. The founder triages weekly; most are closed without work.
 - ASM-MIRROR-SUB-HAND: a sub-assembly seed mirrors as a copy only; SolidWorks can also make an opposite-hand sub-assembly.
 - ASM-MIRROR-COPY-ORIENT: a copy reflects along the seed axis most aligned with the plane normal about its box centre (SolidWorks' bounding-box-centre default); SolidWorks also lets the user cycle the copy's orientation. An asymmetric part's copy is flagged, not refused.
 - ASM-MIRROR-DATUM: assemblies have no datum planes, so a mirror plane is an origin plane (with an offset) or a picked planar face.
-
 - CUT-LIST-MASS-MATERIAL: the cut list reads a member's material from its plugin metadata, but mass still uses only the part's assignment, so the imported B1 deck lists southern pine while the Material panel says "No material"; DECK (or documents) should apply member materials to the bodies.
 - CUT-LIST-STOCK-18FT: stock lengths are 8/10/12/14/16/20 ft as specified; yards also sell 18 ft (buildings.md says "whole even feet"), and longer than 20 ft gets no stock suggestion.
 - CUT-LIST-NESTING: each piece is cut from its own stock length (offcut shown per piece); Chief Architect and cut-list optimisers nest several short pieces into one stock board.
 - CUT-LIST-PDF: the drawing's cut list is a panel beside the sheet, as the parts list is; neither is drawn into the exported PDF/DXF sheet as a table yet.
 - CUT-LIST-SCRIPT: loft-script has no `cut_list()` helper; the gateway routes are generated into `_operations.py` only.
+- CUT-LIST-OPPOSITE-HAND: an opposite-hand (or mirrored-copy) part counts on its source's cut-list lines, since a mirror of a straight member is the same stock; a left/right pair with asymmetric end cuts is not told apart, as SolidWorks' cut list would by body.

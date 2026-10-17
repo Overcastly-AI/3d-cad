@@ -166,7 +166,7 @@ def _table(cut_list: CutListResponse, scale: int = 1) -> list[tuple[Any, ...]]:
 
 async def _assembly(
     client: httpx.AsyncClient, headers: dict[str, str], part_id: str
-) -> str:
+) -> tuple[str, int, list[str]]:
     assembly = await client.post(
         "/api/v1/assemblies",
         json={"name": "Two decks", "length_unit": "in"},
@@ -175,6 +175,7 @@ async def _assembly(
     assert assembly.status_code == 201, assembly.text
     assembly_id: str = assembly.json()["id"]
     version: int = assembly.json()["doc_version"]
+    instance_ids: list[str] = []
     for n in range(2):
         created = await client.post(
             f"/api/v1/assemblies/{assembly_id}/instances",
@@ -193,7 +194,8 @@ async def _assembly(
         )
         assert created.status_code == 201, created.text
         version = created.json()["doc_version"]
-    return assembly_id
+        instance_ids.append(created.json()["instance"]["id"])
+    return assembly_id, version, instance_ids
 
 
 def test_the_b1_cut_list_through_the_gateway(tmp_path: Path) -> None:
@@ -221,7 +223,7 @@ def test_the_b1_cut_list_through_the_gateway(tmp_path: Path) -> None:
             )
             assert csv.content.decode("utf-8") == B1_CSV
 
-            assembly_id = await _assembly(client, owner, part_id)
+            assembly_id, version, decks = await _assembly(client, owner, part_id)
             response = await client.get(
                 f"/api/v1/assemblies/{assembly_id}/cut-list", headers=owner
             )
@@ -241,6 +243,43 @@ def test_the_b1_cut_list_through_the_gateway(tmp_path: Path) -> None:
                 .startswith("4,Joist,2x10,1.5 x 9.25,")
             )
             assert ",26,141,3666,12 ft,3" in csv.content.decode()
+
+            # Mirror both decks about YZ: deck 1 as a mirrored copy, deck 2 as
+            # an opposite hand (its own BOM line, ASM-MIRROR-COMPONENT). A
+            # mirror image has the same members, so all four decks list on
+            # the same lines, each measured once per part.
+            mirrored = await client.post(
+                f"/api/v1/assemblies/{assembly_id}/mirrors",
+                json={
+                    "expected_version": version,
+                    "mirror": {
+                        "seed_instance_ids": decks,
+                        "plane": {
+                            "kind": "origin_plane",
+                            "plane": "yz",
+                            "offset_mm": -1000.0,
+                        },
+                        "opposite_hand_instance_ids": [decks[1]],
+                    },
+                },
+                headers=owner,
+            )
+            assert mirrored.status_code == 201, mirrored.text
+            bom = await client.get(
+                f"/api/v1/assemblies/{assembly_id}/bom", headers=owner
+            )
+            hands = [
+                line.get("opposite_hand", False) for line in bom.json()["parts_only"]
+            ]
+            assert sorted(hands) == [False, True]
+            response = await client.get(
+                f"/api/v1/assemblies/{assembly_id}/cut-list", headers=owner
+            )
+            assert response.status_code == 200, response.text
+            four = CutListResponse.model_validate_json(response.content)
+            assert _table(four, scale=4) == B1_TABLE
+            assert all(line.quantity % 4 == 0 for line in four.lines)
+            assert four.total_quantity == 184
 
             # Another account's part is the documents 404; no token is a 401.
             other = await _register(client, "other@example.com")

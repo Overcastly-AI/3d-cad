@@ -3100,6 +3100,28 @@
         "title": "CutListLine",
         "type": "object"
       },
+      "CutListMissing": {
+        "description": "A part the assembly still places but that was deleted: its pieces\ncannot be measured, so the list says so instead of dropping them.",
+        "properties": {
+          "quantity": {
+            "description": "Placements of the deleted part.",
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "ref_document_id": {
+            "format": "uuid",
+            "title": "Ref Document Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref_document_id",
+          "quantity"
+        ],
+        "title": "CutListMissing",
+        "type": "object"
+      },
       "CutListResponse": {
         "description": "A part's or an assembly's cut list (``GET .../cut-list``).",
         "properties": {
@@ -3133,6 +3155,14 @@
               "$ref": "#/components/schemas/CutListLine"
             },
             "title": "Lines",
+            "type": "array"
+          },
+          "missing": {
+            "description": "Deleted parts an assembly still places: not measured, listed so the cut list is not silently short.",
+            "items": {
+              "$ref": "#/components/schemas/CutListMissing"
+            },
+            "title": "Missing",
             "type": "array"
           },
           "name": {

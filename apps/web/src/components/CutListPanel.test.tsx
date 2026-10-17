@@ -25,6 +25,7 @@ const RESPONSE: CutListResponse = {
   length_unit: "in",
   total_quantity: 15,
   unclassified: 1,
+  missing: [{ ref_document_id: "gone", quantity: 2 }],
   lines: [
     {
       member: "Joist",
@@ -129,6 +130,9 @@ describe("CutListPanel", () => {
     expect(screen.getByTestId("cut-list-total")).toHaveTextContent("15");
     expect(screen.getByTestId("cut-list-unclassified")).toHaveTextContent(
       "1 unclassified",
+    );
+    expect(screen.getByTestId("cut-list-missing")).toHaveTextContent(
+      "2 placements of deleted parts are not listed.",
     );
   });
 

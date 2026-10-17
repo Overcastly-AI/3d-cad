@@ -4524,6 +4524,23 @@ export interface components {
             waste_mm: number | null;
         };
         /**
+         * CutListMissing
+         * @description A part the assembly still places but that was deleted: its pieces
+         *     cannot be measured, so the list says so instead of dropping them.
+         */
+        CutListMissing: {
+            /**
+             * Quantity
+             * @description Placements of the deleted part.
+             */
+            quantity: number;
+            /**
+             * Ref Document Id
+             * Format: uuid
+             */
+            ref_document_id: string;
+        };
+        /**
          * CutListResponse
          * @description A part's or an assembly's cut list (``GET .../cut-list``).
          */
@@ -4546,6 +4563,11 @@ export interface components {
             length_unit: "mm" | "cm" | "m" | "in" | "ft";
             /** Lines */
             lines?: components["schemas"]["CutListLine"][];
+            /**
+             * Missing
+             * @description Deleted parts an assembly still places: not measured, listed so the cut list is not silently short.
+             */
+            missing?: components["schemas"]["CutListMissing"][];
             /** Name */
             name: string;
             /**
