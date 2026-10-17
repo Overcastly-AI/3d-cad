@@ -12,24 +12,29 @@ What is pinned:
 - an assembly and a drawing sheet render too.
 """
 
+import asyncio
 import uuid
 from collections.abc import Iterator
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+import httpx2 as httpx
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from geometry.api import compose_sheet
-from geometry.main import app
+from geometry.main import GeometrySettings, app, build_app
 from geometry.thumbnail import THUMBNAIL_PX, render_sheet
+from geometry.thumbnail_gate import ThumbnailGate
 from geometry.thumbnail_store import configure_thumbnail_store, thumbnail_key
 from loft_wire.drawings import ComposeDrawingRequest, ComposedSheet
 from loft_wire.features import EvaluatedFeatureInput, EvaluateTreeRequest
 from loft_wire.thumbnails import THUMBNAIL_EMPTY, THUMBNAIL_FAILED
 from numpy.typing import NDArray
 from PIL import Image
+from py_kit.admission import AdmissionGate
+from py_kit.errors import ServiceOverloadedError
 
 client = TestClient(app)
 _JSON = {"content-type": "application/json"}
@@ -218,3 +223,120 @@ def test_an_empty_sheet_is_still_paper() -> None:
     sheet = compose_sheet(request)
     blank = ComposedSheet.model_validate({**sheet.model_dump(), "views": []})
     assert _png(render_sheet(blank))[..., 3].max() == 255
+
+
+# --- priority: thumbnails never cost modelling anything -------------------------
+
+
+def _strict_app() -> Any:
+    """A worker whose modelling gate admits ONE request and queues none: any
+    thumbnail occupying or queueing in it would get an evaluate refused."""
+    return build_app(
+        GeometrySettings(
+            loft_env="dev",
+            admission_concurrency=1,
+            admission_queue_depth=0,
+            admission_max_wait_s=1.0,
+        )
+    )
+
+
+def test_a_burst_of_thumbnails_cannot_get_an_evaluate_refused() -> None:
+    """A 200-row register fires its thumbnails at once. Interleave real evaluates
+    with a burst of cold renders: every evaluate is served, and a thumbnail that
+    cannot render is the thumbnail's OWN 503, never modelling's."""
+    application = _strict_app()
+    burst = [_tree(depth=1.0 + index, version=index + 1) for index in range(40)]
+
+    async def scenario() -> tuple[list[httpx.Response], list[httpx.Response]]:
+        transport = httpx.ASGITransport(app=application)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://geometry", timeout=120.0
+        ) as http:
+
+            async def thumbnail(request: EvaluateTreeRequest) -> httpx.Response:
+                return await http.post(
+                    "/api/v1/thumbnail/part",
+                    content=request.model_dump_json(),
+                    headers=_JSON,
+                )
+
+            async def evaluate(after_s: float) -> httpx.Response:
+                await asyncio.sleep(after_s)
+                return await http.post(
+                    "/api/v1/evaluate",
+                    content=_tree(depth=7.5, version=999).model_dump_json(),
+                    headers=_JSON,
+                )
+
+            thumbnails = [asyncio.create_task(thumbnail(tree)) for tree in burst]
+            evaluates: list[httpx.Response] = []
+            for pause in (0.0, 0.05, 0.2):
+                evaluates.append(await evaluate(pause))
+            return evaluates, list(await asyncio.gather(*thumbnails))
+
+    evaluates, thumbnails = asyncio.run(scenario())
+
+    assert [response.status_code for response in evaluates] == [200, 200, 200]
+    gate: AdmissionGate = application.state.admission_gate
+    assert gate.stats().queued == 0
+    for response in thumbnails:
+        assert response.status_code in (200, 503), response.text
+        if response.status_code == 503:
+            assert response.json()["error"]["details"]["scope"] == "thumbnail"
+            assert int(response.headers["Retry-After"]) >= 1
+    assert any(response.status_code == 200 for response in thumbnails)
+
+
+def test_a_cache_hit_is_served_while_modelling_is_busy_and_a_render_is_not() -> None:
+    application = _strict_app()
+    modelling: AdmissionGate = application.state.admission_gate
+    cached, cold = _tree(depth=5.0), _tree(depth=9.0, version=2)
+
+    async def scenario() -> tuple[httpx.Response, httpx.Response]:
+        transport = httpx.ASGITransport(app=application)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://geometry", timeout=120.0
+        ) as http:
+
+            async def post(request: EvaluateTreeRequest) -> httpx.Response:
+                return await http.post(
+                    "/api/v1/thumbnail/part",
+                    content=request.model_dump_json(),
+                    headers=_JSON,
+                )
+
+            assert (await post(cached)).status_code == 200  # warm the cache
+            occupied, release = asyncio.Event(), asyncio.Event()
+
+            async def hold() -> None:
+                async with modelling.admit():
+                    occupied.set()
+                    await release.wait()
+
+            holder = asyncio.create_task(hold())
+            await occupied.wait()
+            hit, miss = await post(cached), await post(cold)
+            release.set()
+            await holder
+            return hit, miss
+
+    hit, miss = asyncio.run(scenario())
+    assert hit.status_code == 200
+    assert hit.headers[_CACHE] == "hit"
+    assert miss.status_code == 503
+    assert miss.json()["error"]["details"]["reason"] == "modelling_busy"
+    # The refusal did not touch the modelling gate.
+    assert modelling.stats().queued == 0
+
+
+def test_the_render_gate_never_queues() -> None:
+    gate = ThumbnailGate(concurrency=1)
+    gate.acquire(None)
+    with pytest.raises(ServiceOverloadedError) as refused:
+        gate.acquire(None)
+    assert refused.value.details["reason"] == "thumbnail_busy"
+    gate.release()
+    gate.acquire(None)
+    gate.release()
+    assert gate.running == 0

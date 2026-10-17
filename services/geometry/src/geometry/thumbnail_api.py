@@ -17,14 +17,18 @@ a success that is not true (``thumbnail_failed``). Likewise an assembly with a
 component that produced no body, and a sheet with a failed view. A document with
 nothing to draw is ``thumbnail_empty``. The web shows its placeholder for both.
 
-Every route is behind the admission gate (kernel work on a miss) and cached by the
-content address of its inputs (:mod:`geometry.thumbnail_store`); failures are not
-cached. ``X-Loft-Artifact-Cache`` says hit or miss, as the compose route does.
+Cached by the content address of the inputs (:mod:`geometry.thumbnail_store`);
+failures are not cached. ``X-Loft-Artifact-Cache`` says hit or miss. **None of
+these routes enters the modelling admission gate:** a hit is served with no gate,
+and a render passes :mod:`geometry.thumbnail_gate`, which only renders on an idle
+worker and otherwise answers 503 + ``Retry-After`` at once — so a register's
+burst of thumbnail requests can never get anybody's modelling refused.
 """
 
 from collections.abc import Callable
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from loft_wire.assemblies import EvaluateAssemblyRequest, ExportAssemblyRequest
 from loft_wire.drawings import ComposeDrawingRequest
 from loft_wire.features import EvaluateTreeRequest
@@ -34,7 +38,6 @@ from loft_wire.thumbnails import (
     THUMBNAIL_MEDIA_TYPE,
     thumbnail_responses,
 )
-from py_kit.admission import ADMISSION_CONTROL
 from py_kit.errors import ValidationApiError
 from pydantic import BaseModel
 
@@ -44,6 +47,7 @@ from geometry.features import evaluate_tree
 from geometry.kernel import MeshExportNotManifoldError, MeshExportTooDenseError
 from geometry.mesh_store import fetch_mesh_glb
 from geometry.thumbnail import ThumbnailError, render_glb, render_sheet
+from geometry.thumbnail_gate import gates
 from geometry.thumbnail_store import fetch_thumbnail, store_thumbnail, thumbnail_key
 
 router = APIRouter(prefix="/api/v1/thumbnail", tags=["thumbnails"])
@@ -64,16 +68,30 @@ def _empty(message: str) -> ValidationApiError:
     return ValidationApiError(message, code=THUMBNAIL_EMPTY)
 
 
-def _cached(kind: str, request: BaseModel, render: Callable[[], bytes]) -> Response:
+def _render(render: Callable[[], bytes]) -> bytes:
+    try:
+        return render()
+    except ThumbnailError as exc:
+        raise _empty(f"Nothing to draw: {exc}.") from exc
+
+
+async def _cached(
+    http_request: Request,
+    kind: str,
+    request: BaseModel,
+    render: Callable[[], bytes],
+) -> Response:
     key = thumbnail_key(kind, request)
-    png = fetch_thumbnail(key)
+    png = await run_in_threadpool(fetch_thumbnail, key)
     status = "hit"
     if png is None:
+        thumbnail_gate, modelling_gate = gates(http_request)
+        thumbnail_gate.acquire(modelling_gate)
         try:
-            png = render()
-        except ThumbnailError as exc:
-            raise _empty(f"Nothing to draw: {exc}.") from exc
-        store_thumbnail(key, png)
+            png = await run_in_threadpool(_render, render)
+        finally:
+            thumbnail_gate.release()
+        await run_in_threadpool(store_thumbnail, key, png)
         status = "miss"
     return Response(
         content=png,
@@ -86,9 +104,10 @@ def _cached(kind: str, request: BaseModel, render: Callable[[], bytes]) -> Respo
     "/part",
     response_class=Response,
     responses=_RESPONSES,
-    dependencies=[ADMISSION_CONTROL],
 )
-def part_thumbnail(request: EvaluateTreeRequest) -> Response:
+async def part_thumbnail(
+    request: EvaluateTreeRequest, http_request: Request
+) -> Response:
     """The isometric thumbnail of a part's current body."""
 
     def render() -> bytes:
@@ -102,16 +121,17 @@ def part_thumbnail(request: EvaluateTreeRequest) -> Response:
             raise _failed("The part's mesh was not available.")
         return render_glb(glb)
 
-    return _cached("part", request, render)
+    return await _cached(http_request, "part", request, render)
 
 
 @router.post(
     "/assembly",
     response_class=Response,
     responses=_RESPONSES,
-    dependencies=[ADMISSION_CONTROL],
 )
-def assembly_thumbnail(request: EvaluateAssemblyRequest) -> Response:
+async def assembly_thumbnail(
+    request: EvaluateAssemblyRequest, http_request: Request
+) -> Response:
     """The isometric thumbnail of an assembly at its solved placements."""
 
     def render() -> bytes:
@@ -130,16 +150,17 @@ def assembly_thumbnail(request: EvaluateAssemblyRequest) -> Response:
             raise _failed("A component of the assembly does not rebuild.")
         return render_glb(glb)
 
-    return _cached("assembly", request, render)
+    return await _cached(http_request, "assembly", request, render)
 
 
 @router.post(
     "/drawing",
     response_class=Response,
     responses=_RESPONSES,
-    dependencies=[ADMISSION_CONTROL],
 )
-def drawing_thumbnail(request: ComposeDrawingRequest) -> Response:
+async def drawing_thumbnail(
+    request: ComposeDrawingRequest, http_request: Request
+) -> Response:
     """The thumbnail of a drawing sheet: paper, frame and the visible view edges."""
 
     def render() -> bytes:
@@ -150,4 +171,4 @@ def drawing_thumbnail(request: ComposeDrawingRequest) -> Response:
             raise _failed("A view on the sheet could not be projected.")
         return render_sheet(sheet)
 
-    return _cached("drawing", request, render)
+    return await _cached(http_request, "drawing", request, render)

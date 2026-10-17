@@ -16,6 +16,7 @@ from geometry.drawing_store import configure_drawing_artifact_store
 from geometry.kernel.fillet_isolation import prewarm as prewarm_blend_server
 from geometry.mesh_store import assert_single_worker_mesh_store, configure_mesh_store
 from geometry.thumbnail_api import router as thumbnail_router
+from geometry.thumbnail_gate import THUMBNAIL_GATE_ATTR, ThumbnailGate
 from geometry.thumbnail_store import configure_thumbnail_store
 
 TITLE = "Loft Geometry"
@@ -56,6 +57,11 @@ class GeometrySettings(BaseServiceSettings):
     s3_access_key_id: str | None = None
     s3_secret_access_key: str | None = None
     s3_region: str = "us-east-1"
+
+    #: Concurrent library-thumbnail renders (env ``THUMBNAIL_CONCURRENCY``). They
+    #: run only while the modelling admission gate is idle and never queue
+    #: (:mod:`geometry.thumbnail_gate`).
+    thumbnail_concurrency: int = 1
 
     datastore_credential_fields: ClassVar[tuple[str, ...]] = ("s3_secret_access_key",)
 
@@ -142,6 +148,11 @@ def build_app(settings: GeometrySettings | None = None) -> FastAPI:
     app = create_app(settings, title=TITLE, version=VERSION, readiness_checks=(redis,))
     app.include_router(router)
     app.include_router(thumbnail_router)
+    setattr(
+        app.state,
+        THUMBNAIL_GATE_ATTR,
+        ThumbnailGate(concurrency=settings.thumbnail_concurrency),
+    )
     if settings.blend_server_prewarm:
         prewarm_blend_server()
     return app
