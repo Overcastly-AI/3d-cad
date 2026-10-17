@@ -48,7 +48,12 @@ from gateway.upstream import raise_upstream_error
 
 router = APIRouter(prefix="/api/v1", tags=["thumbnails"])
 
-THUMBNAIL_RATE_LIMIT = rate_limited("thumbnail")
+#: Requests per rate-limit window. Larger than the compute budget (120): one
+#: register view is one request per row, and most are 304 revalidations that
+#: never reach geometry, whose own admission gate bounds the real renders.
+THUMBNAIL_RATE_LIMIT_REQUESTS = 600
+
+THUMBNAIL_RATE_LIMIT = rate_limited("thumbnail", limit=THUMBNAIL_RATE_LIMIT_REQUESTS)
 
 _RESPONSES = thumbnail_responses(
     "A 256x256 PNG of the document's current state: an isometric render of a "

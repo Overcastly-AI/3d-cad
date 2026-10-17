@@ -30,6 +30,7 @@ from fastapi import FastAPI
 from gateway.db import Base as GatewayBase
 from gateway.main import GatewaySettings
 from gateway.main import build_app as build_gateway_app
+from gateway.thumbnails import THUMBNAIL_RATE_LIMIT, THUMBNAIL_RATE_LIMIT_REQUESTS
 from geometry.main import GeometrySettings
 from geometry.main import build_app as build_geometry_app
 from loft_wire.thumbnails import THUMBNAIL_FAILED
@@ -343,3 +344,24 @@ async def _drawing_of(
     )
     assert view.status_code == 201, view.text
     return drawing_id
+
+
+class _RecordingLimiter:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, int | None]] = []
+
+    async def check(
+        self, identity: str, *, scope: str = "compute", limit: int | None = None
+    ) -> None:
+        self.calls.append((identity, scope, limit))
+
+
+def test_thumbnails_spend_their_own_larger_budget() -> None:
+    """One register view is one request per row: it must not spend the modelling
+    `compute` budget, and its own bucket is sized for a full drawer."""
+    limiter = _RecordingLimiter()
+    user: Any = type("User", (), {"id": "user-1"})()
+    dependency: Any = THUMBNAIL_RATE_LIMIT.dependency
+    asyncio.run(dependency(user=user, limiter=limiter))
+    assert limiter.calls == [("user-1", "thumbnail", THUMBNAIL_RATE_LIMIT_REQUESTS)]
+    assert THUMBNAIL_RATE_LIMIT_REQUESTS > 120

@@ -2024,7 +2024,8 @@ document; the registers and the assembly Add panel now do too.
   `ETag` = hash of the same inputs, `Cache-Control: private, no-cache`; a
   matching `If-None-Match` is a 304 without a geometry hop. Not a version in
   the URL: an assembly's picture changes when a child part is edited without
-  its own version moving. Own `thumbnail` rate-limit bucket.
+  its own version moving. Own `thumbnail` rate-limit bucket at 600 per
+  window (compute is 120): a register view is one request per row.
 - **Web** (`components/DocumentThumbnail.tsx`): fetched as a blob through the
   typed client (an `<img>` cannot carry the bearer token), keyed by the
   document's version so an edit refetches; never shows the previous picture
