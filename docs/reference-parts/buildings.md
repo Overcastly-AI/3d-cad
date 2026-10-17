@@ -6,7 +6,7 @@ RESEARCH §23.
 
 Founder, 2026-10-15: "it would be nice to build decks, homes (different
 materials), rafters, windows, doors, etc. I don't want to draw every part
-out." These two targets drive the building generators, as the ladder drives
+out." These targets drive the building generators, as the ladder drives
 part modelling. They are framing models with a cut list, **not a structural
 design**: no span table, load or code check is implied, and footings,
 sheathing, roofing, rafter ties and gable-end studs are later rungs.
@@ -117,3 +117,143 @@ ridge 2x8 at 144.
 - Pitch 6/12 -> 8/12: line length 85.632. A full seat would make a 2.333
   heel, over the 1/3 limit, so the seat shortens to 2.75 with a 1.833 heel.
   The cut list's overall length is 89.299 (85.632 + 5.5 x 8/12).
+
+## Hip and valley conventions (B3, B4)
+
+Framing-square practice, as Chief Architect frames a hip roof and Medeek's
+rafter roofs do. Every number below follows from these rules by hand;
+the ROOF-HIP golden test reproduces them in a script.
+
+- **Planes.** Every eave wall carries a roof plane of the one pitch, rising
+  from the wall's outer face at the commons' height above plate (HAP: plumb
+  depth less heel; 6/12 2x6: 6.149 - 1.75 = 4.399). Hips and valleys lie
+  where two planes meet: 45° in plan. For 6/12 the hip's unit run is 16.97
+  per 12 of common run and its unit length 18.00 (8/12: 18.76).
+- **Ridge.** Each ridge board runs L - W plus one common thickness (half
+  past each theoretical end), top flush with the commons as B2's.
+- **Commons** are B2's: birdsmouth, 12 in level overhang, line length 79.660
+  at 6/12. One sits at each ridge end on both sides, then every spacing
+  along the ridge; at a hip end a king common runs from the end wall to the
+  ridge's end face (same run, 59.25).
+- **Hips** (2x8, at least as deep as the commons' plumb cut, IRC R802.3)
+  run from a plate corner to the inside corner between the ridge-end common
+  and the king common, a double cheek cut there (the long point on the
+  centreline), so each is shortened half a common thickness at 45°: centre
+  line length (59.25 + 12) x 18/12 = 106.875 at 6/12. The tail is a double
+  cheek cut to the fascia corner. A hip is **dropped**, not backed, so its
+  edges lie in the planes: 0.75 x sin 45° x 6/12 = 0.265. Its seat is cut
+  level at plate height inside both walls' outer faces (a double heel on the
+  corner), so the heel is 3.556 on the centreline; the 1/3 heel rule is the
+  commons' and jacks', not the hip's.
+- **Hip jacks** are commons laid out on the spacing outward from the
+  ridge-end commons, each ending on the hip's side face with a plumb cheek
+  cut 45° in plan, so a jack's centre is shortened half the hip's 45°
+  thickness (0.75 x √2 = 1.061 in plan). Each spacing takes 24 x 13.416/12
+  = **26.833** off the line length (8/12: 28.844). The side cut is a 45°
+  saw bevel on the plumb line, reading **48.19°** off square on the top
+  edge (framing square 12 and 13.42; 8/12: 50.24°); the hip's cheek at the
+  ridge reads 46.69° (16.97 and 18). In the cut list a cheek adds its long
+  point, 0.75 x 13.416/12 = 0.839, to the overall length.
+- **Valleys** (2x8) run from a reflex plate corner to the inside corner of
+  the two ridges' faces, a double cheek (long point on the centreline)
+  there and a V notch on the fascias' inside corner at the tail. A valley
+  is **not dropped**: its top centreline is on the valley line. Its seat is
+  cut level at plate height wherever a wall is under it.
+- **Valley jacks** run from a valley's side face (cheek cut as a hip jack's)
+  to the ridge, laid out on the commons' layout; a common or jack whose
+  tail would cross a valley is cut at the valley's side face. **Hip-valley
+  cripples** run between a valley and a hip, cheek-cut both ends.
+
+## B3 Hip shed, 10 x 12 ft (stops ROOF-HIP)
+
+B2's four walls with no openings (golden `b2-walls-no-openings-16oc`,
+25 601.625 in³) under a 6/12 hip roof from one Roof feature, style Hip,
+on the same typed bearing as B2 (span 120, length 144, plate 97.125 x 3.5),
+2x6 commons and jacks at 24 in o.c., 2x8 ridge and hips, 12 in overhang.
+
+- **Ridge:** 2x8 on Y 60 (Y 59.25..60.75), X 59.25..84.75: 25.5 long
+  (144 - 120 + 1.5).
+- **Commons:** 4 side commons at X 60 and 84, front and back, and 2 king
+  commons on Y 60 from X -12 to 59.25 and 156 to 84.75; all 6 are B2's
+  rafter, line 79.660, seat 3.5, heel 1.75.
+- **Hips:** 4, from each plate corner to (59.25, 59.25), (84.75, 59.25),
+  (59.25, 60.75), (84.75, 60.75); line 106.875 on the centreline, drop 0.265,
+  heel 3.556, plumb depth 7.690.
+- **Hip jacks:** 16, on every side 12 and 36 in from each corner (front and
+  back X 12, 36, 108, 132; ends Y 12, 36, 84, 108). Centre runs from the
+  wall face 34.939 and 10.939, line lengths **52.480** and **25.647** (one
+  spacing apart: 26.833). No tail jack: the next layout point is the fascia
+  corner.
+
+Cut list (roof):
+
+| Member | Profile | Qty | Length (overall) | Stock |
+| ------ | ------- | --- | ---------------- | ----- |
+| Common | 2x6     | 6   | 82.410           | 8 ft  |
+| Jack   | 2x6     | 8   | 56.068           | 8 ft  |
+| Jack   | 2x6     | 8   | 29.236           | 8 ft  |
+| Hip    | 2x8     | 4   | 109.438          | 10 ft |
+| Ridge  | 2x8     | 1   | 25.5             | 8 ft  |
+
+Members 27. Volume, roof: common 652.601, jacks 428.364 and 206.994, hip
+1 128.744 (its prism 1 153.615 less a 24.870 seat), ridge 277.313:
+**13 790.758 in³**; with the walls 39 392.383 in³.
+
+**Edits:** pitch 6/12 -> 8/12: commons 85.632 (seat 2.75, heel 1.833),
+jacks 56.414 and 27.570 (28.844 apart, side cut 50.24°), hips 111.397
+(unit 18.76, drop 0.354), roof 14 711.255 in³. Style Hip -> Gable gives
+B2's roof exactly (golden `b2-roof-6-12`).
+
+## B4 L-shaped hip house (stops ROOF-VALLEY)
+
+Six 2x4 walls as B2's (16 in o.c., 97.125 plate to plate, butted), their
+outer faces round the L (0,120), (0,240), (240,240), (240,0), (120,0),
+(120,120): back Y 236.5..240 X 0..240; right X 236.5..240 Y 0..236.5;
+wing front Y 0..3.5 X 120..236.5; wing left X 120..123.5 Y 3.5..120; main
+front Y 120..123.5 X 0..123.5; left X 0..3.5 Y 123.5..236.5. Walls are
+checked by the wall rules and an independent script. One Roof feature,
+style Hip, footprint picked from the six walls; otherwise B3's inputs.
+Both spans are 120, so the ridges are level and the valley meets them.
+
+- **Ridges:** main on Y 180, X 59.25..180.75 (121.5); wing on X 180,
+  Y 59.25..179.25 (120), butting the main ridge's face.
+- **Hips:** 5, from (0,120), (0,240), (240,240), (240,0), (120,0); each is
+  B3's hip (line 106.875, drop 0.265).
+- **Valley:** 1, from (120,120) to the ridges' inside corner (179.25,
+  179.25), tail notched on the fascias' corner (108,108); line 106.875 on
+  the centreline, not dropped, heel 3.291.
+- **Commons:** 20. Back X 60..180 and right Y 60..180 every 24 (12); main
+  front X 60, 84 and wing left Y 60, 84 (4); king commons on Y 180 at the
+  left end and on X 180 at the wing front (2); and main front X 108, wing
+  left Y 108 (2), whose tails cross the valley and are cut at its face
+  1.061 past the fascia: line 78.474.
+- **Hip jacks:** 20, 12 and 36 in from each hip's corner on both sides,
+  B3's 52.480 and 25.647 (10 each).
+- **Valley jacks:** 4, main front X 132, 156 and wing left Y 132, 156,
+  from the valley's face to the ridge face: runs 46.189 and 22.189, line
+  **51.641** and **24.808** (26.833 apart; cheek as a hip jack's).
+
+Cut list (roof):
+
+| Member      | Profile | Qty | Length (overall) | Stock |
+| ----------- | ------- | --- | ---------------- | ----- |
+| Common      | 2x6     | 18  | 82.410           | 8 ft  |
+| Common      | 2x6     | 2   | 82.063           | 8 ft  |
+| Jack        | 2x6     | 10  | 56.068           | 8 ft  |
+| Jack        | 2x6     | 10  | 29.236           | 8 ft  |
+| Valley jack | 2x6     | 2   | 55.230           | 8 ft  |
+| Valley jack | 2x6     | 2   | 28.397           | 8 ft  |
+| Hip         | 2x8     | 5   | 109.438          | 10 ft |
+| Valley      | 2x8     | 1   | 110.234          | 10 ft |
+| Ridge       | 2x8     | 1   | 121.5            | 12 ft |
+| Ridge       | 2x8     | 1   | 120              | 10 ft |
+
+Members 52. Volume, roof: the cut common 642.817, valley jacks 426.040 and
+204.670, valley 1 137.395 (prism 1 162.266 less a 24.870 seat), the rest as
+B3: **30 054.875 in³**.
+
+**Edit:** wing 120 -> 48 wide (X 192..240): the wing ridge drops to run
+24, the valley (192,120)-(216,144) ends on a hip running from there to the
+main ridge's end, and the main front gets **1 hip-valley cripple** at
+X 204, run 21.879, line 24.461 (overall 28.888), cheek-cut both ends.
+Members and volume match an independent build123d script.

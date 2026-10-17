@@ -15,7 +15,8 @@ with workarounds, so the three B2 generators go next, in RESEARCH §23's
 order. Each is a first-party plugin in `packages/loft-plugins` (base
 features only), a golden in `services/geometry/goldens/` checked on STEP
 against `docs/reference-parts/buildings.md`, and one e2e from the Build
-group. Done 2026-10-16..17 and dropped: AUTH-RATE-LIMIT-PROXY,
+group. Then hips and valleys (founder, 2026-10-17: "Yes add hip and valley
+roofs next"), after B2's last gate, against B3 and B4. Done 2026-10-16..17 and dropped: AUTH-RATE-LIMIT-PROXY,
 LIBRARY-THUMBNAILS (§26), LUMBER-MATERIALS, CUT-LIST, ASM-FAILED-PART-API,
 PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
 
@@ -75,6 +76,41 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    `services/geometry/tests/test_roof_b2.py`; e2e `roof-b2.spec.ts`, roof
    only); decisions in RESEARCH §23. Bearing is typed, not picked, until
    STUD-WALL lands (ROOF-BEARING-WALLS); the full B2 e2e is B2-E2E.
+4. [ ] **B2-E2E** (was a note; B2's pass gate): one e2e builds B2 from Build
+   features only (four walls, door, window, roof) and reads the cut list.
+   _Accept:_ the cut list equals buildings.md's wall and roof lists, and
+   interference is none.
+5. [ ] **ROOF-HIP** (`loft.roof` 1.1.0, stops B3): a `style` choice, Gable
+   (default) or Hip, as Chief Architect's roof style and Medeek's rafter
+   roof type, plus a hip profile (2x8 default, refused if shallower than the
+   commons' plumb cut). Hip on the typed rectangle: ridge L - W + one common
+   thickness, ridge-end and king commons, dropped hips with a double cheek
+   at the ridge and a seat over the corner, hip jacks laid out from the
+   ridge-end commons and cheek-cut 45° at the hip; conventions in
+   buildings.md. Each jack is its side profile intersected with its plan
+   outline; a hip's profile is on a midplane datum (base features only).
+   _Accept:_ golden `b3-hip-6-12`: 27 members (6 commons 79.660, 16 jacks
+   52.480 and 25.647, 4 hips 106.875 on the centreline, ridge 25.5),
+   13 790.758 in³, cut list as buildings.md B3, interference none against
+   the walls, an independent script to 1e-4; golden `b3-hip-8-12`
+   (14 711.255 in³); 1.0.0 goldens byte-identical and Gable equals
+   `b2-roof-6-12`. E2e: Roof with Style Hip from Build ▾ on B2's walls lists
+   4 Hip and 16 Jack.
+6. [ ] **ROOF-VALLEY** (`loft.roof` 1.2.0, stops B4): a footprint picked
+   from the bearing walls, as Revit's Roof by Footprint (Pick Walls) and
+   Chief Architect's roof from walls: the loop of their outer faces,
+   corners where consecutive walls' lines meet, plate height and width read
+   from the walls. Equal pitch, every wall an eave (hip) and walls at
+   multiples of 90° in this rung; hips and valleys at 45° where planes meet
+   (an orthogonal straight skeleton). Valleys, valley jacks, tails cut at a
+   valley and hip-valley cripples. Needs a feature input that takes several
+   walls (a `loft-wire` change).
+   _Accept:_ golden `b4-l-hip-valley`: 52 members (20 commons, 20 hip jacks,
+   4 valley jacks 51.641 and 24.808, 5 hips, 1 valley 106.875, ridges 121.5
+   and 120), 30 054.875 in³, cut list as buildings.md B4, interference none,
+   a script to 1e-4; golden `b4-wing-48`: 1 hip-valley cripple of line
+   24.461, matching a script. E2e: picking B4's six walls in the Roof form
+   lists 1 Valley and 4 Valley jack.
 
 ## Next
 
@@ -173,7 +209,7 @@ every member. A plugin registers a custom feature that expands into base
 features (RESEARCH §23). First-party plugins ship preinstalled; no install
 step.
 
-The B2 items (STUD-WALL, WINDOW-DOOR, ROOF) are in Now.
+The B2 items are done; B2-E2E, ROOF-HIP (B3) and ROOF-VALLEY (B4) are in Now.
 
 ## Later
 
@@ -548,6 +584,7 @@ One line each. The founder triages weekly; most are closed without work.
 - WINDOW-DOOR-UNIT: a placed window or door frames its rough opening but draws no unit (frame, sash, slab); Revit and Chief Architect draw the unit. Add it as an optional body kept out of the cut list.
 - PLUGIN-PITCH-INPUT: plugin inputs have length, angle, count and choice kinds; a roof pitch typed as 6/12 needs a ratio input (a wire change) or a choice list of x/12. ROOF took the choice list (1/12 .. 24/12, stored `rise_6`); half pitches and a formula-driven pitch still need the ratio input.
 - B2-SLAB: buildings.md's 4 in slab is not a Build feature; it is one sketch and extrude in concrete, and the part then needs a material per body (CUT-LIST-MASS-MATERIAL).
-- ROOF-BEARING-WALLS: `loft.roof` 1.0.0 takes its bearing as typed span, length, plate height and plate width with the walls at Y 0 and Y span, because `loft.wall` was not merged yet; once it is, a 1.1.0 adds the two bearing-wall feature inputs (Chief Architect builds the roof on the walls) and reads those numbers, and its position, from them.
-- B2-E2E: the "B2 complete from Build features only" e2e (walls, door, window, roof, cut list equal to buildings.md) waits for STUD-WALL and WINDOW-DOOR; `roof-b2.spec.ts` covers the roof alone.
+- ROOF-BEARING-WALLS: `loft.roof` 1.0.0 takes its bearing as typed span, length, plate height and plate width with the walls at Y 0 and Y span, because `loft.wall` was not merged then. ROOF-VALLEY picks the footprint from walls for a hip roof; the gable still needs a per-wall "defines slope" choice (Revit), which closes this.
 - ROOF-RAKE-OVERHANG: the end rafters sit flush with the gable walls; Chief Architect and Medeek also frame a rake overhang (barge rafters on lookouts or a ladder).
+- ROOF-HIP-BACKING: hips are dropped, not backed, and valleys are not raised (buildings.md); Chief Architect also offers backed hips, and an unbacked valley's edges sit 0.265 below the planes at 6/12.
+- ROOF-SKELETON-GENERAL: ROOF-VALLEY takes walls at multiples of 90° and one pitch; angled walls, per-plane pitches and flying hips are later rungs.
