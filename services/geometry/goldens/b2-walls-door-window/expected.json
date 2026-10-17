@@ -1,0 +1,60 @@
+{
+  "description": "B2 WALLS WITH THE DOOR AND WINDOW (WINDOW-DOOR; docs/reference-parts/buildings.md B2): the four loft.wall 1.0.0 features of b2-walls-no-openings-16oc, the front wall hosting a loft.door 1.0.0 (offset 72 from its start at X 144, so centred on X 72; 36 x 80 unit + 2 x 2.5 allowance = 38 x 82.5 rough opening) and the right side wall hosting a loft.window 1.0.0 (offset 56.5 from its start at Y 116.5, so centred on Y 60; 24 x 36 unit + 0.5 x 0.5 = 24.5 x 36.5, head 82.5), 2x6 headers. The doors and windows expand to no member: the WALL frames each opening (kings, jacks, a doubled 2x6 header, top cripples, a flat sill and bottom cripples for the window, the bottom plate cut for the door). model.json is EXACTLY the four walls' expansions with the member materials documents applies (no part default); members.json is each body's member metadata. packages/loft-plugins/tests/test_wall.py asserts both files are the plugins' output; services/geometry/tests/test_walls_b2.py checks the cut list, that the exported STEP's solids are buildings.md's members box for box, that none enters a rough opening, and interference none.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC, from the members typed from buildings.md's coordinates in test_walls_b2.py's spec_boxes (front wall Y 0..3.5 and back Y 116.5..120 along X 0..144, side walls X 0..3.5 and 140.5..144 along Y 3.5..116.5; bottom plates Z 0..1.5, studs and kings 1.5..94.125, top plates 94.125..97.125; door jacks Z 1.5..82.5, header plies Z 82.5..88 at the wall's two faces, top cripples 88..94.125; window sill Z 44.5..46, bottom cripples 1.5..44.5), summed in exact rational arithmetic (x 25.4 = mm exactly), never from the plugin.",
+    "",
+    "volume = 231537/8 in^3 (64 boxes; the spec's wall cut list summed: see VOLUMES in test_walls_b2.py) x 25.4^3 = 474276454.671 mm^3.",
+    "",
+    "surface_area = sum of 2(ab + bc + ca) over the 64 boxes (bodies are separate, touching faces are not merged) = 55589 in^2 = 35863799.24 mm^2.",
+    "",
+    "centroid = volume-weighted mean of the box centres (exact rationals): x = 47375537/617432 in, y = 35311489/617432 in, z = 33081333/617432 in.",
+    "",
+    "mass_g = (SPF volume x 450 + PT volume x 582) kg/m^3, the PT being the bottom plates (476 in x 5.25 in^2), the rest SPF = 218829.972629502 g; center_of_mass x = 3637611483/47480264 in, y = 2724187579/47480264 in, z = 2481979623/47480264 in.",
+    "",
+    "bounding_box: X 0..144, Y 0..120, Z 0..97.125 in = 0..3657.6, 0..3048.0, 0..2466.975 mm.",
+    "",
+    "topology: 64 boxes x (6 faces, 12 edges, 1 shell) = 384 faces, 768 edges, 64 shells.",
+    "",
+    "MESH counts are recorded but also exact for boxes: 12 triangles and 24 vertices per box = 768 triangles, 1536 vertices."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), as b2-walls-no-openings-16oc: the bounds are ABSOLUTE and the part is ~4.7e8 mm^3, so the double-precision sum of its separate bodies carries round-off near the ULP of the sum (~6e-8). Measured 2026-10-17 over the four WINDOW-DOOR goldens: 1.8e-7 mm^3 at worst on the volume, 1.5e-8 mm^2 on the area, <= 1.6e-12 mm on the centroid and <= 1.9e-12 mm on the centre of mass, 1.2e-10 g on the mass. 1e-6 is 5.6x the worst and ~2e-15 relative; a member 0.001 in out of place moves the volume by >= 1.2 mm^3 and fails by six orders of magnitude.",
+  "roundtrip_tolerance": 3e-6,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip re-sums the re-imported solids in another order and moves the VOLUME by 7.2e-7 mm^3 at worst over the four WINDOW-DOOR goldens (door deleted; 6.0e-7 with the door and window, 3.6e-7 window 30, 2.4e-7 door moved), ~1.5e-15 relative, the AREA by 0 and the centroid by <= 2.7e-12 mm. That is above ROUNDTRIP_TOL (1e-7 absolute), which is near the ULP of a 4.7e8 sum. 3e-6 is 4.2x the worst. Same cause as b2-walls-no-openings-16oc; it applies to volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 474276454.671,
+    "surface_area": 35863799.24,
+    "centroid": {
+      "x": 1948.9411624276033,
+      "y": 1452.6487460967362,
+      "z": 1360.9042909988468
+    },
+    "mass_g": 218829.972629502,
+    "center_of_mass": {
+      "x": 1945.9734189388669,
+      "y": 1457.328975816141,
+      "z": 1327.7576220764063
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 3657.6,
+        "y": 3048.0,
+        "z": 2466.975
+      }
+    }
+  },
+  "topology": {
+    "faces": 384,
+    "edges": 768,
+    "shells": 64
+  },
+  "mesh": {
+    "vertices": 1536,
+    "triangles": 768
+  }
+}

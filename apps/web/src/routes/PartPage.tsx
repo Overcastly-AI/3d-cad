@@ -78,6 +78,7 @@ import { useHolePicking } from "./part/useHolePicking";
 import { useTimelineHistory } from "./part/useTimelineHistory";
 import { usePartVersions } from "./part/usePartVersions";
 import { usePartParameters } from "./part/usePartParameters";
+import { useCutListToggle } from "./part/useCutListToggle";
 import { useRebuildNotices } from "./part/useRebuildNotices";
 import { useViewportState } from "./part/useViewportState";
 import { useSketchProjectSession } from "./part/useSketchProjectSession";
@@ -773,6 +774,7 @@ export function PartPage() {
     noteWrittenTreeVersion,
     historyBusy: historyStep !== null,
   });
+  const cutList = useCutListToggle();
   const partParameters = usePartParameters({
     partId,
     queryClient,
@@ -1014,6 +1016,7 @@ export function PartPage() {
             sketchPersistence={sketchPersistence}
             pickState={pickState}
             partParameters={partParameters}
+            cutList={cutList}
             openCreateCombine={openCreateCombine}
             pluginCatalog={pluginCatalog}
             openCreatePlugin={pluginFeature.openCreatePlugin}
@@ -1187,6 +1190,7 @@ export function PartPage() {
               materialPanel={materialPanel}
               partVersions={partVersions}
               partParameters={partParameters}
+              cutList={cutList}
             />
             {/* Named versions (LOFT-VERSIONS): the list, and the save dialog
                 over it when it was opened from there. */}

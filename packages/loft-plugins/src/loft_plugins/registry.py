@@ -12,6 +12,11 @@
   validates what comes back exactly as a user's features are validated: the
   same pydantic models, declared roles, unique ``(role, index)``, and every
   reference to a strictly earlier feature of an allowed type (§2.2).
+* Hosting (a window in a wall): a feature input with ``plugin_ids`` must name
+  an earlier custom feature of one of them, and a ``host`` input's target
+  receives the hosted feature's inputs as ``ExpandInputs.hosted``
+  (:func:`host_of`). Only inputs cross, never expansions, so a host and its
+  hosted features cannot form a cycle.
 
 Every failure is a :class:`~loft_plugins.api.PluginError` with a typed code.
 """
@@ -24,6 +29,7 @@ from typing import get_args
 
 from loft_wire.features import (
     AuthoredEnvelope,
+    CustomFeature,
     CustomInputValue,
     ExpandedMember,
     Feature,
@@ -55,7 +61,7 @@ from loft_wire.plugins import (
 )
 from pydantic import TypeAdapter, ValidationError
 
-from loft_plugins.api import ExpandInputs, InputValue, Plugin, PluginError
+from loft_plugins.api import ExpandInputs, Hosted, InputValue, Plugin, PluginError
 
 _FEATURE: TypeAdapter[Feature] = TypeAdapter(Feature)
 
@@ -208,6 +214,42 @@ def canonical_inputs(
     return out
 
 
+# --- Hosting ---------------------------------------------------------------------
+
+
+def host_of(
+    manifest: PluginManifest, inputs: Mapping[str, CustomInputValue]
+) -> uuid.UUID | None:
+    """The feature *inputs* name as host (a window's wall), or ``None``."""
+    item = manifest.host_input()
+    value = None if item is None else inputs.get(item.name)
+    return value.feature_id if isinstance(value, FeatureRef) else None
+
+
+def _check_plugin_references(
+    manifest: PluginManifest,
+    inputs: Mapping[str, CustomInputValue],
+    earlier: Mapping[uuid.UUID, AuthoredEnvelope],
+) -> None:
+    """A feature input with ``plugin_ids`` names an EARLIER custom feature of
+    one of those plugins: a window whose host is missing, later, or not a
+    wall is refused here, before its plugin runs."""
+    for item in manifest.inputs:
+        if not isinstance(item, FeatureReferenceInput) or item.plugin_ids is None:
+            continue
+        value = inputs.get(item.name)
+        if not isinstance(value, FeatureRef):
+            continue
+        wanted = " or ".join(item.plugin_ids)
+        target = earlier.get(value.feature_id)
+        if target is None:
+            raise _refuse(item, f"names no earlier feature; pick a {wanted}")
+        if not isinstance(target, CustomFeature):
+            raise _refuse(item, f"names a {target.type}, not a {wanted}")
+        if target.params.plugin_id not in item.plugin_ids:
+            raise _refuse(item, f"names a {target.params.plugin_id}, not a {wanted}")
+
+
 # --- Expansion -------------------------------------------------------------------
 
 
@@ -270,18 +312,21 @@ def expand(
     inputs: Mapping[str, CustomInputValue],
     earlier: Mapping[uuid.UUID, AuthoredEnvelope],
     *,
+    hosted: Sequence[Hosted] = (),
     time_limit_s: float = PLUGIN_EXPAND_TIME_LIMIT_S,
 ) -> list[ExpandedMember]:
     """The members of custom feature *feature_id*, from canonical *inputs*.
 
     *earlier* is every feature before it (base features by id, and earlier
-    custom features with their members by member id). Raises
+    custom features with their members by member id); *hosted* the later
+    features naming it as host, in tree order. Raises
     :class:`PluginError`: the plugin's own refusal, ``plugin_expansion_too_large``
     past 5,000 members, ``plugin_expansion_timeout`` past the time limit, or
     ``plugin_expansion_invalid`` for a member the authoring checks refuse.
     """
     manifest = plugin.manifest
     title = f"{manifest.title} {manifest.version}"
+    _check_plugin_references(manifest, inputs, earlier)
     values: dict[str, InputValue] = {item.name: None for item in manifest.inputs}
     values.update(inputs)
     roles = {item.role for item in manifest.members}
@@ -296,7 +341,7 @@ def expand(
         )
 
     try:
-        for member in plugin.expand(ExpandInputs(feature_id, values, earlier)):
+        for member in plugin.expand(ExpandInputs(feature_id, values, earlier, hosted)):
             if len(members) >= MAX_PLUGIN_EXPANSION:
                 raise PluginError(
                     PLUGIN_EXPANSION_TOO_LARGE,

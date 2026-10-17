@@ -229,6 +229,13 @@ export interface CreateStripProps {
    * Change Parameters. Needs no body, only a loaded tree.
    */
   onToggleParameters?: () => void;
+  /** The Cut list panel is open (the tool reads as on). */
+  cutListOpen?: boolean;
+  /**
+   * Open or close the Cut list panel (CUT-LIST): the bodies grouped by
+   * profile, material and measured length. Needs a body, as Measure does.
+   */
+  onToggleCutList?: () => void;
   /** A solid body exists to inspect — the Measure tool lights up. */
   canMeasure?: boolean;
   /** The Measure tool is armed (picking targets in the viewport). */
@@ -488,6 +495,8 @@ export function CreateStrip({
   canMeasure = false,
   measuring = false,
   onToggleMeasure,
+  cutListOpen = false,
+  onToggleCutList,
   activeCommand = null,
   onCommandOk,
   onCommandCancel,
@@ -1308,6 +1317,26 @@ export function CreateStrip({
             )}
             disabled={locked || !canMeasure || onToggleMeasure === undefined}
             onClick={onToggleMeasure}
+          />
+          {/* SolidWorks keeps the cut list beside the bodies it lists; here it
+              is an Inspect panel, like Measure a reading of the body. */}
+          <ToolButton
+            icon={<VerbGlyph verb="cut_list" />}
+            showLabel
+            label="Cut list"
+            active={cutListOpen}
+            data-testid="cut-list-tool"
+            aria-label={
+              canMeasure
+                ? "Cut list — the bodies grouped by profile, material and length"
+                : "Cut list — create a body first"
+            }
+            caption={captionFor(
+              canMeasure && onToggleCutList !== undefined,
+              "Create a body first",
+            )}
+            disabled={locked || !canMeasure || onToggleCutList === undefined}
+            onClick={onToggleCutList}
           />
         </ToolGroup>
 

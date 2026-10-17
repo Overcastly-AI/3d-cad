@@ -162,6 +162,8 @@ built from Build-group plugins with no member drawn by hand:
 
 - **B1 deck:** 12 x 16 ft, ledger, beam, posts, joists, decking, guard and cut list.
 - **B2 shed:** 10 x 12 ft, stud walls, a hosted door and window, and a 6/12 gable roof.
+- **B3 hip shed:** B2's walls under a 6/12 hip roof: hips, hip jacks, ridge.
+- **B4 L-shaped house:** six walls under a hip roof with a valley and valley jacks; a narrowed wing adds a hip-valley cripple.
 
 ## Daily-driver scorecard
 
@@ -228,5 +230,28 @@ goal and answer them"); the product-manager decided them. Each is in
 - **Bike gaps after B1:** SKETCH-3D, ASM-MIRROR-COMPONENT, SKETCH-LINE-ANGLE
   and DRAWING-PARTS-LIST-LEVEL lead Next; the bike already builds with
   workarounds, while B1 has no path at all without the three plugins.
+- **Now after B1 (2026-10-17, second pass):** STUD-WALL, WINDOW-DOOR, then
+  ROOF, so B2 passes; the bike gaps stay first in Next, because the bike
+  builds with workarounds and B2 has no path at all.
+- **B2 conventions:** a wall frames the openings that name it as host
+  (Revit, Chief Architect), so the registry gives a host its later hosted
+  features; a window or door frames its rough opening only, with the unit
+  body later (WINDOW-DOOR-UNIT); pitch is typed as rise per 12; B2's slab is
+  a plain sketch and extrude, not a Build feature.
+- **Cut length of an angled member:** the overall length measured from the
+  body, as a SolidWorks weldment cut list reports it; a rafter's line length
+  (79.660) is checked in its golden, not read from the cut list.
+- **Hip and valley (2026-10-17, founder: "Yes add hip and valley roofs
+  next"):** after B2-E2E, B2's last gate. A hip is a Style choice on
+  `loft.roof` (1.1.0, Gable default), not a new plugin, as Chief Architect
+  and Medeek have one roof tool with a style (ROOF-HIP).
+- **Valley input:** a footprint picked from the bearing walls (Revit's Roof
+  by Footprint, Chief Architect's roof from walls), not two intersecting
+  roofs: an L whose wing is flush with the main's end has coplanar ends and
+  one valley, which two rectangles cannot express without special cases.
+  It needs a multi-wall feature input (a wire change) (ROOF-VALLEY).
+- **Hip and valley framing:** hips dropped, valleys not raised, jacks laid
+  out from the ridge-end commons, 2x8 hips and valleys by default (IRC
+  R802.3 depth); the 1/3 heel rule stays the commons' (buildings.md).
 - **Left for the founder:** the object store (MinIO or an Apache-2.0 server),
   because it turns on publishing images under AGPL §6.

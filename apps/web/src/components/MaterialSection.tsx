@@ -23,6 +23,7 @@ import {
   type BodyMaterialRow,
   isUnassigned,
   type MassState,
+  noOverrideLabel,
   soleMaterial,
   unassignedNotice,
 } from "../features/materials";
@@ -101,15 +102,15 @@ export function MaterialSection({
   // It reads "Default" rather than "Default · Aluminium 6061": the cell
   // DIRECTLY above shows what the default is, and the long form overflowed the
   // row into the mass readout at 1440 (measured, not guessed).
-  const bodyOptions = [
-    {
-      value: NONE,
-      label: defaultMaterial === null ? "No material" : "Default",
-    },
-    ...library.map((material) => ({
-      value: material.key,
-      label: material.name,
-    })),
+  // A plugin member's body (a deck joist) without an override is cut from
+  // its member's material, so its cell says "From member" (noOverrideLabel).
+  const libraryOptions = library.map((material) => ({
+    value: material.key,
+    label: material.name,
+  }));
+  const bodyOptions = (row: BodyMaterialRow) => [
+    { value: NONE, label: noOverrideLabel(row, defaultMaterial) },
+    ...libraryOptions,
   ];
 
   return (
@@ -172,7 +173,7 @@ export function MaterialSection({
               className="min-w-0"
               value={row.override ?? NONE}
               disabled={busy || unavailable}
-              options={bodyOptions}
+              options={bodyOptions(row)}
               trailing={
                 <span data-testid={`material-body-mass-${row.ordinal}`}>
                   {row.massG !== null ? formatBodyMass(row.massG) : "—"}

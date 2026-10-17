@@ -1609,6 +1609,83 @@
         "title": "CustomParamsV1",
         "type": "object"
       },
+      "CutListMember": {
+        "description": "A plugin member that may create a body, with its cut-list metadata.",
+        "properties": {
+          "feature_id": {
+            "description": "The member's id: the base feature id of the body it makes.",
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/MemberMetadata"
+          },
+          "role": {
+            "description": "Manifest role, e.g. 'joist'.",
+            "maxLength": 64,
+            "title": "Role",
+            "type": "string"
+          },
+          "title": {
+            "description": "The role's title, e.g. 'Joist' (from the manifest, or the role itself when this server lacks the plugin).",
+            "maxLength": 80,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "feature_id",
+          "role",
+          "title",
+          "metadata"
+        ],
+        "title": "CutListMember",
+        "type": "object"
+      },
+      "CutListPartRequest": {
+        "description": "What the gateway needs from documents to build one part's cut list.",
+        "properties": {
+          "evaluation": {
+            "$ref": "#/components/schemas/EvaluateTreeRequest"
+          },
+          "length_unit": {
+            "enum": [
+              "mm",
+              "cm",
+              "m",
+              "in",
+              "ft"
+            ],
+            "title": "Length Unit",
+            "type": "string"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/CutListMember"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "part_id": {
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part_id",
+          "name",
+          "length_unit",
+          "evaluation"
+        ],
+        "title": "CutListPartRequest",
+        "type": "object"
+      },
       "DatumAlongPathParams": {
         "description": "A plane normal to a curve at a point along it (``kind: \"along_path\"``).\n\nFusion 360's *Plane Along Path* (SolidWorks' Plane \"normal to curve\"):\nthe plane passes through the point of ``path`` at ``ratio`` of its length\n(``measure: \"ratio\"``) or ``distance_mm`` along it (``\"distance\"``),\nmeasured from the curve's start (a sketch curve's own start; for an edge,\n``end_a`` of the signature AS PICKED, kept on rebuild), and its normal is\nthe curve's tangent there, in the direction of travel. ``x_dir`` is pinned\nfrom the normal (the on-face rule) and ``flip`` negates the normal,\nkeeping ``x_dir``, as for every datum kind. A distance past the curve's\nend is the typed rebuild error ``datum_path_out_of_range``.",
         "properties": {
@@ -4267,6 +4344,12 @@
             "title": "Feature Types",
             "type": "array"
           },
+          "host": {
+            "default": false,
+            "description": "True: the picked feature HOSTS this one, as a Revit window is hosted in its wall. The host's expansion receives this feature's inputs (it frames the opening), and a write to this feature re-expands its host. Requires `feature_types` `['custom']`, `plugin_ids` and a required pick; one per manifest.",
+            "title": "Host",
+            "type": "boolean"
+          },
           "kind": {
             "const": "feature",
             "title": "Kind",
@@ -4292,6 +4375,25 @@
             "description": "True: may be left empty.",
             "title": "Optional",
             "type": "boolean"
+          },
+          "plugin_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 64,
+                  "minLength": 3,
+                  "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the picked feature is a custom feature: the plugins it may be (a window's host is a `loft.wall`). Unset: any.",
+            "title": "Plugin Ids"
           }
         },
         "required": [
@@ -16495,6 +16597,68 @@
         "summary": "Update Part",
         "tags": [
           "parts"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/cut-list-request": {
+      "get": {
+        "description": "The part's evaluation request and its members' cut-list metadata.",
+        "operationId": "get_cut_list_request_api_v1_parts__part_id__cut_list_request_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CutListPartRequest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Cut List Request",
+        "tags": [
+          "cut-list"
         ]
       }
     },

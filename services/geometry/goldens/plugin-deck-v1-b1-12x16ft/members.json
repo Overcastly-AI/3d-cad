@@ -1,0 +1,462 @@
+[
+  {
+    "feature_id": "0a444bb1-99dc-5218-85d8-9011db6ba274",
+    "role": "ledger",
+    "title": "Ledger",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a70778f4-b8b0-584b-9e12-3f967d648869",
+    "role": "rim",
+    "title": "Rim",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "82ad7249-ed58-58a7-8576-9e264b25853f",
+    "role": "beam",
+    "title": "Beam",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a6bc28f2-bcfe-5c3a-894b-17bd8def43e2",
+    "role": "beam",
+    "title": "Beam",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "187e0962-9a53-5f57-a3fc-9ae5d837591d",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "868e3273-11a7-591d-bd49-659bc1d6d3d4",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a3fba818-bbce-5570-8135-e745c0dd2d6d",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a8588764-7e94-5fa5-bba1-cec287e741c9",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "29ba97e6-20a6-52b8-9046-12b6b4f38078",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fee634f4-a9ee-5b71-9611-ffa26b57cd22",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "712d628c-81d9-5015-ab21-491b22676acb",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ecaa1788-54f8-5114-a9a5-1869065ed703",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e56065b3-bd2e-5a99-9b68-2a32d4c1dc80",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d0b6c174-61a5-527b-aea0-2b0825491d19",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "af184e69-4329-5841-a60e-8fe3c197305f",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "aebfd540-49ed-5540-9afe-ed848f727bc1",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "32a26165-bfb6-57e8-bb81-32b77f0b1756",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4aa5a867-1a42-5d88-a689-5a4eb2325d3d",
+    "role": "post",
+    "title": "Post",
+    "metadata": {
+      "profile": "6x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "dc3296de-434d-580b-99bd-178f33337469",
+    "role": "post",
+    "title": "Post",
+    "metadata": {
+      "profile": "6x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d01014b8-d8a9-5102-b6f0-71e7ee001e95",
+    "role": "post",
+    "title": "Post",
+    "metadata": {
+      "profile": "6x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "627301b3-e4ea-59ef-9c03-4e8afdaa9a3e",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e083d6e0-697e-5131-ba1f-7982e2ff6fcc",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "592f3eac-46d6-5f04-b43a-4ebdebc761d2",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "40cfde99-1f2a-55f4-a071-b7c748ee00b2",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "edbe05f9-f511-5f9d-9edf-8f09ed1b013e",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8c2207e6-0ccd-5514-b0ab-860faedca0cf",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "412a5b8c-7968-5219-a966-0ce4fe966890",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "dc1f59a3-3a29-5607-9177-eac4ff3e06a4",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "23c49ba4-1ae2-575b-9ed4-505c09c48c49",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d6d05fcc-1138-5528-aefe-805c69507fcf",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "2403d1be-9fdc-5e00-b0b3-dfe7de60febe",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6f043ef6-970d-5376-8eb6-675615bb7e34",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "01791c1d-bbd5-52cc-a4a4-8d9b23e087e3",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f6274102-0a35-5fbd-8906-8cfc22ca6f89",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "64ec7623-be5f-5229-8ef7-1fc04f08078b",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "5c360a60-546b-575f-9d91-f497fe09e522",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "7e30c059-4a80-5148-b6d8-dd669b017f83",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "bfb3b433-c07a-5c94-84f5-7f19fe9cc155",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4368a6ce-92ad-58ff-99cc-f5fc698112c1",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fdc55938-09dc-5265-a758-d48d2d28b2a3",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a5b0a1dd-86b3-576d-9678-577ded2469f4",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "112a4bec-c106-5398-ab0b-6f5304eaa167",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4c30a1ca-0e00-5f0f-9f75-d3cc2e70e2ab",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "02a05964-bcb7-541f-a09d-078ab5fe6d22",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "cb569471-d120-550b-b031-47c744eae6ce",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "00575a68-8c17-5f2a-9af2-c54fb43202ba",
+    "role": "deck",
+    "title": "Deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  }
+]

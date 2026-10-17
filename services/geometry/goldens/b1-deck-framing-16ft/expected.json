@@ -1,0 +1,60 @@
+{
+  "description": "B1 DECK FRAMING, 12 x 16 ft (CUT-LIST; docs/reference-parts/buildings.md B1): the ledger, rim, two beam plies, 13 joists, 3 posts and 26 decking boards of the B1 deck as 46 separate bodies, each a rectangle sketch of its section and a new-body (merge: false) extrude of its length. model.json is EXACTLY the expansion of the test-only fixture plugin test.deck_b1 1.0.0 at its default 16 ft width (packages/loft-plugins/src/loft_plugins/testing_deck.py), with the part default material southern_pine_pt; members.json is each body's member metadata (role, title, profile, material) as documents serves it to the cut list. packages/loft-plugins/tests/test_deck_fixture.py asserts both files are the fixture's output. The cut list read from these bodies is asserted against the buildings.md table in services/geometry/tests/test_cut_list_b1.py. It stands in for the DECK plugin, which must build the same bodies; the guard is left out, as it is from the spec's volume.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC: each member is an axis-aligned box whose bounds are written in buildings.md B1, in inches (x 25.4 = mm exactly). Ledger X 0..192, Y 0..1.5, Z 19.75..29; rim X 0..192, Y 142.5..144, Z 19.75..29; beam plies X 0..192, Y 124.5..126 and 126..127.5, Z 10.5..19.75; joists Y 1.5..142.5, Z 19.75..29, 1.5 wide centred on X 0.75, 16, 32, ..., 176, 191.25; posts 5.5 x 5.5 centred on X 2.75, 96, 189.25 and Y 126, Z 0..10.5; boards i = 0..25 X 0..192, Y 5.625 i .. 5.625 i + 5.5, Z 29..30.",
+    "",
+    "volume = sum of box volumes, by member: ledger 2664, rim 2664, beam 2 x 2664, joists 13 x 1956.375, posts 3 x 317.625, decking 26 x 1056 = 64 497.75 in^3, the spec's figure; x 25.4^3 = 1 056 928 757.106 mm^3. Measured deviation +1.19e-6 mm^3 (1.1e-15 relative: the floating-point sum of 46 bodies of ~1e7 mm^3).",
+    "",
+    "surface_area = sum of 2(ab + bc + ca) over the 46 boxes (touching faces are not merged: the bodies are separate) = 122 449.6 in^2 = 78 999 680.71 mm^2. Measured deviation -1.5e-8 mm^2.",
+    "",
+    "centroid = the volume-weighted mean of the box centres, computed in exact rational arithmetic: x = 96 in = 2438.4 mm (the deck is symmetric about X 96); y = 1973.8564856913613 mm; z = 647.95373196158 mm. Measured deviation <= 7e-13 mm.",
+    "",
+    "mass_g = volume x 582.0 kg/m^3 (southern_pine_pt, loft_wire.materials) = 1 056 928 757.106 mm^3 x 5.82e-4 g/mm^3 = 615 132.536635692 g; center_of_mass = centroid (one density).",
+    "",
+    "bounding_box: X 0..192 in (the full-width members), Y 0..146.125 in (the last board, 140.625 + 5.5, overhangs the rim's 144 by 2.125), Z 0..30 in (posts from grade to the decking top): 0..4876.8, 0..3711.575, 0..762 mm. Planar faces only, so the optimal AABB carries no padding.",
+    "",
+    "topology: 46 boxes x (6 faces, 12 edges, 1 shell) = 276 faces, 552 edges, 46 shells.",
+    "",
+    "MESH counts are recorded, not derived, as in every golden, but they are also exact for boxes: 12 triangles and 24 vertices (4 per face, unshared normals) per box = 552 triangles, 1104 vertices."
+  ],
+  "tolerance": 1e-5,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill). The bounds are ABSOLUTE and this part is large: the volume is ~1.06e9 mm^3, so its double-precision sum over 46 bodies carries ~1e-6 mm^3 of round-off (measured +1.19e-6, 1.1e-15 relative). 1e-5 is 8x that and still 1e-14 relative; every other quantity deviates by <= 1.5e-8. Any real error (a member 0.001 in off moves the volume by >= 3.5 mm^3) fails by five orders of magnitude.",
+  "roundtrip_tolerance": 1e-5,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round-trip moves the VOLUME by 2.1e-6 mm^3 (1056928757.1060019 -> ...1059998), 2.0e-15 relative, because the 46 re-imported solids are summed in a different order; every per-body value and the topology are unchanged. ROUNDTRIP_TOL (1e-7 absolute) is below one ULP-scale rounding of a 1.06e9 mm^3 sum (ULP 1.2e-7), so a 46-body part of this size cannot meet it by summation alone. 1e-5 (5x the drift, 1e-14 relative) applies to volume and area only; the centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 1056928757.106,
+    "surface_area": 78999680.71,
+    "centroid": {
+      "x": 2438.4,
+      "y": 1973.8564856913613,
+      "z": 647.95373196158
+    },
+    "mass_g": 615132.536635692,
+    "center_of_mass": {
+      "x": 2438.4,
+      "y": 1973.8564856913613,
+      "z": 647.95373196158
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 4876.8,
+        "y": 3711.575,
+        "z": 762.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 276,
+    "edges": 552,
+    "shells": 46
+  },
+  "mesh": {
+    "vertices": 1104,
+    "triangles": 552
+  }
+}

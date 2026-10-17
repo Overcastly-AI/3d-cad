@@ -202,6 +202,12 @@ class TreeEvaluation:
     #: The history-based face names of every body (DESIGN-INTENT-REFS), the same
     #: objects the evaluator state holds. Read through :meth:`face_names`.
     topo_names: list[BodyNames] = field(default_factory=list[BodyNames])
+    #: The last-good bodies by base feature id, tree-ordered (the same objects
+    #: the evaluator state holds; empty when the body set was invalidated). The
+    #: cut list measures each one (:mod:`geometry.body_extents`).
+    bodies: dict[uuid.UUID, BodyShape] = field(
+        default_factory=dict[uuid.UUID, BodyShape]
+    )
 
     def face_names(self) -> list[str | None]:
         """The name of each face of :attr:`body`, in ``body.faces()`` order
@@ -1213,6 +1219,7 @@ def _evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
         datum_planes=dict(state.datum_planes),
         provenance_recorder=state.provenance,
         topo_names=list(state.topo_names.values()),
+        bodies={} if body_invalidated else dict(state.bodies),
     )
 
     # Offer this prefix as a resume point — but only once *evaluation* is dead,

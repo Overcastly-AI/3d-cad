@@ -18,8 +18,9 @@ module is where documents applies it:
   transaction, so the PUT stays one undo step.
 """
 
+import uuid
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loft_wire.expr import Quantity
 from loft_wire.feature_input import PARAMETER_UNRESOLVED
@@ -44,6 +45,9 @@ from py_kit import ConflictError, ValidationApiError
 from pydantic import ValidationError
 
 from documents import db
+
+if TYPE_CHECKING:
+    from documents.custom_features import SentMembers
 
 
 def _api_error(exc: FeatureExpressionError) -> ValidationApiError:
@@ -94,14 +98,16 @@ def load_feature(row: db.Feature) -> tuple[AuthoredEnvelope, FeatureError | None
 
 
 def evaluation_features(
-    part: db.Part, rows: Sequence[db.Feature]
+    part: db.Part,
+    rows: Sequence[db.Feature],
+    members_out: "SentMembers | None" = None,
 ) -> list[EvaluatedFeatureInput]:
     """Evaluation-request entries for *rows*, every formula resolved once and
     every custom feature expanded to its base features
     (:func:`documents.custom_features.evaluation_entries`)."""
     from documents.custom_features import evaluation_entries
 
-    return evaluation_entries(part, rows)
+    return evaluation_entries(part, rows, members_out)
 
 
 def _store(row: db.Feature, envelope: AuthoredEnvelope) -> None:
@@ -176,17 +182,14 @@ def apply_table_change(
     # Every change is computed before any row is touched: a rename that a
     # feature cannot take refuses the whole PUT.
     changes: list[tuple[db.Feature, AuthoredEnvelope]] = []
-    from documents.custom_features import expanded_size, retabled, row_size
+    from documents.custom_features import Hosts, expanded_size, retabled, row_size
 
-    # A re-expansion that would take the part past MAX_TREE_FEATURES keeps its
-    # stored members, as a formula that no longer resolves keeps its numbers;
-    # the next evaluation reports it (plugin_expansion_too_large).
-    size = expanded_size(rows)
+    renamed_by_id: dict[uuid.UUID, AuthoredEnvelope] = {}
     for row, envelope in loaded:
         if row.expressions is not None and envelope.expressions is None:
             continue  # formulas that no longer load are kept as stored
         try:
-            renamed = rename_parameters(envelope, renames)
+            renamed_by_id[row.id] = rename_parameters(envelope, renames)
         except FeatureExpressionError as exc:
             raise ValidationApiError(
                 f"Feature {row.name!r}: {exc.message}",
@@ -197,12 +200,28 @@ def apply_table_change(
                     "pointer": exc.pointer,
                 },
             ) from exc
-        if not uses_parameters(renamed):
+    # A wall re-frames when a door it hosts reads the table, even if the wall
+    # itself reads none (WINDOW-DOOR): it is given the renamed doors.
+    hosts = Hosts(rows, renamed_by_id)
+
+    def reads_table(row: db.Feature, envelope: AuthoredEnvelope) -> bool:
+        return uses_parameters(envelope) or any(
+            uses_parameters(renamed_by_id.get(hosted.id) or load_feature(hosted)[0])
+            for hosted in hosts.rows_of(row.id)
+        )
+
+    # A re-expansion that would take the part past MAX_TREE_FEATURES keeps its
+    # stored members, as a formula that no longer resolves keeps its numbers;
+    # the next evaluation reports it (plugin_expansion_too_large).
+    size = expanded_size(rows)
+    for row, envelope in loaded:
+        renamed = renamed_by_id.get(row.id)
+        if renamed is None or not reads_table(row, renamed):
             continue
         resolved: AuthoredEnvelope
         if isinstance(renamed, CustomFeature):
             resolved = renamed
-            expanded = retabled(row, renamed, rows, values)
+            expanded = retabled(row, renamed, rows, values, hosts)
             if expanded is not None:
                 grown = len(expanded.params.expansion or []) - row_size(row)
                 if size + grown <= MAX_TREE_FEATURES:

@@ -10,6 +10,7 @@ import { DimensionAuthorMenu } from "../components/DimensionAuthorMenu";
 import { DrawingCommandBand } from "../components/DrawingCommandBand";
 import { DrawingSheet } from "../components/DrawingSheet";
 import { FloatingPanel } from "../components/FloatingPanel";
+import { CutListPanel } from "../components/CutListPanel";
 import { SectionAuthorPanel } from "../components/SectionAuthorPanel";
 import { SheetIssueStrip } from "../components/SheetIssueStrip";
 import { TopBar } from "../components/TopBar";
@@ -628,6 +629,15 @@ export function DrawingPage() {
                 error={bomQuery.error}
                 onOpen={handleOpenBomLine}
               />
+              {/* The cut list of the drafted document, beside its parts list
+                  (SolidWorks places a weldment cut list table on the sheet). */}
+              {draftedSourceId !== null ? (
+                <CutListPanel
+                  kind={effectiveSourceKind}
+                  documentId={draftedSourceId}
+                  revision={`${partTreeQuery.data?.tree_version ?? "assembly"}`}
+                />
+              ) : null}
             </div>
           </FloatingPanel>
         ) : null}

@@ -30,9 +30,12 @@ from typing import Any, cast
 from fastapi import APIRouter
 from loft_plugins import (
     REGISTRY,
+    ExpandInputs,
+    Hosted,
     Plugin,
     PluginError,
     PluginRegistry,
+    host_of,
     validate_members,
 )
 from loft_plugins import canonical_inputs as _canonical
@@ -75,6 +78,7 @@ from loft_wire.plugins import (
     member_id,
 )
 from py_kit import ConflictError, ValidationApiError, get_logger
+from pydantic import ValidationError
 
 from documents import db
 from documents.feature_expressions import load_feature
@@ -251,16 +255,18 @@ def _expanded(
     envelope: CustomFeature,
     parameters: Mapping[str, Quantity],
     earlier: Mapping[uuid.UUID, AuthoredEnvelope],
+    hosted: Sequence[Hosted] = (),
 ) -> CustomFeature:
-    """Inputs typed, formulas resolved, bounds checked, expanded. Raises
-    :class:`PluginError` or :class:`FeatureExpressionError`."""
+    """Inputs typed, formulas resolved, bounds checked, expanded with the
+    features it *hosted*. Raises :class:`PluginError` or
+    :class:`FeatureExpressionError`."""
     manifest = plugin.manifest
     typed = _with(
         envelope, _canonical(manifest, envelope.params.inputs, bounds=False), None
     )
     resolved = resolve_feature(typed, parameters)
     inputs = _canonical(manifest, resolved.params.inputs)
-    members = _expand(plugin, feature_id, inputs, earlier)
+    members = _expand(plugin, feature_id, inputs, earlier, hosted=hosted)
     return _with(resolved, inputs, members)
 
 
@@ -372,13 +378,15 @@ def prepare_custom_write(
     earlier_rows = [
         row for row in rows if row.order_index < position and row.id != feature_id
     ]
+    parameters = parameter_values(part.parameters)
     try:
         result = _expanded(
             plugin,
             feature_id,
             envelope,
-            parameter_values(part.parameters),
+            parameters,
             _earlier_from_rows(earlier_rows),
+            Hosts(rows).of(feature_id, parameters),
         )
     except PluginError as exc:
         raise _refuse(exc) from exc
@@ -398,6 +406,149 @@ def prepare_custom_write(
     return result
 
 
+# --- hosting (WINDOW-DOOR) ---------------------------------------------------------
+
+
+def host_id(envelope: AuthoredEnvelope) -> uuid.UUID | None:
+    """The feature *envelope* names as its host (a window's wall), or ``None``
+    (not hosted, or its plugin is not on this server)."""
+    if not isinstance(envelope, CustomFeature):
+        return None
+    try:
+        manifest = PLUGINS.get(
+            envelope.params.plugin_id, envelope.params.plugin_version
+        ).manifest
+    except PluginError:
+        return None
+    return host_of(manifest, envelope.params.inputs)
+
+
+def stored_host_id(row: db.Feature) -> uuid.UUID | None:
+    """The host a STORED row names (a door's wall), or ``None``: not custom,
+    not hosted, or a stored row that no longer loads (a write that would
+    repair it must not fail on reading it)."""
+    if row.type != "custom":
+        return None
+    try:
+        return host_id(load_feature(row)[0])
+    except ValidationError:
+        return None
+
+
+class Hosts:
+    """Which rows each host is given (RESEARCH §23 "Hosting is by inputs"):
+    every unsuppressed custom row of *rows* whose host input names it, in
+    tree order, with its inputs typed and its formulas resolved. Only inputs
+    cross, never expansions, so no hosting chain can cycle. *envelopes*
+    replaces a row's stored envelope (a parameter rename not yet stored)."""
+
+    def __init__(
+        self,
+        rows: Sequence[db.Feature],
+        envelopes: Mapping[uuid.UUID, AuthoredEnvelope] | None = None,
+    ) -> None:
+        self._by_host: dict[uuid.UUID, list[tuple[db.Feature, CustomFeature]]] = {}
+        for row in rows:
+            if row.type != "custom" or row.suppressed:
+                continue
+            envelope = (envelopes or {}).get(row.id)
+            if envelope is None:
+                if stored_host_id(row) is None:
+                    continue
+                envelope = load_feature(row)[0]
+            host = host_id(envelope)
+            if host is not None and isinstance(envelope, CustomFeature):
+                self._by_host.setdefault(host, []).append((row, envelope))
+
+    def rows_of(self, host: uuid.UUID) -> list[db.Feature]:
+        return [row for row, _ in self._by_host.get(host, [])]
+
+    def of(self, host: uuid.UUID, parameters: Mapping[str, Quantity]) -> list[Hosted]:
+        """The hosted features of *host*. Raises :class:`PluginError` naming
+        a hosted feature whose inputs do not resolve: the host cannot frame
+        what it cannot read, so the error is the host's."""
+        out: list[Hosted] = []
+        for row, envelope in self._by_host.get(host, []):
+            pin = envelope.params
+            manifest = PLUGINS.get(pin.plugin_id, pin.plugin_version).manifest
+            try:
+                typed = _with(
+                    envelope, _canonical(manifest, pin.inputs, bounds=False), None
+                )
+                inputs = _canonical(
+                    manifest, resolve_feature(typed, parameters).params.inputs
+                )
+            except PluginError as exc:
+                raise PluginError(
+                    exc.code, f"{row.name}: {exc.message}", input=exc.input
+                ) from exc
+            except FeatureExpressionError as exc:
+                raise PluginError(
+                    PARAMETER_VALUE_INVALID, f"{row.name}: {exc.message}"
+                ) from exc
+            out.append(
+                Hosted(
+                    feature_id=row.id,
+                    plugin_id=pin.plugin_id,
+                    plugin_version=pin.plugin_version,
+                    name=row.name,
+                    inputs=ExpandInputs(row.id, inputs),
+                )
+            )
+        return out
+
+
+def reexpand_hosts(
+    part: db.Part, rows: Sequence[db.Feature], hosts: Iterable[uuid.UUID | None]
+) -> None:
+    """After a write to a hosted feature (a door added, moved, suppressed or
+    deleted), re-expand each of its *hosts* in *rows*, the tree as written,
+    and store the new members on the host's row: the write is refused (422
+    with the plugin's code, naming the opening) when a host can no longer
+    frame what it hosts, or (409) when the new framing drops a member a
+    later feature references. A host whose plugin is missing keeps its
+    stored expansion (read-only, as everywhere)."""
+    by_id = {row.id: row for row in rows}
+    index = Hosts(rows)
+    parameters = parameter_values(part.parameters)
+    for host in sorted({h for h in hosts if h is not None}):
+        row = by_id.get(host)
+        if row is None or row.type != "custom":
+            continue
+        envelope = load_feature(row)[0]
+        assert isinstance(envelope, CustomFeature)
+        try:
+            plugin = PLUGINS.get(
+                envelope.params.plugin_id, envelope.params.plugin_version
+            )
+        except PluginError:
+            continue
+        earlier_rows = [r for r in rows if r.order_index < row.order_index]
+        try:
+            result = _expanded(
+                plugin,
+                row.id,
+                envelope,
+                parameters,
+                _earlier_from_rows(earlier_rows),
+                index.of(row.id, parameters),
+            )
+        except PluginError as exc:
+            raise _refuse(exc) from exc
+        except FeatureExpressionError as exc:
+            raise ValidationApiError(exc.message, code=exc.code) from exc
+        members = result.params.expansion or []
+        check_tree_size(
+            expanded_size(r for r in rows if r.id != row.id) + len(members),
+            f"Reframing {row.name!r}, the part",
+        )
+        check_members_authorable(members, earlier_rows)
+        _check_vanished_members(row, members, rows)
+        params = result.params.model_dump(mode="json")
+        if params != row.params:
+            row.params = params
+
+
 # --- evaluation ------------------------------------------------------------------
 
 
@@ -410,6 +561,7 @@ def _evaluate_custom(
     envelope: CustomFeature,
     parameters: Mapping[str, Quantity],
     earlier: Mapping[uuid.UUID, AuthoredEnvelope],
+    hosts: Hosts,
 ) -> tuple[list[ExpandedMember], FeatureError | None]:
     """The members to send, and the error to send them with (no size bound:
     :class:`_Budget` applies the tree's)."""
@@ -419,7 +571,12 @@ def _evaluate_custom(
         return _stored(envelope), None  # read-only: the stored expansion rebuilds
     try:
         members = _expanded(
-            plugin, row_id, envelope, parameters, earlier
+            plugin,
+            row_id,
+            envelope,
+            parameters,
+            earlier,
+            hosts.of(row_id, parameters),
         ).params.expansion
     except FeatureExpressionError as exc:
         return _stored(envelope), exc.input_error()
@@ -473,17 +630,24 @@ class _Budget:
         self._used += 1
 
 
+#: member id -> (the custom feature's envelope, the member as sent).
+SentMembers = dict[uuid.UUID, tuple[CustomFeature, ExpandedMember]]
+
+
 def evaluation_entries(
-    part: db.Part, rows: Sequence[db.Feature]
+    part: db.Part, rows: Sequence[db.Feature], members_out: SentMembers | None = None
 ) -> list[EvaluatedFeatureInput]:
     """Evaluation-request entries for *rows*: every formula resolved once and
     every custom feature replaced by its members (module docstring), never
     more than ``MAX_TREE_FEATURES`` in all (:class:`_Budget`). A suppressed
-    feature is skipped by geometry, so it carries no error."""
+    feature is skipped by geometry, so it carries no error. *members_out*, when
+    given, receives every member sent, so the cut list reads the metadata of
+    exactly the expansion geometry builds."""
     values = parameter_values(part.parameters)
     entries: list[EvaluatedFeatureInput] = []
     earlier: dict[uuid.UUID, AuthoredEnvelope] = {}
     budget = _Budget(rows)
+    hosts = Hosts(rows)
     for row in rows:
         envelope, error = load_feature(row)
         earlier[row.id] = envelope
@@ -502,10 +666,12 @@ def evaluation_entries(
         if error is not None:
             members = stored
         else:
-            members, error = _evaluate_custom(row.id, envelope, values, earlier)
+            members, error = _evaluate_custom(row.id, envelope, values, earlier, hosts)
         members, error, _ = budget.take(stored, members, error)
         for member in members:
             earlier[member.id] = member.feature
+            if members_out is not None:
+                members_out[member.id] = (envelope, member)
             entries.append(
                 EvaluatedFeatureInput(
                     id=member.id,
@@ -529,6 +695,7 @@ def refresh_expansions(
     out: list[dict[str, Any]] = []
     earlier: dict[uuid.UUID, AuthoredEnvelope] = {}
     budget = _Budget(rows)
+    hosts = Hosts(rows)
     for row in rows:
         envelope = load_feature(row)[0]
         earlier[row.id] = envelope
@@ -537,7 +704,7 @@ def refresh_expansions(
             budget.base()
         else:
             stored = _stored(envelope)
-            members, error = _evaluate_custom(row.id, envelope, values, earlier)
+            members, error = _evaluate_custom(row.id, envelope, values, earlier, hosts)
             if error is not None:
                 members = stored
             members, _, fits = budget.take(stored, members, error)
@@ -559,16 +726,19 @@ def retabled(
     envelope: CustomFeature,
     rows: Sequence[db.Feature],
     parameters: Mapping[str, Quantity],
+    hosts: Hosts | None = None,
 ) -> CustomFeature | None:
     """*envelope* (its formulas renamed) re-resolved and re-expanded against a
     new parameter table, or ``None`` when it no longer expands: it then keeps
-    its last good inputs and members, as a base feature keeps its numbers."""
+    its last good inputs and members, as a base feature keeps its numbers.
+    *hosts* gives it the features it hosts with their formulas renamed."""
     try:
         plugin = PLUGINS.get(envelope.params.plugin_id, envelope.params.plugin_version)
         earlier = _earlier_from_rows(
             [r for r in rows if r.order_index < row.order_index]
         )
-        return _expanded(plugin, row.id, envelope, parameters, earlier)
+        hosted = (hosts or Hosts(rows)).of(row.id, parameters)
+        return _expanded(plugin, row.id, envelope, parameters, earlier, hosted)
     except (PluginError, FeatureExpressionError):
         return None
 
@@ -611,15 +781,20 @@ def check_stored_custom(
 __all__ = [
     "AUTHORED_FEATURES",
     "PLUGINS",
+    "Hosts",
+    "SentMembers",
     "authored_references",
     "check_members_authorable",
     "check_tree_size",
     "evaluation_entries",
     "expanded_size",
+    "host_id",
     "is_body_affecting",
     "member_id_mapping",
     "member_targets",
     "prepare_custom_write",
+    "reexpand_hosts",
     "refresh_expansions",
     "router",
+    "stored_host_id",
 ]

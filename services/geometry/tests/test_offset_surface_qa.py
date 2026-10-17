@@ -82,6 +82,29 @@ TRUTH_REL = 1e-10
 REVIEWED_OVERRIDE: dict[str, float] = {
     "frame-moto-cradle-tube-od25.4-t1.6": 0.5,
     "frame-bike-4-pipes-one-skeleton-head73": 0.025,
+    # Not an offset surface: a 1.06e9 mm^3 sum over 46 re-imported solids moves
+    # by 2.1e-6 (2e-15 relative) with summation order (CUT-LIST, expected.json).
+    "b1-deck-framing-16ft": 1e-5,
+    # The loft.deck plugin's B1 and its 20 ft edit: the same summation drift.
+    "plugin-deck-v1-b1-12x16ft": 1e-5,
+    "plugin-deck-v1-b1-20ft": 1e-5,
+    # B2's four walls (loft.wall) and the 24 in o.c. edit: the same drift,
+    # measured 3.0e-7 at worst.
+    "b2-walls-no-openings-16oc": 1e-6,
+    "b2-walls-no-openings-24oc": 1e-6,
+    # One wall turned 30 deg: 6.1e-4 mm^3, OCCT's STEP drift on turned planes
+    # (a plain build123d twin drifts 5.7e-4; expected.json).
+    "plugin-wall-v1-144-30deg": 2e-3,
+    # B2 with its door and window, and the three edits (WINDOW-DOOR): the same
+    # summation drift, measured 7.2e-7 at worst.
+    "b2-walls-door-window": 3e-6,
+    "b2-walls-door-moved-24": 3e-6,
+    "b2-walls-window-30": 3e-6,
+    "b2-walls-door-deleted": 3e-6,
+    # Not an offset surface: the loft.roof B2 gable's sloped rafters drift
+    # 3.5e-4 mm^3 through OCCT's STEP, as their build123d twin does (ROOF).
+    "b2-roof-6-12": 1e-3,
+    "b2-roof-8-12": 1e-3,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

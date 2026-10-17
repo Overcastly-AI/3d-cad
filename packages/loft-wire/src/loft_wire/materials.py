@@ -284,6 +284,39 @@ def resolve_body_material(
     return assignment.default_material
 
 
+def with_member_materials(
+    assignment: MaterialAssignment | None,
+    members: Mapping[uuid.UUID, MaterialKey | None],
+) -> MaterialAssignment | None:
+    """The assignment geometry evaluates with: *assignment* plus each plugin
+    member's own material (RESEARCH §23, DECK).
+
+    A generated member is cut from a material its plugin names (a joist of
+    pressure-treated pine), as a SolidWorks weldment member carries its
+    profile's material: so a member body takes that material over the
+    document default, and the user's own per-body override still wins over
+    both. *members* maps each member body's id (its creating feature) to its
+    material, in tree order; ``None`` there leaves the body to the default.
+    The stored assignment is never changed: this is derived per evaluation,
+    so a regenerated member keeps following its plugin's input.
+    """
+    chosen = {
+        entry.base_feature_id
+        for entry in (assignment or EMPTY_MATERIAL_ASSIGNMENT).bodies
+    }
+    extra = [
+        BodyMaterialAssignment(base_feature_id=body, material=material)
+        for body, material in members.items()
+        if material is not None and body not in chosen
+    ]
+    if not extra:
+        return assignment
+    base = assignment or EMPTY_MATERIAL_ASSIGNMENT
+    return MaterialAssignment(
+        default_material=base.default_material, bodies=[*base.bodies, *extra]
+    )
+
+
 def density_kg_m3(material: MaterialKey | None) -> float | None:
     """Density of a library material; ``None`` in → ``None`` out (no material)."""
     if material is None:

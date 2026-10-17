@@ -46,7 +46,7 @@ from loft_wire.legacy_twist import (
     EXTRUDE_TWIST_DEPRECATED_MESSAGE,
     authors_extrude_twist,
 )
-from loft_wire.materials import MaterialAssignment
+from loft_wire.materials import MaterialAssignment, with_member_materials
 from loft_wire.parts import EVALUATE_BEFORE_DESCRIPTION
 from loft_wire.ref_names import carry_ref_names
 from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
@@ -56,12 +56,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db, history
 from documents.custom_features import (
+    SentMembers,
     authored_references,
     check_tree_size,
     expanded_size,
+    host_id,
     is_body_affecting,
     member_targets,
     prepare_custom_write,
+    reexpand_hosts,
+    stored_host_id,
 )
 from documents.feature_expressions import (
     evaluation_features,
@@ -279,6 +283,16 @@ async def _shift_indexes(
         )
 
 
+async def _reframe_hosts(
+    session: AsyncSession, part: db.Part, hosts: list[uuid.UUID | None]
+) -> None:
+    """Re-expand the hosts (walls) of a written hosted feature (a door), on
+    the tree as written; refuses the write when a host cannot frame it
+    (:func:`documents.custom_features.reexpand_hosts`)."""
+    if any(host is not None for host in hosts):
+        reexpand_hosts(part, await _ordered_features(session, part.id), hosts)
+
+
 def _bar_index(part: db.Part, features: list[db.Feature]) -> int | None:
     """The rollback bar's ``order_index``, or None when the bar is at the tip."""
     if part.rollback_feature_id is None:
@@ -334,7 +348,11 @@ async def get_feature_tree(
 
 
 async def evaluation_prefix(
-    session: AsyncSession, part: db.Part, *, before: uuid.UUID | None = None
+    session: AsyncSession,
+    part: db.Part,
+    *,
+    before: uuid.UUID | None = None,
+    members_out: SentMembers | None = None,
 ) -> list[EvaluatedFeatureInput]:
     """The part's evaluation-ready feature prefix (design §4.2 / §3 / §1.4).
 
@@ -367,6 +385,7 @@ async def evaluation_prefix(
             for feature in features
             if bar_index is None or feature.order_index <= bar_index
         ],
+        members_out,
     )
 
 
@@ -382,6 +401,23 @@ def part_materials(part: db.Part) -> MaterialAssignment | None:
     if not part.materials:
         return None
     return MaterialAssignment.model_validate(part.materials)
+
+
+def evaluation_materials(part: db.Part, sent: SentMembers) -> MaterialAssignment | None:
+    """The materials an evaluation of *part* is sent with: the stored
+    assignment plus every plugin member's own material (the members *sent*
+    by :func:`evaluation_prefix`), the user's per-body override winning
+    (:func:`loft_wire.materials.with_member_materials`). Part, assembly and
+    cut-list requests all go through here, so a member weighs the same in each.
+    """
+    return with_member_materials(
+        part_materials(part),
+        {
+            member_id: member.metadata.material
+            for member_id, (_envelope, member) in sent.items()
+            if member.metadata is not None
+        },
+    )
 
 
 @router.get("/{part_id}/evaluation-request")
@@ -405,11 +441,13 @@ async def get_evaluation_request(
     thing on this request that is not pure geometry intent.
     """
     part = await get_owned_part(session, owner_id, part_id)
+    sent: SentMembers = {}
+    features = await evaluation_prefix(session, part, before=before, members_out=sent)
     return EvaluateTreeRequest(
         part_id=part.id,
         tree_version=part.tree_version,
-        features=await evaluation_prefix(session, part, before=before),
-        materials=part_materials(part),
+        features=features,
+        materials=evaluation_materials(part, sent),
     )
 
 
@@ -482,6 +520,8 @@ async def create_feature(
     session.add(feature)
     await session.flush()  # row must exist before its edges (FK)
     await _rewrite_edges(session, part.id, feature.id, target_ids)
+    # A door or window is framed by its wall: the wall re-expands with it.
+    await _reframe_hosts(session, part, [host_id(envelope)])
     if part.rollback_feature_id is not None:
         part.rollback_feature_id = feature.id  # bar follows the insert (§3)
     part.tree_version += 1
@@ -526,6 +566,7 @@ async def update_feature(
             )
         features = await _ordered_features(session, part.id)
         features_by_id = {row.id: row for row in features}
+        hosts_before = stored_host_id(feature)
         envelope: AuthoredEnvelope = request.feature
         if isinstance(envelope, CustomFeature):
             validate_references(envelope, feature.order_index, features_by_id)
@@ -559,6 +600,7 @@ async def update_feature(
         # path, but a full-envelope PATCH must round-trip it — feature-tree §4.3a).
         feature.suppressed = envelope.suppressed
         await _rewrite_edges(session, part.id, feature.id, target_ids)
+        await _reframe_hosts(session, part, [hosts_before, host_id(envelope)])
     if request.name is not None:
         feature.name = request.name
 
@@ -601,6 +643,9 @@ async def suppress_feature(
     feature = await _get_feature(session, part, feature_id)
 
     feature.suppressed = request.suppressed
+    # A suppressed door is not framed (it has no effect, as any suppressed
+    # feature): its wall re-expands without it, and with it again on unsuppress.
+    await _reframe_hosts(session, part, [stored_host_id(feature)])
     part.tree_version += 1
     await history.PART_HISTORY.record(session, part, pre_op)
     await session.commit()
@@ -736,6 +781,7 @@ async def delete_feature(
     if part.rollback_feature_id == feature.id:
         part.rollback_feature_id = None  # bar resets to the tip (§3)
     deleted_index = feature.order_index
+    host = stored_host_id(feature)
     await session.execute(
         delete(db.FeatureDependency).where(
             db.FeatureDependency.feature_id == feature.id
@@ -744,6 +790,7 @@ async def delete_feature(
     await session.delete(feature)
     await session.flush()
     await _shift_indexes(session, part.id, deleted_index + 1, -1)
+    await _reframe_hosts(session, part, [host])
     part.tree_version += 1
     await history.PART_HISTORY.record(session, part, pre_op)
     await session.commit()

@@ -714,6 +714,19 @@ export const ParametersIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Cut list = two boards of stock, the upper scribed where it is cut: the
+ * weldment cut list's members grouped by section and length (SolidWorks), the
+ * materials list a framer buys from (Chief Architect).
+ */
+export const CutListIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={3} y={6} width={18} height={4} />
+    <rect x={3} y={14} width={13} height={4} />
+    <path d="M10 4.5 V11.5 M16 4.5 V11.5" />
+  </Icon>
+);
+
 // --- DRO --------------------------------------------------------------------
 
 /** Grid snap = a ruled grid with one punched intersection (the snapped node). */

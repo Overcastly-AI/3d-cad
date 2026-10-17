@@ -150,6 +150,21 @@ export function foldCustomResults(
       if (folded !== undefined) out.push(folded);
     }
   }
+  // A custom feature with no members (a door or window: its wall frames it)
+  // reads as the custom feature it is hosted in, so the tree says whether
+  // its framing built rather than nothing at all.
+  const folded = new Map(out.map((result) => [result.feature_id, result]));
+  for (const row of custom) {
+    if (customMembers(row.feature.params).length > 0) continue;
+    const host = Object.values(row.feature.params.inputs)
+      .map((value) =>
+        typeof value === "object" && value !== null
+          ? folded.get(value.feature_id)
+          : undefined,
+      )
+      .find((result) => result !== undefined);
+    if (host !== undefined) out.push({ ...host, feature_id: row.id });
+  }
   let lastGood = evaluation.last_good_feature_id;
   const own = lastGood === null ? undefined : owner.get(lastGood);
   if (own !== undefined) {

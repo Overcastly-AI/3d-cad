@@ -1853,6 +1853,145 @@ and reframe it, a material per member, and a cut list that is always current.
     other plane is `plugin_input_unsupported`; use Sweep with twist there.
     Stored twisted extrudes are not migrated: they stay legacy rows and
     rebuild byte-identical.
+- **Decided while building the deck** (DECK, 2026-10-17; Medeek Deck, Chief
+  Architect and IRC R507 prescriptive practice):
+  - *Members.* Each member is a plan rectangle on a shared `XY` level datum
+    (one per distinct bottom elevation) extruded up as a new body, so joists
+    along either axis and blocking need no per-member datum. Roles emit in
+    the cut list's order (ledger, rim, beam, joist, blocking, post, deck,
+    guard).
+  - *Materials.* A member's metadata material is applied to its body at
+    evaluation (`loft_wire.materials.with_member_materials`): the user's
+    per-body override wins, then the member's, then the part default. It is
+    derived per request and never written to the stored assignment.
+  - *Support.* A ledger carries joist ends, so joists along the house need a
+    freestanding deck (`plugin_input_unsupported` otherwise). Freestanding
+    swaps the ledger for a house-side rim and a second beam at the same
+    setback. Ledger and rims are cut from the joist size, tops flush.
+  - *Beam.* The setback is outer edge to beam centre (the cantilever). A
+    dropped beam bears the joists; a flush one is level with them and the
+    joists are cut at it. Posts run grade to the beam's underside, so post
+    height follows from deck height, joist and beam (footings later).
+  - *Decking.* Whole boards from the house side across the joists; the count
+    is the fewest covering projection + overhang, so the last board may
+    overhang more (B1: 2.125 in). The overhang also runs past both end joists.
+  - *Guard* (optional, off for B1 as the spec's volume excludes it): 4x4
+    posts on the decking at every corner and where a side meets the house,
+    at most 6 ft on centres; 2x4 rails on edge, top 36 in above the decking
+    and bottom 3.5 in above it; 2x2 balusters, no clear gap over 4 in.
+  - *Units.* Inputs are mm on the wire and rounded to 1e-9 in inside, so a
+    width typed as "16 ft" builds exactly 192 in.
+- **Decided while building the wall** (STUD-WALL, 2026-10-17; Chief
+  Architect, Medeek Wall and Revit):
+  - *Placement.* A wall is a start point, a direction (degrees
+    counterclockwise from +X, seen from above) and a length. The line is the
+    exterior framing face and the framing lies to its right, so walls drawn
+    clockwise round a building have their exterior outside, as Chief
+    Architect and Revit expect (Revit's "Core Face: Exterior" location line).
+    A `side` choice flips it (Revit's flip arrows). A base elevation lifts a
+    wall onto a floor. Multiples of 90° use exact cos and sin, so an axis
+    wall carries no 1e-16 noise.
+  - *Height* is plate to plate (underside of the bottom plate to the top of
+    the top plate), Chief Architect's and Medeek's measure; studs are that
+    less the plates (97.125 -> the 92.625 precut). The plates and studs are
+    the stud profile, so a 2x6 wall is 5.5 deep.
+  - *Layout* from the start: 0.75, then on the spacing, an end stud flush,
+    a layout stud that would overlap it dropped (the deck's joist rule).
+    Plates butt at corners; lapped plates and corner assemblies are later.
+  - *Members* are plan polygons on shared level datums extruded up, as the
+    deck's, in the cut list's order (stud, top plate, bottom plate); PT
+    bottom plate and SPF studs and top plates by default.
+  - *The openings seam.* The wall is laid out as pieces in its own frame
+    (`wall_pieces`: u along, v across, z up) and only then placed
+    (`WallFrame`). WINDOW-DOOR adds the hosted openings to that local list
+    (kings, jacks, header, cripples, sill replacing the layout studs inside
+    each rough opening; a door cuts the bottom plate) and gives `expand` the
+    later features that name the wall as host. No stored wall has an
+    opening yet, so that is additive to 1.0.0: no stored expansion changes.
+    A roof or an opening reads a wall's geometry through `WallSpec`.
+  - *Cut length of a turned wall.* The cut list measures each body in its
+    own frame (CUT-LIST), so a 30° wall lists the same lengths; golden
+    `plugin-wall-v1-144-30deg` matches an independent build123d script. Its
+    STEP round trip moves the volume by 6e-4 mm³, which is OCCT's (a plain
+    build123d twin drifts the same), so it carries a reviewed round-trip
+    bound.
+- **Decided while building windows and doors** (WINDOW-DOOR, 2026-10-17;
+  Revit, Chief Architect, common platform framing):
+  - *Hosting on the wire.* A `FeatureReferenceInput` may list `plugin_ids`
+    (the picked custom feature's plugin) and be the manifest's one `host`
+    input, as a Revit window family's host category is Walls. The form
+    offers only walls; a host that is missing, later, not custom or another
+    plugin is refused before the opening's plugin runs.
+  - *The wall frames, the opening does not.* As Chief Architect's wall
+    framing includes its openings, `loft.wall` builds the kings, jacks,
+    header, cripples and sill; `loft.window` and `loft.door` expand to no
+    member (the unit body is WINDOW-DOOR-UNIT). Their own expansion only
+    checks that they fit their wall, so a refusal lands on their field.
+  - *Hosted inputs, not expansions.* The registry gives a host the LATER
+    features naming it (`ExpandInputs.hosted`: pin, name, resolved inputs).
+    Nothing crosses the other way and expansions never cross, so there is
+    no cycle and the order stays the tree's. The wall sorts its openings
+    along itself, so the tree order of openings changes nothing.
+  - *Writes.* Creating, editing (including a change of host), suppressing
+    or deleting an opening re-expands its old and new hosts in the same
+    transaction; a wall that cannot frame it refuses the write (422 naming
+    the opening, or the delete's 409 when a referenced member would go).
+    Editing a wall re-frames its openings, so shortening it under a door is
+    refused. A suppressed opening is not framed, as any suppressed feature
+    has no effect. A parameter that drives a door re-frames its wall even
+    when the wall reads no parameter.
+  - *Inputs.* Unit width and height plus a rough-opening allowance each way
+    (door 2 x 2.5, window 0.5 x 0.5: B2's 38 x 82.5 and 24.5 x 36.5), the
+    offset of the unit's centre from the wall's start, a 2x6 to 2x12 header,
+    and for a window the head height: the rough opening's top (the header's
+    underside) above the wall's base, 82.5 by default so window and door
+    heads align. A door's rough opening stands on the wall's base and the
+    bottom plate is cut out of it.
+  - *Members.* Kings full height outside jacks; the header is two plies on
+    edge over the jacks at the wall's two faces (the spacer is not a
+    member); top cripples, and for a window bottom cripples under a flat
+    sill, at the layout centres inside the header and the rough opening.
+    Any layout stud entering the framing is dropped. In the cut list a king
+    is a "Stud" (the same precut, listed with the studs as buildings.md
+    does) and both cripples are "Cripple"; their roles stay distinct so
+    member ids hold.
+  - *Fit.* An opening must keep its kings between the wall's end studs, its
+    header under the top plate and a window's sill on the bottom plate, and
+    two openings' framing may touch but not overlap; each refusal names the
+    opening and the field to change.
+  - *No float overlaps.* Every face two members share is computed once and
+    used by both, and levels are shared by height rounded to 1e-9 in, so a
+    sweep over positions and sizes finds no two members overlapping at all.
+  - *Version.* The opening roles were added to `loft.wall` 1.0.0 without a
+    new version, because no stored wall had an opening; its no-openings
+    goldens are byte-identical.
+- **Decided while building the roof** (ROOF, 2026-10-17; framing-square
+  practice, Chief Architect roof framing and Medeek Truss rafter roofs):
+  - *Pitch.* Rise per 12 of run, as a choice of 1/12 .. 24/12 shown as
+    "6/12" (Medeek's pitch list). It is the smallest honest form of
+    PLUGIN-PITCH-INPUT: no wire change, and the stored value
+    (`rise_6`) reads as what it is. Half pitches and a formula-driven pitch
+    need a ratio input kind (a wire change), left for when a user asks.
+  - *Bearing.* The roof takes its bearing as numbers: the span between the
+    walls' outer faces, the length along the ridge, the plate height and the
+    plate width, with the walls at Y 0 and Y span (B2's frame, as the deck
+    sits at the origin). Reading them from two picked Wall features waits for
+    STUD-WALL's inputs (BACKLOG note ROOF-BEARING-WALLS).
+  - *Members.* Each rafter is one side profile on a `YZ` plane at its X (an
+    offset datum shared by the pair at that X), extruded its thickness as
+    its own body; the ridge is its section on `YZ` run the length. Layout is
+    the wall's: half a thickness from X 0, then every spacing, the far end
+    rafter flush, a layout rafter that would overlap it dropped.
+  - *Cuts.* The overhang is level, from the wall's outer face to the tail's
+    plumb cut. The birdsmouth heel is on the wall's outer face; the seat takes
+    the full plate unless the heel would pass 1/3 of the depth, then shortens
+    from the inside. No overhang cuts the rafter flush at the wall line.
+  - *Ridge.* Its top is flush with the rafters' top edge at its face (the
+    sheathing plane touches it), and it must be at least as deep as the
+    rafters' plumb cut (IRC R802.3), else `plugin_input_unsupported`.
+  - *Cut length.* The cut list measures a rafter's overall length from its
+    body (line length + depth x rise/12, a SolidWorks weldment's length); the
+    line length (79.660) is checked on the STEP's faces in the golden test.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

@@ -21,13 +21,14 @@ import type {
 } from "../api/assemblies";
 import { AssemblyBomPanel } from "./AssemblyBomPanel";
 import { AssemblyClashPanel } from "./AssemblyClashPanel";
+import { CutListPanel } from "./CutListPanel";
 import type { NestedPart } from "../assembly/subAssemblies";
 import { AssemblyInspector } from "./AssemblyInspector";
 import { ExportRow } from "./ExportRow";
 import type { ExportedFile, ExportFormat } from "../api/exportPart";
 import type { AssemblyExportGate } from "../features/assemblyExport";
 
-export type InspectorView = "solve" | "bom" | "clash";
+export type InspectorView = "solve" | "bom" | "cut" | "clash";
 
 export interface AssemblyInspectorPanelProps {
   view: InspectorView;
@@ -67,6 +68,10 @@ export interface AssemblyInspectorPanelProps {
   nested?: ReadonlyMap<string, NestedPart>;
   /** Part documents that failed to build: the BOM flags their lines. */
   failedDocumentIds?: ReadonlySet<string>;
+  /** The assembly, for its cut list (all levels, times quantity). */
+  assemblyId: string;
+  /** Changes when the assembly or any part in it does: the cut list refetches. */
+  cutListRevision: string | undefined;
 }
 
 const VIEW_OPTIONS = [
@@ -79,6 +84,11 @@ const VIEW_OPTIONS = [
     value: "bom" as const,
     label: "Parts",
     "data-testid": "inspector-view-bom",
+  },
+  {
+    value: "cut" as const,
+    label: "Cut list",
+    "data-testid": "inspector-view-cut-list",
   },
   {
     value: "clash" as const,
@@ -107,6 +117,8 @@ export function AssemblyInspectorPanel({
   exportGate,
   nested,
   failedDocumentIds,
+  assemblyId,
+  cutListRevision,
 }: AssemblyInspectorPanelProps) {
   return (
     <div className="flex w-full flex-col gap-3">
@@ -132,6 +144,12 @@ export function AssemblyInspectorPanel({
           loading={bomLoading}
           error={bomError}
           failedDocumentIds={failedDocumentIds}
+        />
+      ) : view === "cut" ? (
+        <CutListPanel
+          kind="assembly"
+          documentId={assemblyId}
+          revision={cutListRevision}
         />
       ) : (
         <AssemblyClashPanel

@@ -1,0 +1,62 @@
+{
+  "description": "B2 WALLS, NO OPENINGS, 24 in o.c. (STUD-WALL's spacing edit; docs/reference-parts/buildings.md B2): the four loft.wall 1.0.0 features of b2-walls-no-openings-16oc with stud spacing 16 -> 24 in, everything else unchanged. model.json is EXACTLY the four expansions with the member materials documents applies; members.json is each body's member metadata. packages/loft-plugins/tests/test_wall.py asserts both files are the plugin's output; services/geometry/tests/test_walls_b2.py checks the cut list, the exported STEP and interference.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC, from buildings.md's coordinates in exact rational arithmetic (x 25.4 = mm exactly), never from the plugin. Plates as at 16 in o.c.: front X 0..144, Y 0..3.5; back X 0..144, Y 116.5..120; left X 0..3.5, Y 3.5..116.5; right X 140.5..144, Y 3.5..116.5; bottom plate Z 0..1.5, top plates Z 94.125..97.125, studs Z 1.5..94.125.",
+    "",
+    "Stud centres from each wall's start at 0.75, then every 24, an end stud flush (144 would overlap 143.25 on a 144 wall and is dropped): a 144 wall 0.75, 24, 48, 72, 96, 120, 143.25 (7), a 113 wall 0.75, 24, 48, 72, 96, 112.25 (6); 26 studs.",
+    "",
+    "volume = 26 x 486.28125 (12 643.3125) + plates 8 095.5 = 20 738.8125 in^3 (the spec's figure); x 25.4^3 = 339848247.7215 mm^3.",
+    "",
+    "surface_area = sum of 2(ab + bc + ca) over the 38 boxes = 39 901.5 in^2 = 25742851.74 mm^2.",
+    "",
+    "centroid = volume-weighted mean of the box centres (exact rationals): x = 72 in = 1828.8 mm, y = 60 in = 1524.0 mm (the layouts are mirror images across each axis), z = 4561759/84272 in = 1374.936854471236 mm.",
+    "",
+    "mass_g = (SPF volume x 450 + PT volume x 582) kg/m^3, bottom plates 2 698.5 in^3 of PT = 158768.816445603 g; center_of_mass x = 1828.8, y = 1524.0, z = 1026938559/19684912 in = 1325.0879352978566 mm.",
+    "",
+    "bounding_box: X 0..144, Y 0..120, Z 0..97.125 in = 0..3657.6, 0..3048.0, 0..2466.975 mm.",
+    "",
+    "topology: 38 boxes x (6 faces, 12 edges, 1 shell) = 228 faces, 456 edges, 38 shells.",
+    "",
+    "MESH counts are recorded but also exact for boxes: 12 triangles and 24 vertices per box = 456 triangles, 912 vertices."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): the bounds are ABSOLUTE and the part is ~4e8 mm^3, so the double-precision sum of its separate bodies carries round-off near the ULP of the sum (~6e-8): measured 2.4e-7 mm^3 on the volume, 0 on the area, <= 7e-13 mm on the centroid and centre of mass, 1.2e-10 g on the mass (worst of both spacings: 2.4e-7 on the volume). 1e-6 is 4x the worst and ~3e-15 relative; a stud 0.001 in out of place moves the volume by >= 1.2 mm^3 and fails by six orders of magnitude.",
+  "roundtrip_tolerance": 1e-6,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip re-sums the re-imported solids in another order and moves the VOLUME by 3.0e-7 mm^3 and the AREA by 7.5e-9 mm^2 (~1e-15 relative), above ROUNDTRIP_TOL (1e-7 absolute), which is near the ULP of a 4e8 sum. 1e-6 is 3.3x the worst of the two spacings (3.0e-7). Same cause as b1-deck-framing-16ft and plugin-deck-v1-b1-12x16ft; it applies to volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 339848247.7215,
+    "surface_area": 25742851.74,
+    "centroid": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": 1374.936854471236
+    },
+    "mass_g": 158768.816445603,
+    "center_of_mass": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": 1325.0879352978566
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 3657.6,
+        "y": 3048.0,
+        "z": 2466.975
+      }
+    }
+  },
+  "topology": {
+    "faces": 228,
+    "edges": 456,
+    "shells": 38
+  },
+  "mesh": {
+    "vertices": 912,
+    "triangles": 456
+  }
+}

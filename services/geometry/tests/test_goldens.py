@@ -213,7 +213,29 @@ def test_golden_inventory_is_nonempty() -> None:
 #: mm^3, 0.18 mm^2) is OCCT's, shared by a pure-build123d twin. The bike frame
 #: of four Pipes (2026-10-16) drifts the same way, as does its twin.
 ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
-    {"frame-moto-cradle-tube-od25.4-t1.6", "frame-bike-4-pipes-one-skeleton-head73"}
+    {
+        "frame-moto-cradle-tube-od25.4-t1.6",
+        "frame-bike-4-pipes-one-skeleton-head73",
+        # A 1.06e9 mm^3 sum of 46 solids: re-import order moves it by 2e-15.
+        "b1-deck-framing-16ft",
+        # The same deck from the loft.deck plugin, and its 20 ft edit (DECK).
+        "plugin-deck-v1-b1-12x16ft",
+        "plugin-deck-v1-b1-20ft",
+        # B2's four walls from loft.wall, and the 24 in o.c. edit (STUD-WALL).
+        "b2-walls-no-openings-16oc",
+        "b2-walls-no-openings-24oc",
+        # One wall turned 30 deg: OCCT's STEP drift on turned planes (twin: 5.7e-4).
+        "plugin-wall-v1-144-30deg",
+        # B2 with its hosted door and window, and the three edits (WINDOW-DOOR).
+        "b2-walls-door-window",
+        "b2-walls-door-moved-24",
+        "b2-walls-window-30",
+        "b2-walls-door-deleted",
+        # The loft.roof B2 gable at 6/12 and 8/12 (ROOF): OCCT's STEP rounds
+        # the sloped rafters' coordinates; a build123d twin drifts the same.
+        "b2-roof-6-12",
+        "b2-roof-8-12",
+    }
 )
 
 

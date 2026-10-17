@@ -22,6 +22,16 @@ describe("storedLengthInput: the seed a stored length is shown as", () => {
     expect(parseLength(inches, "in")).toBe(12.345678901234);
   });
 
+  it("reads float noise from a foreign unit as the readable text", () => {
+    // "16 ft" in an inch part: 16 x 304.8 is one ulp off 192 x 25.4.
+    const stored = parseLength("16 ft", "in");
+    expect(stored).not.toBe(192 * 25.4);
+    expect(storedLengthInput(stored ?? 0, "in")).toBe("192");
+    expect(storedLengthMm("192", "in", stored, parsePositiveLengthMm)).toBe(
+      stored,
+    );
+  });
+
   it("falls back to the readable text where no text in the unit is exact", () => {
     // 7.123456789012 / 25.4 * 25.4 is not 7.123456789012: no inch text works.
     const text = storedLengthInput(7.123456789012, "in");

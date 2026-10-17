@@ -1,0 +1,62 @@
+{
+  "description": "B2 ROOF at 6/12 from ONE loft.roof 1.0.0 custom feature (ROOF; docs/reference-parts/buildings.md B2 roof): a gable on walls whose outer faces are Y 0 and Y 120 with top plates at Z 97.125 and 3.5 deep, 144 along the ridge, pitch 6/12, 2x6 rafters at 24 in o.c. with a 12 in level overhang, a 2x8 ridge board, all spf_lumber. model.json is EXACTLY the plugin's expansion with the member materials documents applies; members.json is each body's member metadata. packages/loft-plugins/tests/test_roof.py asserts both files are the plugin's output; services/geometry/tests/test_roof_b2.py checks the cut list, the exported STEP against an independent build123d script, and interference with the walls. Each rafter is one side profile on a YZ plane at its X, extruded 1.5 along +X; the ridge is its section on YZ extruded 144.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC, from buildings.md's numbers, never from the plugin. In the front rafter's (Y, Z) frame: slope = 6/12; the birdsmouth seats the full 3.5 plate, heel = 3.5 x 6/12 = 1.75 (under the 1/3-depth limit 5.5/3 = 1.833); the bottom edge is Z = 97.125 + (Y - seat) x slope; the plumb depth is 5.5 x sqrt(1 + slope^2) = 6.14918693812; the ridge face is Y 60 - 0.75 = 59.25. Profile (tail bottom, heel bottom, heel top, seat inner, ridge bottom, ridge top, tail top): (-12, 89.375), (0, 95.375), (0, 97.125), (3.5, 97.125), (59.25, 125), (59.25, 131.149186938), (-12, 95.5241869381). The back rafter is its mirror about Y 60. Rafter centres X 0.75, 24, 48, 72, 96, 120, 143.25 (7 pairs, 14 rafters, 1.5 thick).",
+    "",
+    "line length = (12 + 59.25) x sqrt(1 + slope^2) = 79.659922 in (buildings.md: 79.660); overall length (long point to long point, the cut list's) = line + 5.5 x slope = 82.409922 in.",
+    "",
+    "profile area (shoelace) = 435.067069341 in^2; rafter volume = 1.5 x area = 652.600604012 in^3; ridge = 144 x 1.5 x 7.25 = 1566 in^3, Z 123.899186938..131.149186938 (top flush with the rafters' top at its face). volume = 14 x rafter + ridge = 10702.4084562 in^3; x 25.4^3 = 175381052.325377 mm^3.",
+    "",
+    "surface_area = 14 x (2 x area + 1.5 x perimeter 172.955098312) + ridge 2(144 x 1.5 + 1.5 x 7.25 + 7.25 x 144) = 18355.6850061 in^2 = 11842353.738549 mm^2 (bodies are separate).",
+    "",
+    "centroid = volume-weighted mean: x = 72 in = 1828.8 mm and y = 60 in = 1524 mm (symmetric); z from the profile's centroid (shoelace) and the ridge's centre.",
+    "",
+    "mass_g = volume x 450 kg/m^3 (spf_lumber, every body by its member material); center_of_mass = centroid (one density).",
+    "",
+    "bounding_box: X 0..144, Y -12..132 (the tails), Z 89.375 (tail bottom) .. 131.149186938 (ridge top) in.",
+    "",
+    "topology: 14 heptagonal prisms x (9 faces, 21 edges) + 1 box (6, 12) = 132 faces, 306 edges, 15 shells.",
+    "",
+    "MESH counts are recorded, and exact for planar prisms: a rafter is 2 heptagons x 5 triangles + 7 quads x 2 = 24 triangles on 2 x 7 + 7 x 4 = 42 vertices, a box 12 on 24: 348 triangles, 612 vertices."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): the bounds are ABSOLUTE and the part is ~1.8e8 mm^3 summed over 15 separate bodies; the kernel differs from the analytic sums by 3.6e-7 mm^3 on the volume, 2e-8 mm^2 on the area and <= 1e-12 mm on the centroid. 1e-6 is ~5e-15 relative; a rafter 0.001 in out of place along its slope moves the volume by > 10 mm^3.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-17: OCCT's STEP writer rounds the sloped rafters' irrational coordinates, so each re-imported rafter moves by ~2.5e-5 mm^3 (~2e-12 relative). Round-trip drift: volume -3.47e-4 mm^3 and area -1.86e-5 mm^2 (plugin), -3.47e-4 / -1.86e-5 (twin); centroid <= 1.4e-9 mm. The independent PURE build123d twin (test_roof_b2.script_roof, exported with build123d's own export_step) drifts the same way (the 6/12 twin by the identical -3.47e-4), so it is OCCT's STEP, not Loft's export. 1e-3 is 2.9x the worst and applies to volume and area only; the centroid and bounds keep ROUNDTRIP_TOL. The B1 deck's boxes have exact decimal coordinates, hence its smaller bound.",
+  "properties": {
+    "volume": 175381052.325377,
+    "surface_area": 11842353.738549,
+    "centroid": {
+      "x": 1828.8,
+      "y": 1523.9999999999998,
+      "z": 2866.9073802490284
+    },
+    "mass_g": 78921.47354641969,
+    "center_of_mass": {
+      "x": 1828.8,
+      "y": 1523.9999999999998,
+      "z": 2866.9073802490284
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": -304.79999999999995,
+        "z": 2270.125
+      },
+      "max": {
+        "x": 3657.6,
+        "y": 3352.7999999999997,
+        "z": 3331.18934822836
+      }
+    }
+  },
+  "topology": {
+    "faces": 132,
+    "edges": 306,
+    "shells": 15
+  },
+  "mesh": {
+    "vertices": 612,
+    "triangles": 348
+  }
+}

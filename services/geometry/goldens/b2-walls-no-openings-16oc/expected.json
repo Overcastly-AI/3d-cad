@@ -1,0 +1,62 @@
+{
+  "description": "B2 WALLS, NO OPENINGS, 16 in o.c. (STUD-WALL; docs/reference-parts/buildings.md B2): FOUR loft.wall 1.0.0 custom features, drawn clockwise in plan with the framing to the right of each wall's direction (its line the exterior face): front from (144, 0) at 180 deg, 144 long; left side from (0, 3.5) at 90 deg, 113; back from (0, 120) at 0 deg, 144; right side from (144, 116.5) at 270 deg, 113; everything else the plugin's defaults (2x4 at 16 in o.c., 97.125 plate to plate, double SPF top plate, pressure-treated southern pine bottom plate, SPF studs). model.json is EXACTLY the four expansions with the member materials documents applies (each member body's material as a per-body assignment: no part default); members.json is each body's member metadata. packages/loft-plugins/tests/test_wall.py asserts both files are the plugin's output; services/geometry/tests/test_walls_b2.py checks the cut list, the exported STEP and interference. Each member is a plan rectangle on an XY level datum extruded up as a new body.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC, from buildings.md's coordinates in exact rational arithmetic (x 25.4 = mm exactly), never from the plugin. Front plates X 0..144, Y 0..3.5; back X 0..144, Y 116.5..120; left X 0..3.5, Y 3.5..116.5; right X 140.5..144, Y 3.5..116.5. Bottom plate Z 0..1.5, top plates Z 94.125..95.625 and 95.625..97.125, studs Z 1.5..94.125 (92.625).",
+    "",
+    "Stud centres from each wall's start at 0.75, then every 16, an end stud flush: a 144 wall 0.75, 16, ..., 128, 143.25 (10), a 113 wall 0.75, 16, ..., 96, 112.25 (8); 36 studs, 1.5 along the wall and 3.5 across it.",
+    "",
+    "volume = 36 x 1.5 x 3.5 x 92.625 (17 506.125) + plates (4 + 2) x 144 x 5.25 + (4 + 2) x 113 x 5.25 (8 095.5) = 25 601.625 in^3 (the spec's figure); x 25.4^3 = 419535467.379 mm^3.",
+    "",
+    "surface_area = sum of 2(ab + bc + ca) over the 48 boxes (bodies are separate, touching faces are not merged) = 49 269 in^2 = 31786388.04 mm^2.",
+    "",
+    "centroid = volume-weighted mean of the box centres (exact rationals): x = 72 in = 1828.8 mm and y = 60 in = 1524.0 mm (the shed is symmetric about both), z = 2753267/52016 in = 1344.4513572746848 mm.",
+    "",
+    "mass_g = (SPF volume x 450 + PT volume x 582) kg/m^3: bottom plates 2 x 144 + 2 x 113 = 514 in x 5.25 = 2 698.5 in^3 of PT, the rest SPF = 194628.065291478 g; center_of_mass x = 1828.8, y = 1524.0, z = 619756467/12065456 in = 1304.7011453027553 mm (the denser bottom plates pull it down).",
+    "",
+    "bounding_box: X 0..144, Y 0..120, Z 0..97.125 in = 0..3657.6, 0..3048.0, 0..2466.975 mm.",
+    "",
+    "topology: 48 boxes x (6 faces, 12 edges, 1 shell) = 288 faces, 576 edges, 48 shells.",
+    "",
+    "MESH counts are recorded but also exact for boxes: 12 triangles and 24 vertices per box = 576 triangles, 1152 vertices."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): the bounds are ABSOLUTE and the part is ~4e8 mm^3, so the double-precision sum of its separate bodies carries round-off near the ULP of the sum (~6e-8): measured 1.2e-7 mm^3 on the volume, 0 on the area, <= 7e-13 mm on the centroid and centre of mass, 1.2e-10 g on the mass (worst of both spacings: 2.4e-7 on the volume). 1e-6 is 4x the worst and ~3e-15 relative; a stud 0.001 in out of place moves the volume by >= 1.2 mm^3 and fails by six orders of magnitude.",
+  "roundtrip_tolerance": 1e-6,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip re-sums the re-imported solids in another order and moves the VOLUME by 2.4e-7 mm^3 and the AREA by 3.7e-9 mm^2 (~1e-15 relative), above ROUNDTRIP_TOL (1e-7 absolute), which is near the ULP of a 4e8 sum. 1e-6 is 3.3x the worst of the two spacings (3.0e-7). Same cause as b1-deck-framing-16ft and plugin-deck-v1-b1-12x16ft; it applies to volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 419535467.379,
+    "surface_area": 31786388.04,
+    "centroid": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": 1344.4513572746848
+    },
+    "mass_g": 194628.065291478,
+    "center_of_mass": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": 1304.7011453027553
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 3657.6,
+        "y": 3048.0,
+        "z": 2466.975
+      }
+    }
+  },
+  "topology": {
+    "faces": 288,
+    "edges": 576,
+    "shells": 48
+  },
+  "mesh": {
+    "vertices": 1152,
+    "triangles": 576
+  }
+}
