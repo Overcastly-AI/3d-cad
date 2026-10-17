@@ -1,5 +1,10 @@
-import type { Page } from "@playwright/test";
-
+import {
+  type CutRow,
+  expectSolved,
+  expectTable,
+  openBuildTool,
+  openCutList,
+} from "./buildFlow";
 import { expect, test } from "./fixtures";
 import { SCREENSHOT_DIR, seedSession } from "./support";
 
@@ -26,10 +31,8 @@ const WALLS: [string, number, number, number, number][] = [
   ["Right wall", 144, 116.5, 270, 113],
 ];
 
-type Row = [string, string, string, string];
-
 /** buildings.md B2's wall cut list, in tree order (kings are studs). */
-const DOOR_WINDOW: Row[] = [
+const DOOR_WINDOW: CutRow[] = [
   ["Stud", "36", "92.625", "8 ft"],
   ["Jack", "4", "81", "8 ft"],
   ["Header", "2", "41", "8 ft"],
@@ -45,7 +48,7 @@ const DOOR_WINDOW: Row[] = [
 ];
 
 /** "Door moved 24 in": 7 layout studs and 3 top cripples on the front wall. */
-const DOOR_MOVED: Row[] = [
+const DOOR_MOVED: CutRow[] = [
   ["Stud", "35", "92.625", "8 ft"],
   ["Jack", "4", "81", "8 ft"],
   ["Header", "2", "41", "8 ft"],
@@ -60,46 +63,6 @@ const DOOR_MOVED: Row[] = [
   ["Sill", "1", "24.5", "8 ft"],
   ["Cripple", "2", "43", "8 ft"],
 ];
-
-async function expectTable(page: Page, table: Row[], total: string) {
-  const panel = page.getByTestId("cut-list-panel");
-  await expect(panel.getByTestId("cut-list-total")).toHaveText(total, {
-    timeout: 90_000,
-  });
-  const rows = panel.getByTestId("cut-list-row");
-  await expect(rows).toHaveCount(table.length, { timeout: 30_000 });
-  for (const [index, [member, qty, length, stock]] of table.entries()) {
-    const row = rows.nth(index);
-    await expect(row.getByTestId("cut-list-member")).toHaveText(member);
-    await expect(row.getByTestId("cut-list-qty")).toHaveText(qty);
-    await expect(row.getByTestId("cut-list-length")).toHaveText(length);
-    await expect(row.getByTestId("cut-list-stock")).toHaveText(stock);
-  }
-}
-
-async function expectSolved(page: Page): Promise<void> {
-  await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
-    timeout: 90_000,
-  });
-}
-
-async function openCutList(page: Page): Promise<void> {
-  const tool = page.getByTestId("cut-list-tool");
-  await expect(tool).toBeEnabled({ timeout: 30_000 });
-  if ((await page.getByTestId("cut-list-panel").count()) === 0) {
-    await tool.click();
-  }
-  await expect(page.getByTestId("cut-list-panel")).toBeVisible();
-}
-
-/** Build ▾ > *title*: the opening tools sit behind the group's eyebrow. */
-async function openBuildTool(page: Page, pluginId: string, title: string) {
-  await page.getByTestId("build-more").click();
-  const tool = page.getByTestId(`plugin-tool-${pluginId}`);
-  await expect(tool).toBeEnabled({ timeout: 30_000 });
-  await tool.click();
-  await expect(page.getByTestId("plugin-editor")).toContainText(`New ${title}`);
-}
 
 test.describe("Window and Door — hosted openings framed by B2's walls", () => {
   test.use({ viewport: { width: 1600, height: 1000 } });

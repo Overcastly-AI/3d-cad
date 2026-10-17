@@ -1,5 +1,9 @@
-import type { Page } from "@playwright/test";
-
+import {
+  type CutRow,
+  expectSolved,
+  expectTable,
+  openCutList,
+} from "./buildFlow";
 import { expect, test } from "./fixtures";
 import { SCREENSHOT_DIR, seedSession } from "./support";
 
@@ -17,53 +21,18 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
 const PLUGIN = "loft.wall";
 
 /** One B2 144 wall: member, qty, length (in), stock. */
-const WALL_16OC: [string, string, string, string][] = [
+const WALL_16OC: CutRow[] = [
   ["Stud", "10", "92.625", "8 ft"],
   ["Top plate", "2", "144", "12 ft"],
   ["Bottom plate", "1", "144", "12 ft"],
 ];
 
 /** The spacing edit: "spacing 16 -> 24", 0.75, 24, ..., 120, 143.25. */
-const WALL_24OC: [string, string, string, string][] = [
+const WALL_24OC: CutRow[] = [
   ["Stud", "7", "92.625", "8 ft"],
   ["Top plate", "2", "144", "12 ft"],
   ["Bottom plate", "1", "144", "12 ft"],
 ];
-
-async function expectTable(
-  page: Page,
-  table: [string, string, string, string][],
-  total: string,
-) {
-  const panel = page.getByTestId("cut-list-panel");
-  await expect(panel.getByTestId("cut-list-total")).toHaveText(total, {
-    timeout: 90_000,
-  });
-  const rows = panel.getByTestId("cut-list-row");
-  await expect(rows).toHaveCount(table.length);
-  for (const [index, [member, qty, length, stock]] of table.entries()) {
-    const row = rows.nth(index);
-    await expect(row.getByTestId("cut-list-member")).toHaveText(member);
-    await expect(row.getByTestId("cut-list-qty")).toHaveText(qty);
-    await expect(row.getByTestId("cut-list-length")).toHaveText(length);
-    await expect(row.getByTestId("cut-list-stock")).toHaveText(stock);
-  }
-}
-
-async function expectSolved(page: Page): Promise<void> {
-  await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
-    timeout: 90_000,
-  });
-}
-
-async function openCutList(page: Page): Promise<void> {
-  const tool = page.getByTestId("cut-list-tool");
-  await expect(tool).toBeEnabled({ timeout: 30_000 });
-  if ((await page.getByTestId("cut-list-panel").count()) === 0) {
-    await tool.click();
-  }
-  await expect(page.getByTestId("cut-list-panel")).toBeVisible();
-}
 
 test.describe("Wall — a B2 wall from one feature", () => {
   test.use({ viewport: { width: 1600, height: 1000 } });

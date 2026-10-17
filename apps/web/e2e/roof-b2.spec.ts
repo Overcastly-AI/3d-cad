@@ -1,5 +1,9 @@
-import type { Page } from "@playwright/test";
-
+import {
+  type CutRow,
+  expectSolved,
+  expectTable,
+  openCutList,
+} from "./buildFlow";
 import { expect, test } from "./fixtures";
 import { SCREENSHOT_DIR, seedSession } from "./support";
 
@@ -13,58 +17,22 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * 5.5 x 6/12) on 8 ft stock. Then the spec's named edit, pitch 6/12 -> 8/12,
  * picked from the pitch list: 89.2985. A reload keeps it.
  *
- * Roof only: the full "B2 from Build features only" e2e waits for the Wall,
- * Window and Door tools (BACKLOG note B2-E2E).
+ * Roof only: the whole shed from Build features is shed-b2.spec.ts (B2-E2E).
  */
 
 const PLUGIN = "loft.roof";
 
 /** buildings.md B2's roof row: member, qty, overall length (in), stock. */
-const ROOF_6_12: [string, string, string, string][] = [
+const ROOF_6_12: CutRow[] = [
   ["Rafter", "14", "82.4099", "8 ft"],
   ["Ridge", "1", "144", "12 ft"],
 ];
 
 /** The edit: "Pitch 6/12 -> 8/12: line length 85.632" (+ 5.5 x 8/12). */
-const ROOF_8_12: [string, string, string, string][] = [
+const ROOF_8_12: CutRow[] = [
   ["Rafter", "14", "89.2985", "8 ft"],
   ["Ridge", "1", "144", "12 ft"],
 ];
-
-async function expectTable(
-  page: Page,
-  table: [string, string, string, string][],
-  total: string,
-) {
-  const panel = page.getByTestId("cut-list-panel");
-  await expect(panel.getByTestId("cut-list-total")).toHaveText(total, {
-    timeout: 90_000,
-  });
-  const rows = panel.getByTestId("cut-list-row");
-  await expect(rows).toHaveCount(table.length);
-  for (const [index, [member, qty, length, stock]] of table.entries()) {
-    const row = rows.nth(index);
-    await expect(row.getByTestId("cut-list-member")).toHaveText(member);
-    await expect(row.getByTestId("cut-list-qty")).toHaveText(qty);
-    await expect(row.getByTestId("cut-list-length")).toHaveText(length);
-    await expect(row.getByTestId("cut-list-stock")).toHaveText(stock);
-  }
-}
-
-async function expectSolved(page: Page): Promise<void> {
-  await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
-    timeout: 90_000,
-  });
-}
-
-async function openCutList(page: Page): Promise<void> {
-  const tool = page.getByTestId("cut-list-tool");
-  await expect(tool).toBeEnabled({ timeout: 30_000 });
-  if ((await page.getByTestId("cut-list-panel").count()) === 0) {
-    await tool.click();
-  }
-  await expect(page.getByTestId("cut-list-panel")).toBeVisible();
-}
 
 test.describe("Roof — B2's gable from one feature", () => {
   test.use({ viewport: { width: 1600, height: 1000 } });
