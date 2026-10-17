@@ -507,5 +507,6 @@ One line each. The founder triages weekly; most are closed without work.
 - DECK-BODY-NAMES: the Bodies list and Material panel name every member body after its feature ("Deck 1" x 46); Chief Architect and SolidWorks weldments name them by member ("Joist 3"), as the cut list already does.
 - DECK-DIAGONAL: decking runs across the joists only; Medeek Deck also lays 45° and picture-frame decking.
 - DECK-STAIRS: the guard runs the full open sides with posts where they meet the house; stairs, their guard opening and footings are later rungs.
+- PLUGIN-TOOL-ICONS: every plugin tool gets the same generic icon, so at 1280 the icon-only Build group shows Deck and Twisted prism as two identical glyphs; the manifest has no icon field.
 - DECK-SIZE-CAP: each member is two features (section sketch + extrude), so the corner of the bounds (40 x 24 ft freestanding at 8 in o.c., 2x4 decking, guard) expands to 1,111 and is refused `feature_limit_exceeded`; a 40 x 24 ft deck at 12 in o.c. with guard fits.
 - UNIT-FT-ULP: `toMm(16, "ft")` is 16 x 304.8, one ulp off 192 x 25.4; the form now hides the noise, and the plugin rounds its inches to 1e-9, but other consumers of a foot-typed length see 4876.800000000001.
