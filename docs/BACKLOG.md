@@ -35,7 +35,7 @@ ROOF-VALLEY.
    would land on the end stud at 143.25. B1's 16 -> 20 ft edit keeps a hole
    on the end joist. Under 1.0.0 both edits are a 409 naming the hole. The
    1.0.0 goldens stay byte-identical.
-1. [ ] **FLOOR-FRAME** (`loft.floor`, homes; kernel-architect): a platform
+1. [x] **FLOOR-FRAME** (`loft.floor`, homes; kernel-architect): a platform
    floor, as in Chief Architect's floor framing and Medeek Foundation. It
    takes a rectangle (start point, width, depth, direction), a joist profile,
    spacing and direction (along the depth by default), and a base elevation
@@ -612,3 +612,5 @@ One line each. The founder triages weekly; most are closed without work.
 - CUT-LIST-PRICES-DRAWING-RUN: the drawing's 320 px side panel hides the Run (qty x length) column to fit the two price columns; a wider drawing panel would bring it back.
 - SHELL-EDGE-DETERMINISM (was in Next): the sealed cross-bored rod rebuilds with 21 or 20 edges depending on OCCT's address order (46c075f); volume and faces agree, so it is a determinism nit, not wrong geometry.
 - ROOF-SHEATHING: roof planes get no sheathing; after SHEATHING, a gable's two planes first (rectangles), then hips and valleys (triangles and trapezoids).
+- FLOOR-WALLS-ON-FLOOR: a wall's base elevation is typed (8.75 on B5's floor); Chief Architect seats walls on the floor below automatically. A wall could read a picked floor's framing top (later its subfloor's) as a feature input.
+- FLOOR-IDS: `loft.floor` 1.0.0 names joists by slot with integer indices (`joist/0`, `joist/1` the end joists, `joist/k+1` slot k), so it does not have WALL-MEMBER-RENUMBER's bug; if that fix adds string slot names, the floor can adopt them in a 1.1.0.

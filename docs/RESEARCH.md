@@ -2100,6 +2100,50 @@ and reframe it, a material per member, and a cut list that is always current.
     body (symmetric differences 0, the whole within 1.1e-4 mm³). A rafter
     profile's coordinates are emitted unrounded: rounding a plumb end to
     1e-9 in tilted a jack's top enough to move it 2e-5 mm³.
+- **Decided while building the floor** (FLOOR-FRAME, 2026-10-17; Chief
+  Architect's floor framing, Medeek Foundation, common platform framing):
+  - *A rectangle, as a wall is a line.* Start corner, direction (degrees from
+    +X), width along it and depth to its left, so the default floor is
+    X 0..width, Y 0..depth, B2's frame. The base elevation is the top of the
+    foundation (the sills' underside). Walls stand on the floor through their
+    own base elevation, set to the joists' top (B5: 8.75); no wall input
+    reads the floor, as hosting by inputs keeps the order the tree's.
+  - *Framing.* Joists run along the depth by default, or along the width.
+    Rims run the full length across the joist ends; the end joists are the
+    other two sides, flush, between the rims. Rims and end joists are cut
+    from the joist size, tops flush. Layout is the deck's and the wall's
+    (half a thickness, every spacing, the far end joist flush, a layout
+    joist that would overlap it dropped), in the floor's own copy so a deck
+    or wall change cannot move a stored floor.
+  - *Sill plates* (on by default, PT 2x6, Chief's mudsill): laid flat under
+    the rims and end joists, outer edges flush, butted as wall plates are:
+    full length under the rims, between them under the end joists (B5: 2 at
+    144, 2 at 109). Joists and rims default to SPF, as the wall's studs.
+    Anchor bolts, sill gaskets, doubled joists under walls, openings,
+    blocking and beams are later rungs.
+  - *Ids by slot.* Member ids are `<feature>/<role>/<n>` with an integer `n`,
+    so the floor picks `n` to name the place, not the rank: `joist/0` and
+    `joist/1` are the end joists and `joist/k+1` the layout joist k spacings
+    from the start. Widening adds joists after the ones it had, so a hole on
+    any joist stays on it (WALL-MEMBER-RENUMBER is the same bug in 1.0.0's
+    wall and deck, which count by rank). It needs no wire change.
+  - *No float overlaps.* A layout joist within 1e-9 in of the end joist (the
+    drop rule's slack) takes the end joist's face, so the pieces never
+    overlap even by 1e-10. A plugin sweep of 400 random floors (any size in
+    mm, every spacing, profile and direction) finds no pair overlapping by
+    any amount; a kernel sweep of six floors (turned 30, -45 and 117.3 deg,
+    along the width, a joist touching the end joist, no sill, 2x6 to 2x12)
+    probes every pair whose boxes overlap at all and finds none.
+  - *Numbers.* The PM's B5 figures (10 joists at 117, 20 030.25 in³;
+    13 and 23 847.375 at 12 in o.c.) held in an independent build123d script
+    of the spec's boxes before use, with no interference; the STEP matches
+    that script solid for solid. Goldens `b5-floor-2x8-16oc`, `-12oc` and
+    `b5-shed-walls-on-floor` (B2's walls on it, 45 631.875 in³).
+  - *The subfloor seam* (SHEATHING). The framing is a pure list of pieces in
+    the floor's frame (`floor_pieces`), placed only at emission, and
+    `FloorSpec.framing_top` is the joists' top. A 1.1.0 adds a Subfloor input
+    and appends its panels at that height, moving no framing member, so 1.0.0
+    stays byte-identical.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
