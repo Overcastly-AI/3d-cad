@@ -488,17 +488,16 @@ class _Builder:
         self._next[role] = index + 1
         return Member(role, index, feature, metadata), self.inputs.ref(role, index)
 
-    def plane(
-        self, base: Literal["XY", "XZ", "YZ"], offset_in: float
-    ) -> Iterator[Member]:
-        """Emit the datum *offset_in* along *base*'s normal, once."""
+    def plane(self, base: Literal["XY", "XZ", "YZ"], offset_in: float) -> list[Member]:
+        """The datum *offset_in* along *base*'s normal, emitted once (an
+        origin plane at 0 is not emitted)."""
         offset_in += 0.0  # never a -0.0 on the wire
         key = (base, offset_in)
         if key in self._planes:
-            return
+            return []
         if offset_in == 0.0:
             self._planes[key] = DatumPlaneRef(kind="datum_plane", plane=base)
-            return
+            return []
         member, ref = self.add(
             "level" if base == "XY" else "plane",
             DatumFeature(
@@ -508,17 +507,16 @@ class _Builder:
             ),
         )
         self._planes[key] = ref
-        yield member
+        return [member]
 
     def sketch(
         self,
         base: Literal["XY", "XZ", "YZ"],
         offset_in: float,
         entities: list[SketchLine] | list[SketchCircle],
-    ) -> Iterator[Member | FeatureRef]:
-        """Emit the plane (if new) and a sketch on it; yields the sketch's
-        reference last."""
-        yield from self.plane(base, offset_in)
+    ) -> tuple[list[Member], FeatureRef]:
+        """The plane (if new) and a sketch on it, and the sketch's reference."""
+        members = self.plane(base, offset_in)
         member, ref = self.add(
             "section",
             SketchFeature(
@@ -531,8 +529,7 @@ class _Builder:
                 ),
             ),
         )
-        yield member
-        yield ref
+        return [*members, member], ref
 
     def extrude(
         self,
@@ -573,16 +570,8 @@ class _Builder:
         return member
 
 
-def _split(items: Iterator[Member | FeatureRef]) -> tuple[list[Member], FeatureRef]:
-    """A sketch's members and its reference (yielded last)."""
-    out = list(items)
-    ref = out.pop()
-    assert isinstance(ref, FeatureRef)
-    return [m for m in out if isinstance(m, Member)], ref
-
-
 def _box_sketch(b: _Builder, box: Box) -> tuple[list[Member], FeatureRef]:
-    return _split(b.sketch("XY", box.z0, _rectangle(box)))
+    return b.sketch("XY", box.z0, _rectangle(box))
 
 
 def _peg_sketch(b: _Builder, peg: Peg) -> tuple[list[Member], FeatureRef]:
@@ -597,7 +586,7 @@ def _peg_sketch(b: _Builder, peg: Peg) -> tuple[list[Member], FeatureRef]:
         center=Point2D(x=_mm(peg.across), y=_mm(peg.z)),
         radius=_mm(PEG_DIAMETER / 2),
     )
-    return _split(b.sketch(base, offset, [circle]))
+    return b.sketch(base, offset, [circle])
 
 
 def expand(inputs: ExpandInputs) -> Iterator[Member]:
