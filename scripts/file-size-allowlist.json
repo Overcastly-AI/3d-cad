@@ -3,7 +3,7 @@
   "files": {
     "apps/web/e2e/pick-affordance.spec.ts": 1918,
     "apps/web/e2e/qa-reach-batch.spec.ts": 1937,
-    "apps/web/src/components/DocumentRegister.tsx": 1593,
+    "apps/web/src/components/DocumentRegister.tsx": 1538,
     "apps/web/src/components/DrawingSheet.tsx": 2232,
     "apps/web/src/sketch/constraints.test.ts": 1653,
     "apps/web/src/sketch/constraints.ts": 1905,
