@@ -17,9 +17,9 @@
     "",
     "MESH counts are recorded but also exact for boxes: 12 triangles and 24 vertices per box = 600 triangles, 1200 vertices."
   ],
-  "tolerance": 1e-05,
+  "tolerance": 1e-5,
   "tolerance_rationale": "Measured first, then set (geometry-gates skill), as for b1-deck-framing-16ft: the bounds are ABSOLUTE and the part is ~1e9 mm^3, so the double-precision sum of its separate bodies carries ~1e-6 mm^3 of round-off (measured +1.67e-6 mm^3 on the volume, -6e-8 mm^2 on the area, <= 1.4e-12 mm on the centroid). 1e-5 is still ~1e-14 relative; a member 0.001 in out of place moves the volume by >= 3.5 mm^3 and fails by five orders of magnitude.",
-  "roundtrip_tolerance": 1e-05,
+  "roundtrip_tolerance": 1e-5,
   "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip re-sums the re-imported solids in another order and moves the VOLUME/AREA by ~1e-6 (-1.4e-6 mm^3 on the volume and +4.5e-8 mm^2 on the area, ~2e-15 relative; 1e-5 is 3.4x the worst of the two decks), below which ROUNDTRIP_TOL (1e-7 absolute) cannot reach for a sum of this size (ULP ~1.2e-7 at 1e9). 1e-5 applies to volume and area only; centroid and bounds keep ROUNDTRIP_TOL. Same cause and bound as b1-deck-framing-16ft.",
   "properties": {
     "volume": 1314447371.1,
