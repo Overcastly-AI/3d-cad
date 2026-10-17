@@ -7,6 +7,7 @@ import {
   isUnassigned,
   massState,
   materialName,
+  noOverrideLabel,
   overrideFor,
   propertiesEyebrow,
   soleMaterial,
@@ -248,5 +249,29 @@ describe("isUnassigned / materialName", () => {
     expect(materialName(library, "abs")).toBe("ABS");
     expect(materialName(library, "pla")).toBe("pla");
     expect(materialName(library, null)).toBeNull();
+  });
+});
+
+describe("noOverrideLabel — a member's own material is named, never 'No material'", () => {
+  const row = {
+    override: null,
+    material: "southern_pine_pt" as const,
+    evaluated: true,
+  };
+  it("says From member when the server resolved a member material", () => {
+    expect(noOverrideLabel(row, null)).toBe("From member");
+    expect(noOverrideLabel(row, "spf_lumber")).toBe("From member");
+  });
+  it("falls back to Default / No material otherwise", () => {
+    expect(noOverrideLabel(row, "southern_pine_pt")).toBe("Default");
+    expect(noOverrideLabel({ ...row, material: null }, null)).toBe(
+      "No material",
+    );
+    expect(noOverrideLabel({ ...row, evaluated: false }, null)).toBe(
+      "No material",
+    );
+    expect(noOverrideLabel({ ...row, override: "lvl" }, null)).toBe(
+      "No material",
+    );
   });
 });
