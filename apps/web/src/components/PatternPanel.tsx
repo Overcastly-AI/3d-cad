@@ -54,7 +54,13 @@ const AXES: readonly { value: AxisChoice; label: string }[] = [
   { value: "edge", label: "Picked edge" },
 ];
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
   return (
     <section className="border-t border-hairline px-3 py-2 first:border-t-0">
       <h3 className="mb-1 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
@@ -76,7 +82,7 @@ function reading(text: string): string | null {
   }
 }
 
-function ExprField({
+export function ExprField({
   label,
   value,
   onChange,
@@ -111,7 +117,7 @@ function ExprField({
   );
 }
 
-function PickButton({
+export function PickButton({
   label,
   armed,
   onClick,

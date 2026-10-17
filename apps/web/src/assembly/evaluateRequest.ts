@@ -122,6 +122,16 @@ export function buildEvaluateAssemblyRequest(
           })),
         }
       : {}),
+    // Component mirrors (ASM-MIRROR-COMPONENT), placed after the patterns.
+    ...((graph.mirrors ?? []).length > 0
+      ? {
+          mirrors: (graph.mirrors ?? []).map((mirror) => ({
+            mirror_id: mirror.id,
+            order_index: mirror.order_index,
+            mirror: mirror.mirror,
+          })),
+        }
+      : {}),
   };
 }
 
