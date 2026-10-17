@@ -24,6 +24,10 @@ import { fromMm, type LengthUnit, parseLength } from "@loft/design";
 
 import { lengthInputValue } from "../units/length";
 
+/** Relative difference below which two lengths differ by rounding alone (a
+ * double carries ~16 digits; a typed value never needs more than ~12). */
+const NOISE = 1e-12;
+
 /**
  * The text a length field seeds with for a STORED `mm`, in `unit`: the
  * readable seed ({@link lengthInputValue}) when it parses back to exactly `mm`,
@@ -33,7 +37,18 @@ import { lengthInputValue } from "../units/length";
  */
 export function storedLengthInput(mm: number, unit: LengthUnit): string {
   const readable = lengthInputValue(mm, unit);
-  if (parseLength(readable, unit) === mm) return readable;
+  const back = parseLength(readable, unit);
+  if (back === mm) return readable;
+  // Float noise from a foreign unit is not a digit the user typed: "16 ft"
+  // stores 4876.800000000001 mm, which reads back as 192 in to 1e-16, so the
+  // field shows "192", never "192.00000000000003". Saving it untouched still
+  // sends the stored value exactly (storedLengthMm).
+  if (
+    back !== null &&
+    Math.abs(back - mm) <= NOISE * Math.max(1, Math.abs(mm))
+  ) {
+    return readable;
+  }
   const shortest = String(fromMm(mm, unit));
   if (parseLength(shortest, unit) === mm) return shortest;
   return readable;
