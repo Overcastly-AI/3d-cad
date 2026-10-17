@@ -15,6 +15,8 @@ from geometry.api import router
 from geometry.drawing_store import configure_drawing_artifact_store
 from geometry.kernel.fillet_isolation import prewarm as prewarm_blend_server
 from geometry.mesh_store import assert_single_worker_mesh_store, configure_mesh_store
+from geometry.thumbnail_api import router as thumbnail_router
+from geometry.thumbnail_store import configure_thumbnail_store
 
 TITLE = "Loft Geometry"
 VERSION = "0.1.0"
@@ -117,6 +119,13 @@ def build_app(settings: GeometrySettings | None = None) -> FastAPI:
         s3_secret_access_key=settings.s3_secret_access_key,
         s3_region=settings.s3_region,
     )
+    configure_thumbnail_store(
+        settings.s3_url,
+        settings.s3_bucket,
+        s3_access_key_id=settings.s3_access_key_id,
+        s3_secret_access_key=settings.s3_secret_access_key,
+        s3_region=settings.s3_region,
+    )
 
     async def redis() -> str:
         """Redis/queue readiness.
@@ -132,6 +141,7 @@ def build_app(settings: GeometrySettings | None = None) -> FastAPI:
 
     app = create_app(settings, title=TITLE, version=VERSION, readiness_checks=(redis,))
     app.include_router(router)
+    app.include_router(thumbnail_router)
     if settings.blend_server_prewarm:
         prewarm_blend_server()
     return app

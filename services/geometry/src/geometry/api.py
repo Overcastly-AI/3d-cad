@@ -583,7 +583,7 @@ _COMPOSE_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
-def _compose_sheet(request: ComposeDrawingRequest) -> ComposedSheet:
+def compose_sheet(request: ComposeDrawingRequest) -> ComposedSheet:
     """The shared ``/drawing/compose`` + ``/drawing/compose/sheet`` pipeline.
 
     ``compose_drawing_evaluation`` picks the projected-geometry source (design §7,
@@ -649,7 +649,7 @@ def compose_drawing_route(request: ComposeDrawingRequest) -> Response:
         body = cached
         cache_status = "hit"
     else:
-        composed = _compose_sheet(request)
+        composed = compose_sheet(request)
         if request.format == "pdf":
             body = serialize_pdf(composed)
         elif request.format == "dxf":
@@ -781,7 +781,7 @@ def compose_sheet_route(request: ComposeDrawingRequest) -> ComposedSheet:
     request's ``format`` field is inert here (no serialization). Identity-free — the
     gateway owns auth. Deterministic (RESEARCH §9): same request ⇒ identical sheet.
     """
-    return _compose_sheet(request)
+    return compose_sheet(request)
 
 
 _MESH_RESPONSES: dict[int | str, dict[str, Any]] = {

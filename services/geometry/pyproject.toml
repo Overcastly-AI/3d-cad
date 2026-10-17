@@ -39,6 +39,10 @@ dependencies = [
     # (hash-seed-independent OBJECTS section, unlike R2010). Lock-pinned; a bump
     # regenerates the DXF golden.
     "ezdxf>=1.4,<2",
+    # Library thumbnails (LIBRARY-THUMBNAILS): the software rasteriser draws with
+    # Pillow (MIT-CMU, permissive, NO GPL/LGPL/AGPL; already in the image through
+    # reportlab). Headless, no GPU, nothing fetched at runtime.
+    "pillow>=12",
 ]
 
 [tool.uv.sources]

@@ -49,6 +49,9 @@ _KEY_PREFIX = "meshes/sha256/"
 #: and any edit misses. The drawing twin of the mesh store, sharing this seam.
 _DRAWING_KEY_PREFIX = "drawings/sha256/"
 
+#: Library thumbnails (PNG) share the drawing-artifact store class under this prefix.
+THUMBNAIL_KEY_PREFIX = "thumbnails/sha256/"
+
 #: Composed drawing artifacts are stored opaque (svg/pdf/dxf bytes): the FORMAT is
 #: already folded into the content-address key, and the compose route re-labels the
 #: response media type per format on serve, so the object's stored type is generic
@@ -235,8 +238,12 @@ class S3DrawingArtifactStore:
         access_key_id: str | None = None,
         secret_access_key: str | None = None,
         region: str = "us-east-1",
+        prefix: str = _DRAWING_KEY_PREFIX,
     ) -> None:
         self._bucket = bucket
+        # The object-key prefix: composed drawings by default; the thumbnail store
+        # (:mod:`geometry.thumbnail_store`) rides this same class under its own.
+        self._prefix = prefix
         self._client = _build_s3_client(
             endpoint_url=endpoint_url,
             access_key_id=access_key_id,
@@ -251,7 +258,7 @@ class S3DrawingArtifactStore:
         unchanged drawing writes the same object — never an overwrite with different
         bytes.
         """
-        object_key = _content_object_key(key, prefix=_DRAWING_KEY_PREFIX, ext="bin")
+        object_key = _content_object_key(key, prefix=self._prefix, ext="bin")
         # ``key`` comes from drawing_artifact_key, so it is always well-formed.
         assert object_key is not None
         self._client.put_object(
@@ -263,7 +270,7 @@ class S3DrawingArtifactStore:
 
     def get(self, key: str) -> bytes | None:
         """The stored artifact for *key*, or ``None`` (unknown/malformed → miss)."""
-        object_key = _content_object_key(key, prefix=_DRAWING_KEY_PREFIX, ext="bin")
+        object_key = _content_object_key(key, prefix=self._prefix, ext="bin")
         if object_key is None:
             return None
         return _get_object_or_none(self._client, self._bucket, object_key)

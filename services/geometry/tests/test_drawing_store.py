@@ -244,7 +244,7 @@ def test_cache_hit_does_not_recompose(monkeypatch: pytest.MonkeyPatch) -> None:
     """The airtight signal: the second export never calls the compose path.
 
     The spy sits on ``geometry.api.compose_drawing_evaluation`` — the evaluation
-    seam ``_compose_sheet`` calls for BOTH the part and assembly branches (D4
+    seam ``compose_sheet`` calls for BOTH the part and assembly branches (D4
     slice a), so a hit skipping it proves no re-projection of either kind."""
     from geometry.drawings import compose_drawing_evaluation as real
 
