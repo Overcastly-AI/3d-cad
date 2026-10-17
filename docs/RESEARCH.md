@@ -2188,7 +2188,8 @@ and reframe it, a material per member, and a cut list that is always current.
   - *Numbers.* The product manager's arithmetic (8 775, 56 025, 58 725
     in³) held in an independent build123d script before any golden was
     recorded; the goldens' every mass property is the closed form (area
-    5 025 + 14π in² for a joint), matched by the kernel to 1e-9.
+    5 025 + 14π in² for a joint), which the kernel meets to 1.2e-6 mm³ (the
+    16-body sum's round-off).
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
