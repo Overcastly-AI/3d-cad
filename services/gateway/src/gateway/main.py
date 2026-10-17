@@ -34,6 +34,7 @@ from gateway.auth.security import (
     DEFAULT_SESSION_IDLE_TTL_S,
     DEFAULT_SESSION_MAX_AGE_S,
 )
+from gateway.client_ip import TrustedProxies
 from gateway.drawings import router as drawings_router
 from gateway.features import router as features_router
 from gateway.folders import assemblies_router as folder_assemblies_router
@@ -103,6 +104,11 @@ class GatewaySettings(BaseServiceSettings):
     auth_rate_limit_requests: int = (
         DEFAULT_AUTH_RATE_LIMIT_REQUESTS  # env: AUTH_RATE_LIMIT_REQUESTS
     )
+    #: Reverse proxies whose ``X-Forwarded-For`` is believed (env:
+    #: ``TRUSTED_PROXIES``): comma-separated IPs, CIDRs and hostnames. Unset
+    #: trusts none, so the client key is the socket address. Compose sets
+    #: ``web``, the bundled nginx. See :mod:`gateway.client_ip`.
+    trusted_proxies: str = ""
 
 
 def build_app(
@@ -137,6 +143,7 @@ def build_app(
         session_max_age_s=settings.session_max_age_s,
         rate_limit_requests=settings.auth_rate_limit_requests,
     )
+    trusted_proxies = TrustedProxies.parse(settings.trusted_proxies)
     database = DatabaseState()
 
     @asynccontextmanager
@@ -218,6 +225,7 @@ def build_app(
         lifespan=lifespan,
     )
     app.state.auth_config = auth_config
+    app.state.trusted_proxies = trusted_proxies
     app.include_router(geometry_router)
     app.include_router(auth_router)
     app.include_router(parts_router)

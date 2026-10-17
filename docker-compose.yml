@@ -168,6 +168,11 @@ services:
       # refuses to boot without one.
       LOFT_ENV: ${LOFT_ENV:-dev}
       JWT_SECRET: ${JWT_SECRET:-}
+      # Whose X-Forwarded-For to believe: `web`, the nginx below, resolved by
+      # compose DNS. The auth rate limiter keys on the real client behind it,
+      # and on the socket address of anything else, so a forged header sent
+      # to the published gateway port is ignored (docs/OPERATIONS.md §7).
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-web}
     ports:
       - "${GATEWAY_PORT:-8000}:8000"
     depends_on:

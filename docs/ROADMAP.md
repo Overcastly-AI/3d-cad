@@ -3,14 +3,13 @@
 Where we are and what comes next. The orchestrator keeps "Now" true; the
 `product-manager` owns the rest. The detail lives in `docs/BACKLOG.md`.
 
-## Now (2026-10-16)
+## Now (2026-10-17)
 
-Since 10-09: part parameters, a plane at an angle, sketch plane picking,
-closed-path sweeps, assembly joints with drag and limits, nested
-sub-assemblies, component patterns and in-context edits (A3). Next, in order:
-a failed part named in API exports, Pipe and Plane Along Path (bike tube
-frames), the plugin registry and its Build toolbar (the B1 deck), and one
-face-merge per boolean (rebuild speed). Waiting on the founder: the object
+Since 10-16: failed parts named in API exports, Pipe and Plane Along Path
+(bike tube frames), the plugin registry with its Build toolbar, and one
+face-merge per boolean. Next, in order: the login rate limit keyed per client
+behind the proxy (security), then lumber materials, a cut list and the Deck
+plugin, so the B1 deck builds end to end. Waiting on the founder: the object
 store.
 
 ## Shipped

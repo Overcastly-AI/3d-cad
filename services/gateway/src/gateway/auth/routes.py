@@ -64,6 +64,7 @@ from gateway.auth.security import (
     session_expiry,
     verify_password,
 )
+from gateway.client_ip import client_address
 from gateway.db import AuthSession, RefreshToken, User
 
 _logger = get_logger("gateway.auth")
@@ -402,9 +403,10 @@ async def limit_auth_attempts(request: Request, config: AuthConfigDep) -> None:
     and with its own budget (``AUTH_RATE_LIMIT_REQUESTS``, see
     :data:`gateway.auth.security.DEFAULT_AUTH_RATE_LIMIT_REQUESTS`). It
     cannot be keyed on a user, because there is none yet; it is keyed on the
-    connecting address. Behind a reverse proxy that is the proxy's, so all
-    clients share one bucket: conservative (it cannot be spoofed with a
-    header), and a 429 on refresh is "try again", never a sign-out
+    client address by the trusted-proxy rule (:func:`gateway.client_ip.
+    client_address`): behind the bundled nginx that is the real client from
+    ``X-Forwarded-For``, and a header sent straight to the gateway is
+    ignored. A 429 on refresh is "try again", never a sign-out
     (apps/web/src/auth/refresh.ts). No-op when rate limiting is off.
 
     The limiter is read from ``app.state`` directly rather than through
@@ -415,7 +417,7 @@ async def limit_auth_attempts(request: Request, config: AuthConfigDep) -> None:
     limiter: RateLimiter | None = getattr(request.app.state, "rate_limiter", None)
     if limiter is None:
         return
-    client = request.client.host if request.client is not None else "unknown"
+    client = await client_address(request)
     await limiter.check(client, scope="auth", limit=config.rate_limit_requests)
 
 
