@@ -243,17 +243,31 @@ Cut list (roof):
 | Jack        | 2x6     | 10  | 29.235           | 8 ft  |
 | Valley jack | 2x6     | 2   | 55.230           | 8 ft  |
 | Valley jack | 2x6     | 2   | 28.397           | 8 ft  |
-| Hip         | 2x8     | 5   | 109.438          | 10 ft |
-| Valley      | 2x8     | 1   | 110.234          | 10 ft |
+| Hip         | 2x8     | 5   | 108.836          | 10 ft |
+| Valley      | 2x8     | 1   | 109.632          | 10 ft |
 | Ridge       | 2x8     | 1   | 121.5            | 12 ft |
 | Ridge       | 2x8     | 1   | 120              | 10 ft |
 
 Members 52. Volume, roof: the cut common 642.817, valley jacks 426.040 and
 204.670, valley 1 137.395 (prism 1 162.266 less a 24.870 seat), the rest as
-B3: **30 054.875 in³**.
+B3: 30 054.875 in³ with full tails. `loft.roof` 1.2.0 rips each hip's and
+the valley's tail parallel to its top to the commons' depth (ROOF-HIP-TAIL:
+plumb 6.149 - 0.265 = 5.884 on the centreline), so the fascia line is
+straight: each loses 45.967 (hip 1 082.777, valley 1 091.428), the overall
+lengths are the line plus 5.884 x 6/18 (hip 108.836; the valley 0.795 more
+for its notch's edges, 109.632), the heel on the corner's centreline is the
+commons' 1.75 (the valley's 1.485), and the roof is **29 779.071 in³**.
+An independent build123d script gives both totals.
 
 **Edit:** wing 120 -> 48 wide (X 192..240): the wing ridge drops to run
 24, the valley (192,120)-(216,144) ends on a hip running from there to the
 main ridge's end, and the main front gets **1 hip-valley cripple** at
 X 204, run 21.879, line 24.461 (overall 28.888), cheek-cut both ends.
-Members and volume match an independent build123d script.
+Members and volume match an independent build123d script: 48 members (25
+commons, 11 of them the wing's at run 23.25, one tail cut; 13 hip jacks;
+the cripple; 6 hips; the valley; ridges 121.5 and 121.5, the wing's half a
+common past the node where the valley ends), 25 047.484 in³ (25 323.288
+with full tails). The hip from the node runs from the wing ridge's end,
+wrapped round its corner, to the inside corner of the main ridge's
+ridge-end common and king; the valley ends on that hip's face and the wing
+ridge's (RESEARCH §23).

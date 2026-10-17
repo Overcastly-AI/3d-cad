@@ -165,7 +165,7 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    panel reads Joist 13 at $19.98 = $259.74 and Total $943.94, deleting the
    6x6 entry blanks Post and reads $839.54 with 1 unpriced, a reload keeps
    it, and the CSV download has the Total row.
-8. [ ] **ROOF-VALLEY** (`loft.roof` 1.2.0, stops B4): a footprint picked
+8. [x] **ROOF-VALLEY** (`loft.roof` 1.2.0, stops B4): a footprint picked
    from the bearing walls, as Revit's Roof by Footprint (Pick Walls) and
    Chief Architect's roof from walls: the loop of their outer faces,
    corners where consecutive walls' lines meet, plate height and width read
@@ -180,6 +180,16 @@ PIPE-ALONG-PATH (§25), PLUGIN-REGISTRY, PLUGIN-UI, PERF-REBUILD-200 step 1.
    a script to 1e-4; golden `b4-wing-48`: 1 hip-valley cripple of line
    24.461, matching a script. E2e: picking B4's six walls in the Roof form
    lists 1 Valley and 4 Valley jack.
+   _Done:_ `loft.roof` 1.2.0 (1.0.0 and 1.1.0 kept byte-identical) with a
+   `walls` feature-list input (`loft-wire` FeatureListInput, a checklist in
+   the form) and a valley size; rectangles and L's, every wall an eave;
+   goldens `b4-l-hip-valley` (52 members, the hand numbers hold; 29 779.071
+   in³ with ROOF-HIP-TAIL's ripped tails, 30 054.875 without) and
+   `b4-wing-48` (1 cripple, line 24.461); `test_roof_valley.py`,
+   `test_roof_valley_b4.py` (independent script per body, STEP lengths, no
+   interference, B4's walls by the wall rules, an 11-footprint L sweep);
+   e2e `roof-valley-b4.spec.ts`; RESEARCH §23. Closes ROOF-HIP-TAIL (1.2.0)
+   and, for hips, ROOF-BEARING-WALLS.
 
 ## Next
 
@@ -278,7 +288,7 @@ every member. A plugin registers a custom feature that expands into base
 features (RESEARCH §23). First-party plugins ship preinstalled; no install
 step.
 
-The B2 items and B2-E2E are done; ROOF-HIP (B3) and ROOF-VALLEY (B4) are in Now.
+The B2 items, B2-E2E, ROOF-HIP (B3) and ROOF-VALLEY (B4) are done.
 
 ## Later
 
@@ -640,7 +650,7 @@ One line each. The founder triages weekly; most are closed without work.
 - ROOF-OVERHANG-MIN-1.0: 1.1.0 refuses an overhang between 0 and 1/16 in; a roof pinned to 1.0.0 (released, so unchanged) still accepts one and fails at rebuild with a clean feature error.
 - ROOF-TAIL-JACKS: a hip jack layout point whose cheek would cut into its seat (or lie past the wall, under the overhang) is not framed; framers fill it with a tail jack nailed to the hip. B3 needs none (its next point is the fascia corner); at 16 in o.c. the next point is 4 in past each corner, under the overhang, and is left empty.
 - ROOF-PYRAMID: a hip roof needs length >= span + one rafter thickness; a square (pyramid) roof, its four hips meeting on a post or king block, is refused.
-- ROOF-HIP-TAIL: the dropped 2x8 hip's double-cheek tail hangs 1.8 in below the 2x6 commons' tails at the fascia corner (6/12); Chief Architect trims a hip tail to the commons' depth (or a level fascia cut). buildings.md is silent.
+- ROOF-HIP-TAIL (closed in 1.2.0): hip and valley tails are ripped to the commons' depth; 1.1.0 hips keep the 1.8 in hang (released). The rip also makes the hip's heel on the corner the commons' 1.75 (was 3.556).
 - ROOF-HIP-SEAT-SPAN: the hip's seat is cut level everywhere inside both walls' faces (buildings.md), not just over the plates; at 1/12 that flattens the 2x8's bottom about 25 in in from the corner.
 - WALL-MEMBER-RENUMBER (WINDOW-DOOR review): adding or moving an opening renumbers a wall's stud indices, so a later feature referencing `stud/k` silently lands on another stud; `_check_vanished_members` catches only vanished members (the deck shares the scheme).
 - OPENING-DELETE-REFUSED: deleting or suppressing a door is refused 422 when its wall cannot re-expand for an unrelated reason (a broken wall formula, another opening that no longer fits).
@@ -653,6 +663,11 @@ One line each. The founder triages weekly; most are closed without work.
 - PRICE-BOOK-USER-DELETE: `price_books.owner_id` has no cascade on user delete (as every documents table); an account-deletion path must purge price books.
 - PRICE-BOOK-DB-UNIQUE: `price_book_entries` has no DB unique index on (book, material, profile, unit, stock_length); only the pydantic model enforces one price per key. Add it as a backstop.
 - PRICE-JS-SAFE-INT: line quantity is unbounded, so a total above 2^53 cents is possible in theory; bound quantity or send totals as strings.
+- ROOF-HIP-SIZE: the largest hip roof (480 x 720 in, 12 o.c., 36 overhang) is 988 features / 201 bodies and built in 32 s against the gateway's 90 s timeout; a slow box has little headroom. 1.2.0 refuses a roof of over 160 members (a 114-member L built in 12.5 s); 1.1.0 still accepts it.
+- ROOF-SUPPRESSED-WALL (ROOF-VALLEY review): a suppressed picked wall still bears the roof (the roof reads its inputs); SolidWorks would suppress the dependent roof.
+- ROOF-REFUSAL-NAMES: roof refusals name walls by pick position ("Wall 1"), not by the user's feature names.
+- ROOF-PICKER-A11Y: the wall picker's error is not tied to it by `aria-describedby`, and it lists walls under Style Gable, where a pick is refused.
+- B3-SPEC-HIP-LENGTH: buildings.md's B3 still lists 1.1.0's hip 109.438; a B3 inserted now (1.2.0, ripped tail) gives 108.836, explained only in B4's section.
 - TOOLBAR-ROVING-TABINDEX: every command-band button is its own Tab stop, so each Build tool pushes Export one stop further (36 with Wall and Deck; `export-reach.spec.ts` bound raised 34 -> 36). The WAI-ARIA toolbar pattern (one Tab stop per group, arrows within), as Fusion's ribbon does, would end this.
 - OPENING-DRAG: a door or window moves by its Offset field; Revit and Chief Architect also drag it along its wall in the viewport (and show temporary dimensions to the nearest opening).
 - OPENING-HOST-MISSING-PLUGIN: a door whose plugin a server lacks is not handed to its wall there, so the wall (if that server has `loft.wall`) re-expands without framing it.
@@ -672,3 +687,9 @@ One line each. The founder triages weekly; most are closed without work.
 - PRICE-BOOK-MISSING: a deleted part an assembly still places is listed in `missing`, not as a line, so the total neither prices it nor counts it among the unpriced lines; the panel should say the total leaves it out.
 - PRICE-BOOK-KEY-DRIFT: entries store library keys (`spf_lumber`, `us_2x4`); renaming or removing a key from the closed library would make a stored book fail to read, so such a change needs a data migration of `price_book_entries`.
 - PRICE-BOOK-CUT-LIST-HOP: every cut list (JSON and CSV) now reads the caller's book from documents, one extra internal request per call; cache it per request if the panel polls.
+- ROOF-VALLEY-SHAPES: 1.2.0 frames a rectangle or an L (4 or 6 picked walls); T, U and other outlines, and a side built of two collinear walls, are refused.
+- ROOF-VALLEY-NEAR-EQUAL: an L whose arms differ by under 12 in (but are not equal) is refused; the narrow arm's ridge-end node would crowd the hip from it to the main ridge.
+- ROOF-VALLEY-LAYOUT: 1.2.0 lays commons out on centres every spacing from the ridge-end common's centre (B4's 60, 84, ...); 1.1.0's side commons are laid from that common's outer face (the deck joist rule). Equal on B3 and B4; they differ only on a ridge longer than one spacing plus one thickness.
+- ROOF-VALLEY-SKIPPED: a layout line whose valley cheek would cut its seat (wing-48's wing left Y 120) is not framed, as ROOF-TAIL-JACKS; framers fill it by hand.
+- ROOF-WALL-EDIT-STALE: a roof re-expands from its walls at each evaluation, but a wall edit does not re-validate the roof at write time; an edit that breaks the outline shows as the roof's rebuild error.
+- ROOF-LOW-PLATE-CUTTERS: 1.1.0's cutters stand on Z 0, so a typed plate under ~70 in with a 36 in overhang at a steep pitch could clip a tail below Z 0; 1.2.0 stands them on a datum below the lowest tail (1.1.0 is released, unchanged).

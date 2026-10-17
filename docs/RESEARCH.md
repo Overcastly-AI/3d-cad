@@ -2044,6 +2044,62 @@ and reframe it, a material per member, and a cut list that is always current.
   - *Seam for ROOF-VALLEY.* The hip is built from a `Footprint`'s eaves and
     convex corners; 1.2.0 replaces the typed rectangle with the loop of the
     picked walls' outer faces, whose reflex corners carry valleys.
+- **Decided while building the valley roof** (ROOF-VALLEY, 2026-10-17;
+  Revit's Roof by Footprint, Chief Architect's roof from walls,
+  framing-square valley practice in buildings.md):
+  - *Picking walls is a wire input kind.* `loft-wire` gains
+    `FeatureListInput` (`kind: "features"`): several earlier features of
+    given types and plugins, stored in pick order as a list of `FeatureRef`,
+    no repeats, an empty pick stored as no value. Documents materialises one
+    dependency edge per pick (slot `inputs/<name>/<i>`), so a picked wall
+    cannot be deleted under its roof. The form renders it as a checklist of
+    the earlier walls; the viewport pick is a later nicety.
+  - *1.2.0, additive.* `walls` and a valley size join 1.1.0's inputs. With
+    no walls, Hip runs on the typed rectangle; with walls, the footprint is
+    the loop of their outer faces: each wall end must meet exactly one
+    perpendicular wall's line within a wall thickness (butted or not), the
+    framing must face in, the plates be one height and one stud size. Gable
+    on picked walls is refused (it needs Revit's per-wall "defines slope").
+    1.0.0 and 1.1.0 expand byte-identically (their goldens pass untouched).
+  - *Canonical shapes.* A rectangle or an L is mapped by an isometry onto a
+    canonical one, framed there and mapped back, so every orientation and
+    mirror frames the same members (a test turns B4 through all eight). The
+    skeleton is closed form: the L's wider arm is a hipped rectangle; the
+    narrower arm's ridge runs from its hipped end to the valley's top. Equal
+    arms (B4) meet on one node, the wing ridge butting the main ridge's
+    face and the valley double-cheeked into their inside corner. Unequal
+    arms (B4's 48 wing): the wing ridge runs half a common past its node N1
+    (a ridge-end common bears there), a hip runs from N1 to the main ridge's
+    end, its foot wrapped round the wing ridge's top corner, and the valley
+    ends in the inside corner of the wing ridge's face and that hip's.
+    Refused: other shapes, arms under 48 in or less than 24 in proud, arms
+    differing by 0 < d < 12 in, and a wider arm shorter than its width + t.
+  - *Members from the plan.* Each plane's layout lines (commons every
+    spacing from each ridge-end common's centre, as B4 lists them; jacks
+    outward) are clipped to the plane's face less the half thicknesses of
+    what bounds it, and named by their ends: common, jack, valley jack,
+    cripple. A cut is a vertical prism intersected with the side profile
+    (1.1.0's jack construction), its outline built from half-planes in the
+    member's own frame, so cheeks, double cheeks and the valley's V notch
+    are one routine. A line whose valley cheek would cut its seat, or whose
+    member would be under 2 in, is not framed.
+  - *ROOF-HIP-TAIL.* Hip and valley tails are ripped parallel to the top
+    to the depth at which the lowest edge meets the commons' undersides:
+    plumb, the commons' 6.149 less the drop 0.265 on the centreline. The
+    fascia line is straight (a hip's tail point and a valley's notch edges
+    sit on it), the heel on the corner becomes the commons' 1.75 (1.485 for
+    the valley), and each B4 hip and the valley lose 45.967 in³, so B4 is
+    29 779.071 in³ against the hand 30 054.875 (which the independent
+    script reproduces without the rip). The rip steps to full depth inside
+    the walls, where the seat removes the step.
+  - *Bounded.* A 1.2.0 roof of more than 160 members is refused (ROOF-HIP-
+    SIZE); cutters stand on a datum below the lowest tail, not on Z 0.
+  - *Numbers.* The PM's closed-form B4 numbers (52 members, 30 054.875,
+    valley jacks 51.641 and 24.808, the cripple 24.461) held in an
+    independent build123d script before use; the plugin matches it body for
+    body (symmetric differences 0, the whole within 1.1e-4 mm³). A rafter
+    profile's coordinates are emitted unrounded: rounding a plumb end to
+    1e-9 in tilted a jack's top enough to move it 2e-5 mm³.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
