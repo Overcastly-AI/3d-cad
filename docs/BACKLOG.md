@@ -649,6 +649,10 @@ One line each. The founder triages weekly; most are closed without work.
 - OPENING-HOST-FOLD: the web's `foldCustomResults` takes a memberless row's host from the first object-valued input, not the declared host input.
 - ROOF-TWIN-DRIFT (ROOF-HIP review): the hip twin-drift test allows the twin up to 1e-2 (measured 3.1e-3), so it proves STEP drifts without Loft code but not that the 1e-3 bound covers OCCT's drift in general.
 - ROOF-HIP-SIZE: the largest hip roof (480 x 720 in, 12 o.c., 36 overhang) is 988 features / 201 bodies and built in 32 s against the gateway's 90 s timeout; a slow box has little headroom.
+- PRICE-CSV-TOTAL-LABEL (PRICE-BOOK review): the CSV Total row reads plain "Total" even when deleted parts are not listed; `cut_list.total_label` should add "N deleted parts not listed".
+- PRICE-BOOK-USER-DELETE: `price_books.owner_id` has no cascade on user delete (as every documents table); an account-deletion path must purge price books.
+- PRICE-BOOK-DB-UNIQUE: `price_book_entries` has no DB unique index on (book, material, profile, unit, stock_length); only the pydantic model enforces one price per key. Add it as a backstop.
+- PRICE-JS-SAFE-INT: line quantity is unbounded, so a total above 2^53 cents is possible in theory; bound quantity or send totals as strings.
 - TOOLBAR-ROVING-TABINDEX: every command-band button is its own Tab stop, so each Build tool pushes Export one stop further (36 with Wall and Deck; `export-reach.spec.ts` bound raised 34 -> 36). The WAI-ARIA toolbar pattern (one Tab stop per group, arrows within), as Fusion's ribbon does, would end this.
 - OPENING-DRAG: a door or window moves by its Offset field; Revit and Chief Architect also drag it along its wall in the viewport (and show temporary dimensions to the nearest opening).
 - OPENING-HOST-MISSING-PLUGIN: a door whose plugin a server lacks is not handed to its wall there, so the wall (if that server has `loft.wall`) re-expands without framing it.
