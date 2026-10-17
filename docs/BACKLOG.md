@@ -523,4 +523,5 @@ One line each. The founder triages weekly; most are closed without work.
 - WALL-SHARED-CENTRES (STUD-WALL review): `wall.py` imports `joist_centres` from `deck.py`, so a deck layout change would change loft.wall 1.0.0's output (the golden would catch it); give the wall its own copy.
 - WALL-EPS-OVERLAP: `joist_centres` keeps a layout centre within `<= ... + _EPS` of the end stud, so a layout stud may overlap it by 1e-9 in; harmless, could be strict.
 - BUILD-MENU-CAPTION: in BUILD ▾ a disabled plugin no longer shows its "Finish X first" / "Loading the part" caption.
+- TOOLBAR-ROVING-TABINDEX: every command-band button is its own Tab stop, so each Build tool pushes Export one stop further (36 with Wall and Deck; `export-reach.spec.ts` bound raised 34 -> 36). The WAI-ARIA toolbar pattern (one Tab stop per group, arrows within), as Fusion's ribbon does, would end this.
 - WALL-LEVEL-EQ: `_emit` reuses levels by exact float equality on `z0`; fragile once openings add sill and header levels (WINDOW-DOOR).

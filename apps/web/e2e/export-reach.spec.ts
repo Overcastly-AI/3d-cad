@@ -129,8 +129,11 @@ test.describe("Export is reachable", () => {
     // History / Create / Modify / Sheet metal / Inspect), against 53 for the
     // panel cell before this ticket. The bound is deliberately just above the
     // measurement: adding a whole tool GROUP ahead of export should have to be
-    // a decision, not an accident.
-    expect(band ?? 999).toBeLessThanOrEqual(34);
+    // a decision, not an accident. Decided 2026-10-17: the Build group (Wall,
+    // Deck, BUILD ▾) sits ahead of export and measures 36; every further Build
+    // tool on the row raises this, until the band is one roving Tab stop
+    // (TOOLBAR-ROVING-TABINDEX).
+    expect(band ?? 999).toBeLessThanOrEqual(36);
   });
 
   test("keeps the panel strip's honest reason in the band when there is no body", async ({
