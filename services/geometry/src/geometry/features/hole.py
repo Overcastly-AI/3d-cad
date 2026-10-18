@@ -23,9 +23,9 @@ from loft_wire.features import (
 from geometry.features.bodies import _resolve_operand_body
 from geometry.features.datum_sketch import (
     _resolve_face_datum_plane,
-    face_owner_body_id,
 )
 from geometry.features.naming_hooks import hole_names
+from geometry.features.owner import face_owner_body_id
 from geometry.features.state import (
     EvaluationState,
 )

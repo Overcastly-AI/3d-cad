@@ -1184,6 +1184,21 @@ def resolve_edge_durable(
     return ResolvedEdge(edge=record.edge, signature=record.signature, tier=tier)
 
 
+def edge_match_tier(
+    body: BodyShape,
+    target: EdgeSignature,
+    face_names: Sequence[str | None] | None = None,
+) -> EdgeMatchTier | None:
+    """The tier at which *target* matches an edge of *body*, or ``None``.
+
+    The edge twin of :func:`geometry.kernel.faces.face_match_tier`: the same
+    tiered match :func:`resolve_edge_durable` runs, asked only whether and how
+    certainly this body answers, so the feature layer can find the body that
+    OWNS a picked edge (HOLE-ACTIVE-BODY). Reports to no tally."""
+    matches, tier = _match_edge_records(body, enumerate_edges(body), target, face_names)
+    return tier if matches else None
+
+
 def resolve_edges_each(
     body: BodyShape,
     targets: Sequence[EdgeSignature],

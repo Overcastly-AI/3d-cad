@@ -25,6 +25,7 @@ from typing import Any
 import pytest
 from build123d import Box, Compound, Cylinder, Location, Plane, Solid, Vector
 from geometry.features import evaluate_tree
+from geometry.kernel.edges import enumerate_edges
 from geometry.kernel.faces import resolve_face_plane
 from geometry.kernel.hole import bore_hole
 from geometry.kernel.imports import solid_to_brep_bytes
@@ -372,3 +373,208 @@ def test_goldens_match_an_independent_build123d_construction(name: str) -> None:
         expected["mesh"]["vertices"],
         expected["mesh"]["triangles"],
     )
+
+
+# --- The other picked-subshape features follow the same owner rule -----------
+
+
+def _face_ref(
+    anchor: str,
+    normal: tuple[float, float, float],
+    centroid: tuple[float, float, float],
+) -> dict[str, Any]:
+    params = _hole(anchor, normal, centroid)["feature"]["params"]
+    return params["face"]
+
+
+def _two_boxes_along_y() -> list[dict[str, Any]]:
+    """A at (0, 0) and B at (0, 40): congruent, so every face of A has a
+    TRANSLATED twin on B (the pre-fix wrong-target set-up)."""
+    return [*_box("a", 0, 0, merge=None), *_box("b", 0, 40, merge=False)]
+
+
+def _feature(fid: str, kind: str, params: dict[str, Any]) -> dict[str, Any]:
+    return {"id": fid, "feature": {"type": kind, "version": 1, "params": params}}
+
+
+def test_on_face_datum_sits_on_the_face_of_an_earlier_body() -> None:
+    """A datum on A's +Y face (y = 20) sits there, not on B's +Y face (y = 60)."""
+    datum = _iid("dd")
+    evaluation = evaluate_tree(
+        _tree(
+            [
+                *_two_boxes_along_y(),
+                _feature(
+                    datum,
+                    "datum",
+                    {
+                        "kind": "on_face",
+                        "face": _face_ref(_iid("b2"), (0, 1, 0), (10, SIDE, 10)),
+                    },
+                ),
+            ]
+        )
+    )
+    assert [r.status for r in evaluation.result.features] == ["ok"] * 5
+    plane = evaluation.datum_planes[uuid.UUID(datum)]
+    assert pytest.approx(SIDE, abs=TOL) == plane.origin.Y
+
+
+def _vertical_edge_ref(x: float, y: float) -> dict[str, Any]:
+    """The picked-edge ref of the vertical edge of a box at (x, y)."""
+    evaluation = evaluate_tree(_tree(_box("c", 0, 0, merge=None)))
+    assert evaluation.body is not None
+    record = next(
+        r
+        for r in enumerate_edges(evaluation.body)
+        if r.signature.curve == "line"
+        and abs(r.signature.end_a.x - x) < 1e-9
+        and abs(r.signature.end_b.x - x) < 1e-9
+        and abs(r.signature.end_a.y - y) < 1e-9
+        and abs(r.signature.end_b.y - y) < 1e-9
+    )
+    return {
+        "kind": "subshape",
+        "feature_id": _iid("b2"),
+        "subshape_type": "edge",
+        "selector": {"selector_version": 1, "signature": record.signature.model_dump()},
+    }
+
+
+#: A radius-2, 20 mm tall vertical-edge fillet removes r^2 (1 - pi/4) h.
+FILLET_REMOVED = 2.0**2 * (1 - math.pi / 4) * SIDE
+
+
+def test_picked_edge_fillet_on_an_earlier_body_rounds_that_body() -> None:
+    a, b = _iid("a2"), _iid("b2")
+    evaluation = evaluate_tree(
+        _tree(
+            [
+                *_two_boxes_along_y(),
+                _feature(
+                    _iid("f1"),
+                    "fillet",
+                    {
+                        "edges": {"kind": "edges", "refs": [_vertical_edge_ref(0, 0)]},
+                        "radius_mm": 2.0,
+                    },
+                ),
+            ]
+        )
+    )
+    assert [r.status for r in evaluation.result.features] == ["ok"] * 5
+    body_a = evaluation.bodies[uuid.UUID(a)]
+    assert body_a.volume == pytest.approx(SIDE**3 - FILLET_REMOVED, abs=TOL * 1e3)
+    _assert_same(evaluation.bodies[uuid.UUID(b)], _block(0, 40))
+
+
+def test_chamfer_edges_on_two_bodies_is_refused() -> None:
+    """One chamfer cannot modify two bodies: picked edges on A and B are the
+    typed ``subshapes_on_several_bodies``, never one body silently skipped."""
+    b_edge = _vertical_edge_ref(0, 0)
+    signature = b_edge["selector"]["signature"]
+    for point in ("end_a", "end_b", "midpoint"):
+        signature[point]["y"] += 40
+    evaluation = evaluate_tree(
+        _tree(
+            [
+                *_two_boxes_along_y(),
+                _feature(
+                    _iid("c1"),
+                    "chamfer",
+                    {
+                        "edges": {
+                            "kind": "edges",
+                            "refs": [_vertical_edge_ref(0, 0), b_edge],
+                        },
+                        "distance_mm": 1.0,
+                    },
+                ),
+            ]
+        )
+    )
+    chamfer = evaluation.result.features[-1]
+    assert chamfer.error is not None
+    assert chamfer.error.code == "subshapes_on_several_bodies"
+
+
+def test_shell_opening_on_an_earlier_body_hollows_that_body() -> None:
+    """Shelling A open at its top (2 mm walls) hollows A, not B."""
+    a, b = _iid("a2"), _iid("b2")
+    evaluation = evaluate_tree(
+        _tree(
+            [
+                *_two_boxes_along_y(),
+                _feature(
+                    _iid("59"),
+                    "shell",
+                    {
+                        "thickness_mm": 2.0,
+                        "faces": {
+                            "kind": "faces",
+                            "refs": [_face_ref(_iid("b2"), (0, 0, 1), (10, 10, SIDE))],
+                        },
+                    },
+                ),
+            ]
+        )
+    )
+    assert [r.status for r in evaluation.result.features] == ["ok"] * 5
+    cavity = (SIDE - 4) * (SIDE - 4) * (SIDE - 2)
+    body_a = evaluation.bodies[uuid.UUID(a)]
+    assert body_a.volume == pytest.approx(SIDE**3 - cavity, abs=TOL * 1e3)
+    _assert_same(evaluation.bodies[uuid.UUID(b)], _block(0, 40))
+
+
+def test_draft_on_an_earlier_body_tapers_that_body() -> None:
+    """Drafting A's +Y face about the XY plane changes A only."""
+    a, b = _iid("a2"), _iid("b2")
+    evaluation = evaluate_tree(
+        _tree(
+            [
+                *_two_boxes_along_y(),
+                _feature(
+                    _iid("d9"),
+                    "draft",
+                    {
+                        "faces": {
+                            "kind": "faces",
+                            "refs": [_face_ref(_iid("b2"), (0, 1, 0), (10, SIDE, 10))],
+                        },
+                        "angle_deg": 5.0,
+                        "neutral_plane": {"kind": "datum", "base": "XY"},
+                    },
+                ),
+            ]
+        )
+    )
+    assert [r.status for r in evaluation.result.features] == ["ok"] * 5
+    assert evaluation.bodies[uuid.UUID(a)].volume != pytest.approx(SIDE**3)
+    _assert_same(evaluation.bodies[uuid.UUID(b)], _block(0, 40))
+
+
+def test_angle_datum_turns_about_an_edge_of_an_earlier_body() -> None:
+    """A plane at 0 deg to XZ through A's vertical edge at (0, 0) is y = 0,
+    not y = 40 through B's congruent edge."""
+    datum = _iid("da")
+    evaluation = evaluate_tree(
+        _tree(
+            [
+                *_two_boxes_along_y(),
+                _feature(
+                    datum,
+                    "datum",
+                    {
+                        "kind": "angle",
+                        "line": _vertical_edge_ref(0, 0),
+                        "reference": {"kind": "datum_plane", "plane": "XZ"},
+                        "angle_deg": 0.0,
+                    },
+                ),
+            ]
+        )
+    )
+    assert [r.status for r in evaluation.result.features] == ["ok"] * 5
+    plane = evaluation.datum_planes[uuid.UUID(datum)]
+    assert abs(plane.z_dir.Y) == pytest.approx(1.0, abs=TOL)
+    assert plane.origin.Y == pytest.approx(0.0, abs=TOL)

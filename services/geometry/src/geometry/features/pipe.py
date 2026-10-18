@@ -31,6 +31,7 @@ from loft_wire.features import (
 from loft_wire.sketch import SketchPoint
 
 from geometry.features.naming_hooks import labelled_names
+from geometry.features.owner import edge_owner_body_id
 from geometry.features.state import EvaluationState, _add_body, _cut_active
 from geometry.kernel.datum_path import DatumPathRangeError, plane_along_edge
 from geometry.kernel.edges import resolve_edge_durable
@@ -95,8 +96,10 @@ def _sketch_curve(
 def _model_edge(
     ref: EdgeSubshapeRef, state: EvaluationState, index: int, role: str
 ) -> _Curve | FeatureError:
-    active = state.active_body
-    if active is None:
+    owner = edge_owner_body_id(ref, state)
+    if isinstance(owner, FeatureError):
+        return owner
+    if owner is None:
         return FeatureError(
             code="subshape_unresolved",
             message=(
@@ -107,10 +110,10 @@ def _model_edge(
         )
     try:
         resolved = resolve_edge_durable(
-            active,
+            state.bodies[owner],
             ref.selector.signature,
             tally=state.subshape_tally,
-            face_names=state.face_names(),
+            face_names=state.body_face_names(owner),
         )
     except SubshapeUnresolvedError as exc:
         return FeatureError(

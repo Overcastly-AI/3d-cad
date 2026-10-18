@@ -28,7 +28,9 @@ ROOF-VALLEY.
   Feature Scope (`scope_bodies`) for a through-all bore. RESEARCH §28.
   _Accept:_ goldens `hole-through-r5-first-of-two-bodies-40x25x10` and
   `hole-scope-through-two-bodies-r3-40x25x10` match independent build123d
-  builds; all tree goldens rebuild byte-identical.
+  builds; all tree goldens rebuild byte-identical. The same owner rule now
+  serves on-face/midplane/angle datums, pipe edge paths, fillet, chamfer,
+  shell and draft. Notes below list what still targets the active body.
 0. [ ] **WALL-MEMBER-RENUMBER** (fix now: silent wrong geometry;
    kernel-architect): adding or moving an opening renumbers a wall's studs,
    and widening a deck renumbers its end joist, so a later feature on
@@ -264,6 +266,12 @@ One line each. The founder triages weekly; most are closed without work.
 - HOLE-ACTIVE-BODY: the Hole feature (and the on_face datum) resolves the picked face against the ACTIVE body, the last one built, so on a framed part a hole on a stud face is `hole_off_body` or cuts the last member; Fusion's Hole cuts the picked face's body. The renumber goldens use a Boolean subtract naming the stud.
 - BOOLEAN-EMPTY-CUT: a Boolean subtract whose tool misses its target removes nothing with no error or warning (how 1.0.0's renumbered hole vanished); SolidWorks' Combine reports a tool that does not intersect.
 - WALL-GUARD-STRICT: the 1.0.0 guard compares a referenced member's placement, so a 1.0.0 joist that only lengthens (a deeper deck) is refused too; an ordinal id cannot tell growth from a renumber.
+- HOLE-SCOPE-UI: `scope_bodies` (a through-all Hole's Feature Scope) is wire and kernel only; the Hole dialog has no body list yet (SolidWorks' Feature Scope box).
+- HOLE-SCOPE-REPEAT: a pattern or mirror of a scoped Hole repeats its bore in the owner body only, not in the scoped bodies.
+- CUT-OBJECTS-TO-CUT: extrude/revolve/sweep/loft/pipe cuts remove from the active body only; Fusion's default cuts every body the tool meets (Objects To Cut).
+- MULTIBODY-FILLET: a fillet, chamfer, shell or draft with picks on two bodies is refused (`subshapes_on_several_bodies`); Fusion applies one fillet across bodies.
+- REF-BACKFILL-MULTIBODY: the name backfill reads only the active body, so a stored pick on another body stays unnamed (safe: it never names a wrong face).
+- MULTIBODY-ACTIVE-REFS: sketch edge projection, sheet-metal flange/hem/relief edges and body-scope pattern/mirror still resolve on the active body, not the owner of the pick.
 - B2-E2E-INTERFERENCE: a part has no interference check (only assemblies have Clash), so a building's members cannot be checked for overlap in the UI; SolidWorks' Interference Detection and Fusion's Interference both run on a multibody part.
 - B2-E2E-HOSTS: walls placed from the Build row are named "Wall 1".."Wall 4", so the door's and window's host list reads by number, not by side; Chief Architect and Revit pick the host wall in the plan view.
 - THUMB-WARM: thumbnails render on first library view, not on save; Fusion renders at save. A warm after the modeller leaves the editor would hide the first-view wait.

@@ -2563,6 +2563,21 @@ SolidWorks cut the body the picked face belongs to.
   (the 64-body walls included) rebuild to the same GLB and BREP bytes before
   and after, and `test_single_body_hole_is_byte_identical_to_the_direct_cut`
   pins it.
+- **The same rule for every picked face or edge** (`geometry/features/owner.py`):
+  an `on_face` datum, a midplane or angle-datum face side, an angle datum's
+  edge line and a pipe's model-edge path resolve on the owning body; a
+  fillet, chamfer, shell or draft modifies the body owning its picked edges
+  or faces and makes it active. Each had the same bug (a datum on a stud's
+  face sat on the last plate's congruent face). One feature modifies one
+  body, so picks on two bodies are `subshapes_on_several_bodies`; Fusion
+  would fillet both, which is a later slice. Predicate edge selections
+  (`all_edges`, `axis_parallel`) still mean the active body.
+- **Not changed, by design or for later:** extrude, revolve, sweep, loft and
+  pipe CUTs remove from the active body (Fusion's default is every body the
+  tool meets, its Objects To Cut list; that is a scope decision, not a pick
+  bug); body-scope pattern and mirror repeat the active body; sketch edge
+  projection and the sheet-metal flange, hem and relief resolve on the
+  active body.
 - **Checked:** goldens `hole-through-r5-first-of-two-bodies-40x25x10` and
   `hole-scope-through-two-bodies-r3-40x25x10`, each equal to a direct
   build123d construction in volume, area, centroid, topology and mesh
