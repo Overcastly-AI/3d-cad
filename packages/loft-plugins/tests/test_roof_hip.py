@@ -264,8 +264,8 @@ def test_gable_at_1_1_is_b2s_golden() -> None:
 def test_1_1_is_additive() -> None:
     """1.1.0 keeps every 1.0.0 input (a stored roof's inputs are a 1.1.0
     roof's) and adds Style (Gable by default) and the hip size; 1.0.0 stays
-    installed for stored roofs. (A new Roof is inserted at 1.2.0,
-    test_roof_valley.py.)"""
+    installed for stored roofs. (A new Roof is inserted at 1.3.0,
+    test_roof_member_names.py.)"""
     old = {i.name for i in ROOF_1_0.manifest.inputs}
     new = [i.name for i in ROOF.manifest.inputs]
     assert old <= set(new) and set(new) - old == {"style", "hip_profile"}

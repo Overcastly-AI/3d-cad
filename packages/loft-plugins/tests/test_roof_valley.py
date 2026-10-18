@@ -495,9 +495,10 @@ def test_the_walls_fixture_is_the_wall_plugins_expansion() -> None:
 def test_1_2_is_additive_and_the_latest() -> None:
     """1.2.0 keeps every 1.1.0 input (a stored roof's inputs are a 1.2.0
     roof's), adds the walls pick (a feature list of loft.wall, empty by
-    default) and the valley size, and is what a new Roof is inserted with;
-    1.0.0 and 1.1.0 stay installed for stored roofs."""
-    assert REGISTRY.latest("loft.roof").manifest.version == "1.2.0"
+    default) and the valley size; 1.0.0 and 1.1.0 stay installed for stored
+    roofs. (1.3.0, its members named by place, is what a new Roof is now
+    inserted with: test_roof_member_names.py.)"""
+    assert REGISTRY.latest("loft.roof").manifest.version == "1.3.0"
     old = {i.name for i in ROOF_1_1.manifest.inputs}
     new = [i.name for i in ROOF.manifest.inputs]
     assert old <= set(new) and set(new) - old == {"walls", "valley_profile"}
