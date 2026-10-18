@@ -2397,15 +2397,19 @@ and reframe it, a material per member, and a cut list that is always current.
   - *An option on the host, a new version each.* `loft.wall` 1.2.0 adds
     Exterior sheathing (None by default, 7/16 OSB, 15/32 plywood) and
     `loft.floor` 1.1.0 adds Subfloor (23/32 plywood by default, or None).
-    Each new version's expansion is the old version's, member for member,
-    then the panels on their own roles (`sheathing_plane`/`_section`/
-    `sheathing`, `subfloor_level`/`_section`/`subfloor`), so upgrading the
-    pin keeps every framing id and level, and an unsheathed 1.2.0 wall is a
-    1.0.0 wall byte for byte. The wall takes 1.2.0 because
-    WALL-MEMBER-RENUMBER takes 1.1.0; the panels read only the wall's spec
-    and its openings, never the stud layout, so wall.py is unchanged and
-    1.2.0 rebases onto the renumbered framing by swapping the expander it
-    wraps.
+    Each new version's expansion is the previous version's, member for
+    member (the wall's is WALL-MEMBER-RENUMBER's place-named 1.1.0, the
+    floor's 1.0.0), then the panels on their own roles (`sheathing_plane`/
+    `_section`/`sheathing`, `subfloor_level`/`_section`/`subfloor`), so
+    upgrading the pin keeps every framing id and level, and an unsheathed
+    1.2.0 wall is a 1.1.0 wall byte for byte. The panels read only the
+    wall's spec and its openings, never the stud layout, so wall.py is
+    unchanged.
+  - *Panels are named by place*, as 1.1.0 names studs: `exterior/<col>/<row>`
+    (the 48 in strip from the wall's start, and the piece of it from the
+    bottom where an opening cuts it in two) and `row/<r>/<c>` for the
+    subfloor, with their sections and planes, so moving a door keeps every
+    panel's id on the panel at that place.
   - *Wall panels.* The full wall height (base of the bottom plate to the top
     of the top plate) on the exterior face, outside the framing, 48 in wide
     from the wall's start with the last cut to the end, butted at corners:

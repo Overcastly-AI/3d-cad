@@ -17,8 +17,10 @@ version's expansion unchanged, then the panels:
   and every other row staggered 4 ft, the floor's edges cutting the last
   panels. B5's 144 x 120 floor is 6 panels.
 
-The wall's version is 1.2.0 because WALL-MEMBER-RENUMBER takes 1.1.0; the
-panels never read the stud layout, so the two compose (RESEARCH §23).
+The wall's version is 1.2.0 on top of WALL-MEMBER-RENUMBER's 1.1.0: its
+framing is 1.1.0's place-named members, and every panel, section and plane
+is named by its place too (``exterior/<col>/<row>``, ``row/<r>/<c>``), so a
+moved opening or a longer wall never renumbers a panel (RESEARCH §23).
 
 **Members.** A panel is one body, as every framing member: a sketch of its
 outline (a rectilinear polygon, the rough openings' notches in its edges and
@@ -253,9 +255,12 @@ def _panel_members(
     loops: Sequence[Sequence[Point2D]],
     good: SheetGood,
     reverse: bool,
+    name: str,
 ) -> Iterator[Member]:
     """One panel: its outline sketch and the extrude of it by the product's
-    thickness, a new body carrying the product and its material."""
+    thickness, a new body carrying the product and its material. Both are
+    named by the panel's place (*name*), so an opening moving or a wall
+    growing never hands one panel's id to another (WALL-MEMBER-RENUMBER)."""
     section, role = roles
     yield Member(
         section,
@@ -267,6 +272,7 @@ def _panel_members(
                 plane=plane, entities=list(_loops_entities(loops)), constraints=[]
             ),
         ),
+        name=name,
     )
     yield Member(
         role,
@@ -275,7 +281,7 @@ def _panel_members(
             type="extrude",
             version=1,
             params=ExtrudeParamsV1(
-                profile=inputs.ref(section, index),
+                profile=inputs.ref(section, index, name),
                 distance_mm=good.thickness_mm,
                 operation="add",
                 direction="reverse" if reverse else "normal",
@@ -283,6 +289,7 @@ def _panel_members(
             ),
         ),
         MemberMetadata(profile=good.name, material=good.material),
+        name=name,
     )
 
 
@@ -293,7 +300,7 @@ def _good(inputs: ExpandInputs, name: str) -> SheetGood | None:
 
 # --- Wall sheathing ------------------------------------------------------------------
 
-#: The wall's sheathing options after None (the default: 1.0.0's wall).
+#: The wall's sheathing options after None (the default: 1.1.0's wall).
 WALL_SHEATHING: list[SheetGoodKey] = ["osb_7_16", "plywood_15_32"]
 
 
@@ -303,15 +310,28 @@ def wall_panels(
     """The exterior face's panels in the wall's ``(u, z)`` (inches): 48 in
     strips from the wall's start, full height, each less the rough openings
     over it, in order along the wall."""
+    return [region for _, region in placed_wall_panels(wall, openings)]
+
+
+def placed_wall_panels(
+    wall: wall_v1.WallSpec, openings: Sequence[wall_v1.Opening]
+) -> list[tuple[str, Region]]:
+    """:func:`wall_panels` with each panel's place name: ``exterior/<col>/
+    <row>``, the column the 48 in strip from the wall's start and the row
+    the piece of it counted from the bottom (1 only where an opening cuts a
+    strip in two)."""
     cuts = [
         (o.centre - o.width / 2, o.centre + o.width / 2, o.sill, o.head)
         for o in openings
     ]
-    return [
-        region
-        for u0, u1 in strips(wall.length, PANEL_WIDTH)
-        for region in rect_minus_rects((u0, u1, 0.0, wall.height), cuts)
-    ]
+    out: list[tuple[str, Region]] = []
+    for col, (u0, u1) in enumerate(strips(wall.length, PANEL_WIDTH)):
+        pieces = rect_minus_rects((u0, u1, 0.0, wall.height), cuts)
+        pieces.sort(
+            key=lambda r: (min(y for _, y in r.outer), min(x for x, _ in r.outer))
+        )
+        out += [(f"exterior/{col}/{row}", r) for row, r in enumerate(pieces)]
+    return out
 
 
 @dataclass(frozen=True)
@@ -354,7 +374,9 @@ class FacePlane:
                 version=1,
                 params=DatumOffsetParams(base=base, offset_mm=self.offset_mm),
             )
-            return [Member("sheathing_plane", 0, datum)], inputs.ref("sheathing_plane")
+            return [Member("sheathing_plane", 0, datum, name="face")], inputs.ref(
+                "sheathing_plane", 0, "face"
+            )
         turned = Member(
             "sheathing_plane",
             0,
@@ -368,9 +390,10 @@ class FacePlane:
                     angle_deg=self.angle_deg,
                 ),
             ),
+            name="turned",
         )
         if self.offset_mm == 0.0:
-            return [turned], inputs.ref("sheathing_plane", 0)
+            return [turned], inputs.ref("sheathing_plane", 0, "turned")
         slid = Member(
             "sheathing_plane",
             1,
@@ -379,12 +402,13 @@ class FacePlane:
                 version=1,
                 params=DatumOffsetFromParams(
                     kind="offset_from",
-                    base=inputs.ref("sheathing_plane", 0),
+                    base=inputs.ref("sheathing_plane", 0, "turned"),
                     offset_mm=self.offset_mm,
                 ),
             ),
+            name="face",
         )
-        return [turned, slid], inputs.ref("sheathing_plane", 1)
+        return [turned, slid], inputs.ref("sheathing_plane", 1, "face")
 
 
 def face_plane(wall: wall_v1.WallSpec) -> FacePlane:
@@ -418,7 +442,8 @@ def wall_sheathing(inputs: ExpandInputs) -> Iterator[Member]:
     plane = face_plane(wall)
     datums, ref = plane.members(inputs)
     yield from datums
-    for index, region in enumerate(wall_panels(wall, wall_v1.hosted_openings(inputs))):
+    placed = placed_wall_panels(wall, wall_v1.hosted_openings(inputs))
+    for index, (name, region) in enumerate(placed):
         loops = [
             [plane.sketch_point(u, z) for u, z in loop]
             for loop in (region.outer, *region.holes)
@@ -431,12 +456,14 @@ def wall_sheathing(inputs: ExpandInputs) -> Iterator[Member]:
             loops,
             good,
             plane.reverse,
+            name,
         )
 
 
 def _expand_wall(inputs: ExpandInputs) -> Iterator[Member]:
-    # The framing is 1.0.0's, member for member; then the panels.
-    yield from wall_v1.expand(inputs)
+    # The framing is 1.1.0's (place-named, WALL-MEMBER-RENUMBER), member for
+    # member; then the panels.
+    yield from wall_v1.expand_v1_1(inputs)
     yield from wall_sheathing(inputs)
 
 
@@ -449,12 +476,12 @@ _NONE = ChoiceOption(value="none", label="None")
 WALL_MANIFEST_V1_2 = PluginManifest(
     id="loft.wall",
     version="1.2.0",
-    title=wall_v1.MANIFEST_V1.title,
+    title=wall_v1.MANIFEST_V1_1.title,
     description="A framed stud wall: bottom plate, studs on a layout, a single "
     "or double top plate and optional exterior sheathing, with a cut list "
     "(Chief Architect, Medeek Wall).",
     inputs=[
-        *wall_v1.MANIFEST_V1.inputs,
+        *wall_v1.MANIFEST_V1_1.inputs,
         ChoiceInput(
             kind="choice",
             name="sheathing",
@@ -466,7 +493,7 @@ WALL_MANIFEST_V1_2 = PluginManifest(
         ),
     ],
     members=[
-        *wall_v1.MANIFEST_V1.members,
+        *wall_v1.MANIFEST_V1_1.members,
         PluginMemberRole(role="sheathing_plane", title="Plane"),
         PluginMemberRole(role="sheathing_section", title="Section"),
         PluginMemberRole(
@@ -490,12 +517,18 @@ def subfloor_panels(floor: floor_v1.FloorSpec) -> list[Rect]:
     """The subfloor's panels in the floor's ``(a, b)`` frame (inches): rows
     48 along the joists (``b``) from the start, each 96 long across them
     (``a``), every other row starting with a 48 piece (staggered 4 ft)."""
-    panels: list[Rect] = []
+    return [rect for _, rect in placed_subfloor_panels(floor)]
+
+
+def placed_subfloor_panels(floor: floor_v1.FloorSpec) -> list[tuple[str, Rect]]:
+    """:func:`subfloor_panels` named by place: ``row/<r>/<c>``, the row along
+    the joists from the start and the panel across them."""
+    out: list[tuple[str, Rect]] = []
     for row, (b0, b1) in enumerate(strips(floor.span_b, PANEL_WIDTH)):
         offset = PANEL_WIDTH if row % 2 else 0.0
-        for a0, a1 in strips(floor.span_a, SUBFLOOR_LENGTH, offset):
-            panels.append((a0, a1, b0, b1))
-    return panels
+        for col, (a0, a1) in enumerate(strips(floor.span_a, SUBFLOOR_LENGTH, offset)):
+            out.append((f"row/{row}/{col}", (a0, a1, b0, b1)))
+    return out
 
 
 def floor_subfloor(inputs: ExpandInputs) -> Iterator[Member]:
@@ -519,15 +552,23 @@ def floor_subfloor(inputs: ExpandInputs) -> Iterator[Member]:
                 version=1,
                 params=DatumOffsetParams(base="XY", offset_mm=_mm(z)),
             ),
+            name="top",
         )
-        plane = inputs.ref("subfloor_level")
-    for index, (a0, a1, b0, b1) in enumerate(subfloor_panels(floor)):
+        plane = inputs.ref("subfloor_level", 0, "top")
+    for index, (name, (a0, a1, b0, b1)) in enumerate(placed_subfloor_panels(floor)):
         corners = [
             frame.plan(a, b) for a, b in ((a0, b0), (a1, b0), (a1, b1), (a0, b1))
         ]
         loop = [Point2D(x=_mm(x), y=_mm(y)) for x, y in corners]
         yield from _panel_members(
-            inputs, ("subfloor_section", "subfloor"), index, plane, [loop], good, False
+            inputs,
+            ("subfloor_section", "subfloor"),
+            index,
+            plane,
+            [loop],
+            good,
+            False,
+            name,
         )
 
 

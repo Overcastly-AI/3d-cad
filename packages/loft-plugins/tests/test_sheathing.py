@@ -5,7 +5,8 @@ BACKLOG's acceptance, typed by hand: B2's four walls in 7/16 OSB are 12
 panels with a net area of 45 893 in^2 (20 078.1875 in^3) once the door's
 38 x 82.5 and the window's 24.5 x 36.5 are cut out; B5's subfloor is 6
 panels, 12 420 in^3. The new versions' framing is the old versions'
-expansion member for member, so a stored 1.0.0 wall or floor and its goldens
+expansion member for member (the wall's is WALL-MEMBER-RENUMBER's 1.1.0,
+the floor's 1.0.0), so a stored wall or floor and its goldens
 cannot move.
 
 The geometry golden ``b5-shed-sheathed`` is B5's floor with its subfloor and
@@ -58,6 +59,8 @@ from loft_wire.sketch import SketchLine
 
 IN = 25.4
 WALL_V1 = REGISTRY.get("loft.wall", "1.0.0")
+#: The framing 1.2.0 wraps: WALL-MEMBER-RENUMBER's place-named wall.
+WALL_V1_1 = REGISTRY.get("loft.wall", "1.1.0")
 WALL = REGISTRY.get("loft.wall", "1.2.0")
 FLOOR_V1 = REGISTRY.get("loft.floor", "1.0.0")
 FLOOR = REGISTRY.get("loft.floor", "1.1.0")
@@ -263,20 +266,20 @@ def test_the_new_versions_are_registered_and_latest() -> None:
     ]
 
 
-def test_an_unsheathed_wall_is_the_1_0_0_wall() -> None:
-    """Sheathing None (the default) expands exactly as 1.0.0, door and all."""
+def test_an_unsheathed_wall_is_the_1_1_0_wall() -> None:
+    """Sheathing None (the default) expands exactly as 1.1.0, door and all."""
     door = (hosted("loft.door", "Door 1", B2_WALLS["front"][0], B2_DOOR),)
     raw = B2_WALLS["front"][1]
     assert _dump(wall(raw, openings=door)) == _dump(
-        wall(raw, openings=door, plugin=WALL_V1)
+        wall(raw, openings=door, plugin=WALL_V1_1)
     )
 
 
-def test_a_sheathed_walls_framing_is_the_1_0_0_wall() -> None:
-    """The panels come after the framing, which keeps 1.0.0's members and ids."""
+def test_a_sheathed_walls_framing_is_the_1_1_0_wall() -> None:
+    """The panels come after the framing, which keeps 1.1.0's members and ids."""
     door = (hosted("loft.door", "Door 1", B2_WALLS["front"][0], B2_DOOR),)
     raw = B2_WALLS["front"][1]
-    old = _dump(wall(raw, openings=door, plugin=WALL_V1))
+    old = _dump(wall(raw, openings=door, plugin=WALL_V1_1))
     new = _dump(wall({**raw, **OSB}, openings=door))
     assert new[: len(old)] == old
     assert {m["role"] for m in new[len(old) :]} <= {
@@ -701,3 +704,43 @@ if __name__ == "__main__":
     sys.stdout.write(f"{GOLDEN}: {len(request.features)} features\n")
     SWEEP_FIXTURE.write_bytes(gzip.compress(sweep_fixture().encode(), mtime=0))
     sys.stdout.write(f"{SWEEP_FIXTURE.name}: {len(SWEEP)} cases\n")
+
+
+def test_panels_are_named_by_place_and_keep_their_ids_when_the_door_moves() -> None:
+    """Every panel, section and plane is named (``exterior/<col>/<row>``),
+    so moving B2's door 24 in keeps each panel's id on the panel at that
+    place, as 1.1.0 keeps each stud's (WALL-MEMBER-RENUMBER)."""
+    host, raw = B2_WALLS["front"]
+
+    def ids(door: dict[str, Any]) -> dict[str, Any]:
+        ms = wall({**raw, **OSB}, host, (hosted("loft.door", "Door 1", host, door),))
+        return {m.name or "": m.id for m in ms if m.role == "sheathing"}
+
+    here, moved = ids(B2_DOOR), ids({"offset_mm": 96 * IN})
+    assert sorted(here) == ["exterior/0/0", "exterior/1/0", "exterior/2/0"]
+    assert here == moved
+    named = [m for m in wall({**raw, **OSB}, host) if m.role.startswith("sheathing")]
+    assert all(m.name is not None for m in named)
+
+
+def test_a_window_across_a_strip_splits_it_into_rows() -> None:
+    """A window spanning a whole strip leaves a piece below and above it:
+    ``exterior/1/0`` and ``exterior/1/1``."""
+    host, raw = B2_WALLS["front"]
+    window = hosted(
+        "loft.window", "Window 1", host, {"offset_mm": 72 * IN, "width_mm": 60 * IN}
+    )
+    names = [
+        m.name for m in wall({**raw, **OSB}, host, (window,)) if m.role == "sheathing"
+    ]
+    assert names == [
+        "exterior/0/0",
+        "exterior/1/0",
+        "exterior/1/1",
+        "exterior/2/0",
+    ]
+
+
+def test_subfloor_panels_are_named_by_row_and_column() -> None:
+    names = [m.name for m in floor() if m.role == "subfloor"]
+    assert names == [f"row/{r}/{c}" for r in range(3) for c in range(2)]

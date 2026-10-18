@@ -160,7 +160,7 @@
     }
   },
   {
-    "feature_id": "0372041a-7162-5cf9-8f7a-d12c4407458a",
+    "feature_id": "4e3ad991-4915-5884-a882-e48a8f7a201e",
     "role": "subfloor",
     "title": "Subfloor",
     "metadata": {
@@ -170,7 +170,7 @@
     }
   },
   {
-    "feature_id": "396121bb-9965-5818-9ca0-5d792412981c",
+    "feature_id": "472a7a97-0bca-509f-962d-b08de38d7e8e",
     "role": "subfloor",
     "title": "Subfloor",
     "metadata": {
@@ -180,7 +180,7 @@
     }
   },
   {
-    "feature_id": "cad309c4-f464-5727-ad66-4b1f4128e109",
+    "feature_id": "48502d68-d2a0-5e60-ba2a-e7e0fb9e0b03",
     "role": "subfloor",
     "title": "Subfloor",
     "metadata": {
@@ -190,7 +190,7 @@
     }
   },
   {
-    "feature_id": "a773ccc0-67d1-5d3b-926c-9e62f57e4037",
+    "feature_id": "a3afd632-cb16-591d-b0a4-777cdf329a50",
     "role": "subfloor",
     "title": "Subfloor",
     "metadata": {
@@ -200,7 +200,7 @@
     }
   },
   {
-    "feature_id": "cbf39abf-9187-5689-ba82-0af18d8713a4",
+    "feature_id": "03be490f-5ebe-5ee8-97d2-ebd60579ce2d",
     "role": "subfloor",
     "title": "Subfloor",
     "metadata": {
@@ -210,7 +210,7 @@
     }
   },
   {
-    "feature_id": "1aef0c60-57ee-5fe7-a57d-531db7a2ee1c",
+    "feature_id": "1ae189e5-fb7b-5f7e-906e-2177bbff68f6",
     "role": "subfloor",
     "title": "Subfloor",
     "metadata": {
@@ -220,7 +220,7 @@
     }
   },
   {
-    "feature_id": "4d15fb3a-f0c8-5edb-a536-b2ba37abecb8",
+    "feature_id": "1b0a04a2-cb91-555d-92fa-ffa3c773e947",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -230,7 +230,7 @@
     }
   },
   {
-    "feature_id": "4b2bd583-ac7a-5dc3-8a80-13e5adb9f7fa",
+    "feature_id": "4edb17ab-5bc6-5495-80b5-9a99a4695ecf",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -240,7 +240,7 @@
     }
   },
   {
-    "feature_id": "f5b94ce7-73db-57bd-90f7-8b506af9b64e",
+    "feature_id": "56b9e48a-65f2-5ea0-b141-27a5bd7c4866",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -250,7 +250,7 @@
     }
   },
   {
-    "feature_id": "e649c22a-cf93-5f35-846c-4aca823938f1",
+    "feature_id": "a132dc16-7ee4-5fad-8ec1-5a00455d860c",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -260,7 +260,7 @@
     }
   },
   {
-    "feature_id": "9f545c4b-ec97-5c11-994e-fef69266e51b",
+    "feature_id": "79b95c4b-b42a-54ea-8495-c3beb73b87e9",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -270,7 +270,7 @@
     }
   },
   {
-    "feature_id": "56b682a3-1649-5c1a-98dc-2e299567acd9",
+    "feature_id": "512440f7-ca8e-56b7-8cb0-26b6dd6bf1f7",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -280,7 +280,7 @@
     }
   },
   {
-    "feature_id": "32de34e2-26c9-52cc-8454-67ec6de3476f",
+    "feature_id": "27b7909e-fa5c-5b1b-a02f-e645d0f3ba7c",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -290,7 +290,7 @@
     }
   },
   {
-    "feature_id": "1f82419f-574a-51ae-afaf-f8dc010a4105",
+    "feature_id": "b836eab2-a242-514c-942a-f799320a8cb0",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -300,7 +300,7 @@
     }
   },
   {
-    "feature_id": "c6a9f104-efbc-5fe5-aaac-c2dde3644558",
+    "feature_id": "f44010e5-c954-5f0d-896d-1808da610bb7",
     "role": "king",
     "title": "Stud",
     "metadata": {
@@ -310,7 +310,7 @@
     }
   },
   {
-    "feature_id": "27257dd1-5145-5cb5-aca9-e3864943783d",
+    "feature_id": "6098cec5-5306-57ec-bc1d-f5c341456079",
     "role": "king",
     "title": "Stud",
     "metadata": {
@@ -320,7 +320,7 @@
     }
   },
   {
-    "feature_id": "3e7a461c-01f6-5122-b32e-32d10d395e42",
+    "feature_id": "ea2bef70-2194-51cb-b54b-5e8d4a4779df",
     "role": "jack",
     "title": "Jack",
     "metadata": {
@@ -330,7 +330,7 @@
     }
   },
   {
-    "feature_id": "3f7a67e1-44f5-526a-8743-7df0d30e544c",
+    "feature_id": "08bcc45d-5363-534b-93e3-ebb091668ca1",
     "role": "jack",
     "title": "Jack",
     "metadata": {
@@ -340,7 +340,7 @@
     }
   },
   {
-    "feature_id": "52e06177-9dd8-5612-b502-28cfe7098536",
+    "feature_id": "cb87526a-315a-5999-9bb3-69b1b79feeab",
     "role": "header",
     "title": "Header",
     "metadata": {
@@ -350,7 +350,7 @@
     }
   },
   {
-    "feature_id": "43e1e19b-7422-530f-b7fc-797fb2b286db",
+    "feature_id": "ab8481c9-b440-5839-9910-07bcf38f73a2",
     "role": "header",
     "title": "Header",
     "metadata": {
@@ -360,7 +360,7 @@
     }
   },
   {
-    "feature_id": "0b6b60e9-2ac3-572c-992a-44453cf166bd",
+    "feature_id": "d881767b-3366-55c2-b202-3e608effb78b",
     "role": "cripple",
     "title": "Cripple",
     "metadata": {
@@ -370,7 +370,7 @@
     }
   },
   {
-    "feature_id": "a99ab911-52fa-56c2-a3cc-2d324a67a600",
+    "feature_id": "e5667f3e-5fff-5049-9d1f-c83baeb833b6",
     "role": "cripple",
     "title": "Cripple",
     "metadata": {
@@ -380,7 +380,7 @@
     }
   },
   {
-    "feature_id": "381dd288-66dc-5167-ab4e-7d0489eafacd",
+    "feature_id": "fcded109-8539-544a-9042-c79565e1f462",
     "role": "top_plate",
     "title": "Top plate",
     "metadata": {
@@ -390,7 +390,7 @@
     }
   },
   {
-    "feature_id": "ef33270f-cda6-5514-a9bd-3b9e6466cef5",
+    "feature_id": "f70a7601-876a-5d0a-9d41-6f3839fd6f15",
     "role": "top_plate",
     "title": "Top plate",
     "metadata": {
@@ -400,7 +400,7 @@
     }
   },
   {
-    "feature_id": "e0dc78f5-5e2d-562e-975a-42638fd3ee2f",
+    "feature_id": "23433f7f-b0d4-5559-b8c9-7eb82fda8f04",
     "role": "bottom_plate",
     "title": "Bottom plate",
     "metadata": {
@@ -410,7 +410,7 @@
     }
   },
   {
-    "feature_id": "5321fa77-94c5-5bab-a5a0-8a55a6f00d3f",
+    "feature_id": "c9876338-a972-5de2-bb74-5c0cc7c4bab7",
     "role": "bottom_plate",
     "title": "Bottom plate",
     "metadata": {
@@ -420,7 +420,7 @@
     }
   },
   {
-    "feature_id": "d8c3b4e2-5bfc-5883-a8f8-8c2c71fd2101",
+    "feature_id": "573e77d4-b151-51b9-bbc8-476dba5920ea",
     "role": "sheathing",
     "title": "Sheathing",
     "metadata": {
@@ -430,7 +430,7 @@
     }
   },
   {
-    "feature_id": "bceb5c24-3629-504f-a905-49be670ebfef",
+    "feature_id": "1cd1257d-583d-5e70-a554-078563d9dd7f",
     "role": "sheathing",
     "title": "Sheathing",
     "metadata": {
@@ -440,7 +440,7 @@
     }
   },
   {
-    "feature_id": "f3b2b35e-b96a-55f7-b6d4-e604732cf714",
+    "feature_id": "3eac8d37-09d3-5a65-81ce-06779eb665df",
     "role": "sheathing",
     "title": "Sheathing",
     "metadata": {
@@ -450,7 +450,7 @@
     }
   },
   {
-    "feature_id": "9481246b-f589-5c6a-b9bf-640dda25a6c7",
+    "feature_id": "b4d8ccfa-28cc-5a12-af12-452c95c3e95d",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -460,7 +460,7 @@
     }
   },
   {
-    "feature_id": "7c85fece-72fa-57fb-a042-cdbe3889876b",
+    "feature_id": "f555c1ee-5a11-51a5-af8e-1943b7f9c0ae",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -470,7 +470,7 @@
     }
   },
   {
-    "feature_id": "6af44acd-f463-56df-8016-0a5d9c07a0ae",
+    "feature_id": "d6e5ea6a-c3e0-5ba6-9c5f-c4a1597b104c",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -480,7 +480,7 @@
     }
   },
   {
-    "feature_id": "ca9640bd-49b1-5b70-9072-bcb60f22c8f6",
+    "feature_id": "3d3a94fb-310d-54fc-915c-e9d71d945c21",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -490,7 +490,7 @@
     }
   },
   {
-    "feature_id": "6dbe7715-ae04-50f1-af50-c559cc003675",
+    "feature_id": "44e79d1b-198c-5c0b-9c26-ddfba192d5ae",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -500,7 +500,7 @@
     }
   },
   {
-    "feature_id": "b84d9b79-6fb4-5e53-bb38-7cf13d643d89",
+    "feature_id": "e074f658-e63d-5d9c-b633-5c6cc2251611",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -510,7 +510,7 @@
     }
   },
   {
-    "feature_id": "53f60aa6-d936-5561-a9bc-fd65ee8123a4",
+    "feature_id": "901b8384-4398-5301-94b0-543fd809d792",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -520,7 +520,7 @@
     }
   },
   {
-    "feature_id": "227594aa-ff2d-513a-bf78-82659fa3c93e",
+    "feature_id": "b26ff11a-60d5-5a80-be93-e732a62b177a",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -530,7 +530,7 @@
     }
   },
   {
-    "feature_id": "534cb552-a622-548f-b662-631818a2e312",
+    "feature_id": "83e2dd0d-435c-5d0d-aceb-6a06258939bf",
     "role": "top_plate",
     "title": "Top plate",
     "metadata": {
@@ -540,7 +540,7 @@
     }
   },
   {
-    "feature_id": "fdb4102c-9444-56c3-8596-4869e56c62d1",
+    "feature_id": "eeebd2a0-1db4-53be-af53-1126ce261af8",
     "role": "top_plate",
     "title": "Top plate",
     "metadata": {
@@ -550,7 +550,7 @@
     }
   },
   {
-    "feature_id": "39cd0f4b-4492-52b6-a244-8eca20d11c1b",
+    "feature_id": "b18c3ca5-b0dc-590f-8926-6aca887c05f9",
     "role": "bottom_plate",
     "title": "Bottom plate",
     "metadata": {
@@ -560,7 +560,7 @@
     }
   },
   {
-    "feature_id": "6c3cfc95-1175-5cc7-a96d-9a5e8a64586a",
+    "feature_id": "9bda85a9-a50c-5625-9238-5bffc2717837",
     "role": "sheathing",
     "title": "Sheathing",
     "metadata": {
@@ -570,7 +570,7 @@
     }
   },
   {
-    "feature_id": "5bc32667-d960-5557-ac45-aafb51e89962",
+    "feature_id": "4a711cb1-9702-5076-9aee-3b69346844f7",
     "role": "sheathing",
     "title": "Sheathing",
     "metadata": {
@@ -580,7 +580,7 @@
     }
   },
   {
-    "feature_id": "6a4152e1-2f5e-5b3d-88a0-23860c61af67",
+    "feature_id": "a77c52af-d827-5ebe-822f-c77918df379a",
     "role": "sheathing",
     "title": "Sheathing",
     "metadata": {
@@ -590,7 +590,7 @@
     }
   },
   {
-    "feature_id": "810e5d5a-239e-5a79-8321-3e4434961656",
+    "feature_id": "a9188845-b19d-524e-bed2-9495be024c1e",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -600,7 +600,7 @@
     }
   },
   {
-    "feature_id": "f5e2bd5b-9b6e-5986-a0d7-a6c3f554336b",
+    "feature_id": "d3bfdb82-74e8-5ce1-a6f8-4a88bbf36ce8",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -610,7 +610,7 @@
     }
   },
   {
-    "feature_id": "3f4cb250-c42b-53fa-922f-a75b18c58cdc",
+    "feature_id": "bf338ac2-2560-5ef2-b51b-91c008fac744",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -620,7 +620,7 @@
     }
   },
   {
-    "feature_id": "8f548fe5-cebb-5a94-957f-415d7bb1cb61",
+    "feature_id": "9a78eeac-2db7-5f77-ba8e-630ebd2fb692",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -630,7 +630,7 @@
     }
   },
   {
-    "feature_id": "ad66fcb8-bfba-5a41-b21d-8c6e09e08b88",
+    "feature_id": "9040bf7c-10ba-532a-964c-16600c12fe03",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -640,7 +640,7 @@
     }
   },
   {
-    "feature_id": "0b2af021-e898-5274-8797-ec56f482566e",
+    "feature_id": "3f147f68-29c2-53ec-ac42-a95c46118bc7",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -650,7 +650,7 @@
     }
   },
   {
-    "feature_id": "4818ef83-2c9d-5a5e-ae46-118971082d86",
+    "feature_id": "9a7f8f5b-cea3-520d-8132-71dd2683bfd4",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -660,7 +660,7 @@
     }
   },
   {
-    "feature_id": "afc33d66-5e42-5eab-9e7b-0afaa10af14e",
+    "feature_id": "b802670d-09b3-5460-abbe-45cdb6afd390",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -670,7 +670,7 @@
     }
   },
   {
-    "feature_id": "78834cfb-0897-5499-97f9-8b37642dbf3b",
+    "feature_id": "931e73d6-f416-564c-8f75-58c87382e10a",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -680,7 +680,7 @@
     }
   },
   {
-    "feature_id": "a46f9b40-fe97-5671-ac3f-439a1c2ea8e9",
+    "feature_id": "8fc8d6ac-afec-5795-ac29-33660ecd4d7e",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -690,7 +690,7 @@
     }
   },
   {
-    "feature_id": "2c2da5ca-fd26-5d79-96ae-580be70c8b68",
+    "feature_id": "13f77cf9-56f0-5ffc-9e02-beff086ff4eb",
     "role": "top_plate",
     "title": "Top plate",
     "metadata": {
@@ -700,7 +700,7 @@
     }
   },
   {
-    "feature_id": "2d659530-66b8-56e2-9a83-9f8a3e60d69d",
+    "feature_id": "59abdddb-9d90-5521-8106-36c1e39886d1",
     "role": "top_plate",
     "title": "Top plate",
     "metadata": {
@@ -710,7 +710,7 @@
     }
   },
   {
-    "feature_id": "96c94729-a947-526e-b2f1-c7fdb7abd2b9",
+    "feature_id": "20cc6e5e-b4aa-5a78-9f84-b62a22ccd16c",
     "role": "bottom_plate",
     "title": "Bottom plate",
     "metadata": {
@@ -720,7 +720,7 @@
     }
   },
   {
-    "feature_id": "948946c4-af69-510e-9527-91805efe06f8",
+    "feature_id": "06a22e1d-ef69-590a-a9e8-448a10c5f8cb",
     "role": "sheathing",
     "title": "Sheathing",
     "metadata": {
@@ -730,7 +730,7 @@
     }
   },
   {
-    "feature_id": "5acba930-ce1e-5d37-9c3c-d874191335e0",
+    "feature_id": "b45e0f2f-a16a-583f-ab04-4bea8192e7db",
     "role": "sheathing",
     "title": "Sheathing",
     "metadata": {
@@ -740,7 +740,7 @@
     }
   },
   {
-    "feature_id": "f27dd58a-e7ec-5400-af8d-393c65dfe070",
+    "feature_id": "f5cd866e-210e-505c-9140-0801a8d092e9",
     "role": "sheathing",
     "title": "Sheathing",
     "metadata": {
@@ -750,7 +750,7 @@
     }
   },
   {
-    "feature_id": "a84dac05-7656-5439-8b4c-a4b303158b43",
+    "feature_id": "c0443a14-6e92-59ff-b287-0b892cef412f",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -760,7 +760,7 @@
     }
   },
   {
-    "feature_id": "54d1a488-f3de-5a80-92ce-cbdbdf3cdf8c",
+    "feature_id": "d7cd6f07-ad3f-5d03-acd5-f727e2f2c834",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -770,7 +770,7 @@
     }
   },
   {
-    "feature_id": "2b5aaf8c-e129-5d76-b5cf-ca4508fc3b5e",
+    "feature_id": "1558eaa6-3643-594b-a6fc-d71b8d31a76d",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -780,7 +780,7 @@
     }
   },
   {
-    "feature_id": "5e21122f-1d57-56d7-8e67-56ab143cf9d1",
+    "feature_id": "9e343533-4a94-5ff6-bd29-b52879c6080a",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -790,7 +790,7 @@
     }
   },
   {
-    "feature_id": "9d45ad74-33b1-5fd8-bc61-0acb85e72043",
+    "feature_id": "bfed392b-f328-5480-a8dc-9b2d16c4380e",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -800,7 +800,7 @@
     }
   },
   {
-    "feature_id": "99085451-983e-5947-8d99-15dad264560e",
+    "feature_id": "e6048bc6-4cb7-5e88-a5e7-c565aff0346c",
     "role": "stud",
     "title": "Stud",
     "metadata": {
@@ -810,7 +810,7 @@
     }
   },
   {
-    "feature_id": "6459e55a-230c-5aba-b059-b2d1ffca17bf",
+    "feature_id": "fb815091-9bef-5688-8af1-50fb826a04e7",
     "role": "king",
     "title": "Stud",
     "metadata": {
@@ -820,7 +820,7 @@
     }
   },
   {
-    "feature_id": "7b6e774a-6098-5a27-b1bd-bb1d7e07dd73",
+    "feature_id": "5a1bb001-6a49-563f-b39e-640f746b9169",
     "role": "king",
     "title": "Stud",
     "metadata": {
@@ -830,7 +830,7 @@
     }
   },
   {
-    "feature_id": "ca1b5a73-e3e2-51e4-aa29-ee072e784384",
+    "feature_id": "b3adb7d5-ebdc-5ad1-85f6-eb0a520dec8a",
     "role": "jack",
     "title": "Jack",
     "metadata": {
@@ -840,7 +840,7 @@
     }
   },
   {
-    "feature_id": "ee7d00c9-755d-5528-ad87-c2286cb7e9f7",
+    "feature_id": "ecfc99d3-4128-5cb4-a237-4bc749637017",
     "role": "jack",
     "title": "Jack",
     "metadata": {
@@ -850,7 +850,7 @@
     }
   },
   {
-    "feature_id": "ec04cdb9-7716-5dd9-8310-dd22f3c2d62c",
+    "feature_id": "0e54aae8-eac3-5ddf-83c3-165f1b7fbfb5",
     "role": "header",
     "title": "Header",
     "metadata": {
@@ -860,7 +860,7 @@
     }
   },
   {
-    "feature_id": "f4c5d7d1-7b88-57b1-8d97-adbff4e543ef",
+    "feature_id": "65ca327e-bedf-5bcb-981b-0c1601f096c4",
     "role": "header",
     "title": "Header",
     "metadata": {
@@ -870,7 +870,7 @@
     }
   },
   {
-    "feature_id": "65d39e34-1414-5053-8c37-21db7afd54f3",
+    "feature_id": "f3654a2d-b52c-51d8-8ed7-4b951d95c686",
     "role": "cripple",
     "title": "Cripple",
     "metadata": {
@@ -880,7 +880,7 @@
     }
   },
   {
-    "feature_id": "efe03824-e82d-5fbe-8cea-e5e0f959ac91",
+    "feature_id": "bdd64ea1-413f-5c08-87eb-3519733307f2",
     "role": "cripple",
     "title": "Cripple",
     "metadata": {
@@ -890,7 +890,7 @@
     }
   },
   {
-    "feature_id": "d591136e-f968-5dd0-99b6-4b43725cadbc",
+    "feature_id": "31e60958-b67a-5d87-9075-38cb44b2c148",
     "role": "sill",
     "title": "Sill",
     "metadata": {
@@ -900,7 +900,7 @@
     }
   },
   {
-    "feature_id": "de96457c-bc4a-58c6-9e0d-de341e455dc8",
+    "feature_id": "22c5e7b4-1a8b-516c-9552-a771bc8fed05",
     "role": "sill_cripple",
     "title": "Cripple",
     "metadata": {
@@ -910,7 +910,7 @@
     }
   },
   {
-    "feature_id": "1e51c7ac-5ff3-5450-b43b-c433f96ec5bb",
+    "feature_id": "d63737e4-a6db-5028-b57c-ffb3877f1d93",
     "role": "sill_cripple",
     "title": "Cripple",
     "metadata": {
@@ -920,7 +920,7 @@
     }
   },
   {
-    "feature_id": "3a35f77d-9ba8-59fa-9b01-95ff3e362b63",
+    "feature_id": "7baebbbb-bec7-5529-b851-46f555a83d0d",
     "role": "top_plate",
     "title": "Top plate",
     "metadata": {
@@ -930,7 +930,7 @@
     }
   },
   {
-    "feature_id": "e301544e-06a8-5a32-8bc8-5fdc97bfeb0e",
+    "feature_id": "21a0a8b1-b7cc-5806-ae64-d6bf50af78cb",
     "role": "top_plate",
     "title": "Top plate",
     "metadata": {
@@ -940,7 +940,7 @@
     }
   },
   {
-    "feature_id": "f798f91e-0a78-5ee6-96fd-f60de4c9f367",
+    "feature_id": "fb45e615-a2ff-5860-b4e6-70087a898b1a",
     "role": "bottom_plate",
     "title": "Bottom plate",
     "metadata": {
@@ -950,7 +950,7 @@
     }
   },
   {
-    "feature_id": "7c6d4b30-7623-5252-a969-adb52cca25da",
+    "feature_id": "e7a5cc47-9bc3-56e3-803e-7dbb18bfb4db",
     "role": "sheathing",
     "title": "Sheathing",
     "metadata": {
@@ -960,7 +960,7 @@
     }
   },
   {
-    "feature_id": "840d2238-b85b-5142-a5ba-1d599606faf3",
+    "feature_id": "34f73aa2-501a-5297-8ddf-9f628c47b695",
     "role": "sheathing",
     "title": "Sheathing",
     "metadata": {
@@ -970,7 +970,7 @@
     }
   },
   {
-    "feature_id": "c0639773-bad7-5533-8749-f4eb3b863ec6",
+    "feature_id": "5422e6df-2853-5340-9f26-5d8454499d6a",
     "role": "sheathing",
     "title": "Sheathing",
     "metadata": {
