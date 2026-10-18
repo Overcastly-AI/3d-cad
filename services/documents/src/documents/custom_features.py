@@ -628,38 +628,85 @@ def reexpand_hosts(
         row = by_id.get(host)
         if row is None or row.type != "custom":
             continue
-        envelope = load_feature(row)[0]
-        assert isinstance(envelope, CustomFeature)
-        try:
-            plugin = PLUGINS.get(
-                envelope.params.plugin_id, envelope.params.plugin_version
-            )
-        except PluginError:
+        _reexpand(row, rows, index, parameters, strict=True)
+
+
+def pickers_of(rows: Sequence[db.Feature], feature_id: uuid.UUID) -> list[uuid.UUID]:
+    """The custom features in *rows* that pick *feature_id* through an input
+    (a roof's walls), in tree order."""
+    out: list[uuid.UUID] = []
+    for row in sorted(rows, key=lambda r: r.order_index):
+        if row.type != "custom" or row.suppressed or row.id == feature_id:
             continue
-        earlier_rows = [r for r in rows if r.order_index < row.order_index]
-        try:
-            result = _expanded(
-                plugin,
-                row.id,
-                envelope,
-                parameters,
-                _earlier_from_rows(earlier_rows),
-                index.of(row.id, parameters),
-            )
-        except PluginError as exc:
-            raise _refuse(exc) from exc
-        except FeatureExpressionError as exc:
-            raise ValidationApiError(exc.message, code=exc.code) from exc
-        members = result.params.expansion or []
-        check_tree_size(
-            expanded_size(r for r in rows if r.id != row.id) + len(members),
-            f"Reframing {row.name!r}, the part",
+        envelope = load_feature(row)[0]
+        if isinstance(envelope, CustomFeature) and any(
+            ref.ref.feature_id == feature_id for ref in custom_references(envelope)
+        ):
+            out.append(row.id)
+    return out
+
+
+def reexpand_pickers(
+    part: db.Part, rows: Sequence[db.Feature], written: uuid.UUID
+) -> None:
+    """After a write to *written* (a wall), re-expand the custom features
+    that pick it (a roof on its walls, ROOF-MEMBER-RENUMBER) on the tree as
+    written, and refuse the write (409) when that drops, or under an ordinal
+    pin moves, a member a later feature references, as an edit of the picker
+    itself would be. A picker that no longer expands is left to report that
+    at rebuild (a wall drawn in steps passes through outlines no roof
+    frames), keeping its stored members."""
+    by_id = {row.id: row for row in rows}
+    index = Hosts(rows)
+    parameters = parameter_values(part.parameters)
+    for picker in pickers_of(rows, written):
+        _reexpand(by_id[picker], rows, index, parameters, strict=False)
+
+
+def _reexpand(
+    row: db.Feature,
+    rows: Sequence[db.Feature],
+    index: Hosts,
+    parameters: Mapping[str, Quantity],
+    *,
+    strict: bool,
+) -> None:
+    """Re-expand *row* in *rows*, check what it drops or moves and store it.
+    A plugin or formula error is a 422 when *strict*, else leaves the row."""
+    envelope = load_feature(row)[0]
+    assert isinstance(envelope, CustomFeature)
+    try:
+        plugin = PLUGINS.get(envelope.params.plugin_id, envelope.params.plugin_version)
+    except PluginError:
+        return
+    earlier_rows = [r for r in rows if r.order_index < row.order_index]
+    try:
+        result = _expanded(
+            plugin,
+            row.id,
+            envelope,
+            parameters,
+            _earlier_from_rows(earlier_rows),
+            index.of(row.id, parameters),
         )
-        check_members_authorable(members, earlier_rows)
-        check_referenced_members(row, members, rows)
-        params = result.params.model_dump(mode="json")
-        if params != row.params:
-            row.params = params
+    except PluginError as exc:
+        if not strict:
+            return
+        raise _refuse(exc) from exc
+    except FeatureExpressionError as exc:
+        if not strict:
+            return
+        raise ValidationApiError(exc.message, code=exc.code) from exc
+    members = result.params.expansion or []
+    check_tree_size(
+        expanded_size(r for r in rows if r.id != row.id) + len(members),
+        f"Reframing {row.name!r}, the part",
+    )
+    check_members_authorable(members, earlier_rows)
+    check_referenced_members(row, members, rows)
+    params = result.params.model_dump(mode="json")
+    if params != row.params:
+        row.params = params
 
 
 # --- evaluation ------------------------------------------------------------------
@@ -922,8 +969,10 @@ __all__ = [
     "is_body_affecting",
     "member_id_mapping",
     "member_targets",
+    "pickers_of",
     "prepare_custom_write",
     "reexpand_hosts",
+    "reexpand_pickers",
     "refresh_expansions",
     "remap_member_name",
     "router",

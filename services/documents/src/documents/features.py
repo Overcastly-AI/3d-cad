@@ -65,6 +65,7 @@ from documents.custom_features import (
     member_targets,
     prepare_custom_write,
     reexpand_hosts,
+    reexpand_pickers,
     stored_host_id,
 )
 from documents.feature_expressions import (
@@ -601,6 +602,9 @@ async def update_feature(
         feature.suppressed = envelope.suppressed
         await _rewrite_edges(session, part.id, feature.id, target_ids)
         await _reframe_hosts(session, part, [hosts_before, host_id(envelope)])
+        # A roof on its walls re-lays when a picked wall changes: refused
+        # if that drops, or renumbers, a member a later feature references.
+        reexpand_pickers(part, await _ordered_features(session, part.id), feature.id)
     if request.name is not None:
         feature.name = request.name
 
