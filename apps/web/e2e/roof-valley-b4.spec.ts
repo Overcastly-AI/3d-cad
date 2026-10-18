@@ -16,7 +16,7 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * walls ticked in the Walls checklist, builds 52 roof members: the cut list
  * lists 1 Valley and 4 Valley jack (two lengths, 51.641 and 24.808 on the
  * line) after the walls' 85 members. A reload keeps the picks, pinned to
- * loft.roof 1.2.0.
+ * loft.roof 1.3.0 (the latest Roof).
  */
 
 const IN = 25.4;
@@ -32,7 +32,7 @@ const WALLS: [string, number, number, number, number][] = [
   ["Left wall", 0, 123.5, 90, 113],
 ];
 
-/** buildings.md B4's roof table at overall lengths; loft.roof 1.2.0 rips
+/** buildings.md B4's roof table at overall lengths; loft.roof 1.2.0 and later rip
  * the hip and valley tails to the commons' depth (ROOF-HIP-TAIL). */
 const ROOF: CutRow[] = [
   ["Common", "18", "82.4099", "8 ft"],
@@ -151,7 +151,7 @@ test.describe("Roof — B4's L-shaped hip and valley roof on picked walls", () =
     await page.mouse.move(800, 990);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/roof-valley-b4.png` });
 
-    // A reload keeps the roof and its picks, pinned to 1.2.0.
+    // A reload keeps the roof and its picks, pinned to 1.3.0 (the latest Roof).
     await page.reload();
     await expect(rows).toHaveCount(7);
     await expectSolved(page);
@@ -169,7 +169,7 @@ test.describe("Roof — B4's L-shaped hip and valley roof on picked walls", () =
         }[];
       }
     ).features[6]?.feature.params;
-    expect(roof?.plugin_version).toBe("1.2.0");
+    expect(roof?.plugin_version).toBe("1.3.0");
     expect(roof?.inputs.style).toBe("hip");
     expect((roof?.inputs.walls as unknown[]).length).toBe(6);
   });
