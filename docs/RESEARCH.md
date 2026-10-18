@@ -2282,6 +2282,58 @@ and reframe it, a material per member, and a cut list that is always current.
     1.7e-6 mm³. The hole is a Boolean subtract because the Hole feature cuts
     the ACTIVE body (the last one built), not the picked face's body
     (HOLE-ACTIVE-BODY).
+- **Decided while fixing renumbered roof members** (ROOF-MEMBER-RENUMBER,
+  2026-10-18; the wall's rules above, Chief Architect's and Medeek's rafter
+  layout from a ridge end, framing-square practice):
+  - *The bug.* `loft.roof` 1.0.0-1.2.0 number members in emission order.
+    Lengthening B3 by one spacing (144 -> 168) turns 1.2.0's `common/3` from
+    the front ridge-end common at X 60 into the left king common (a back
+    common is emitted first); the 1.0.0 gable's `rafter/12` passes from the
+    front end rafter to a layout rafter.
+  - *1.3.0 is 1.2.0 renamed.* Same inputs, members, order and geometry
+    (a test proves it member for member over ten gable, hip and L cases),
+    every member named; new roofs are inserted at 1.3.0.
+  - *What a name says.* A PLANE by the way its wall faces in the world
+    (`front` is -Y, `left` -X; `_notch` for the two walls at an L's inside
+    corner), never by the canonical frame or the pick, so picking the walls
+    in another order, or redrawing them, renames nothing, and no name embeds
+    a feature id (copies and imports re-mint ids whole). A common by its slot
+    on the ridge layout from the ridge-end common, the layout's origin as a
+    framer measures it (`front/ridge/start`, `.../ridge/slot/n`,
+    `.../ridge/end` for the flush far one); a king by its plane
+    (`left/king`); a jack, valley jack or cripple by the hip it runs to and
+    its count on the spacing from the end common (`front/left/1`); a hip,
+    valley or ridge by the two planes it divides (`back/left`); the gable's
+    rafters by side and slot (`front/slot/3`, `front/end`). Sections,
+    cutters, trims and midplanes are named after their member, offset datums
+    by base, offset (to 1e-9 in) and flip (`yz/59.25`). Nothing is numbered
+    by count, so a length, overhang or pitch change keeps the name of every
+    member that stays; members of the far end keep theirs and move with it.
+  - *The guard.* 1.0.0-1.2.0 list their renumbered roles (1.2.0: all but the
+    valley; 1.1.0: all but its four corner hips and its ridge; 1.0.0:
+    planes, sections, rafters), so WALL-MEMBER-RENUMBER's placement check
+    refuses an edit to an old roof that moves a referenced member. It also
+    refuses a pitch edit when a rafter is referenced: its profile moves.
+    A write to a wall now re-expands the roofs that pick it and runs the
+    same check (a roof the new walls cannot frame still reports that at
+    rebuild, so a wall can be redrawn in steps).
+  - *Coincident layout lines.* An L's wing jacks are laid out from the king
+    toward the narrow arm's ridge end, and where that lands on the flush
+    ridge-end common (arms differing by twice a multiple of the spacing) it
+    can arrive an ulp off; 1.2.0 deduplicates positions exactly and frames
+    two coincident commons (25 of 64 constructed footprints). 1.3.0 counts
+    lines within 1e-9 in as one, the first series (king, ridge layout,
+    jacks) naming it. No other comparison in the roof layout drops or
+    doubles a member: the rest carry 1e-9 or wider margins.
+  - *Goldens.* `b3-hip-v1.3-hole-common` / `-168-hole-common` and
+    `b3-hip-v1.3-hole-jack` / `-8-12-hole-jack`: B3 at 1.3.0 with a 1 in
+    hole through the front ridge-end common (lengthened by 24) and through
+    the jack at X 36 (re-pitched to 8/12). Derived from `b3-hip-6-12` and
+    `-8-12` (1.1.0) less ROOF-HIP-TAIL's rip, which on B3 is a sheared prism
+    under each hip's tail, vertical thickness P_hip - (P_common - drop) over
+    a 1.5 x 12 sqrt 2 plan (45.967 in³ at 6/12, as B4's), plus a pair of
+    commons and 24 in of ridge, and the bore; the kernel meets them to
+    1.2e-7 mm³.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

@@ -47,6 +47,27 @@ ROOF-VALLEY.
    on the end joist. Under 1.0.0 both edits are a 409 naming the hole. The
    1.0.0 goldens stay byte-identical.
 1. [x] **FLOOR-FRAME** (`loft.floor`, homes; kernel-architect): a platform
+0. [x] **ROOF-MEMBER-RENUMBER** (fix now: silent wrong geometry;
+   kernel-architect): `loft.roof` 1.0.0-1.2.0 number rafters, jacks, hips
+   and ridges in emission order, so lengthening B3 hands 1.2.0's `common/3`
+   (the front ridge-end common) to the left king. `loft.roof` 1.3.0 is 1.2.0
+   renamed: planes by world facing (`front`, `left_notch`), commons by
+   ridge-layout slot (`front/ridge/start`), kings by plane, jacks by hip and
+   count (`front/left/1`), hips, valleys and ridges by the two planes they
+   divide. New roofs are inserted at 1.3.0; 1.0.0-1.2.0 list their
+   renumbered roles, so documents refuses (409) an edit that moves a
+   referenced member, including from a write to a picked wall.
+   _Accept:_ goldens `b3-hip-v1.3-hole-common` / `-168-hole-common` (hole
+   in the front ridge-end common, roof lengthened 24) and
+   `b3-hip-v1.3-hole-jack` / `-8-12-hole-jack` (hole in the jack at X 36,
+   re-pitched), derived from the B3 goldens and closed forms; the old roof
+   goldens unchanged; e2e `roof-member-renumber`.
+   _Notes:_ the guard refuses any pitch edit of an old roof whose rafter is
+   referenced (its profile moves). 1.3.0 also merges layout lines within
+   1e-9 in: 1.2.0 frames two coincident commons where an L's wing jacks
+   reach the flush ridge-end common an ulp off (25 of 64 constructed L
+   footprints); stored 1.2.0 roofs keep them (see Notes).
+1. [ ] **FLOOR-FRAME** (`loft.floor`, homes; kernel-architect): a platform
    floor, as in Chief Architect's floor framing and Medeek Foundation. It
    takes a rectangle (start point, width, depth, direction), a joist profile,
    spacing and direction (along the depth by default), and a base elevation
@@ -262,7 +283,9 @@ One line each. The founder triages weekly; most are closed without work.
 - TIMBER-SPECIES: the frame defaults to Douglas fir-larch (`dfl_lumber`), whose density is NDS's kiln-dried value; timbers are sold green and weigh more until seasoned.
 
 - WALL-UPDATE-REBIND: re-pinning a 1.0.0 wall or deck to 1.1.0 renames every member, so it is a 409 while any member is referenced; 1.1.0 keeps 1.0.0's (role, index) for the same inputs, so documents could rebind the references in the same step (Onshape's update badge). No pin-update UI exists yet.
-- ROOF-MEMBER-RENUMBER: `loft.roof` 1.0.0-1.2.0 number rafters, jacks and cripples in emission order, so a length edit can hand a referenced rafter's id to another rafter silently, as walls did; the WALL-MEMBER-RENUMBER guard is not declared for roofs (it would also refuse the pitch edit, which moves every rafter's profile). Same severity class as WALL-MEMBER-RENUMBER: founder to rank.
+- ROOF-L-DOUBLED-COMMON: a stored `loft.roof` 1.2.0 L whose wing jack layout lands an ulp off the flush ridge-end common frames two coincident commons (overlap, doubled cut-list line; 25 of 64 constructed footprints, B4 and its 48 in wing unaffected). 1.3.0 frames one; re-pinning is refused while a member is referenced (renames everything). Founder to rank.
+- ROOF-PICKER-SUPPRESS: suppressing a wall a roof picks does not run the roof's referenced-member check (a write to the wall does, ROOF-MEMBER-RENUMBER); the roof then fails at rebuild, as before.
+- MEMBER-NAME-WIRE-TEXT: `loft_wire.plugins.MemberNameField`'s description names wall and deck 1.1.0 only; loft.roof 1.3.0 names members too (text only, regenerates contracts).
 - HOLE-ACTIVE-BODY: the Hole feature (and the on_face datum) resolves the picked face against the ACTIVE body, the last one built, so on a framed part a hole on a stud face is `hole_off_body` or cuts the last member; Fusion's Hole cuts the picked face's body. The renumber goldens use a Boolean subtract naming the stud.
 - BOOLEAN-EMPTY-CUT: a Boolean subtract whose tool misses its target removes nothing with no error or warning (how 1.0.0's renumbered hole vanished); SolidWorks' Combine reports a tool that does not intersect.
 - WALL-GUARD-STRICT: the 1.0.0 guard compares a referenced member's placement, so a 1.0.0 joist that only lengthens (a deeper deck) is refused too; an ordinal id cannot tell growth from a renumber.
