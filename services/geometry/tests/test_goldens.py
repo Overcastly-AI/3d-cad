@@ -258,6 +258,12 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # ~9.2e8 mm^3, the posts' bores re-integrated (1.5e-6 at worst).
         "b6-frame-12x16",
         "b6-frame-14x16",
+        # B3 at 1.3.0 with a hole in one rafter, before and after the edits
+        # that renumbered 1.2.0 (ROOF-MEMBER-RENUMBER): b3-hip's STEP rounding.
+        "b3-hip-v1.3-hole-common",
+        "b3-hip-v1.3-168-hole-common",
+        "b3-hip-v1.3-hole-jack",
+        "b3-hip-v1.3-8-12-hole-jack",
     }
 )
 
