@@ -503,7 +503,56 @@ def test_names_are_places_not_counts() -> None:
     assert joists[-1] == "end/bay/2"
     guard = deck(guard="open_sides")
     posts = [m.name for m in guard if m.role == "guard_post"]
-    assert posts[0] == "left/0" and "front/1" in posts and posts[-1] == "right/2"
+    assert posts[0] == "left/0" and "front/1" in posts and posts[-1] == "right/end"
+    door_cripples = [m.name for m in walls["front"] if m.role == "cripple"]
+    assert door_cripples == ["slot/4", "slot/5"]  # at 64 and 80
+
+
+def test_a_cripple_is_named_by_the_slot_it_stands_at() -> None:
+    """Widening B2's door 36 -> 52 in (RO 54, framing 42..102) adds the
+    cripple at slot 3 (48) and keeps slots 4 and 5 (64, 80) where they were:
+    no reference to a cripple can pass to the one beside it."""
+    narrow = b2(door=B2_DOOR)["front"]
+    wide = b2(door={**B2_DOOR, "width_mm": 52 * IN})["front"]
+    assert [m.name for m in wide if m.role == "cripple"] == [
+        "slot/3",
+        "slot/4",
+        "slot/5",
+        "slot/6",
+    ]
+    for name in ("slot/4", "slot/5"):
+        a, b = by_name(narrow, "cripple", name), by_name(wide, "cripple", name)
+        assert a.id == b.id and plan_box(narrow, a) == plan_box(wide, b)
+    window = b2(window=B2_WINDOW)["right"]
+    assert [m.name for m in window if m.role == "sill_cripple"] == [
+        "slot/3",
+        "slot/4",
+    ]
+
+
+def test_widening_the_deck_keeps_the_end_posts_and_guards_the_rest() -> None:
+    """16 -> 20 ft: each beam line's far post is ``<line>/end`` before and
+    after; the middle posts are shared out again, so their role is listed as
+    renumbered and documents refuses a move of a referenced one."""
+    new16, new20 = deck(), deck(width_mm=240 * IN)
+    assert [m.name for m in new16 if m.role == "post"] == [
+        "outer/0",
+        "outer/1",
+        "outer/end",
+    ]
+    assert [m.name for m in new20 if m.role == "post"] == [
+        "outer/0",
+        "outer/1",
+        "outer/2",
+        "outer/end",
+    ]
+    end16, end20 = (
+        by_name(new16, "post", "outer/end"),
+        by_name(new20, "post", "outer/end"),
+    )
+    assert end16.id == end20.id
+    assert plan_box(new20, end20)[1] == 240.0
+    assert DECK_V1_1.renumbered_roles == {"post", "guard_post", "rail", "baluster"}
 
 
 # --- Coincident faces: the float class (1.1.0 compares with a tolerance) ---------

@@ -2032,7 +2032,7 @@
       }
     },
     {
-      "id": "9d96c748-01fa-5b72-adc5-502d8fc529cc",
+      "id": "9fd9f3a6-c4bd-5c1e-bf37-dea7c025b15a",
       "feature": {
         "suppressed": false,
         "type": "sketch",
@@ -2101,7 +2101,7 @@
       }
     },
     {
-      "id": "f0748b2f-e849-53de-bafa-dee1871d485f",
+      "id": "f298e0e8-c8d5-546a-8e2c-3e2cf26705b9",
       "feature": {
         "suppressed": false,
         "type": "extrude",
@@ -2109,7 +2109,7 @@
         "params": {
           "profile": {
             "kind": "feature",
-            "feature_id": "9d96c748-01fa-5b72-adc5-502d8fc529cc"
+            "feature_id": "9fd9f3a6-c4bd-5c1e-bf37-dea7c025b15a"
           },
           "distance_mm": 266.7,
           "operation": "add",
@@ -4572,7 +4572,7 @@
         "material": "southern_pine_pt"
       },
       {
-        "base_feature_id": "f0748b2f-e849-53de-bafa-dee1871d485f",
+        "base_feature_id": "f298e0e8-c8d5-546a-8e2c-3e2cf26705b9",
         "material": "southern_pine_pt"
       },
       {

@@ -379,6 +379,9 @@ OPENING_PLUGINS: dict[str, Literal["door", "window"]] = {
 #: An opening built without a feature (a test's): 1.1.0 names need one.
 _NO_FEATURE = uuid.UUID(int=0)
 
+#: An opening's members that stand at a layout slot (1.1.0 names them by it).
+_AT_SLOTS = frozenset({"cripple", "sill_cripple"})
+
 #: An opening's member roles, in emission (and cut list) order.
 _OPENING_ROLES = ("king", "jack", "header", "cripple", "sill", "sill_cripple")
 
@@ -575,7 +578,18 @@ def frame_opening(wall: WallSpec, opening: Opening, named: bool = False) -> Fram
     ]
     if header_top < stud_top:
         pieces["cripple"] = [
-            Piece("cripple", stud, mat, p.u0, p.u1, 0.0, depth, header_top, stud_top)
+            Piece(
+                "cripple",
+                stud,
+                mat,
+                p.u0,
+                p.u1,
+                0.0,
+                depth,
+                header_top,
+                stud_top,
+                p.name,
+            )
             for p in replaced
             if p.u0 >= b - tol and p.u1 <= e + tol
         ]
@@ -585,12 +599,29 @@ def frame_opening(wall: WallSpec, opening: Opening, named: bool = False) -> Fram
         ]
         if sill_bottom > t:
             pieces["sill_cripple"] = [
-                Piece("sill_cripple", stud, mat, p.u0, p.u1, 0.0, depth, t, sill_bottom)
+                Piece(
+                    "sill_cripple",
+                    stud,
+                    mat,
+                    p.u0,
+                    p.u1,
+                    0.0,
+                    depth,
+                    t,
+                    sill_bottom,
+                    p.name,
+                )
                 for p in replaced
                 if p.u0 >= u0 - tol and p.u1 <= u1 + tol
             ]
     if named:
-        pieces = {role: _named(members, opening) for role, members in pieces.items()}
+        # A cripple stands at the layout slot it replaces and keeps that
+        # stud's name (`slot/5`), so resizing the opening never hands its
+        # name to the cripple beside it; the rest are named by the opening.
+        pieces = {
+            role: members if role in _AT_SLOTS else _named(members, opening)
+            for role, members in pieces.items()
+        }
     return Framing(a, f, pieces)
 
 

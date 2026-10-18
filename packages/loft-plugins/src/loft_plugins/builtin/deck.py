@@ -505,6 +505,14 @@ class _Beam:
     hi: float
 
 
+def _ordinal(k: int, count: int) -> str:
+    """1.1.0's name for the *k*-th of *count* equally spaced members (posts,
+    guard posts, bays): the far one is ``end``, so widening keeps the end
+    member's name. The others move when the length is shared out again, so
+    their roles are also guarded (``renumbered_roles``)."""
+    return "end" if k == count - 1 else str(k)
+
+
 def joist_names(count: int) -> list[str]:
     """The 1.1.0 names of :func:`joist_centres`' *count* joists, in order:
     the start end joist, ``slot/n`` for the layout joist at ``n x spacing``,
@@ -692,7 +700,8 @@ def _expand(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
     # thickness runs along the beam and its width across it.
     pt, pw = post.thickness_in, post.width_in
     for line, line_name in zip(beams, line_names, strict=True):
-        for k, a in enumerate(equal_centres(span_a, pt, post_spacing)):
+        centres_a = equal_centres(span_a, pt, post_spacing)
+        for k, a in enumerate(centres_a):
             yield from e.member(
                 "post",
                 post,
@@ -702,7 +711,7 @@ def _expand(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
                 ),
                 0.0,
                 beam_bottom,
-                f"{line_name}/{k}",
+                f"{line_name}/{_ordinal(k, len(centres_a))}",
             )
 
     # Decking across the joists, from the house side.
@@ -751,8 +760,8 @@ def _guard(
         sides.append(("back", "x", half, width, True))
     posts: list[tuple[float, float, str]] = []
     seen: set[tuple[float, float]] = set()
-    # side name, bay number, axis, line, from, to
-    bays: list[tuple[str, int, Axis, float, float, float]] = []
+    # side name, bay name, axis, line, from, to
+    bays: list[tuple[str, str, Axis, float, float, float]] = []
 
     def add_post(x: float, y: float, name: str) -> None:
         # A corner post is shared by two sides: dedupe on the position to
@@ -767,10 +776,12 @@ def _guard(
         if backwards:
             along = along[::-1]
         for k, s in enumerate(along):
-            add_post(*((s, line) if axis == "x" else (line, s)), f"{side}/{k}")
+            name = f"{side}/{_ordinal(k, len(along))}"
+            add_post(*((s, line) if axis == "x" else (line, s)), name)
         for bay, (s0, s1) in enumerate(itertools.pairwise(along)):
             lo, hi = min(s0, s1), max(s0, s1)
-            bays.append((side, bay, axis, line, lo + half, hi - half))
+            bay_name = _ordinal(bay, len(along) - 1)
+            bays.append((side, bay_name, axis, line, lo + half, hi - half))
 
     top = floor + GUARD_HEIGHT
     for x, y, name in posts:
@@ -848,4 +859,9 @@ MANIFEST_V1_1 = MANIFEST_V1.model_copy(
 )
 
 DECK_V1 = Plugin(MANIFEST_V1, expand, renumbered_roles=_RENUMBERED)
-DECK_V1_1 = Plugin(MANIFEST_V1_1, expand_v1_1)
+#: 1.1.0's equally spaced roles: a post or guard member other than an end
+#: one moves along when the deck is resized (its number is a share of the
+#: length, not a place), so a write that moves a referenced one is refused.
+_SHARED_OUT = frozenset({"post", "guard_post", "rail", "baluster"})
+
+DECK_V1_1 = Plugin(MANIFEST_V1_1, expand_v1_1, renumbered_roles=_SHARED_OUT)

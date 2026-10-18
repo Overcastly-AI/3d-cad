@@ -2209,15 +2209,23 @@ and reframe it, a material per member, and a cut list that is always current.
     golden is byte-identical. A name is lowercase slash-separated segments,
     the first starting with a letter, so it never reads as an index.
   - *What a name says.* Wall 1.1.0: a layout stud by its slot (`start`,
-    `slot/n` at n x spacing from the start, `end`), an opening's members by
-    the opening's feature id and their order in it (`opening/<id>/0`), the
+    `slot/n` at n x spacing from the start, `end`), a cripple by the slot
+    it stands at, an opening's kings, jacks, header plies and sill by the
+    opening's feature id and their order in it (`opening/<id>/0`), the
     bottom plate by what starts it (`start`, `opening/<door-id>`), a top
     plate by its course, a section by its member (`stud/slot/8`) and a level
     by its height (`z/94.125`). Deck 1.1.0: joists by slot (and bay when a
     flush beam cuts them), blocking by the joist it follows, plies and posts
-    by beam line (`outer/ply/0`), boards by row, guard members by side and
-    bay. A slot depends on the spacing alone, so nothing outside a member
-    renames it.
+    by beam line (`outer/ply/0`, `outer/end`), boards by row, guard members
+    by side and bay. A slot depends on the spacing alone, so nothing outside
+    a member renames it. Posts and guard members are equally spaced: their
+    number is a share of the length, not a place, so deck 1.1.0 still lists
+    `post`, `guard_post`, `rail` and `baluster` as renumbered roles and the
+    guard below refuses a move of a referenced one (the end post included).
+  - *Copies.* A name can hold a feature id (`opening/<door-id>/0`), so
+    duplicate and `.loft` import rewrite every name segment through the id
+    map, and derive the member's new id from the rewritten name; the copy's
+    stored expansion is then exactly its own re-expansion.
   - *1.1.0 is 1.0.0 renamed.* Same members, same order, same geometry, so
     the cut list and every golden's bodies are unchanged; a test proves it
     member for member over 14 wall and deck cases. New walls and decks are
