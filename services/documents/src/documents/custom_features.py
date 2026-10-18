@@ -856,6 +856,14 @@ def retabled(
         return None
 
 
+def remap_member_name(name: str, mapping: Mapping[str, str]) -> str:
+    """A member's name on a copy that re-mints ids: every segment that is an
+    old id becomes its new one (a 1.1.0 wall names an opening's members
+    after the opening, ``opening/<door-id>/0``), so the copy's names are the
+    ones its own re-expansion gives (WALL-MEMBER-RENUMBER)."""
+    return "/".join(mapping.get(segment, segment) for segment in name.split("/"))
+
+
 def member_id_mapping(
     features: Iterable[tuple[uuid.UUID, str, Mapping[str, Any]]],
     mapping: Mapping[str, str],
@@ -877,7 +885,7 @@ def member_id_mapping(
                     uuid.UUID(new),
                     role,
                     index,
-                    None if name is None else str(name),
+                    None if name is None else remap_member_name(str(name), mapping),
                 )
             )
     return out
@@ -917,6 +925,7 @@ __all__ = [
     "prepare_custom_write",
     "reexpand_hosts",
     "refresh_expansions",
+    "remap_member_name",
     "router",
     "stored_host_id",
 ]

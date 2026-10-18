@@ -77,6 +77,7 @@ from documents.custom_features import (
     expanded_size,
     member_id_mapping,
     refresh_expansions,
+    remap_member_name,
 )
 from documents.duplicate import remap_ids, taken_names
 from documents.features import (
@@ -195,6 +196,9 @@ def remap_loft_params(value: Any, mapping: dict[str, str]) -> Any:
         for key, item in entries.items():
             if key in _TOPO_NAME_KEYS and isinstance(item, str):
                 out[key] = _rewrite_topo_name(item, mapping)
+            elif key == "name" and isinstance(item, str) and "/" in item:
+                # A generated member's name may hold an id as one segment.
+                out[key] = remap_member_name(item, mapping)
             else:
                 out[mapping.get(key, key)] = remap_loft_params(item, mapping)
         return out

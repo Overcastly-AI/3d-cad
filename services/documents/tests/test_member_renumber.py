@@ -425,3 +425,89 @@ def test_a_copy_and_an_import_carry_the_hole_to_the_copied_stud(
     )
     assert imported.status_code == 201, imported.text
     follows(str(imported.json()["id"]))
+
+
+def test_a_copy_and_an_import_rename_members_named_after_the_door(
+    client: TestClient,
+) -> None:
+    """A 1.1.0 king is named after its door (``opening/<door-id>/0``). A copy
+    re-mints the door's id, so the king's stored name, its id and the hole's
+    reference all follow it: the copy's stored expansion is exactly what its
+    own re-expansion gives, and its hole names a king that exists."""
+    part = Part(client, "B2 front wall, hole in the king")
+    wall = part.added(_custom("loft.wall", "1.1.0", FRONT), "Front wall")
+    door = part.added(_door(wall, 72), "Door 1")
+    king = member_id(uuid.UUID(wall), "king", 0, f"opening/{door}/0")
+    assert king in part.members(wall)
+    part.drill(king, XZ, (144 - 50.75, 48), 7)
+
+    def rebuilds_like_its_source(part_id: str) -> None:
+        rows = client.get(f"/api/v1/parts/{part_id}/features", headers=HEADERS)
+        features = rows.json()["features"]
+        wall_row, door_row, cut = features[0], features[1], features[-1]
+        assert door_row["id"] != door
+        new_king = member_id(
+            uuid.UUID(wall_row["id"]), "king", 0, f"opening/{door_row['id']}/0"
+        )
+        assert cut["feature"]["params"]["target"]["feature_id"] == str(new_king)
+        stored = {m["id"]: m for m in wall_row["feature"]["params"]["expansion"]}
+        assert stored[str(new_king)]["name"] == f"opening/{door_row['id']}/0"
+        assert not any(door in str(m.get("name")) for m in stored.values())
+        # The evaluation re-expands the wall: same ids as stored, and the
+        # hole's target is one of its bodies.
+        response = client.get(
+            f"/api/v1/parts/{part_id}/evaluation-request", headers=HEADERS
+        )
+        assert response.status_code == 200, response.text
+        request = EvaluateTreeRequest.model_validate_json(response.content)
+        sent = {str(e.id) for e in request.features}
+        assert set(stored) <= sent
+        assert all(
+            e.input_error is None for e in request.features if str(e.id) in stored
+        )
+        bodies = {e.id for e in request.features if e.feature.type == "extrude"}
+        assert new_king in bodies
+        # Saving the copy's wall unchanged re-expands it to the same members.
+        copy = Part(client, "unused")
+        copy.id, copy.version = part_id, int(rows.json()["tree_version"])
+        same = copy.patch(wall_row["id"], _custom("loft.wall", "1.1.0", FRONT))
+        assert same.status_code == 200, same.text
+        assert {str(k) for k in copy.members(wall_row["id"])} == set(stored)
+
+    duplicated = client.post(f"/api/v1/parts/{part.id}/duplicate", headers=HEADERS)
+    assert duplicated.status_code == 201, duplicated.text
+    rebuilds_like_its_source(str(duplicated.json()["id"]))
+    tree = client.get(f"/api/v1/parts/{part.id}/loft-tree", headers=HEADERS).json()
+    imported = client.post(
+        "/api/v1/parts/import-loft",
+        json={"document_id": part.id, "tree": tree},  # ids taken: re-minted
+        headers=HEADERS,
+    )
+    assert imported.status_code == 201, imported.text
+    rebuilds_like_its_source(str(imported.json()["id"]))
+
+
+def test_1_1_widening_the_deck_is_refused_for_a_shared_out_post(
+    client: TestClient,
+) -> None:
+    """Deck 1.1.0 posts are equally spaced: widening 16 -> 20 ft moves
+    ``post/outer/1`` along the beam, so a hole in it is a 409; the end post
+    keeps its name and the edit goes through with a hole in it."""
+    part, deck, _, row = _deck_with_hole(client, "1.1.0")
+    middle = member_id(uuid.UUID(deck), "post", 0, "outer/1")
+    assert middle in part.members(deck)
+    hole = part.drill(middle, XZ, (96, 5), 8)
+    _refused_naming_the_hole(_widen(part, row), hole)
+
+
+def test_1_1_widening_the_deck_is_refused_for_the_end_post_too(
+    client: TestClient,
+) -> None:
+    """The end post keeps its name (``outer/end``) but moves 48 in with the
+    deck's side; its role is guarded, so a hole in it is refused rather than
+    left in the air (a conservative reading, as WALL-GUARD-STRICT)."""
+    part, deck, _, row = _deck_with_hole(client, "1.1.0")
+    end = member_id(uuid.UUID(deck), "post", 0, "outer/end")
+    assert end in part.members(deck)
+    hole = part.drill(end, XZ, (189.25, 5), 8)
+    _refused_naming_the_hole(_widen(part, row), hole)
