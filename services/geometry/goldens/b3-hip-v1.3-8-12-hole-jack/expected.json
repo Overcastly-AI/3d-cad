@@ -11,7 +11,7 @@
     "",
     "MESH counts are the kernel's, recorded: the bore is tessellated at linear_deflection 0.1."
   ],
-  "tolerance": 1e-06,
+  "tolerance": 1e-6,
   "tolerance_rationale": "b3-hip-8-12's bound, unchanged. Measured 2026-10-18 against the derivation: <= 1.2e-7 mm^3 on the volume, <= 4.9e-8 mm^2 on the area, <= 2.3e-12 mm on the centroid and centre of mass, <= 5.9e-11 g on the mass. 1e-6 is 8x the worst; the bore is 7 238 mm^3, so a hole in the wrong body or missing fails by orders of magnitude.",
   "roundtrip_tolerance": 0.001,
   "roundtrip_tolerance_rationale": "b3-hip-8-12's reviewed bound (OCCT's STEP rounds the sloped members' coordinates; a build123d twin drifts the same), unchanged; the bore adds no sloped face.",
