@@ -115,6 +115,9 @@ def _resolve_operand_body(
 ) -> BodyShape | FeatureError:
     """Resolve a boolean operand FeatureRef to its CURRENT body solid (§MB-1).
 
+    Also resolves a Hole's Feature Scope entries (the same body-by-base-feature
+    reference). *slot* names the referencing slot in the message.
+
     An operand names a body by its BASE feature id — the key of
     ``state.bodies`` (§MB-0 Decision 1) — so resolution is a single dict lookup
     of the operand's CURRENT geometry (every modifier already applied). A miss is
@@ -130,7 +133,7 @@ def _resolve_operand_body(
         return FeatureError(
             code="reference_unresolved",
             message=(
-                f"Boolean {slot} must reference an earlier body-creating feature "
+                f"{slot} must reference an earlier body-creating feature "
                 "that still holds a distinct body of this part; the referenced "
                 "feature is not a current body (it may have been merged into "
                 "another body or consumed by an earlier boolean)."
@@ -180,10 +183,10 @@ def _evaluate_boolean(
             upstream_feature_id=params.tool.feature_id,
         )
 
-    target = _resolve_operand_body(params.target, state, slot="target")
+    target = _resolve_operand_body(params.target, state, slot="Boolean target")
     if isinstance(target, FeatureError):
         return target
-    tool = _resolve_operand_body(params.tool, state, slot="tool")
+    tool = _resolve_operand_body(params.tool, state, slot="Boolean tool")
     if isinstance(tool, FeatureError):
         return tool
 

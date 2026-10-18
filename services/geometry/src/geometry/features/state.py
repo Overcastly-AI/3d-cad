@@ -298,13 +298,15 @@ class EvaluationState:
     def face_names(self) -> list[str | None]:
         """The ACTIVE body's face names, aligned with ``active_body.faces()``
         (empty with no active body)."""
-        active = self.active_body
-        if active is None or self.active_body_id is None:
+        if self.active_body_id is None:
             return []
-        names = self.topo_names.get(self.active_body_id)
-        return (
-            [None] * len(active.faces()) if names is None else names.face_names(active)
-        )
+        return self.body_face_names(self.active_body_id)
+
+    def body_face_names(self, body_id: uuid.UUID) -> list[str | None]:
+        """Body *body_id*'s face names, aligned with its ``faces()``."""
+        body = self.bodies[body_id]
+        names = self.topo_names.get(body_id)
+        return [None] * len(body.faces()) if names is None else names.face_names(body)
 
     def record_cut_tools(self, feature_id: uuid.UUID, tools: list[Solid]) -> None:
         """Record the removal tool(s) an ok CUT feature just subtracted.
@@ -444,6 +446,25 @@ class EvaluationState:
         """
         body_id = self.active_body_id
         assert body_id is not None, "no active body to modify"
+        self.set_body(
+            body_id, shape, generated, merged, worked_on=worked_on, volume=volume
+        )
+
+    def set_body(
+        self,
+        body_id: uuid.UUID,
+        shape: BodyShape,
+        generated: NameHook = (),
+        merged: Sequence[MergedFaces] = (),
+        *,
+        worked_on: BodyShape | None = None,
+        volume: float | None = None,
+    ) -> None:
+        """:meth:`set_active_body` for the body *body_id*, active or not.
+
+        A feature that modifies the body OWNING a picked face (the Hole,
+        HOLE-ACTIVE-BODY) writes through here; the active body is unchanged.
+        """
         before = self.bodies[body_id]
         consumed = before if worked_on is None else worked_on
         self.bodies[body_id] = self._admit(shape, consumed)

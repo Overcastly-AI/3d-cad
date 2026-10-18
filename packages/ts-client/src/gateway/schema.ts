@@ -7785,7 +7785,8 @@ export interface components {
          * @description A face-placed cylindrical hole — through-all or blind, plain or recessed.
          *
          *     The dedicated Hole feature (BACKLOG P2): drill a straight cylinder of
-         *     ``diameter_mm`` into the current body at ``position`` on the planar ``face``,
+         *     ``diameter_mm`` into the body that OWNS the planar ``face`` (in a multi-body
+         *     part, the body whose face was picked — not the last one built), at ``position``,
          *     cutting INTO the material (opposite the face's outward normal — the correct
          *     direction, chosen automatically, no direction knob to get wrong). Like a
          *     fillet/shell/draft it modifies the implicit single body chain (design §7.6),
@@ -7844,6 +7845,11 @@ export interface components {
             face_y_mm?: number | null;
             /** @description World-space placement point, projected onto the face plane to fix the drill axis (mm) */
             position: components["schemas"]["Vec3"];
+            /**
+             * Scope Bodies
+             * @description Feature Scope (SolidWorks): further bodies a THROUGH-ALL bore also cuts, each named by its base (body-creating) feature. `null`/omitted cuts only the body that owns `face` (the Fusion 360 / SolidWorks default). The bore cuts each listed body coaxially; a counterbore / countersink recess seats in the owner only. A listed body the bore cannot reach is `hole_off_body`
+             */
+            scope_bodies?: components["schemas"]["FeatureRef"][] | null;
             /** @description Optional COSMETIC thread callout making this a TAPPED hole (`null`/omitted = untapped). Carries the designation for drawing/BOM callouts; adds no geometry — `diameter_mm` is the tap-drill bore (:class:`IsoMetricThread`) */
             thread?: components["schemas"]["IsoMetricThread"] | null;
             /**

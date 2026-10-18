@@ -5372,7 +5372,7 @@
         "type": "object"
       },
       "HoleParamsV1": {
-        "description": "A face-placed cylindrical hole \u2014 through-all or blind, plain or recessed.\n\nThe dedicated Hole feature (BACKLOG P2): drill a straight cylinder of\n``diameter_mm`` into the current body at ``position`` on the planar ``face``,\ncutting INTO the material (opposite the face's outward normal \u2014 the correct\ndirection, chosen automatically, no direction knob to get wrong). Like a\nfillet/shell/draft it modifies the implicit single body chain (design \u00a77.6),\nso it carries no whole-feature ``FeatureRef`` \u2014 its dependency on the prior\nbody-affecting feature is tree order. The placement face IS a named reference,\nthough: ``face`` is the SAME stage-1 planar-face :class:`SubshapeRef` the\n``on_face`` datum / shell openings resolve, so it materialises into\n``feature_dependencies`` (deleting that body feature is a 409-with-dependents;\na reorder re-checks strict-backward).\n\n``position`` is a WORLD point, projected onto the resolved face plane to fix\nthe drill axis; with ``face_x_mm``/``face_y_mm`` it is derived from them\n(:mod:`loft_wire.hole_placement`). Off the body is ``hole_off_body``.\n\n``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;\n``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the\navailable material is ``hole_too_deep``. A non-planar / missing / congruent\nface reference degrades exactly as the ``on_face`` datum does\n(``subshape_unresolved`` / ``subshape_ambiguous``) \u2014 planar faces only carry a\nsignature, so a non-planar pick cannot be authored.\n\n``type`` is a :data:`HoleType`: ``simple`` (the default when omitted \u2014 the\nslice-1 plain bore) or a bore PLUS a coaxial recess at the face \u2014\n``counterbore`` (a larger cylinder) or ``countersink`` (a cone). A recess\nwhose diameter does not exceed the bore is ``hole_cbore_invalid`` /\n``hole_csink_invalid``; a recess deeper than the material is ``hole_too_deep``.\n\n``thread`` (optional, ``None`` = an untapped hole) makes the hole TAPPED: a\ncosmetic :class:`IsoMetricThread` callout over the tap-drill bore, ORTHOGONAL\nto ``type`` (a counterbored tapped hole sets both). It adds NO geometry, so a\ntapped hole mirrors, patterns, shells and exports exactly as its bore does.\n``hole_thread_unsupported`` / ``hole_thread_mismatch`` refuse a bad callout.",
+        "description": "A face-placed cylindrical hole \u2014 through-all or blind, plain or recessed.\n\nThe dedicated Hole feature (BACKLOG P2): drill a straight cylinder of\n``diameter_mm`` into the body that OWNS the planar ``face`` (in a multi-body\npart, the body whose face was picked \u2014 not the last one built), at ``position``,\ncutting INTO the material (opposite the face's outward normal \u2014 the correct\ndirection, chosen automatically, no direction knob to get wrong). Like a\nfillet/shell/draft it modifies the implicit single body chain (design \u00a77.6),\nso it carries no whole-feature ``FeatureRef`` \u2014 its dependency on the prior\nbody-affecting feature is tree order. The placement face IS a named reference,\nthough: ``face`` is the SAME stage-1 planar-face :class:`SubshapeRef` the\n``on_face`` datum / shell openings resolve, so it materialises into\n``feature_dependencies`` (deleting that body feature is a 409-with-dependents;\na reorder re-checks strict-backward).\n\n``position`` is a WORLD point, projected onto the resolved face plane to fix\nthe drill axis; with ``face_x_mm``/``face_y_mm`` it is derived from them\n(:mod:`loft_wire.hole_placement`). Off the body is ``hole_off_body``.\n\n``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;\n``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the\navailable material is ``hole_too_deep``. A non-planar / missing / congruent\nface reference degrades exactly as the ``on_face`` datum does\n(``subshape_unresolved`` / ``subshape_ambiguous``) \u2014 planar faces only carry a\nsignature, so a non-planar pick cannot be authored.\n\n``type`` is a :data:`HoleType`: ``simple`` (the default when omitted \u2014 the\nslice-1 plain bore) or a bore PLUS a coaxial recess at the face \u2014\n``counterbore`` (a larger cylinder) or ``countersink`` (a cone). A recess\nwhose diameter does not exceed the bore is ``hole_cbore_invalid`` /\n``hole_csink_invalid``; a recess deeper than the material is ``hole_too_deep``.\n\n``thread`` (optional, ``None`` = an untapped hole) makes the hole TAPPED: a\ncosmetic :class:`IsoMetricThread` callout over the tap-drill bore, ORTHOGONAL\nto ``type`` (a counterbored tapped hole sets both). It adds NO geometry, so a\ntapped hole mirrors, patterns, shells and exports exactly as its bore does.\n``hole_thread_unsupported`` / ``hole_thread_mismatch`` refuse a bad callout.",
         "properties": {
           "depth": {
             "description": "Through-all, or a blind pocket depth (:data:`HoleDepth`)",
@@ -5430,6 +5430,21 @@
           "position": {
             "$ref": "#/components/schemas/Vec3",
             "description": "World-space placement point, projected onto the face plane to fix the drill axis (mm)"
+          },
+          "scope_bodies": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FeatureRef"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Feature Scope (SolidWorks): further bodies a THROUGH-ALL bore also cuts, each named by its base (body-creating) feature. `null`/omitted cuts only the body that owns `face` (the Fusion 360 / SolidWorks default). The bore cuts each listed body coaxially; a counterbore / countersink recess seats in the owner only. A listed body the bore cannot reach is `hole_off_body`",
+            "title": "Scope Bodies"
           },
           "thread": {
             "anyOf": [

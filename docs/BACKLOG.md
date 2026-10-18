@@ -21,6 +21,15 @@ STUD-WALL, WINDOW-DOOR, ROOF, B2-E2E, ROOF-HIP, PRICE-BOOK, CUT-LIST-PRICES,
 ROOF-VALLEY.
 
 0. [x] **WALL-MEMBER-RENUMBER** (fix now: silent wrong geometry;
+- [x] **HOLE-ACTIVE-BODY** (fix now: wrong geometry; kernel-architect): a
+  Hole cut the most recently built body, not the body whose face was picked,
+  so a hole on a stud failed or drilled another member. It now cuts the body
+  owning the face (Fusion/SolidWorks), with an optional SolidWorks-style
+  Feature Scope (`scope_bodies`) for a through-all bore. RESEARCH §28.
+  _Accept:_ goldens `hole-through-r5-first-of-two-bodies-40x25x10` and
+  `hole-scope-through-two-bodies-r3-40x25x10` match independent build123d
+  builds; all tree goldens rebuild byte-identical.
+0. [ ] **WALL-MEMBER-RENUMBER** (fix now: silent wrong geometry;
    kernel-architect): adding or moving an opening renumbers a wall's studs,
    and widening a deck renumbers its end joist, so a later feature on
    `stud/k` silently lands on another stud. SolidWorks and Fusion flag a

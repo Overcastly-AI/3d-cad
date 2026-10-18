@@ -2526,3 +2526,44 @@ property feeds a BOM column; Loft's price book feeds the cut list.
   twice $1,736.08 (`services/geometry/tests/test_cut_list_prices.py`); the
   same B1 numbers and CSV through the three services
   (`test_cut_list_chain.py`).
+
+## 28. Hole target body (HOLE-ACTIVE-BODY)
+
+A Hole used to resolve its face against, and cut, the ACTIVE body: the most
+recently built one. In a multi-body part (every framing plugin: one body per
+stud, plate or joist) a hole on an earlier member either failed
+(`hole_off_body`) or, when the active member had a congruent face, matched it
+through a resilient tier and drilled that member instead. Fusion 360 and
+SolidWorks cut the body the picked face belongs to.
+
+- **The owner is the body whose face matches best.** A stored face reference
+  holds a signature, not a body (its `feature_id` is the tip body feature at
+  pick time), so the evaluator matches it against every body at the
+  resolver's own tiers (`face_match_tier`, `face_owner_body_id`). The most
+  certain tier wins (exact < named < durable), so an exact match on a stud
+  beats a translated match on the last plate. A tie keeps the active body
+  when it is tied (the pre-fix answer, so nothing that resolved there moves)
+  and is otherwise `subshape_ambiguous`. No match anywhere falls back to the
+  active body, which fails as before. A one-body part never scans.
+- **The drilled body becomes active**, as a boolean's result or a new body
+  does, so a following pattern or mirror of the hole repeats it in that body.
+- **Feature Scope** (SolidWorks): `scope_bodies` lists further bodies,
+  by base feature (the boolean operand rule), that a through-all bore also
+  cuts. Absent means the owner only, which is also what keeps a through-all
+  hole on a stud from drilling every member behind it (SolidWorks'
+  auto-select would). One coaxial tool spans all of them; the counterbore or
+  countersink seats in the owner, where its depth is validated. A scoped body
+  the bore misses is `hole_off_body` pinned to it; a scope on a blind hole or
+  naming a body twice is a 422.
+- **Stored parts: fixed in place, not versioned.** The change can only alter
+  a multi-body tree whose hole resolved off its owner, and every such hole
+  was wrong: it failed (so nothing after it built) or drilled a member the
+  user did not pick. Versioning would keep that wrong geometry for every
+  stored framing part. A single-body part cannot change: all 132 tree goldens
+  (the 64-body walls included) rebuild to the same GLB and BREP bytes before
+  and after, and `test_single_body_hole_is_byte_identical_to_the_direct_cut`
+  pins it.
+- **Checked:** goldens `hole-through-r5-first-of-two-bodies-40x25x10` and
+  `hole-scope-through-two-bodies-r3-40x25x10`, each equal to a direct
+  build123d construction in volume, area, centroid, topology and mesh
+  (`tests/test_hole_owner_body.py`).

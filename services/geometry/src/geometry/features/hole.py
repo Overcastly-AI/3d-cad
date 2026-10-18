@@ -1,13 +1,15 @@
 """The Hole feature: a simple, counterbored or countersunk hole, optionally
 tapped (a cosmetic thread callout), placed on a picked planar face and cut from
-the active body.
+the body that owns that face (plus any bodies in its Feature Scope).
 """
 
 # Underscore names are private to the geometry.features package rather than to
 # one module, so importing them from a sibling module is intended.
 # pyright: reportPrivateUsage=false
 
-from build123d import Solid
+import uuid
+
+from build123d import Compound, Plane, Solid
 from loft_wire.features import (
     EvaluatedFeatureInput,
     FeatureError,
@@ -18,8 +20,10 @@ from loft_wire.features import (
     HoleParamsV1,
 )
 
+from geometry.features.bodies import _resolve_operand_body
 from geometry.features.datum_sketch import (
     _resolve_face_datum_plane,
+    face_owner_body_id,
 )
 from geometry.features.naming_hooks import hole_names
 from geometry.features.state import (
@@ -40,12 +44,15 @@ from geometry.kernel import (
     label_hole_tool,
     resolve_iso_metric_thread,
 )
+from geometry.kernel.boolean_guard import MeasuredBody
 from geometry.kernel.hole import (
     bore_hole_measured,
     cut_counterbore_measured,
     cut_countersink_measured,
+    cut_scoped_bore_measured,
 )
-from geometry.kernel.naming import OpHistory
+from geometry.kernel.naming import NameHook, OpHistory
+from geometry.kernel.types import BodyShape
 
 
 def _check_hole_thread(params: HoleParamsV1) -> FeatureError | None:
@@ -83,13 +90,16 @@ def _check_hole_thread(params: HoleParamsV1) -> FeatureError | None:
 def _evaluate_hole(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
-    """Drill a cylindrical hole into the current body at a point on a face (§4.3).
+    """Drill a cylindrical hole into the body owning a face, at a point on it (§4.3).
 
     The dedicated Hole feature (BACKLOG P2, slice 1 — the simple bore; slice 2 —
     the optional coaxial counterbore / countersink recess, and the optional
-    COSMETIC thread callout that makes the hole TAPPED). Like fillet/shell/draft
-    it modifies the implicit single body chain (design §7.6), so it needs a prior
-    body-affecting feature (``no_prior_body`` otherwise). The placement FACE is
+    COSMETIC thread callout that makes the hole TAPPED). It needs a prior
+    body-affecting feature (``no_prior_body`` otherwise). It drills the body that
+    OWNS the picked face (:func:`face_owner_body_id`, HOLE-ACTIVE-BODY — the
+    Fusion 360 / SolidWorks rule), which then becomes the active body; a
+    through-all hole's ``scope_bodies`` (SolidWorks' Feature Scope) are bored
+    too (:func:`_cut_scope`). The placement FACE is
     resolved by the SAME stage-1 planar-face signature the ``on_face`` datum /
     shell openings use (:func:`resolve_face_plane`, via
     :func:`_resolve_face_datum_plane` — offset 0): a ref that no longer resolves
@@ -120,9 +130,7 @@ def _evaluate_hole(
     assert isinstance(feature, HoleFeature), "registry dispatches on type='hole'"
     params = feature.params
 
-    active = state.active_body
-    active_id = state.active_body_id
-    if active is None or active_id is None:
+    if state.active_body is None or state.active_body_id is None:
         return FeatureError(
             code="no_prior_body",
             message=(
@@ -135,9 +143,25 @@ def _evaluate_hole(
     if thread_error is not None:
         return thread_error
 
-    plane = _resolve_face_datum_plane(params.face, 0.0, state)
+    # HOLE-ACTIVE-BODY: drill the body that OWNS the picked face, not the
+    # most recently built one (they differ in any multi-body part).
+    owner_id = face_owner_body_id(params.face, state)
+    if isinstance(owner_id, FeatureError):
+        return owner_id
+    assert owner_id is not None, "a part with an active body has an owner"
+    active = state.bodies[owner_id]
+    active_id = owner_id
+    plane = _resolve_face_datum_plane(params.face, 0.0, state, body_id=owner_id)
     if isinstance(plane, FeatureError):
         return plane
+    scoped: list[tuple[uuid.UUID, BodyShape]] = []
+    for index, ref in enumerate(params.scope_bodies or []):
+        if ref.feature_id == owner_id:
+            continue
+        body = _resolve_operand_body(ref, state, slot=f"Hole scope_bodies[{index}]")
+        if isinstance(body, FeatureError):
+            return body
+        scoped.append((ref.feature_id, body))
 
     blind = isinstance(params.depth, HoleBlindDepth)
     depth_mm = (
@@ -201,9 +225,18 @@ def _evaluate_hole(
         return FeatureError(code="hole_too_deep", message=str(exc))
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
-    state.set_active_body(
-        drilled.shape, hole_names(item.id, history), volume=drilled.volume
+    scoped_cuts = _cut_scope(item, state, active, plane, point, scoped)
+    if isinstance(scoped_cuts, FeatureError):
+        return scoped_cuts
+    state.set_body(
+        owner_id, drilled.shape, hole_names(item.id, history), volume=drilled.volume
     )
+    for body_id, (cut, names) in scoped_cuts.items():
+        state.set_body(body_id, cut.shape, names, volume=cut.volume)
+    # The drilled body becomes the active one — the body the last feature
+    # touched, as a boolean's result or a new body does — so a following
+    # pattern / mirror of this hole repeats it in the body it was drilled in.
+    state.active_body_id = owner_id
     # Capture the removal tool(s) for a following pattern / mirror of this hole
     # (FINDINGS #1). Rebuilt from the SAME pre-cut ``active`` body the cuts used, so
     # every tool is byte-identical to what was removed; the recess builders reuse the
@@ -254,3 +287,53 @@ def _evaluate_hole(
         item.id, "cut", list(tools), hole_names(item.id, labelled)
     )
     return None
+
+
+def _cut_scope(
+    item: EvaluatedFeatureInput,
+    state: EvaluationState,
+    owner: BodyShape,
+    plane: Plane,
+    point: tuple[float, float, float],
+    scoped: list[tuple[uuid.UUID, BodyShape]],
+) -> dict[uuid.UUID, tuple[MeasuredBody, NameHook]] | FeatureError:
+    """Cut the through-all bore from each FURTHER body of the hole's Feature
+    Scope (SolidWorks' Feature Scope; HOLE-ACTIVE-BODY).
+
+    ONE coaxial tool serves every scoped body: :func:`bore_tool` over the union
+    of the owner and the scoped bodies, so its span clears all of them. Only
+    the bore is cut here — a counterbore / countersink seats in the owner,
+    where its depth was validated. Pure: the state is written by the caller on
+    success, so a body the bore misses (``hole_off_body``, pinned to that
+    body's base feature) leaves every body untouched.
+    """
+    feature = item.feature
+    assert isinstance(feature, HoleFeature)
+    if not scoped:
+        return {}
+    reach = Compound(children=[owner, *(body for _, body in scoped)])
+    tool = bore_tool(
+        reach,
+        plane,
+        point,
+        feature.params.diameter_mm,
+        through_all=True,
+        depth_mm=None,
+    )
+    labelled = OpHistory()
+    label_hole_tool(labelled, tool, plane, "wall", None)
+    names = hole_names(item.id, labelled)
+    cuts: dict[uuid.UUID, tuple[MeasuredBody, NameHook]] = {}
+    for body_id, body in scoped:
+        try:
+            cut = cut_scoped_bore_measured(
+                body, tool, body_volume=state.body_volume(body_id)
+            )
+        except HoleOffBodyError as exc:
+            return FeatureError(
+                code="hole_off_body", message=str(exc), upstream_feature_id=body_id
+            )
+        except BooleanError as exc:
+            return FeatureError(code="boolean_failed", message=str(exc))
+        cuts[body_id] = (cut, names)
+    return cuts

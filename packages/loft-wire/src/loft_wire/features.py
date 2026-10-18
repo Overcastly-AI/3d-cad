@@ -1313,7 +1313,8 @@ class HoleParamsV1(BaseModel):
     """A face-placed cylindrical hole — through-all or blind, plain or recessed.
 
     The dedicated Hole feature (BACKLOG P2): drill a straight cylinder of
-    ``diameter_mm`` into the current body at ``position`` on the planar ``face``,
+    ``diameter_mm`` into the body that OWNS the planar ``face`` (in a multi-body
+    part, the body whose face was picked — not the last one built), at ``position``,
     cutting INTO the material (opposite the face's outward normal — the correct
     direction, chosen automatically, no direction knob to get wrong). Like a
     fillet/shell/draft it modifies the implicit single body chain (design §7.6),
@@ -1375,7 +1376,32 @@ class HoleParamsV1(BaseModel):
     )
     face_x_mm: float | None = FACE_X_FIELD
     face_y_mm: float | None = FACE_Y_FIELD
+    scope_bodies: list[FeatureRef] | None = Field(
+        default=None,
+        description="Feature Scope (SolidWorks): further bodies a THROUGH-ALL "
+        "bore also cuts, each named by its base (body-creating) feature. "
+        "`null`/omitted cuts only the body that owns `face` (the Fusion 360 / "
+        "SolidWorks default). The bore cuts each listed body coaxially; a "
+        "counterbore / countersink recess seats in the owner only. A listed "
+        "body the bore cannot reach is `hole_off_body`",
+    )
     _derive_position = model_validator(mode="after")(derive_hole_position)
+
+    @model_validator(mode="after")
+    def _scope_is_through_all_and_distinct(self) -> "HoleParamsV1":
+        """A scope needs a through-all bore (a blind depth is measured on one
+        body) and names each body at most once."""
+        if not self.scope_bodies:
+            return self
+        if not isinstance(self.depth, HoleThroughAll):
+            raise ValueError(
+                "scope_bodies requires a through_all depth: a blind hole's depth "
+                "is measured in the body that owns its face"
+            )
+        ids = [ref.feature_id for ref in self.scope_bodies]
+        if len(set(ids)) != len(ids):
+            raise ValueError("scope_bodies names the same body more than once")
+        return self
 
 
 # --- Pattern params (linear / circular) -----------------------------------------
@@ -3035,6 +3061,16 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                     "face", feature.params.face, BODY_AFFECTING_FEATURE_TYPES
                 )
             )
+            # A Feature Scope names further BODIES by their base feature, the
+            # boolean operand rule (a body's identity is its base feature id).
+            for index, ref in enumerate(feature.params.scope_bodies or []):
+                references.append(
+                    FeatureReference(
+                        f"scope_bodies[{index}]",
+                        ref,
+                        BASE_BODY_AFFECTING_FEATURE_TYPES,
+                    )
+                )
         case PatternFeature():
             # A `body`-scope pattern replicates the implicit body about world-space
             # direction/axis vectors (no picked sub-geometry — independent of #1);

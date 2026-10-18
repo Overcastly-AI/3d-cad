@@ -25,6 +25,7 @@ from loft_wire.features import (
     SketchFeature,
     SubshapeRef,
 )
+from loft_wire.resolution_tiers import SUBSHAPE_RESOLUTION_TIERS
 from loft_wire.sketch import classify_overconstraint
 
 from geometry.features.datum_angle import resolve_angle_plane
@@ -42,6 +43,7 @@ from geometry.kernel import (
     build_datum_plane,
     build_profile_face,
     build_profile_faces,
+    face_match_tier,
     midplane_between,
     offset_plane,
     resolve_face_plane,
@@ -109,8 +111,63 @@ def _resolve_datum_feature_plane(
     return plane
 
 
+def face_owner_body_id(
+    face: SubshapeRef, state: EvaluationState
+) -> uuid.UUID | FeatureError | None:
+    """The id of the body that OWNS the picked *face* (HOLE-ACTIVE-BODY).
+
+    A stored face reference carries a signature, not a body: its ``feature_id``
+    is the tip body feature at pick time (``anchorBodyFeatureId``), whichever
+    body the face was on. Fusion 360 and SolidWorks cut the body the picked face
+    belongs to, so the owner is found by matching the signature against EVERY
+    body (tree order) at the resolver's own tiers (:func:`face_match_tier`):
+
+    * the body matching at the most certain tier owns the face — an exact match
+      on an earlier member beats a resilient (``durable``) one on the active
+      member, which is precisely the congruent-stud wrong cut this closes;
+    * a tie at that tier keeps the ACTIVE body when it is among the tied (the
+      pre-fix answer, so no reference that resolved on the active body moves),
+      and is otherwise an honest ``subshape_ambiguous`` across bodies;
+    * no body matching at all falls back to the active body, so the face then
+      fails exactly as it always did (``subshape_unresolved``).
+
+    A single-body part never scans: its one body is the active body, which
+    keeps every single-body rebuild byte-identical. ``None`` with no body.
+    """
+    active_id = state.active_body_id
+    if active_id is None or len(state.bodies) == 1:
+        return active_id
+    target = face.selector.signature
+    ranked: dict[uuid.UUID, int] = {}
+    for body_id, body in state.bodies.items():
+        tier = face_match_tier(body, target, state.body_face_names(body_id))
+        if tier is not None:
+            ranked[body_id] = SUBSHAPE_RESOLUTION_TIERS.index(tier)
+    if not ranked:
+        return active_id
+    best = min(ranked.values())
+    tied = [body_id for body_id, rank in ranked.items() if rank == best]
+    if active_id in tied:
+        return active_id
+    if len(tied) == 1:
+        return tied[0]
+    return FeatureError(
+        code="subshape_ambiguous",
+        message=(
+            f"The picked face matches a face on {len(tied)} different bodies "
+            "equally well, so the body it belongs to is ambiguous. Refusing to "
+            "guess; re-pick the face."
+        ),
+        upstream_feature_id=face.feature_id,
+    )
+
+
 def _resolve_face_datum_plane(
-    face: SubshapeRef, offset_mm: float, state: EvaluationState
+    face: SubshapeRef,
+    offset_mm: float,
+    state: EvaluationState,
+    *,
+    body_id: uuid.UUID | None = None,
 ) -> Plane | FeatureError:
     """Resolve a stage-1 face reference to the face's (offset) sketch plane.
 
@@ -118,10 +175,14 @@ def _resolve_face_datum_plane(
     face sides — one taxonomy, datum-planes §7): no prior body, or a signature
     that no longer matches, is ``subshape_unresolved``; a congruent twin is
     ``subshape_ambiguous`` (refuse to guess — determinism, topo-naming §7.2).
-    Errors pin the named body feature as the upstream cause.
+    Errors pin the named body feature as the upstream cause. The face is
+    resolved on the active body, or on body *body_id* when given (the owner
+    :func:`face_owner_body_id` found).
     """
-    active = state.active_body
-    if active is None:
+    if body_id is None:
+        body_id = state.active_body_id
+    active = None if body_id is None else state.bodies[body_id]
+    if active is None or body_id is None:
         return FeatureError(
             code="subshape_unresolved",
             message=(
@@ -137,7 +198,7 @@ def _resolve_face_datum_plane(
             face.selector.signature,
             offset_mm,
             tally=state.subshape_tally,
-            face_names=state.face_names(),
+            face_names=state.body_face_names(body_id),
         )
     except SubshapeUnresolvedError as exc:
         return FeatureError(

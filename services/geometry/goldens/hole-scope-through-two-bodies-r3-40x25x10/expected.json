@@ -1,0 +1,26 @@
+{
+  "description": "HOLE-ACTIVE-BODY, Feature Scope. Two 40x25x10 mm blocks as two bodies: A at x 0..40 and B at x 60..100 (merge=false, the active body). A through Hole (diameter 6 mm) is placed at the centre of B's +X end face (100, 12.5, 5), drilling along -X, with scope_bodies = [A] (SolidWorks' Feature Scope). The one coaxial bore must cut the owner B AND the scoped A along the full 40 mm length of each.",
+  "derivation": [
+    "Each block: 40 x 25 x 10 = 10000 mm^3, less a bore pi * 3^2 * 40 = 360*pi mm^3 along its full x length.",
+    "Volume = 2 * (10000 - 360*pi) = 20000 - 720*pi = 17738.05328941535 mm^3.",
+    "Area per block: 3300 - 2 * 9*pi (two end discs lost) + 2*pi*3*40 = 240*pi (bore wall) = 3300 + 222*pi. Total 6600 + 444*pi = 7994.867138193868 mm^2.",
+    "Centroid: the bore runs along each block's own central axis (y = 12.5, z = 5) through its full length, so each block keeps its centroid (20, 12.5, 5) and (80, 12.5, 5); equal volumes give (50, 12.5, 5).",
+    "AABB: (0,0,0)-(100,25,10); both bores are interior.",
+    "Topology per block: 6 planar faces + 1 bore cylinder = 7 faces; 12 block edges + 2 bore circles + 1 seam = 15 edges. Total 14 faces, 30 edges, 2 shells.",
+    "Mesh (linear_deflection 0.1): 1060 vertices / 1040 triangles, equal to the mesh of the independent build123d construction of the same two drilled blocks.",
+    "Independently cross-checked against a direct build123d construction (each Box - the same Cylinder) in tests/test_hole_owner_body.py::test_goldens_match_an_independent_build123d_construction."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Pure boolean cuts of one right cylinder from two boxes; GProp integrates the analytic quadric exactly (the hole goldens' 1e-9).",
+  "properties": {
+    "volume": 17738.05328941535,
+    "surface_area": 7994.867138193868,
+    "centroid": { "x": 50.0, "y": 12.5, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 100.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 14, "edges": 30, "shells": 2 },
+  "mesh": { "vertices": 1060, "triangles": 1040 }
+}
