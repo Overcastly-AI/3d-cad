@@ -40,8 +40,8 @@
     "craft-scene.spec.ts": 37.1,
     "craft9b-gauges.spec.ts": 150.2,
     "craft9c-hole-gauge.spec.ts": 358.5,
-    "cut-list.spec.ts": 30.8,
     "cut-list-prices.spec.ts": 29.5,
+    "cut-list.spec.ts": 30.8,
     "datum-face-pick.spec.ts": 142.2,
     "datum-plane-angle-edge.spec.ts": 20.9,
     "datum-plane-angle.spec.ts": 17.8,
@@ -98,6 +98,7 @@
     "findings-ux-shots.spec.ts": 48.4,
     "first-impression.spec.ts": 22.6,
     "first-light.spec.ts": 18.1,
+    "floor-b5.spec.ts": 31.0,
     "folders.spec.ts": 17.6,
     "founder-picking.spec.ts": 256.8,
     "full-flow.spec.ts": 56.8,
@@ -227,6 +228,7 @@
     "sweep-twist.spec.ts": 26.1,
     "sweep.spec.ts": 58.7,
     "thumbnails.spec.ts": 25.3,
+    "timber-frame-b6.spec.ts": 30.9,
     "timeline.spec.ts": 58.4,
     "toolbar-overflow.spec.ts": 37.3,
     "undo-redo.spec.ts": 21.9,
@@ -236,6 +238,7 @@
     "viewport-gestures.spec.ts": 14.1,
     "viewport-makeover.spec.ts": 72.7,
     "wall-b2.spec.ts": 23.8,
+    "wall-member-renumber.spec.ts": 19.2,
     "window-door-b2.spec.ts": 66.0,
     "workspace.spec.ts": 14.8
   }
