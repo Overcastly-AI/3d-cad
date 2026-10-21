@@ -72,6 +72,7 @@ from loft_wire.legacy_twist import (
 from loft_wire.plugins import (
     PLUGIN_EXPANSION_TOO_LARGE,
     PLUGIN_READ_ONLY,
+    FeatureListInput,
     FeatureReferenceInput,
     PluginCatalog,
     ProfileInput,
@@ -193,23 +194,29 @@ def custom_references(envelope: CustomFeature) -> list[FeatureReference]:
         ).manifest
     except PluginError:
         return [
-            FeatureReference(f"inputs/{name}", value, frozenset({"*"}))
-            for name, value in envelope.params.inputs.items()
-            if isinstance(value, FeatureRef)
+            FeatureReference(slot, value, frozenset({"*"}))
+            for name, stored in envelope.params.inputs.items()
+            for slot, value in _picks(name, stored)
         ]
     out: list[FeatureReference] = []
     for item in manifest.inputs:
-        value = envelope.params.inputs.get(item.name)
-        if not isinstance(value, FeatureRef):
-            continue
-        if isinstance(item, ProfileInput):
-            out.append(
-                FeatureReference(f"inputs/{item.name}", value, frozenset({"sketch"}))
-            )
-        elif isinstance(item, FeatureReferenceInput):
-            allowed = frozenset(item.feature_types)
-            out.append(FeatureReference(f"inputs/{item.name}", value, allowed))
+        stored = envelope.params.inputs.get(item.name)
+        for slot, value in _picks(item.name, stored):
+            if isinstance(item, ProfileInput):
+                out.append(FeatureReference(slot, value, frozenset({"sketch"})))
+            elif isinstance(item, FeatureReferenceInput | FeatureListInput):
+                out.append(FeatureReference(slot, value, frozenset(item.feature_types)))
     return out
+
+
+def _picks(name: str, value: CustomInputValue | None) -> list[tuple[str, FeatureRef]]:
+    """The references one stored input holds, by slot: ``inputs/<name>``, or
+    ``inputs/<name>/<i>`` for each pick of a feature list."""
+    if isinstance(value, FeatureRef):
+        return [(f"inputs/{name}", value)]
+    if isinstance(value, list):
+        return [(f"inputs/{name}/{i}", ref) for i, ref in enumerate(value)]
+    return []
 
 
 def authored_references(envelope: AuthoredEnvelope) -> list[FeatureReference]:

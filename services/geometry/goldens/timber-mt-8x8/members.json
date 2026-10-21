@@ -1,0 +1,32 @@
+[
+  {
+    "feature_id": "86ef1fa8-7142-5053-a9d6-6dc204718d53",
+    "role": "post",
+    "title": "Post",
+    "metadata": {
+      "profile": "8x8",
+      "material": "dfl_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "dac1b8f2-4e72-5e28-bd24-9c9392a71b98",
+    "role": "tie_beam",
+    "title": "Tie beam",
+    "metadata": {
+      "profile": "8x8",
+      "material": "dfl_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6e4f3ee3-3142-5a24-b952-e57f4fe2e624",
+    "role": "peg",
+    "title": "Peg",
+    "metadata": {
+      "profile": "\u00d81",
+      "material": "white_oak",
+      "nominal_size": null
+    }
+  }
+]

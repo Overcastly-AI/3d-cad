@@ -13,6 +13,8 @@
  *    which is where documents resolves it.
  *  - choice: one of the manifest's options.
  *  - profile / feature reference: an earlier feature of the right type.
+ *  - feature list: several earlier features (a roof's walls), picked as a
+ *    checklist; the field holds their ids, comma-separated, in pick order.
  *  - material: a library key, or none.
  *
  * A stored number round-trips exactly (`features/storedNumber`): opening a
@@ -89,7 +91,7 @@ export interface InputOption {
  * `selfId` is the feature being edited, or null for a new one (at the end).
  */
 export function referenceOptions(
-  input: Extract<PluginInput, { kind: "profile" | "feature" }>,
+  input: Extract<PluginInput, { kind: "profile" | "feature" | "features" }>,
   features: readonly FeatureResponse[],
   selfId: string | null,
 ): InputOption[] {
@@ -99,7 +101,7 @@ export function referenceOptions(
   const types =
     input.kind === "profile" ? ["sketch"] : (input.feature_types ?? []);
   // A host input names custom features of given plugins (a window's wall).
-  const plugins = input.kind === "feature" ? (input.plugin_ids ?? null) : null;
+  const plugins = input.kind === "profile" ? null : (input.plugin_ids ?? null);
   return earlier
     .filter((row) => types.includes("*") || types.includes(row.feature.type))
     .filter(
@@ -109,6 +111,19 @@ export function referenceOptions(
           plugins.includes(row.feature.params.plugin_id)),
     )
     .map((row) => ({ value: row.id, label: row.name }));
+}
+
+/** The ids a feature-list field holds, in pick order. */
+export function pickedIds(text: string): string[] {
+  return text === "" ? [] : text.split(",");
+}
+
+/** *text* with *id* picked (appended) or unpicked. */
+export function togglePick(text: string, id: string): string {
+  const ids = pickedIds(text);
+  return (
+    ids.includes(id) ? ids.filter((other) => other !== id) : [...ids, id]
+  ).join(",");
 }
 
 function lastOption(options: readonly InputOption[]): string {
@@ -148,6 +163,9 @@ export function defaultPluginForm(
           ? ""
           : lastOption(referenceOptions(input, features, null));
         break;
+      case "features":
+        values[input.name] = "";
+        break;
     }
   }
   return { values, stored: null };
@@ -171,6 +189,8 @@ export function formFromCustomParams(
           : storedNumberInput(stored);
     } else if (typeof stored === "string") {
       values[input.name] = stored;
+    } else if (Array.isArray(stored)) {
+      values[input.name] = stored.map((ref) => ref.feature_id).join(",");
     } else {
       values[input.name] = stored.feature_id;
     }
@@ -297,6 +317,16 @@ export function validatePluginForm(
       } else if (text !== "" && !options.some((o) => o.value === text)) {
         error = `${input.label} must be an earlier feature.`;
       }
+    } else if (input.kind === "features") {
+      const options = referenceOptions(input, features, selfId);
+      const ids = pickedIds(text);
+      if (ids.some((id) => !options.some((o) => o.value === id))) {
+        error = `${input.label} must be earlier features.`;
+      } else if (ids.length < input.min_items) {
+        error = `Pick at least ${input.min_items}.`;
+      } else if (ids.length > input.max_items) {
+        error = `Pick at most ${input.max_items}.`;
+      }
     }
     if (error !== null) errors[input.name] = error;
   }
@@ -327,6 +357,13 @@ export function pluginInputsFromForm(
     } else if (input.kind === "profile" || input.kind === "feature") {
       if (text !== "")
         inputs[input.name] = { kind: "feature", feature_id: text };
+    } else if (input.kind === "features") {
+      const ids = pickedIds(text);
+      if (ids.length > 0)
+        inputs[input.name] = ids.map((id) => ({
+          kind: "feature" as const,
+          feature_id: id,
+        }));
     } else if (text !== "") {
       inputs[input.name] = text;
     }

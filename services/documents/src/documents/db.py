@@ -1294,3 +1294,84 @@ class Annotation(Base):
             f"Annotation(id={self.id!r}, sheet_id={self.sheet_id!r}, "
             f"type={self.type!r})"
         )
+
+
+class PriceBook(Base):
+    """A user's price book (PRICE-BOOK, :mod:`loft_wire.price_book`).
+
+    ONE per owner (``uq_price_books_owner``), created by the first save; a
+    user who never saved one reads an empty USD book. ``owner_id`` is the
+    gateway-verified user id with no cross-service FK, as every document's.
+    ``currency`` is the ISO 4217 code (USD only for now).
+    """
+
+    __tablename__ = "price_books"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), nullable=False)
+    currency: Mapped[str] = mapped_column(sa.String(3), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        onupdate=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    __table_args__ = (sa.UniqueConstraint("owner_id", name="uq_price_books_owner"),)
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return f"PriceBook(id={self.id!r}, owner_id={self.owner_id!r})"
+
+
+class PriceBookEntryRow(Base):
+    """One price of a book: a material and profile per stock piece (with its
+    stock length), per linear foot or per board foot, in integer cents.
+
+    Rows are the output of :class:`loft_wire.price_book.PriceBookUpdate`'s
+    validation (one per key, at most 500); the CHECKs below are the database's
+    backstop for the two rules a bad write would corrupt silently: no negative
+    price, and a stock length exactly when the unit is ``each``.
+    """
+
+    __tablename__ = "price_book_entries"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    price_book_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("price_books.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    order_index: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
+    material: Mapped[str] = mapped_column(sa.String(32), nullable=False)
+    profile: Mapped[str] = mapped_column(sa.String(32), nullable=False)
+    unit: Mapped[str] = mapped_column(sa.String(16), nullable=False)
+    stock_length_ft: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
+    price_cents: Mapped[int] = mapped_column(sa.BigInteger(), nullable=False)
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "price_book_id", "order_index", name="uq_price_book_entries_order"
+        ),
+        sa.CheckConstraint("price_cents >= 0", name="ck_price_book_entries_price"),
+        sa.CheckConstraint(
+            "(unit = 'each') = (stock_length_ft IS NOT NULL)",
+            name="ck_price_book_entries_stock_length",
+        ),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return (
+            f"PriceBookEntryRow(id={self.id!r}, material={self.material!r}, "
+            f"profile={self.profile!r}, unit={self.unit!r})"
+        )

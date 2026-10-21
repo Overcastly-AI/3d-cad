@@ -64,6 +64,7 @@ from loft_wire.pipe import PathSegment as PathSegment
 from loft_wire.pipe import PathSketchCurve as PathSketchCurve
 from loft_wire.pipe import PipeParamsV1 as PipeParamsV1
 from loft_wire.plugins import (
+    MAX_FEATURE_LIST,
     MAX_PLUGIN_EXPANSION,
     MAX_PLUGIN_INPUTS,
     MAX_PLUGIN_TEXT,
@@ -2557,12 +2558,13 @@ FEATURE_REGISTRY.validate_chains()
 # --- Custom features (PLUGIN-REGISTRY, RESEARCH §23; manifests: loft_wire.plugins) --
 
 #: One input value: a number (mm, degrees or a count, by the input's kind), an
-#: option or material key, or an earlier feature. Strict, so ``true`` is no 1.
+#: option or material key, or one or more earlier features. Strict: no ``true``.
 CustomInputValue = (
     StrictInt
     | StrictFloat
     | Annotated[str, StringConstraints(max_length=MAX_PLUGIN_TEXT)]
     | FeatureRef
+    | Annotated[list[FeatureRef], Field(min_length=1, max_length=MAX_FEATURE_LIST)]
 )
 
 
@@ -2587,10 +2589,9 @@ class ExpandedMember(BaseModel):
 
 class CustomParamsV1(BaseModel):
     """A custom feature: the plugin it is pinned to, its inputs, and the last
-    expansion. Documents expands it on every write and evaluation, and geometry
-    only ever receives the base features (RESEARCH §23). The stored expansion
-    is what a server without the plugin (or the pinned version) rebuilds,
-    read-only."""
+    expansion. Documents expands it on every write and evaluation; geometry
+    only receives base features (RESEARCH §23). A server without the plugin
+    (or the pinned version) rebuilds the stored expansion, read-only."""
 
     plugin_id: PluginId
     plugin_version: SemVer = Field(
@@ -2604,8 +2605,7 @@ class CustomParamsV1(BaseModel):
         default=None,
         max_length=MAX_PLUGIN_EXPANSION,
         exclude_if=_is_none,
-        description="The last expansion, written by documents (a client may omit "
-        "it). Null only on a request.",
+        description="The last expansion, written by documents; a request may omit it.",
     )
 
     @model_validator(mode="after")

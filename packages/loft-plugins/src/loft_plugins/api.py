@@ -33,9 +33,10 @@ from loft_wire.plugins import (
 )
 
 #: A canonical input value: float for a length or angle, int for a count, str
-#: for a choice or material, a ``FeatureRef`` for a profile or feature, and
-#: ``None`` for an optional feature or material left empty.
-InputValue = float | int | str | FeatureRef | None
+#: for a choice or material, a ``FeatureRef`` for a profile or feature, a list
+#: of them for a feature list, and ``None`` for an optional feature, feature
+#: list or material left empty.
+InputValue = float | int | str | FeatureRef | list[FeatureRef] | None
 
 
 class PluginError(Exception):
@@ -136,6 +137,17 @@ class ExpandInputs:
                 PLUGIN_INPUT_INVALID, f"{name!r} names no feature", input=name
             )
         return value
+
+    def features(self, name: str) -> list[FeatureRef]:
+        """A feature-list input's picks, in order (empty when left empty)."""
+        value = self._get(name)
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise PluginError(
+                PLUGIN_INPUT_INVALID, f"{name!r} names no features", input=name
+            )
+        return list(value)
 
     def resolve(self, ref: FeatureRef) -> AuthoredEnvelope | None:
         """The earlier feature *ref* names, or ``None``."""

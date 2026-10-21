@@ -1,0 +1,192 @@
+[
+  {
+    "feature_id": "ceab01c7-6aab-5414-b4c9-06fbd815cb5f",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "29d71ef2-2363-5174-bdb2-84d9f5235a6c",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "2306c95f-5198-54b8-a2e3-3fbed523fde7",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9437c706-a338-576f-a779-e86fd4a6391e",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "1072696d-bc8d-5d32-9b33-3b063df81f93",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "52b8c944-add7-5516-81a8-42b89b6e99f4",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6201a82f-8d6a-57c5-9014-010ca37015bb",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e6f6252a-36f8-51a2-9d67-9515a5af95cd",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9e2ab332-bffd-5ac1-97a7-335b82f7da0d",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c1d72471-c018-5866-9254-e67eaf336d7c",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3043e468-c59e-540b-bf88-ea3ccc3fe771",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "621aedd1-8f33-597d-b7ec-8a02b7313835",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fc5ae9cd-f94c-5f2b-b672-c85cfcdcae3a",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "db788464-8f85-5185-bca2-a811d6254e2b",
+    "role": "rim",
+    "title": "Rim",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "aa51b073-92ef-5adb-a7aa-cf0135c7225a",
+    "role": "rim",
+    "title": "Rim",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "dda4fc15-6ca7-5dae-83a5-b89c0751be93",
+    "role": "sill",
+    "title": "Sill",
+    "metadata": {
+      "profile": "2x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b5b47ff0-fb84-55f6-a183-2a40b546ac16",
+    "role": "sill",
+    "title": "Sill",
+    "metadata": {
+      "profile": "2x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a3738265-3eff-566a-8995-a59b2be28da3",
+    "role": "sill",
+    "title": "Sill",
+    "metadata": {
+      "profile": "2x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "74ac5670-1ee1-5ce0-800b-f87551176e3b",
+    "role": "sill",
+    "title": "Sill",
+    "metadata": {
+      "profile": "2x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  }
+]

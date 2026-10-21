@@ -708,6 +708,7 @@
               "spf_lumber",
               "dfl_lumber",
               "southern_pine_pt",
+              "white_oak",
               "lvl",
               "glulam_dfl",
               "steel_a992",
@@ -1539,7 +1540,7 @@
         "type": "object"
       },
       "CustomParamsV1": {
-        "description": "A custom feature: the plugin it is pinned to, its inputs, and the last\nexpansion. Documents expands it on every write and evaluation, and geometry\nonly ever receives the base features (RESEARCH \u00a723). The stored expansion\nis what a server without the plugin (or the pinned version) rebuilds,\nread-only.",
+        "description": "A custom feature: the plugin it is pinned to, its inputs, and the last\nexpansion. Documents expands it on every write and evaluation; geometry\nonly receives base features (RESEARCH \u00a723). A server without the plugin\n(or the pinned version) rebuilds the stored expansion, read-only.",
         "properties": {
           "expansion": {
             "anyOf": [
@@ -1554,7 +1555,7 @@
                 "type": "null"
               }
             ],
-            "description": "The last expansion, written by documents (a client may omit it). Null only on a request.",
+            "description": "The last expansion, written by documents; a request may omit it.",
             "title": "Expansion"
           },
           "inputs": {
@@ -1575,6 +1576,14 @@
                   },
                   {
                     "$ref": "#/components/schemas/FeatureRef"
+                  },
+                  {
+                    "items": {
+                      "$ref": "#/components/schemas/FeatureRef"
+                    },
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "type": "array"
                   }
                 ]
               }
@@ -4276,6 +4285,98 @@
           "message"
         ],
         "title": "FeatureError",
+        "type": "object"
+      },
+      "FeatureListInput": {
+        "description": "Several earlier features of one of ``feature_types``, in pick order:\na roof's bearing walls, as Revit's Roof by Footprint picks walls. Stored\nas a list of ``FeatureRef`` (no repeats); an empty pick is stored as no\nvalue, allowed only when ``min_items`` is 0. Never a host.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Help text under the field.",
+            "title": "Description"
+          },
+          "feature_types": {
+            "description": "Feature types each picked feature may be (`datum`, `sketch`, `custom`, ...).",
+            "items": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Feature Types",
+            "type": "array"
+          },
+          "kind": {
+            "const": "features",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "Form label, e.g. 'Twist angle'.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "max_items": {
+            "default": 32,
+            "description": "Most features to pick.",
+            "maximum": 32.0,
+            "minimum": 1.0,
+            "title": "Max Items",
+            "type": "integer"
+          },
+          "min_items": {
+            "default": 0,
+            "description": "Fewest features to pick; 0 makes the input optional.",
+            "maximum": 32.0,
+            "minimum": 0.0,
+            "title": "Min Items",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.",
+            "maxLength": 48,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "plugin_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 64,
+                  "minLength": 3,
+                  "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When a picked feature is a custom feature: the plugins it may be (a roof's walls are `loft.wall`). Unset: any.",
+            "title": "Plugin Ids"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "kind",
+          "feature_types"
+        ],
+        "title": "FeatureListInput",
         "type": "object"
       },
       "FeatureMutationResponse": {
@@ -7120,7 +7221,14 @@
               "us_2x12",
               "us_4x4",
               "us_4x6",
-              "us_6x6"
+              "us_6x6",
+              "us_6x8",
+              "us_8x8",
+              "us_8x10",
+              "us_8x12",
+              "us_10x10",
+              "us_10x12",
+              "us_12x12"
             ],
             "title": "Key",
             "type": "string"
@@ -7472,6 +7580,7 @@
               "spf_lumber",
               "dfl_lumber",
               "southern_pine_pt",
+              "white_oak",
               "lvl",
               "glulam_dfl",
               "steel_a992",
@@ -7525,6 +7634,7 @@
                   "spf_lumber",
                   "dfl_lumber",
                   "southern_pine_pt",
+                  "white_oak",
                   "lvl",
                   "glulam_dfl",
                   "steel_a992",
@@ -7560,6 +7670,7 @@
                   "spf_lumber",
                   "dfl_lumber",
                   "southern_pine_pt",
+                  "white_oak",
                   "lvl",
                   "glulam_dfl",
                   "steel_a992",
@@ -7658,6 +7769,7 @@
                   "spf_lumber",
                   "dfl_lumber",
                   "southern_pine_pt",
+                  "white_oak",
                   "lvl",
                   "glulam_dfl",
                   "steel_a992",
@@ -9373,6 +9485,7 @@
                   "choice": "#/components/schemas/ChoiceInput",
                   "count": "#/components/schemas/CountInput",
                   "feature": "#/components/schemas/FeatureReferenceInput",
+                  "features": "#/components/schemas/FeatureListInput",
                   "length": "#/components/schemas/LengthInput",
                   "material": "#/components/schemas/MaterialInput",
                   "profile": "#/components/schemas/ProfileInput"
@@ -9397,6 +9510,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/FeatureReferenceInput"
+                },
+                {
+                  "$ref": "#/components/schemas/FeatureListInput"
                 },
                 {
                   "$ref": "#/components/schemas/MaterialInput"
@@ -9680,6 +9796,157 @@
           "b"
         ],
         "title": "PointToPointMeasurement",
+        "type": "object"
+      },
+      "PriceBookEntry": {
+        "additionalProperties": false,
+        "description": "One price: a material and profile, per stock piece, foot or board foot.",
+        "properties": {
+          "material": {
+            "description": "Library material, e.g. 'spf_lumber'.",
+            "enum": [
+              "steel_1018",
+              "stainless_304",
+              "aluminium_6061",
+              "brass_c360",
+              "abs",
+              "pla",
+              "nylon_6",
+              "spf_lumber",
+              "dfl_lumber",
+              "southern_pine_pt",
+              "white_oak",
+              "lvl",
+              "glulam_dfl",
+              "steel_a992",
+              "concrete"
+            ],
+            "title": "Material",
+            "type": "string"
+          },
+          "price_cents": {
+            "description": "Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.",
+            "maximum": 10000000.0,
+            "minimum": 0.0,
+            "title": "Price Cents",
+            "type": "integer"
+          },
+          "profile": {
+            "description": "Lumber profile, e.g. 'us_2x4'.",
+            "enum": [
+              "us_1x4",
+              "us_1x6",
+              "us_5_4x6",
+              "us_2x2",
+              "us_2x3",
+              "us_2x4",
+              "us_2x6",
+              "us_2x8",
+              "us_2x10",
+              "us_2x12",
+              "us_4x4",
+              "us_4x6",
+              "us_6x6",
+              "us_6x8",
+              "us_8x8",
+              "us_8x10",
+              "us_8x12",
+              "us_10x10",
+              "us_10x12",
+              "us_12x12"
+            ],
+            "title": "Profile",
+            "type": "string"
+          },
+          "stock_length_ft": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stock length an 'each' price is for (ft); null for a per-foot or per-board-foot price.",
+            "title": "Stock Length Ft"
+          },
+          "unit": {
+            "description": "'each' (one stock piece of `stock_length_ft`), 'linear_foot' or 'board_foot' (any stock length).",
+            "enum": [
+              "each",
+              "linear_foot",
+              "board_foot"
+            ],
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "material",
+          "profile",
+          "unit",
+          "price_cents"
+        ],
+        "title": "PriceBookEntry",
+        "type": "object"
+      },
+      "PriceBookResponse": {
+        "description": "The caller's price book. A user who never saved one has an empty USD\nbook (``updated_at`` null).",
+        "properties": {
+          "currency": {
+            "const": "USD",
+            "title": "Currency",
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/PriceBookEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the book was last saved; null if never.",
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "currency"
+        ],
+        "title": "PriceBookResponse",
+        "type": "object"
+      },
+      "PriceBookUpdate": {
+        "additionalProperties": false,
+        "description": "``PUT /api/v1/price-book``: the whole book, replacing the stored one.",
+        "properties": {
+          "currency": {
+            "const": "USD",
+            "default": "USD",
+            "description": "ISO 4217 code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "entries": {
+            "description": "Every entry, in the user's order; one per material, profile, unit and stock length.",
+            "items": {
+              "$ref": "#/components/schemas/PriceBookEntry"
+            },
+            "maxItems": 500,
+            "title": "Entries",
+            "type": "array"
+          }
+        },
+        "title": "PriceBookUpdate",
         "type": "object"
       },
       "ProfileInput": {
@@ -18653,6 +18920,118 @@
         "summary": "List Plugins",
         "tags": [
           "plugins"
+        ]
+      }
+    },
+    "/api/v1/price-book": {
+      "get": {
+        "description": "The caller's price book; an empty USD book if they never saved one.",
+        "operationId": "get_price_book_api_v1_price_book_get",
+        "parameters": [
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PriceBookResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Price Book",
+        "tags": [
+          "price-book"
+        ]
+      },
+      "put": {
+        "description": "Replace the caller's whole price book (at most 500 entries, one price\nper material, profile, unit and stock length, integer cents).",
+        "operationId": "put_price_book_api_v1_price_book_put",
+        "parameters": [
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PriceBookUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PriceBookResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Price Book",
+        "tags": [
+          "price-book"
         ]
       }
     },

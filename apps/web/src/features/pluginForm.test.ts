@@ -19,9 +19,11 @@ import {
   inputUnit,
   isNumericInput,
   type NumericInput,
+  pickedIds,
   type PluginForm,
   pluginInputsFromForm,
   referenceOptions,
+  togglePick,
   validatePluginForm,
 } from "./pluginForm";
 
@@ -278,6 +280,93 @@ describe("pluginInputsFromForm", () => {
     expect(form.values.operation).toBe("cut");
     expect(pluginInputsFromForm(TWISTED_PRISM, form, "in", TREE, "c1")).toEqual(
       stored.inputs,
+    );
+  });
+});
+
+describe("a feature list (a roof's picked walls, ROOF-VALLEY)", () => {
+  const custom = (id: string, name: string, pluginId: string) =>
+    ({
+      ...row(id, name, "custom"),
+      feature: {
+        type: "custom",
+        version: 1,
+        params: { plugin_id: pluginId, plugin_version: "1.0.0", inputs: {} },
+      },
+    }) as unknown as FeatureResponse;
+  const tree = [
+    custom("w1", "Wall 1", "loft.wall"),
+    custom("k1", "Deck 1", "loft.deck"),
+    custom("w2", "Wall 2", "loft.wall"),
+    custom("w3", "Wall 3", "loft.wall"),
+  ];
+  const walls = {
+    kind: "features" as const,
+    name: "walls",
+    label: "Walls",
+    feature_types: ["custom"],
+    plugin_ids: ["loft.wall"],
+    min_items: 0,
+    max_items: 2,
+  };
+  const manifest: PluginManifest = { ...EVERY_KIND, inputs: [walls] };
+
+  it("offers the earlier walls, starts empty and toggles picks in order", () => {
+    expect(referenceOptions(walls, tree, null).map((o) => o.value)).toEqual([
+      "w1",
+      "w2",
+      "w3",
+    ]);
+    const form = defaultPluginForm(manifest, "mm", tree);
+    expect(form.values.walls).toBe("");
+    expect(pluginInputsFromForm(manifest, form, "mm", tree, null)).toEqual({});
+    const picked = togglePick(togglePick("", "w3"), "w1");
+    expect(pickedIds(picked)).toEqual(["w3", "w1"]);
+    expect(togglePick(picked, "w3")).toBe("w1");
+    expect(
+      pluginInputsFromForm(
+        manifest,
+        withValues(form, { walls: picked }),
+        "mm",
+        tree,
+        null,
+      ),
+    ).toEqual({
+      walls: [
+        { kind: "feature", feature_id: "w3" },
+        { kind: "feature", feature_id: "w1" },
+      ],
+    });
+  });
+
+  it("refuses a pick that is not an earlier wall, or too many", () => {
+    const form = defaultPluginForm(manifest, "mm", tree);
+    const check = (text: string) =>
+      validatePluginForm(
+        manifest,
+        withValues(form, { walls: text }),
+        "mm",
+        tree,
+        null,
+      ).walls;
+    expect(check("w1,k1")).toBe("Walls must be earlier features.");
+    expect(check("w1,w2,w3")).toBe("Pick at most 2.");
+    expect(check("w1,w2")).toBeUndefined();
+  });
+
+  it("seeds an edit from the stored picks", () => {
+    const stored: CustomParams = {
+      plugin_id: manifest.id,
+      plugin_version: manifest.version,
+      inputs: {
+        walls: [
+          { kind: "feature", feature_id: "w2" },
+          { kind: "feature", feature_id: "w1" },
+        ],
+      },
+    };
+    expect(formFromCustomParams(manifest, stored, "mm").values.walls).toBe(
+      "w2,w1",
     );
   });
 });

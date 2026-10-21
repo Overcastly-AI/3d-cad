@@ -9,12 +9,12 @@ materials), rafters, windows, doors, etc. I don't want to draw every part
 out." These targets drive the building generators, as the ladder drives
 part modelling. They are framing models with a cut list, **not a structural
 design**: no span table, load or code check is implied, and footings,
-sheathing, roofing, rafter ties and gable-end studs are later rungs.
+roof sheathing, roofing, rafter ties and gable-end studs are later rungs.
 
 A building **passes** when all three hold:
 
 1. **Built** from the Build toolbar's custom features alone (Deck; Wall,
-   Window, Door and Roof), with no member drawn by hand.
+   Window, Door and Roof; Floor; Timber frame), with no member drawn by hand.
 2. **Edit survives:** each named edit regenerates every member, with
    interference none.
 3. **Checked independently:** member counts, cut lengths and the summed
@@ -243,17 +243,88 @@ Cut list (roof):
 | Jack        | 2x6     | 10  | 29.235           | 8 ft  |
 | Valley jack | 2x6     | 2   | 55.230           | 8 ft  |
 | Valley jack | 2x6     | 2   | 28.397           | 8 ft  |
-| Hip         | 2x8     | 5   | 109.438          | 10 ft |
-| Valley      | 2x8     | 1   | 110.234          | 10 ft |
+| Hip         | 2x8     | 5   | 108.836          | 10 ft |
+| Valley      | 2x8     | 1   | 109.632          | 10 ft |
 | Ridge       | 2x8     | 1   | 121.5            | 12 ft |
 | Ridge       | 2x8     | 1   | 120              | 10 ft |
 
 Members 52. Volume, roof: the cut common 642.817, valley jacks 426.040 and
 204.670, valley 1 137.395 (prism 1 162.266 less a 24.870 seat), the rest as
-B3: **30 054.875 in³**.
+B3: 30 054.875 in³ with full tails. `loft.roof` 1.2.0 rips each hip's and
+the valley's tail parallel to its top to the commons' depth (ROOF-HIP-TAIL:
+plumb 6.149 - 0.265 = 5.884 on the centreline), so the fascia line is
+straight: each loses 45.967 (hip 1 082.777, valley 1 091.428), the overall
+lengths are the line plus 5.884 x 6/18 (hip 108.836; the valley 0.795 more
+for its notch's edges, 109.632), the heel on the corner's centreline is the
+commons' 1.75 (the valley's 1.485), and the roof is **29 779.071 in³**.
+An independent build123d script gives both totals.
 
 **Edit:** wing 120 -> 48 wide (X 192..240): the wing ridge drops to run
 24, the valley (192,120)-(216,144) ends on a hip running from there to the
 main ridge's end, and the main front gets **1 hip-valley cripple** at
 X 204, run 21.879, line 24.461 (overall 28.888), cheek-cut both ends.
-Members and volume match an independent build123d script.
+Members and volume match an independent build123d script: 48 members (25
+commons, 11 of them the wing's at run 23.25, one tail cut; 13 hip jacks;
+the cripple; 6 hips; the valley; ridges 121.5 and 121.5, the wing's half a
+common past the node where the valley ends), 25 047.484 in³ (25 323.288
+with full tails). The hip from the node runs from the wing ridge's end,
+wrapped round its corner, to the inside corner of the main ridge's
+ridge-end common and king; the valley ends on that hip's face and the wing
+ridge's (RESEARCH §23).
+
+## B5 Shed on a floor, sheathed (stops FLOOR-FRAME, SHEATHING)
+
+B2's walls on a framed floor instead of the slab, with wall sheathing and a
+subfloor. Its sample sheet prices are 7/16 OSB 4x9 at $24.98 and 23/32
+plywood 4x8 at $42.50.
+
+- **Floor:** 144 x 120 on a foundation top at Z 0. PT 2x6 sill plates lie
+  flat, Z 0..1.5, butted: front and back at 144 (Y 0..5.5 and 114.5..120),
+  sides at 109. The 2x8 rims run X 0..144 at Y 0..1.5 and 118.5..120, Z
+  1.5..8.75. The joists are 2x8 along Y between the rims, Y 1.5..118.5
+  (117 long), with centres X 0.75, 16, 32, ..., 128, 143.25 (10, the end
+  joists flush). The framing totals **20 030.25 in³** (sills 4 174.5, rims
+  3 132, joists 12 723.75).
+- **Subfloor:** 23/32 plywood on the joists, Z 8.75..9.46875, 4x8 sheets
+  with the long edge along X, in rows 48, 48 and 24 deep, staggered 4 ft
+  (96 + 48, 48 + 96, 96 + 48). That is 6 panels and 12 420 in³; by area,
+  17 280 / 4 608 = 3.75, so **4 sheets** ($170.00).
+- **Wall sheathing:** 7/16 OSB on each wall's exterior face, full height
+  (97.125), 48 in panels from the wall start (3 per wall, 12 in all), the
+  rough openings cut out. The net area is 45 893 in² (front 13 986 - 3 135,
+  right 10 975.125 - 894.25, back 13 986, left 10 975.125), so the volume is
+  **20 078.1875 in³**. Each sheet is 4x9, because the walls are taller than
+  96: 45 893 / 5 184 = 8.85, so **9 sheets** ($224.82). Corners are butted
+  in this target.
+
+Cut list (floor): Joist 2x8 10 @ 117 (10 ft); Rim 2x8 2 @ 144 (12 ft); Sill
+PT 2x6 2 @ 144 (12 ft) and 2 @ 109 (10 ft).
+
+**Edit:** joist spacing 16 -> 12. That gives 13 joists (0.75, 12, ..., 132,
+143.25) and 23 847.375 in³.
+
+## B6 Timber frame, 12 x 16 ft (stops TIMBER-FRAME)
+
+Two bents of S4S timbers (8x8 is 7.5 x 7.5). The posts are 96 tall at the
+four corners, flush with the outside of the 144 x 192 frame. Each bent's tie
+beam runs X between its posts, with its top flush with the post tops. The
+girts run Y between the bents, their tops at Z 60. Every joint is a blind
+mortise and tenon: the tenon is 1.5 thick, 6 wide and 4 long, centred, with
+a Ø1 white oak peg through the post 2 in from the shoulder (holes coaxial).
+Each member's tenon fills its mortise and each peg fills its holes, so the
+volume is the sum of the members' shoulder boxes.
+
+- **One joint** (`timber-mt-8x8`): a post X 0..7.5, Y 0..7.5, Z 0..96, and
+  a beam X 7.5..67.5, Z 88.5..96. The tenon is X 3.5..7.5, Y 3..4.5,
+  Z 89.25..95.25, and the peg runs along Y at X 5.5, Z 92.25. The post is
+  5 364 - 1.5π, the beam 3 411 - 0.375π and the peg 1.875π (7.5 long):
+  **8 775 in³**.
+- **Frame:** 4 posts at 96; 2 tie beams of shoulder length 129 (overall
+  137 with the tenons); 2 girts of shoulder length 177 (overall 185); and 8
+  pegs, totalling **56 025 in³**.
+
+Cut list: Post 8x8 4 @ 96 (8 ft); Tie beam 8x8 2 @ 137 (12 ft); Girt 8x8
+2 @ 185 (16 ft); Peg Ø1 8 @ 7.5.
+
+**Edit:** width 12 -> 14 ft. The tie beams become 161 overall, and the frame
+58 725 in³.

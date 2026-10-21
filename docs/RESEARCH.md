@@ -2044,6 +2044,152 @@ and reframe it, a material per member, and a cut list that is always current.
   - *Seam for ROOF-VALLEY.* The hip is built from a `Footprint`'s eaves and
     convex corners; 1.2.0 replaces the typed rectangle with the loop of the
     picked walls' outer faces, whose reflex corners carry valleys.
+- **Decided while building the valley roof** (ROOF-VALLEY, 2026-10-17;
+  Revit's Roof by Footprint, Chief Architect's roof from walls,
+  framing-square valley practice in buildings.md):
+  - *Picking walls is a wire input kind.* `loft-wire` gains
+    `FeatureListInput` (`kind: "features"`): several earlier features of
+    given types and plugins, stored in pick order as a list of `FeatureRef`,
+    no repeats, an empty pick stored as no value. Documents materialises one
+    dependency edge per pick (slot `inputs/<name>/<i>`), so a picked wall
+    cannot be deleted under its roof. The form renders it as a checklist of
+    the earlier walls; the viewport pick is a later nicety.
+  - *1.2.0, additive.* `walls` and a valley size join 1.1.0's inputs. With
+    no walls, Hip runs on the typed rectangle; with walls, the footprint is
+    the loop of their outer faces: each wall end must meet exactly one
+    perpendicular wall's line within a wall thickness (butted or not), the
+    framing must face in, the plates be one height and one stud size. Gable
+    on picked walls is refused (it needs Revit's per-wall "defines slope").
+    1.0.0 and 1.1.0 expand byte-identically (their goldens pass untouched).
+  - *Canonical shapes.* A rectangle or an L is mapped by an isometry onto a
+    canonical one, framed there and mapped back, so every orientation and
+    mirror frames the same members (a test turns B4 through all eight). The
+    skeleton is closed form: the L's wider arm is a hipped rectangle; the
+    narrower arm's ridge runs from its hipped end to the valley's top. Equal
+    arms (B4) meet on one node, the wing ridge butting the main ridge's
+    face and the valley double-cheeked into their inside corner. Unequal
+    arms (B4's 48 wing): the wing ridge runs half a common past its node N1
+    (a ridge-end common bears there), a hip runs from N1 to the main ridge's
+    end, its foot wrapped round the wing ridge's top corner, and the valley
+    ends in the inside corner of the wing ridge's face and that hip's.
+    Refused: other shapes, arms under 48 in or less than 24 in proud, arms
+    differing by 0 < d < 12 in, and a wider arm shorter than its width + t.
+  - *Members from the plan.* Each plane's layout lines (commons every
+    spacing from each ridge-end common's centre, as B4 lists them; jacks
+    outward) are clipped to the plane's face less the half thicknesses of
+    what bounds it, and named by their ends: common, jack, valley jack,
+    cripple. A cut is a vertical prism intersected with the side profile
+    (1.1.0's jack construction), its outline built from half-planes in the
+    member's own frame, so cheeks, double cheeks and the valley's V notch
+    are one routine. A line whose valley cheek would cut its seat, or whose
+    member would be under 2 in, is not framed.
+  - *ROOF-HIP-TAIL.* Hip and valley tails are ripped parallel to the top
+    to the depth at which the lowest edge meets the commons' undersides:
+    plumb, the commons' 6.149 less the drop 0.265 on the centreline. The
+    fascia line is straight (a hip's tail point and a valley's notch edges
+    sit on it), the heel on the corner becomes the commons' 1.75 (1.485 for
+    the valley), and each B4 hip and the valley lose 45.967 in³, so B4 is
+    29 779.071 in³ against the hand 30 054.875 (which the independent
+    script reproduces without the rip). The rip steps to full depth inside
+    the walls, where the seat removes the step.
+  - *Bounded.* A 1.2.0 roof of more than 160 members is refused (ROOF-HIP-
+    SIZE); cutters stand on a datum below the lowest tail, not on Z 0.
+  - *Numbers.* The PM's closed-form B4 numbers (52 members, 30 054.875,
+    valley jacks 51.641 and 24.808, the cripple 24.461) held in an
+    independent build123d script before use; the plugin matches it body for
+    body (symmetric differences 0, the whole within 1.1e-4 mm³). A rafter
+    profile's coordinates are emitted unrounded: rounding a plumb end to
+    1e-9 in tilted a jack's top enough to move it 2e-5 mm³.
+- **Decided while building the floor** (FLOOR-FRAME, 2026-10-17; Chief
+  Architect's floor framing, Medeek Foundation, common platform framing):
+  - *A rectangle, as a wall is a line.* Start corner, direction (degrees from
+    +X), width along it and depth to its left, so the default floor is
+    X 0..width, Y 0..depth, B2's frame. The base elevation is the top of the
+    foundation (the sills' underside). Walls stand on the floor through their
+    own base elevation, set to the joists' top (B5: 8.75); no wall input
+    reads the floor, as hosting by inputs keeps the order the tree's.
+  - *Framing.* Joists run along the depth by default, or along the width.
+    Rims run the full length across the joist ends; the end joists are the
+    other two sides, flush, between the rims. Rims and end joists are cut
+    from the joist size, tops flush. Layout is the deck's and the wall's
+    (half a thickness, every spacing, the far end joist flush, a layout
+    joist that would overlap it dropped), in the floor's own copy so a deck
+    or wall change cannot move a stored floor.
+  - *Sill plates* (on by default, PT 2x6, Chief's mudsill): laid flat under
+    the rims and end joists, outer edges flush, butted as wall plates are:
+    full length under the rims, between them under the end joists (B5: 2 at
+    144, 2 at 109). Joists and rims default to SPF, as the wall's studs.
+    Anchor bolts, sill gaskets, doubled joists under walls, openings,
+    blocking and beams are later rungs.
+  - *Ids by slot.* Member ids are `<feature>/<role>/<n>` with an integer `n`,
+    so the floor picks `n` to name the place, not the rank: `joist/0` and
+    `joist/1` are the end joists and `joist/k+1` the layout joist k spacings
+    from the start. Widening adds joists after the ones it had, so a hole on
+    any joist stays on it (WALL-MEMBER-RENUMBER is the same bug in 1.0.0's
+    wall and deck, which count by rank). It needs no wire change.
+  - *No float overlaps.* A layout joist within 1e-9 in of the end joist (the
+    drop rule's slack) takes the end joist's face, so the pieces never
+    overlap even by 1e-10. A plugin sweep of 400 random floors (any size in
+    mm, every spacing, profile and direction) finds no pair overlapping by
+    any amount; a kernel sweep of six floors (turned 30, -45 and 117.3 deg,
+    along the width, a joist touching the end joist, no sill, 2x6 to 2x12)
+    probes every pair whose boxes overlap at all and finds none.
+  - *Numbers.* The PM's B5 figures (10 joists at 117, 20 030.25 in³;
+    13 and 23 847.375 at 12 in o.c.) held in an independent build123d script
+    of the spec's boxes before use, with no interference; the STEP matches
+    that script solid for solid. Goldens `b5-floor-2x8-16oc`, `-12oc` and
+    `b5-shed-walls-on-floor` (B2's walls on it, 45 631.875 in³).
+  - *The subfloor seam* (SHEATHING). The framing is a pure list of pieces in
+    the floor's frame (`floor_pieces`), placed only at emission, and
+    `FloorSpec.framing_top` is the joists' top. A 1.1.0 adds a Subfloor input
+    and appends its panels at that height, moving no framing member, so 1.0.0
+    stays byte-identical.
+- **Decided while building the timber frame** (TIMBER-FRAME, 2026-10-17;
+  Cadwork's and hsbCAD's joint tools, the SketchUp timber framing
+  extensions, buildings.md B6):
+  - *One placement cuts both members.* A joint is emitted after the
+    members as base features: one rectangle sketch extruded twice, once
+    as the tenon (a `boolean` union onto the beam, which consumes it) and
+    once as the mortise cutter (subtracted from the post); one Ø1 circle
+    extruded three times, two bores (subtracted from the post and from the
+    beam) and the peg, a white oak member. Mortise and tenon are one box,
+    and the peg and its holes one cylinder, by construction: coaxial with
+    no tolerance to drift (the drawbore offset is not modelled). A test
+    finds, on the STEP, exactly three hole walls on each peg's axis, two
+    in the post's cheeks and one in the tenon, contiguous end to end.
+  - *Clearance convention: line to line.* The tenon is exactly its mortise
+    and the peg exactly its holes, as hsbCAD and Cadwork draw a joint with
+    their clearances at zero; mating faces coincide and touch, no two
+    bodies share volume (probed pairwise), and the bodies together are
+    exactly the members' shoulder boxes. That is why one joint is 8 775
+    in³ and B6 56 025. A shop's clearances are a later input
+    (TIMBER-CLEARANCE).
+  - *Sections.* `loft-wire` gains the S4S timbers 6x8 to 12x12 at PS 20's
+    green sizes, 1/2 in under nominal (8x8 is 7.5 x 7.5), and the material
+    white oak (NDS G 0.73 at 12 %, 759 kg/m³). Posts are square; a beam
+    lies with its larger face vertical, flush with the frame's outside (an
+    inner bent's tie beam centred), and may be no wider than its posts.
+  - *Joints.* Tenons 1.5 thick, the beam's depth less 1.5 wide, 4 long,
+    centred; the peg 2 in from the shoulder at the tenon's mid-height,
+    through the post's full depth. An inner bent's post takes a girt from
+    each side at one height, so those two tenons are each half the post
+    less 1/4 in (3.5 in an 8x8), and under 3 in (the peg's 2 and a
+    diameter) is refused. Girts sit wholly below the tie beams, so a
+    post's mortises and bores never meet (an overlap sweep of five frames,
+    up to 8 bents and 12x12 posts, checks it).
+  - *Cut list.* Members carry metadata as every building plugin; a beam's
+    length is measured with its tenons (137 for B6's tie beam, as a
+    weldment cut list measures), and the peg's section is named "Ø1" with
+    no stock length.
+  - *Bounded.* 2 to 8 bents, width 6 to 40 ft, length 6 to 80 ft. Eight
+    bents at the largest size are 44 joints, 573 features and an 11 s
+    build (the hip roof's worst was 32 s of the gateway's 90), well inside
+    the 1 000-feature tree.
+  - *Numbers.* The product manager's arithmetic (8 775, 56 025, 58 725
+    in³) held in an independent build123d script before any golden was
+    recorded; the goldens' every mass property is the closed form (area
+    5 025 + 14π in² for a joint), which the kernel meets to 1.2e-6 mm³ (the
+    16-body sum's round-off).
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
@@ -2230,3 +2376,61 @@ document; the registers and the assembly Add panel now do too.
   document's version so an edit refetches; never shows the previous picture
   while a new version renders.
 - No schema change: nothing is stored in Postgres.
+
+## 27. Price book (PRICE-BOOK)
+
+The founder asked for a price column on the cut sheet. Chief Architect's
+Master List feeds its materials list a price per item, and SolidWorks' Cost
+property feeds a BOM column; Loft's price book feeds the cut list.
+
+- **One book per user, in documents** (`price_books`, unique per owner, with
+  the ISO 4217 currency; `price_book_entries` in the user's order; migration
+  0022). No workspaces yet, so a book is the caller's: there is no id in the
+  route (`GET`/`PUT /api/v1/price-book`) and every query filters on the
+  gateway-forwarded principal. A user who never saved one reads an empty USD
+  book and nothing is written until the first `PUT`. A `PUT` replaces the
+  whole book under a row lock, so two saves serialize and the later wins whole.
+- **An entry is a material, a lumber profile, a unit and integer cents**
+  (`loft_wire.price_book`). Units: `each` (one stock piece, with its stock
+  length, one of `STOCK_LENGTHS_FT`), `linear_foot` or `board_foot`, the last
+  two for any stock length. Material and profile are the library's closed
+  keys (`spf_lumber`, `us_2x4`), so a typo is a 422, not a price that never
+  matches. One price per (material, profile, unit, stock length); at most 500
+  entries; 0 to 10,000,000 cents, a strict JSON integer (`3.98`, `398.0`
+  and `"398"` are refused). The database backs the two rules a bad write
+  would corrupt silently with CHECKs: no negative price, and a stock length
+  exactly when the unit is `each`. Sheet goods and per-part prices are later.
+- **Lines are priced on the stock pieces bought** (`loft_wire.cut_list.
+  price_lines`, pure code the gateway applies to every part and assembly cut
+  list). Stock quantity is one per piece until CUT-LIST-NESTING, so the
+  offcut is paid for, not credited, as a yard invoices. The unit price per
+  stock piece is the `each` price for that stock length, else per foot x the
+  stock length, else per board foot x nominal thickness x nominal width x
+  stock length / 12 (2x4 x 8 ft = 5.333 BF; 5/4x6 counts 1.25 thick). Board
+  feet use the NOMINAL size, as yards sell them, read exactly from the
+  profile's name.
+- **Money is integer cents, rounded once per stock piece, half up.** A
+  board-foot price is the only one that can fall between cents; it is
+  computed as an exact fraction and rounded once per piece, then multiplied
+  by the stock quantity, as an invoice line is (10 x 533, never
+  round(10 x 533.33)). No float touches money: ints and `Fraction` in
+  Python, BIGINT in Postgres, JSON integers on the wire.
+- **A missing price is blank, never $0.** A line with no entry, no material
+  or no stock length (unclassified, or longer than 20 ft) has null unit and
+  extended price; the response has `currency`, `total_price_cents` (the
+  priced lines' sum, null when none is priced) and `unpriced_lines`. An
+  assembly's list is already one grouped list across its parts, so its total
+  is the sum of its lines. A deleted part an assembly still places is in
+  `missing`, not a line, so it is not counted as unpriced.
+- **CSV:** `Stock qty`, `Unit price (USD)`, `Price unit` (Each, Per ft,
+  Per BF) and `Extended (USD)` as plain numbers (`28.47`, no symbol or
+  separator, so a spreadsheet sums them), an unpriced line's cells blank, and
+  a Total row ("Total", or "Total of priced lines, N unpriced"). A formula
+  trigger after leading whitespace is escaped too (`" =1+1"` becomes
+  `"' =1+1"`), closing CUT-LIST-CSV-HARDEN.
+- **Checked:** B1 measured from its golden totals $943.94 with the sample
+  book and $839.54 with 1 line unpriced once the 6x6 price is deleted; B2
+  (walls with door and window, and the 6/12 roof) $396.07; B1 once and B2
+  twice $1,736.08 (`services/geometry/tests/test_cut_list_prices.py`); the
+  same B1 numbers and CSV through the three services
+  (`test_cut_list_chain.py`).

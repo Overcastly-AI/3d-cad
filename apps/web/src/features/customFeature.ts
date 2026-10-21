@@ -158,7 +158,7 @@ export function foldCustomResults(
     if (customMembers(row.feature.params).length > 0) continue;
     const host = Object.values(row.feature.params.inputs)
       .map((value) =>
-        typeof value === "object" && value !== null
+        typeof value === "object" && value !== null && !Array.isArray(value)
           ? folded.get(value.feature_id)
           : undefined,
       )

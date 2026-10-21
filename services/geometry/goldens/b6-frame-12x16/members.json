@@ -1,0 +1,162 @@
+[
+  {
+    "feature_id": "86ef1fa8-7142-5053-a9d6-6dc204718d53",
+    "role": "post",
+    "title": "Post",
+    "metadata": {
+      "profile": "8x8",
+      "material": "dfl_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ac1df94b-8dff-559a-bd16-12ee75f85403",
+    "role": "post",
+    "title": "Post",
+    "metadata": {
+      "profile": "8x8",
+      "material": "dfl_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3eb289af-8928-5318-9727-fd6218c8aa98",
+    "role": "post",
+    "title": "Post",
+    "metadata": {
+      "profile": "8x8",
+      "material": "dfl_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "08b32ae6-b3fa-5356-81fb-e4c7db42eb26",
+    "role": "post",
+    "title": "Post",
+    "metadata": {
+      "profile": "8x8",
+      "material": "dfl_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "dac1b8f2-4e72-5e28-bd24-9c9392a71b98",
+    "role": "tie_beam",
+    "title": "Tie beam",
+    "metadata": {
+      "profile": "8x8",
+      "material": "dfl_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "cef1a175-a35c-5639-b413-27c624c86967",
+    "role": "tie_beam",
+    "title": "Tie beam",
+    "metadata": {
+      "profile": "8x8",
+      "material": "dfl_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "90fa2668-6f8f-5460-ae1b-6318af675458",
+    "role": "girt",
+    "title": "Girt",
+    "metadata": {
+      "profile": "8x8",
+      "material": "dfl_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "968c62db-8dac-5d7d-843c-9f1b72498fd7",
+    "role": "girt",
+    "title": "Girt",
+    "metadata": {
+      "profile": "8x8",
+      "material": "dfl_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6e4f3ee3-3142-5a24-b952-e57f4fe2e624",
+    "role": "peg",
+    "title": "Peg",
+    "metadata": {
+      "profile": "\u00d81",
+      "material": "white_oak",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ac7f81d9-9a2a-5ad9-a5bc-46863df30b75",
+    "role": "peg",
+    "title": "Peg",
+    "metadata": {
+      "profile": "\u00d81",
+      "material": "white_oak",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6ab149a2-9f4a-53c7-b779-bafce291c8f1",
+    "role": "peg",
+    "title": "Peg",
+    "metadata": {
+      "profile": "\u00d81",
+      "material": "white_oak",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ae0e0aaf-1b20-5d07-bab1-fd099364c0af",
+    "role": "peg",
+    "title": "Peg",
+    "metadata": {
+      "profile": "\u00d81",
+      "material": "white_oak",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "24a1ddc4-4646-5371-bf4d-0974e8341391",
+    "role": "peg",
+    "title": "Peg",
+    "metadata": {
+      "profile": "\u00d81",
+      "material": "white_oak",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ad8553d7-4a2f-5047-920e-ac37686642d8",
+    "role": "peg",
+    "title": "Peg",
+    "metadata": {
+      "profile": "\u00d81",
+      "material": "white_oak",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "caa7623f-6e04-5f45-92b6-cb4b4193d8ce",
+    "role": "peg",
+    "title": "Peg",
+    "metadata": {
+      "profile": "\u00d81",
+      "material": "white_oak",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "08639ae3-6a3c-5bcc-92be-e05c1840756c",
+    "role": "peg",
+    "title": "Peg",
+    "metadata": {
+      "profile": "\u00d81",
+      "material": "white_oak",
+      "nominal_size": null
+    }
+  }
+]

@@ -283,6 +283,10 @@ test.describe("nothing is unreachable at the 1280 floor", () => {
     await expect(prism).toBeEnabled();
     await expect(prism).toHaveAccessibleName(/^Twisted prism/);
     await inFrame("plugin-tool-loft.twisted_prism");
+    // Timber frame (TIMBER-FRAME) is there too, inside the frame.
+    const timber = page.getByTestId("plugin-tool-loft.timber_frame");
+    await expect(timber).toBeEnabled();
+    await inFrame("plugin-tool-loft.timber_frame");
     await page.keyboard.press("Escape");
     await expect(prism).toBeHidden();
 

@@ -164,6 +164,8 @@ built from Build-group plugins with no member drawn by hand:
 - **B2 shed:** 10 x 12 ft, stud walls, a hosted door and window, and a 6/12 gable roof.
 - **B3 hip shed:** B2's walls under a 6/12 hip roof: hips, hip jacks, ridge.
 - **B4 L-shaped house:** six walls under a hip roof with a valley and valley jacks; a narrowed wing adds a hip-valley cripple.
+- **B5 shed on a floor:** B2's walls on a framed 2x8 floor, with OSB wall sheathing and a plywood subfloor, priced per sheet.
+- **B6 timber frame:** two 8x8 bents with tie beams and girts, every joint a pegged mortise and tenon.
 
 ## Daily-driver scorecard
 
@@ -253,5 +255,37 @@ goal and answer them"); the product-manager decided them. Each is in
 - **Hip and valley framing:** hips dropped, valleys not raised, jacks laid
   out from the ridge-end commons, 2x8 hips and valleys by default (IRC
   R802.3 depth); the 1/3 heel rule stays the commons' (buildings.md).
+- **Cut-list prices (2026-10-17, founder: "give me a price column on the
+  cut sheet"):** after ROOF-HIP, before ROOF-VALLEY. Prices live in one
+  price book per user (Chief Architect's Master List), keyed by material,
+  profile and unit: Each per stock length, per linear foot or per board
+  foot (nominal). Lines are priced on the stock pieces bought, so the
+  offcut is paid for; a missing price is blank, never $0, and the total
+  says how many lines are unpriced. USD only, integer cents, rounded once
+  per stock piece. The CSV gets the columns and a Total row; the drawing
+  parts list's Cost column, sheet goods and per-part costs are Notes
+  (PRICE-BOOK, CUT-LIST-PRICES).
+- **Now after B4 (2026-10-17, third pass):** WALL-MEMBER-RENUMBER first,
+  under Severity. Moving a door silently moves a hole to another stud, which
+  is wrong geometry a user would see. Then FLOOR-FRAME, SHEATHING and
+  TIMBER-FRAME (B5, B6). A house needs a floor and sheathing, sheets are the
+  biggest unpriced cost on B2, and timber frames are a founder goal with no
+  path at all. The bike gaps stay first in Next: the bike builds with
+  workarounds.
+- **PRICE-BOOK-VERSION does not jump the queue:** 82d5a7c closed the
+  realistic case (a stale tab). What is left is one round trip in which the
+  user's own two saves race on their own book. Nothing is corrupted, and the
+  prices can be typed again. It ships inside SHEATHING, whose price-book wire
+  change and migration it shares.
+- **Sheathing conventions:** sheathing is a layer option on Wall and Floor
+  (Chief Architect's structure layers, Medeek's options), not a tool of its
+  own. Sheets are counted by net area, ceil(area / sheet), as Chief
+  Architect's materials list counts them. Each panel's sheet is the shortest
+  of 4x8, 4x9 and 4x10 that covers it. Corners are butted, and roofs come
+  later (ROOF-SHEATHING).
+- **Timber frame conventions:** S4S sections (8x8 is 7.5 x 7.5). One joint
+  placement cuts both members, as in Cadwork and hsbCAD. The first rung is
+  only blind mortise and tenons with coaxial pegs; drawbore, braces and
+  plates come later. Cut lengths include the tenons.
 - **Left for the founder:** the object store (MinIO or an Apache-2.0 server),
   because it turns on publishing images under AGPL §6.

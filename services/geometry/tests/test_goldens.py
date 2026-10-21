@@ -239,6 +239,19 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # (2.3e-4 at worst); a build123d twin drifts too, its ridge not.
         "b3-hip-6-12",
         "b3-hip-8-12",
+        # B4's L hip roof and its 48 in wing (ROOF-VALLEY): the same STEP
+        # rounding over more sloped members (1.3e-3 at worst); twin drifts too.
+        "b4-l-hip-valley",
+        "b4-wing-48",
+        # B5's floor (loft.floor), its 12 in o.c. edit, and B2's walls on it
+        # (FLOOR-FRAME): the same summation drift as the B2 walls.
+        "b5-floor-2x8-16oc",
+        "b5-floor-2x8-12oc",
+        "b5-shed-walls-on-floor",
+        # B6's timber frame and its 14 ft edit (TIMBER-FRAME): 16 bodies of
+        # ~9.2e8 mm^3, the posts' bores re-integrated (1.5e-6 at worst).
+        "b6-frame-12x16",
+        "b6-frame-14x16",
     }
 )
 

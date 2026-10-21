@@ -51,15 +51,45 @@ B1_TABLE = [
 ]
 
 _PT = '"Southern pine, pressure-treated"'
-B1_CSV = (
+_HEADER = (
     "Item,Member,Profile,Section (in),Material,Qty,Length (in),"
-    "Total length (in),Stock,Waste each (in)\r\n"
-    f"1,Ledger,2x10,1.5 x 9.25,{_PT},1,192,192,16 ft,0\r\n"
-    f"2,Rim,2x10,1.5 x 9.25,{_PT},1,192,192,16 ft,0\r\n"
-    f"3,Beam,2x10,1.5 x 9.25,{_PT},2,192,384,16 ft,0\r\n"
-    f"4,Joist,2x10,1.5 x 9.25,{_PT},13,141,1833,12 ft,3\r\n"
-    f"5,Post,6x6,5.5 x 5.5,{_PT},3,10.5,31.5,8 ft,85.5\r\n"
-    f"6,Deck,5/4x6,1 x 5.5,{_PT},26,192,4992,16 ft,0\r\n"
+    "Total length (in),Stock,Waste each (in),Stock qty,Unit price (USD),"
+    "Price unit,Extended (USD)\r\n"
+)
+
+#: With no price book: every line's stock quantity, no price (blank, not 0).
+B1_CSV = (
+    _HEADER + f"1,Ledger,2x10,1.5 x 9.25,{_PT},1,192,192,16 ft,0,1,,,\r\n"
+    f"2,Rim,2x10,1.5 x 9.25,{_PT},1,192,192,16 ft,0,1,,,\r\n"
+    f"3,Beam,2x10,1.5 x 9.25,{_PT},2,192,384,16 ft,0,2,,,\r\n"
+    f"4,Joist,2x10,1.5 x 9.25,{_PT},13,141,1833,12 ft,3,13,,,\r\n"
+    f"5,Post,6x6,5.5 x 5.5,{_PT},3,10.5,31.5,8 ft,85.5,3,,,\r\n"
+    f"6,Deck,5/4x6,1 x 5.5,{_PT},26,192,4992,16 ft,0,26,,,\r\n"
+    ',"Total of priced lines, 6 unpriced",,,,,,,,,,,,\r\n'
+)
+
+#: BACKLOG item 6's sample book, its PT entries (all B1 needs).
+_PT_KEY = "southern_pine_pt"
+SAMPLE_PT: list[dict[str, Any]] = [
+    {"material": _PT_KEY, "profile": "us_2x10", "unit": "each",
+     "stock_length_ft": 16, "price_cents": 2847},
+    {"material": _PT_KEY, "profile": "us_2x10", "unit": "each",
+     "stock_length_ft": 12, "price_cents": 1998},
+    {"material": _PT_KEY, "profile": "us_6x6", "unit": "board_foot",
+     "price_cents": 145},
+    {"material": _PT_KEY, "profile": "us_5_4x6", "unit": "linear_foot",
+     "price_cents": 112},
+]  # fmt: skip
+
+#: B1 priced by hand from the sample book (BACKLOG item 6): $943.94.
+B1_PRICED_CSV = (
+    _HEADER + f"1,Ledger,2x10,1.5 x 9.25,{_PT},1,192,192,16 ft,0,1,28.47,Each,28.47\r\n"
+    f"2,Rim,2x10,1.5 x 9.25,{_PT},1,192,192,16 ft,0,1,28.47,Each,28.47\r\n"
+    f"3,Beam,2x10,1.5 x 9.25,{_PT},2,192,384,16 ft,0,2,28.47,Each,56.94\r\n"
+    f"4,Joist,2x10,1.5 x 9.25,{_PT},13,141,1833,12 ft,3,13,19.98,Each,259.74\r\n"
+    f"5,Post,6x6,5.5 x 5.5,{_PT},3,10.5,31.5,8 ft,85.5,3,34.80,Per BF,104.40\r\n"
+    f"6,Deck,5/4x6,1 x 5.5,{_PT},26,192,4992,16 ft,0,26,17.92,Per ft,465.92\r\n"
+    ",Total,,,,,,,,,,,,943.94\r\n"
 )
 
 
@@ -289,5 +319,131 @@ def test_the_b1_cut_list_through_the_gateway(tmp_path: Path) -> None:
             assert foreign.status_code == 404
             anonymous = await client.get(f"/api/v1/parts/{part_id}/cut-list")
             assert anonymous.status_code == 401
+
+    asyncio.run(scenario())
+
+
+def _prices(cut_list: CutListResponse) -> list[tuple[Any, ...]]:
+    return [
+        (line.member, line.unit_price_cents, line.extended_price_cents)
+        for line in cut_list.lines
+    ]
+
+
+async def _priced(
+    client: httpx.AsyncClient, url: str, headers: dict[str, str]
+) -> CutListResponse:
+    response = await client.get(url, headers=headers)
+    assert response.status_code == 200, response.text
+    return CutListResponse.model_validate_json(response.content)
+
+
+def test_the_price_book_prices_b1_and_is_the_callers_alone(tmp_path: Path) -> None:
+    """PRICE-BOOK acceptance through the gateway: B1 totals $943.94 with the
+    sample book, $839.54 with 1 line unpriced once the 6x6 price is deleted;
+    an assembly placing B1 twice totals twice that; the CSV carries the same
+    numbers. Another user can neither read nor overwrite the book, and their
+    cut list of their own part is priced from THEIR book."""
+
+    async def scenario() -> None:
+        async with _chain(tmp_path) as client:
+            owner = await _register(client, "framer@example.com")
+            part_id = await _deck(client, owner)
+            cut_list_url = f"/api/v1/parts/{part_id}/cut-list"
+
+            empty = await client.get("/api/v1/price-book", headers=owner)
+            assert empty.status_code == 200, empty.text
+            assert empty.json() == {
+                "currency": "USD",
+                "entries": [],
+                "updated_at": None,
+            }
+
+            saved = await client.put(
+                "/api/v1/price-book",
+                json={"currency": "USD", "entries": SAMPLE_PT},
+                headers=owner,
+            )
+            assert saved.status_code == 200, saved.text
+            assert len(saved.json()["entries"]) == 4
+
+            priced = await _priced(client, cut_list_url, owner)
+            assert _prices(priced) == [
+                ("Ledger", 2847, 2847),
+                ("Rim", 2847, 2847),
+                ("Beam", 2847, 5694),
+                ("Joist", 1998, 25974),
+                ("Post", 3480, 10440),
+                ("Deck", 1792, 46592),
+            ]
+            assert (priced.currency, priced.total_price_cents) == ("USD", 94394)
+            assert priced.unpriced_lines == 0
+            csv = await client.get(f"{cut_list_url}/csv", headers=owner)
+            assert csv.content.decode("utf-8") == B1_PRICED_CSV
+
+            assembly_id, _, _ = await _assembly(client, owner, part_id)
+            doubled = await _priced(
+                client, f"/api/v1/assemblies/{assembly_id}/cut-list", owner
+            )
+            assert doubled.total_price_cents == 2 * 94394
+
+            # Delete the 6x6 price: the post is blank, never $0.
+            without_post = [e for e in SAMPLE_PT if e["profile"] != "us_6x6"]
+            put = await client.put(
+                "/api/v1/price-book", json={"entries": without_post}, headers=owner
+            )
+            assert put.status_code == 200, put.text
+            priced = await _priced(client, cut_list_url, owner)
+            post = next(line for line in priced.lines if line.member == "Post")
+            assert (post.unit_price_cents, post.extended_price_cents) == (None, None)
+            assert (priced.total_price_cents, priced.unpriced_lines) == (83954, 1)
+            csv_text = (await client.get(f"{cut_list_url}/csv", headers=owner)).text
+            assert ",8 ft,85.5,3,,,\r\n" in csv_text
+            assert csv_text.endswith(
+                ',"Total of priced lines, 1 unpriced",' + "," * 11 + "839.54\r\n"
+            )
+
+            # Bad books are refused at the gateway and change nothing.
+            for bad in (
+                [{**SAMPLE_PT[0], "price_cents": -100}],
+                [{**SAMPLE_PT[0], "price_cents": 28.47}],
+                [SAMPLE_PT[0], SAMPLE_PT[0]],
+                [SAMPLE_PT[0]] * 501,
+            ):
+                refused = await client.put(
+                    "/api/v1/price-book", json={"entries": bad}, headers=owner
+                )
+                assert refused.status_code == 422, refused.text
+            stored = [{"stock_length_ft": None, **e} for e in without_post]
+            mine = await client.get("/api/v1/price-book", headers=owner)
+            assert mine.json()["entries"] == stored
+
+            # Another user: an empty book of their own, and their save is
+            # theirs alone.
+            other = await _register(client, "other@example.com")
+            theirs = await client.get("/api/v1/price-book", headers=other)
+            assert theirs.json()["entries"] == []
+            put = await client.put(
+                "/api/v1/price-book",
+                json={"entries": [{**SAMPLE_PT[1], "price_cents": 1}]},
+                headers=other,
+            )
+            assert put.status_code == 200, put.text
+            mine = await client.get("/api/v1/price-book", headers=owner)
+            assert mine.json()["entries"] == stored
+            their_part = await _deck(client, other)
+            theirs_priced = await _priced(
+                client, f"/api/v1/parts/{their_part}/cut-list", other
+            )
+            assert theirs_priced.total_price_cents == 13  # 13 joists at 1 cent
+            assert theirs_priced.unpriced_lines == 5
+            mine_priced = await _priced(client, cut_list_url, owner)
+            assert mine_priced.total_price_cents == 83954
+
+            for method in ("GET", "PUT"):
+                anonymous = await client.request(
+                    method, "/api/v1/price-book", json={"entries": []}
+                )
+                assert anonymous.status_code == 401
 
     asyncio.run(scenario())

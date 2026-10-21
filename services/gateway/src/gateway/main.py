@@ -52,6 +52,7 @@ from gateway.parameters import router as parameters_router
 from gateway.parts import create_documents_client
 from gateway.parts import router as parts_router
 from gateway.plugins import router as plugins_router
+from gateway.price_book import router as price_book_router
 from gateway.step_import import assembly_router as assembly_import_router
 from gateway.step_import import router as step_import_router
 from gateway.thumbnails import router as thumbnails_router
@@ -236,6 +237,7 @@ def build_app(
     app.include_router(loft_file_router)
     app.include_router(versions_router)
     app.include_router(parameters_router)
+    app.include_router(price_book_router)
     app.include_router(materials_router)
     app.include_router(plugins_router)
     app.include_router(features_router)

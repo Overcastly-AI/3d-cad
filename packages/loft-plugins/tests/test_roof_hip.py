@@ -261,11 +261,11 @@ def test_gable_at_1_1_is_b2s_golden() -> None:
     assert committed.model_dump(mode="json") == request.model_dump(mode="json")
 
 
-def test_1_1_is_additive_and_the_latest() -> None:
+def test_1_1_is_additive() -> None:
     """1.1.0 keeps every 1.0.0 input (a stored roof's inputs are a 1.1.0
-    roof's), adds Style (Gable by default) and the hip size, and is what a
-    new Roof is inserted with; 1.0.0 stays installed for stored roofs."""
-    assert REGISTRY.latest("loft.roof").manifest.version == "1.1.0"
+    roof's) and adds Style (Gable by default) and the hip size; 1.0.0 stays
+    installed for stored roofs. (A new Roof is inserted at 1.2.0,
+    test_roof_valley.py.)"""
     old = {i.name for i in ROOF_1_0.manifest.inputs}
     new = [i.name for i in ROOF.manifest.inputs]
     assert old <= set(new) and set(new) - old == {"style", "hip_profile"}

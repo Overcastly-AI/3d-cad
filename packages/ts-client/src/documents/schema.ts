@@ -1598,6 +1598,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/price-book": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Price Book
+         * @description The caller's price book; an empty USD book if they never saved one.
+         */
+        get: operations["get_price_book_api_v1_price_book_get"];
+        /**
+         * Put Price Book
+         * @description Replace the caller's whole price book (at most 500 entries, one price
+         *     per material, profile, unit and stock length, integer cents).
+         */
+        put: operations["put_price_book_api_v1_price_book_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ref-backfill/parts": {
         parameters: {
             query?: never;
@@ -2153,7 +2178,7 @@ export interface components {
              * @description Material for THIS body only
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
         };
         /**
          * BomLine
@@ -2745,15 +2770,14 @@ export interface components {
         /**
          * CustomParamsV1
          * @description A custom feature: the plugin it is pinned to, its inputs, and the last
-         *     expansion. Documents expands it on every write and evaluation, and geometry
-         *     only ever receives the base features (RESEARCH §23). The stored expansion
-         *     is what a server without the plugin (or the pinned version) rebuilds,
-         *     read-only.
+         *     expansion. Documents expands it on every write and evaluation; geometry
+         *     only receives base features (RESEARCH §23). A server without the plugin
+         *     (or the pinned version) rebuilds the stored expansion, read-only.
          */
         CustomParamsV1: {
             /**
              * Expansion
-             * @description The last expansion, written by documents (a client may omit it). Null only on a request.
+             * @description The last expansion, written by documents; a request may omit it.
              */
             expansion?: components["schemas"]["ExpandedMember"][] | null;
             /**
@@ -2761,7 +2785,7 @@ export interface components {
              * @description Input name -> value, validated against the pinned manifest.
              */
             inputs: {
-                [key: string]: number | string | components["schemas"]["FeatureRef"];
+                [key: string]: number | string | components["schemas"]["FeatureRef"] | components["schemas"]["FeatureRef"][];
             };
             /** Plugin Id */
             plugin_id: string;
@@ -4556,6 +4580,57 @@ export interface components {
             upstream_feature_id?: string | null;
         };
         /**
+         * FeatureListInput
+         * @description Several earlier features of one of ``feature_types``, in pick order:
+         *     a roof's bearing walls, as Revit's Roof by Footprint picks walls. Stored
+         *     as a list of ``FeatureRef`` (no repeats); an empty pick is stored as no
+         *     value, allowed only when ``min_items`` is 0. Never a host.
+         */
+        FeatureListInput: {
+            /**
+             * Description
+             * @description Help text under the field.
+             */
+            description?: string | null;
+            /**
+             * Feature Types
+             * @description Feature types each picked feature may be (`datum`, `sketch`, `custom`, ...).
+             */
+            feature_types: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "features";
+            /**
+             * Label
+             * @description Form label, e.g. 'Twist angle'.
+             */
+            label: string;
+            /**
+             * Max Items
+             * @description Most features to pick.
+             * @default 32
+             */
+            max_items: number;
+            /**
+             * Min Items
+             * @description Fewest features to pick; 0 makes the input optional.
+             * @default 0
+             */
+            min_items: number;
+            /**
+             * Name
+             * @description Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.
+             */
+            name: string;
+            /**
+             * Plugin Ids
+             * @description When a picked feature is a custom feature: the plugins it may be (a roof's walls are `loft.wall`). Unset: any.
+             */
+            plugin_ids?: string[] | null;
+        };
+        /**
          * FeatureMutationResponse
          * @description Result of a single-feature mutation: the affected feature + the new
          *     tree version (the client's next ``expected_tree_version``).
@@ -6332,7 +6407,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6";
+            key: "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12";
             /**
              * Name
              * @description Nominal size as sold, e.g. '2x10' or '5/4x6'.
@@ -6529,7 +6604,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
             /**
              * Name
              * @description Display name, e.g. 'Aluminium 6061'
@@ -6564,7 +6639,7 @@ export interface components {
              * Default Material
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
-            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
         };
         /**
          * MaterialInput
@@ -6572,7 +6647,7 @@ export interface components {
          */
         MaterialInput: {
             /** Default */
-            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
+            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
             /**
              * Description
              * @description Help text under the field.
@@ -6626,7 +6701,7 @@ export interface components {
              * Material
              * @description Library material of the member.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
             /**
              * Nominal Size
              * @description Nominal size as sold, e.g. '2x8x12'.
@@ -7810,7 +7885,7 @@ export interface components {
              */
             id: string;
             /** Inputs */
-            inputs: (components["schemas"]["LengthInput"] | components["schemas"]["AngleInput"] | components["schemas"]["CountInput"] | components["schemas"]["ChoiceInput"] | components["schemas"]["ProfileInput"] | components["schemas"]["FeatureReferenceInput"] | components["schemas"]["MaterialInput"])[];
+            inputs: (components["schemas"]["LengthInput"] | components["schemas"]["AngleInput"] | components["schemas"]["CountInput"] | components["schemas"]["ChoiceInput"] | components["schemas"]["ProfileInput"] | components["schemas"]["FeatureReferenceInput"] | components["schemas"]["FeatureListInput"] | components["schemas"]["MaterialInput"])[];
             /**
              * Latest
              * @description True on the newest released version of this plugin: the one a new feature is inserted with. Older versions are listed so a feature pinned to one still gets its form.
@@ -7969,6 +8044,77 @@ export interface components {
              * @enum {string}
              */
             mode: "point_to_point";
+        };
+        /**
+         * PriceBookEntry
+         * @description One price: a material and profile, per stock piece, foot or board foot.
+         */
+        PriceBookEntry: {
+            /**
+             * Material
+             * @description Library material, e.g. 'spf_lumber'.
+             * @enum {string}
+             */
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
+            /**
+             * Price Cents
+             * @description Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.
+             */
+            price_cents: number;
+            /**
+             * Profile
+             * @description Lumber profile, e.g. 'us_2x4'.
+             * @enum {string}
+             */
+            profile: "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12";
+            /**
+             * Stock Length Ft
+             * @description The stock length an 'each' price is for (ft); null for a per-foot or per-board-foot price.
+             */
+            stock_length_ft?: number | null;
+            /**
+             * Unit
+             * @description 'each' (one stock piece of `stock_length_ft`), 'linear_foot' or 'board_foot' (any stock length).
+             * @enum {string}
+             */
+            unit: "each" | "linear_foot" | "board_foot";
+        };
+        /**
+         * PriceBookResponse
+         * @description The caller's price book. A user who never saved one has an empty USD
+         *     book (``updated_at`` null).
+         */
+        PriceBookResponse: {
+            /**
+             * Currency
+             * @constant
+             */
+            currency: "USD";
+            /** Entries */
+            entries?: components["schemas"]["PriceBookEntry"][];
+            /**
+             * Updated At
+             * @description When the book was last saved; null if never.
+             */
+            updated_at?: string | null;
+        };
+        /**
+         * PriceBookUpdate
+         * @description ``PUT /api/v1/price-book``: the whole book, replacing the stored one.
+         */
+        PriceBookUpdate: {
+            /**
+             * Currency
+             * @description ISO 4217 code.
+             * @default USD
+             * @constant
+             */
+            currency: "USD";
+            /**
+             * Entries
+             * @description Every entry, in the user's order; one per material, profile, unit and stock length.
+             */
+            entries?: components["schemas"]["PriceBookEntry"][];
         };
         /**
          * ProfileInput
@@ -13033,6 +13179,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PluginCatalog"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_price_book_api_v1_price_book_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceBookResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_price_book_api_v1_price_book_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PriceBookUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceBookResponse"];
                 };
             };
             /** @description Validation Error */

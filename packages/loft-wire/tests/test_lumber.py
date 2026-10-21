@@ -28,7 +28,7 @@ from loft_wire.plugins import ChoiceOption
 #: key -> (nominal name, actual thickness in, actual width in), PS 20-20:
 #: boards 1 -> 3/4, decking 5/4 -> 1, dimension 2 -> 1-1/2, 3 -> 2-1/2,
 #: 4 -> 3-1/2, 6 -> 5-1/2, 8 -> 7-1/4, 10 -> 9-1/4, 12 -> 11-1/4 (dry);
-#: timbers 6 -> 5-1/2 (green).
+#: timbers 6 -> 5-1/2, 8 -> 7-1/2, 10 -> 9-1/2, 12 -> 11-1/2 (green, S4S).
 EXPECTED_PROFILES: dict[str, tuple[str, float, float]] = {
     "us_1x4": ("1x4", 0.75, 3.5),
     "us_1x6": ("1x6", 0.75, 5.5),
@@ -43,6 +43,13 @@ EXPECTED_PROFILES: dict[str, tuple[str, float, float]] = {
     "us_4x4": ("4x4", 3.5, 3.5),
     "us_4x6": ("4x6", 3.5, 5.5),
     "us_6x6": ("6x6", 5.5, 5.5),
+    "us_6x8": ("6x8", 5.5, 7.5),
+    "us_8x8": ("8x8", 7.5, 7.5),
+    "us_8x10": ("8x10", 7.5, 9.5),
+    "us_8x12": ("8x12", 7.5, 11.5),
+    "us_10x10": ("10x10", 9.5, 9.5),
+    "us_10x12": ("10x12", 9.5, 11.5),
+    "us_12x12": ("12x12", 11.5, 11.5),
 }
 
 #: Every library density (kg/m^3), pinned. The first seven predate lumber and
@@ -58,6 +65,7 @@ EXPECTED_DENSITIES: dict[str, float] = {
     "spf_lumber": 450.0,
     "dfl_lumber": 532.0,
     "southern_pine_pt": 582.0,
+    "white_oak": 759.0,
     "lvl": 673.0,
     "glulam_dfl": 561.0,
     "steel_a992": 7850.0,
@@ -107,7 +115,12 @@ def test_every_density_is_pinned_and_sourced() -> None:
 
 @pytest.mark.parametrize(
     ("key", "g_oven_dry"),
-    [("spf_lumber", 0.42), ("dfl_lumber", 0.50), ("southern_pine_pt", 0.55)],
+    [
+        ("spf_lumber", 0.42),
+        ("dfl_lumber", 0.50),
+        ("southern_pine_pt", 0.55),
+        ("white_oak", 0.73),
+    ],
 )
 def test_wood_density_follows_from_nds_specific_gravity(
     key: str, g_oven_dry: float

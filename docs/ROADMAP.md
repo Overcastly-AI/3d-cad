@@ -5,12 +5,16 @@ Where we are and what comes next. The orchestrator keeps "Now" true; the
 
 ## Now (2026-10-17)
 
-Since 10-16: failed parts named in API exports, Pipe and Plane Along Path
-(bike tube frames), the plugin registry with its Build toolbar, and one
-face-merge per boolean. Next, in order: the login rate limit keyed per client
-behind the proxy (security), then lumber materials, a cut list and the Deck
-plugin, so the B1 deck builds end to end. Waiting on the founder: the object
-store.
+Since 10-16, the Build group frames B1-B4 from plugins alone: a deck, stud
+walls with hosted windows and doors, and gable, hip and valley roofs. Each
+has a cut list priced from a per-user price book. Next, in order:
+- stable stud and joist ids, so moving a door no longer moves a hole to
+  another stud (a fix);
+- a framed floor (B5);
+- wall sheathing and subfloor, priced per sheet;
+- a pegged timber frame (B6).
+
+Waiting on the founder: the object store.
 
 ## Shipped
 
@@ -39,13 +43,13 @@ store.
 4. MCP server on top of `loft-script`.
 5. Assemblies a working engineer can use: joints, drag, limits, component patterns
    and in-context edits, driven by the reference assemblies A1-A3.
-6. Plugins as custom features, then building generators (deck, stud walls,
-   hosted windows and doors, roof) with lumber materials and a cut list,
-   driven by the reference buildings B1-B2 (RESEARCH §23).
+6. Building generators beyond B1-B4: floors, sheathing, timber frames, then
+   slabs, steel studs and stairs, driven by the reference buildings B5 and B6
+   (RESEARCH §23).
 
 ## Later
 
 Versions for assemblies and drawings, version-pinned references, realtime
 collaboration,
-Helm/HA deployment, SSO/OIDC, timber framing, a whole-house assembly, and
+Helm/HA deployment, SSO/OIDC, a whole-house assembly, and
 third-party plugins.

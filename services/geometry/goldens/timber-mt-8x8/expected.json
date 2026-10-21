@@ -1,0 +1,55 @@
+{
+  "description": "B6 ONE JOINT (TIMBER-FRAME; docs/reference-parts/buildings.md B6 'One joint'): an 8x8 post X 0..7.5, Y 0..7.5, Z 0..96 and an 8x8 beam X 7.5..67.5, Z 88.5..96, joined by a blind mortise and tenon (tenon X 3.5..7.5, Y 3..4.5, Z 89.25..95.25) and a Ø1 white oak peg along Y at X 5.5, Z 92.25 through both. model.json is loft.timber_frame 1.0.0's own emit_frame on that frame of one post and one beam (packages/loft-plugins/tests/test_timber_frame.py pins it); services/geometry/tests/test_timber_frame_b6.py checks each body against an independent build123d script, the coaxial holes, no interference and the cut list.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC from buildings.md B6, and the independent build123d script (test_timber_frame_b6.script_joint) agrees with each body to 1e-4.",
+    "",
+    "Volumes (in^3): post 7.5 x 7.5 x 96 = 5400, less the mortise 4 x 1.5 x 6 = 36 and the hole outside it, pi/4 x (7.5 - 1.5) = 1.5 pi: 5364 - 1.5 pi. Beam 60 x 56.25 = 3375 plus the tenon 36 less its hole pi/4 x 1.5: 3411 - 0.375 pi. Peg pi/4 x 7.5 = 1.875 pi. Total 8775 exactly: the two boxes, the tenon filling its mortise and the peg its holes.",
+    "",
+    "Surface area (in^2): post box 2 x 56.25 + 4 x 720 = 2992.5, the mortise's walls and bottom less its mouth +60, the hole's two walls 6 pi less four circles of 0.25 pi (two faces, two cheeks): 3052.5 + 5 pi. Beam box 2 x 56.25 + 4 x 450 = 1912.5, the tenon's sides +60, its hole wall 1.5 pi less two circles: 1972.5 + pi. Peg 7.5 pi + 0.5 pi = 8 pi. Total 5025 + 14 pi.",
+    "",
+    "bounding_box: X 0..67.5, Y 0..7.5, Z 0..96 in.",
+    "",
+    "volume = 8775 in^3 x 25.4^3 = 143796486.6 mm^3; surface_area as above x 25.4^2 = 3270304.61882946 mm^2.",
+    "centroid = the box sum's moment / volume (pegs fill their holes and tenons their mortises, so the union is the member boxes) = (16.730769231, 3.750000000, 65.019230769) in.",
+    "mass_g = (532 x (V - pegs) + 759 x pegs) x 25.4^3 x 1e-6, pegs = 1.875 pi in^3 (dfl_lumber members, white_oak pegs) = 76521.64267607234 g; center_of_mass = (532 x (box moment - peg moment) + 759 x peg moment) / (that mass), each peg's centroid its axis's midpoint.",
+    "topology: counted by hand per body in the module docstring of services/geometry/tests/test_timber_frame_b6.py (a post 6 + 7 per mortise faces, 12 + 18 edges; a beam 6 + 6 per tenon, 12 + 15; a peg 3 faces, 3 edges); mesh counts recorded from the build (planar boxes and Ø1 cylinders at linear_deflection 0.1)."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): the bounds are ABSOLUTE on a 1.44e8 mm^3 part of 3 bodies. Measured 2026-10-17: volume 0.0, area 4.7e-10 mm^2, mass 1.5e-11 g, centroid and centre of mass <= 1e-12 mm off the hand values. 1e-6 is >2000x the worst; a peg 0.001 in off its hole changes nothing in volume, but a tenon 0.001 in long or a mortise 0.001 in deep moves it by >= 0.15 mm^3.",
+  "properties": {
+    "volume": 143796486.6,
+    "surface_area": 3270304.61882946,
+    "centroid": {
+      "x": 424.9615384615384,
+      "y": 95.25,
+      "z": 1651.4884615384615
+    },
+    "mass_g": 76521.64267607234,
+    "center_of_mass": {
+      "x": 424.87985444444513,
+      "y": 95.25,
+      "z": 1651.6865173059339
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 1714.5,
+        "y": 190.5,
+        "z": 2438.3999999999996
+      }
+    }
+  },
+  "topology": {
+    "faces": 28,
+    "edges": 60,
+    "shells": 3
+  },
+  "mesh": {
+    "vertices": 2120,
+    "triangles": 2080
+  }
+}

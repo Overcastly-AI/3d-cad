@@ -1065,3 +1065,141 @@ def test_0021_up_down_up_on_a_populated_database(
     run(_scalar_rows(pg_url, insert))
     run(_scalar_rows(pg_url, f"DELETE FROM assemblies WHERE id = '{_MIRROR_ASSEMBLY}'"))
     assert run(_scalar_rows(pg_url, "SELECT count(*) FROM assembly_mirrors")) == [(0,)]
+
+
+def test_0022_offline_sql_creates_price_books(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0021:0022")
+    assert "CREATE TABLE price_books" in sql
+    assert "CONSTRAINT uq_price_books_owner UNIQUE (owner_id)" in sql
+    assert "CREATE TABLE price_book_entries" in sql
+    assert "REFERENCES price_books (id) ON DELETE CASCADE" in sql
+    # Money is an integer column, never a float or numeric.
+    assert "price_cents BIGINT NOT NULL" in sql
+    assert "FLOAT" not in sql and "NUMERIC" not in sql and "REAL" not in sql
+    assert "CONSTRAINT ck_price_book_entries_price CHECK (price_cents >= 0)" in sql
+    assert (
+        "CONSTRAINT ck_price_book_entries_stock_length CHECK "
+        "((unit = 'each') = (stock_length_ft IS NOT NULL))" in sql
+    )
+    assert (
+        "CONSTRAINT uq_price_book_entries_order UNIQUE (price_book_id, order_index)"
+        in sql
+    )
+    # Additive only: no existing table is altered or rewritten.
+    assert "ALTER TABLE" not in sql
+    assert "UPDATE " not in sql.replace("UPDATE alembic_version", "")
+
+
+def test_0022_offline_downgrade_drops_price_books(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0022:0021", downgrade=True)
+    assert sql.index("DROP TABLE price_book_entries") < sql.index(
+        "DROP TABLE price_books"
+    )
+    assert "ALTER TABLE" not in sql
+
+
+_PRICE_PART = "6f3f6b64-0000-4000-8000-0000000220aa"
+_PRICE_BOOK = "6f3f6b64-0000-4000-8000-0000000220bb"
+
+
+def test_0022_up_down_up_on_a_populated_database(
+    pg_url: str, alembic_runner: Callable[..., None]
+) -> None:
+    """PRICE-BOOK: 0022 against real rows. An existing part, assembly and
+    mirror come through unchanged; a book and its entries store (cents as
+    BIGINT, the CHECKs and the one-book-per-owner unique hold, entries cascade
+    with their book); the downgrade drops exactly the two tables; the upgrade
+    applies again."""
+    alembic_runner(pg_url, "0021", downgrade=True)
+    run = asyncio.run
+    placement = '{"position": {"x": 0, "y": 0, "z": 0}}'
+    for statement in (
+        "INSERT INTO parts (id, owner_id, name) "
+        f"VALUES ('{_PRICE_PART}', '{_OWNER}', 'B1 deck')",
+        "INSERT INTO assemblies (id, owner_id, name, doc_version) "
+        f"VALUES ('{_MIRROR_ASSEMBLY}', '{_OWNER}', 'Yard', 2)",
+        "INSERT INTO instances (id, assembly_id, ref_document_id, "
+        "ref_document_kind, name, placement, order_index) VALUES "
+        f"('{_MIRROR_INSTANCE}', '{_MIRROR_ASSEMBLY}', '{_PRICE_PART}', "
+        f"'part', 'B1 deck <1>', '{placement}', 0)",
+        "INSERT INTO assembly_mirrors (assembly_id, order_index, params) "
+        f"VALUES ('{_MIRROR_ASSEMBLY}', 0, '{{\"seed_instance_ids\": []}}')",
+    ):
+        run(_scalar_rows(pg_url, statement))
+    reads = (
+        "SELECT id, owner_id, name, tree_version, updated_at FROM parts",
+        "SELECT id, name, doc_version, updated_at FROM assemblies",
+        "SELECT id, name, placement::text, order_index FROM instances",
+        "SELECT order_index, params::text, updated_at FROM assembly_mirrors",
+    )
+    before = [run(_scalar_rows(pg_url, read)) for read in reads]
+
+    alembic_runner(pg_url, "0022")
+    assert [run(_scalar_rows(pg_url, read)) for read in reads] == before
+    book = (
+        "INSERT INTO price_books (id, owner_id, currency) "
+        f"VALUES ('{_PRICE_BOOK}', '{_OWNER}', 'USD')"
+    )
+    entries = (
+        "INSERT INTO price_book_entries (price_book_id, order_index, material, "
+        "profile, unit, stock_length_ft, price_cents) VALUES "
+        f"('{_PRICE_BOOK}', 0, 'southern_pine_pt', 'us_2x10', 'each', 16, 2847), "
+        f"('{_PRICE_BOOK}', 1, 'southern_pine_pt', 'us_6x6', 'board_foot', NULL, "
+        "145), "
+        f"('{_PRICE_BOOK}', 2, 'spf_lumber', 'us_2x8', 'linear_foot', NULL, "
+        "9000000000)"
+    )
+    run(_scalar_rows(pg_url, book))
+    run(_scalar_rows(pg_url, entries))
+    assert run(
+        _scalar_rows(
+            pg_url,
+            "SELECT unit, stock_length_ft, price_cents FROM price_book_entries "
+            "ORDER BY order_index",
+        )
+    ) == [
+        ("each", 16, 2847),
+        ("board_foot", None, 145),
+        ("linear_foot", None, 9_000_000_000),
+    ]
+    with pytest.raises(IntegrityError):  # one book per owner
+        run(
+            _scalar_rows(
+                pg_url,
+                "INSERT INTO price_books (owner_id, currency) "
+                f"VALUES ('{_OWNER}', 'USD')",
+            )
+        )
+    for bad in (
+        "0, 'spf_lumber', 'us_2x4', 'each', 8, 1",  # order is unique per book
+        "5, 'spf_lumber', 'us_2x4', 'each', 8, -1",  # no negative price
+        "5, 'spf_lumber', 'us_2x4', 'each', NULL, 1",  # each needs a length
+        "5, 'spf_lumber', 'us_2x4', 'board_foot', 8, 1",  # and only each
+    ):
+        with pytest.raises(IntegrityError):
+            run(
+                _scalar_rows(
+                    pg_url,
+                    "INSERT INTO price_book_entries (price_book_id, order_index, "
+                    "material, profile, unit, stock_length_ft, price_cents) "
+                    f"VALUES ('{_PRICE_BOOK}', {bad})",
+                )
+            )
+
+    alembic_runner(pg_url, "0021", downgrade=True)
+    tables = run(_table_names(pg_url))
+    assert "price_books" not in tables and "price_book_entries" not in tables
+    assert [run(_scalar_rows(pg_url, read)) for read in reads] == before
+
+    alembic_runner(pg_url, "head")
+    run(_scalar_rows(pg_url, book))
+    run(_scalar_rows(pg_url, entries))
+    run(_scalar_rows(pg_url, f"DELETE FROM price_books WHERE id = '{_PRICE_BOOK}'"))
+    assert run(_scalar_rows(pg_url, "SELECT count(*) FROM price_book_entries")) == [
+        (0,)
+    ]
+    assert [run(_scalar_rows(pg_url, read)) for read in reads] == before

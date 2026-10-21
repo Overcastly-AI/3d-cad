@@ -11,7 +11,8 @@ and ``loft-script`` read one definition:
   inputs and the member roles it emits. Served at ``GET /api/v1/plugins`` and
   rendered into a form by the web, so no form is hand-written per plugin.
 * the input kinds (:data:`PluginInput`): length, angle, count, choice,
-  profile, feature reference and material. Every numeric input accepts a §20
+  profile, feature reference, feature list (several picks, as a roof's
+  walls) and material. Every numeric input accepts a §20
   expression, through the envelope's ``expressions`` pointer
   (``/inputs/<name>``), so the input's NAME carries its unit exactly as a base
   feature's field name does: a length input ends ``_mm``, an angle ``_deg``,
@@ -58,6 +59,8 @@ MAX_PLUGIN_ROLES: Final = 32
 MAX_CHOICE_OPTIONS: Final = 32
 #: Longest string value a custom feature's input may hold.
 MAX_PLUGIN_TEXT: Final = 200
+#: Most features one feature-list input may name (a roof's picked walls).
+MAX_FEATURE_LIST: Final = 32
 
 #: The namespace of every generated member id (:func:`member_id`). A fixed
 #: constant: changing it would rename every member of every stored part.
@@ -286,6 +289,49 @@ class FeatureReferenceInput(_InputBase):
         return self
 
 
+class FeatureListInput(_InputBase):
+    """Several earlier features of one of ``feature_types``, in pick order:
+    a roof's bearing walls, as Revit's Roof by Footprint picks walls. Stored
+    as a list of ``FeatureRef`` (no repeats); an empty pick is stored as no
+    value, allowed only when ``min_items`` is 0. Never a host."""
+
+    kind: Literal["features"]
+    feature_types: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
+        min_length=1,
+        max_length=32,
+        description="Feature types each picked feature may be "
+        "(`datum`, `sketch`, `custom`, ...).",
+    )
+    plugin_ids: list[PluginId] | None = Field(
+        default=None,
+        max_length=8,
+        description="When a picked feature is a custom feature: the plugins it "
+        "may be (a roof's walls are `loft.wall`). Unset: any.",
+    )
+    min_items: int = Field(
+        default=0,
+        ge=0,
+        le=MAX_FEATURE_LIST,
+        description="Fewest features to pick; 0 makes the input optional.",
+    )
+    max_items: int = Field(
+        default=MAX_FEATURE_LIST,
+        ge=1,
+        le=MAX_FEATURE_LIST,
+        description="Most features to pick.",
+    )
+
+    @model_validator(mode="after")
+    def _bounded(self) -> Self:
+        if self.min_items > self.max_items:
+            raise ValueError(f"input {self.name!r}: min_items is above max_items")
+        if self.plugin_ids is not None and "custom" not in self.feature_types:
+            raise ValueError(
+                f"input {self.name!r}: plugin_ids needs feature type 'custom'"
+            )
+        return self
+
+
 class MaterialInput(_InputBase):
     """A library material for the generated members (their mass and cut list)."""
 
@@ -301,6 +347,7 @@ PluginInput = Annotated[
     | ChoiceInput
     | ProfileInput
     | FeatureReferenceInput
+    | FeatureListInput
     | MaterialInput,
     Field(discriminator="kind"),
 ]

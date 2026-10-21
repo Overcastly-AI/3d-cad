@@ -22,15 +22,19 @@ import { seedSession, SCREENSHOT_DIR } from "./support";
  */
 
 const PT = '"Southern pine, pressure-treated"';
+// No price book saved: one stock piece per piece, the price cells blank
+// (never 0) and a Total row that counts the unpriced lines (PRICE-BOOK).
 const B1_CSV =
   "Item,Member,Profile,Section (in),Material,Qty,Length (in)," +
-  "Total length (in),Stock,Waste each (in)\r\n" +
-  `1,Ledger,2x10,1.5 x 9.25,${PT},1,192,192,16 ft,0\r\n` +
-  `2,Rim,2x10,1.5 x 9.25,${PT},1,192,192,16 ft,0\r\n` +
-  `3,Beam,2x10,1.5 x 9.25,${PT},2,192,384,16 ft,0\r\n` +
-  `4,Joist,2x10,1.5 x 9.25,${PT},13,141,1833,12 ft,3\r\n` +
-  `5,Post,6x6,5.5 x 5.5,${PT},3,10.5,31.5,8 ft,85.5\r\n` +
-  `6,Deck,5/4x6,1 x 5.5,${PT},26,192,4992,16 ft,0\r\n`;
+  "Total length (in),Stock,Waste each (in),Stock qty,Unit price (USD)," +
+  "Price unit,Extended (USD)\r\n" +
+  `1,Ledger,2x10,1.5 x 9.25,${PT},1,192,192,16 ft,0,1,,,\r\n` +
+  `2,Rim,2x10,1.5 x 9.25,${PT},1,192,192,16 ft,0,1,,,\r\n` +
+  `3,Beam,2x10,1.5 x 9.25,${PT},2,192,384,16 ft,0,2,,,\r\n` +
+  `4,Joist,2x10,1.5 x 9.25,${PT},13,141,1833,12 ft,3,13,,,\r\n` +
+  `5,Post,6x6,5.5 x 5.5,${PT},3,10.5,31.5,8 ft,85.5,3,,,\r\n` +
+  `6,Deck,5/4x6,1 x 5.5,${PT},26,192,4992,16 ft,0,26,,,\r\n` +
+  `,"Total of priced lines, 6 unpriced",,,,,,,,,,,,\r\n`;
 
 /** buildings.md B1's table: member, qty, length (in), stock. */
 const B1_TABLE: [string, string, string, string][] = [
