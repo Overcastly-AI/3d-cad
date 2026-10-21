@@ -788,3 +788,53 @@ def test_a_duplicated_drawing_keeps_its_structure(client: TestClient) -> None:
     assert response.status_code == 201, response.text
     copy_id = response.json()["id"]
     assert _bom(client, copy_id).json()["structure"] == "parts_only"
+
+
+def test_an_opposite_hand_crank_arm_is_its_own_item_at_every_level(
+    client: TestClient,
+) -> None:
+    """DRAWING-PARTS-LIST-MIRROR: a Crankset whose left arm is the right arm's
+    opposite hand (ASM-MIRROR-COMPONENT) lists Crank arm and Crank arm
+    (opposite hand) as 2.1 and 2.2 under it, and as items of their own in
+    Parts only."""
+    arm = _create_part(client, "Crank arm")
+    frame = _create_part(client, "Frame")
+    crankset = _create_assembly(client, "Crankset")
+    right = _add_instance(client, crankset, arm, 0, name="Crank arm <1>")
+    mirror = client.post(
+        f"/api/v1/assemblies/{crankset}/mirrors",
+        json={
+            "expected_version": 1,
+            "mirror": {
+                "seed_instance_ids": [right],
+                "plane": {"kind": "origin_plane", "plane": "yz"},
+                "opposite_hand_instance_ids": [right],
+            },
+        },
+        headers=_headers(),
+    )
+    assert mirror.status_code == 201, mirror.text
+    bike = _create_assembly(client, "Bike")
+    _add_instance(client, bike, frame, 0, name="Frame <1>")
+    _add_instance(
+        client, bike, crankset, 1, ref_document_kind="assembly", name="Crankset"
+    )
+    drawing_id, sheet_id = _drawing_of(client, "bike-mirror", bike)
+
+    _set_structure(client, drawing_id, sheet_id, "indented")
+    body = _bom(client, drawing_id).json()
+    assert _rows(body) == [
+        ("1", "Frame", 1, 1),
+        ("2", "Crankset", 1, 1),
+        ("2.1", "Crank arm", 1, 1),
+        ("2.2", "Crank arm (opposite hand)", 1, 1),
+    ]
+    assert body["lines"][3]["opposite_hand"] is True
+
+    _set_structure(client, drawing_id, sheet_id, "parts_only")
+    body = _bom(client, drawing_id).json()
+    assert _rows(body) == [
+        ("1", "Frame", 1, 1),
+        ("2", "Crank arm", 1, 1),
+        ("3", "Crank arm (opposite hand)", 1, 1),
+    ]

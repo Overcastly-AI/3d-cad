@@ -218,7 +218,7 @@ Bike gaps first (rounds 2 and 3), then the hard-parts blockers, then speed.
       only / Indented) and Fusion (First Level / All Levels) both default to
       the top level and both let the user change it.
       _Done 2026-10-21:_ stored per sheet (`sheets.parts_list_structure`,
-      migration 0023); indented keeps the top-level numbers (4, 4.3); see
+      migration 0024); indented keeps the top-level numbers (4, 4.3); see
       `drawing-parts-list-level.png` and the Notes below.
 - [ ] **FILLET-PARTIAL-RESOLVE**: when some of a fillet's picked edges no
       longer exist (an impeller going 7 -> 6 blades), the whole fillet fails.
@@ -678,7 +678,6 @@ One line each. The founder triages weekly; most are closed without work.
 - DRAWING-BALLOONS: a drawing has no balloons yet; the parts list's circled numbers are the only ones. When balloons land they must stamp the BOM's `item` in the sheet's structure (4.3 in Indented, the parts-only number in Parts only).
 - DRAWING-PARTS-LIST-EXPORT: the parts list is not drawn on the exported PDF/SVG/DXF sheet in any structure (as CUT-LIST-PDF); a sheet table must use the stored structure and the same item numbers.
 - DRAWING-PARTS-LIST-ORDER: the drawing numbers every level in instance order (a rename never renumbers) while the assembly page sorts by name, so the same Indented BOM can number a child 4.1 on the drawing and 4.2 on the assembly page.
-- DRAWING-PARTS-LIST-MIRROR: the bike's "Crank arm (opposite hand)" line is covered by the shared BOM walk but not by a drawing test; add one with ASM-MIRROR fixtures.
 - Bike round 3: SKETCH-3D (Create has no 3D sketch), SKETCH-LINE-ANGLE (the Line box shows L only, `bike-r3-line-box.png`) and DRAWING-PARTS-LIST-LEVEL (the drawing lists Frame 1 / Crankset 1 with no structure choice and no balloons, while the assembly BOM has all three levels, `bike-r3-drawing.png`) are still open.
 - WALL-DRAW: a wall is placed by typing its start, direction and length in the form; Chief Architect and Revit draw it with two clicks in plan, chained round a building.
 - BUILD-ROW: the Build row is a web-side list (Wall, Deck) and every other plugin sits in BUILD ▾; Window and Door sit in BUILD ▾ (the row is full at 1280, toolbar-overflow); Roof must still be measured, as the manifest has no row priority (see PLUGIN-TOOL-ICONS).
