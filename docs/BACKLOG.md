@@ -621,6 +621,12 @@ One line each. The founder triages weekly; most are closed without work.
 - TIMBER-GIRT-MIN: `girt_height_mm` minimum 6 in is stricter than a 6x6 beam (5.5) needs; harmless.
 - TIMBER-RATIONALE-TEXT: the 12x16 round-trip rationale says 6.5x headroom where it is 6.7x.
 - SEAT-STAMP-FACE-MARKS: face marks (`useSurfaceMarkBurial`) still re-seat on a 1e-3 mm camera stamp; the half-pixel `SeatPoseStamp` edge marks now use would cut their damping tail too.
+- SEAWEED-READY-RACE (SeaweedFS review): after a restart on existing data the ready marker can precede volume registration, so a first GET of an old object returned 500 for ~1 s; probe a sentinel object before `ready`.
+- SEAWEED-STOP-MARGIN: `weed` stops in ~28 s against the 40 s `stop_grace_period`; little margin.
+- SEAWEED-CRED-ARGV: credentials pass on curl's argv inside the container, and the native helper's module commit is only asserted to be 4.48 by a comment.
+- HOLE-OWNER-NO-MULTIBODY-FIXTURE (HOLE-ACTIVE-BODY review): no stored tree fixture exercises the owner path (0 of 89 resolver calls on a multi-body part); only `test_hole_owner_body.py` covers it.
+- HOLE-SCOPE-PATTERN: a pattern or mirror of a scoped hole repeats the bore in the owner body only.
+- FILLET-SEVERAL-BODIES: a fillet whose edges span two bodies is refused; Fusion fillets each body.
 - TOOLBAR-ROVING-TABINDEX: every command-band button is its own Tab stop, so each Build tool pushes Export one stop further (36 with Wall and Deck; `export-reach.spec.ts` bound raised 34 -> 36). The WAI-ARIA toolbar pattern (one Tab stop per group, arrows within), as Fusion's ribbon does, would end this.
 - OPENING-DRAG: a door or window moves by its Offset field; Revit and Chief Architect also drag it along its wall in the viewport (and show temporary dimensions to the nearest opening).
 - OPENING-HOST-MISSING-PLUGIN: a door whose plugin a server lacks is not handed to its wall there, so the wall (if that server has `loft.wall`) re-expands without framing it.
