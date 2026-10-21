@@ -128,6 +128,8 @@ export interface CreateStripProps {
    */
   canPipe?: boolean;
   onNewPipe?: () => void;
+  /** Open a 3D sketch: points and lines in model space (SKETCH-3D). */
+  onNewSketch3D?: () => void;
   /**
    * True when ≥2 sketch features exist to blend through as a loft's ordered
    * sections (a loft references a LIST of earlier sketches, not the implicit
@@ -463,6 +465,7 @@ export function CreateStrip({
   onNewSweep,
   canPipe = false,
   onNewPipe,
+  onNewSketch3D,
   canLoft,
   onNewLoft,
   canModify = false,
@@ -710,7 +713,20 @@ export function CreateStrip({
   const pipeReady = canPipe && treeReady && onNewPipe !== undefined;
   const alongPathReady =
     canPipe && treeReady && onNewPlaneAlongPath !== undefined;
+  const sketch3DReady = treeReady && onNewSketch3D !== undefined;
   const createMore: FlyoutItem[] = [
+    {
+      key: "sketch-3d",
+      icon: <VerbGlyph verb="sketch" />,
+      label: "3D sketch",
+      "data-testid": "new-sketch-3d",
+      "aria-label":
+        "3D sketch — points and lines in model space, typed or snapped",
+      available: sketch3DReady,
+      requires: "the part to load",
+      disabled: locked || !sketch3DReady,
+      onSelect: () => onNewSketch3D?.(),
+    },
     {
       key: "pipe",
       icon: <VerbGlyph verb="pipe" />,

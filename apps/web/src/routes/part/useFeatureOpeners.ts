@@ -31,6 +31,7 @@ import {
 } from "../../features/sweep";
 import { defaultLoftForm, defaultLoftSections } from "../../features/loft";
 import { defaultPipeForm } from "../../features/pipe";
+import { emptySketch3DForm } from "../../features/sketch3d";
 import {
   defaultBaseFlangeForm,
   defaultCornerReliefForm,
@@ -180,6 +181,19 @@ export function useFeatureOpeners({
       initial: defaultPipeForm(edges),
     });
   }, [bodyFeatureId]);
+
+  // A 3D sketch (SKETCH-3D): points and lines in model space, typed or
+  // snapped in the viewport; it needs nothing before it.
+  const openCreateSketch3D = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "sketch3d",
+      mode: "create",
+      initial: emptySketch3DForm(),
+    });
+  }, []);
 
   // A loft references an ORDERED LIST of ≥2 earlier sketches (its sections),
   // so it seeds the first two sketches in build order as the initial stack; the
@@ -514,6 +528,7 @@ export function useFeatureOpeners({
     openCreateRevolve,
     openCreateSweep,
     openCreatePipe,
+    openCreateSketch3D,
     openCreateLoft,
     openCreatePattern,
     openCreateFillet,
