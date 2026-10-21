@@ -136,16 +136,26 @@ _td_self_test() {
   alive() { kill -0 "$1" 2>/dev/null && [[ "$(ps -o stat= -p "$1")" != Z* ]]; }
   # disown: the "Killed" job notice bash would print is expected noise here.
   started() { echo "$1" >>"$dir/pgids"; disown "$1"; }
-  wait_for() { for _ in $(seq 1 50); do [[ -s "$1" ]] && return 0; sleep 0.02; done; return 1; }
+  # Every fixture writes a marker from INSIDE its new group, after its traps.
+  # Without it the test races the fork: `setsid cmd &` returns before the
+  # child has called setsid(2), so a `kill -- -$!` sent at once finds no such
+  # group (ESRCH, swallowed), the group appears a moment later, and an
+  # obedient process sits out the whole grace. Measured: 199/200 immediate
+  # group kills miss on an idle box. The wait costs ~ms and returns early;
+  # the 10 s cap only matters on a box too loaded to fork.
+  wait_for() { for _ in $(seq 1 500); do [[ -s "$1" ]] && return 0; sleep 0.02; done; return 1; }
+  ready() {
+    wait_for "$dir/$1" || check "fixture $1 signalled ready (setsid + traps done)" 0 "no marker after 10 s"
+  }
   echo "e2e-teardown self-test"
 
   # 1. THE DEFECT, REPRODUCED — proves the stubborn fixture is honest. The old
   #    `kill; wait` against a process that ignores SIGTERM must hang; if it
   #    returns, checks 2-3 prove nothing about escalation.
-  setsid bash -c 'trap "" TERM; while :; do sleep 0.05; done' &
+  setsid bash -c "trap '' TERM; echo ready >'$dir/stubborn'; while :; do sleep 0.05; done" &
   pid=$!
   started "$pid"
-  sleep 0.1
+  ready stubborn
   rc=0
   timeout 0.5 bash -c "kill $pid; while kill -0 $pid 2>/dev/null; do sleep 0.05; done" || rc=$?
   check "old kill-then-wait HANGS on a SIGTERM-ignoring process (fixture is honest)" \
@@ -171,7 +181,7 @@ _td_self_test() {
   setsid bash -c "(trap '' TERM; echo \$BASHPID >'$dir/inner'; exec sleep 300) & wait" &
   pid=$!
   started "$pid"
-  wait_for "$dir/inner"
+  ready inner
   inner="$(cat "$dir/inner")"
   rc=0
   out="$(TD_PREFIX=t td_stop 300 1000 "wrapper=$pid")" || rc=$?
@@ -181,9 +191,10 @@ _td_self_test() {
 
   # 4. NEGATIVE CONTROL — an ordinary process: no escalation, no warning, fast.
   #    Without this, a td_stop that SIGKILLed everything would pass 2-3.
-  setsid sleep 300 &
+  setsid bash -c "echo ready >'$dir/polite'; exec sleep 300" &
   pid=$!
   started "$pid"
+  ready polite
   t0=$(_td_now_ms)
   rc=0
   out="$(TD_PREFIX=t td_stop 5000 1000 "polite=$pid")" || rc=$?
