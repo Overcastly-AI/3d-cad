@@ -201,6 +201,7 @@ main `01e49e2` on 2026-10-09 and updated from shipped commits on
 - Cloud SaaS billing. Self-hosting comes first.
 
 ## Delegated decisions
+- 2026-10-21 (founder): do not build or fork OCCT; stay on the published, pinned OCP wheels, work around OCCT faults and report them upstream with minimal repros.
 
 The founder delegated these on 2026-10-16 ("launch an agent to understand the
 goal and answer them"); the product-manager decided them. Each is in
