@@ -10,6 +10,8 @@
 # What it does, in order:
 #   1. writes the S3 identity file (s3.json) from S3_ACCESS_KEY_ID /
 #      S3_SECRET_ACCESS_KEY: one identity, full rights, and NO anonymous access;
+#      plus security.toml with a per-boot random filer signing key, which is
+#      what makes SeaweedFS authenticate its S3 gRPC (IAM, lifecycle) RPCs;
 #   2. starts `weed server -s3` (master + volume + filer + S3 gateway, one
 #      process) in the background, with the Iceberg catalog and Lance
 #      namespace listeners that 4.x starts by default turned off: Loft uses
@@ -100,15 +102,33 @@ cat >"$conf_dir/s3.json" <<EOF
   ]
 }
 EOF
+# security.toml: a fresh random filer signing key on every boot. Without it
+# SeaweedFS skips auth on the S3 gRPC port, which has to share the S3 gateway's
+# bind address and so is reachable from the compose network: an anonymous
+# PutIdentity there grants itself admin S3 access (proven natively against
+# 4.48, 2026-10-21). With the key set, those RPCs (IAM cache, lifecycle) demand
+# a JWT signed with it, and the filer demands one for writes. Nothing outside
+# this container needs the key, so it is never persisted or configured.
+signing_key="$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')"
+if [ "${#signing_key}" -ne 64 ]; then
+  log "could not generate a signing key"
+  exit 1
+fi
+cat >"$conf_dir/security.toml" <<EOF
+[jwt.filer_signing]
+key = "$signing_key"
+expires_after_seconds = 10
+EOF
+
 # The image's launcher drops to the unprivileged `seaweed` user, which must be
-# able to read the identity file it is handed.
+# able to read the identity and security files it is handed.
 if [ "$(id -u)" = "0" ] && id seaweed >/dev/null 2>&1; then
   chown -R seaweed:seaweed "$conf_dir"
 fi
 
 # `-logtostderr` first: the image's launcher passes an unrecognised first
 # argument straight to `weed`, after its chown + privilege drop.
-"$SEAWEEDFS_EXEC" -logtostderr=true server \
+"$SEAWEEDFS_EXEC" -logtostderr=true -config_dir="$conf_dir" server \
   -dir="$data_dir" \
   -ip="$ip" \
   -ip.bind=127.0.0.1 \
