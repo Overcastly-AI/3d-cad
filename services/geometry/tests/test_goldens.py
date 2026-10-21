@@ -264,6 +264,9 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         "b3-hip-v1.3-168-hole-common",
         "b3-hip-v1.3-hole-jack",
         "b3-hip-v1.3-8-12-hole-jack",
+        # An L at 1.2.0 framing one common where it framed two
+        # (ROOF-L-DOUBLED-COMMON): b4's STEP rounding (8.5e-4 measured).
+        "l-hip-16oc-v1.2-one-common",
     }
 )
 

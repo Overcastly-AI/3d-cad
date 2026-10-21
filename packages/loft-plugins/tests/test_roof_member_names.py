@@ -418,11 +418,14 @@ def _l_plan(spacing: float, w2: float, b: float, a: float, named: bool) -> list[
 
 def test_layout_lines_an_ulp_apart_frame_one_member() -> None:
     """The wing's jacks laid out from the king reach the flush ridge-end
-    common's place by another sum, an ulp off it: 1.2.0 frames TWO coincident
-    commons there (overlapping solids, two cut-list lines). 1.3.0 counts
-    layout lines within 1e-9 in as one. Over 64 constructed L footprints, 1.2.0
-    doubles a common in 25 and 1.3.0 in none."""
+    common's place by another sum, an ulp off it: 1.2.0 laid out TWO
+    coincident commons there (overlapping solids, two cut-list lines). 1.3.0
+    counts layout lines within 1e-9 in as one; 1.2.0 still lays the twin out,
+    to keep its numbering, and marks it dropped (ROOF-L-DOUBLED-COMMON). Over
+    64 constructed L footprints 1.2.0 marks a twin in 25, and neither frames
+    two members at one place."""
     doubled = {False: 0, True: 0}
+    twins = 0
     cases = list(
         itertools.product(
             (16.0, 19.2, 12.7, 17.1),
@@ -433,7 +436,9 @@ def test_layout_lines_an_ulp_apart_frame_one_member() -> None:
     )
     for spacing, w2, b, a in cases:
         for named in (False, True):
-            rafters = _l_plan(spacing, w2, b, a, named)
+            laid_out = _l_plan(spacing, w2, b, a, named)
+            twins += any(m.twin for m in laid_out)
+            rafters = [m for m in laid_out if not m.twin]
             centres = sorted((m.eave.origin, m.eave.inward, m.centre) for m in rafters)
             if any(
                 p[:2] == q[:2] and q[2] - p[2] < 1e-9
@@ -441,7 +446,8 @@ def test_layout_lines_an_ulp_apart_frame_one_member() -> None:
             ):
                 doubled[named] += 1
     assert len(cases) == 64
-    assert doubled == {False: 25, True: 0}
+    assert doubled == {False: 0, True: 0}
+    assert twins == 25
 
 
 # --- The goldens: a hole that stays in its member -----------------------------------

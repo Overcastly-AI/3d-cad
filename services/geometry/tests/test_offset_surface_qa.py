@@ -136,6 +136,9 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # the twin.
     "b6-frame-12x16": 1e-5,
     "b6-frame-14x16": 1e-5,
+    # An L at 1.2.0 framing one common where it framed two
+    # (ROOF-L-DOUBLED-COMMON): b4's bound, measured 8.5e-4 mm^3.
+    "l-hip-16oc-v1.2-one-common": 5e-3,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

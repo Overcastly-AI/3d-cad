@@ -64,8 +64,9 @@ from it, ``.../ridge/end`` (the flush far one), ``<plane>/king``, and
 ``<plane>/<other>/n`` for the n-th line from the end common toward the hip
 it shares with plane *other*. A hip, valley or ridge is named by the two
 planes it divides (``back/left``). No name embeds a feature id. Two layout
-lines within 1e-9 in are one (1.2.0 frames an ulp-apart pair as two
-coincident commons).
+lines within 1e-9 in are one. 1.2.0 frames one too (ROOF-L-DOUBLED-COMMON):
+it lays the ulp-off twin out and numbers it as before, then drops its own
+features, so every other member keeps its id.
 
 Every cutter outline and every uncut profile runs past the faces it does not
 make (``PAST``, ``_SIDE``), so no cutter face coincides with a member's
@@ -442,6 +443,10 @@ class Eave:
     #: line's slot (``ridge/slot/2``, ``king``, ``left/1``), with *positions*.
     name: str = ""
     names: tuple[str, ...] = ()
+    #: 1.2.0 (ROOF-L-DOUBLED-COMMON): the positions in *positions* within
+    #: 1e-9 in of a line 1.3.0 keeps. Laid out and numbered as before, then
+    #: dropped, so every other member keeps its index.
+    twins: frozenset[float] = frozenset()
 
     def at(self, p: float, d: float) -> Vec2:
         return (
@@ -643,9 +648,6 @@ def frame_plan(shape: Shape, dims: Dims, named: bool = False) -> Plan:
             probe = Eave(origin, along, inward, (), pieces)
             ref = probe.at(0.0, 1e6)
             low = side_of(n, c, ref, dims.valley.thickness_in / 2)
-        if not named:
-            positions = tuple(sorted({p for group in slots for p, _ in group}))
-            return Eave(origin, along, inward, positions, pieces, low)
         # One layout line per place: the first group's (a king, then a ridge
         # layout, then the jacks) wins a place two groups reach within 1e-9.
         kept: list[Slot] = []
@@ -654,6 +656,10 @@ def frame_plan(shape: Shape, dims: Dims, named: bool = False) -> Plan:
                 if all(abs(p - q) > _TOUCH for q, _ in kept):
                     kept.append((p, label))
         kept.sort()
+        if not named:
+            positions = tuple(sorted({p for group in slots for p, _ in group}))
+            twins = frozenset(positions) - {p for p, _ in kept}
+            return Eave(origin, along, inward, positions, pieces, low, twins=twins)
         return Eave(
             origin,
             along,
@@ -988,6 +994,9 @@ class EaveMember:
     run: float  # plan run on the centreline, for the line length
     #: 1.3.0: ``<plane>/<slot>`` (``front/ridge/slot/2``, ``left/front/1``).
     name: str | None = None
+    #: 1.2.0: an ulp-off twin of a kept line, dropped once numbered
+    #: (:attr:`Eave.twins`).
+    twin: bool = False
 
 
 def _band_strip(
@@ -1097,6 +1106,7 @@ def eave_members(eave: Eave, dims: Dims) -> list[EaveMember]:
                 cutter.outline() if needs_cutter else None,
                 exact.hi(0.0) - low_c,
                 f"{eave.name}/{eave.names[i]}" if eave.names else None,
+                c in eave.twins,
             )
         )
     return out
@@ -1273,7 +1283,9 @@ def _emit(
         enumerate(rafters),
         key=lambda item: (order[item[1].kind], -round(item[1].run, 6), item[0]),
     )
+    dropped: set[int] = set()
     for _, member in ranked:
+        start = len(b.members)
         key = f"{member.kind}/{member.name}"
         plane = _side_plane(b, iso, member.eave, member.centre, t)
         section = b.sketch(
@@ -1285,6 +1297,8 @@ def _emit(
         if member.cutter is not None:
             cut = f"{key}/0"
             b.trim(body, prism(member.cutter, height, cut), "intersect", cut)
+        if member.twin:
+            dropped.update(range(start, len(b.members)))
 
     for kind in ("hip", "valley"):
         profile = dims.hip if kind == "hip" else dims.valley
@@ -1347,7 +1361,32 @@ def _emit(
             length = y1 - y0
         section = b.sketch(plane, outline, f"ridge/{board.name}")
         b.extrude("ridge", section, length, ridge_meta, name=board.name)
-    return b.members
+    return _drop_twins(inputs, b.members, dropped)
+
+
+def _drop_twins(
+    inputs: ExpandInputs, members: list[Member], dropped: set[int]
+) -> list[Member]:
+    """*members* less the features only an ulp-off twin made
+    (ROOF-L-DOUBLED-COMMON): its datum, section, body, cutter and trim. The
+    rest keep their ``(role, index)``, so their ids; a feature that named the
+    twin finds its member gone, as SolidWorks flags a dangling reference,
+    never rebound. A twin's feature another member uses is kept."""
+    if not dropped:
+        return members
+    ids = {
+        i: str(inputs.ref(m.role, m.index, m.name).feature_id)
+        for i, m in enumerate(members)
+        if i in dropped
+    }
+    used = {
+        i
+        for i, fid in ids.items()
+        for j, m in enumerate(members)
+        if j not in dropped and fid in m.feature.model_dump_json()
+    }
+    gone = dropped - used
+    return [m for i, m in enumerate(members) if i not in gone]
 
 
 def typed_footprint(inputs: ExpandInputs) -> Footprint:
