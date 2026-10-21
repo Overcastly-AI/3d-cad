@@ -1,6 +1,6 @@
 [project]
 name = "loft-script"
-version = "0.1.0"
+version = "0.2.0"
 description = "Loft's public Python scripting API — model parts from code, through the same gateway the web app uses"
 requires-python = ">=3.12"
 license = "MIT"

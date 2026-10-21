@@ -155,3 +155,13 @@ it calls exists. `tests/test_modelling.py` drives a **real** gateway +
 documents + geometry stack in-process (ASGI transports, real OCCT) and asserts
 on the *geometry* — 10 000 mm³, 6 faces, 40 x 25 x 10 mm — never on a status
 code, because a 2xx proves a request parsed, not that it meant anything.
+
+## Changes
+
+- **0.2.0** (CUT-OBJECTS-TO-CUT): `extrude`, `sweep` and `pipe` with
+  `operation="cut"` now cut **every body the tool meets** (`cut_bodies="all"`,
+  Fusion 360's Objects To Cut default), where 0.1.0 cut only the active
+  (last-built) body. Pass `cut_bodies=[body, ...]` (each a body's base feature
+  ref or id) to narrow a cut; a script that relied on the old behaviour in a
+  multi-body part passes the active body's id. Cuts saved by 0.1.0 keep their
+  meaning: they carry no `cut_bodies` and still cut the active body.
