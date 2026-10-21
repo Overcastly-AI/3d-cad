@@ -35,6 +35,7 @@ import {
   availableRelations,
   buildSketch3DParams,
   constraintLabel,
+  continueTo,
   endChain,
   parseCoordinate,
   placePoint,
@@ -259,6 +260,16 @@ export function Sketch3DEditor({
                       formatLength(at[a], unit, { unitSuffix: false }),
                     ).join(", ")}
                     ){label ? ` · ${label}` : ""}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Continue the chain at ${p.id}`}
+                    title="Continue the chain here (as clicking its mark)"
+                    data-testid={`sketch3d-continue-${p.id}`}
+                    className="px-1 font-body text-2xs text-gauge hover:text-brass"
+                    onClick={() => update((f) => continueTo(f, p.id))}
+                  >
+                    Join
                   </button>
                   <button
                     type="button"

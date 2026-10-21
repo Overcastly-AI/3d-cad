@@ -74,7 +74,13 @@ export function useRebuildNotices({
   // A loft blends through ≥2 ordered section sketches — the same gate as sweep
   // (two sketch features must exist and a solve must have produced their wires).
   const canLoft = sketchProfiles.length >= 2 && hasSolvedSketch;
+  // A solved 3D sketch's lines are pipe paths too (SKETCH-3D).
+  const hasSolvedSketch3D =
+    evaluation.data?.features.some(
+      (f) => f.status === "ok" && f.data?.kind === "solved_sketch_3d",
+    ) ?? false;
   return {
+    hasSolvedSketch3D,
     rebuildNotice,
     sweepRebuildError,
     hasSolvedSketch,

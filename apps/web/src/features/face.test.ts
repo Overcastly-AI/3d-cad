@@ -23,7 +23,7 @@ import {
 
 /**
  * Parse `BODY_AFFECTING_FEATURE_TYPES` out of the wire module — THE source of
- * truth for the set (`packages/loft-wire/src/loft_wire/features.py`, located by
+ * truth for the set (`packages/loft-wire/src/loft_wire/body_types.py`, located by
  * `src/test/wireSource.ts`, which owns that path for every guard that reads it).
  *
  * Comments are stripped before the string literals are read, because the
@@ -221,7 +221,9 @@ describe("BODY_AFFECTING_FEATURE_TYPES — backend drift guard", () => {
   // that becomes unloadable when the thing it guards moves stops guarding and
   // stops explaining in the same instant. Reading per test makes a moved module
   // one legible failure.
-  const source = (): string => readWireModule("features");
+  // The set lives in `loft_wire.body_types` (re-exported by `features`)
+  // since SKETCH-3D split it out of features.py (FILE-SIZE-RATCHET).
+  const source = (): string => readWireModule("body_types");
 
   it("mirrors loft_wire.features.BODY_AFFECTING_FEATURE_TYPES exactly", () => {
     // A REAL drift guard (AUDIT-ENGINEERING J5): this reads the wire module

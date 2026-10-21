@@ -33,7 +33,7 @@ describe("wireSource — where the Python wire schemas live", () => {
     // paid for more than once. Assert on size AND on a landmark.
     const source = readWireModule("features");
     expect(source.length).toBeGreaterThan(10_000);
-    expect(source).toContain("BODY_AFFECTING_FEATURE_TYPES = frozenset(");
+    expect(source).toContain("FEATURE_REGISTRY.register(SketchFeature)");
   });
 
   it("a module that has moved fails with a sentence that says what to do", () => {
