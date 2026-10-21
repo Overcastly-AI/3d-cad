@@ -116,6 +116,12 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # test_roof_hip_b3 re-measures the twin's drift (ROOF-TWIN-DRIFT-TEST).
     "b3-hip-6-12": 1e-3,
     "b3-hip-8-12": 1e-3,
+    # That roof at 1.3.0 with a hole in one rafter (ROOF-MEMBER-RENUMBER):
+    # their base goldens' bounds, measured 4.1e-4 mm^3 at worst.
+    "b3-hip-v1.3-hole-common": 1e-3,
+    "b3-hip-v1.3-168-hole-common": 1e-3,
+    "b3-hip-v1.3-hole-jack": 1e-3,
+    "b3-hip-v1.3-8-12-hole-jack": 1e-3,
     # B4's L hip roof and its 48 in wing (ROOF-VALLEY): 1.3e-3 and 7.8e-4
     # mm^3 through OCCT's STEP; test_roof_valley_b4 re-measures the twin.
     "b4-l-hip-valley": 5e-3,
