@@ -65,12 +65,14 @@ build records (`/app/.venv/loft-build-inputs.json`, checked by the licence
 gate). Boost.Graph (BSL-1.0) is compiled in too; BSL asks nothing of object
 code, and NOTICE names it anyway. The fonts are OFL-1.1 and unmodified.
 
-**MinIO is AGPL-3.0.** The compose stack runs it as a separate S3 server over
-the network. No Loft code links or bundles it, and any S3 store can replace it
-through `S3_URL`. `deploy/docker/minio.Dockerfile` builds it unmodified from
-pinned source and carries its licences and source labels. Publishing that
-image would bring AGPL §6 duties. Whether to keep MinIO at all is an open
-founder decision (`docs/BACKLOG.md`).
+**The bundled object store is SeaweedFS, Apache-2.0** (its `LICENSE`, checked
+at the pinned 4.48 source). The compose stack pulls the upstream image
+unmodified, pinned by digest, and runs it as a separate S3 server over the
+network; no Loft code links it, and any S3 store replaces it through
+`S3_URL`. Like `postgres:16` and `redis:7`, the image also carries its base
+OS packages under their own licences. It replaced MinIO (AGPL-3.0) on
+2026-10-21 by founder decision, which removed the stack's only AGPL component
+and the locally built `minio.Dockerfile` with it.
 
 ## 6. Compliance checklist (as shipped)
 

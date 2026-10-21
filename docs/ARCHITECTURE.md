@@ -62,8 +62,9 @@ geometry workers.
   alembic migrations; active since Phase 1
 - **Redis 7:** rate limiting (gateway), async queue (arq workers); active since
   Phase 1; fail-open if unset
-- **MinIO (S3-compat):** content-addressed mesh store (tessellation results);
-  active since Phase 1; in-memory LRU if unset
+- **SeaweedFS (S3-compatible, Apache-2.0):** content-addressed store for
+  meshes, drawing artifacts and thumbnails; any external S3 by `S3_URL`;
+  in-memory LRU if unset. Replaced MinIO on 2026-10-21 (RESEARCH §4)
 - **In-memory state:** viewport state (zustand), geometry results (per-request)
 
 ## DRY enforcement

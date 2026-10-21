@@ -86,7 +86,7 @@ of truth for what phase we're in.
 - **Three FastAPI services** (`gateway`, `documents`, `geometry`) on a shared
   service kit (`packages/py-kit`: config, JSON logging, health/readiness,
   error envelope, metrics, rate limiting, response compression, queue client),
-  backed by Postgres 16 + Redis 7 + MinIO/S3.
+  backed by Postgres 16 + Redis 7 + S3 (bundled SeaweedFS, or any S3).
 - **Auth** — registration, login, sliding sessions (short-lived JWT + rotating
   refresh cookie); internal services are not reachable from the host in the
   compose topology.
@@ -109,7 +109,7 @@ of truth for what phase we're in.
   because a correct behaviour change once shipped with a red spec while
   five straight CI runs reported green, and nothing before this workflow
   drove a browser at all.
-- **Compose stack** — Postgres 16 + Redis 7 + MinIO + the three services **and
+- **Compose stack** — Postgres 16 + Redis 7 + SeaweedFS + the three services **and
   the web app**, **proven end to end in CI**: every push builds the images,
   boots the stack, migrates both schemas, drives a real modeling round-trip
   (register → part → sketch → extrude → evaluate → fetch mesh → export STEP)

@@ -14,7 +14,6 @@ has a cut list priced from a per-user price book. Next, in order:
 - wall sheathing and subfloor, priced per sheet;
 - a pegged timber frame (B6).
 
-Waiting on the founder: the object store.
 
 ## Shipped
 

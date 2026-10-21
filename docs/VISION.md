@@ -287,5 +287,7 @@ goal and answer them"); the product-manager decided them. Each is in
   placement cuts both members, as in Cadwork and hsbCAD. The first rung is
   only blind mortise and tenons with coaxial pegs; drawbore, braces and
   plates come later. Cut lengths include the tenons.
-- **Left for the founder:** the object store (MinIO or an Apache-2.0 server),
-  because it turns on publishing images under AGPL §6.
+- **Object store (founder decision, 2026-10-21):** SeaweedFS (Apache-2.0)
+  replaces MinIO as the bundled S3 store. MinIO is AGPL-3.0, which the
+  licence rule forbids, and unmaintained upstream; any external S3 still
+  works by config (RESEARCH §4, OBJECT-STORE).

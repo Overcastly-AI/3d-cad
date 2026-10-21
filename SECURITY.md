@@ -34,7 +34,7 @@ images yet; only the latest state of the default branch is supported.
   compose topology publishes only the gateway — `documents` and `geometry`
   are not reachable from the host. None of it has had a security audit.
 - **Dev-only defaults are published in this repo.** The compose file's
-  Postgres/MinIO passwords and the gateway's JWT fallback secret are all
+  Postgres and S3 (SeaweedFS) passwords and the gateway's JWT fallback secret are all
   readable by anyone. Since 2026-07-30 they fail closed: unless `LOFT_ENV` is
   exactly `dev`, a service whose datastore URL embeds a known default
   password — or which has no `JWT_SECRET` — refuses to boot and names the

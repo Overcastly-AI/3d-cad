@@ -35,6 +35,14 @@ environment. Each item here has cost real time before.
   cached). It needs `apt-get install -y libeigen3-dev libboost-dev`, which
   works here; g++ and CMake are already installed.
 - Use `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers` for Playwright.
+- **A real S3 store without Docker:** `scripts/seaweedfs-native.sh start <dir>`
+  builds the pinned SeaweedFS `weed` from the Go module proxy (about 8 min
+  once, then cached) and boots it through the compose entrypoint. Set private
+  `SEAWEEDFS_*_PORT`s. Then point `LOFT_S3_SMOKE=1` pytest, or `scripts/e2e.sh`
+  (it passes `S3_*` through to geometry), at it.
+- With a non-default `GATEWAY_PORT`, also set
+  `GATEWAY_ORIGIN=http://127.0.0.1:<port>` for `scripts/e2e.sh`, or Vite
+  proxies to :8000 and every spec fails at register with a 500.
 - The disk is small. Do not create extra worktrees or `node_modules`
   trees you do not need, and clean up your scratch files.
 - Never leave scratch files in the repo root (`prettier --check .` walks it)

@@ -226,6 +226,21 @@ for rate limiting and the job queue. Meshes and exports go to S3-compatible
 object storage, content-addressed. Without `S3_URL` the geometry service uses
 an in-process LRU.
 
+**The bundled object store is SeaweedFS** (founder decision, 2026-10-21). It
+replaced MinIO, which is AGPL-3.0 (forbidden by §8) and whose upstream stopped
+publishing images and declared itself unmaintained, which forced us to build
+it from source. Garage is also AGPL-3.0. Ceph RGW is LGPL but needs a cluster.
+SeaweedFS is Apache-2.0, actively released, and runs master, volume, filer
+and S3 gateway in one `weed server -s3` process, as the one-container MinIO
+did. The compose service pulls `chrislusf/seaweedfs` pinned by tag and digest,
+writes one S3 identity from `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` (no
+anonymous access) and creates the bucket before it reports healthy
+(`deploy/docker/seaweedfs/entrypoint.sh`). The store holds only derived,
+content-addressed artifacts, so switching stores loses nothing a rebuild
+cannot recreate. The client stays generic boto3 with path-style addressing,
+so AWS S3, R2 or an existing MinIO work by setting `S3_URL` and the `S3_*`
+credentials.
+
 ## 5. Frontend
 
 React 19 + Vite + TypeScript SPA; TanStack Router and Query; Tailwind; three.js
