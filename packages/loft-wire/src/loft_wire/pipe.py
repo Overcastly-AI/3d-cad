@@ -43,6 +43,9 @@ MAX_PIPE_PATH_SEGMENTS = 500
 class PathSketchCurve(BaseModel):
     """``kind: "sketch_curve"``: one curve entity of an EARLIER sketch.
 
+    ``sketch`` may also name a 3D sketch (:mod:`loft_wire.sketch_3d`), whose
+    lines are already in model space; ``entity`` is then a line id.
+
     ``sketch`` materialises into ``feature_dependencies`` like an extrude's
     profile; ``entity`` is the sketch-local id of a line, arc, circle or spline
     (a construction curve counts: it is what a skeleton is drawn in). The curve

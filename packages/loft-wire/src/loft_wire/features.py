@@ -30,6 +30,12 @@ from pydantic import (
     model_validator,
 )
 
+from loft_wire.body_types import (
+    BASE_BODY_AFFECTING_FEATURE_TYPES as BASE_BODY_AFFECTING_FEATURE_TYPES,
+)
+from loft_wire.body_types import (
+    BODY_AFFECTING_FEATURE_TYPES as BODY_AFFECTING_FEATURE_TYPES,
+)
 from loft_wire.cut_bodies import CUT_BODIES_FIELD as CUT_BODIES_FIELD
 from loft_wire.cut_bodies import CutBodies as CutBodies
 from loft_wire.cut_bodies import check_cut_bodies
@@ -135,6 +141,13 @@ from loft_wire.sketch import (
     SketchDefinition,
     SketchProjection,
     SolvedSketch,
+)
+from loft_wire.sketch_3d import Sketch3DParamsV1 as Sketch3DParamsV1
+from loft_wire.sketch_3d import (
+    Sketch3DPoint,
+    Sketch3DSketchPointSnap,
+    Sketch3DVertexSnap,
+    SolvedSketch3DData,
 )
 from loft_wire.twist import MAX_TWIST_ANGLE_DEG as MAX_TWIST_ANGLE_DEG
 from loft_wire.twist import MIN_TWIST_ANGLE_DEG as MIN_TWIST_ANGLE_DEG
@@ -1802,6 +1815,15 @@ class SketchFeature(FeatureEnvelopeBase):
     params: SketchParamsV1
 
 
+class Sketch3DFeature(FeatureEnvelopeBase):
+    """``{"type": "sketch_3d", ...}``: points and lines in model space
+    (:mod:`loft_wire.sketch_3d`, SKETCH-3D)."""
+
+    type: Literal["sketch_3d"]
+    version: Literal[1]
+    params: Sketch3DParamsV1
+
+
 class ExtrudeFeature(FeatureEnvelopeBase):
     """``{"type": "extrude", "version": 1, "params": {...}}`` envelope."""
 
@@ -2004,6 +2026,7 @@ class BooleanFeature(FeatureEnvelopeBase):
 Feature = Annotated[
     DatumFeature
     | SketchFeature
+    | Sketch3DFeature
     | ExtrudeFeature
     | RevolveFeature
     | SweepFeature
@@ -2029,6 +2052,7 @@ Feature = Annotated[
 FeatureEnvelope = (
     DatumFeature
     | SketchFeature
+    | Sketch3DFeature
     | ExtrudeFeature
     | RevolveFeature
     | SweepFeature
@@ -2222,6 +2246,7 @@ class FeatureTypeRegistry[ModelT: BaseModel]:
 FEATURE_REGISTRY: FeatureTypeRegistry[FeatureEnvelope] = FeatureTypeRegistry()
 FEATURE_REGISTRY.register(DatumFeature)
 FEATURE_REGISTRY.register(SketchFeature)
+FEATURE_REGISTRY.register(Sketch3DFeature)
 FEATURE_REGISTRY.register(ExtrudeFeature)
 FEATURE_REGISTRY.register(RevolveFeature)
 FEATURE_REGISTRY.register(SweepFeature)
@@ -2318,6 +2343,7 @@ class CustomFeature(FeatureEnvelopeBase):
 AuthoredFeature = Annotated[
     DatumFeature
     | SketchFeature
+    | Sketch3DFeature
     | ExtrudeFeature
     | RevolveFeature
     | SweepFeature
@@ -2396,74 +2422,6 @@ AUTHORED_FEATURES = AuthoredFeatureRegistry()
 # --- §2.2/§2.3 Reference helpers --------------------------------------------------
 
 
-#: Feature types that produce/mutate the body chain — the acceptable targets of
-#: a :class:`SubshapeRef` face reference (topo-naming §4: a face is named on a
-#: body-affecting feature's result). ``datum``/``sketch`` are NOT body-affecting.
-BODY_AFFECTING_FEATURE_TYPES = frozenset(
-    {
-        "extrude",
-        "revolve",
-        "sweep",
-        "pipe",
-        "loft",
-        "fillet",
-        "chamfer",
-        "shell",
-        "draft",
-        # `hole` drills a cylinder into the body (a body-affecting modifier like
-        # fillet/shell/draft), so its result faces/edges are nameable by a later
-        # SubshapeRef (a datum on the new bore face, a hole near an earlier hole).
-        "hole",
-        "pattern",
-        # `mirror` reflects the current body about a plane and unions the
-        # reflection in (a body-affecting modifier like pattern), so its result
-        # faces/edges are nameable by a later SubshapeRef (a hole on a mirrored
-        # boss, a sketch on the reflected face).
-        "mirror",
-        # `import` produces the base body (step-import.md §1), so its faces/edges
-        # are nameable by a later SubshapeRef — "sketch on an imported part's face".
-        "import",
-        # `sheet_metal_base_flange` produces the sheet body (sheet-metal.md §4.1),
-        # so its faces/edges are nameable by a later SubshapeRef — a sketch/hole on
-        # a flange face (§7), or (slice #3) the edge-flange bend attaches to a base
-        # edge. A base flange IS a body-affecting result like any extrude.
-        "sheet_metal_base_flange",
-        # `sheet_metal_edge_flange` folds a flange onto the sheet body (sheet-metal
-        # §4.2), so its result faces/edges are nameable by a later SubshapeRef — a
-        # hole on a formed flange face, or a second edge flange off a NEW edge the
-        # first created (still a depth-1 star off the base, §4.3).
-        "sheet_metal_edge_flange",
-        # `sheet_metal_hem` folds a ~180 deg return onto the sheet body (parity §2,
-        # closed hem) — the SAME body-affecting result as an edge flange (it reuses
-        # `build_edge_flange`), so its faces/edges are nameable by a later
-        # SubshapeRef (a hole on the hemmed return, a bend off a new edge).
-        "sheet_metal_hem",
-        # `sheet_metal_corner_relief` cuts a notch into the sheet body (sheet-metal
-        # §4.4) — a body-affecting modifier like fillet/shell — so its result
-        # faces/edges are nameable by a later SubshapeRef (a hole near a relieved
-        # corner). It never keys a standalone body (no `merge`).
-        "sheet_metal_corner_relief",
-        # `boolean` produces a combined body (multi-body §Decisions-3), so its
-        # result faces/edges are nameable by a later SubshapeRef (a fillet on a
-        # boolean seam — MB-3, the honest stage-1-degrade-under-edit case).
-        "boolean",
-    }
-)
-
-
-#: The body-CREATING (base) feature types — the acceptable target/tool of a
-#: `boolean` operand ref (multi-body §Decisions-3: a boolean combines two bodies
-#: named by their BASE features). A body's identity is its base-feature id
-#: (§MB-0 Decision 1), and only these features CREATE a body (extrude/revolve/
-#: sweep/loft build a primitive, import brings one in). The MODIFIERS (fillet/
-#: chamfer/shell/draft/pattern) mutate the active body in place and never key a
-#: body, so they are NOT valid boolean operands; `boolean` itself is excluded too
-#: (it takes over its target's base id, not its own — boolean-on-boolean is MB-4).
-BASE_BODY_AFFECTING_FEATURE_TYPES = frozenset(
-    {"extrude", "revolve", "sweep", "pipe", "loft", "import", "sheet_metal_base_flange"}
-)
-
-
 #: The named-subshape reference kinds (face + edge) — both carry a graph-joining
 #: ``feature_id`` and are yielded WHOLE by the walk (their signature payloads
 #: carry no nested refs). A runtime alias so the ``isinstance`` check and the
@@ -2514,11 +2472,15 @@ class FeatureReference:
     allowed_types: frozenset[str]
 
 
+#: A path curve or a 3D sketch snap may come from a 2D or a 3D sketch.
+_SKETCH_TYPES = frozenset({"sketch", "sketch_3d"})
+
+
 def _path_references(path: list[PathSegment]) -> list[FeatureReference]:
     """A pipe's or along-path datum's picked curves: a sketch curve depends on
     its sketch, a model edge on the body-affecting feature it names."""
     return [
-        FeatureReference(f"path[{index}]", segment.sketch, frozenset({"sketch"}))
+        FeatureReference(f"path[{index}]", segment.sketch, _SKETCH_TYPES)
         if isinstance(segment, PathSketchCurve)
         else FeatureReference(f"path[{index}]", segment, BODY_AFFECTING_FEATURE_TYPES)
         for index, segment in enumerate(path)
@@ -2629,6 +2591,22 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                             f"projection:{entity.id}",
                             link.edge,
                             BODY_AFFECTING_FEATURE_TYPES,
+                        )
+                    )
+        case Sketch3DFeature():
+            # A snapped point depends on the sketch or body feature it follows.
+            for entity in feature.params.entities:
+                snap = entity.snap if isinstance(entity, Sketch3DPoint) else None
+                if isinstance(snap, Sketch3DSketchPointSnap):
+                    references.append(
+                        FeatureReference(
+                            f"snap:{entity.id}", snap.sketch, _SKETCH_TYPES
+                        )
+                    )
+                elif isinstance(snap, Sketch3DVertexSnap):
+                    references.append(
+                        FeatureReference(
+                            f"snap:{entity.id}", snap.edge, BODY_AFFECTING_FEATURE_TYPES
                         )
                     )
         case ExtrudeFeature() | RevolveFeature():
@@ -3492,13 +3470,11 @@ class SolvedSketchData(SolvedSketch):
     )
 
 
-#: The typed per-feature ``FeatureResult.data`` payload (design §7.10).
-#: Every variant carries a ``kind`` literal tag, so when a second feature
-#: type grows a payload this alias becomes the discriminated union
-#: ``Annotated[SolvedSketchData | NewData, Field(discriminator="kind")]`` —
-#: purely additive on the wire (pydantic forbids a discriminator on a
-#: single-member union, hence the plain alias until then).
-FeatureData = SolvedSketchData
+#: The typed per-feature ``FeatureResult.data`` payload (design §7.10): a 2D
+#: sketch's or a 3D sketch's solve, discriminated on ``kind``.
+FeatureData = Annotated[
+    SolvedSketchData | SolvedSketch3DData, Field(discriminator="kind")
+]
 
 
 class SubshapeResolutionSummary(BaseModel):

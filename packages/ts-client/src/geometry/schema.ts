@@ -1294,7 +1294,7 @@ export interface components {
              * Material
              * @description The material RESOLVED for this body (its own override, else the document default); null = none assigned, so no mass.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
         };
         /**
          * BodyMaterialAssignment
@@ -1319,7 +1319,7 @@ export interface components {
              * @description Material for THIS body only
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
         };
         /**
          * BooleanFeature
@@ -4111,7 +4111,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["Sketch3DFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -4476,11 +4476,6 @@ export interface components {
          */
         ExtrudeParamsV1: {
             /**
-             * Cut Bodies
-             * @description CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). "all" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.
-             */
-            cut_bodies?: "all" | components["schemas"]["FeatureRef"][] | null;
-            /**
              * Direction
              * @default normal
              * @enum {string}
@@ -4598,12 +4593,10 @@ export interface components {
          */
         FeatureResult: {
             /**
-             * Cut Bodies
-             * @description For every ok extrude, revolve, sweep, loft or pipe CUT, whatever its cut_bodies (absent included, so a stored cut reports its active body, and a plugin member's cut reports too): the bodies (by base feature id, tree order) it removed material from on this rebuild, which the dialog's Objects To Cut list shows. Absent for every other feature.
+             * Data
+             * @description Typed per-feature payload for ok features that produce one (§7.10): solved sketch geometry today; future feature types add kind-tagged variants additively.
              */
-            cut_bodies?: string[] | null;
-            /** @description Typed per-feature payload for ok features that produce one (§7.10): solved sketch geometry today; future feature types add kind-tagged variants additively. */
-            data?: components["schemas"]["SolvedSketchData"] | null;
+            data?: (components["schemas"]["SolvedSketchData"] | components["schemas"]["SolvedSketch3DData"]) | null;
             error?: components["schemas"]["FeatureError"] | null;
             /**
              * Feature Id
@@ -4889,8 +4882,7 @@ export interface components {
          * @description A face-placed cylindrical hole — through-all or blind, plain or recessed.
          *
          *     The dedicated Hole feature (BACKLOG P2): drill a straight cylinder of
-         *     ``diameter_mm`` into the body that OWNS the planar ``face`` (in a multi-body
-         *     part, the body whose face was picked — not the last one built), at ``position``,
+         *     ``diameter_mm`` into the current body at ``position`` on the planar ``face``,
          *     cutting INTO the material (opposite the face's outward normal — the correct
          *     direction, chosen automatically, no direction knob to get wrong). Like a
          *     fillet/shell/draft it modifies the implicit single body chain (design §7.6),
@@ -4949,11 +4941,6 @@ export interface components {
             face_y_mm?: number | null;
             /** @description World-space placement point, projected onto the face plane to fix the drill axis (mm) */
             position: components["schemas"]["Vec3"];
-            /**
-             * Scope Bodies
-             * @description Feature Scope (SolidWorks): further bodies a THROUGH-ALL bore also cuts, each named by its base (body-creating) feature. `null`/omitted cuts only the body that owns `face` (the Fusion 360 / SolidWorks default). The bore cuts each listed body coaxially; a counterbore / countersink recess seats in the owner only. A listed body the bore cannot reach is `hole_off_body`. A BLIND hole keeps its scope (so switching back to through-all restores it) but cuts only its owner: the scope is not read while the depth is blind
-             */
-            scope_bodies?: components["schemas"]["FeatureRef"][] | null;
             /** @description Optional COSMETIC thread callout making this a TAPPED hole (`null`/omitted = untapped). Carries the designation for drawing/BOM callouts; adds no geometry — `diameter_mm` is the tap-drill bore (:class:`IsoMetricThread`) */
             thread?: components["schemas"]["IsoMetricThread"] | null;
             /**
@@ -5810,11 +5797,6 @@ export interface components {
          */
         LoftParamsV1: {
             /**
-             * Cut Bodies
-             * @description CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). "all" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.
-             */
-            cut_bodies?: "all" | components["schemas"]["FeatureRef"][] | null;
-            /**
              * Merge
              * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
              * @default true
@@ -5927,7 +5909,7 @@ export interface components {
              * Default Material
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
-            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete") | null;
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
         };
         /**
          * MeasureRequest
@@ -6644,6 +6626,9 @@ export interface components {
          * PathSketchCurve
          * @description ``kind: "sketch_curve"``: one curve entity of an EARLIER sketch.
          *
+         *     ``sketch`` may also name a 3D sketch (:mod:`loft_wire.sketch_3d`), whose
+         *     lines are already in model space; ``entity`` is then a line id.
+         *
          *     ``sketch`` materialises into ``feature_dependencies`` like an extrude's
          *     profile; ``entity`` is the sketch-local id of a line, arc, circle or spline
          *     (a construction curve counts: it is what a skeleton is drawn in). The curve
@@ -6922,8 +6907,7 @@ export interface components {
          *     See the module docstring. ``operation`` and ``merge`` are the other
          *     sketch solids' fields: ``add`` with ``merge`` joins the tube to the active
          *     body (Fusion's *Join*), ``add`` without it starts a new body (*New Body*),
-         *     and ``cut`` removes it from the bodies ``cut_bodies`` names (*Cut*;
-         *     Objects To Cut, :mod:`loft_wire.cut_bodies`). Failures are typed
+         *     and ``cut`` removes it from the active body (*Cut*). Failures are typed
          *     rebuild errors on the pipe: ``reference_unresolved`` (a missing sketch or
          *     curve), ``subshape_unresolved`` / ``subshape_ambiguous`` (an edge),
          *     ``sweep_path_not_connected`` (branched or disjoint picks, or a curve
@@ -6931,11 +6915,6 @@ export interface components {
          *     ``sweep_self_intersecting`` (the path comes back through the tube).
          */
         PipeParamsV1: {
-            /**
-             * Cut Bodies
-             * @description CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). "all" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.
-             */
-            cut_bodies?: "all" | components["schemas"]["FeatureRef"][] | null;
             /**
              * Merge
              * @description ADD only: True joins the tube to the active body (or starts the first body); False starts a NEW body. Ignored for a cut.
@@ -7492,11 +7471,6 @@ export interface components {
              * @description Axis of revolution — a line entity of the profile's sketch or a world origin axis; it must lie in the profile's sketch plane
              */
             axis: components["schemas"]["SketchLineAxis"] | components["schemas"]["OriginAxis"];
-            /**
-             * Cut Bodies
-             * @description CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). "all" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.
-             */
-            cut_bodies?: "all" | components["schemas"]["FeatureRef"][] | null;
             /**
              * Direction
              * @description Sweep sense about the axis for a partial revolution (irrelevant at a full 360°): 'reverse' sweeps the opposite way
@@ -8190,6 +8164,262 @@ export interface components {
              * @description Uniform inward wall thickness (mm). Must be small enough that the inward cavity does not self-intersect; too large is a `shell_thickness_too_large` rebuild error.
              */
             thickness_mm: number;
+        };
+        /**
+         * Sketch3DAlong
+         * @description A line parallel to a world axis (SolidWorks' Along X / Y / Z).
+         */
+        Sketch3DAlong: {
+            /**
+             * Axis
+             * @enum {string}
+             */
+            axis: "x" | "y" | "z";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "along";
+            /**
+             * Line
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            line: string;
+        };
+        /**
+         * Sketch3DCoincident
+         * @description Two points at one place.
+         */
+        Sketch3DCoincident: {
+            /**
+             * A
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            a: string;
+            /**
+             * B
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            b: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "coincident";
+        };
+        /**
+         * Sketch3DDistance
+         * @description A driving point-to-point distance (straight, in model space).
+         */
+        Sketch3DDistance: {
+            /**
+             * A
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            a: string;
+            /**
+             * B
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            b: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "distance";
+            /** Value Mm */
+            value_mm: number;
+        };
+        /**
+         * Sketch3DFeature
+         * @description ``{"type": "sketch_3d", ...}``: points and lines in model space
+         *     (:mod:`loft_wire.sketch_3d`, SKETCH-3D).
+         */
+        Sketch3DFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
+            params: components["schemas"]["Sketch3DParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sketch_3d";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * Sketch3DFixed
+         * @description A point held at its stored position.
+         */
+        Sketch3DFixed: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "fixed";
+            /**
+             * Point
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            point: string;
+        };
+        /**
+         * Sketch3DLength
+         * @description A driving length dimension on a line.
+         */
+        Sketch3DLength: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "length";
+            /**
+             * Line
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            line: string;
+            /** Value Mm */
+            value_mm: number;
+        };
+        /**
+         * Sketch3DLine
+         * @description A straight line between two points of the same 3D sketch.
+         */
+        Sketch3DLine: {
+            /**
+             * Construction
+             * @description Reference-only: solves and can be dimensioned and picked, but reads as a construction line in the sketch.
+             * @default false
+             */
+            construction: boolean;
+            /**
+             * End
+             * @description Id of the end point.
+             */
+            end: string;
+            /**
+             * Id
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "line";
+            /**
+             * Start
+             * @description Id of the start point.
+             */
+            start: string;
+        };
+        /**
+         * Sketch3DOriginSnap
+         * @description ``kind: "origin"``: the world origin (the part's origin point).
+         */
+        Sketch3DOriginSnap: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "origin";
+        };
+        /**
+         * Sketch3DParamsV1
+         * @description A 3D sketch: points and lines in model space, and their relations.
+         */
+        Sketch3DParamsV1: {
+            /** Constraints */
+            constraints?: (components["schemas"]["Sketch3DCoincident"] | components["schemas"]["Sketch3DFixed"] | components["schemas"]["Sketch3DAlong"] | components["schemas"]["Sketch3DLength"] | components["schemas"]["Sketch3DDistance"])[];
+            /**
+             * Entities
+             * @description Points and lines; ids are unique within the sketch and a line names two distinct points of it.
+             */
+            entities: (components["schemas"]["Sketch3DPoint"] | components["schemas"]["Sketch3DLine"])[];
+        };
+        /**
+         * Sketch3DPoint
+         * @description A point in model space.
+         */
+        Sketch3DPoint: {
+            /**
+             * Id
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "point";
+            /** @description World position (mm): typed, or the last solved position. The solve starts here and moves it as little as the relations allow. */
+            position: components["schemas"]["Vec3"];
+            /**
+             * Snap
+             * @description Geometry the point is attached to (it follows it and is fixed for the solve), or absent for a free point.
+             */
+            snap?: (components["schemas"]["Sketch3DOriginSnap"] | components["schemas"]["Sketch3DSketchPointSnap"] | components["schemas"]["Sketch3DVertexSnap"]) | null;
+        };
+        /**
+         * Sketch3DSketchPointSnap
+         * @description ``kind: "sketch_point"``: a point of an EARLIER sketch, 2D or 3D.
+         *
+         *     ``point`` names which point of ``entity``: a curve's ``start``/``end``, a
+         *     circle's or arc's ``center``, a 2D sketch point's or a 3D sketch point's
+         *     ``position``. Read from the solved sketch on every rebuild, so editing
+         *     that sketch moves this point.
+         */
+        Sketch3DSketchPointSnap: {
+            /**
+             * Entity
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            entity: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "sketch_point";
+            /**
+             * Point
+             * @enum {string}
+             */
+            point: "start" | "end" | "center" | "position";
+            /** @description The EARLIER sketch that owns the point. */
+            sketch: components["schemas"]["FeatureRef"];
+        };
+        /**
+         * Sketch3DVertexSnap
+         * @description ``kind: "vertex"``: a model vertex, named as one end of a picked edge.
+         *
+         *     ``end`` is ``a`` or ``b`` of the edge signature (its canonically ordered
+         *     endpoints). The edge resolves through the same tiers as every picked edge.
+         */
+        Sketch3DVertexSnap: {
+            edge: components["schemas"]["EdgeSubshapeRef"];
+            /**
+             * End
+             * @enum {string}
+             */
+            end: "a" | "b";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "vertex";
         };
         /**
          * SketchArc
@@ -8903,6 +9133,43 @@ export interface components {
             value_mm: number;
         };
         /**
+         * SolvedPoint3D
+         * @description One solved point of a 3D sketch.
+         */
+        SolvedPoint3D: {
+            /**
+             * Id
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            id: string;
+            position: components["schemas"]["Vec3"];
+        };
+        /**
+         * SolvedSketch3DData
+         * @description Per-feature payload of an ``ok`` 3D sketch: the solved point positions
+         *     (world mm, entity order) and how constrained it is. ``kind`` is the
+         *     :data:`loft_wire.features.FeatureData` tag.
+         */
+        SolvedSketch3DData: {
+            /**
+             * Dof
+             * @description Remaining degrees of freedom (0 = fully constrained).
+             */
+            dof: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "solved_sketch_3d";
+            /** Points */
+            points: components["schemas"]["SolvedPoint3D"][];
+            /**
+             * Redundant Constraints
+             * @description Indices of constraints that are consistent but add nothing.
+             */
+            redundant_constraints?: number[];
+        };
+        /**
          * SolvedSketchData
          * @description Per-feature solved-sketch payload (§7.10): the solver's solved entity
          *     positions, status, and DOF diagnosis for an ``ok`` sketch feature — what
@@ -8937,9 +9204,8 @@ export interface components {
              */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /**
-             * Kind
-             * @default solved_sketch
-             * @constant
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
              */
             kind: "solved_sketch";
             /**
@@ -9193,11 +9459,6 @@ export interface components {
          *     bump).
          */
         SweepParamsV1: {
-            /**
-             * Cut Bodies
-             * @description CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). "all" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.
-             */
-            cut_bodies?: "all" | components["schemas"]["FeatureRef"][] | null;
             /**
              * Merge
              * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.

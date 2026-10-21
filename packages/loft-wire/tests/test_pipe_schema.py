@@ -83,7 +83,7 @@ def test_each_picked_curve_is_a_dependency_with_its_slot_rule() -> None:
     refs = feature_references(pipe)
     assert [r.slot for r in refs] == ["path[0]", "path[1]", "path[2]"]
     assert [str(r.ref.feature_id) for r in refs] == [SKETCH, other, BODY]
-    assert refs[0].allowed_types == frozenset({"sketch"})
+    assert refs[0].allowed_types == frozenset({"sketch", "sketch_3d"})
     assert refs[2].allowed_types == BODY_AFFECTING_FEATURE_TYPES
 
 
@@ -98,7 +98,7 @@ def test_the_along_path_datum_names_its_curve() -> None:
     assert isinstance(datum.params, DatumAlongPathParams)
     assert datum.params.measure == "ratio"
     (ref,) = feature_references(datum)
-    assert ref.allowed_types == frozenset({"sketch"})
+    assert ref.allowed_types == frozenset({"sketch", "sketch_3d"})
     with pytest.raises(ValidationError):
         DatumAlongPathParams.model_validate(
             {"kind": "along_path", "path": _curve("e3"), "ratio": 1.5}

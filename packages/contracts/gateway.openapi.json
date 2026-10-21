@@ -5854,6 +5854,7 @@
                 "sheet_metal_hem": "#/components/schemas/SheetMetalHemFeature",
                 "shell": "#/components/schemas/ShellFeature",
                 "sketch": "#/components/schemas/SketchFeature",
+                "sketch_3d": "#/components/schemas/Sketch3DFeature",
                 "sweep": "#/components/schemas/SweepFeature"
               },
               "propertyName": "type"
@@ -5864,6 +5865,9 @@
               },
               {
                 "$ref": "#/components/schemas/SketchFeature"
+              },
+              {
+                "$ref": "#/components/schemas/Sketch3DFeature"
               },
               {
                 "$ref": "#/components/schemas/ExtrudeFeature"
@@ -6284,6 +6288,7 @@
                 "sheet_metal_hem": "#/components/schemas/SheetMetalHemFeature",
                 "shell": "#/components/schemas/ShellFeature",
                 "sketch": "#/components/schemas/SketchFeature",
+                "sketch_3d": "#/components/schemas/Sketch3DFeature",
                 "sweep": "#/components/schemas/SweepFeature"
               },
               "propertyName": "type"
@@ -6294,6 +6299,9 @@
               },
               {
                 "$ref": "#/components/schemas/SketchFeature"
+              },
+              {
+                "$ref": "#/components/schemas/Sketch3DFeature"
               },
               {
                 "$ref": "#/components/schemas/ExtrudeFeature"
@@ -6772,6 +6780,7 @@
                 "sheet_metal_hem": "#/components/schemas/SheetMetalHemFeature",
                 "shell": "#/components/schemas/ShellFeature",
                 "sketch": "#/components/schemas/SketchFeature",
+                "sketch_3d": "#/components/schemas/Sketch3DFeature",
                 "sweep": "#/components/schemas/SweepFeature"
               },
               "propertyName": "type"
@@ -6782,6 +6791,9 @@
               },
               {
                 "$ref": "#/components/schemas/SketchFeature"
+              },
+              {
+                "$ref": "#/components/schemas/Sketch3DFeature"
               },
               {
                 "$ref": "#/components/schemas/ExtrudeFeature"
@@ -7279,6 +7291,7 @@
                 "sheet_metal_hem": "#/components/schemas/SheetMetalHemFeature",
                 "shell": "#/components/schemas/ShellFeature",
                 "sketch": "#/components/schemas/SketchFeature",
+                "sketch_3d": "#/components/schemas/Sketch3DFeature",
                 "sweep": "#/components/schemas/SweepFeature"
               },
               "propertyName": "type"
@@ -7289,6 +7302,9 @@
               },
               {
                 "$ref": "#/components/schemas/SketchFeature"
+              },
+              {
+                "$ref": "#/components/schemas/Sketch3DFeature"
               },
               {
                 "$ref": "#/components/schemas/ExtrudeFeature"
@@ -7415,13 +7431,28 @@
           "data": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/SolvedSketchData"
+                "discriminator": {
+                  "mapping": {
+                    "solved_sketch": "#/components/schemas/SolvedSketchData",
+                    "solved_sketch_3d": "#/components/schemas/SolvedSketch3DData"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SolvedSketchData"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SolvedSketch3DData"
+                  }
+                ]
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Typed per-feature payload for ok features that produce one (\u00a77.10): solved sketch geometry today; future feature types add kind-tagged variants additively."
+            "description": "Typed per-feature payload for ok features that produce one (\u00a77.10): solved sketch geometry today; future feature types add kind-tagged variants additively.",
+            "title": "Data"
           },
           "error": {
             "anyOf": [
@@ -7576,6 +7607,7 @@
                     "sheet_metal_hem": "#/components/schemas/SheetMetalHemFeature",
                     "shell": "#/components/schemas/ShellFeature",
                     "sketch": "#/components/schemas/SketchFeature",
+                    "sketch_3d": "#/components/schemas/Sketch3DFeature",
                     "sweep": "#/components/schemas/SweepFeature"
                   },
                   "propertyName": "type"
@@ -7586,6 +7618,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/SketchFeature"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Sketch3DFeature"
                   },
                   {
                     "$ref": "#/components/schemas/ExtrudeFeature"
@@ -12325,7 +12360,7 @@
         "type": "object"
       },
       "PathSketchCurve": {
-        "description": "``kind: \"sketch_curve\"``: one curve entity of an EARLIER sketch.\n\n``sketch`` materialises into ``feature_dependencies`` like an extrude's\nprofile; ``entity`` is the sketch-local id of a line, arc, circle or spline\n(a construction curve counts: it is what a skeleton is drawn in). The curve\nis read from the SOLVED sketch on every rebuild, so re-dimensioning the\nskeleton moves every pipe on it.",
+        "description": "``kind: \"sketch_curve\"``: one curve entity of an EARLIER sketch.\n\n``sketch`` may also name a 3D sketch (:mod:`loft_wire.sketch_3d`), whose\nlines are already in model space; ``entity`` is then a line id.\n\n``sketch`` materialises into ``feature_dependencies`` like an extrude's\nprofile; ``entity`` is the sketch-local id of a line, arc, circle or spline\n(a construction curve counts: it is what a skeleton is drawn in). The curve\nis read from the SOLVED sketch on every rebuild, so re-dimensioning the\nskeleton moves every pipe on it.",
         "properties": {
           "entity": {
             "description": "Sketch-local id of a line, arc, circle or spline in it.",
@@ -15338,6 +15373,451 @@
         "title": "SingleBodyImportResult",
         "type": "object"
       },
+      "Sketch3DAlong": {
+        "description": "A line parallel to a world axis (SolidWorks' Along X / Y / Z).",
+        "properties": {
+          "axis": {
+            "enum": [
+              "x",
+              "y",
+              "z"
+            ],
+            "title": "Axis",
+            "type": "string"
+          },
+          "kind": {
+            "const": "along",
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Line",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "line",
+          "axis"
+        ],
+        "title": "Sketch3DAlong",
+        "type": "object"
+      },
+      "Sketch3DCoincident": {
+        "description": "Two points at one place.",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "kind": {
+            "const": "coincident",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b"
+        ],
+        "title": "Sketch3DCoincident",
+        "type": "object"
+      },
+      "Sketch3DDistance": {
+        "description": "A driving point-to-point distance (straight, in model space).",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "kind": {
+            "const": "distance",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value_mm": {
+            "exclusiveMinimum": 0.0,
+            "title": "Value Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b",
+          "value_mm"
+        ],
+        "title": "Sketch3DDistance",
+        "type": "object"
+      },
+      "Sketch3DFeature": {
+        "description": "``{\"type\": \"sketch_3d\", ...}``: points and lines in model space\n(:mod:`loft_wire.sketch_3d`, SKETCH-3D).",
+        "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
+          "params": {
+            "$ref": "#/components/schemas/Sketch3DParamsV1"
+          },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
+          "type": {
+            "const": "sketch_3d",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "Sketch3DFeature",
+        "type": "object"
+      },
+      "Sketch3DFixed": {
+        "description": "A point held at its stored position.",
+        "properties": {
+          "kind": {
+            "const": "fixed",
+            "title": "Kind",
+            "type": "string"
+          },
+          "point": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Point",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "point"
+        ],
+        "title": "Sketch3DFixed",
+        "type": "object"
+      },
+      "Sketch3DLength": {
+        "description": "A driving length dimension on a line.",
+        "properties": {
+          "kind": {
+            "const": "length",
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Line",
+            "type": "string"
+          },
+          "value_mm": {
+            "exclusiveMinimum": 0.0,
+            "title": "Value Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "line",
+          "value_mm"
+        ],
+        "title": "Sketch3DLength",
+        "type": "object"
+      },
+      "Sketch3DLine": {
+        "description": "A straight line between two points of the same 3D sketch.",
+        "properties": {
+          "construction": {
+            "default": false,
+            "description": "Reference-only: solves and can be dimensioned and picked, but reads as a construction line in the sketch.",
+            "title": "Construction",
+            "type": "boolean"
+          },
+          "end": {
+            "description": "Id of the end point.",
+            "minLength": 1,
+            "title": "End",
+            "type": "string"
+          },
+          "id": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "line",
+            "title": "Kind",
+            "type": "string"
+          },
+          "start": {
+            "description": "Id of the start point.",
+            "minLength": 1,
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "start",
+          "end"
+        ],
+        "title": "Sketch3DLine",
+        "type": "object"
+      },
+      "Sketch3DOriginSnap": {
+        "description": "``kind: \"origin\"``: the world origin (the part's origin point).",
+        "properties": {
+          "kind": {
+            "const": "origin",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "Sketch3DOriginSnap",
+        "type": "object"
+      },
+      "Sketch3DParamsV1": {
+        "description": "A 3D sketch: points and lines in model space, and their relations.",
+        "properties": {
+          "constraints": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "along": "#/components/schemas/Sketch3DAlong",
+                  "coincident": "#/components/schemas/Sketch3DCoincident",
+                  "distance": "#/components/schemas/Sketch3DDistance",
+                  "fixed": "#/components/schemas/Sketch3DFixed",
+                  "length": "#/components/schemas/Sketch3DLength"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Sketch3DCoincident"
+                },
+                {
+                  "$ref": "#/components/schemas/Sketch3DFixed"
+                },
+                {
+                  "$ref": "#/components/schemas/Sketch3DAlong"
+                },
+                {
+                  "$ref": "#/components/schemas/Sketch3DLength"
+                },
+                {
+                  "$ref": "#/components/schemas/Sketch3DDistance"
+                }
+              ]
+            },
+            "maxItems": 2000,
+            "title": "Constraints",
+            "type": "array"
+          },
+          "entities": {
+            "description": "Points and lines; ids are unique within the sketch and a line names two distinct points of it.",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "line": "#/components/schemas/Sketch3DLine",
+                  "point": "#/components/schemas/Sketch3DPoint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Sketch3DPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/Sketch3DLine"
+                }
+              ]
+            },
+            "maxItems": 1000,
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entities"
+        ],
+        "title": "Sketch3DParamsV1",
+        "type": "object"
+      },
+      "Sketch3DPoint": {
+        "description": "A point in model space.",
+        "properties": {
+          "id": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "point",
+            "title": "Kind",
+            "type": "string"
+          },
+          "position": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "World position (mm): typed, or the last solved position. The solve starts here and moves it as little as the relations allow."
+          },
+          "snap": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "origin": "#/components/schemas/Sketch3DOriginSnap",
+                    "sketch_point": "#/components/schemas/Sketch3DSketchPointSnap",
+                    "vertex": "#/components/schemas/Sketch3DVertexSnap"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Sketch3DOriginSnap"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Sketch3DSketchPointSnap"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Sketch3DVertexSnap"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Geometry the point is attached to (it follows it and is fixed for the solve), or absent for a free point.",
+            "title": "Snap"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "position"
+        ],
+        "title": "Sketch3DPoint",
+        "type": "object"
+      },
+      "Sketch3DSketchPointSnap": {
+        "description": "``kind: \"sketch_point\"``: a point of an EARLIER sketch, 2D or 3D.\n\n``point`` names which point of ``entity``: a curve's ``start``/``end``, a\ncircle's or arc's ``center``, a 2D sketch point's or a 3D sketch point's\n``position``. Read from the solved sketch on every rebuild, so editing\nthat sketch moves this point.",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "kind": {
+            "const": "sketch_point",
+            "title": "Kind",
+            "type": "string"
+          },
+          "point": {
+            "enum": [
+              "start",
+              "end",
+              "center",
+              "position"
+            ],
+            "title": "Point",
+            "type": "string"
+          },
+          "sketch": {
+            "$ref": "#/components/schemas/FeatureRef",
+            "description": "The EARLIER sketch that owns the point."
+          }
+        },
+        "required": [
+          "kind",
+          "sketch",
+          "entity",
+          "point"
+        ],
+        "title": "Sketch3DSketchPointSnap",
+        "type": "object"
+      },
+      "Sketch3DVertexSnap": {
+        "description": "``kind: \"vertex\"``: a model vertex, named as one end of a picked edge.\n\n``end`` is ``a`` or ``b`` of the edge signature (its canonically ordered\nendpoints). The edge resolves through the same tiers as every picked edge.",
+        "properties": {
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSubshapeRef"
+          },
+          "end": {
+            "enum": [
+              "a",
+              "b"
+            ],
+            "title": "End",
+            "type": "string"
+          },
+          "kind": {
+            "const": "vertex",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "edge",
+          "end"
+        ],
+        "title": "Sketch3DVertexSnap",
+        "type": "object"
+      },
       "SketchArc": {
         "description": "A circular arc traversed **counterclockwise** from start to end.\n\nThe radius is implied by ``|start - center|``; the solver keeps start and\nend on the circle (they may move to satisfy constraints).",
         "properties": {
@@ -16563,6 +17043,64 @@
           "value_mm"
         ],
         "title": "SolvedDimension",
+        "type": "object"
+      },
+      "SolvedPoint3D": {
+        "description": "One solved point of a 3D sketch.",
+        "properties": {
+          "id": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "position": {
+            "$ref": "#/components/schemas/Vec3"
+          }
+        },
+        "required": [
+          "id",
+          "position"
+        ],
+        "title": "SolvedPoint3D",
+        "type": "object"
+      },
+      "SolvedSketch3DData": {
+        "description": "Per-feature payload of an ``ok`` 3D sketch: the solved point positions\n(world mm, entity order) and how constrained it is. ``kind`` is the\n:data:`loft_wire.features.FeatureData` tag.",
+        "properties": {
+          "dof": {
+            "description": "Remaining degrees of freedom (0 = fully constrained).",
+            "minimum": 0.0,
+            "title": "Dof",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "solved_sketch_3d",
+            "default": "solved_sketch_3d",
+            "title": "Kind",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/SolvedPoint3D"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "redundant_constraints": {
+            "description": "Indices of constraints that are consistent but add nothing.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Redundant Constraints",
+            "type": "array"
+          }
+        },
+        "required": [
+          "points",
+          "dof"
+        ],
+        "title": "SolvedSketch3DData",
         "type": "object"
       },
       "SolvedSketchData": {

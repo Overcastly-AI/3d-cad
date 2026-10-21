@@ -4236,7 +4236,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["Sketch3DFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -4377,7 +4377,7 @@ export interface components {
          */
         ExpandedMember: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["Sketch3DFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -4538,7 +4538,7 @@ export interface components {
              */
             expected_tree_version: number;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["Sketch3DFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"];
             /**
              * Name
              * @description User-facing name ("Sketch1")
@@ -4775,7 +4775,7 @@ export interface components {
              */
             created_at: string;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["Sketch3DFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"];
             /**
              * Id
              * Format: uuid
@@ -4869,7 +4869,7 @@ export interface components {
             /** Expected Tree Version */
             expected_tree_version: number;
             /** Feature */
-            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"]) | null;
+            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["Sketch3DFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"]) | null;
             /** Name */
             name?: string | null;
         };
@@ -7499,6 +7499,9 @@ export interface components {
          * PathSketchCurve
          * @description ``kind: "sketch_curve"``: one curve entity of an EARLIER sketch.
          *
+         *     ``sketch`` may also name a 3D sketch (:mod:`loft_wire.sketch_3d`), whose
+         *     lines are already in model space; ``entity`` is then a line id.
+         *
          *     ``sketch`` materialises into ``feature_dependencies`` like an extrude's
          *     profile; ``entity`` is the sketch-local id of a line, arc, circle or spline
          *     (a construction curve counts: it is what a skeleton is drawn in). The curve
@@ -9385,6 +9388,262 @@ export interface components {
              * @description The part's concurrency token after the import feature (== 1)
              */
             tree_version: number;
+        };
+        /**
+         * Sketch3DAlong
+         * @description A line parallel to a world axis (SolidWorks' Along X / Y / Z).
+         */
+        Sketch3DAlong: {
+            /**
+             * Axis
+             * @enum {string}
+             */
+            axis: "x" | "y" | "z";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "along";
+            /**
+             * Line
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            line: string;
+        };
+        /**
+         * Sketch3DCoincident
+         * @description Two points at one place.
+         */
+        Sketch3DCoincident: {
+            /**
+             * A
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            a: string;
+            /**
+             * B
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            b: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "coincident";
+        };
+        /**
+         * Sketch3DDistance
+         * @description A driving point-to-point distance (straight, in model space).
+         */
+        Sketch3DDistance: {
+            /**
+             * A
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            a: string;
+            /**
+             * B
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            b: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "distance";
+            /** Value Mm */
+            value_mm: number;
+        };
+        /**
+         * Sketch3DFeature
+         * @description ``{"type": "sketch_3d", ...}``: points and lines in model space
+         *     (:mod:`loft_wire.sketch_3d`, SKETCH-3D).
+         */
+        Sketch3DFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
+            params: components["schemas"]["Sketch3DParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sketch_3d";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * Sketch3DFixed
+         * @description A point held at its stored position.
+         */
+        Sketch3DFixed: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "fixed";
+            /**
+             * Point
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            point: string;
+        };
+        /**
+         * Sketch3DLength
+         * @description A driving length dimension on a line.
+         */
+        Sketch3DLength: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "length";
+            /**
+             * Line
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            line: string;
+            /** Value Mm */
+            value_mm: number;
+        };
+        /**
+         * Sketch3DLine
+         * @description A straight line between two points of the same 3D sketch.
+         */
+        Sketch3DLine: {
+            /**
+             * Construction
+             * @description Reference-only: solves and can be dimensioned and picked, but reads as a construction line in the sketch.
+             * @default false
+             */
+            construction: boolean;
+            /**
+             * End
+             * @description Id of the end point.
+             */
+            end: string;
+            /**
+             * Id
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "line";
+            /**
+             * Start
+             * @description Id of the start point.
+             */
+            start: string;
+        };
+        /**
+         * Sketch3DOriginSnap
+         * @description ``kind: "origin"``: the world origin (the part's origin point).
+         */
+        Sketch3DOriginSnap: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "origin";
+        };
+        /**
+         * Sketch3DParamsV1
+         * @description A 3D sketch: points and lines in model space, and their relations.
+         */
+        Sketch3DParamsV1: {
+            /** Constraints */
+            constraints?: (components["schemas"]["Sketch3DCoincident"] | components["schemas"]["Sketch3DFixed"] | components["schemas"]["Sketch3DAlong"] | components["schemas"]["Sketch3DLength"] | components["schemas"]["Sketch3DDistance"])[];
+            /**
+             * Entities
+             * @description Points and lines; ids are unique within the sketch and a line names two distinct points of it.
+             */
+            entities: (components["schemas"]["Sketch3DPoint"] | components["schemas"]["Sketch3DLine"])[];
+        };
+        /**
+         * Sketch3DPoint
+         * @description A point in model space.
+         */
+        Sketch3DPoint: {
+            /**
+             * Id
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "point";
+            /** @description World position (mm): typed, or the last solved position. The solve starts here and moves it as little as the relations allow. */
+            position: components["schemas"]["Vec3"];
+            /**
+             * Snap
+             * @description Geometry the point is attached to (it follows it and is fixed for the solve), or absent for a free point.
+             */
+            snap?: (components["schemas"]["Sketch3DOriginSnap"] | components["schemas"]["Sketch3DSketchPointSnap"] | components["schemas"]["Sketch3DVertexSnap"]) | null;
+        };
+        /**
+         * Sketch3DSketchPointSnap
+         * @description ``kind: "sketch_point"``: a point of an EARLIER sketch, 2D or 3D.
+         *
+         *     ``point`` names which point of ``entity``: a curve's ``start``/``end``, a
+         *     circle's or arc's ``center``, a 2D sketch point's or a 3D sketch point's
+         *     ``position``. Read from the solved sketch on every rebuild, so editing
+         *     that sketch moves this point.
+         */
+        Sketch3DSketchPointSnap: {
+            /**
+             * Entity
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            entity: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "sketch_point";
+            /**
+             * Point
+             * @enum {string}
+             */
+            point: "start" | "end" | "center" | "position";
+            /** @description The EARLIER sketch that owns the point. */
+            sketch: components["schemas"]["FeatureRef"];
+        };
+        /**
+         * Sketch3DVertexSnap
+         * @description ``kind: "vertex"``: a model vertex, named as one end of a picked edge.
+         *
+         *     ``end`` is ``a`` or ``b`` of the edge signature (its canonically ordered
+         *     endpoints). The edge resolves through the same tiers as every picked edge.
+         */
+        Sketch3DVertexSnap: {
+            edge: components["schemas"]["EdgeSubshapeRef"];
+            /**
+             * End
+             * @enum {string}
+             */
+            end: "a" | "b";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "vertex";
         };
         /**
          * SketchArc

@@ -146,7 +146,7 @@ class Evaluation:
     def sketch_data(self, feature_id: uuid.UUID) -> SolvedSketchData | None:
         """The solved-sketch payload a sketch feature returned, if any."""
         entry = self.feature(feature_id)
-        if entry is None or entry.data is None:
+        if entry is None or not isinstance(entry.data, SolvedSketchData):
             return None
         return entry.data
 
