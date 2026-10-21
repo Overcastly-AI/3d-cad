@@ -115,6 +115,11 @@ export interface ValueFieldProps extends Omit<
    * autocomplete; the error is shown by the cell's flag and by its strip.
    */
   tagWidth?: number;
+  /**
+   * A tag cell's own unit (`°`), for a strip whose cells do not share one
+   * (a line's length and angle, SKETCH-LINE-ANGLE). Tag cells only.
+   */
+  tagUnit?: string;
 }
 
 /**
@@ -165,6 +170,7 @@ export function ValueField({
   onBlur,
   "data-testid": testId,
   tagWidth,
+  tagUnit,
   ...rest
 }: ValueFieldProps) {
   const unit = useDocumentLengthUnit();
@@ -448,8 +454,9 @@ export function ValueField({
   if (tagWidth === undefined) {
     cell = <NumberField {...rest} {...cellProps} error={shownError} />;
   } else {
-    // A tag cell has no caption row: the unit is the strip's, and the
-    // reason for an error is written under the strip by its owner.
+    // A tag cell has no caption row: the unit is the strip's (or the cell's
+    // own `tagUnit`), and the reason for an error is written under the strip
+    // by its owner.
     const tag = { ...rest };
     delete tag.unit;
     delete tag.emphasis;
@@ -459,6 +466,7 @@ export function ValueField({
         {...tag}
         {...cellProps}
         width={tagWidth}
+        unit={tagUnit}
         aria-invalid={shownError !== null || undefined}
       />
     );

@@ -93,7 +93,7 @@ import { mirrorAxisFor, toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import { originIdentity } from "./origin";
 import { typedJoin, withNamedPointAt } from "./pointEntry";
 import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
-import { chainAfterResize, chainStep } from "./lineChain";
+import { chainAfterResize, chainAngleReference, chainStep } from "./lineChain";
 import {
   applyPick,
   toggleSelection,
@@ -1095,6 +1095,16 @@ const createSketchState = (
                 from,
                 point,
                 result.entities.map((entity) => entity.id),
+                // The line's angle cell: from the X axis, or from the segment
+                // this one continues (SKETCH-LINE-ANGLE). Read BEFORE the
+                // click, while the chain's joint anchor still names it.
+                chainAngleReference(
+                  tool,
+                  pending,
+                  chainStart,
+                  snapAnchors,
+                  entities,
+                ),
               ),
               typed: false,
             }
@@ -1104,8 +1114,15 @@ const createSketchState = (
   },
 
   commitDrawDimensions: (values, expressions) => {
-    const { drawDimension, entities, constraints, revision, tool, pending } =
-      get();
+    const {
+      drawDimension,
+      entities,
+      constraints,
+      revision,
+      tool,
+      pending,
+      datumFrameHalfMm,
+    } = get();
     if (drawDimension === null) return;
     const { shape, ids, from, to } = drawDimension;
     const { typed, added } = sizeDraft(drawDimension, values, expressions);
@@ -1113,11 +1130,42 @@ const createSketchState = (
       set({ drawDimension: null, drawDimensionFocus: null });
       return;
     }
-    const resized = resizeDrawn(shape, ids, from, to, entities, typed);
+    const reference = drawDimension.fields.find(
+      (field) => field.reference !== undefined,
+    )?.reference;
+    const resized = resizeDrawn(
+      shape,
+      ids,
+      from,
+      to,
+      entities,
+      typed,
+      reference,
+    );
+    // SKETCH-LINE-ANGLE. A typed angle replaces the Horizontal / Vertical the
+    // draw inferred on that line (SNAP-5), as Fusion's does: the user has
+    // said what the direction is, and keeping both over-constrains it. An
+    // angle to the X axis grounds the axis (the same call a picked axis
+    // makes), so the solver has a fixed line to measure it from.
+    const angled =
+      typed.angle === undefined
+        ? constraints
+        : constraints.filter(
+            (c) =>
+              !(
+                (c.kind === "horizontal" || c.kind === "vertical") &&
+                ids.includes(c.entity)
+              ),
+          );
+    const grounded = groundDatums(
+      resized,
+      added.flatMap(constraintEntityRefs),
+      datumFrame(datumFrameHalfMm),
+    );
     set({
-      ...chainAfterResize(tool, pending, drawDimension, resized),
-      entities: resized,
-      constraints: [...constraints, ...added],
+      ...chainAfterResize(tool, pending, drawDimension, grounded.entities),
+      entities: grounded.entities,
+      constraints: [...angled, ...added, ...grounded.constraints],
       // A typed size IS the user constraining the sketch.
       userConstrained: true,
       revision: revision + 1,

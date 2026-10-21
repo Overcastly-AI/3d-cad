@@ -18,12 +18,12 @@ describe("resolveDrawEntry (QA-RECT-BOX-NAMES)", () => {
   it("reads a number in the document unit, with no formula", () => {
     expect(resolveDrawEntry("80", "mm", names)).toEqual({
       kind: "value",
-      mm: 80,
+      value: 80,
       expression: null,
     });
     expect(resolveDrawEntry("2", "in", names)).toEqual({
       kind: "value",
-      mm: 50.8,
+      value: 50.8,
       expression: null,
     });
   });
@@ -31,12 +31,12 @@ describe("resolveDrawEntry (QA-RECT-BOX-NAMES)", () => {
   it("resolves a parameter, keeping the formula for the dimension", () => {
     expect(resolveDrawEntry("W", "mm", names)).toEqual({
       kind: "value",
-      mm: 80,
+      value: 80,
       expression: "W",
     });
     expect(resolveDrawEntry(" W/2 + 5 ", "mm", names)).toEqual({
       kind: "value",
-      mm: 45,
+      value: 45,
       expression: "W/2 + 5",
     });
   });
@@ -52,7 +52,7 @@ describe("resolveDrawEntry (QA-RECT-BOX-NAMES)", () => {
     expect(resolveDrawEntry("0", "mm", names).kind).toBe("error");
     expect(resolveDrawEntry("H - W", "mm", names, { signed: true })).toEqual({
       kind: "value",
-      mm: -30,
+      value: -30,
       expression: "H - W",
     });
   });

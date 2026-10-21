@@ -33,12 +33,23 @@
  * came from the typed X / Y cells its size is already exact, and the user is
  * typing points: the strip arms for a click but takes no keys.
  *
+ * A LINE HAS TWO CELLS, LENGTH AND ANGLE (SKETCH-LINE-ANGLE), as Fusion's
+ * Line box does: `450 Tab 73 Enter` makes the line 450 long at 73° and
+ * records both as dimensions. The angle reads in degrees, from the sketch X
+ * axis or, for a segment that continues a chain, from the segment before it
+ * (`chainAngleReference`); an empty cell leaves that value free.
+ *
  * WHY VALUES APPLY ON ENTER, NOT PER KEYSTROKE: each applied value is a
  * revision — a solve and a debounced save. Applying per keystroke would rebuild
  * the sketch at "5" on the way to "50", and would make Escape unable to
  * abandon anything.
  */
-import { DimensionTag, DimensionTagCell, lengthUnitLabel } from "@loft/design";
+import {
+  DimensionTag,
+  DimensionTagCell,
+  formatAngle,
+  lengthUnitLabel,
+} from "@loft/design";
 import { Html } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import {
@@ -66,6 +77,7 @@ import {
   resolveDrawCells,
   secondValueTyped,
 } from "../sketch/drawEntry";
+import { chainAngleReference } from "../sketch/lineChain";
 import { planeToWorld, type PlaneBasis, type Point2D } from "../sketch/plane";
 import { useSketchStore, type SketchState } from "../sketch/store";
 import { useDocumentLengthUnit } from "../units/documentUnit";
@@ -157,6 +169,14 @@ export function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
   const tool = useSketchStore((state) => state.tool);
   const pending = useSketchStore((state) => state.pending);
   const cursor = useSketchStore((state) => state.cursor);
+  const chainStart = useSketchStore((state) => state.chainStart);
+  const snapAnchors = useSketchStore((state) => state.snapAnchors);
+  const entities = useSketchStore((state) => state.entities);
+  // The live line's angle reads from what its cell will (SKETCH-LINE-ANGLE).
+  const angleFrom = useMemo(
+    () => chainAngleReference(tool, pending, chainStart, snapAnchors, entities),
+    [tool, pending, chainStart, snapAnchors, entities],
+  );
   const sizingId = useSketchStore(dragSizing);
   const commit = useSketchStore((state) => state.commitDrawDimensions);
   const dismiss = useSketchStore((state) => state.dismissDrawDimensions);
@@ -211,13 +231,13 @@ export function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
     const from = pending[0];
     if (shape === null || from === undefined || cursor === null) return null;
     if (pending.length !== 1) return null;
-    const fields = drawDimensionFields(shape, from, cursor);
+    const fields = drawDimensionFields(shape, from, cursor, [], angleFrom);
     // Nothing to say about a zero-size rubber band, unless it is being typed.
-    if (!typingLive && fields.every((field) => field.measuredMm === 0)) {
+    if (!typingLive && fields.every((field) => field.measured === 0)) {
       return null;
     }
     return { from, to: cursor, fields, armed: false };
-  }, [draft, typingPoint, tool, pending, cursor, typingLive]);
+  }, [draft, typingPoint, tool, pending, cursor, typingLive, angleFrom]);
 
   const armed = state?.armed === true;
   const editable = armed || typingLive;
@@ -493,6 +513,18 @@ export function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
 
   const textOf = (key: DrawDimensionKey) =>
     texts.draft === draftKey ? (texts.byKey[key] ?? "") : "";
+  // A line's strip reads `L 450 mm │ ∠ 73°`: each cell carries its own unit
+  // when they differ (SKETCH-LINE-ANGLE); otherwise the strip states it once.
+  const lengthLabel = lengthUnitLabel(unit);
+  const mixedUnits = fields.some((field) => field.kind === "angle");
+  const unitOf = (field: DrawDimensionField) =>
+    field.kind === "angle" ? "°" : lengthLabel;
+  const readoutOf = (field: DrawDimensionField) =>
+    field.kind === "angle"
+      ? formatAngle(field.measured, { unitSuffix: false, maxFractionDigits: 2 })
+      : sizeText(field.measured, unit);
+  const spokenUnit = (field: DrawDimensionField) =>
+    field.kind === "angle" ? "degrees" : lengthLabel;
   return (
     <Html
       position={planeToWorld(basis, to)}
@@ -514,13 +546,14 @@ export function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
                 : undefined
           }
         >
-          <DimensionTag unit={lengthUnitLabel(unit)}>
+          <DimensionTag unit={mixedUnits ? undefined : lengthLabel}>
             {fields.map((field, index) =>
               editable ? (
                 <ValueField
                   key={field.key}
                   tagWidth={6}
-                  kind="length"
+                  kind={field.kind === "angle" ? "angle" : "length"}
+                  {...(mixedUnits ? { tagUnit: unitOf(field) } : {})}
                   label={field.label}
                   value={textOf(field.key)}
                   onValueChange={(text) => {
@@ -543,8 +576,8 @@ export function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
                   }}
                   dimensions={dimensions}
                   error={cellErrors[field.key] ?? null}
-                  placeholder={sizeText(field.measuredMm, unit)}
-                  aria-label={`${field.name} in ${lengthUnitLabel(unit)}`}
+                  placeholder={readoutOf(field)}
+                  aria-label={`${field.name} in ${spokenUnit(field)}`}
                   data-testid={`draw-dimension-${field.key}`}
                   inputRef={(node: HTMLInputElement | null) =>
                     registerCell(field.key, index, node)
@@ -558,7 +591,8 @@ export function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
                   key={field.key}
                   label={field.label}
                   width={6}
-                  readout={sizeText(field.measuredMm, unit)}
+                  readout={readoutOf(field)}
+                  {...(mixedUnits ? { unit: unitOf(field) } : {})}
                 />
               ),
             )}

@@ -46,7 +46,7 @@ describe("drawDimensionFields", () => {
       { x: 40, y: 25 },
       ["e1", "e2", "e3", "e4"],
     );
-    expect(fields.map((f) => [f.key, f.measuredMm, f.entity])).toEqual([
+    expect(fields.map((f) => [f.key, f.measured, f.entity])).toEqual([
       ["width", 40, "e1"],
       ["height", 25, "e2"],
     ]);
@@ -58,24 +58,35 @@ describe("drawDimensionFields", () => {
       { x: 0, y: 0 },
       { x: -40, y: -25 },
     );
-    expect(fields.map((f) => f.measuredMm)).toEqual([40, 25]);
+    expect(fields.map((f) => f.measured)).toEqual([40, 25]);
     // Nothing has an id until the placement commits.
     expect(fields.every((f) => f.entity === null)).toBe(true);
   });
 
-  it("gives a line its length and a circle its diameter", () => {
-    expect(
-      drawDimensionFields("line", { x: 0, y: 0 }, { x: 3, y: 4 }, ["e1"]),
-    ).toEqual([
-      {
-        key: "length",
-        label: "L",
-        name: "Length",
-        measuredMm: 5,
-        entity: "e1",
-        kind: "distance",
-      },
-    ]);
+  it("gives a line its length and angle and a circle its diameter", () => {
+    const [length, angle, ...more] = drawDimensionFields(
+      "line",
+      { x: 0, y: 0 },
+      { x: 3, y: 4 },
+      ["e1"],
+    );
+    expect(more).toEqual([]);
+    expect(length).toEqual({
+      key: "length",
+      label: "L",
+      name: "Length",
+      measured: 5,
+      entity: "e1",
+      kind: "distance",
+    });
+    expect(angle).toMatchObject({
+      key: "angle",
+      name: "Angle",
+      entity: "e1",
+      kind: "angle",
+      reference: { entity: "x-axis", direction: { x: 1, y: 0 } },
+    });
+    expect(angle?.measured).toBeCloseTo((Math.atan2(4, 3) * 180) / Math.PI, 12);
     expect(
       drawDimensionFields("circle", { x: 1, y: 1 }, { x: 1, y: 7 }, ["e9"]),
     ).toEqual([
@@ -83,7 +94,7 @@ describe("drawDimensionFields", () => {
         key: "diameter",
         label: "Ø",
         name: "Diameter",
-        measuredMm: 12,
+        measured: 12,
         entity: "e9",
         kind: "diameter",
       },

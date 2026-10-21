@@ -32,8 +32,11 @@ import {
 export type DrawEntry =
   /** Nothing typed: the box leaves its measure as drawn. */
   | { kind: "empty" }
-  /** A value (mm); `expression` is the formula that made it, if any. */
-  | { kind: "value"; mm: number; expression: string | null }
+  /**
+   * A value: mm, or degrees from an angle cell; `expression` is the formula
+   * that made it, if any.
+   */
+  | { kind: "value"; value: number; expression: string | null }
   /** Typed, but not a value the box can take: the reason, for the box. */
   | { kind: "error"; message: string };
 
@@ -72,7 +75,52 @@ export function resolveDrawEntry(
           : `${expression} comes to ${mm}; a size must be above 0.`,
     };
   }
-  return { kind: "value", mm, expression };
+  return { kind: "value", value: mm, expression };
+}
+
+/**
+ * The message for an angle typed outside (0, 180). A number past 180 is most
+ * often the Y of an end point typed into the line's box after the click (the
+ * LINE-LENGTH-TAB mistake, now landing in the angle cell), so it says how to
+ * type a point instead.
+ */
+export function angleRangeMessage(deg: number, expression: string | null) {
+  const range = "An angle must be above 0° and below 180°.";
+  const said =
+    expression === null ? range : `${expression} comes to ${deg}°. ${range}`;
+  return deg > 180
+    ? `${said} To place the end point, type X Tab Y before you click.`
+    : said;
+}
+
+/**
+ * Resolve a line's ANGLE cell (SKETCH-LINE-ANGLE): degrees, whatever the
+ * document's length unit (a bare number is degrees, `30 deg` and `A/2` are
+ * formulas), strictly within (0, 180) as `AngleConstraint` requires.
+ */
+export function resolveAngleEntry(
+  text: string,
+  names: ReadonlyMap<string, Quantity>,
+): DrawEntry {
+  const entry = parseFieldEntry(text, "angle", "mm");
+  if (entry.kind === "empty") return { kind: "empty" };
+  let deg: number;
+  let expression: string | null = null;
+  if (entry.kind === "number") {
+    deg = Number(text.trim());
+  } else {
+    const result = resolveFieldFormula(entry.expression, "angle", names);
+    if (!result.ok) return { kind: "error", message: result.message };
+    deg = result.value;
+    expression = entry.expression;
+  }
+  if (!Number.isFinite(deg)) {
+    return { kind: "error", message: "Enter a number." };
+  }
+  if (!(deg > 0 && deg < 180)) {
+    return { kind: "error", message: angleRangeMessage(deg, expression) };
+  }
+  return { kind: "value", value: deg, expression };
 }
 
 /** A gesture's size cells, resolved together. */
@@ -96,10 +144,13 @@ export function resolveDrawCells(
 ): DrawCells {
   const out: DrawCells = { values: {}, expressions: {}, errors: {} };
   fields.forEach((field, index) => {
-    const entry = resolveDrawEntry(textOf(index), unit, names);
+    const entry =
+      field.key === "angle"
+        ? resolveAngleEntry(textOf(index), names)
+        : resolveDrawEntry(textOf(index), unit, names);
     if (entry.kind === "error") out.errors[field.key] = entry.message;
     if (entry.kind !== "value") return;
-    out.values[field.key] = entry.mm;
+    out.values[field.key] = entry.value;
     if (entry.expression !== null) {
       out.expressions[field.key] = entry.expression;
     }

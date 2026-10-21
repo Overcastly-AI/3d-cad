@@ -1571,9 +1571,22 @@ function entityGlyphAnchor(entity: SketchEntity, offsetMm: number): Point2D {
  * Where an angle dimension is written: just inside the wedge, on the bisector
  * of the corner the two lines share — exactly where a draughtsman puts it,
  * because that is the only place the number is unambiguous about WHICH of the
- * two supplementary angles it names. With no shared corner (two free lines)
- * it falls back to the midpoint between the two lines' own marks.
+ * two supplementary angles it names. An angle to a sketch AXIS (a typed line
+ * angle, SKETCH-LINE-ANGLE) is written in the wedge at the line's start, where
+ * the axis direction and the line leave it, as Fusion writes it. With no
+ * shared corner (two free lines) it falls back to the midpoint between the two
+ * lines' own marks.
  */
+function midwayAnchor(
+  a: SketchEntity,
+  b: SketchEntity,
+  offsetMm: number,
+): Point2D {
+  const pa = entityGlyphAnchor(a, offsetMm);
+  const pb = entityGlyphAnchor(b, offsetMm);
+  return { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 };
+}
+
 function angleAnchor(
   a: SketchEntity,
   b: SketchEntity,
@@ -1581,14 +1594,15 @@ function angleAnchor(
   offsetMm: number,
 ): Point2D {
   const corner = sharedCorner(a.id, b.id, constraints);
-  if (corner === null || a.kind !== "line" || b.kind !== "line") {
-    const pa = entityGlyphAnchor(a, offsetMm);
-    const pb = entityGlyphAnchor(b, offsetMm);
-    return { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 };
+  if (a.kind !== "line" || b.kind !== "line") {
+    return midwayAnchor(a, b, offsetMm);
   }
-  const at = corner.a === "end" ? a.end : a.start;
-  const u = directionFrom(a, corner.a);
-  const v = directionFrom(b, corner.b);
+  let at: Point2D;
+  if (corner !== null) at = corner.a === "end" ? a.end : a.start;
+  else if (isDatumId(a.id)) at = b.start;
+  else return midwayAnchor(a, b, offsetMm);
+  const u = directionFrom(a, corner?.a ?? null);
+  const v = directionFrom(b, corner?.b ?? null);
   const nu = Math.hypot(u.x, u.y);
   const nv = Math.hypot(v.x, v.y);
   if (nu === 0 || nv === 0) return { x: at.x + offsetMm, y: at.y + offsetMm };

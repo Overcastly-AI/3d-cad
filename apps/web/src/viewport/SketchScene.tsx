@@ -41,6 +41,7 @@ import {
   pickedPointPositions,
 } from "../sketch/geometry";
 import {
+  angleWitness,
   dimensionWitness,
   type DrawDimensionKey,
 } from "../sketch/drawDimensions";
@@ -1472,17 +1473,25 @@ function witnessPositions(
     y: (draft.from.y + draft.to.y) / 2,
   };
   const segments: Array<[Point2D, Point2D]> =
-    entity.kind === "line"
-      ? dimensionWitness(entity.start, entity.end, centre, sketch.glyphOffsetMm)
-      : entity.kind === "circle"
-        ? [
-            // The diameter the Ø cell drives, rim to rim through the centre.
-            [
-              { x: entity.center.x - entity.radius, y: entity.center.y },
-              { x: entity.center.x + entity.radius, y: entity.center.y },
-            ],
-          ]
-        : [];
+    entity.kind === "line" && field.reference !== undefined
+      ? // The angle cell: its reference ray and the arc it is measured on.
+        angleWitness(entity.start, entity.end, field.reference.direction)
+      : entity.kind === "line"
+        ? dimensionWitness(
+            entity.start,
+            entity.end,
+            centre,
+            sketch.glyphOffsetMm,
+          )
+        : entity.kind === "circle"
+          ? [
+              // The diameter the Ø cell drives, rim to rim through the centre.
+              [
+                { x: entity.center.x - entity.radius, y: entity.center.y },
+                { x: entity.center.x + entity.radius, y: entity.center.y },
+              ],
+            ]
+          : [];
   if (segments.length === 0) return new Float32Array(0);
   const positions = new Float32Array(segments.length * 6);
   segments.forEach(([a, b], i) => {
