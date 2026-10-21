@@ -5,7 +5,13 @@
  */
 import { useState } from "react";
 
-import { Button, Stamp, TextField, drawing } from "@loft/design";
+import {
+  Button,
+  SegmentedControl,
+  Stamp,
+  TextField,
+  drawing,
+} from "@loft/design";
 
 import type {
   AnnotationResponse,
@@ -15,6 +21,7 @@ import type {
   DrawingBomLine,
   DrawingViewResult,
   MeasuredDimension,
+  PartsListStructure,
   RefDocumentKind,
   ViewProjection,
 } from "../../api/drawings";
@@ -301,29 +308,62 @@ export function BendSchedulePanel({ rows }: { rows: readonly BendTableRow[] }) {
  * can read and a keyboard cannot is only half-shipped — this is the on-screen
  * form of the server's own `drawing_bom_source_not_assembly`, made legible
  * before anyone can hit it.
+ *
+ * The STRUCTURE choice is SolidWorks' BOM type (DRAWING-PARTS-LIST-LEVEL), the
+ * same three the assembly page's BOM offers: Top level (the default), Indented
+ * (each sub-assembly's items beneath it, numbered 4.1, 4.2...) and Parts only
+ * (every part at every level). It is stored on the sheet; the numbers stay
+ * server-derived in whichever structure is chosen.
  */
+const STRUCTURE_OPTIONS = [
+  {
+    value: "top_level" as const,
+    label: "Top level",
+    "data-testid": "parts-list-structure-top",
+  },
+  {
+    value: "indented" as const,
+    label: "Indented",
+    "data-testid": "parts-list-structure-indented",
+  },
+  {
+    value: "parts_only" as const,
+    label: "Parts only",
+    "data-testid": "parts-list-structure-parts",
+  },
+];
+
 export function PartsListPanel({
   sourceKind,
   lines,
-  totalInstances,
+  total,
+  structure,
+  structureBusy,
+  onStructureChange,
   loading,
   error,
   onOpen,
 }: {
   sourceKind: RefDocumentKind;
   lines: readonly DrawingBomLine[];
-  totalInstances: number;
+  /** The total in the shown structure: every placed part for Parts only. */
+  total: number;
+  structure: PartsListStructure;
+  structureBusy: boolean;
+  onStructureChange: (structure: PartsListStructure) => void;
   loading: boolean;
   error: unknown;
   onOpen: (line: DrawingBomLine) => void;
 }) {
   const unavailable = sourceKind !== "assembly";
+  const indented = structure === "indented";
   return (
     <div
       className="border border-hairline bg-anvil"
       data-testid="parts-list-panel"
       data-source-kind={sourceKind}
       data-disabled={unavailable ? "true" : "false"}
+      data-structure={unavailable ? undefined : structure}
     >
       <header className="flex items-baseline gap-2 border-b border-hairline px-3 py-2">
         <h2
@@ -339,10 +379,22 @@ export function PartsListPanel({
             data-testid="parts-list-total"
             className="font-data text-2xs tabular-nums text-gauge"
           >
-            {totalInstances}
+            {total}
           </span>
         )}
       </header>
+      {unavailable ? null : (
+        <SegmentedControl
+          label="Parts list structure"
+          hideLabel
+          size="dense"
+          value={structure}
+          onChange={onStructureChange}
+          disabled={structureBusy}
+          options={STRUCTURE_OPTIONS}
+          className="border-b border-hairline px-2 py-1.5"
+        />
+      )}
       {unavailable ? (
         <p
           tabIndex={0}
@@ -381,11 +433,14 @@ export function PartsListPanel({
       ) : (
         <table
           className="w-full border-collapse"
-          aria-label={`Parts list, ${lines.length} items, ${totalInstances} instances`}
+          aria-label={`Parts list, ${lines.length} items, ${total} ${
+            structure === "parts_only" ? "parts" : "instances"
+          }`}
         >
           <caption className="sr-only">
             One row per referenced document in item-number order: item number,
-            name, and the quantity of instances.
+            name, and the quantity of instances
+            {indented ? " in its parent, then in the whole assembly" : ""}.
           </caption>
           <thead>
             <tr className="border-b border-hairline">
@@ -407,14 +462,24 @@ export function PartsListPanel({
               >
                 Qty
               </th>
+              {indented ? (
+                <th
+                  scope="col"
+                  title="How many the whole assembly holds"
+                  className="px-3 py-1.5 text-right font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+                >
+                  All
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody className="divide-y divide-hairline">
             {lines.map((line) => (
               <tr
-                key={`${line.item_number}:${line.ref_document_id}`}
+                key={`${line.item}:${line.ref_document_id}`}
                 data-testid="parts-list-row"
-                data-item-number={String(line.item_number)}
+                data-item-number={line.item}
+                data-level={line.level}
                 data-ref-document-id={line.ref_document_id}
                 data-ref-kind={line.ref_document_kind}
               >
@@ -423,12 +488,21 @@ export function PartsListPanel({
                       circled numeral is how an item list points at the paper. */}
                   <span
                     data-testid="parts-list-item-number"
-                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-etch font-data text-2xs tabular-nums text-mist"
+                    className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-etch px-1 font-data text-2xs tabular-nums ${
+                      line.level > 0 ? "text-gauge" : "text-mist"
+                    }`}
                   >
-                    {line.item_number}
+                    {line.item}
                   </span>
                 </td>
-                <td className="px-2 py-1.5">
+                <td
+                  className="px-2 py-1.5"
+                  style={
+                    line.level > 0
+                      ? { paddingLeft: `${0.5 + line.level * 0.75}rem` }
+                      : undefined
+                  }
+                >
                   {line.missing ? (
                     <span
                       data-testid="parts-list-name"
@@ -455,6 +529,14 @@ export function PartsListPanel({
                 >
                   {line.quantity}
                 </td>
+                {indented ? (
+                  <td
+                    data-testid="parts-list-total-qty"
+                    className="px-3 py-1.5 text-right font-data text-2xs tabular-nums text-gauge"
+                  >
+                    {line.total_quantity}
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>
