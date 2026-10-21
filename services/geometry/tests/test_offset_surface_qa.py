@@ -143,9 +143,10 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # measured 1.9e-6 mm^3.
     "b5-shed-sheathed": 5e-6,
     # B2 notched across five members, and B2 with a hole and a fillet on its
-    # first stud (CUT-OBJECTS-TO-CUT): B2's summation drift, 1.5e-7 and 7e-7.
-    "cut-objects-to-cut-b2-front-notch-studs-16-32-48": 1e-6,
-    "framing-hole-d1-fillet-r0.25-first-stud-b2": 1e-6,
+    # first stud (CUT-OBJECTS-TO-CUT): B2's summation drift, 1.5e-7 and 7e-7,
+    # bounded as the WINDOW-DOOR goldens are.
+    "cut-objects-to-cut-b2-front-notch-studs-16-32-48": 3e-6,
+    "framing-hole-d1-fillet-r0.25-first-stud-b2": 3e-6,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's
