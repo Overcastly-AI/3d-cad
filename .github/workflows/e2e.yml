@@ -64,7 +64,7 @@
 # The stack is the NATIVE boot (uvicorn + per-service SQLite), not compose.
 # That is a real fidelity gap and it is covered elsewhere rather than ignored:
 # deploy-path.yml builds the images and drives register → part → sketch →
-# extrude → evaluate → mesh → STEP against a REAL Postgres/MinIO in the same
+# extrude → evaluate → mesh → STEP against a REAL Postgres/SeaweedFS in the same
 # full-lane run. So Postgres-specific behaviour is gated there, browser
 # behaviour here.
 # Naming it beats implying it: what this workflow does NOT cover is the
@@ -1162,7 +1162,7 @@ jobs:
   # ── THE DOCKER HALF: deploy-path.yml, called with the same commit ─────────
   #
   # Builds the three images, boots the compose stack, runs the backup/restore
-  # drill and the real-MinIO smoke (see that file). Called rather than
+  # drill and the real-object-store smoke (see that file). Called rather than
   # triggered so that ONE run, under ONE per-commit group, answers "is this
   # commit fit for main". Its jobs show up here as `deploy-path / <job>`.
   deploy-path:

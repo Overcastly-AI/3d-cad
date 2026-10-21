@@ -34,7 +34,7 @@ class GeometrySettings(BaseServiceSettings):
     #: (``S3_URL`` unset): ``build_app`` refuses to start on >1 so a multi-worker
     #: deploy fails loud instead of 404-ing meshes across worker processes
     #: (engineering audit F1, docs/design/feature-tree.md §7.8). When ``S3_URL``
-    #: is set the shared S3/MinIO store is active and this guard is lifted —
+    #: is set the shared S3 store is active and this guard is lifted —
     #: multi-worker/replica is then correct (engineering audit F6).
     web_concurrency: int = 1
 
@@ -45,15 +45,15 @@ class GeometrySettings(BaseServiceSettings):
     #: ignored (docs/design/feature-tree.md §7.8).
     s3_bucket: str = "loft"
 
-    #: S3/MinIO credentials for the mesh store. Optional: when unset, boto3's
+    #: S3 credentials for the mesh store. Optional: when unset, boto3's
     #: default credential chain applies (``AWS_ACCESS_KEY_ID`` /
     #: ``AWS_SECRET_ACCESS_KEY`` env, instance profile, etc.). Env:
     #: ``S3_ACCESS_KEY_ID`` / ``S3_SECRET_ACCESS_KEY`` / ``S3_REGION``.
-    #: The secret is the MinIO ROOT password (compose anchors both to
-    #: ``MINIO_ROOT_PASSWORD``) and is the one datastore credential in the
+    #: In compose both are anchored to the values the bundled SeaweedFS is
+    #: configured with. The secret is the one datastore credential in the
     #: stack that travels outside a URL, so it is declared to py-kit's
     #: dev-credential guard below — geometry refuses to boot on the published
-    #: default ``loft-minio-dev-only`` unless ``LOFT_ENV=dev``.
+    #: default ``loft-s3-dev-only`` unless ``LOFT_ENV=dev``.
     s3_access_key_id: str | None = None
     s3_secret_access_key: str | None = None
     s3_region: str = "us-east-1"
@@ -96,7 +96,7 @@ def build_app(settings: GeometrySettings | None = None) -> FastAPI:
     """Build the geometry app with its Redis (queue) readiness check.
 
     Installs the mesh-store backend from config (:func:`configure_mesh_store`):
-    the shared S3/MinIO store when ``S3_URL`` is set, else the in-process LRU.
+    the shared S3 store when ``S3_URL`` is set, else the in-process LRU.
     Only for the **unshared** LRU does it enforce the single-worker guard —
     raising :class:`~geometry.mesh_store.MeshStoreMultiWorkerError` when
     ``WEB_CONCURRENCY > 1`` (fail loud beats a silent cross-worker 404). With

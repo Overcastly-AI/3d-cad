@@ -258,10 +258,11 @@ PY
 done
 
 # The bucket is a cache, but it has to EXIST or geometry's first mesh put fails.
-# `mc mb --ignore-existing`, so this is safe on a bucket that survived.
+# seaweedfs creates it at boot (HEAD, then PUT on 404) before it reports
+# healthy, so this is safe on a bucket that survived.
 step "object storage — ensure the (empty) bucket exists"
-docker compose run --rm -T minio-init ||
-  echo "  !!  could not run minio-init; create the bucket before evaluating" >&2
+docker compose up -d --wait seaweedfs >/dev/null ||
+  echo "  !!  seaweedfs did not become healthy; check 'docker compose logs seaweedfs' before evaluating" >&2
 echo "  meshes and composed drawings are DERIVED: the first evaluate of each"
 echo "  part re-derives them (docs/OPERATIONS.md, 'What is not backed up')."
 

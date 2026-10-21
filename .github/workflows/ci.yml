@@ -36,7 +36,8 @@
 #               tempdir and diff against the committed output (fails on drift)
 #   compose   — `docker compose config -q` for the base stack and base+dev
 #               overlay, plus scripts/check-compose.py (audit G1/G3 invariants:
-#               geometry S3 creds == MinIO's; internal services unpublished) and
+#               geometry S3 creds == the object store's; internal services
+#               unpublished; object store pinned by digest) and
 #               scripts/check-build-context.py (every Dockerfile COPY source
 #               survives .dockerignore — the failure `deploy-path` used to find)
 #               and scripts/check-workflow-concurrency.py (every push-
@@ -54,10 +55,10 @@
 #
 # The RUNTIME half of the compose gate lives in
 # .github/workflows/deploy-path.yml, which the full lane calls: it builds the
-# images and boots the stack. The real-MinIO mesh-store smoke
-# (`geometry-minio-smoke`) moved there from this file with CI-TWO-LANE: it
-# compiles MinIO from source (~4-5 min cold) on every run, which is the
-# Docker-daemon class of cost the per-commit lane no longer pays, and the
+# images and boots the stack. The real-object-store mesh-store smoke
+# (`geometry-s3-smoke`, SeaweedFS) moved there from this file with
+# CI-TWO-LANE: it needs a Docker daemon, which is the class of cost the
+# per-commit lane no longer pays, and the
 # cross-process store it proves is also driven end to end by deploy-path's
 # round-trip.
 #
@@ -365,7 +366,7 @@ jobs:
       - name: Validate dev-overlay compose config
         run: docker compose -f docker-compose.yml -f docker-compose.dev.yml config -q
       # Structural invariants from the 2026-07-24 audit (G1: geometry S3 creds
-      # match MinIO's; G3: documents/geometry never host-published in the base
+      # match the object store's; G3: documents/geometry never host-published in the base
       # file, dev-overlay debug ports loopback-only). Stdlib-only, renders via
       # `docker compose config` — no daemon, no image pulls, no Python deps.
       - name: Compose invariants (audit G1/G3 guard)

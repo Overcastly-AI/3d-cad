@@ -8,13 +8,17 @@ a modeling round-trip on a live stack — is ``scripts/compose-smoke.sh`` (CI
 workflow ``deploy-path``); this file keeps the regressions visible on every
 push without paying for an image build. Invariants:
 
-1. G1 — geometry carries S3 credentials whose VALUES equal the MinIO root
-   credentials (anchor-sourced in docker-compose.yml, so they cannot drift),
-   plus a non-empty ``S3_URL``. Without them every mesh put/get 403s.
+1. G1 — geometry carries S3 credentials whose VALUES equal the ones the
+   bundled SeaweedFS server is configured with (anchor-sourced in
+   docker-compose.yml, so they cannot drift), plus a non-empty ``S3_URL``.
+   Without them every mesh put/get 403s. The scale overlay's extra workers,
+   which cannot share the base file's anchors, must render the same values.
 2. G3 — documents (:8001, trusts ``X-Loft-User``) and geometry (:8002) are
    NOT host-published in the base file; the gateway (:8000) is. The dev
    overlay may publish them, but only loopback-bound (127.0.0.1).
-3. minio-init bootstraps the bucket with the same anchor-sourced credentials.
+3. The object store image is pinned by version AND digest (a moved tag cannot
+   change what boots), and its entrypoint is the repo's
+   deploy/docker/seaweedfs/entrypoint.sh, which creates the bucket.
 3a. G5 — the stack SERVES THE APP. There is a ``web`` service, it is
    host-published, and the dev overlay keeps it on exactly one host mapping.
    This is an existence assertion rather than a safety one, and it is here
@@ -46,6 +50,7 @@ from urllib.parse import urlsplit
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASE = ["-f", "docker-compose.yml"]
 DEV = ["-f", "docker-compose.yml", "-f", "docker-compose.dev.yml"]
+SCALE = ["-f", "docker-compose.yml", "-f", "docker-compose.scale.yml"]
 
 
 def render(files: list[str]) -> dict[str, Any]:
@@ -87,26 +92,74 @@ def main() -> int:
     base = render(BASE)["services"]
     dev = render(DEV)["services"]
 
-    print("base: G1 — geometry S3 credentials match MinIO root credentials")
-    minio_user = env(base["minio"]).get("MINIO_ROOT_USER")
-    minio_password = env(base["minio"]).get("MINIO_ROOT_PASSWORD")
+    print("base: G1 — geometry S3 credentials match the object store's")
+    store = base["seaweedfs"]
+    store_key = env(store).get("S3_ACCESS_KEY_ID")
+    store_secret = env(store).get("S3_SECRET_ACCESS_KEY")
     geometry_env = env(base["geometry"])
-    check(bool(minio_user), "minio sets MINIO_ROOT_USER")
-    check(bool(minio_password), "minio sets MINIO_ROOT_PASSWORD")
+    check(bool(store_key), "seaweedfs sets S3_ACCESS_KEY_ID")
+    check(bool(store_secret), "seaweedfs sets S3_SECRET_ACCESS_KEY")
     check(bool(geometry_env.get("S3_URL")), "geometry sets S3_URL (S3 store active)")
-    check(bool(geometry_env.get("S3_BUCKET")), "geometry sets S3_BUCKET")
     check(
-        geometry_env.get("S3_ACCESS_KEY_ID") == minio_user,
-        "geometry S3_ACCESS_KEY_ID == minio MINIO_ROOT_USER",
+        geometry_env.get("S3_BUCKET") == env(store).get("S3_BUCKET")
+        and bool(geometry_env.get("S3_BUCKET")),
+        "geometry S3_BUCKET == the bucket seaweedfs creates",
     )
     check(
-        geometry_env.get("S3_SECRET_ACCESS_KEY") == minio_password,
-        "geometry S3_SECRET_ACCESS_KEY == minio MINIO_ROOT_PASSWORD",
+        geometry_env.get("S3_ACCESS_KEY_ID") == store_key,
+        "geometry S3_ACCESS_KEY_ID == seaweedfs S3_ACCESS_KEY_ID",
     )
     check(
-        env(base["minio-init"]).get("MINIO_ROOT_USER") == minio_user
-        and env(base["minio-init"]).get("MINIO_ROOT_PASSWORD") == minio_password,
-        "minio-init bootstraps the bucket with the same credentials",
+        geometry_env.get("S3_SECRET_ACCESS_KEY") == store_secret,
+        "geometry S3_SECRET_ACCESS_KEY == seaweedfs S3_SECRET_ACCESS_KEY",
+    )
+    scale = render(SCALE)["services"]
+    for name in sorted(n for n in scale if n.startswith("geometry-")):
+        worker = env(scale[name])
+        check(
+            all(
+                worker.get(k) == geometry_env.get(k)
+                for k in (
+                    "S3_URL",
+                    "S3_BUCKET",
+                    "S3_ACCESS_KEY_ID",
+                    "S3_SECRET_ACCESS_KEY",
+                )
+            ),
+            f"scale overlay {name} renders the same S3 settings as geometry",
+        )
+
+    print("base: the object store is pinned and boots through our entrypoint")
+    image = str(store.get("image", ""))
+    check(
+        image.startswith("chrislusf/seaweedfs:") and "@sha256:" in image,
+        f"seaweedfs image pinned by tag AND digest (got {image!r})",
+    )
+    native = (REPO_ROOT / "scripts" / "seaweedfs-native.sh").read_text()
+    pinned = next(
+        (
+            line.split("=", 1)[1].strip()
+            for line in native.splitlines()
+            if line.startswith("SEAWEEDFS_VERSION=")
+        ),
+        "",
+    )
+    check(
+        bool(pinned) and image.startswith(f"chrislusf/seaweedfs:{pinned}@"),
+        "compose image tag == scripts/seaweedfs-native.sh SEAWEEDFS_VERSION "
+        f"({pinned!r})",
+    )
+    mounts: list[dict[str, Any]] = store.get("volumes") or []
+    check(
+        store.get("entrypoint") == ["/bin/sh", "/loft/entrypoint.sh"]
+        and any(
+            m.get("target") == "/loft/entrypoint.sh"
+            and str(m.get("source", "")).endswith(
+                "deploy/docker/seaweedfs/entrypoint.sh"
+            )
+            for m in mounts
+        ),
+        "seaweedfs runs deploy/docker/seaweedfs/entrypoint.sh (bucket bootstrap)",
     )
 
     print("base: one database per schema-owning service")
@@ -159,11 +212,12 @@ def main() -> int:
 
     # G4 (engineering audit J4, 2026-07-30) — G3's reasoning, applied to the
     # DATASTORES, which it never covered. G3 named `documents` and `geometry` as
-    # string literals, so db/redis/minio were simply outside the gate: the base
-    # file published 5432/6379/9000/9001 with NO host_ip, i.e. 0.0.0.0, while
-    # carrying repo-public default passwords in the same file — on the path
-    # compose-smoke.sh calls "the DOCUMENTED SELF-HOST PATH". Default password
-    # plus open port is materially worse than either alone.
+    # string literals, so db/redis/minio (now seaweedfs) were simply outside
+    # the gate: the base file published 5432/6379/9000/9001 with NO host_ip,
+    # i.e. 0.0.0.0, while carrying repo-public default passwords in the same
+    # file — on the path compose-smoke.sh calls "the DOCUMENTED SELF-HOST
+    # PATH". Default password plus open port is materially worse than either
+    # alone.
     #
     # The gateway and the web app are the TWO intended public surfaces, so they
     # are exempt by name. Everything else must bind loopback (or not publish at

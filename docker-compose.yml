@@ -17,12 +17,18 @@
 
 name: loft
 
-# Single source of truth for the MinIO/S3 credentials: the MinIO server, the
-# minio-init bucket bootstrap, and the geometry service (S3 mesh store) all
-# reference these anchors, so the values cannot drift apart (audit G1).
-x-minio-credentials:
-  user: &minio-user ${MINIO_ROOT_USER:-loft-minio}
-  password: &minio-password ${MINIO_ROOT_PASSWORD:-loft-minio-dev-only}
+# Single source of truth for the S3 credentials: the SeaweedFS server (which
+# writes them into its s3.json identity file and creates the bucket with them)
+# and the geometry service (S3 mesh store) both reference these anchors, so the
+# values cannot drift apart (audit G1).
+#
+# DEPRECATED ALIASES (one release, removed after it): MINIO_ROOT_USER and
+# MINIO_ROOT_PASSWORD are still honoured when S3_ACCESS_KEY_ID /
+# S3_SECRET_ACCESS_KEY are unset, so an existing .env keeps its credentials.
+# docs/OPERATIONS.md "Object store: MinIO -> SeaweedFS".
+x-s3-credentials:
+  access-key: &s3-access-key ${S3_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-loft-s3}}
+  secret-key: &s3-secret-key ${S3_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-loft-s3-dev-only}}
 
 services:
   db:
@@ -69,58 +75,46 @@ services:
       timeout: 3s
       retries: 12
 
-  # MinIO is BUILT FROM SOURCE (deploy/docker/minio.Dockerfile), not pulled.
-  # MinIO Inc.'s prebuilt community images disappeared twice in two weeks —
-  # from Docker Hub on 2026-09-12, then from anonymous quay.io pulls on
-  # 2026-09-24 — and each time every CI job that boots this stack went red on
-  # commits that had not touched it. The Dockerfile builds
-  # the SAME pinned releases (RELEASE.2024-12-18T13-15-44Z server,
-  # RELEASE.2024-11-21T17-21-54Z mc) from the Go module proxy, checksum-pinned,
-  # so no vendor registry sits between `docker compose up` and a working
-  # object store. First build costs ~4-5 min; the layer cache makes it free
-  # after that. docs/LESSONS.md #ci-minio-withdrawn has the evidence.
+  # The bundled S3-compatible object store: SeaweedFS (Apache-2.0), the
+  # upstream image pinned by version AND digest. Founder decision 2026-10-21
+  # (docs/VISION.md, RESEARCH §4): it replaced MinIO, which is AGPL-3.0 and no
+  # longer maintained upstream.
   #
-  # `minio` and `minio-init` share one build definition, so compose resolves
-  # both from one cached build and `docker compose run minio-init` can build
-  # its image itself when it is the first thing run.
-  minio:
-    build: &minio-build
-      context: .
-      dockerfile: deploy/docker/minio.Dockerfile
-    command: server /data --console-address ":9001"
+  # `weed server -s3` runs master, volume, filer and the S3 gateway in this one
+  # container. deploy/docker/seaweedfs/entrypoint.sh writes the S3 identity file
+  # from the anchored credentials, creates ${S3_BUCKET} if it is missing (HEAD,
+  # then PUT on 404, so it is idempotent across restarts) and only then marks
+  # itself ready, so `service_healthy` means "the bucket exists and our
+  # credentials are accepted". There is no separate bucket one-shot any more.
+  #
+  # Any external S3 (AWS, R2, an existing MinIO) replaces this service by
+  # pointing geometry's S3_URL / S3_* at it (docs/OPERATIONS.md).
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    entrypoint: ["/bin/sh", "/loft/entrypoint.sh"]
     environment:
-      MINIO_ROOT_USER: *minio-user
-      MINIO_ROOT_PASSWORD: *minio-password
+      S3_ACCESS_KEY_ID: *s3-access-key
+      S3_SECRET_ACCESS_KEY: *s3-secret-key
+      S3_BUCKET: ${S3_BUCKET:-loft}
     ports:
-      - "${BIND_IP:-127.0.0.1}:${MINIO_PORT:-9000}:9000"
-      - "${BIND_IP:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
+      # Host port 9000 by default, as MinIO's was, so host-side tooling keeps
+      # its URL. MINIO_PORT is the deprecated alias.
+      - "${BIND_IP:-127.0.0.1}:${S3_PORT:-${MINIO_PORT:-9000}}:8333"
     volumes:
-      - minio-data:/data
+      - seaweedfs-data:/data
+      - ./deploy/docker/seaweedfs/entrypoint.sh:/loft/entrypoint.sh:ro
+    # Healthy = the entrypoint ensured the bucket (ready marker) AND the S3
+    # gateway still answers.
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test:
+        [
+          "CMD-SHELL",
+          "test -f /tmp/loft-s3/ready && curl -fsS -o /dev/null http://127.0.0.1:8333/healthz",
+        ]
       interval: 5s
       timeout: 3s
       retries: 12
-
-  # One-shot bucket bootstrap: geometry results (meshes/exports) land in
-  # s3://${S3_BUCKET} (RESEARCH.md §4). Exits 0 after `mc mb --ignore-existing`.
-  minio-init:
-    build: *minio-build
-    depends_on:
-      minio:
-        condition: service_healthy
-    environment:
-      MINIO_ROOT_USER: *minio-user
-      MINIO_ROOT_PASSWORD: *minio-password
-      S3_BUCKET: ${S3_BUCKET:-loft}
-    # $$ defers expansion to the container shell (reads the environment above,
-    # which is anchor-sourced from the same credentials the server uses).
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
-      mc mb --ignore-existing local/\"$$S3_BUCKET\"
-      "
-    restart: "no"
+      start_period: 30s
 
   gateway:
     build:
@@ -267,21 +261,26 @@ services:
       # Setting REDIS_URL flips the readiness check from "skipped";
       # the real ping lands with the arq worker.
       REDIS_URL: redis://redis:6379/0
-      # S3/MinIO mesh + drawing-artifact store — ACTIVE whenever S3_URL is set
-      # (geometry.main:build_app -> configure_mesh_store): meshes/exports land
+      # S3 mesh + drawing-artifact + thumbnail store — ACTIVE whenever S3_URL is
+      # set (geometry.main:build_app -> configure_mesh_store): artifacts land
       # in s3://${S3_BUCKET} and the store is shared across processes, so
       # build_app LIFTS the single-worker guard — WEB_CONCURRENCY>1 and
       # `--scale geometry=N` are correct here (audit F1/F6). The store
       # authenticates via S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY (GeometrySettings
-      # -> boto3); they are REQUIRED against MinIO — without them every mesh
-      # put/get 403s and evaluate 500s (audit G1) — and are anchor-sourced from
-      # the same MinIO root credentials the server boots with, so they cannot
-      # drift. Unsetting S3_URL falls back to the in-process LRU, which
-      # re-imposes the single-worker guard (feature-tree.md §7.8).
-      S3_URL: http://minio:9000
+      # -> boto3); without them every mesh put/get 403s and evaluate 500s
+      # (audit G1). They are anchor-sourced from the same credentials the
+      # SeaweedFS server is configured with, so they cannot drift. Unsetting
+      # S3_URL falls back to the in-process LRU, which re-imposes the
+      # single-worker guard (feature-tree.md §7.8).
+      #
+      # EXTERNAL S3 (AWS, R2, an existing MinIO): set S3_URL, S3_BUCKET,
+      # S3_REGION and the two S3_* credentials in .env. Geometry then uses that
+      # store; the bundled seaweedfs still boots but holds nothing.
+      S3_URL: ${S3_URL:-http://seaweedfs:8333}
       S3_BUCKET: ${S3_BUCKET:-loft}
-      S3_ACCESS_KEY_ID: *minio-user
-      S3_SECRET_ACCESS_KEY: *minio-password
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY_ID: *s3-access-key
+      S3_SECRET_ACCESS_KEY: *s3-secret-key
       # Admission control on the OCCT routes — the bounded FIFO queue that makes
       # overload degrade (503 + Retry-After) instead of everyone missing the
       # deadline together. Concurrency 1 is the worker's REAL core count: OCP
@@ -289,10 +288,10 @@ services:
       ADMISSION_CONCURRENCY: ${ADMISSION_CONCURRENCY:-1}
       ADMISSION_QUEUE_DEPTH: ${ADMISSION_QUEUE_DEPTH:-8}
       ADMISSION_MAX_WAIT_S: ${ADMISSION_MAX_WAIT_S:-20}
-      # As for documents: S3_SECRET_ACCESS_KEY is the MinIO ROOT password, and
-      # py-kit refuses to boot on its publicly-known default unless LOFT_ENV is
-      # exactly "dev". This stack opts in explicitly; a real deploy sets
-      # LOFT_ENV=production AND a real MINIO_ROOT_PASSWORD.
+      # As for documents: py-kit refuses to boot on the publicly-known default
+      # S3_SECRET_ACCESS_KEY unless LOFT_ENV is exactly "dev". This stack opts
+      # in explicitly; a real deploy sets LOFT_ENV=production AND a real
+      # S3_SECRET_ACCESS_KEY.
       LOFT_ENV: ${LOFT_ENV:-dev}
     # NO host port on purpose (audit G3): geometry is internal-only — the
     # gateway proxies /api/v1/geometry/* over the compose network
@@ -301,10 +300,10 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      minio:
+      seaweedfs:
         condition: service_healthy
 
 volumes:
   db-data:
   redis-data:
-  minio-data:
+  seaweedfs-data:

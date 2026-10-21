@@ -3,7 +3,7 @@
 Design (RESEARCH §4): callers enqueue jobs via :func:`enqueue_tessellate`;
 the worker (``arq geometry.worker.WorkerSettings``) evaluates them with
 :func:`geometry.kernel.evaluate_tessellation` and returns metadata. Meshes
-never travel through redis — the GLB upload to object storage (MinIO/S3)
+never travel through redis — the GLB upload to object storage (S3)
 lands with the storage backlog item, at which point the task result gains an
 artifact reference.
 

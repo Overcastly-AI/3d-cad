@@ -10,7 +10,7 @@ then undone hashes back to the picture it already has, and an assembly whose
 child part changed hashes differently even though the assembly's own version
 did not move.
 
-Cache, not state (RESEARCH §3): the S3/MinIO backend is shared across workers
+Cache, not state (RESEARCH §3): the S3 backend is shared across workers
 when ``S3_URL`` is set; otherwise a bounded in-process LRU. A miss re-renders the
 same bytes. Failures are never cached — a failed part has no picture.
 """

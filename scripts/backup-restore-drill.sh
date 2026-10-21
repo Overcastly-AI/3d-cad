@@ -18,7 +18,7 @@
 #      content-addressed `mesh_glb_id`
 #   3. scripts/backup.sh
 #   4. DESTROY EVERYTHING: `docker compose down -v` — every named volume goes,
-#      including the Postgres data directory and the MinIO bucket. The drill
+#      including the Postgres data directory and the SeaweedFS bucket. The drill
 #      then asserts the volumes are really gone, because a step that silently
 #      no-ops is how a suspiciously fast green happens.
 #   5. boot from nothing (fresh volumes) and prove the install is EMPTY: the
@@ -50,17 +50,17 @@ STATE="$WORK/state.json"
 # inside backup.sh and restore.sh.
 rand_secret() { od -An -tx1 -N18 /dev/urandom | tr -d ' \n'; }
 export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-pg-$(rand_secret)}"
-export MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-minio-$(rand_secret)}"
-for var in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD; do
+export S3_SECRET_ACCESS_KEY="${S3_SECRET_ACCESS_KEY:-s3-$(rand_secret)}"
+for var in POSTGRES_PASSWORD S3_SECRET_ACCESS_KEY; do
   case "${!var}" in
-    loft-dev-only | loft-minio-dev-only)
+    loft-dev-only | loft-s3-dev-only | loft-minio-dev-only)
       echo "drill: $var is the repo-public dev default — use a real value." >&2
       exit 2
       ;;
   esac
 done
 
-SERVICES=(db redis minio gateway documents geometry)
+SERVICES=(db redis seaweedfs gateway documents geometry)
 
 # THE STEP CURRENTLY RUNNING, so the verdict can name it. This drill DESTROYS
 # the volumes at step 4 and reboots at step 5, so "which step" is the single
@@ -113,10 +113,8 @@ teardown() {
 trap teardown EXIT
 
 boot_stack() {
+  # seaweedfs creates the bucket before it reports healthy, so --wait covers it.
   docker compose up -d --wait "${SERVICES[@]}"
-  # One-shot: NEVER in a --wait list (`--wait` treats a container that EXITS as
-  # a failure, so the bucket bootstrap succeeding would fail the step).
-  docker compose run --rm -T minio-init
 }
 
 migrate() {
@@ -157,12 +155,12 @@ docker compose down -v --remove-orphans
 # silently did nothing would leave the rest of the drill passing against data
 # that never went away — the "suspiciously fast green" failure mode, in the one
 # step whose whole purpose is to remove things.
-surviving="$(docker volume ls --format '{{.Name}}' | grep -E '^loft_(db|minio|redis)-data$' || true)"
+surviving="$(docker volume ls --format '{{.Name}}' | grep -E '^loft_(db|seaweedfs|redis)-data$' || true)"
 if [[ -n "$surviving" ]]; then
   echo "drill: FAILED — these volumes survived 'down -v': $surviving" >&2
   exit 1
 fi
-echo "  ok  loft_db-data, loft_minio-data, loft_redis-data are gone"
+echo "  ok  loft_db-data, loft_seaweedfs-data, loft_redis-data are gone"
 
 step "5/7 boot from NOTHING, and prove the install is empty"
 boot_stack

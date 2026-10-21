@@ -34,7 +34,7 @@ key is the content address only, RESEARCH §5).
 - :class:`~geometry.s3_store.S3DrawingArtifactStore` — the shared object-storage
   backend, installed when ``S3_URL`` is set: multi-worker/replica share one cache.
 - :class:`DrawingArtifactStore` (this module) — a bounded in-process LRU, the
-  fallback when ``S3_URL`` is unset (``just dev`` / tests without MinIO).
+  fallback when ``S3_URL`` is unset (``just dev`` / tests without an object store).
 """
 
 import hashlib
@@ -122,8 +122,8 @@ class DrawingArtifactStore:
 
 #: Process-wide store shared by the compose route (writer + reader). Defaults to
 #: the in-process LRU; :func:`configure_drawing_artifact_store` swaps in the
-#: S3/MinIO backend at startup when ``S3_URL`` is set. The default keeps imports,
-#: tests, and ``just dev`` (no MinIO) working with no config.
+#: S3 backend at startup when ``S3_URL`` is set. The default keeps imports,
+#: tests, and ``just dev`` (no object store) working with no config.
 _active_store: DrawingArtifactBackend = DrawingArtifactStore(
     DRAWING_ARTIFACT_STORE_CAPACITY
 )
@@ -139,8 +139,8 @@ def configure_drawing_artifact_store(
 ) -> DrawingArtifactBackend:
     """Select and install the process-wide drawing-artifact backend from config.
 
-    When *s3_url* is set, use the shared S3/MinIO store (multi-worker/replica share
-    one cache); when ``None`` (dev without MinIO / tests), fall back to the
+    When *s3_url* is set, use the shared S3 store (multi-worker/replica share
+    one cache); when ``None`` (dev without an object store / tests), fall back to the
     in-process LRU. Mirrors :func:`geometry.mesh_store.configure_mesh_store`.
     Returns the installed backend for introspection. boto3 is imported lazily so
     the LRU-only path never pays for it.

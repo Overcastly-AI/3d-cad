@@ -9,12 +9,12 @@ object-storage contract and every backend shares one key format.
 
 - :class:`S3MeshStore` (``geometry.s3_store``) — the shipped object-storage
   swap. When ``S3_URL`` is configured the evaluate writer and the
-  ``GET /api/v1/meshes/{id}`` reader share one MinIO/S3 store, so multi-worker
+  ``GET /api/v1/meshes/{id}`` reader share one S3 store, so multi-worker
   and multi-replica geometry are correct. The single-worker guard is **lifted**
   for this backend (:func:`build_app` checks ``is_shared``).
 - :class:`MeshStore` (this module) — a bounded in-process LRU, the fallback
-  when ``S3_URL`` is unset (``just dev`` / tests without MinIO). It lives in one
-  process, so it is only correct on a **single worker**:
+  when ``S3_URL`` is unset (``just dev`` / tests without an object store). It
+  lives in one process, so it is only correct on a **single worker**:
   :func:`assert_single_worker_mesh_store` fails the service loud at startup on
   ``WEB_CONCURRENCY > 1`` rather than letting cross-worker fetches 404
   intermittently.
@@ -50,7 +50,7 @@ class MeshStoreBackend(Protocol):
     """The put/get contract every mesh-store backend implements.
 
     ``is_shared`` reports whether the backend is visible across processes: the
-    S3/MinIO store is shared (multi-worker/replica safe), the in-process LRU is
+    S3 store is shared (multi-worker/replica safe), the in-process LRU is
     not. :func:`geometry.main.build_app` reads it to decide whether to enforce
     the single-worker guard.
     """
@@ -121,7 +121,7 @@ def assert_single_worker_mesh_store(web_concurrency: int) -> None:
     (engineering audit F1).
 
     This guard applies **only when the LRU is the active backend** — i.e.
-    ``S3_URL`` is unset (dev without MinIO / tests). It turns that silent 404
+    ``S3_URL`` is unset (dev without an object store / tests). It turns that silent 404
     into a **loud startup failure**: with the in-process store, single-worker is
     the only safe geometry topology. When ``S3_URL`` is configured the shared
     :class:`~geometry.s3_store.S3MeshStore` backend is installed instead
@@ -140,7 +140,7 @@ def assert_single_worker_mesh_store(web_concurrency: int) -> None:
             f"WEB_CONCURRENCY={web_concurrency}: the geometry mesh store is an "
             "in-process LRU (geometry.mesh_store), so evaluate and fetch on "
             "different workers 404 the mesh ~(N-1)/N of the time. Run a single "
-            "worker (WEB_CONCURRENCY=1, the default) until the MinIO-backed "
+            "worker (WEB_CONCURRENCY=1, the default) until the S3-backed "
             "content-addressed swap lands. Scaling geometry needs replicas "
             "behind a shared object store, not in-process workers. "
             "See docs/design/feature-tree.md §7.8."
@@ -149,8 +149,8 @@ def assert_single_worker_mesh_store(web_concurrency: int) -> None:
 
 #: Process-wide store shared by the evaluate flow (writer) and the mesh fetch
 #: endpoint (reader). Defaults to the in-process LRU; :func:`configure_mesh_store`
-#: swaps in the S3/MinIO backend at startup when ``S3_URL`` is set. The default
-#: keeps imports, tests, and ``just dev`` (no MinIO) working with no config.
+#: swaps in the S3 backend at startup when ``S3_URL`` is set. The default
+#: keeps imports, tests, and ``just dev`` (no object store) working with no config.
 _active_store: MeshStoreBackend = MeshStore(MESH_STORE_CAPACITY)
 
 
@@ -164,10 +164,10 @@ def configure_mesh_store(
 ) -> MeshStoreBackend:
     """Select and install the process-wide mesh-store backend from config.
 
-    When *s3_url* is set, use the shared S3/MinIO store (design §7.8 swap):
+    When *s3_url* is set, use the shared S3 store (design §7.8 swap):
     multi-worker/replica geometry is correct because the store is shared, so the
     caller (``build_app``) lifts the single-worker guard for it. When *s3_url* is
-    ``None`` (dev without MinIO / tests), fall back to the in-process LRU and
+    ``None`` (dev without an object store / tests), fall back to the in-process LRU and
     keep the guard. Returns the installed backend so the caller can read
     ``is_shared`` for the guard decision.
 

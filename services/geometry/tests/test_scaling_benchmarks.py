@@ -19,7 +19,7 @@ TIER POLICY — this file is deliberately NOT a timing gate.
 
 * The **sweep** (:func:`test_record_scaling_tables`) is BOTH ``benchmark``-marked
   (excluded by the root ``addopts = "... -m 'not benchmark'"``) AND gated on
-  ``LOFT_SCALING_BENCH=1`` (the ``LOFT_MINIO_SMOKE=1`` idiom), so it never runs
+  ``LOFT_SCALING_BENCH=1`` (the ``LOFT_S3_SMOKE=1`` idiom), so it never runs
   in CI and can never false-red on a slow runner. It asserts nothing about time.
   Run it with::
 

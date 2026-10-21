@@ -153,7 +153,7 @@ def run(base_url: str, host: str) -> None:
     )
     ok("authored Extrude1")
 
-    # 5. Evaluate — gateway → documents → geometry (OCCT) → S3/MinIO put.
+    # 5. Evaluate — gateway → documents → geometry (OCCT) → S3 (SeaweedFS) put.
     result = expect(
         request(base_url, "POST", f"/api/v1/parts/{part_id}/evaluate", token=token),
         200,
@@ -186,7 +186,7 @@ def run(base_url: str, host: str) -> None:
     ok(f"evaluated: volume {volume:g} mm^3, mesh {mesh_id[:19]}...")
 
     # 6. Fetch the mesh — THE credential-path assertion (audit G1). The mesh
-    #    was written to MinIO by geometry and is read back out of it here; a
+    #    was written to SeaweedFS by geometry and is read back out of it here; a
     #    stack whose S3 credentials are missing/mismatched 403s and never
     #    reaches this line with real bytes.
     mesh = request(base_url, "GET", f"/api/v1/geometry/meshes/{mesh_id}", token=token)

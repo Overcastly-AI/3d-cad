@@ -13,8 +13,8 @@
 #   - host ports offset by N*100:
 #       web 8080+N*100 (the app, in a browser)
 #       gateway 8000+N*100 · documents 8001+N*100 · geometry 8002+N*100
-#       db 5432+N*100 · redis 6379+N*100 · minio 9000/9001+N*100
-#   e.g. N=2 → app :8280, gateway :8200, db :5632, minio :9200.
+#       db 5432+N*100 · redis 6379+N*100 · s3 9000+N*100
+#   e.g. N=2 → app :8280, gateway :8200, db :5632, s3 :9200.
 #   The web and gateway families cannot collide: 8080+100N == 8000+100M
 #   has no integer solution.
 # N=0 is the plain default stack. Smoke an instance with:
@@ -39,8 +39,7 @@ export DOCUMENTS_PORT=$((8001 + OFFSET))
 export GEOMETRY_PORT=$((8002 + OFFSET))
 export DB_PORT=$((5432 + OFFSET))
 export REDIS_PORT=$((6379 + OFFSET))
-export MINIO_PORT=$((9000 + OFFSET))
-export MINIO_CONSOLE_PORT=$((9001 + OFFSET))
+export S3_PORT=$((9000 + OFFSET))
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
