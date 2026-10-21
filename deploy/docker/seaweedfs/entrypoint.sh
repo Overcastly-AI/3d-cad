@@ -33,7 +33,10 @@
 #   SEAWEEDFS_CONF_DIR   s3.json + ready marker              (/tmp/loft-s3)
 #   SEAWEEDFS_S3_PORT    S3 gateway port                     (8333)
 #   SEAWEEDFS_IP         address the components advertise    (127.0.0.1)
-#   SEAWEEDFS_BIND       address every listener binds        (0.0.0.0)
+#   SEAWEEDFS_BIND       address the S3 gateway binds        (0.0.0.0)
+#                        Master, volume and filer (HTTP and gRPC) always bind
+#                        127.0.0.1: they have no auth, so only S3 is reachable
+#                        from the compose network.
 #   SEAWEEDFS_MASTER_PORT / _VOLUME_PORT / _FILER_PORT       (9333/8080/8888;
 #                        each gRPC port is +10000)
 #   SEAWEEDFS_EXEC       launcher: the image's /entrypoint.sh (drops root to
@@ -65,11 +68,15 @@ case "$S3_ACCESS_KEY_ID" in
 esac
 
 # JSON string escaping for the two values we interpolate: backslash and quote.
-# Control characters in a credential are refused rather than escaped.
+# Control characters in a credential are refused rather than escaped. `tr`, not
+# grep: grep is line-based and never sees a newline.
 json_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
-for value in "$S3_ACCESS_KEY_ID" "$S3_SECRET_ACCESS_KEY"; do
-  if printf '%s' "$value" | grep -q '[[:cntrl:]]'; then
-    log "S3 credentials must not contain control characters"
+for name in S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY; do
+  eval "value=\$$name"
+  stripped="$(printf '%s' "$value" | tr -d '[:cntrl:]'; printf x)"
+  if [ "${stripped%x}" != "$value" ]; then
+    log "$name contains a newline, carriage return or other control character."
+    log "  Usually a trailing newline from \$(cat file) or a CRLF .env; remove it."
     exit 2
   fi
 done
@@ -104,7 +111,7 @@ fi
 "$SEAWEEDFS_EXEC" -logtostderr=true server \
   -dir="$data_dir" \
   -ip="$ip" \
-  -ip.bind="$bind" \
+  -ip.bind=127.0.0.1 \
   -master.port="$master_port" \
   -master.volumeSizeLimitMB=1024 \
   -volume.port="$volume_port" \
@@ -112,6 +119,7 @@ fi
   -filer.port="$filer_port" \
   -s3 \
   -s3.port="$s3_port" \
+  -s3.ip.bind="$bind" \
   -s3.config="$conf_dir/s3.json" \
   -s3.port.iceberg=0 \
   -s3.port.lance=0 &

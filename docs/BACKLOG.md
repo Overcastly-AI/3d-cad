@@ -327,6 +327,7 @@ One line each. The founder triages weekly; most are closed without work.
 - An aligned `point_distance` between two points drawn coincident reads `conflicting`: planegcs P2PDistance has no gradient at zero, so the solve cannot pull them apart (review of 564aa68).
 - An impossible pair of a point-line and an aligned point distance reads `diverged` with no constraint named, so the sketcher cannot flag which one to remove (review of 564aa68).
 - No image scan covers the pulled SeaweedFS (or postgres/redis) image; a weekly trivy scan of the shipped and pulled images (plus `pnpm audit` / pip-audit) would catch advisories without reddening unrelated commits.
+- OBJECT-STORE-EXTERNAL-PROFILE: with an external `S3_URL` the bundled seaweedfs still boots and geometry still waits on it; a compose profile could skip it (review of the SeaweedFS swap).
 - OBJECT-STORE-ALIASES: drop the deprecated MINIO_ROOT_USER / MINIO_ROOT_PASSWORD / MINIO_PORT compose fallbacks and LOFT_MINIO_SMOKE after the next release.
 - `scripts/e2e.sh` with a non-default `GATEWAY_PORT` still proxies Vite to :8000 unless `GATEWAY_ORIGIN` is also set, so every spec fails at register with a 500.
 - PARAM-FIELD-KIND: a driven field's unit comes from its name (`*_deg` angle, `*_mm`/x/y/z/radius length, `k_factor`/`relief_ratio` unitless, ints whole); a new float field named otherwise cannot take a formula until listed in `loft_wire/feature_expressions.py`.
