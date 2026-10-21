@@ -94,9 +94,10 @@ SUBFLOOR_LENGTH = 96.0
 #: this to a panel joint takes the joint, so no panel is a sub-micron sliver
 #: (inputs are rounded to 1e-9 in, so 144.000000002 is a possible length).
 _SLIVER = 1e-6
-#: An opening's edge closer than this to a panel joint or a panel's edge (in)
-#: takes the joint: the trade's minimum rip, 1/8 in, so no hair-thin strip
-#: is left beside a door or window.
+#: The trade's minimum rip (in): an opening whose edge would leave a strip of
+#: panel narrower than this beside it is cut out to the joint instead. The
+#: snap only ever moves an edge OUTWARD, enlarging the cut-out: a panel never
+#: covers any part of a rough opening.
 _TRADE_MIN = 1 / 8
 #: Rounding of a coordinate before it is compared (the inputs' 1e-9 in).
 _DIGITS = 9
@@ -146,13 +147,22 @@ def rect_minus_rects(outer: Rect, cuts: Iterable[Rect]) -> list[Region]:
     a panel edge meets its neighbour's exactly."""
     x0, x1, y0, y1 = outer
 
-    def snap(v: float, lo: float, hi: float) -> float:
-        if abs(v - lo) <= _TRADE_MIN:
+    def low(v: float, lo: float, hi: float) -> float:
+        """A cut's low edge: down to *lo* if it would leave a strip under the
+        trade minimum below it; within float noise of either edge, that edge."""
+        if lo <= v <= lo + _TRADE_MIN or abs(v - lo) <= _SLIVER:
             return lo
-        return hi if abs(v - hi) <= _TRADE_MIN else v
+        return hi if abs(v - hi) <= _SLIVER else v
+
+    def high(v: float, lo: float, hi: float) -> float:
+        """A cut's high edge: up to *hi* if it would leave a strip under the
+        trade minimum above it; within float noise of either edge, that edge."""
+        if hi - _TRADE_MIN <= v <= hi or abs(v - hi) <= _SLIVER:
+            return hi
+        return lo if abs(v - lo) <= _SLIVER else v
 
     snapped = [
-        (snap(c[0], x0, x1), snap(c[1], x0, x1), snap(c[2], y0, y1), snap(c[3], y0, y1))
+        (low(c[0], x0, x1), high(c[1], x0, x1), low(c[2], y0, y1), high(c[3], y0, y1))
         for c in cuts
     ]
     inside = [c for c in snapped if c[0] < x1 and c[1] > x0 and c[2] < y1 and c[3] > y0]

@@ -854,3 +854,19 @@ def test_an_opening_within_the_trade_minimum_of_a_joint_takes_the_joint() -> Non
     assert (48.0, 40) in left.outer and (47.9, 40) not in left.outer
     (wide,) = rect_minus_rects((0, 48, 0, 96), [(10, 47.75, 40, 70)])
     assert wide.holes == [[(10, 40), (10, 70), (47.75, 70), (47.75, 40)]]
+
+
+def test_the_trade_snap_never_shrinks_a_rough_opening() -> None:
+    """The review's probe: an opening ending 0.1 in past the 48 joint cuts
+    that 0.1 in out of the 48..96 panel (the snap only enlarges a cut-out);
+    and the mirror case, an opening starting 0.1 in before the 96 joint, cuts
+    0.1 in out of the 48..96 panel's far edge."""
+    (right,) = rect_minus_rects((48, 96, 0, 97.125), [(10, 48.1, 40, 80)])
+    assert right.area == pytest.approx(48 * 97.125 - 0.1 * 40, abs=1e-9)
+    assert (48.1, 40) in right.outer and (48.1, 80) in right.outer
+    (left,) = rect_minus_rects((48, 96, 0, 97.125), [(95.9, 120, 40, 80)])
+    assert left.area == pytest.approx(48 * 97.125 - 0.1 * 40, abs=1e-9)
+    assert (95.9, 40) in left.outer and (95.9, 80) in left.outer
+    # The panel on the opening's own side loses its sliver to the joint.
+    (cut,) = rect_minus_rects((0, 48, 0, 97.125), [(10, 47.9, 40, 80)])
+    assert cut.area == pytest.approx(48 * 97.125 - 38 * 40, abs=1e-9)
