@@ -323,3 +323,134 @@ def test_a_wall_edit_the_roof_cannot_frame_is_still_allowed(
     response = part.patch(walls[3], _wall(160, 116.5, 270, 113))
     assert response.status_code == 200, response.text
     assert part.members(roof) == stored
+
+
+# --- A parameter-table change that moves a picked wall --------------------------------
+
+
+def _table(part: Part, rows: list[dict[str, Any]]) -> Any:
+    return part._track(  # pyright: ignore[reportPrivateUsage]
+        part.client.put(
+            f"/api/v1/parts/{part.id}/parameters",
+            json={"expected_tree_version": part.version, "parameters": rows},
+            headers=HEADERS,
+        )
+    )
+
+
+def _roof_on_a_driven_wall(
+    client: TestClient, version: str, role: str, key: Any
+) -> tuple[Part, dict[str, Any], str, str, uuid.UUID]:
+    """B3 on B2's walls, the right wall's start X on the parameter
+    ``right_x`` (144 in); a hole through member (role, key). The roof reads
+    no parameter: only the wall it picks does."""
+    part = Part(client, f"Roof on a driven wall {version}")
+    row = {
+        "id": str(uuid.uuid4()),
+        "name": "right_x",
+        "expression": "144 in",
+        "unit": "length",
+    }
+    assert _table(part, [row]).status_code == 200
+    walls = [part.added(_wall(*r), f"Wall {i + 1}") for i, r in enumerate(B2_WALLS[:3])]
+    driven = {**_wall(*B2_WALLS[3]), "expressions": {"/inputs/start_x_mm": "right_x"}}
+    walls.append(part.added(driven, "Wall 4"))
+    picks = [{"kind": "feature", "feature_id": w} for w in walls]
+    roof = part.added(_custom("loft.roof", version, {**HIP, "walls": picks}), "Roof")
+    target = (
+        member_id(uuid.UUID(roof), role, 0, key)
+        if isinstance(key, str)
+        else member_id(uuid.UUID(roof), role, key)
+    )
+    assert target in part.members(roof)
+    return part, row, roof, part.drill(target), target
+
+
+def test_1_2_a_table_change_that_moves_the_member_is_refused(
+    client: TestClient,
+) -> None:
+    """``right_x`` 144 -> 146 in moves the right wall, so the roof that picks
+    it re-lays and its right king common (1.2.0's common/5) moves 2 in: the
+    table PUT is refused naming the hole, and nothing is stored."""
+    part, row, roof, hole, _ = _roof_on_a_driven_wall(client, "1.2.0", "common", 5)
+    stored = part.members(roof)
+    _refused_naming_the_hole(
+        _table(part, [{**row, "expression": "146 in"}]), hole, "1.2.0"
+    )
+    assert part.members(roof) == stored
+    table = client.get(f"/api/v1/parts/{part.id}/parameters", headers=HEADERS).json()
+    assert table["parameters"][0]["expression"] == "144 in"
+
+
+def test_1_3_a_table_change_keeps_the_hole_and_stores_the_roof(
+    client: TestClient,
+) -> None:
+    part, row, roof, hole, target = _roof_on_a_driven_wall(
+        client, "1.3.0", "common", "right/king"
+    )
+    section = member_id(uuid.UUID(roof), "section", 0, "common/right/king")
+    before = part.members(roof)
+    response = _table(part, [{**row, "expression": "146 in"}])
+    assert response.status_code == 200, response.text
+    after = part.members(roof)
+    assert part.target_of(hole) == target
+    # The roof was re-laid with the table and stored: its king's section moved.
+    assert after[section]["feature"] != before[section]["feature"]
+
+
+# --- A feature on a 1.2.0 roof's dropped twin (ROOF-L-DOUBLED-COMMON) -----------------
+
+#: An L (157 x 144.8, the notch to (95.3, 51.1)) where 1.2.0 framed two
+#: coincident commons at 16 in o.c. (common/16 and its twin common/17).
+L_WALLS = [
+    (0, 144.8, 0, 157.0),
+    (157.0, 141.3, 270, 141.3),
+    (153.5, 0, 180, 58.2),
+    (95.3, 3.5, 90, 47.6),
+    (98.8, 51.1, 180, 98.8),
+    (0, 54.6, 90, 144.8 - 51.1 - 7),
+]
+
+
+def test_a_feature_on_the_dropped_twin_is_named_as_such(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A part saved before the fix stores the twin, and a hole on it. The
+    rebuild already drops the twin, so any write that re-expands the roof (to
+    the roof, to a wall it picks) is refused with a message that says what
+    happened, not that the change removes geometry."""
+    from loft_plugins.api import ExpandInputs, Member
+    from loft_plugins.builtin import roof_valley
+
+    def keep_twins(
+        _inputs: ExpandInputs, members: list[Member], _dropped: set[int]
+    ) -> list[Member]:
+        return members
+
+    part = Part(client, "L roof saved before the fix")
+    walls = [part.added(_wall(*r), f"Wall {i + 1}") for i, r in enumerate(L_WALLS)]
+    picks = [{"kind": "feature", "feature_id": w} for w in walls]
+    inputs = {**HIP, "spacing_mm": 16 * IN, "walls": picks}
+    with monkeypatch.context() as before_the_fix:
+        before_the_fix.setattr(roof_valley, "_drop_twins", keep_twins)
+        roof = part.added(_custom("loft.roof", "1.2.0", inputs), "Roof")
+    twin = member_id(uuid.UUID(roof), "common", 17)
+    assert twin in part.members(roof)
+    hole = part.drill(twin)
+
+    for response in (
+        part.patch(
+            roof,
+            _custom("loft.roof", "1.2.0", {**inputs, "rafter_material": "dfl_lumber"}),
+        ),
+        part.patch(walls[0], _wall(*L_WALLS[0])),
+    ):
+        assert response.status_code == 409, response.text
+        error = response.json()["error"]
+        assert error["code"] == "feature_has_dependents"
+        assert [d["id"] for d in error["details"]["dependents"]] == [hole]
+        assert error["message"] == (
+            "'Hole' refer(s) to a duplicate rafter that was removed from 'Roof' "
+            "(it was framed twice in the same place); delete or re-pick it."
+        )
+        assert "removes geometry" not in error["message"]
