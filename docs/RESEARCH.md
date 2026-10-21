@@ -2320,11 +2320,25 @@ and reframe it, a material per member, and a cut list that is always current.
   - *Coincident layout lines.* An L's wing jacks are laid out from the king
     toward the narrow arm's ridge end, and where that lands on the flush
     ridge-end common (arms differing by twice a multiple of the spacing) it
-    can arrive an ulp off; 1.2.0 deduplicates positions exactly and frames
+    can arrive an ulp off; 1.2.0 deduplicated positions exactly and framed
     two coincident commons (25 of 64 constructed footprints). 1.3.0 counts
     lines within 1e-9 in as one, the first series (king, ridge layout,
     jacks) naming it. No other comparison in the roof layout drops or
     doubles a member: the rest carry 1e-9 or wider margins.
+  - *1.2.0 fixed in place* (ROOF-L-DOUBLED-COMMON, 2026-10-21, as
+    HOLE-ACTIVE-BODY fixed stored holes): every evaluation re-expands a
+    stored roof, so 1.2.0 itself now frames one common there. It still lays
+    the twin out and numbers it (indices are 1.2.0's ids), then drops the
+    twin's own features (its section and body), so every other member keeps
+    its id and the survivor is the line 1.3.0 keeps. A feature that named
+    the twin finds no body (`reference_unresolved` on the twin's id), as
+    SolidWorks flags a dangling reference; it is never rebound to the
+    survivor, which has its own id. A later write to that roof is refused
+    (409) while the reference stands, as for any member a re-expansion
+    removes. Golden `l-hip-16oc-v1.2-one-common`: 45 bodies, the old
+    expansion less one common of 383.727405 in^3 (closed form and an
+    independent script), no interference, one Common fewer in the cut list;
+    every other roof golden byte-identical.
   - *Goldens.* `b3-hip-v1.3-hole-common` / `-168-hole-common` and
     `b3-hip-v1.3-hole-jack` / `-8-12-hole-jack`: B3 at 1.3.0 with a 1 in
     hole through the front ridge-end common (lengthened by 24) and through

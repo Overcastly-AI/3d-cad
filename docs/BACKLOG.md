@@ -66,7 +66,7 @@ ROOF-VALLEY.
    referenced (its profile moves). 1.3.0 also merges layout lines within
    1e-9 in: 1.2.0 frames two coincident commons where an L's wing jacks
    reach the flush ridge-end common an ulp off (25 of 64 constructed L
-   footprints); stored 1.2.0 roofs keep them (see Notes).
+   footprints); 1.2.0 itself now frames one (ROOF-L-DOUBLED-COMMON).
 1. [ ] **FLOOR-FRAME** (`loft.floor`, homes; kernel-architect): a platform
    floor, as in Chief Architect's floor framing and Medeek Foundation. It
    takes a rectangle (start point, width, depth, direction), a joist profile,
@@ -283,7 +283,6 @@ One line each. The founder triages weekly; most are closed without work.
 - TIMBER-SPECIES: the frame defaults to Douglas fir-larch (`dfl_lumber`), whose density is NDS's kiln-dried value; timbers are sold green and weigh more until seasoned.
 
 - WALL-UPDATE-REBIND: re-pinning a 1.0.0 wall or deck to 1.1.0 renames every member, so it is a 409 while any member is referenced; 1.1.0 keeps 1.0.0's (role, index) for the same inputs, so documents could rebind the references in the same step (Onshape's update badge). No pin-update UI exists yet.
-- ROOF-L-DOUBLED-COMMON: a stored `loft.roof` 1.2.0 L whose wing jack layout lands an ulp off the flush ridge-end common frames two coincident commons (overlap, doubled cut-list line; 25 of 64 constructed footprints, B4 and its 48 in wing unaffected). 1.3.0 frames one; re-pinning is refused while a member is referenced (renames everything). Founder to rank.
 - ROOF-PICKER-SUPPRESS: suppressing a wall a roof picks does not run the roof's referenced-member check (a write to the wall does, ROOF-MEMBER-RENUMBER); the roof then fails at rebuild, as before.
 - MEMBER-NAME-WIRE-TEXT: `loft_wire.plugins.MemberNameField`'s description names wall and deck 1.1.0 only; loft.roof 1.3.0 names members too (text only, regenerates contracts).
 - HOLE-ACTIVE-BODY: the Hole feature (and the on_face datum) resolves the picked face against the ACTIVE body, the last one built, so on a framed part a hole on a stud face is `hole_off_body` or cuts the last member; Fusion's Hole cuts the picked face's body. The renumber goldens use a Boolean subtract naming the stud.
