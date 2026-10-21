@@ -2850,3 +2850,66 @@ on every rebuild, so a body added later is cut too) and *Selected bodies*.
   member to an independent build123d construction of the 48 boxes typed
   from buildings.md (`tests/test_cut_objects_to_cut.py`, which also runs
   every cut verb across two blocks against build123d tools).
+## 28. 3D sketch (SKETCH-3D)
+SolidWorks' *3D Sketch* and Fusion 360's 3D sketch, scoped to a tube frame's
+skeleton (bike rounds 2 and 3: the chain and seat stays splay out of the
+frame plane, so no 2D sketch can hold them). Decisions:
+- **A new feature type, `sketch_3d`, not a sketch plane option.** It holds
+  points (a world `position`, and an optional `snap`) and lines that join two
+  of its points by id, so a chained skeleton shares its joints as SolidWorks'
+  merged 3D sketch points do. No plane, no profile: it never makes a body.
+  Arcs and splines are not built (Fusion has them; the bike does not need
+  them).
+- **Snaps are relations, not copies** (SolidWorks adds a coincident to the
+  vertex; Fusion projects it): a snapped point follows the origin, a point of
+  an earlier 2D or 3D sketch (through that sketch's plane), or one end of a
+  model edge (a vertex is named as `end` `a`/`b` of a picked edge's
+  signature, resolved through the usual edge tiers, the end nearer the
+  signature's `end_a` being `a`). Snapped points are constants in the solve.
+  A missing target is `reference_unresolved` / `subshape_unresolved`. Loft has
+  no datum-point feature, so "datum points" are the origin and sketch points.
+- **Relations** (SolidWorks' 3D sketch set, trimmed): `coincident`, `fixed`,
+  `along` X/Y/Z (SolidWorks' Along X/Y/Z: the line's direction has no
+  component across the axis), and two driving dimensions, `length` of a line
+  and point-to-point `distance`. No angle dimension yet (a hand-worked
+  coordinate, as in the bike's first round, covers it).
+- **Solver: our own, not planegcs.** planegcs is 2D through and through (its
+  primitives are planar points, lines and arcs); extending it to 3D would be
+  a fork of a C++ library for five equations. `geometry.sketch.solver3d` is a
+  ~200-line damped Gauss-Newton over the free points' coordinates with
+  minimum-norm steps (`numpy.linalg.lstsq`), starting at the stored
+  positions. Consequences, stated as the behaviour users see:
+  - a length dimension on a line from a held point slides the free end ALONG
+    the line (the residual's gradient is the line's direction), met exactly
+    in one step, so a typed point plus a length lands on the reference to
+    the last ulp (the bike skeleton: every point within 1e-13 of the hand
+    numbers);
+  - when both ends are free the move is split evenly (minimum norm), e.g. a
+    130 mm distance between two dropouts typed 128 apart moves each by 1;
+  - DOF is the free coordinates minus the Jacobian's rank at the solution;
+    a relation whose rows add no rank is reported `redundant`; a residual
+    above 1e-9 x the sketch size after the iterations is
+    `sketch_conflicting` naming the worst relation; a dimensioned line of
+    zero length is refused, never divided by.
+  - Limits: a local solver, so an under-defined sketch keeps the nearest
+    solution to what was typed (Fusion's behaviour too), and a far edit can
+    flip to another branch only where the relations allow two (none of the
+    five relations has a fold except a length through zero, which is
+    refused).
+- **Pipe and Plane Along Path read its lines** through the same
+  `sketch_curve` path segment, naming the 3D sketch as `sketch` (the slot
+  accepts `sketch` and `sketch_3d`). A 3D line has no owning plane, so Plane
+  Along Path takes the on-face `x_dir` rule for it.
+- **Ids**: snaps hold a `FeatureRef` and an `EdgeSubshapeRef` (with its
+  `topo_name`); Duplicate and `.loft` import rewrite them by value like every
+  other ref (`test_sketch_3d_copy.py`); point and line ids are sketch-local.
+- **The bike** (`frame-bike-3d-sketch-skeleton-4-pipes`): the whole skeleton
+  in one 3D sketch (main triangle, both dropouts at 410 / 70 / 130), typed
+  2 mm short and 1 mm in, put on the reference by three dimensions and one
+  Along Y; the four main Pipes are the 2D skeleton golden's solid to 1e-10.
+  The splayed chain stays match a plain build123d twin to 4.5e-9 (empty two-way
+  difference). They are not in the golden: their oblique tube-tube faces move
+  4e-5 mm in a STEP round trip, the twin's identically (OCCT's
+  re-approximation), past the golden gates' 1e-7 centroid bound. Piping the
+  seat stays too closes three internal voids in the seat cluster (a correct
+  union of ring tubes; a real frame copes the stays).

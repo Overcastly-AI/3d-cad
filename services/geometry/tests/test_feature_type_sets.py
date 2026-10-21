@@ -39,7 +39,7 @@ from loft_wire.features import (
 #: Members that are NOT body-affecting, asserted explicitly so the sets cannot
 #: pass by being empty or by swallowing the whole vocabulary. `sketch` produces
 #: input geometry and `datum` produces a plane; neither ever yields a body.
-NON_BODY_AFFECTING = frozenset({"sketch", "datum"})
+NON_BODY_AFFECTING = frozenset({"sketch", "sketch_3d", "datum"})
 
 
 def test_geometry_and_py_kit_agree_on_body_affecting_types() -> None:

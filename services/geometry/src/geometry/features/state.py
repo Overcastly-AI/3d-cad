@@ -23,6 +23,7 @@ from loft_wire.features import (
     FeatureError,
     SketchProjectionStatus,
 )
+from loft_wire.sketch_3d import SolvedSketch3DData
 
 from geometry.kernel import (
     BooleanError,
@@ -64,6 +65,17 @@ class InvalidBodyError(RuntimeError):
 #: active body, and therefore the operation a ``features``-scope mirror re-applies
 #: to the reflected tools (docs/design/mirror-semantics.md §4.1/§4.2).
 ToolOp = Literal["fuse", "cut"]
+
+
+@dataclass(frozen=True)
+class Solved3DSketch:
+    """A solved 3D sketch (SKETCH-3D): point id -> world position, and line
+    id -> (start point id, end point id), both in entity order."""
+
+    points: dict[str, tuple[float, float, float]]
+    lines: dict[str, tuple[str, str]]
+    #: The feature's ``FeatureResult.data``.
+    data: SolvedSketch3DData
 
 
 @dataclass(frozen=True)
@@ -148,6 +160,10 @@ class EvaluationState:
         default_factory=dict[uuid.UUID, Plane]
     )
     datum_planes: dict[uuid.UUID, Plane] = field(default_factory=dict[uuid.UUID, Plane])
+    #: Each ok 3D sketch's solved points and lines (SKETCH-3D), world mm.
+    solved_sketches_3d: dict[uuid.UUID, Solved3DSketch] = field(
+        default_factory=dict[uuid.UUID, Solved3DSketch]
+    )
     #: How each ok sketch's projected entities re-projected (SKETCH-PROJECT-
     #: EDGES), keyed by sketch id; absent for a sketch with none. Read into the
     #: sketch's ``SolvedSketchData.projections``.
@@ -626,6 +642,7 @@ class EvaluationState:
             solved_sketches=dict(self.solved_sketches),
             sketch_planes=dict(self.sketch_planes),
             datum_planes=dict(self.datum_planes),
+            solved_sketches_3d=dict(self.solved_sketches_3d),
             sketch_projections=dict(self.sketch_projections),
             bodies=dict(self.bodies),
             sheet_metal_defaults=dict(self.sheet_metal_defaults),

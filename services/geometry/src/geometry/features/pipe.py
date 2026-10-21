@@ -63,6 +63,18 @@ def _sketch_curve(
     ref: PathSketchCurve, state: EvaluationState, role: str
 ) -> _Curve | FeatureError:
     sketch_id = ref.sketch.feature_id
+    solved_3d = state.solved_sketches_3d.get(sketch_id)
+    if solved_3d is not None:
+        ends = solved_3d.lines.get(ref.entity)
+        if ends is None:
+            return FeatureError(
+                code="reference_unresolved",
+                message=f"The {role} line '{ref.entity}' is not a line of its 3D "
+                "sketch. Pick the line again.",
+                upstream_feature_id=sketch_id,
+            )
+        start, end = (Vector(*solved_3d.points[key]) for key in ends)
+        return _Curve(Edge.make_line(start, end), f"{sketch_id}:{ref.entity}", None)
     solved = state.solved_sketches.get(sketch_id)
     plane = state.sketch_planes.get(sketch_id)
     if solved is None or plane is None:
