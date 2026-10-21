@@ -45,6 +45,7 @@ import {
   type RevolveOperation,
 } from "../features/revolve";
 import { EditorCard } from "./EditorCard";
+import { type CutBodiesContext, ObjectsToCut } from "./ObjectsToCut";
 import { ValueField } from "./ValueField";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
@@ -114,6 +115,11 @@ export interface RevolveEditorProps {
    * holds still arrives — a bare number would compare equal and be swallowed.
    */
   angleOverride?: { deg: number } | null;
+  /**
+   * The part's bodies and the ones this cut met on its last rebuild, for
+   * the Objects To Cut list (CUT-OBJECTS-TO-CUT). Absent: no list.
+   */
+  objectsToCut?: CutBodiesContext;
 }
 
 const OPERATIONS: ReadonlyArray<SegmentOption<RevolveOperation>> = [
@@ -161,6 +167,7 @@ export function RevolveEditor({
   error,
   onGaugeChange,
   angleOverride = null,
+  objectsToCut,
 }: RevolveEditorProps) {
   // Re-seeded when the editor is retargeted at a different feature. The
   // viewport gauge writes THIS field. It is not a second copy of the angle;
@@ -363,6 +370,13 @@ export function RevolveEditor({
               onChange={(direction) => setForm((f) => ({ ...f, direction }))}
             />
 
+            {form.operation === "cut" ? (
+              <ObjectsToCut
+                choice={form.cutBodies}
+                context={objectsToCut}
+                onChange={(cutBodies) => setForm((f) => ({ ...f, cutBodies }))}
+              />
+            ) : null}
             {form.operation === "add" ? (
               <Checkbox
                 label="Merge result"

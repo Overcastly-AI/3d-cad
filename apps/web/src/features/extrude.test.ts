@@ -163,6 +163,7 @@ describe("defaultExtrudeForm", () => {
       directionTouched: false,
       extent: "one_side",
       merge: true,
+      cutBodies: "all",
     });
   });
 

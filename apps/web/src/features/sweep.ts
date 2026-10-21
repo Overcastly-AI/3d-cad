@@ -22,6 +22,13 @@ import {
 } from "./extrude";
 import { fieldBlocker } from "./submitBlocker";
 import { parseTwistDeg, storedTwistInput } from "./twist";
+import {
+  cutBodiesBlocker,
+  cutBodiesField,
+  type CutBodiesChoice,
+  NEW_CUT_BODIES,
+  seedCutBodies,
+} from "./cutBodies";
 
 export { profileOptions };
 export type { ProfileOption };
@@ -35,6 +42,12 @@ export interface SweepForm {
   operation: SweepOperation;
   /** "Merge result" (multi-body §MB-1) — see `ExtrudeForm.merge`. */
   merge: boolean;
+  /**
+   * Objects To Cut (CUT-OBJECTS-TO-CUT, `./cutBodies`): every body the cut
+   * meets, the ticked bodies, or `undefined` for a cut saved before the list
+   * (its active body only). Read on a cut only.
+   */
+  cutBodies?: CutBodiesChoice;
   /**
    * Twist along the path, degrees, as typed (TWIST-TO-SWEEP). Signed:
    * positive is RIGHT-handed about travel from the profile along the path.
@@ -62,6 +75,7 @@ export function defaultSweepForm(
     pathFeatureId,
     operation: "add",
     merge: true,
+    cutBodies: NEW_CUT_BODIES,
     twistInput: "",
   };
 }
@@ -73,6 +87,7 @@ export function formFromSweepParams(params: SweepParams): SweepForm {
     pathFeatureId: params.path.feature_id,
     operation: params.operation,
     merge: params.merge,
+    cutBodies: seedCutBodies(params),
     // Exactly as stored (see `storedTwistInput`): a no-op Save, or an edit of
     // the path or operation alone, sends the same twist back. Dropping it
     // would straighten a twisted sweep (a loft-script helical gear) silently.
@@ -109,7 +124,10 @@ export function sweepSubmitBlocker(form: SweepForm): string | null {
     return "Profile and path must be different sketches.";
   }
   // An empty twist is a valid answer (none), so only a wrong one blocks.
-  return fieldBlocker(form.twistInput, parseTwistDeg(form.twistInput), "twist");
+  return (
+    fieldBlocker(form.twistInput, parseTwistDeg(form.twistInput), "twist") ??
+    cutBodiesBlocker(form.operation, form.cutBodies)
+  );
 }
 
 /**
@@ -155,6 +173,7 @@ export function buildSweepParams(form: SweepForm): SweepParams | null {
   // clearing the field must remove it, not leave the old helix behind.
   const kept: Partial<SweepParams> = { ...form.stored };
   delete kept.twist_angle_deg;
+  delete kept.cut_bodies;
   const params: SweepParams = {
     ...kept,
     profile: { kind: "feature", feature_id: form.profileFeatureId },
@@ -162,6 +181,12 @@ export function buildSweepParams(form: SweepForm): SweepParams | null {
     operation: form.operation,
     // Merge is an ADD choice only (see ExtrudeEditor); a cut sends `true`.
     merge: form.operation === "add" ? form.merge : true,
+    ...cutBodiesField(
+      form.operation,
+      form.stored === undefined
+        ? (form.cutBodies ?? NEW_CUT_BODIES)
+        : form.cutBodies,
+    ),
   };
   const twist = parseTwistDeg(form.twistInput) ?? 0;
   // NO TWIST SENDS NO TWIST KEY (not `null`, not `0`), so an untwisted sweep's

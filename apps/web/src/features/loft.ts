@@ -15,6 +15,13 @@
  */
 import type { FeatureResponse, LoftParams } from "../api/parts";
 import { profileOptions, type ProfileOption } from "./extrude";
+import {
+  cutBodiesBlocker,
+  cutBodiesField,
+  type CutBodiesChoice,
+  NEW_CUT_BODIES,
+  seedCutBodies,
+} from "./cutBodies";
 
 export { profileOptions };
 export type { ProfileOption };
@@ -31,11 +38,22 @@ export interface LoftForm {
   operation: LoftOperation;
   /** "Merge result" (multi-body §MB-1) — see `ExtrudeForm.merge`. */
   merge: boolean;
+  /**
+   * Objects To Cut (CUT-OBJECTS-TO-CUT, `./cutBodies`): every body the cut
+   * meets, the ticked bodies, or `undefined` for a cut saved before the list
+   * (its active body only). Read on a cut only.
+   */
+  cutBodies?: CutBodiesChoice;
 }
 
 /** The default new-loft form: add, through the given ordered section sketches. */
 export function defaultLoftForm(sections: readonly string[]): LoftForm {
-  return { sections: [...sections], operation: "add", merge: true };
+  return {
+    sections: [...sections],
+    operation: "add",
+    merge: true,
+    cutBodies: NEW_CUT_BODIES,
+  };
 }
 
 /** Seed the form from an existing loft feature for editing (order preserved). */
@@ -44,6 +62,7 @@ export function formFromLoftParams(params: LoftParams): LoftForm {
     sections: params.profiles.map((p) => p.feature_id),
     operation: params.operation,
     merge: params.merge,
+    cutBodies: seedCutBodies(params),
   };
 }
 
@@ -134,7 +153,7 @@ export function loftSubmitBlocker(form: LoftForm): string | null {
   if (empty !== -1) {
     return `Choose a sketch for section ${String(empty + 1).padStart(2, "0")}.`;
   }
-  return null;
+  return cutBodiesBlocker(form.operation, form.cutBodies);
 }
 
 /** Build the persisted params from valid form state, or null when incomplete. */
@@ -148,5 +167,6 @@ export function buildLoftParams(form: LoftForm): LoftParams | null {
     operation: form.operation,
     // Merge is an ADD choice only (see ExtrudeEditor); a cut sends `true`.
     merge: form.operation === "add" ? form.merge : true,
+    ...cutBodiesField(form.operation, form.cutBodies),
   };
 }

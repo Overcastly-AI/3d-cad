@@ -50,6 +50,7 @@ import {
   setSectionAt,
 } from "../features/loft";
 import { EditorCard } from "./EditorCard";
+import { type CutBodiesContext, ObjectsToCut } from "./ObjectsToCut";
 
 export interface LoftEditorProps {
   mode: "create" | "edit";
@@ -64,6 +65,11 @@ export interface LoftEditorProps {
   saving: boolean;
   /** Server-side failure envelope message, or null. */
   error: string | null;
+  /**
+   * The part's bodies and the ones this cut met on its last rebuild, for
+   * the Objects To Cut list (CUT-OBJECTS-TO-CUT). Absent: no list.
+   */
+  objectsToCut?: CutBodiesContext;
 }
 
 const OPERATIONS: ReadonlyArray<SegmentOption<LoftOperation>> = [
@@ -91,6 +97,7 @@ export function LoftEditor({
   onCancel,
   saving,
   error,
+  objectsToCut,
 }: LoftEditorProps) {
   const [form, setForm] = useState<LoftForm>(initial);
   // Re-seed when the editor is retargeted at a different feature.
@@ -264,6 +271,13 @@ export function LoftEditor({
               onChange={(operation) => setForm((f) => ({ ...f, operation }))}
             />
 
+            {form.operation === "cut" ? (
+              <ObjectsToCut
+                choice={form.cutBodies}
+                context={objectsToCut}
+                onChange={(cutBodies) => setForm((f) => ({ ...f, cutBodies }))}
+              />
+            ) : null}
             {form.operation === "add" ? (
               <Checkbox
                 label="Merge result"

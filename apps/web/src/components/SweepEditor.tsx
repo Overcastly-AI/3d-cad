@@ -52,6 +52,7 @@ import {
   twistHand,
 } from "../features/twist";
 import { EditorCard } from "./EditorCard";
+import { type CutBodiesContext, ObjectsToCut } from "./ObjectsToCut";
 import { ValueField } from "./ValueField";
 
 export interface SweepEditorProps {
@@ -83,6 +84,11 @@ export interface SweepEditorProps {
   profileEntities?: (
     profileFeatureId: string,
   ) => readonly SketchEntity[] | null;
+  /**
+   * The part's bodies and the ones this cut met on its last rebuild, for
+   * the Objects To Cut list (CUT-OBJECTS-TO-CUT). Absent: no list.
+   */
+  objectsToCut?: CutBodiesContext;
 }
 
 const OPERATIONS: ReadonlyArray<SegmentOption<SweepOperation>> = [
@@ -113,6 +119,7 @@ export function SweepEditor({
   error,
   rebuildError = null,
   profileEntities,
+  objectsToCut,
 }: SweepEditorProps) {
   const [form, setForm] = useState<SweepForm>(initial);
   // Re-seed when the editor is retargeted at a different feature.
@@ -328,6 +335,13 @@ export function SweepEditor({
               onChange={(operation) => setForm((f) => ({ ...f, operation }))}
             />
 
+            {form.operation === "cut" ? (
+              <ObjectsToCut
+                choice={form.cutBodies}
+                context={objectsToCut}
+                onChange={(cutBodies) => setForm((f) => ({ ...f, cutBodies }))}
+              />
+            ) : null}
             {form.operation === "add" ? (
               <Checkbox
                 label="Merge result"

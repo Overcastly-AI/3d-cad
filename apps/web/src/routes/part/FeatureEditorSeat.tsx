@@ -75,6 +75,7 @@ export function FeatureEditorSeat({
     | "datumPlaneOptions"
     | "bodies"
     | "features"
+    | "cutBodiesByFeature"
   >;
   featureSubmit: Pick<
     FeatureSubmit,
@@ -174,6 +175,7 @@ export function FeatureEditorSeat({
     datumPlaneOptions,
     bodies,
     features,
+    cutBodiesByFeature,
   } = featureCatalog;
   const {
     submitExtrude,
@@ -253,6 +255,18 @@ export function FeatureEditorSeat({
   // A save's refusal, else the feature's own `input_error` when no field on
   // screen carries it (PART-PARAMETERS step 8).
   const seatError = editorError ?? editorInputError;
+  // A cut editor's Objects To Cut: the part's bodies, and those the cut met on
+  // its last rebuild (none yet for a new cut).
+  const objectsToCut =
+    editor === null
+      ? undefined
+      : {
+          bodies,
+          met:
+            editor.featureId === undefined
+              ? null
+              : (cutBodiesByFeature.get(editor.featureId) ?? null),
+        };
   return (
     <FormulaSessionContext.Provider value={formulaSession}>
       {mode === "off" && editor !== null ? (
@@ -262,6 +276,7 @@ export function FeatureEditorSeat({
             profiles={closedProfiles}
             initial={editor.initial}
             onSubmit={submitExtrude}
+            objectsToCut={objectsToCut}
             onCancel={closeEditor}
             saving={editorSaving}
             error={seatError}
@@ -275,6 +290,7 @@ export function FeatureEditorSeat({
             axesByProfile={axesByProfile}
             initial={editor.initial}
             onSubmit={submitRevolve}
+            objectsToCut={objectsToCut}
             onCancel={closeEditor}
             saving={editorSaving}
             error={seatError}
@@ -288,6 +304,7 @@ export function FeatureEditorSeat({
             pathsByProfile={pathsByProfile}
             initial={editor.initial}
             onSubmit={submitSweep}
+            objectsToCut={objectsToCut}
             onCancel={closeEditor}
             saving={editorSaving}
             error={seatError}
@@ -312,6 +329,7 @@ export function FeatureEditorSeat({
             )}
             initial={editor.initial}
             onSubmit={submitPipe}
+            objectsToCut={objectsToCut}
             onCancel={closeEditor}
             saving={editorSaving}
             error={seatError}
@@ -322,6 +340,7 @@ export function FeatureEditorSeat({
             sections={sketchProfiles}
             initial={editor.initial}
             onSubmit={submitLoft}
+            objectsToCut={objectsToCut}
             onCancel={closeEditor}
             saving={editorSaving}
             error={seatError}
@@ -416,6 +435,7 @@ export function FeatureEditorSeat({
             onGaugeChange={setHoleGauge}
             diameterOverride={holeDiameterOverride}
             depthOverride={holeDepthOverride}
+            scopeBodies={bodies}
           />
         ) : editor.kind === "baseFlange" ? (
           <BaseFlangeEditor

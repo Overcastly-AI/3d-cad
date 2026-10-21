@@ -13,6 +13,8 @@ import {
   depthError,
   diameterError,
   formFromHoleParams,
+  holeScopeNote,
+  toggleHoleScope,
   type HoleForm,
   holeThreadDesignation,
   parseCsinkAngleDeg,
@@ -238,6 +240,30 @@ describe("buildHoleParams", () => {
     );
     expect(blind).not.toBeNull();
     expect(blind).not.toHaveProperty("scope_bodies");
+  });
+
+  it("Feature Scope: ticked bodies are bored; blind keeps them and says so", () => {
+    const order = ["extrude-0", "extrude-1", "extrude-2"];
+    let form = toggleHoleScope(withFace(), "extrude-2", true, order);
+    form = toggleHoleScope(form, "extrude-0", true, order);
+    expect(form.scopeBodies).toEqual(["extrude-0", "extrude-2"]);
+    expect(buildHoleParams(form, "mm")?.scope_bodies).toEqual([
+      { kind: "feature", feature_id: "extrude-0" },
+      { kind: "feature", feature_id: "extrude-2" },
+    ]);
+    expect(holeScopeNote(form)).toBeNull();
+    // HOLE-SCOPE-UI: a switch to blind keeps the list and warns, never drops
+    // it unseen; switching back bores the same bodies.
+    const blind: HoleForm = { ...form, depthMode: "blind", depthInput: "4" };
+    expect(holeScopeNote(blind)).toBe(
+      "Blind cuts its own body only: 2 scoped bodies are not cut.",
+    );
+    expect(buildHoleParams(blind, "mm")).not.toHaveProperty("scope_bodies");
+    const back = buildHoleParams({ ...blind, depthMode: "through_all" }, "mm");
+    expect(back?.scope_bodies).toHaveLength(2);
+    expect(
+      toggleHoleScope(form, "extrude-0", false, order).scopeBodies,
+    ).toEqual(["extrude-2"]);
   });
 
   it("reads lengths through the document unit", () => {

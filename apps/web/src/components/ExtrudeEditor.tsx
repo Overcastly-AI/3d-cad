@@ -56,6 +56,7 @@ import {
   withProfile,
 } from "../features/extrude";
 import { EditorCard } from "./EditorCard";
+import { type CutBodiesContext, ObjectsToCut } from "./ObjectsToCut";
 import { ValueField } from "./ValueField";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
@@ -91,6 +92,11 @@ export interface ExtrudeEditorProps {
    * swallowed.
    */
   depthOverride?: { mm: number } | null;
+  /**
+   * The part's bodies and the ones this cut met on its last rebuild, for
+   * the Objects To Cut list (CUT-OBJECTS-TO-CUT). Absent: no list.
+   */
+  objectsToCut?: CutBodiesContext;
 }
 
 // No `icon` on these four: they render in a DENSE segmented control, which
@@ -175,6 +181,7 @@ export function ExtrudeEditor({
   error,
   onPreviewChange,
   depthOverride = null,
+  objectsToCut,
 }: ExtrudeEditorProps) {
   const unit = useDocumentLengthUnit();
   // The re-seed on retarget and the gauge's write both happen DURING RENDER
@@ -436,6 +443,13 @@ export function ExtrudeEditor({
               </FieldRow>
             ) : null}
 
+            {form.operation === "cut" ? (
+              <ObjectsToCut
+                choice={form.cutBodies}
+                context={objectsToCut}
+                onChange={(cutBodies) => setForm((f) => ({ ...f, cutBodies }))}
+              />
+            ) : null}
             {form.operation === "add" ? (
               // The old cell was "Merge result" plus a permanently-resident
               // sentence saying what the current state means. One element, one

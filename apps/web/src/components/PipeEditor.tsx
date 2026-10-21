@@ -42,6 +42,7 @@ import {
 } from "../features/pipe";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import { EditorCard } from "./EditorCard";
+import { type CutBodiesContext, ObjectsToCut } from "./ObjectsToCut";
 import { ValueField } from "./ValueField";
 
 export interface PipeEditorProps {
@@ -55,6 +56,11 @@ export interface PipeEditorProps {
   error: string | null;
   /** The rebuild error of the pipe being edited, in friendly copy, or null. */
   rebuildError?: string | null;
+  /**
+   * The part's bodies and the ones this cut met on its last rebuild, for
+   * the Objects To Cut list (CUT-OBJECTS-TO-CUT). Absent: no list.
+   */
+  objectsToCut?: CutBodiesContext;
 }
 
 const OPERATIONS: ReadonlyArray<SegmentOption<PipeOperation>> = [
@@ -90,6 +96,7 @@ export function PipeEditor({
   saving,
   error,
   rebuildError = null,
+  objectsToCut,
 }: PipeEditorProps) {
   const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<PipeForm>(initial);
@@ -294,6 +301,13 @@ export function PipeEditor({
               options={OPERATIONS}
               onChange={(operation) => setForm((f) => ({ ...f, operation }))}
             />
+            {form.operation === "cut" ? (
+              <ObjectsToCut
+                choice={form.cutBodies}
+                context={objectsToCut}
+                onChange={(cutBodies) => setForm((f) => ({ ...f, cutBodies }))}
+              />
+            ) : null}
             <p
               className="-mt-0.5 font-body text-xs text-gauge"
               data-testid="pipe-path-note"

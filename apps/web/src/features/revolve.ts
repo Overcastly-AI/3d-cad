@@ -58,6 +58,13 @@ import {
 } from "./extrude";
 import { storedNumber, storedNumberInput } from "./storedNumber";
 import { fieldBlocker } from "./submitBlocker";
+import {
+  cutBodiesBlocker,
+  cutBodiesField,
+  type CutBodiesChoice,
+  NEW_CUT_BODIES,
+  seedCutBodies,
+} from "./cutBodies";
 
 export { defaultProfileId, profileOptions };
 export type { ProfileOption };
@@ -93,6 +100,12 @@ export interface RevolveForm {
   direction: RevolveDirection;
   /** "Merge result" (multi-body §MB-1) — see `ExtrudeForm.merge`. */
   merge: boolean;
+  /**
+   * Objects To Cut (CUT-OBJECTS-TO-CUT, `./cutBodies`): every body the cut
+   * meets, the ticked bodies, or `undefined` for a cut saved before the list
+   * (its active body only). Read on a cut only.
+   */
+  cutBodies?: CutBodiesChoice;
   /** The params as STORED, when editing (a no-op Save sends them back). */
   stored?: RevolveParams;
 }
@@ -173,6 +186,7 @@ export function defaultRevolveForm(
     operation: "add",
     direction: "normal",
     merge: true,
+    cutBodies: NEW_CUT_BODIES,
   };
 }
 
@@ -196,6 +210,7 @@ export function formFromRevolveParams(params: RevolveParams): RevolveForm {
     operation: params.operation,
     direction: params.direction,
     merge: params.merge,
+    cutBodies: seedCutBodies(params),
     stored: params,
   };
 }
@@ -223,6 +238,12 @@ export function revolveParamsFromForm(
     direction: form.direction,
     // Merge is an ADD choice only (see ExtrudeEditor); a cut sends `true`.
     merge: form.operation === "add" ? form.merge : true,
+    ...cutBodiesField(
+      form.operation,
+      form.stored === undefined
+        ? (form.cutBodies ?? NEW_CUT_BODIES)
+        : form.cutBodies,
+    ),
   };
 }
 
@@ -304,7 +325,10 @@ export function revolveSubmitBlocker(
   const axis = options.find((o) => o.id === form.axisId);
   if (axis === undefined) return "Choose the axis to revolve about.";
   if (axis.reason !== null) return "Choose an axis in the sketch plane.";
-  return fieldBlocker(form.angleInput, parseAngleDeg(form.angleInput), "angle");
+  return (
+    fieldBlocker(form.angleInput, parseAngleDeg(form.angleInput), "angle") ??
+    cutBodiesBlocker(form.operation, form.cutBodies)
+  );
 }
 
 /** Round a millimetre length for a compact axis label. */

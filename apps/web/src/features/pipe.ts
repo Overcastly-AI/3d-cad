@@ -19,6 +19,13 @@
  * THE OPERATION is Join / New body / Cut (the wire's `add`+`merge` / `cut`).
  */
 import type { LengthUnit } from "@loft/design";
+import {
+  cutBodiesBlocker,
+  cutBodiesField,
+  type CutBodiesChoice,
+  NEW_CUT_BODIES,
+  seedCutBodies,
+} from "./cutBodies";
 
 import type {
   EdgeSignature,
@@ -74,6 +81,12 @@ export interface PipeForm {
   hollow: boolean;
   wallInput: string;
   operation: PipeOperation;
+  /**
+   * Objects To Cut (CUT-OBJECTS-TO-CUT, `./cutBodies`): every body the cut
+   * meets, the ticked bodies, or `undefined` for a cut saved before the list
+   * (its active body only). Read on a cut only.
+   */
+  cutBodies?: CutBodiesChoice;
   /** The params as STORED, when editing (a no-op Save sends them back). */
   stored?: PipeParams;
 }
@@ -281,6 +294,7 @@ export function defaultPipeForm(edges: readonly PipeEdge[] = []): PipeForm {
     hollow: true,
     wallInput: "2",
     operation: "join",
+    cutBodies: NEW_CUT_BODIES,
   };
 }
 
@@ -316,6 +330,7 @@ export function formFromPipeParams(
         : params.merge === false
           ? "newBody"
           : "join",
+    cutBodies: seedCutBodies(params),
     stored: params,
   };
 }
@@ -379,6 +394,11 @@ export function pipeSubmitBlocker(
   }
   const od = fieldBlocker(form.odInput, diameter(form, unit), "diameter");
   if (od !== null) return od;
+  const scope = cutBodiesBlocker(
+    form.operation === "cut" ? "cut" : "add",
+    form.cutBodies,
+  );
+  if (scope !== null) return scope;
   if (!form.hollow) return null;
   const w = fieldBlocker(form.wallInput, wall(form, unit), "wall");
   if (w !== null) return w;
@@ -398,6 +418,12 @@ export function buildPipeParams(
     outer_diameter_mm: od,
     operation: form.operation === "cut" ? "cut" : "add",
     merge: form.operation !== "newBody",
+    ...cutBodiesField(
+      form.operation === "cut" ? "cut" : "add",
+      form.stored === undefined
+        ? (form.cutBodies ?? NEW_CUT_BODIES)
+        : form.cutBodies,
+    ),
   };
   if (form.hollow) {
     const w = wall(form, unit);

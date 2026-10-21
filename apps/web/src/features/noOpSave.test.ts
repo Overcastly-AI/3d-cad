@@ -482,7 +482,8 @@ for (const unit of UNITS) {
             extrudeDistanceMm(form, unit) as number,
           );
         },
-        ["extent"],
+        // An add carries no Objects To Cut (the wire refuses one there).
+        ["extent", "cut_bodies"],
       );
     });
 
@@ -494,6 +495,7 @@ for (const unit of UNITS) {
         direction: "reverse",
         extent: "symmetric",
         merge: true,
+        cut_bodies: [{ kind: "feature", feature_id: "b2" }],
       };
       expectOptionalKeysKept(
         stored,
@@ -518,8 +520,11 @@ for (const unit of UNITS) {
         direction: "reverse",
         merge: false,
       };
-      expectOptionalKeysKept(stored, "RevolveParamsV1", (row) =>
-        revolveParamsFromForm(formFromRevolveParams(row), row.axis),
+      expectOptionalKeysKept(
+        stored,
+        "RevolveParamsV1",
+        (row) => revolveParamsFromForm(formFromRevolveParams(row), row.axis),
+        ["cut_bodies"],
       );
     });
 
@@ -531,8 +536,11 @@ for (const unit of UNITS) {
         merge: false,
         twist_angle_deg: 31.280937437761875,
       };
-      expectOptionalKeysKept(sweep, "SweepParamsV1", (row) =>
-        buildSweepParams(formFromSweepParams(row)),
+      expectOptionalKeysKept(
+        sweep,
+        "SweepParamsV1",
+        (row) => buildSweepParams(formFromSweepParams(row)),
+        ["cut_bodies"],
       );
       const loft: LoftParams = {
         profiles: [
@@ -542,9 +550,79 @@ for (const unit of UNITS) {
         operation: "add",
         merge: false,
       };
-      expectOptionalKeysKept(loft, "LoftParamsV1", (row) =>
-        buildLoftParams(formFromLoftParams(row)),
+      expectOptionalKeysKept(
+        loft,
+        "LoftParamsV1",
+        (row) => buildLoftParams(formFromLoftParams(row)),
+        ["cut_bodies"],
       );
+    });
+
+    it("cuts: Objects To Cut, a body list and every body met", () => {
+      const listed = [
+        { kind: "feature" as const, feature_id: "b1" },
+        { kind: "feature" as const, feature_id: "b3" },
+      ];
+      const revolve: RevolveParams = {
+        profile: { kind: "feature", feature_id: "sk" },
+        axis: { kind: "origin_axis", axis: "Z" },
+        angle_deg: 123.456789012345,
+        operation: "cut",
+        direction: "reverse",
+        merge: true,
+        cut_bodies: listed,
+      };
+      expectOptionalKeysKept(
+        revolve,
+        "RevolveParamsV1",
+        (row) => revolveParamsFromForm(formFromRevolveParams(row), row.axis),
+        ["merge"],
+      );
+      const sweep: SweepParams = {
+        profile: { kind: "feature", feature_id: "sk" },
+        path: { kind: "feature", feature_id: "path" },
+        operation: "cut",
+        merge: true,
+        twist_angle_deg: 31.280937437761875,
+        cut_bodies: "all",
+      };
+      expectOptionalKeysKept(
+        sweep,
+        "SweepParamsV1",
+        (row) => buildSweepParams(formFromSweepParams(row)),
+        ["merge"],
+      );
+      const loft: LoftParams = {
+        profiles: [
+          { kind: "feature", feature_id: "s1" },
+          { kind: "feature", feature_id: "s2" },
+        ],
+        operation: "cut",
+        merge: true,
+        cut_bodies: listed,
+      };
+      expectOptionalKeysKept(
+        loft,
+        "LoftParamsV1",
+        (row) => buildLoftParams(formFromLoftParams(row)),
+        ["merge"],
+      );
+    });
+
+    it("cuts saved before Objects To Cut stay without it", () => {
+      const stored: ExtrudeParams = {
+        profile: { kind: "feature", feature_id: "sk" },
+        distance_mm: A,
+        operation: "cut",
+        direction: "reverse",
+        merge: true,
+      };
+      const form = formFromParams(stored, unit);
+      const saved = extrudeParamsFromForm(
+        form,
+        extrudeDistanceMm(form, unit) as number,
+      );
+      expect(saved).not.toHaveProperty("cut_bodies");
     });
 
     it("hole: type and thread", () => {
