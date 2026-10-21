@@ -1324,3 +1324,66 @@ def test_0023_up_down_up_on_a_populated_database(
     assert run(_scalar_rows(pg_url, lumber)) == before
     assert run(_scalar_rows(pg_url, "SELECT version FROM price_books")) == [(1,)]
     run(_scalar_rows(pg_url, f"DELETE FROM price_books WHERE id = '{_SHEET_BOOK}'"))
+
+
+def test_0024_offline_sql_adds_parts_list_structure_with_top_level_default(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0023:0024")
+    # DRAWING-PARTS-LIST-LEVEL: every stored sheet backfills to the top-level
+    # list it already showed.
+    assert (
+        "ALTER TABLE sheets ADD COLUMN parts_list_structure VARCHAR(16) "
+        "DEFAULT 'top_level' NOT NULL" in sql
+    )
+    assert "ADD CONSTRAINT ck_sheets_parts_list_structure CHECK" in sql
+
+
+def test_0024_offline_downgrade_drops_parts_list_structure(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0024:0023", downgrade=True)
+    assert "DROP CONSTRAINT ck_sheets_parts_list_structure" in sql
+    assert "ALTER TABLE sheets DROP COLUMN parts_list_structure" in sql
+
+
+_PLS_DRAWING = "6f3f6b64-0000-4000-8000-0000000230aa"
+_PLS_SHEET = "6f3f6b64-0000-4000-8000-0000000230bb"
+
+
+def test_0024_up_down_up_on_a_stored_sheet(
+    pg_url: str, alembic_runner: Callable[..., None]
+) -> None:
+    """A sheet stored before 0024 reads back ``top_level`` with every other
+    column untouched; the CHECK refuses an unknown structure; the downgrade
+    drops only the column, and a second upgrade backfills again."""
+    alembic_runner(pg_url, "0023", downgrade=True)
+    run = asyncio.run
+    for statement in (
+        "INSERT INTO drawings (id, owner_id, name, doc_version) "
+        f"VALUES ('{_PLS_DRAWING}', '{_OWNER}', 'Bike sheet', 4)",
+        "INSERT INTO sheets (id, drawing_id, name, size, orientation, projection, "
+        f"title_block, order_index) VALUES ('{_PLS_SHEET}', '{_PLS_DRAWING}', "
+        "'Sheet 1', 'A3', 'landscape', 'first_angle', '{\"title\": \"Bike\"}', 0)",
+    ):
+        run(_scalar_rows(pg_url, statement))
+    read = (
+        "SELECT name, size, orientation, projection, title_block, order_index, "
+        "updated_at FROM sheets"
+    )
+    before = run(_scalar_rows(pg_url, read))
+
+    alembic_runner(pg_url, "0024")
+    assert run(_scalar_rows(pg_url, read)) == before
+    structure = "SELECT parts_list_structure FROM sheets"
+    assert run(_scalar_rows(pg_url, structure)) == [("top_level",)]
+    run(_scalar_rows(pg_url, "UPDATE sheets SET parts_list_structure = 'indented'"))
+    assert run(_scalar_rows(pg_url, structure)) == [("indented",)]
+    with pytest.raises(IntegrityError):
+        run(_scalar_rows(pg_url, "UPDATE sheets SET parts_list_structure = 'all'"))
+
+    alembic_runner(pg_url, "0023", downgrade=True)
+    assert run(_scalar_rows(pg_url, read)) == before
+    alembic_runner(pg_url, "head")
+    assert run(_scalar_rows(pg_url, structure)) == [("top_level",)]
+    assert run(_scalar_rows(pg_url, read)) == before

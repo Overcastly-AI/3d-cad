@@ -28,6 +28,7 @@ bills a "Create opposite hand version" part (ASM-MIRROR-COMPONENT).
 import uuid
 from collections import Counter
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from typing import cast
 
 from loft_wire.assemblies import (
@@ -186,15 +187,19 @@ class _BomWalk:
         session: AsyncSession,
         owner_id: uuid.UUID,
         counts: Mapping[uuid.UUID, int] | None = None,
+        *,
+        by_name: bool = True,
     ) -> None:
         self.session = session
         self.owner_id = owner_id
         self.counts: Mapping[uuid.UUID, int] = counts or {}
+        self.by_name = by_name
         self.unresolved: set[uuid.UUID] = set()
         self._lines: dict[uuid.UUID, list[BomLine]] = {}
 
     async def top_level(self, assembly_id: uuid.UUID) -> list[BomLine]:
-        """One line per document *assembly_id* instances directly, sorted."""
+        """One line per document *assembly_id* instances directly: sorted by
+        name, or in first-appearance (instance) order when not ``by_name``."""
         cached = self._lines.get(assembly_id)
         if cached is not None:
             return cached
@@ -206,19 +211,19 @@ class _BomWalk:
             self.owner_id,
             {(ref_id, kind) for ref_id, kind, _ in quantities},
         )
-        lines = _sorted(
-            [
-                BomLine(
-                    ref_document_id=key[0],
-                    ref_document_kind=key[1],
-                    name=line_name(names, key),
-                    missing=(key[0], key[1]) not in names,
-                    quantity=count,
-                    opposite_hand=key[2],
-                )
-                for key, count in quantities.items()
-            ]
-        )
+        lines = [
+            BomLine(
+                ref_document_id=key[0],
+                ref_document_kind=key[1],
+                name=line_name(names, key),
+                missing=(key[0], key[1]) not in names,
+                quantity=count,
+                opposite_hand=key[2],
+            )
+            for key, count in quantities.items()
+        ]
+        if self.by_name:
+            lines = _sorted(lines)
         self._lines[assembly_id] = lines
         return lines
 
@@ -260,32 +265,60 @@ class _BomWalk:
         return rows
 
 
+@dataclass
+class BomViews:
+    """The three views of one assembly's bill of materials."""
+
+    lines: list[BomLine]
+    indented: list[IndentedBomLine]
+    parts_only: list[BomLine]
+    unresolved: set[uuid.UUID] = field(default_factory=set["uuid.UUID"])
+
+
+async def bom_views(
+    session: AsyncSession,
+    assembly: db.Assembly,
+    counts: Mapping[uuid.UUID, int] | None = None,
+    *,
+    by_name: bool = True,
+) -> BomViews:
+    """Top level, indented and parts only, in one bounded walk.
+
+    ``by_name`` orders each level by resolved name (the assembly page's
+    display order). Without it every level keeps first-appearance order over
+    the instances' ``order_index``, so a rename never renumbers: the order a
+    drawing's parts list numbers its items in (design §7.1).
+    """
+    # Bounded first: the indented rows and part tallies are no more than the
+    # components the tree places, which the write-time bound keeps small.
+    await OccurrenceWalk(session, assembly.owner_id).require_within_bounds(assembly.id)
+    walk = _BomWalk(session, assembly.owner_id, counts, by_name=by_name)
+    lines = await walk.top_level(assembly.id)
+    parts: Counter[tuple[uuid.UUID, bool]] = Counter()
+    part_lines: dict[tuple[uuid.UUID, bool], BomLine] = {}
+    indented = await walk.indented(assembly.id, parts=parts, part_lines=part_lines)
+    parts_only = [
+        part_lines[part].model_copy(update={"quantity": count})
+        for part, count in parts.items()
+    ]
+    if by_name:
+        parts_only = _sorted(parts_only)
+    return BomViews(lines, indented, parts_only, walk.unresolved)
+
+
 async def assembly_bom(
     session: AsyncSession,
     assembly: db.Assembly,
     counts: Mapping[uuid.UUID, int] | None = None,
 ) -> AssemblyBomResponse:
     """The assembly's bill of materials: top level, indented and parts only."""
-    # Bounded first: the indented rows and part tallies are no more than the
-    # components the tree places, which the write-time bound keeps small.
-    await OccurrenceWalk(session, assembly.owner_id).require_within_bounds(assembly.id)
-    walk = _BomWalk(session, assembly.owner_id, counts)
-    lines = await walk.top_level(assembly.id)
-    parts: Counter[tuple[uuid.UUID, bool]] = Counter()
-    part_lines: dict[tuple[uuid.UUID, bool], BomLine] = {}
-    indented = await walk.indented(assembly.id, parts=parts, part_lines=part_lines)
-    parts_only = _sorted(
-        [
-            part_lines[part].model_copy(update={"quantity": count})
-            for part, count in parts.items()
-        ]
-    )
+    views = await bom_views(session, assembly, counts)
     return AssemblyBomResponse(
         assembly_id=assembly.id,
-        lines=lines,
-        total_instances=sum(line.quantity for line in lines),
-        indented=indented,
-        parts_only=parts_only,
-        total_parts=sum(line.quantity for line in parts_only),
-        unresolved_patterns=sorted(walk.unresolved, key=str),
+        lines=views.lines,
+        total_instances=sum(line.quantity for line in views.lines),
+        indented=views.indented,
+        parts_only=views.parts_only,
+        total_parts=sum(line.quantity for line in views.parts_only),
+        unresolved_patterns=sorted(views.unresolved, key=str),
     )

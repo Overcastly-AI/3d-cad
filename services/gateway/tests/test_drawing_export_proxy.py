@@ -136,6 +136,7 @@ def _drawing_tree() -> DrawingTreeResponse:
         orientation="landscape",
         projection="third_angle",
         title_block=None,
+        parts_list_structure="top_level",
         order_index=0,
         created_at=NOW,  # type: ignore[arg-type]
         updated_at=NOW,  # type: ignore[arg-type]
@@ -1015,6 +1016,7 @@ def _two_sheet_drawing_tree() -> DrawingTreeResponse:
         orientation="portrait",
         projection="third_angle",
         title_block=None,
+        parts_list_structure="top_level",
         order_index=1,
         created_at=NOW,  # type: ignore[arg-type]
         updated_at=NOW,  # type: ignore[arg-type]

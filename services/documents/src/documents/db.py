@@ -1066,6 +1066,13 @@ class Sheet(Base):
     title_block: Mapped[dict[str, Any] | None] = mapped_column(
         _JSON_VARIANT, nullable=True
     )
+    #: The parts list's BOM structure (``PartsListStructure``); migration 0024.
+    parts_list_structure: Mapped[str] = mapped_column(
+        sa.String(16),
+        nullable=False,
+        default="top_level",
+        server_default="top_level",
+    )
     order_index: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
@@ -1084,6 +1091,10 @@ class Sheet(Base):
     __table_args__ = (
         sa.UniqueConstraint(
             "drawing_id", "order_index", name="uq_sheets_drawing_order"
+        ),
+        sa.CheckConstraint(
+            "parts_list_structure IN ('top_level', 'indented', 'parts_only')",
+            name="ck_sheets_parts_list_structure",
         ),
     )
 

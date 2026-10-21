@@ -135,9 +135,13 @@ def _documents(seen: list[httpx.Request]) -> Handler:
                 sheet_id=uuid.UUID(int=0x5),
                 assembly_id=ASSEMBLY,
                 assembly_version=3,
+                structure="top_level",
                 lines=[
                     DrawingBomLine(
                         item_number=1,
+                        item="1",
+                        level=0,
+                        total_quantity=quantity,
                         ref_document_id=uuid.UUID(int=7),
                         ref_document_kind="part",
                         name="M3x8",
@@ -145,6 +149,7 @@ def _documents(seen: list[httpx.Request]) -> Handler:
                     )
                 ],
                 total_instances=quantity,
+                total_parts=quantity,
                 unresolved_patterns=[] if counts else [HOLES],
             )
             return httpx.Response(200, content=drawing.model_dump_json())

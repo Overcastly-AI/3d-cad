@@ -3628,9 +3628,14 @@ export interface components {
          * DrawingBomLine
          * @description One NUMBERED line of a drawing's bill of materials (design §7 BOM).
          *
-         *     The shipped assembly :class:`~loft_wire.assemblies.BomLine` (group key +
-         *     resolved name + `missing` + quantity, reused VERBATIM — no parallel taxonomy)
+         *     The shipped assembly :class:`~loft_wire.assemblies.IndentedBomLine` (group
+         *     key + resolved name + `missing` + quantity, and the outline ``item`` /
+         *     ``level`` / ``total_quantity``, reused VERBATIM — no parallel taxonomy)
          *     plus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.
+         *     ``item`` is the full number shown ('4' or '4.3' in the indented structure);
+         *     ``item_number`` is its last part, the number within the parent line. On a
+         *     top-level or parts-only line ``level`` is 0 and ``item`` is
+         *     ``str(item_number)``.
          *
          *     ``item_number`` is **derived**, not authored: lines are numbered 1..n in the
          *     order each referenced document FIRST appears in the assembly's stable instance
@@ -3640,10 +3645,20 @@ export interface components {
          */
         DrawingBomLine: {
             /**
+             * Item
+             * @description Outline item number: '2' at the top level, '2.1' for the first line inside item 2
+             */
+            item: string;
+            /**
              * Item Number
-             * @description 1-based item number, DERIVED from the assembly's stable instance order (first appearance of this referenced document) — never stored on the drawing, so it can never drift from the assembly
+             * @description 1-based item number within the parent line, DERIVED from the assembly's stable instance order (first appearance of this referenced document) — never stored on the drawing, so it can never drift from the assembly
              */
             item_number: number;
+            /**
+             * Level
+             * @description Nesting depth; 0 = a top-level line
+             */
+            level: number;
             /**
              * Missing
              * @description True when the referenced document no longer exists (deleted while still instanced) — the line and its quantity are still reported so the dangling reference is visible, never silently dropped
@@ -3677,6 +3692,11 @@ export interface components {
              * @enum {string}
              */
             ref_document_kind: "part" | "assembly";
+            /**
+             * Total Quantity
+             * @description How many of this line the whole assembly holds: quantity multiplied by every parent line's quantity
+             */
+            total_quantity: number;
         };
         /**
          * DrawingBomResponse
@@ -3718,7 +3738,7 @@ export interface components {
             drawing_id: string;
             /**
              * Lines
-             * @description One numbered line per referenced document, in derived `item_number` order (an assembly with no instances yields an empty list)
+             * @description The numbered lines in the sheet's structure: one per directly-referenced document (top_level), those with every sub-assembly's lines beneath it, depth first (indented), or one per part at every level (parts_only). Derived `item` order; an assembly with no instances yields an empty list
              */
             lines?: components["schemas"]["DrawingBomLine"][];
             /**
@@ -3728,10 +3748,21 @@ export interface components {
              */
             sheet_id: string;
             /**
+             * Structure
+             * @description The structure the `lines` are in: the sheet's stored `parts_list_structure`
+             * @enum {string}
+             */
+            structure: "top_level" | "indented" | "parts_only";
+            /**
              * Total Instances
-             * @description Sum of every line's quantity (direct-instance count)
+             * @description Sum of the top-level quantities (direct-instance count)
              */
             total_instances: number;
+            /**
+             * Total Parts
+             * @description Every placed part at every level (the parts-only total)
+             */
+            total_parts: number;
             /**
              * Unresolved Patterns
              * @description Hole-driven component patterns whose count could not be resolved: only their seeds are counted. Omitted while empty.
@@ -9199,6 +9230,12 @@ export interface components {
              */
             orientation: "landscape" | "portrait";
             /**
+             * Parts List Structure
+             * @description Which BOM structure the sheet's parts list shows (top_level by default; DRAWING-PARTS-LIST-LEVEL)
+             * @enum {string}
+             */
+            parts_list_structure: "top_level" | "indented" | "parts_only";
+            /**
              * Projection
              * @enum {string}
              */
@@ -9250,6 +9287,11 @@ export interface components {
             name?: string | null;
             /** Orientation */
             orientation?: ("landscape" | "portrait") | null;
+            /**
+             * Parts List Structure
+             * @description The parts list's structure: top_level, indented or parts_only (None leaves it unchanged)
+             */
+            parts_list_structure?: ("top_level" | "indented" | "parts_only") | null;
             /** Projection */
             projection?: ("third_angle" | "first_angle") | null;
             /** Size */

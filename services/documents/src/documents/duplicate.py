@@ -531,6 +531,7 @@ async def duplicate_drawing(
                 orientation=sheet.orientation,
                 projection=sheet.projection,
                 title_block=sheet.title_block,
+                parts_list_structure=sheet.parts_list_structure,
                 order_index=sheet.order_index,
             )
         )

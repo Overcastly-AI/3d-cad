@@ -2746,12 +2746,23 @@
         "type": "object"
       },
       "DrawingBomLine": {
-        "description": "One NUMBERED line of a drawing's bill of materials (design \u00a77 BOM).\n\nThe shipped assembly :class:`~loft_wire.assemblies.BomLine` (group key +\nresolved name + `missing` + quantity, reused VERBATIM \u2014 no parallel taxonomy)\nplus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.\n\n``item_number`` is **derived**, not authored: lines are numbered 1..n in the\norder each referenced document FIRST appears in the assembly's stable instance\n``order_index``. It is therefore a pure function of the assembly graph \u2014 two\nreads of an unchanged assembly number identically, and a part RENAME (which\nre-sorts the name-ordered assembly BOM) leaves every number untouched.",
+        "description": "One NUMBERED line of a drawing's bill of materials (design \u00a77 BOM).\n\nThe shipped assembly :class:`~loft_wire.assemblies.IndentedBomLine` (group\nkey + resolved name + `missing` + quantity, and the outline ``item`` /\n``level`` / ``total_quantity``, reused VERBATIM \u2014 no parallel taxonomy)\nplus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.\n``item`` is the full number shown ('4' or '4.3' in the indented structure);\n``item_number`` is its last part, the number within the parent line. On a\ntop-level or parts-only line ``level`` is 0 and ``item`` is\n``str(item_number)``.\n\n``item_number`` is **derived**, not authored: lines are numbered 1..n in the\norder each referenced document FIRST appears in the assembly's stable instance\n``order_index``. It is therefore a pure function of the assembly graph \u2014 two\nreads of an unchanged assembly number identically, and a part RENAME (which\nre-sorts the name-ordered assembly BOM) leaves every number untouched.",
         "properties": {
+          "item": {
+            "description": "Outline item number: '2' at the top level, '2.1' for the first line inside item 2",
+            "title": "Item",
+            "type": "string"
+          },
           "item_number": {
-            "description": "1-based item number, DERIVED from the assembly's stable instance order (first appearance of this referenced document) \u2014 never stored on the drawing, so it can never drift from the assembly",
+            "description": "1-based item number within the parent line, DERIVED from the assembly's stable instance order (first appearance of this referenced document) \u2014 never stored on the drawing, so it can never drift from the assembly",
             "minimum": 1.0,
             "title": "Item Number",
+            "type": "integer"
+          },
+          "level": {
+            "description": "Nesting depth; 0 = a top-level line",
+            "minimum": 0.0,
+            "title": "Level",
             "type": "integer"
           },
           "missing": {
@@ -2797,6 +2808,12 @@
             ],
             "title": "Ref Document Kind",
             "type": "string"
+          },
+          "total_quantity": {
+            "description": "How many of this line the whole assembly holds: quantity multiplied by every parent line's quantity",
+            "minimum": 1.0,
+            "title": "Total Quantity",
+            "type": "integer"
           }
         },
         "required": [
@@ -2804,6 +2821,9 @@
           "ref_document_kind",
           "name",
           "quantity",
+          "item",
+          "level",
+          "total_quantity",
           "item_number"
         ],
         "title": "DrawingBomLine",
@@ -2830,7 +2850,7 @@
             "type": "string"
           },
           "lines": {
-            "description": "One numbered line per referenced document, in derived `item_number` order (an assembly with no instances yields an empty list)",
+            "description": "The numbered lines in the sheet's structure: one per directly-referenced document (top_level), those with every sub-assembly's lines beneath it, depth first (indented), or one per part at every level (parts_only). Derived `item` order; an assembly with no instances yields an empty list",
             "items": {
               "$ref": "#/components/schemas/DrawingBomLine"
             },
@@ -2843,10 +2863,26 @@
             "title": "Sheet Id",
             "type": "string"
           },
+          "structure": {
+            "description": "The structure the `lines` are in: the sheet's stored `parts_list_structure`",
+            "enum": [
+              "top_level",
+              "indented",
+              "parts_only"
+            ],
+            "title": "Structure",
+            "type": "string"
+          },
           "total_instances": {
-            "description": "Sum of every line's quantity (direct-instance count)",
+            "description": "Sum of the top-level quantities (direct-instance count)",
             "minimum": 0.0,
             "title": "Total Instances",
+            "type": "integer"
+          },
+          "total_parts": {
+            "description": "Every placed part at every level (the parts-only total)",
+            "minimum": 0.0,
+            "title": "Total Parts",
             "type": "integer"
           },
           "unresolved_patterns": {
@@ -2864,7 +2900,9 @@
           "sheet_id",
           "assembly_id",
           "assembly_version",
-          "total_instances"
+          "structure",
+          "total_instances",
+          "total_parts"
         ],
         "title": "DrawingBomResponse",
         "type": "object"
@@ -11660,6 +11698,16 @@
             "title": "Orientation",
             "type": "string"
           },
+          "parts_list_structure": {
+            "description": "Which BOM structure the sheet's parts list shows (top_level by default; DRAWING-PARTS-LIST-LEVEL)",
+            "enum": [
+              "top_level",
+              "indented",
+              "parts_only"
+            ],
+            "title": "Parts List Structure",
+            "type": "string"
+          },
           "projection": {
             "enum": [
               "third_angle",
@@ -11700,6 +11748,7 @@
           }
         },
         "required": [
+          "parts_list_structure",
           "id",
           "drawing_id",
           "name",
@@ -11783,6 +11832,23 @@
               }
             ],
             "title": "Orientation"
+          },
+          "parts_list_structure": {
+            "anyOf": [
+              {
+                "enum": [
+                  "top_level",
+                  "indented",
+                  "parts_only"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The parts list's structure: top_level, indented or parts_only (None leaves it unchanged)",
+            "title": "Parts List Structure"
           },
           "projection": {
             "anyOf": [
