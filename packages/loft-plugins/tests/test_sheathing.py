@@ -44,8 +44,8 @@ from loft_plugins.builtin.wall import Opening, WallSpec
 from loft_wire.cut_list import CutListMember
 from loft_wire.datum_angle import DatumAngleParams
 from loft_wire.features import (
-    CustomFeature,
     MAX_TREE_FEATURES,
+    CustomFeature,
     DatumFeature,
     DatumOffsetFromParams,
     DatumOffsetParams,
