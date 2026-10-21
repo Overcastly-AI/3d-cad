@@ -23,7 +23,7 @@
   "tolerance": 1e-6,
   "tolerance_rationale": "The base golden's (b2-walls-no-openings-16oc): bounds are ABSOLUTE on a ~4e8 mm^3 part, whose separate-body sums carry round-off near the ULP of the sum. Measured against the hand derivation: 1.2e-7 mm^3 on the volume, 0 on the area, <= 1.4e-12 mm on the centroid, 6e-11 g on the mass. A stud missed by the notch moves the volume by 150 557 mm^3.",
   "roundtrip_tolerance": 1e-6,
-  "roundtrip_tolerance_rationale": "Same cause as b2-walls-no-openings-16oc: the STEP round trip re-sums the 48 re-imported solids in another order, which moves a ~4e8 sum by ~1e-7; it applies to volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
+  "roundtrip_tolerance_rationale": "Measured 2026-10-21: the volume moves 1.5e-7 mm^3 across STEP (above ROUNDTRIP_TOL, 1e-7). Same cause as b2-walls-no-openings-16oc: the STEP round trip re-sums the 48 re-imported solids in another order, which moves a ~4e8 sum by ~1e-7; it applies to volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
   "properties": {
     "volume": 417793317.6375,
     "surface_area": 31710904.32,

@@ -270,6 +270,11 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # B5 sheathed: the floor's subfloor and B2's OSB walls on it
         # (SHEATHING): the same summation drift over 98 bodies.
         "b5-shed-sheathed",
+        # B2's walls with a notch across five members, and with a hole and a
+        # fillet on its first stud (CUT-OBJECTS-TO-CUT): B2's summation drift,
+        # 1.5e-7 and 7e-7 mm^3 on the volume.
+        "cut-objects-to-cut-b2-front-notch-studs-16-32-48",
+        "framing-hole-d1-fillet-r0.25-first-stud-b2",
     }
 )
 

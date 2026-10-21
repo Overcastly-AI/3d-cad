@@ -21,7 +21,7 @@
   "tolerance": 1e-6,
   "tolerance_rationale": "The base golden's (b2-walls-no-openings-16oc), absolute on a ~4e8 mm^3 part. Measured against the hand derivation: 1e-7 mm^3 on the volume, 0 on the area, <= 2e-12 mm on the centroid, 8e-11 g on the mass. The hole on the wrong member (the last plate) moves the centroid by metres.",
   "roundtrip_tolerance": 1e-6,
-  "roundtrip_tolerance_rationale": "Same cause as b2-walls-no-openings-16oc: the STEP round trip re-sums the 48 re-imported solids in another order (~1e-7 on a ~4e8 sum); volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
+  "roundtrip_tolerance_rationale": "Measured 2026-10-21: the volume moves 7e-7 mm^3 across STEP (above ROUNDTRIP_TOL, 1e-7). Same cause as b2-walls-no-openings-16oc: the STEP round trip re-sums the 48 re-imported solids in another order (~1e-7 on a ~4e8 sum); volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
   "properties": {
     "volume": 419495803.4625079,
     "surface_area": 31781985.48097698,
