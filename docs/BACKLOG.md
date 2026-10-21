@@ -195,7 +195,9 @@ PRICE-BOOK-VERSION) and ROOF-MEMBER-RENUMBER.
 
 Bike gaps first (rounds 2 and 3), then the hard-parts blockers, then speed.
 
-- [ ] **SKETCH-3D** (bike chain and seat stays): a 3D sketch of lines and
+- [x] **SKETCH-3D** (done; golden `frame-bike-3d-sketch-skeleton-4-pipes`,
+      e2e `sketch-3d-bike.spec.ts`, RESEARCH §28) (bike chain and seat
+      stays): a 3D sketch of lines and
       arcs between picked points and skeleton vertices, usable as a Pipe or
       Sweep path (SolidWorks 3D Sketch, Fusion's 3D sketch). _Accept:_ the
       bike's splayed chain stays are Pipes on a 3D sketch tied to the
@@ -333,6 +335,15 @@ One line each. The founder triages weekly; most are closed without work.
 - SKETCH-LINE-ANGLE-ZERO: the angle cell takes (0, 180) as `AngleConstraint` does; 0 or 180 is refused with a message rather than becoming Horizontal (or Collinear to the previous segment), which Fusion does.
 - SKETCH-LINE-ANGLE-WIRE: the angle-to-axis dimension is the existing `angle` constraint against the `x-axis` datum line (no wire change); planegcs holds 450 at 73° to 3e-14° with 0 DOF. A typed angle drops the inferred H/V on that line. No document angle-unit setting exists; the cell reads degrees.
 
+- SKETCH-3D-ARCS: a 3D sketch holds points and lines only; Fusion and SolidWorks also draw arcs and splines in 3D, and there is no angle dimension (a typed coordinate covers the bike).
+- SKETCH-3D-PREVIEW: the 3D sketch editor draws the points as typed; a dimension moves them only after Create/Save (the server solves; there is no client-side 3D solve as there is for 2D).
+- SKETCH-3D-FORMULAS: 3D sketch dimensions take numbers, not parameters or formulas (pointers into `constraints` are refused, as for 2D sketches, and a 3D dimension has no `expression`).
+- SKETCH-3D-STAY-STEP: Pipes on the splayed chain stays move 4e-5 mm (centroid) and 0.05 mm^3 through a STEP round trip, the build123d twin identically (OCCT re-approximating oblique tube-tube faces), so the golden pipes only the main triangle; the stays are checked against the twin in tests.
+- SKETCH-3D-SEAT-STAY-VOIDS: piping the seat stays as rings into the seat cluster closes three internal voids (a correct union of ring tubes); a real frame copes the stays, which needs the cope cut (bike.md, not reached).
+- SKETCH-3D-EDIT-VERTEX: editing a 3D sketch that is not at the tip offers no model-vertex snaps (the overlay is the tip body's); origin and earlier sketch points are offered.
+- SKETCH-3D-FIT: Fit (0) frames the body, not a 3D sketch alone, so a skeleton drawn before any body can sit off screen (the 2D sketch's bike.md finding); the editor's Join buttons reach points out of view.
+- SKETCH-3D-SWEEP: a Sweep's path is still a whole 2D sketch; a 3D sketch's lines are a path for Pipe and Plane Along Path only.
+- SKETCH-3D-SCRIPT: loft-script has no `Part.sketch_3d` yet; a script builds one through the raw feature API.
 - TIMBER-CLEARANCE: joints are line to line (tenon = mortise, peg = hole); hsbCAD and Cadwork offer mortise-depth and width clearances and a drawbore offset, which a shop sets before cutting.
 - TIMBER-OPPOSED: an inner bent's post takes two girt tenons at one height, each shortened to half the post less 1/4 in (3.5 in an 8x8); framers also stagger the girts or house them, which the plugin does not offer.
 - TIMBER-PEG-PROUD: pegs are cut flush with the post faces (B6's 7.5); real pegs are left proud and trimmed, so a peg cut list would add an allowance.
