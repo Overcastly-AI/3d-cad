@@ -561,6 +561,7 @@ for (const unit of UNITS) {
         },
         face_x_mm: 1,
         face_y_mm: 2,
+        scope_bodies: [{ kind: "feature", feature_id: "b2" }],
       };
       expectOptionalKeysKept(stored, "HoleParamsV1", (row) =>
         buildHoleParams(formFromHoleParams(row, unit), unit),

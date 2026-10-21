@@ -774,6 +774,14 @@ export function buildHoleParams(
       unit,
     );
   }
+  // The Feature Scope (`scope_bodies`) has no field in this dialog yet, so a
+  // Save carries the stored one through untouched; dropping it would silently
+  // stop the bore cutting the scoped bodies. The wire allows a scope on a
+  // through-all hole only, so a switch to blind ends it.
+  const scope = stored?.scope_bodies;
+  if (scope != null && scope.length > 0 && depth.kind === "through_all") {
+    params.scope_bodies = scope;
+  }
   return params;
 }
 

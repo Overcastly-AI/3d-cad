@@ -223,6 +223,23 @@ describe("buildHoleParams", () => {
     expect(buildHoleParams({ ...blind, depthInput: "0" }, "mm")).toBeNull();
   });
 
+  it("keeps a stored Feature Scope through a Save, and ends it at blind", () => {
+    const stored: HoleParams = {
+      ...holeParamsAt(TOP.centroid, "extrude-1"),
+      scope_bodies: [{ kind: "feature", feature_id: "extrude-0" }],
+    };
+    const form = formFromHoleParams(stored, "mm");
+    expect(buildHoleParams(form, "mm")?.scope_bodies).toEqual(
+      stored.scope_bodies,
+    );
+    const blind = buildHoleParams(
+      { ...form, depthMode: "blind", depthInput: "4" },
+      "mm",
+    );
+    expect(blind).not.toBeNull();
+    expect(blind).not.toHaveProperty("scope_bodies");
+  });
+
   it("reads lengths through the document unit", () => {
     const inch: HoleForm = { ...withFace(), diameterInput: "0.5" };
     expect(buildHoleParams(inch, "in")?.diameter_mm).toBeCloseTo(12.7, 6);

@@ -577,4 +577,4 @@ def test_angle_datum_turns_about_an_edge_of_an_earlier_body() -> None:
     assert [r.status for r in evaluation.result.features] == ["ok"] * 5
     plane = evaluation.datum_planes[uuid.UUID(datum)]
     assert abs(plane.z_dir.Y) == pytest.approx(1.0, abs=TOL)
-    assert plane.origin.Y == pytest.approx(0.0, abs=TOL)
+    assert abs(plane.origin.Y) <= TOL
