@@ -291,12 +291,25 @@ def test_scope_naming_no_current_body_is_reference_unresolved() -> None:
     assert hole.error.code == "reference_unresolved"
 
 
-def test_scope_requires_a_through_all_hole() -> None:
-    """A blind hole cannot carry a scope (its depth is measured on one body)."""
-    params = _hole(_iid("b2"), (1, 0, 0), (50, 10, 10), scope=[_iid("a2")])
-    raw = params["feature"]["params"]
-    raw["depth"] = {"kind": "blind", "depth_mm": 5.0}
-    with pytest.raises(ValidationError, match="through_all"):
+def test_a_blind_hole_keeps_its_scope_but_cuts_only_its_owner() -> None:
+    """A blind hole may carry a Feature Scope (kept so a switch back to
+    through-all restores it) and drills the owner only: the scoped body is
+    whole and the owner is byte-identical to the same hole with no scope. A
+    body named twice is still a 422."""
+    a, b = _iid("a2"), _iid("b2")
+    owners: list[bytes] = []
+    for scope in ([a], None):
+        hole = _hole(b, (1, 0, 0), (50, 10, 10), scope=scope)
+        hole["feature"]["params"]["depth"] = {"kind": "blind", "depth_mm": 5.0}
+        evaluation = evaluate_tree(
+            _tree([*_box("a", 0, 0, merge=None), *_box("b", 30, 0, merge=False), hole])
+        )
+        assert [r.status for r in evaluation.result.features] == ["ok"] * 5
+        _assert_same(evaluation.bodies[uuid.UUID(a)], _block(0, 0))
+        owners.append(solid_to_brep_bytes(evaluation.bodies[uuid.UUID(b)]))
+    assert owners[0] == owners[1]
+    raw = _hole(b, (1, 0, 0), (50, 10, 10), scope=[a, a])["feature"]["params"]
+    with pytest.raises(ValidationError, match="more than once"):
         HoleParamsV1.model_validate(raw)
 
 

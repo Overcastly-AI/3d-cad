@@ -193,10 +193,9 @@ export interface HoleForm {
   faceLocal: boolean;
   /**
    * Feature Scope (SolidWorks; HOLE-SCOPE-UI): further bodies, by base
-   * feature id, that a THROUGH-ALL bore also cuts. Kept while the depth is
-   * blind, so switching back restores it; a blind Save cannot carry it (the
-   * wire allows a scope on a through-all hole only), which the dialog says
-   * ({@link holeScopeNote}) rather than dropping it unseen.
+   * feature id, that a THROUGH-ALL bore also cuts. Kept (and saved) while
+   * the depth is blind, where only the owner is cut, so switching back
+   * restores it; the dialog says so ({@link holeScopeNote}).
    */
   scopeBodies?: string[];
   /** The params as STORED, when editing (a no-op Save sends them back). */
@@ -784,12 +783,12 @@ export function buildHoleParams(
     );
   }
   // The Feature Scope: the form's list (seeded from the stored one, so a
-  // no-op Save keeps it). The wire allows a scope on a through-all hole only;
-  // a blind hole's dialog says the scope is not cut (`holeScopeNote`).
+  // no-op Save keeps it). Kept while blind too, where the kernel cuts the
+  // owner only and the dialog says so (`holeScopeNote`).
   const scope =
     form.scopeBodies ??
     (stored?.scope_bodies ?? []).map((ref) => ref.feature_id);
-  if (scope.length > 0 && depth.kind === "through_all") {
+  if (scope.length > 0) {
     params.scope_bodies = scope.map((id) => ({
       kind: "feature" as const,
       feature_id: id,
@@ -800,15 +799,15 @@ export function buildHoleParams(
 
 /**
  * The Feature Scope's warning, or null: a blind hole cuts only the body it
- * sits on, so a scope kept from through-all is not cut while it stays blind.
- * Said beside the depth control, never dropped unseen (HOLE-SCOPE-UI).
+ * sits on, so its scope is kept (saved, restored at through-all) but not cut
+ * while it stays blind. Said beside the depth control (HOLE-SCOPE-UI).
  */
 export function holeScopeNote(form: HoleForm): string | null {
   const count = form.scopeBodies?.length ?? 0;
   if (form.depthMode !== "blind" || count === 0) return null;
   const bodies =
     count === 1 ? "1 scoped body is" : `${count} scoped bodies are`;
-  return `Blind cuts its own body only: ${bodies} not cut.`;
+  return `Blind cuts its own body only: ${bodies} kept, not cut.`;
 }
 
 /** The Feature Scope after (un)ticking body `id`, kept in `order`'s order. */

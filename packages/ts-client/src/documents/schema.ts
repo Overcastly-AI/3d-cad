@@ -5246,7 +5246,7 @@ export interface components {
             position: components["schemas"]["Vec3"];
             /**
              * Scope Bodies
-             * @description Feature Scope (SolidWorks): further bodies a THROUGH-ALL bore also cuts, each named by its base (body-creating) feature. `null`/omitted cuts only the body that owns `face` (the Fusion 360 / SolidWorks default). The bore cuts each listed body coaxially; a counterbore / countersink recess seats in the owner only. A listed body the bore cannot reach is `hole_off_body`
+             * @description Feature Scope (SolidWorks): further bodies a THROUGH-ALL bore also cuts, each named by its base (body-creating) feature. `null`/omitted cuts only the body that owns `face` (the Fusion 360 / SolidWorks default). The bore cuts each listed body coaxially; a counterbore / countersink recess seats in the owner only. A listed body the bore cannot reach is `hole_off_body`. A BLIND hole keeps its scope (so switching back to through-all restores it) but cuts only its owner: the scope is not read while the depth is blind
              */
             scope_bodies?: components["schemas"]["FeatureRef"][] | null;
             /** @description Optional COSMETIC thread callout making this a TAPPED hole (`null`/omitted = untapped). Carries the designation for drawing/BOM callouts; adds no geometry — `diameter_mm` is the tap-drill bore (:class:`IsoMetricThread`) */

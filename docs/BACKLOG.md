@@ -342,7 +342,7 @@ One line each. The founder triages weekly; most are closed without work.
 - HOLE-SCOPE-UI: `scope_bodies` (a through-all Hole's Feature Scope) is wire and kernel only; the Hole dialog has no body list yet (SolidWorks' Feature Scope box).
 - HOLE-SCOPE-LIST: the Hole's Feature Scope lists every body of the part (64 rows on a framed wall, scrolling); SolidWorks picks scope bodies in the viewport.
 - HOLE-SCOPE-REPEAT: a pattern or mirror of a scoped Hole repeats its bore in the owner body only, not in the scoped bodies.
-- CUT-LIVE-LIST: a new cut's Objects To Cut lists its bodies only once it is built (Edit); Fusion lists them live while the dialog is open, which needs a draft evaluate.
+- CUT-LIVE-LIST: a new cut's Objects To Cut lists its bodies only once it is built (Edit); Fusion lists them live while the dialog is open, which needs a draft evaluate. The same gap: a narrowed cut's Edit lists only the bodies it cuts, so a body left out comes back through "Cut every body it meets", not a row.
 - CUT-SCOPE-REPEAT: a pattern or mirror of a cut that met several bodies repeats it in the active body only (as HOLE-SCOPE-REPEAT).
 - CUT-ACTIVE-AFTER: a cut that does not cut the active body makes the first body it cut active (the Hole's owner rule), so a following merged add fuses there.
 - CUT-LEGACY-UPGRADE: a cut saved before Objects To Cut keeps the active body; its dialog offers "Cut every body it meets", one cut at a time.

@@ -225,7 +225,7 @@ describe("buildHoleParams", () => {
     expect(buildHoleParams({ ...blind, depthInput: "0" }, "mm")).toBeNull();
   });
 
-  it("keeps a stored Feature Scope through a Save, and ends it at blind", () => {
+  it("keeps a stored Feature Scope through a Save, blind or not", () => {
     const stored: HoleParams = {
       ...holeParamsAt(TOP.centroid, "extrude-1"),
       scope_bodies: [{ kind: "feature", feature_id: "extrude-0" }],
@@ -239,7 +239,9 @@ describe("buildHoleParams", () => {
       "mm",
     );
     expect(blind).not.toBeNull();
-    expect(blind).not.toHaveProperty("scope_bodies");
+    // Saved while blind (the kernel cuts the owner only), so a later switch
+    // back to through-all bores the scoped bodies again.
+    expect(blind?.scope_bodies).toEqual(stored.scope_bodies);
   });
 
   it("Feature Scope: ticked bodies are bored; blind keeps them and says so", () => {
@@ -252,13 +254,13 @@ describe("buildHoleParams", () => {
       { kind: "feature", feature_id: "extrude-2" },
     ]);
     expect(holeScopeNote(form)).toBeNull();
-    // HOLE-SCOPE-UI: a switch to blind keeps the list and warns, never drops
-    // it unseen; switching back bores the same bodies.
+    // HOLE-SCOPE-UI: a switch to blind keeps (and saves) the list and says
+    // it is not cut; switching back bores the same bodies.
     const blind: HoleForm = { ...form, depthMode: "blind", depthInput: "4" };
     expect(holeScopeNote(blind)).toBe(
-      "Blind cuts its own body only: 2 scoped bodies are not cut.",
+      "Blind cuts its own body only: 2 scoped bodies are kept, not cut.",
     );
-    expect(buildHoleParams(blind, "mm")).not.toHaveProperty("scope_bodies");
+    expect(buildHoleParams(blind, "mm")?.scope_bodies).toHaveLength(2);
     const back = buildHoleParams({ ...blind, depthMode: "through_all" }, "mm");
     expect(back?.scope_bodies).toHaveLength(2);
     expect(

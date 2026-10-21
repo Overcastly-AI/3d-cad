@@ -2725,8 +2725,9 @@ SolidWorks cut the body the picked face belongs to.
   hole on a stud from drilling every member behind it (SolidWorks'
   auto-select would). One coaxial tool spans all of them; the counterbore or
   countersink seats in the owner, where its depth is validated. A scoped body
-  the bore misses is `hole_off_body` pinned to it; a scope on a blind hole or
-  naming a body twice is a 422.
+  the bore misses is `hole_off_body` pinned to it; a scope naming a body
+  twice is a 422. A blind hole may keep a scope (since HOLE-SCOPE-UI) but
+  drills its owner only: its depth is measured there.
 - **Stored parts: fixed in place, not versioned.** The change can only alter
   a multi-body tree whose hole resolved off its owner, and every such hole
   was wrong: it failed (so nothing after it built) or drilled a member the
@@ -2788,7 +2789,9 @@ on every rebuild, so a body added later is cut too) and *Selected bodies*.
   All bodies, Fusion's default list); a list names bodies by base feature
   (the boolean operand rule) and cuts exactly those; absent is the active
   body. A new cut stores `"all"` (web dialogs and loft-script); unticking a
-  body stores the ticked list, and ticking every row again is `"all"`. A
+  body stores the ticked list, which stays a list when a body is re-ticked
+  (the rows are only the bodies met and listed, so "every row ticked" is not
+  "every body"); "Cut every body it meets" is the way back to `"all"`. A
   scope on an add, an empty list or a body named twice is a 422. `"all"`
   was chosen over storing the met list because a framing edit adds and
   renumbers members, and a cut over a wall should keep cutting the studs
@@ -2834,9 +2837,11 @@ on every rebuild, so a body added later is cut too) and *Selected bodies*.
   after).
 - **Hole Feature Scope in the dialog (HOLE-SCOPE-UI).** The Hole dialog lists
   the part's bodies to add to a through-all bore. Switching to Blind keeps the
-  ticks and says "Blind cuts its own body only: N scoped bodies are not cut"
-  (the wire cannot carry a scope on a blind hole); switching back restores
-  them.
+  ticks, SAVES them, and says "Blind cuts its own body only: N scoped bodies
+  are kept, not cut". The wire accepts a scope on a blind hole and the kernel
+  ignores it there (the owner is byte-identical to the same hole without one;
+  `test_a_blind_hole_keeps_its_scope_but_cuts_only_its_owner`), so a switch
+  back to through-all, now or after a reload, bores the same bodies.
 - **Checked:** goldens `cut-objects-to-cut-b2-front-notch-studs-16-32-48`
   (B2 plus a notch 1 in deep, X 10..52, Z 88..96 in: 106.3125 in^3 from three
   studs and both top plates, hand-derived) and

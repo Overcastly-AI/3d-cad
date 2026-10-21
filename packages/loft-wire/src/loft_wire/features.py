@@ -2884,11 +2884,9 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
     # Objects To Cut names bodies by base feature, the boolean operand rule.
     scope: object = getattr(feature.params, "cut_bodies", None)
     listed = cast(list[FeatureRef], scope) if isinstance(scope, list) else []
-    for index, ref in enumerate(listed):
-        slot = f"cut_bodies[{index}]"
-        references.append(
-            FeatureReference(slot, ref, BASE_BODY_AFFECTING_FEATURE_TYPES)
-        )
+    base = BASE_BODY_AFFECTING_FEATURE_TYPES
+    for i, ref in enumerate(listed):
+        references.append(FeatureReference(f"cut_bodies[{i}]", ref, base))
 
     walked = sorted(ref.feature_id for ref in iter_feature_refs(feature))
     mapped = sorted(reference.ref.feature_id for reference in references)
@@ -3566,10 +3564,12 @@ class FeatureResult(BaseModel):
     cut_bodies: list[uuid.UUID] | None = Field(
         default=None,
         exclude_if=_is_none,
-        description="For an ok extrude, revolve, sweep, loft or pipe CUT: the "
-        "bodies (by base feature id, tree order) it removed material from on "
-        "this rebuild, which the dialog's Objects To Cut list shows. Absent "
-        "for every other feature.",
+        description="For every ok extrude, revolve, sweep, loft or pipe CUT, "
+        "whatever its cut_bodies (absent included, so a stored cut reports "
+        "its active body, and a plugin member's cut reports too): the bodies "
+        "(by base feature id, tree order) it removed material from on this "
+        "rebuild, which the dialog's Objects To Cut list shows. Absent for "
+        "every other feature.",
     )
 
 

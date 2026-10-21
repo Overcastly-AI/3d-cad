@@ -154,8 +154,11 @@ def _evaluate_hole(
     plane = _resolve_face_datum_plane(params.face, 0.0, state, body_id=owner_id)
     if isinstance(plane, FeatureError):
         return plane
+    blind = isinstance(params.depth, HoleBlindDepth)
+    # A blind hole KEEPS its Feature Scope (a switch back to through-all
+    # restores it) but cuts only its owner: its depth is measured there.
     scoped: list[tuple[uuid.UUID, BodyShape]] = []
-    for index, ref in enumerate(params.scope_bodies or []):
+    for index, ref in enumerate([] if blind else params.scope_bodies or []):
         if ref.feature_id == owner_id:
             continue
         body = _resolve_operand_body(ref, state, slot=f"Hole scope_bodies[{index}]")
@@ -163,7 +166,6 @@ def _evaluate_hole(
             return body
         scoped.append((ref.feature_id, body))
 
-    blind = isinstance(params.depth, HoleBlindDepth)
     depth_mm = (
         params.depth.depth_mm if isinstance(params.depth, HoleBlindDepth) else None
     )

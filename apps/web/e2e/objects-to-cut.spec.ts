@@ -199,6 +199,45 @@ test.describe("Objects To Cut (CUT-OBJECTS-TO-CUT)", () => {
         feature_id: wall.members[i],
       })),
     );
+
+    // Edit the NARROWED cut: it lists the three bodies it cuts. Unticking
+    // Stud B and ticking it back keeps the cut narrowed (every row ticked is
+    // not every body: Stud A, left out, is not a row), so the Save changes
+    // nothing and Stud A stays whole.
+    const narrowed = [0, 2, 3].map((i) => ({
+      kind: "feature",
+      feature_id: wall.members[i],
+    }));
+    await page.getByTestId("feature-select-9").click();
+    await expect(page.getByTestId("extrude-editor")).toBeVisible();
+    await expect(list.getByRole("checkbox")).toHaveCount(3, {
+      timeout: 30_000,
+    });
+    const studB = wall.members[2] as string;
+    await page.getByTestId(`objects-to-cut-${studB}`).click();
+    await expect(page.getByTestId(`objects-to-cut-${studB}`)).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+    await page.getByTestId(`objects-to-cut-${studB}`).click();
+    await page.getByTestId("extrude-submit").click();
+    await expect(page.getByTestId("extrude-editor")).toHaveCount(0, {
+      timeout: 30_000,
+    });
+    expect((await lastParams(page, wall))["cut_bodies"]).toEqual(narrowed);
+    await expect
+      .poll(() => partVolume(page), { timeout: 60_000 })
+      .toBe(WALL_MM3 - 2 * PLATE_NOTCH_MM3 - STUD_NOTCH_MM3);
+
+    // "Cut every body it meets" is the one way back: Stud A is cut again.
+    await page.getByTestId("feature-select-9").click();
+    await expect(page.getByTestId("extrude-editor")).toBeVisible();
+    await page.getByTestId("objects-to-cut-all").click();
+    await page.getByTestId("extrude-submit").click();
+    await expect
+      .poll(() => partVolume(page), { timeout: 60_000 })
+      .toBe(WALL_MM3 - 2 * PLATE_NOTCH_MM3 - 2 * STUD_NOTCH_MM3);
+    expect((await lastParams(page, wall))["cut_bodies"]).toBe("all");
   });
 
   test("the Hole dialog's Feature Scope warns rather than drop a scope at Blind", async ({
@@ -219,7 +258,7 @@ test.describe("Objects To Cut (CUT-OBJECTS-TO-CUT)", () => {
     await page.getByTestId(`hole-scope-${studB}`).click();
     await page.getByTestId("hole-depth-blind").click();
     await expect(page.getByTestId("hole-scope-note")).toContainText(
-      "1 scoped body is not cut",
+      "1 scoped body is kept, not cut",
     );
     // Back to through-all: the scope is still ticked, not dropped.
     await page.getByTestId("hole-depth-through").click();

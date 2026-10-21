@@ -284,21 +284,18 @@ class HoleParamsV1(BaseModel):
         "`null`/omitted cuts only the body that owns `face` (the Fusion 360 / "
         "SolidWorks default). The bore cuts each listed body coaxially; a "
         "counterbore / countersink recess seats in the owner only. A listed "
-        "body the bore cannot reach is `hole_off_body`",
+        "body the bore cannot reach is `hole_off_body`. A BLIND hole keeps its "
+        "scope (so switching back to through-all restores it) but cuts only "
+        "its owner: the scope is not read while the depth is blind",
     )
     _derive_position = model_validator(mode="after")(derive_hole_position)
 
     @model_validator(mode="after")
-    def _scope_is_through_all_and_distinct(self) -> "HoleParamsV1":
-        """A scope needs a through-all bore (a blind depth is measured on one
-        body) and names each body at most once."""
+    def _scope_is_distinct(self) -> "HoleParamsV1":
+        """A scope names each body at most once. A blind hole may carry one
+        (kept for a switch back to through-all) and cuts its owner only."""
         if not self.scope_bodies:
             return self
-        if not isinstance(self.depth, HoleThroughAll):
-            raise ValueError(
-                "scope_bodies requires a through_all depth: a blind hole's depth "
-                "is measured in the body that owns its face"
-            )
         ids = [ref.feature_id for ref in self.scope_bodies]
         if len(set(ids)) != len(ids):
             raise ValueError("scope_bodies names the same body more than once")
