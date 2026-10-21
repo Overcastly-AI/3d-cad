@@ -142,7 +142,7 @@ PRICE-BOOK-VERSION) and ROOF-MEMBER-RENUMBER.
    56 025 in³. Width 12 -> 14 ft gives tie beams of 161 and 58 725 in³. Both
    match an independent script to 1e-4. E2e: a Timber frame from Build lists
    4 Post, 2 Tie beam, 2 Girt and 8 Peg.
-4. [ ] **CUT-OBJECTS-TO-CUT** (fix now: wrong geometry; kernel-architect,
+4. [x] **CUT-OBJECTS-TO-CUT** (fix now: wrong geometry; kernel-architect,
    then frontend-builder for the dialog): an extrude, revolve, sweep, loft or
    pipe cut removes material from the active body only, so a notch drawn
    across a top plate and three studs cuts the plate and leaves the studs
@@ -164,6 +164,13 @@ PRICE-BOOK-VERSION) and ROOF-MEMBER-RENUMBER.
    is no slower than before, and an owner pick at 200 bodies takes under
    0.05 s. E2e: Extrude Cut across a wall lists the 4 bodies under Objects
    To Cut, and unticking one leaves it whole.
+   _Done:_ `cut_bodies` ("all", a list, or absent = active body), RESEARCH
+   §28; goldens `cut-objects-to-cut-b2-front-notch-studs-16-32-48` and
+   `framing-hole-d1-fillet-r0.25-first-stud-b2`; 150 stored trees
+   byte-identical; owner pick at 200 bodies 0.16 s -> 0.012 s; sketch
+   projection follows the owner; e2e `objects-to-cut.spec.ts`. The
+   sheet-metal edge picks and body-scope pattern/mirror stay on the active
+   body (Notes).
 5. [ ] **ROOF-L-DOUBLED-COMMON** (fix now: wrong geometry and a wrong
    price; kernel-architect): a stored `loft.roof` 1.2.0 L whose wing jacks
    land an ulp off the flush ridge-end common frames two coincident commons
@@ -333,11 +340,17 @@ One line each. The founder triages weekly; most are closed without work.
 - BOOLEAN-EMPTY-CUT: a Boolean subtract whose tool misses its target removes nothing with no error or warning (how 1.0.0's renumbered hole vanished); SolidWorks' Combine reports a tool that does not intersect.
 - WALL-GUARD-STRICT: the 1.0.0 guard compares a referenced member's placement, so a 1.0.0 joist that only lengthens (a deeper deck) is refused too; an ordinal id cannot tell growth from a renumber.
 - HOLE-SCOPE-UI: `scope_bodies` (a through-all Hole's Feature Scope) is wire and kernel only; the Hole dialog has no body list yet (SolidWorks' Feature Scope box).
+- HOLE-SCOPE-LIST: the Hole's Feature Scope lists every body of the part (64 rows on a framed wall, scrolling); SolidWorks picks scope bodies in the viewport.
 - HOLE-SCOPE-REPEAT: a pattern or mirror of a scoped Hole repeats its bore in the owner body only, not in the scoped bodies.
-- CUT-OBJECTS-TO-CUT: extrude/revolve/sweep/loft/pipe cuts remove from the active body only; Fusion's default cuts every body the tool meets (Objects To Cut).
+- CUT-LIVE-LIST: a new cut's Objects To Cut lists its bodies only once it is built (Edit); Fusion lists them live while the dialog is open, which needs a draft evaluate.
+- CUT-SCOPE-REPEAT: a pattern or mirror of a cut that met several bodies repeats it in the active body only (as HOLE-SCOPE-REPEAT).
+- CUT-ACTIVE-AFTER: a cut that does not cut the active body makes the first body it cut active (the Hole's owner rule), so a following merged add fuses there.
+- CUT-LEGACY-UPGRADE: a cut saved before Objects To Cut keeps the active body; its dialog offers "Cut every body it meets", one cut at a time.
+- CUT-PLUGIN-CUTS: plugin expansions (`loft.twisted_prism` cut) still emit cuts without `cut_bodies` (active body); changing that is a plugin version bump.
+- OWNER-SCAN-MOVED: the owner screen shortcuts an exact match only; a pick that resolves at the named or durable tier still scans every body (0.16 s at 200 boxes).
 - MULTIBODY-FILLET: a fillet, chamfer, shell or draft with picks on two bodies is refused (`subshapes_on_several_bodies`); Fusion applies one fillet across bodies.
 - REF-BACKFILL-MULTIBODY: the name backfill reads only the active body, so a stored pick on another body stays unnamed (safe: it never names a wrong face).
-- MULTIBODY-ACTIVE-REFS: sketch edge projection, sheet-metal flange/hem/relief edges and body-scope pattern/mirror still resolve on the active body, not the owner of the pick.
+- MULTIBODY-ACTIVE-REFS: sheet-metal flange/hem/relief edges and body-scope pattern/mirror still resolve on the active body, not the owner of the pick (sketch projection follows the owner since CUT-OBJECTS-TO-CUT).
 - B2-E2E-INTERFERENCE: a part has no interference check (only assemblies have Clash), so a building's members cannot be checked for overlap in the UI; SolidWorks' Interference Detection and Fusion's Interference both run on a multibody part.
 - B2-E2E-HOSTS: walls placed from the Build row are named "Wall 1".."Wall 4", so the door's and window's host list reads by number, not by side; Chief Architect and Revit pick the host wall in the plan view.
 - THUMB-WARM: thumbnails render on first library view, not on save; Fusion renders at save. A warm after the modeller leaves the editor would hide the first-view wait.

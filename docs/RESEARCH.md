@@ -2744,12 +2744,10 @@ SolidWorks cut the body the picked face belongs to.
   body, so picks on two bodies are `subshapes_on_several_bodies`; Fusion
   would fillet both, which is a later slice. Predicate edge selections
   (`all_edges`, `axis_parallel`) still mean the active body.
-- **Not changed, by design or for later:** extrude, revolve, sweep, loft and
-  pipe CUTs remove from the active body (Fusion's default is every body the
-  tool meets, its Objects To Cut list; that is a scope decision, not a pick
-  bug); body-scope pattern and mirror repeat the active body; sketch edge
-  projection and the sheet-metal flange, hem and relief resolve on the
-  active body.
+- **Not changed, by design or for later:** body-scope pattern and mirror
+  repeat the active body; the sheet-metal flange, hem and relief resolve on
+  the active body. (Cuts and sketch projection followed: Objects To Cut,
+  below.)
 - **Checked:** goldens `hole-through-r5-first-of-two-bodies-40x25x10` and
   `hole-scope-through-two-bodies-r3-40x25x10`, each equal to a direct
   build123d construction in volume, area, centroid, topology and mesh
@@ -2775,3 +2773,75 @@ SolidWorks cut the body the picked face belongs to.
   save landing between the read and the write could still overwrite.
   Existing books start at version 1. The downgrade drops the version and the
   sheet prices (an older Loft cannot hold them) and keeps every lumber price.
+
+### Objects To Cut (CUT-OBJECTS-TO-CUT)
+
+An extrude, revolve, sweep, loft or pipe CUT removed material from the active
+body only, so a notch drawn across a top plate and three studs cut the plate
+and left the studs whole, and a cut through an earlier stud alone was
+refused (`cut_removed_nothing`). Fusion 360's Objects To Cut lists every body
+the tool meets, ticked; SolidWorks' Feature Scope has *All bodies* (applied
+on every rebuild, so a body added later is cut too) and *Selected bodies*.
+
+- **`cut_bodies` on the five cut params** (`loft_wire/cut_bodies.py`):
+  `"all"` is every body the tool meets, found on each rebuild (SolidWorks'
+  All bodies, Fusion's default list); a list names bodies by base feature
+  (the boolean operand rule) and cuts exactly those; absent is the active
+  body. A new cut stores `"all"` (web dialogs and loft-script); unticking a
+  body stores the ticked list, and ticking every row again is `"all"`. A
+  scope on an add, an empty list or a body named twice is a 422. `"all"`
+  was chosen over storing the met list because a framing edit adds and
+  renumbers members, and a cut over a wall should keep cutting the studs
+  under it; a list is the narrowing choice, as in both incumbents.
+- **Stored cuts are versioned by absence, not fixed in place.** Unlike
+  HOLE-ACTIVE-BODY, an active-body cut is not wrong for every stored part: a
+  modeller may have relied on it (a cut through two bodies meant for one).
+  So absent keeps today's code path exactly. All 150 stored trees (tree
+  goldens, sheet-metal goldens, test fixtures) rebuild to identical GLB,
+  BREP, statuses and errors before and after (hashed at the HOLE-ACTIVE-BODY
+  tip and with this change). Every Save of a stored cut keeps it absent; the
+  dialog offers "Cut every body it meets" to opt in.
+- **What is cut:** each body (tree order) is cut by every tool that reaches
+  it, through the shared guarded boolean and its CM-3 predicate. An
+  axis-aligned box test (`bounds_apart`: OCCT's boxes grown by shape
+  tolerance, a sufficient condition for "shares no volume") skips the
+  booleans it rules out. Errors stay typed and leave every body untouched:
+  nothing cut, or one region of a multi-region profile meeting no body, is
+  `cut_removed_nothing`; a LISTED body the cut misses is
+  `cut_removed_nothing` pinned to that body (as a scoped Hole's
+  `hole_off_body`); a listed id that is not a current body is
+  `reference_unresolved`. `FeatureResult.cut_bodies` reports the bodies cut,
+  which the dialog's list shows.
+- **The active body after a cut** stays active if it was cut, else the first
+  body cut becomes active (the Hole's owner rule: the body the feature
+  touched), so a pattern or mirror of the cut repeats it there. A pattern or
+  mirror of a cut over several bodies repeats it in that one body (BACKLOG
+  CUT-SCOPE-REPEAT).
+- **Sketch edge projection follows the owner.** Each projected edge resolves
+  on the body owning it (`edge_owner_body_id`), grouped so each body is
+  enumerated once; an edge of an earlier member no longer comes out sick
+  (or, with a congruent last member, re-found there).
+- **The owner scan's exact screen.** An exact match puts the stored point
+  (a face's centroid, an edge's midpoint) within 1e-6 mm of the body, so only
+  a body whose box (memoised per shape by weak reference, grown 1e-3 mm)
+  holds it can match exactly. Exact is the best tier, so when screened
+  bodies match exactly the ranking over all bodies would return the same
+  answer (the active body on a tie, else the one body, else ambiguous); when
+  none does, the full scan runs as before. Measured on 200 blocks, a hole on
+  the first: 0.163 s -> 0.012 s cold, 2 full matches instead of 201
+  (`test_an_owner_pick_at_200_bodies_...`). B5's trees have no picks, so
+  their rebuild path is unchanged (0.33 / 0.19 / 1.16 s before, within noise
+  after).
+- **Hole Feature Scope in the dialog (HOLE-SCOPE-UI).** The Hole dialog lists
+  the part's bodies to add to a through-all bore. Switching to Blind keeps the
+  ticks and says "Blind cuts its own body only: N scoped bodies are not cut"
+  (the wire cannot carry a scope on a blind hole); switching back restores
+  them.
+- **Checked:** goldens `cut-objects-to-cut-b2-front-notch-studs-16-32-48`
+  (B2 plus a notch 1 in deep, X 10..52, Z 88..96 in: 106.3125 in^3 from three
+  studs and both top plates, hand-derived) and
+  `framing-hole-d1-fillet-r0.25-first-stud-b2` (a 1 in hole and an R0.25
+  fillet on B2's first stud, the first of 48 bodies), each equal member for
+  member to an independent build123d construction of the 48 boxes typed
+  from buildings.md (`tests/test_cut_objects_to_cut.py`, which also runs
+  every cut verb across two blocks against build123d tools).
