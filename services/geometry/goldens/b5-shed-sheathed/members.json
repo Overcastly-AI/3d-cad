@@ -590,6 +590,16 @@
     }
   },
   {
+    "feature_id": "e8289544-9342-551a-8bcb-209e1f6c77fd",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
     "feature_id": "a9188845-b19d-524e-bed2-9495be024c1e",
     "role": "stud",
     "title": "Stud",
@@ -741,6 +751,16 @@
   },
   {
     "feature_id": "f5cd866e-210e-505c-9140-0801a8d092e9",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "79c7e36a-3390-55cc-81c3-2da0981f3a27",
     "role": "sheathing",
     "title": "Sheathing",
     "metadata": {
@@ -971,6 +991,26 @@
   },
   {
     "feature_id": "5422e6df-2853-5340-9f26-5d8454499d6a",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "324505fa-028b-5a6a-ab0d-b92269ba5350",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c0315f17-e8b7-5a25-8139-620f1e3d0c57",
     "role": "sheathing",
     "title": "Sheathing",
     "metadata": {

@@ -291,11 +291,15 @@ plywood 4x8 at $42.50.
   17 280 / 4 608 = 3.75, so **4 sheets** ($170.00).
 - **Wall sheathing:** 7/16 OSB on each wall's exterior face, full height
   (97.125), 48 in panels from the wall start (3 per wall, 12 in all), the
-  rough openings cut out. The net area is 45 893 in² (front 13 986 - 3 135,
-  right 10 975.125 - 894.25, back 13 986, left 10 975.125), so the volume is
-  **20 078.1875 in³**. Each sheet is 4x9, because the walls are taller than
-  96: 45 893 / 5 184 = 8.85, so **9 sheets** ($224.82). Corners are butted
-  in this target.
+  rough openings cut out: 45 893 in² (front 13 986 - 3 135, right
+  10 975.125 - 894.25, back 13 986, left 10 975.125). At each outside corner
+  the side wall's sheathing laps past its end over the front or back wall's
+  end grain and sheathing edge, so the corner is closed: 4 rips of 3.9375
+  (3.5 + 7/16) x 97.125, 1 529.71875 in², X -7/16..0 and 144..144 7/16 at
+  Y -7/16..3.5 and 116.5..120 7/16. That is 16 panels and 47 422.71875 in²,
+  so the volume is **20 747.439453125 in³**. Each sheet is 4x9, because the
+  walls are taller than 96: 47 422.71875 / 5 184 = 9.15, so **10 sheets**
+  ($249.80).
 
 Cut list (floor): Joist 2x8 10 @ 117 (10 ft); Rim 2x8 2 @ 144 (12 ft); Sill
 PT 2x6 2 @ 144 (12 ft) and 2 @ 109 (10 ft).

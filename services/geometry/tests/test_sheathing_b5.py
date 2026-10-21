@@ -7,13 +7,16 @@ OSB, with the door and window, standing on it, on STEP.
 checked here against numbers typed from the spec by hand:
 
 1. the cut list counts sheets by area, as Chief Architect does: OSB 12
-   panels, 45 893 in^2, 9 sheets of 4x9 (the walls are 97.125 tall); plywood
+   panels and 4 corner rips lapping the side walls past the front and back
+   walls' ends (3.9375 x 97.125), 47 422.71875 in^2, 10 sheets of 4x9 (the
+   walls are 97.125 tall); plywood
    6 panels, 17 280 in^2, 4 sheets of 4x8 (3.75 by area); at $24.98 a 4x9 OSB
-   sheet and $42.50 a 4x8 plywood sheet the lines extend to $224.82 and
+   sheet and $42.50 a 4x8 plywood sheet the lines extend to $249.80 and
    $170.00;
 2. the exported STEP's solids are, solid for solid, an independent build123d
    script of the spec's members (panels as boxes less the rough openings),
-   the OSB summing to 20 078.1875 in^3 and the subfloor to 12 420 to 1e-4;
+   the OSB summing to 20 747.439453125 in^3 and the subfloor to 12 420 to
+   1e-4;
 3. interference none: no panel shares volume with the framing or another
    panel, and no panel enters a rough opening.
 """
@@ -205,6 +208,12 @@ PANELS: list[tuple[Bounds, Bounds | None]] = [
     ((144, 144 + T_OSB, 68.5, 116.5, BASE, TOP), WINDOW_CUT),
     ((144, 144 + T_OSB, 20.5, 68.5, BASE, TOP), WINDOW_CUT),
     ((144, 144 + T_OSB, 3.5, 20.5, BASE, TOP), None),
+    # Corner rips: each side wall's plane laps over the front and back walls'
+    # end grain and OSB edge, 3.5 + 7/16 wide (WALL-SHEATHING-CORNER).
+    ((-T_OSB, 0, -T_OSB, 3.5, BASE, TOP), None),
+    ((-T_OSB, 0, 116.5, 120 + T_OSB, BASE, TOP), None),
+    ((144, 144 + T_OSB, 116.5, 120 + T_OSB, BASE, TOP), None),
+    ((144, 144 + T_OSB, -T_OSB, 3.5, BASE, TOP), None),
 ]
 
 
@@ -288,12 +297,12 @@ def test_the_cut_list_buys_sheets_by_area() -> None:
     ]
     assert rows == [
         ("Subfloor", "23/32 plywood", "plywood", 6, "4x8", 17280, 4, 4250, 17000),
-        ("Sheathing", "7/16 OSB", "osb", 12, "4x9", 45893, 9, 2498, 22482),
+        ("Sheathing", "7/16 OSB", "osb", 16, "4x9", 47422.71875, 10, 2498, 24980),
     ]
-    # By hand: 17 280 / 4 608 = 3.75 -> 4; 45 893 / 5 184 = 8.85 -> 9.
+    # By hand: 17 280 / 4 608 = 3.75 -> 4; 47 422.71875 / 5 184 = 9.15 -> 10.
     assert 17280 / (48 * 96) == 3.75
-    assert math.ceil(45893 / (48 * 108)) == 9
-    assert 4 * 4250 == 17000 and 9 * 2498 == 22482
+    assert math.ceil(47422.71875 / (48 * 108)) == 10
+    assert 4 * 4250 == 17000 and 10 * 2498 == 24980
     # The framing's lines are B5's floor and B2's door-and-window walls.
     lumber = Counter(
         (line.member, line.profile, line.quantity, round(line.length_mm / IN, 6))
@@ -303,7 +312,7 @@ def test_the_cut_list_buys_sheets_by_area() -> None:
     assert sum(q for (_, _, q, _) in lumber.elements()) == 16 + 64
     assert cut_list.unclassified == 0
     assert cut_list.unpriced_lines == len(cut_list.lines) - 2
-    assert cut_list.total_price_cents == 17000 + 22482
+    assert cut_list.total_price_cents == 17000 + 24980
 
 
 def test_the_csv_shows_the_area_and_the_sheet() -> None:
@@ -320,15 +329,15 @@ def test_the_csv_shows_the_area_and_the_sheet() -> None:
     plywood = next(r for r in rows if "23/32 plywood" in r)
     osb = next(r for r in rows if "7/16 OSB" in r)
     assert plywood.endswith(",6,,,17280,4x8 sheet,,4,42.50,Each,170.00")
-    assert osb.endswith(",12,,,45893,4x9 sheet,,9,24.98,Each,224.82")
+    assert osb.endswith(",16,,,47422.7188,4x9 sheet,,10,24.98,Each,249.80")
 
 
 # --- 2. The STEP against the spec and an independent script -------------------------
 
 
 def test_the_spec_is_the_backlogs_arithmetic() -> None:
-    """The hand-typed panels in exact rationals: 12 panels, 45 893 in^2,
-    20 078.1875 in^3; the subfloor 12 420 in^3."""
+    """The hand-typed panels in exact rationals: 16 panels (4 of them corner
+    rips), 47 422.71875 in^2, 20 747.439453125 in^3; the subfloor 12 420."""
     t = Fraction(7, 16)
     area = Fraction(0)
     for panel, cut in PANELS:
@@ -340,9 +349,9 @@ def test_the_spec_is_the_backlogs_arithmetic() -> None:
             hi = min(cx1, x1) if x1 - x0 > y1 - y0 else min(cy1, y1)
             face -= (hi - lo) * (cz1 - cz0)
         area += face
-    assert len(PANELS) == 12
-    assert area == 45893
-    assert area * t == Fraction(321251, 16) == 20078.1875
+    assert len(PANELS) == 16
+    assert area == 45893 + 4 * Fraction(63, 16) * Fraction(777, 8) == 47422.71875
+    assert area * t == Fraction(10622689, 512) == 20747.439453125
     sub = [b for b in spec_floor() if b[4] == 8.75]
     assert len(sub) == 6
     plywood = sum(
@@ -353,14 +362,14 @@ def test_the_spec_is_the_backlogs_arithmetic() -> None:
 
 def test_the_step_is_the_independent_scripts(step_solids: list[Solid]) -> None:
     script = _script()
-    assert len(step_solids) == len(script) == 16 + 6 + 64 + 12
+    assert len(step_solids) == len(script) == 16 + 6 + 64 + 16
     assert Counter(_signature(s) for s in step_solids) == Counter(
         _signature(s) for s in script
     )
     osb = [s for s in step_solids if _is_osb(s)]
-    assert len(osb) == 12
+    assert len(osb) == 16
     volume = sum(float(measure_shape(s).volume) for s in osb) / IN**3
-    assert volume == pytest.approx(20078.1875, abs=1e-4)
+    assert volume == pytest.approx(20747.439453125, abs=1e-4)
     plywood = [s for s in step_solids if _is_plywood(s)]
     assert len(plywood) == 6
     volume = sum(float(measure_shape(s).volume) for s in plywood) / IN**3
@@ -427,7 +436,7 @@ def test_every_body_weighs_by_its_member_material() -> None:
     assert response.status_code == 200, response.text
     pt = 4174.5 + (144 + 2 * 113 + 2 * 53) * 5.25
     total = 20030.25 + 28942.125
-    osb, plywood = 20078.1875, 12420.0
+    osb, plywood = 20747.439453125, 12420.0
     want = (pt * 582 + (total - pt) * 450 + osb * 641 + plywood * 577) * 1e-6 * IN**3
     assert response.json()["properties"]["mass_g"] == pytest.approx(want, rel=1e-12)
 

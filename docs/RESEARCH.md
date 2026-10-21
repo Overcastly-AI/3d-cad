@@ -2412,10 +2412,7 @@ and reframe it, a material per member, and a cut list that is always current.
     panel's id on the panel at that place.
   - *Wall panels.* The full wall height (base of the bottom plate to the top
     of the top plate) on the exterior face, outside the framing, 48 in wide
-    from the wall's start with the last cut to the end, butted at corners:
-    each wall sheathes its own length, so the corner's 7/16 x framing-depth
-    strip is left open, as the target's 45 893 in² requires (WALL-SHEATHING-
-    CORNER). Every hosted door's and window's rough opening is cut out; an
+    from the wall's start with the last cut to the end. Every hosted door's and window's rough opening is cut out; an
     opening inside a panel is a hole, one across a panel joint notches both,
     and a panel an opening cuts in two is two panels. A panel's outline is
     the panel rectangle less the openings, traced as a rectilinear region on
@@ -2438,11 +2435,23 @@ and reframe it, a material per member, and a cut list that is always current.
     over that) and cuts it from the shortest sheet covering its other two
     extents; panels group by product, material and sheet, and a line buys
     ceil(net area / sheet area) sheets, Chief Architect's count.
+  - *Outside corners are lapped* (SHEATHING review, WALL-SHEATHING-CORNER):
+    butted corners left 3.9375 in of bare end grain at each B2 corner and the
+    count a sheet short. Where wall B butts wall T (B's end on T's interior
+    face, B's face flush with T's end, square, same base), B's plane carries
+    a rip T's depth plus T's sheathing thickness wide past B's end, in B's
+    product, as Chief Architect runs one wall's sheathing past the corner.
+    An expansion sees only earlier features, so the later wall of the two
+    emits it, and the rip is the same in any tree order. Lone walls and other
+    joints keep butt ends. Openings within 1/8 in of a joint snap to it (the
+    trade's minimum rip).
   - *Numbers.* The BACKLOG's figures held in an independent exact-rational
-    script before use: B2's walls 12 panels, 45 893 in², 20 078.1875 in³, 9
-    sheets of 4x9; B5's subfloor 6 panels, 12 420 in³, 4 sheets of 4x8 (3.75).
-    Golden `b5-shed-sheathed` (B5's sheathed floor and B2's sheathed walls
-    with the door and window on it, 81 470.5625 in³) matches that script and
+    script before use (12 panels, 45 893 in², 9 sheets); with the corners
+    lapped, re-derived the same way, B2's walls are 16 panels, 47 422.71875
+    in², 20 747.439453125 in³ and 10 sheets of 4x9; B5's subfloor 6 panels,
+    12 420 in³, 4 sheets of 4x8 (3.75). Golden `b5-shed-sheathed` (B5's
+    sheathed floor and B2's sheathed walls with the door and window on it,
+    82 139.814453125 in³) matches that script and
     a build123d one (panels as boxes less the openings) solid for solid, with
     no interference.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
@@ -2749,7 +2758,7 @@ SolidWorks cut the body the picked face belongs to.
   entry's profile is a lumber profile or a sheet product (`osb_7_16`); a
   sheet product's entry is `each` with its `sheet` ('4x8', '4x9', '4x10')
   and no stock length. A sheet line (one per product, material and sheet) is
-  priced by that entry times its sheets: B2's OSB 9 x $24.98 = $224.82, B5's
+  priced by that entry times its sheets: B2's OSB 10 x $24.98 = $249.80, B5's
   plywood 4 x $42.50 = $170.00. The CHECKs became "each has a stock length
   or a sheet" and "never both". The CSV gains `Area (sq <unit>)`; a sheet
   line has its area there, `4x9 sheet` as its stock and no lengths.

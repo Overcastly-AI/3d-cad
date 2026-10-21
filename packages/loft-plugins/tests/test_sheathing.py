@@ -2,8 +2,10 @@
 
 Checked against ``docs/reference-parts/buildings.md`` B2 and B5 and the
 BACKLOG's acceptance, typed by hand: B2's four walls in 7/16 OSB are 12
-panels with a net area of 45 893 in^2 (20 078.1875 in^3) once the door's
-38 x 82.5 and the window's 24.5 x 36.5 are cut out; B5's subfloor is 6
+panels with a net area of 45 893 in^2 once the door's 38 x 82.5 and the
+window's 24.5 x 36.5 are cut out, plus 4 corner rips (3.9375 x 97.125) that
+lap the side walls past the front and back walls' ends: 47 422.71875 in^2,
+20 747.439453125 in^3, 10 sheets of 4x9 (SHEATHING review); B5's subfloor is 6
 panels, 12 420 in^3. The new versions' framing is the old versions'
 expansion member for member (the wall's is WALL-MEMBER-RENUMBER's 1.1.0,
 the floor's 1.0.0), so a stored wall or floor and its goldens
@@ -42,6 +44,7 @@ from loft_plugins.builtin.wall import Opening, WallSpec
 from loft_wire.cut_list import CutListMember
 from loft_wire.datum_angle import DatumAngleParams
 from loft_wire.features import (
+    CustomFeature,
     MAX_TREE_FEATURES,
     DatumFeature,
     DatumOffsetFromParams,
@@ -124,23 +127,42 @@ def wall(
     feature_id: uuid.UUID = B2_WALLS["front"][0],
     openings: tuple[Hosted, ...] = (),
     plugin: Any = WALL,
+    earlier: dict[uuid.UUID, Any] | None = None,
 ) -> list[ExpandedMember]:
     inputs = canonical_inputs(plugin.manifest, raw or {})
-    return expand(plugin, feature_id, inputs, {}, hosted=openings)
+    return expand(plugin, feature_id, inputs, earlier or {}, hosted=openings)
+
+
+def envelope(raw: dict[str, Any], version: str = "1.2.0") -> CustomFeature:
+    """A stored ``loft.wall`` feature, as documents hands a later feature."""
+    plugin = REGISTRY.get("loft.wall", version)
+    inputs = canonical_inputs(plugin.manifest, raw)
+    return CustomFeature.model_validate(
+        {
+            "type": "custom",
+            "version": 1,
+            "params": {
+                "plugin_id": "loft.wall",
+                "plugin_version": version,
+                "inputs": inputs,
+            },
+        }
+    )
 
 
 def b2(base: float = 0.0, extra: dict[str, Any] | None = None) -> list[ExpandedMember]:
     """B2's four walls with the door and window, on *base*."""
     out: list[ExpandedMember] = []
+    earlier: dict[uuid.UUID, Any] = {}
     for name, (feature_id, raw) in B2_WALLS.items():
         openings: tuple[Hosted, ...] = ()
         if name == "front":
             openings = (hosted("loft.door", "Door 1", feature_id, B2_DOOR),)
         if name == "right":
             openings = (hosted("loft.window", "Window 1", feature_id, B2_WINDOW),)
-        out += wall(
-            {**raw, "elevation_mm": base * IN, **(extra or OSB)}, feature_id, openings
-        )
+        full = {**raw, "elevation_mm": base * IN, **(extra or OSB)}
+        out += wall(full, feature_id, openings, earlier=dict(earlier))
+        earlier[feature_id] = envelope(full)
     return out
 
 
@@ -304,21 +326,99 @@ def test_an_unfloored_floor_is_the_1_0_0_floor() -> None:
 # --- B2's sheathing ---------------------------------------------------------------
 
 
-def test_b2s_osb_is_12_panels_of_45_893_in2() -> None:
+def test_b2s_osb_is_16_panels_of_47_422_71875_in2() -> None:
+    """12 panels on the four faces (45 893 in^2 net of the door and window)
+    and 4 corner rips lapping each side wall past the front and back walls'
+    ends: 3.5 + 7/16 = 3.9375 wide, 97.125 tall."""
     ms = b2()
     panels = _loops(ms, "sheathing")
-    assert len(panels) == 12
+    assert len(panels) == 16
     area = sum(_net_area(loops) for loops, _ in panels)
-    assert area == pytest.approx(45893, abs=1e-6)
-    # The BACKLOG's figure, by hand: four walls' faces less the two ROs.
-    assert 2 * 144 * 97.125 + 2 * 113 * 97.125 - 38 * 82.5 - 24.5 * 36.5 == 45893
+    rips = 4 * Fraction(63, 16) * Fraction(777, 8)
+    faces = 2 * 144 * 97.125 + 2 * 113 * 97.125 - 38 * 82.5 - 24.5 * 36.5
+    assert faces == 45893
+    assert faces + rips == Fraction(1517527, 32) == 47422.71875
+    assert area == pytest.approx(47422.71875, abs=1e-6)
+    assert math.ceil(47422.71875 / (48 * 108)) == 10
     for _, m in panels:
         assert isinstance(m.feature, ExtrudeFeature)
         assert m.feature.params.distance_mm == pytest.approx(7 / 16 * IN, abs=1e-12)
         assert m.metadata is not None
         assert (m.metadata.profile, m.metadata.material) == ("7/16 OSB", "osb")
     volume = area * 7 / 16
-    assert volume == pytest.approx(20078.1875, abs=1e-6)
+    assert volume == pytest.approx(20747.439453125, abs=1e-6)
+
+
+def _rips(ms: list[ExpandedMember]) -> dict[str, tuple[float, float, float, float]]:
+    """Each corner rip by name: its sketch box (in), x0, x1, y0, y1."""
+    out: dict[str, tuple[float, float, float, float]] = {}
+    for loops, m in _loops(ms, "sheathing"):
+        if m.name is not None and m.name.startswith(("corner/", "return/")):
+            xs = [x for x, _ in loops[0]]
+            ys = [y for _, y in loops[0]]
+            out[f"{m.name}@{m.id}"] = (min(xs), max(xs), min(ys), max(ys))
+    return out
+
+
+def test_each_outside_corner_is_closed_once_by_the_later_wall() -> None:
+    """Tree order front, left, back, right. Each side wall butts the front
+    and back walls, so its exterior plane laps past its ends over their end
+    grain and sheathing edge. The later wall of each pair emits that rip:
+    left its start (front is earlier), back the left wall's end (its own
+    start, ``return/start``), right both of its ends."""
+    ms = b2()
+    names = sorted(r.split("@")[0] for r in _rips(ms))
+    assert names == ["corner/end", "corner/start", "corner/start", "return/start"]
+    # In the side walls' YZ planes (sketch x is world Y, y is Z): Y -7/16..3.5
+    # at the front and 116.5..120 7/16 at the back, full height.
+    boxes = sorted(_rips(ms).values())
+    assert boxes == [
+        (-0.4375, 3.5, 0.0, 97.125),
+        (-0.4375, 3.5, 0.0, 97.125),
+        (116.5, 120.4375, 0.0, 97.125),
+        (116.5, 120.4375, 0.0, 97.125),
+    ]
+
+
+def test_the_corners_do_not_depend_on_the_tree_order() -> None:
+    """The same four walls in the reverse order close the same corners with
+    the same rips (only which wall emits each one changes)."""
+
+    def boxes(order: list[str]) -> list[tuple[float, float, float, float]]:
+        out: list[ExpandedMember] = []
+        earlier: dict[uuid.UUID, Any] = {}
+        for name in order:
+            feature_id, raw = B2_WALLS[name]
+            full = {**raw, **OSB}
+            out += wall(full, feature_id, earlier=dict(earlier))
+            earlier[feature_id] = envelope(full)
+        return sorted(_rips(out).values())
+
+    forward = boxes(["front", "left", "back", "right"])
+    assert boxes(["right", "back", "left", "front"]) == forward
+    assert boxes(["left", "right", "front", "back"]) == forward
+
+
+def test_a_lone_wall_keeps_its_butt_ends() -> None:
+    """With no wall at its ends (and a wall that only touches it elsewhere)
+    nothing laps: the e2e's 144 wall stays 3 panels."""
+    assert _rips(wall(OSB)) == {}
+    front_id, front = B2_WALLS["front"]
+    # A wall standing on another base does not join it.
+    left_id, left = B2_WALLS["left"]
+    high = {**left, **OSB, "elevation_mm": 10 * IN}
+    earlier = {front_id: envelope({**front, **OSB})}
+    assert _rips(wall(high, left_id, earlier=earlier)) == {}
+
+
+def test_an_unsheathed_through_wall_still_gets_a_closing_rip() -> None:
+    """The rip is the butting wall's sheathing: the front wall unsheathed,
+    the left wall still laps its 3.5 framing depth (no sheathing edge)."""
+    front_id, front = B2_WALLS["front"]
+    left_id, left = B2_WALLS["left"]
+    earlier = {front_id: envelope(front)}
+    rips = _rips(wall({**left, **OSB}, left_id, earlier=earlier))
+    assert list(rips.values()) == [(0.0, 3.5, 0.0, 97.125)]
 
 
 def test_the_panels_are_48_from_each_walls_start_and_cut_round_the_openings() -> None:
@@ -672,12 +772,12 @@ def test_the_golden_is_the_plugins_expansion() -> None:
 def test_the_golden_has_every_member() -> None:
     expansion = golden_expansion()
     bodies = Counter(m.role for m in expansion if isinstance(m.feature, ExtrudeFeature))
-    assert bodies["sheathing"] == 12
+    assert bodies["sheathing"] == 16
     assert bodies["subfloor"] == 6
     assert bodies["joist"] == 10
     # The floor's 16, its 6 panels, B2's 64 framing members (door and
-    # window framed) and 12 panels.
-    assert sum(bodies.values()) == 16 + 6 + 64 + 12
+    # window framed), 12 panels and 4 corner rips.
+    assert sum(bodies.values()) == 16 + 6 + 64 + 16
 
 
 def test_the_longest_sheathed_wall_fits_the_tree_bound() -> None:
@@ -744,3 +844,13 @@ def test_a_window_across_a_strip_splits_it_into_rows() -> None:
 def test_subfloor_panels_are_named_by_row_and_column() -> None:
     names = [m.name for m in floor() if m.role == "subfloor"]
     assert names == [f"row/{r}/{c}" for r in range(3) for c in range(2)]
+
+
+def test_an_opening_within_the_trade_minimum_of_a_joint_takes_the_joint() -> None:
+    """An opening's edge 1/10 in past a joint leaves no 1/10 in strip: the
+    panel stops at the joint (1/8 in, the trade's minimum rip); 1/4 in past
+    it, the strip is cut."""
+    (left,) = rect_minus_rects((0, 48, 0, 96), [(10, 47.9, 40, 70)])
+    assert (48.0, 40) in left.outer and (47.9, 40) not in left.outer
+    (wide,) = rect_minus_rects((0, 48, 0, 96), [(10, 47.75, 40, 70)])
+    assert wide.holes == [[(10, 40), (10, 70), (47.75, 70), (47.75, 40)]]

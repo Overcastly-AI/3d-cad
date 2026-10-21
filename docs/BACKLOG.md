@@ -116,6 +116,10 @@ ROOF-VALLEY.
    downgrades. E2e: a 144 in Wall from Build with OSB ticked lists 3 sheets
    of 4x9, and a $24.98 per-sheet entry in the dialog extends it to $74.94.
 3. [x] **TIMBER-FRAME** (`loft.timber_frame`, founder goal; kernel-architect):
+   _Revised in review (2026-10-21):_ corners are lapped, not butted, so B2's
+   walls are 16 panels, 47 422.71875 in², 20 747.439453125 in³ and 10 sheets
+   ($249.80); buildings.md B5 has the derivation.
+3. [ ] **TIMBER-FRAME** (`loft.timber_frame`, founder goal; kernel-architect):
    a frame of bents, as built in Cadwork, hsbCAD and the SketchUp timber
    framing extensions. One joint placement cuts both members: a blind
    mortise in the post, a tenon on the beam, and a peg through both (the
@@ -678,10 +682,10 @@ One line each. The founder triages weekly; most are closed without work.
 - ROOF-SHEATHING: roof planes get no sheathing; after SHEATHING, a gable's two planes first (rectangles), then hips and valleys (triangles and trapezoids).
 - FLOOR-WALLS-ON-FLOOR: a wall's base elevation is typed (8.75 on B5's floor); Chief Architect seats walls on the floor below automatically. A wall could read a picked floor's framing top (later its subfloor's) as a feature input.
 - FLOOR-IDS: `loft.floor` 1.0.0 names joists by slot with integer indices (`joist/0`, `joist/1` the end joists, `joist/k+1` slot k), so it does not have WALL-MEMBER-RENUMBER's bug; if that fix adds string slot names, the floor can adopt them in a 1.1.0.
-- WALL-SHEATHING-CORNER: each wall sheathes only its own length (the target's 45 893 in²), so an outside corner leaves a 7/16 x stud-depth strip open; Chief Architect runs the through wall's sheathing past the corner.
+- WALL-SHEATHING-JOINTS: outside corners are lapped only where one wall butts another square on the same base (B2's corners); a mitred or offset corner, walls on different bases and T-junctions keep butt ends, and a wall end within 1/8 in past a joint still leaves a hair panel (only openings snap).
 - SHEATHING-OVER-RIM: wall sheathing stops at the wall's base; on a platform floor real OSB laps the rim joist down to the sill (Chief's sheathing extension), which would also tie the walls to the floor.
 - SHEATHING-WALL-BASE: walls do not read the floor, so a wall on a sheathed floor needs its base elevation set to the subfloor's top by hand (B5: 9.46875); at 8.75 the bottom plates overlap the subfloor and a part has no interference check (B2-E2E-INTERFERENCE).
 - SUBFLOOR-OPTIONS: the subfloor offers 23/32 plywood only; 23/32 T&G OSB (AdvanTech) is the common alternative, and the panels are not glued or T&G in the model.
 - SHEATHING-TREE-SIZE: each panel is a sketch and an extrude, so an 80 x 80 ft floor at 8 in o.c. with its subfloor is 676 features of the 1,000-feature tree (PLUGIN-CAP).
 - CUT-LIST-SHEET-WASTE: a sheet line shows its net area and sheets but not the offcut area (sheets x sheet area - net area), which Chief's materials list also omits.
-- PRICE-BOOK-428: a client that PUTs the price book without If-Match now gets 428; loft-script has no price-book helper, so only raw API callers are affected.
+- PRICE-BOOK-428: a client that PUTs the price book without If-Match now gets 428 (OPERATIONS upgrade notes); loft-script has no price-book helper, so only raw API callers are affected.

@@ -8,9 +8,24 @@ version's expansion unchanged, then the panels:
 * ``loft.wall`` 1.2.0 adds **Exterior sheathing** (None, 7/16 OSB or 15/32
   plywood): panels the full wall height (base of the bottom plate to the top
   of the top plate) on the exterior face, outside the framing, 48 in wide from
-  the wall's start, the last one cut to the wall's end, butted at corners (each
-  wall sheathes its own length), with every hosted door's and window's rough
-  opening cut out. A panel an opening cuts in two is two panels.
+  the wall's start, the last one cut to the wall's end, with every hosted
+  door's and window's rough opening cut out. A panel an opening cuts in two is
+  two panels; an opening's edge within 1/8 in of a joint takes the joint, so
+  no hair-thin strip is left.
+
+**Outside corners** (WALL-SHEATHING-CORNER). Where wall B butts wall T (B's
+end on T's interior face, B's exterior face flush with T's end, square, on
+the same base: B2's side walls butting its front and back walls), the
+sheathing in B's plane laps past B's end over T's end grain and sheathing
+edge: a rip T's framing depth plus T's sheathing thickness wide, B's full
+height, in B's product, so the corner is closed with no overlap. This is
+Chief Architect's convention of running one wall's sheathing past the
+corner; it is the butting wall's sheathing, so an unsheathed B leaves the
+corner as it is. An expansion sees only the features before it, so the
+LATER of the two walls emits the rip (``corner/<end>`` on B, or
+``return/<end>`` on T): the same rip whatever the tree order. A wall whose
+ends meet no wall this way (a lone wall, a mitred or offset corner, walls
+on different bases) keeps its butt ends.
 * ``loft.floor`` 1.1.0 adds **Subfloor** (23/32 plywood by default, or None):
   4x8 panels on the joists' top (:attr:`FloorSpec.framing_top`), the long
   edge across the joists, rows 48 in along the joists from the floor's start
@@ -41,9 +56,11 @@ axis at an angle from ``YZ``, offset to the face. A floor's panels lie on one
 import math
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 from loft_wire.datum_angle import DatumAngleParams, DatumOriginAxisRef
 from loft_wire.features import (
+    CustomFeature,
     DatumFeature,
     DatumOffsetFromParams,
     DatumOffsetParams,
@@ -65,7 +82,7 @@ from loft_wire.plugins import (
 from loft_wire.sheet_goods import SHEET_GOODS_BY_KEY, SheetGood, SheetGoodKey
 from loft_wire.sketch import Point2D, SketchLine
 
-from loft_plugins.api import ExpandInputs, Member, Plugin
+from loft_plugins.api import ExpandInputs, Member, Plugin, PluginError
 from loft_plugins.builtin import floor as floor_v1
 from loft_plugins.builtin import wall as wall_v1
 
@@ -77,6 +94,10 @@ SUBFLOOR_LENGTH = 96.0
 #: this to a panel joint takes the joint, so no panel is a sub-micron sliver
 #: (inputs are rounded to 1e-9 in, so 144.000000002 is a possible length).
 _SLIVER = 1e-6
+#: An opening's edge closer than this to a panel joint or a panel's edge (in)
+#: takes the joint: the trade's minimum rip, 1/8 in, so no hair-thin strip
+#: is left beside a door or window.
+_TRADE_MIN = 1 / 8
 #: Rounding of a coordinate before it is compared (the inputs' 1e-9 in).
 _DIGITS = 9
 
@@ -126,7 +147,9 @@ def rect_minus_rects(outer: Rect, cuts: Iterable[Rect]) -> list[Region]:
     x0, x1, y0, y1 = outer
 
     def snap(v: float, lo: float, hi: float) -> float:
-        return lo if abs(v - lo) <= _SLIVER else hi if abs(v - hi) <= _SLIVER else v
+        if abs(v - lo) <= _TRADE_MIN:
+            return lo
+        return hi if abs(v - hi) <= _TRADE_MIN else v
 
     snapped = [
         (snap(c[0], x0, x1), snap(c[1], x0, x1), snap(c[2], y0, y1), snap(c[3], y0, y1))
@@ -362,7 +385,7 @@ class FacePlane:
         return Point2D(x=height, y=_mm(px) * self.y_dir[0] + _mm(py) * self.y_dir[1])
 
     def members(
-        self, inputs: ExpandInputs
+        self, inputs: ExpandInputs, prefix: str = "", first: int = 0
     ) -> tuple[list[Member], DatumPlaneRef | FeatureRef]:
         """The datum members that make the plane, and the plane's reference."""
         if self.axis != "angle":
@@ -374,12 +397,14 @@ class FacePlane:
                 version=1,
                 params=DatumOffsetParams(base=base, offset_mm=self.offset_mm),
             )
-            return [Member("sheathing_plane", 0, datum, name="face")], inputs.ref(
-                "sheathing_plane", 0, "face"
+            face = f"{prefix}face"
+            return [Member("sheathing_plane", first, datum, name=face)], inputs.ref(
+                "sheathing_plane", first, face
             )
+        face, turn = f"{prefix}face", f"{prefix}turned"
         turned = Member(
             "sheathing_plane",
-            0,
+            first,
             DatumFeature(
                 type="datum",
                 version=1,
@@ -390,25 +415,25 @@ class FacePlane:
                     angle_deg=self.angle_deg,
                 ),
             ),
-            name="turned",
+            name=turn,
         )
         if self.offset_mm == 0.0:
-            return [turned], inputs.ref("sheathing_plane", 0, "turned")
+            return [turned], inputs.ref("sheathing_plane", first, turn)
         slid = Member(
             "sheathing_plane",
-            1,
+            first + 1,
             DatumFeature(
                 type="datum",
                 version=1,
                 params=DatumOffsetFromParams(
                     kind="offset_from",
-                    base=inputs.ref("sheathing_plane", 0, "turned"),
+                    base=inputs.ref("sheathing_plane", first, turn),
                     offset_mm=self.offset_mm,
                 ),
             ),
-            name="face",
+            name=face,
         )
-        return [turned, slid], inputs.ref("sheathing_plane", 1, "face")
+        return [turned, slid], inputs.ref("sheathing_plane", first + 1, face)
 
 
 def face_plane(wall: wall_v1.WallSpec) -> FacePlane:
@@ -433,31 +458,156 @@ def face_plane(wall: wall_v1.WallSpec) -> FacePlane:
     )
 
 
+# --- Outside corners ------------------------------------------------------------------
+
+#: How close two walls' faces must meet to be a corner (in).
+_CORNER_TOL = 1e-6
+
+End = Literal["start", "end"]
+
+
+@dataclass(frozen=True)
+class EarlierWall:
+    """An earlier ``loft.wall`` in the tree: its spec and sheathing product."""
+
+    spec: wall_v1.WallSpec
+    good: SheetGood | None
+
+
+def earlier_walls(inputs: ExpandInputs) -> list[EarlierWall]:
+    """Every earlier ``loft.wall`` (any version; only 1.2.x is sheathed), in
+    tree order, read from its stored inputs as a roof reads its walls."""
+    out: list[EarlierWall] = []
+    for feature_id, envelope in inputs.earlier.items():
+        if not isinstance(envelope, CustomFeature):
+            continue
+        if envelope.params.plugin_id != "loft.wall":
+            continue
+        values = ExpandInputs(feature_id, envelope.params.inputs)
+        try:
+            spec = wall_v1.WallSpec.from_inputs(values)
+        except PluginError:
+            continue
+        good = None
+        if envelope.params.plugin_version.startswith("1.2.") and (
+            "sheathing" in envelope.params.inputs
+        ):
+            good = _good(values, "sheathing")
+        out.append(EarlierWall(spec, good))
+    return out
+
+
+def butts(b: wall_v1.WallSpec, b_end: End, t: wall_v1.WallSpec) -> End | None:
+    """The end of *t* that *b*'s *b_end* butts against, or ``None``: *b*'s end
+    lies on *t*'s interior face at *t*'s end, *b* runs away from *t* square to
+    it, *b*'s exterior face is flush with *t*'s end face, and both stand on
+    the same base. B2's side walls butt the front and back walls."""
+    fb, ft = wall_v1.WallFrame.of(b), wall_v1.WallFrame.of(t)
+    if abs(b.elevation - t.elevation) > _CORNER_TOL:
+        return None
+    ex, ey = fb.plan(0.0 if b_end == "start" else b.length, 0.0)
+    rx, ry = ex - ft.x, ey - ft.y
+    u = rx * ft.along[0] + ry * ft.along[1]
+    v = rx * ft.across[0] + ry * ft.across[1]
+    if abs(v - t.thickness) > _CORNER_TOL:
+        return None
+    if abs(u) <= _CORNER_TOL:
+        t_end: End = "start"
+        inward = ft.along
+    elif abs(u - t.length) <= _CORNER_TOL:
+        t_end = "end"
+        inward = (-ft.along[0], -ft.along[1])
+    else:
+        return None
+    sign = 1.0 if b_end == "start" else -1.0
+    away = (sign * fb.along[0], sign * fb.along[1])
+
+    def same(a: tuple[float, float], c: tuple[float, float]) -> bool:
+        return abs(a[0] - c[0]) <= _CORNER_TOL and abs(a[1] - c[1]) <= _CORNER_TOL
+
+    if same(away, ft.across) and same(fb.across, inward):
+        return t_end
+    return None
+
+
+def _thickness(good: SheetGood | None) -> float:
+    return 0.0 if good is None else good.thickness_mm / MM_PER_INCH
+
+
+def corner_rip(
+    b: wall_v1.WallSpec, b_end: End, t: wall_v1.WallSpec, t_good: SheetGood | None
+) -> Region:
+    """The piece in *b*'s exterior plane (*b*'s ``(u, z)``) that laps past
+    *b*'s end over *t*'s end grain and sheathing edge: *t*'s framing depth
+    plus its sheathing thickness wide, *b*'s full height."""
+    width = t.thickness + _thickness(t_good)
+    u0, u1 = (-width, 0.0) if b_end == "start" else (b.length, b.length + width)
+    return Region([(u0, 0.0), (u1, 0.0), (u1, b.height), (u0, b.height)], [])
+
+
 def wall_sheathing(inputs: ExpandInputs) -> Iterator[Member]:
-    """The wall's sheathing members (none when the option is None)."""
+    """The wall's sheathing members: its own panels (none when the option is
+    None), then the outside corners it closes (module docstring)."""
     good = _good(inputs, "sheathing")
-    if good is None:
-        return
     wall = wall_v1.WallSpec.from_inputs(inputs)
-    plane = face_plane(wall)
-    datums, ref = plane.members(inputs)
-    yield from datums
-    placed = placed_wall_panels(wall, wall_v1.hosted_openings(inputs))
-    for index, (name, region) in enumerate(placed):
-        loops = [
-            [plane.sketch_point(u, z) for u, z in loop]
-            for loop in (region.outer, *region.holes)
-        ]
-        yield from _panel_members(
-            inputs,
-            ("sheathing_section", "sheathing"),
-            index,
-            ref,
-            loops,
-            good,
-            plane.reverse,
-            name,
-        )
+    others = earlier_walls(inputs)
+    index = 0
+    if good is not None:
+        plane = face_plane(wall)
+        datums, ref = plane.members(inputs)
+        yield from datums
+        placed = placed_wall_panels(wall, wall_v1.hosted_openings(inputs))
+        # This wall butts an earlier one: its run laps past that end.
+        for end in ("start", "end"):
+            for other in others:
+                if butts(wall, end, other.spec) is not None:
+                    rip = corner_rip(wall, end, other.spec, other.good)
+                    placed.append((f"corner/{end}", rip))
+                    break
+        for name, region in placed:
+            loops = [
+                [plane.sketch_point(u, z) for u, z in loop]
+                for loop in (region.outer, *region.holes)
+            ]
+            yield from _panel_members(
+                inputs,
+                ("sheathing_section", "sheathing"),
+                index,
+                ref,
+                loops,
+                good,
+                plane.reverse,
+                name,
+            )
+            index += 1
+    # An earlier sheathed wall butts this one: this wall closes that corner,
+    # with the earlier wall's product in the earlier wall's plane.
+    first = 2
+    for other in others:
+        if other.good is None:
+            continue
+        for b_end in ("start", "end"):
+            t_end = butts(other.spec, b_end, wall)
+            if t_end is None:
+                continue
+            plane = face_plane(other.spec)
+            prefix = f"return/{t_end}/"
+            datums, ref = plane.members(inputs, prefix, first)
+            first += 2
+            yield from datums
+            rip = corner_rip(other.spec, b_end, wall, good)
+            loops = [[plane.sketch_point(u, z) for u, z in rip.outer]]
+            yield from _panel_members(
+                inputs,
+                ("sheathing_section", "sheathing"),
+                index,
+                ref,
+                loops,
+                other.good,
+                plane.reverse,
+                f"return/{t_end}",
+            )
+            index += 1
 
 
 def _expand_wall(inputs: ExpandInputs) -> Iterator[Member]:
