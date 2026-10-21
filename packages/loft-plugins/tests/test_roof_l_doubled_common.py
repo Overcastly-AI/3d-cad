@@ -32,6 +32,7 @@ from typing import Any
 
 import pytest
 from loft_plugins import REGISTRY, canonical_inputs, expand
+from loft_plugins.api import ExpandInputs, Member
 from loft_plugins.builtin import roof_valley
 from loft_wire.cut_list import CutListMember
 from loft_wire.features import (
@@ -209,6 +210,50 @@ def test_the_twin_is_lost_never_rebound() -> None:
     assert survivor in {m.id for m in new}
     commons = sorted(m.index for m in new if m.role == "common")
     assert commons == [*range(17), 18]
+
+
+def _members_of(expanded: list[ExpandedMember]) -> list[Member]:
+    return [Member(m.role, m.index, m.feature, m.metadata, m.name) for m in expanded]
+
+
+def test_a_twin_body_is_never_kept_for_being_named() -> None:
+    """``_drop_twins`` keeps a twin's feature only when it is a datum a kept
+    member is sketched on. Were a kept member to name the twin's body (or
+    its section), that is a layout bug, refused, never a second body kept
+    alive by a reference; and on the 25 L's nothing but datums is kept."""
+    with before_the_fix():
+        old = roof("1.2.0", GOLDEN_SPACING, GOLDEN_WALLS)
+    members = _members_of(old)
+    inputs = ExpandInputs(ROOF_ID, {})
+    twin = next(i for i, m in enumerate(members) if (m.role, m.index) == ("common", 17))
+    section = next(
+        i for i, m in enumerate(members) if (m.role, m.index) == ("section", 17)
+    )
+    drop = roof_valley._drop_twins  # pyright: ignore[reportPrivateUsage]
+    # As the plugin drops it: the twin and its section go, nothing else.
+    kept = drop(inputs, members, {twin, section})
+    assert [(m.role, m.index) for m in members if m not in kept] == [
+        ("section", 17),
+        ("common", 17),
+    ]
+    # A kept member that named the twin's body: refused, not kept.
+    survivor = next(
+        i for i, m in enumerate(members) if (m.role, m.index) == ("common", 16)
+    )
+    naming = members[survivor].feature.model_dump(mode="json")
+    naming["params"]["profile"]["feature_id"] = str(member_id(ROOF_ID, "common", 17))
+    bad = list(members)
+    bad[survivor] = Member(
+        "common",
+        16,
+        members[survivor].feature.model_validate(naming),
+        members[survivor].metadata,
+    )
+    with pytest.raises(RuntimeError, match="common/17"):
+        drop(inputs, bad, {twin, section})
+    # Over the 25 L's only sections and bodies ever go (no datum is shared
+    # there either way): asserted per case in
+    # test_1_2_frames_one_common_where_it_framed_two.
 
 
 def _request(

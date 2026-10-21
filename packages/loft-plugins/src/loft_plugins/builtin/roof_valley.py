@@ -1371,7 +1371,10 @@ def _drop_twins(
     (ROOF-L-DOUBLED-COMMON): its datum, section, body, cutter and trim. The
     rest keep their ``(role, index)``, so their ids; a feature that named the
     twin finds its member gone, as SolidWorks flags a dangling reference,
-    never rebound. A twin's feature another member uses is kept."""
+    never rebound. Only a twin's DATUM may stay, when a later member is
+    sketched on the same plane; any other feature of the twin that a kept
+    member names (its body above all) is a layout bug, refused here rather
+    than kept as a second body."""
     if not dropped:
         return members
     ids = {
@@ -1379,12 +1382,19 @@ def _drop_twins(
         for i, m in enumerate(members)
         if i in dropped
     }
-    used = {
-        i
-        for i, fid in ids.items()
-        for j, m in enumerate(members)
-        if j not in dropped and fid in m.feature.model_dump_json()
-    }
+    kept_json = [
+        m.feature.model_dump_json() for j, m in enumerate(members) if j not in dropped
+    ]
+    used = {i for i, fid in ids.items() if any(fid in text for text in kept_json)}
+    wrong = sorted(
+        f"{members[i].role}/{members[i].index}"
+        for i in used
+        if members[i].role != "plane"
+    )
+    if wrong:
+        raise RuntimeError(
+            f"loft.roof: a kept member names a dropped twin's {', '.join(wrong)}"
+        )
     gone = dropped - used
     return [m for i, m in enumerate(members) if i not in gone]
 
