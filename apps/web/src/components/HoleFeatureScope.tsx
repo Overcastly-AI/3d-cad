@@ -41,7 +41,7 @@ export function HoleFeatureScope({
       <ul
         aria-label="Feature Scope"
         data-testid="hole-scope"
-        className="flex max-h-40 min-w-0 flex-col overflow-y-auto"
+        className="flex max-h-[10rem] min-w-0 flex-col overflow-y-auto"
       >
         {bodies.map((body) => (
           <li key={body.baseFeatureId}>
