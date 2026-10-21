@@ -169,15 +169,24 @@ _td_self_test() {
     "$([[ "$(ps -o pgid= -p "$pid" | tr -d ' ')" == "$pid" ]] && echo 1)"
 
   # 2. The new teardown bounds it: SIGKILL after the grace, named in the log.
+  #    The OUTCOME is asserted exactly: rc 1, exactly one ::warning:: line with
+  #    the grace in it, the process gone. Those prove the deadline logic ran.
+  #    The wall-clock check is only a HANG bound (grace + kill + 5 s): the old
+  #    kill-then-wait never returned at all, so any finite bound catches it.
+  #    It is deliberately not a tight SLA: each poll forks `ps`, and on a
+  #    starved runner one poll was measured stalling >1 s (a 300 ms grace
+  #    phase took 1476 ms under 16 CPU hogs on 4 cores), so "< grace + kill"
+  #    measured the scheduler, not td_stop.
   t0=$(_td_now_ms)
   rc=0
   out="$(TD_PREFIX=t td_stop 300 1000 "stubborn=$pid")" || rc=$?
   ms=$(($(_td_now_ms) - t0))
-  check "td_stop returns within grace+kill (took ${ms} ms, bound 1300)" \
-    "$(((ms < 1300)) && echo 1)"
+  check "td_stop does not hang (took ${ms} ms; hang bound 300 + 1000 + 5000)" \
+    "$(((ms < 6300)) && echo 1)"
   check "rc 1 = SIGKILL was needed" "$([[ $rc == 1 ]] && echo 1)" "rc=$rc"
-  check "the escalation is one ::warning:: line naming the process" \
-    "$([[ "$out" == *"::warning::t: stubborn (pgid $pid) still running 0.3 s after SIGTERM — sending SIGKILL"* ]] && echo 1)" "$out"
+  check "the escalation is exactly one ::warning:: line naming the process" \
+    "$([[ "$(grep -c '::warning::' <<<"$out")" == 1 &&
+      "$(grep '::warning::' <<<"$out")" == "::warning::t: stubborn (pgid $pid) still running 0.3 s after SIGTERM — sending SIGKILL" ]] && echo 1)" "$out"
   check "the stubborn process is gone" "$(alive "$pid" || echo 1)"
 
   # 3. The wrapper obeys SIGTERM, its CHILD does not — `uv run` forwarding to a
