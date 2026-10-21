@@ -78,17 +78,15 @@ import {
   withDatums,
 } from "./datum";
 import {
-  drawDimensionFields,
   drawShapeOf,
-  resizeDrawn,
   shapeRigidity,
-  sizeDraft,
   type DrawDimensionExpressions,
   type DrawDimensionField,
   type DrawDimensionKey,
   type DrawDimensionValues,
   type DrawShape,
 } from "./drawDimensions";
+import { commitDraft, placedDraft } from "./drawCommit";
 import { mirrorAxisFor, toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import { originIdentity } from "./origin";
 import { typedJoin, withNamedPointAt } from "./pointEntry";
@@ -1021,6 +1019,15 @@ const createSketchState = (
     // moment, so nothing vanishes without the user acting.
     const shape = drawShapeOf(tool);
     const from = pending[0];
+    // The line's angle cell reads from the X axis or the segment it continues
+    // (SKETCH-LINE-ANGLE), found BEFORE the click spends the joint anchor.
+    const angleFrom = chainAngleReference(
+      tool,
+      pending,
+      chainStart,
+      snapAnchors,
+      entities,
+    );
     // RECT-1 — the shape is held together AT THE DRAW, not at the first typed
     // dimension. A rectangle is a closed axis-aligned profile the moment it
     // exists; deferring its corner coincidences left the ordinary untyped
@@ -1085,87 +1092,31 @@ const createSketchState = (
       ...(drawn ? { hint: axisInferenceHint(axis) } : {}),
       drawDimension:
         drawn && shape !== null && from !== undefined
-          ? {
-              shape,
-              ids: result.entities.map((entity) => entity.id),
-              from,
-              to: point,
-              fields: drawDimensionFields(
-                shape,
-                from,
-                point,
-                result.entities.map((entity) => entity.id),
-                // The line's angle cell: from the X axis, or from the segment
-                // this one continues (SKETCH-LINE-ANGLE). Read BEFORE the
-                // click, while the chain's joint anchor still names it.
-                chainAngleReference(
-                  tool,
-                  pending,
-                  chainStart,
-                  snapAnchors,
-                  entities,
-                ),
-              ),
-              typed: false,
-            }
+          ? placedDraft(shape, from, point, result.entities, angleFrom)
           : null,
       drawDimensionFocus: null,
     });
   },
 
   commitDrawDimensions: (values, expressions) => {
-    const {
+    const { drawDimension, entities, constraints, revision, tool, pending } =
+      get();
+    if (drawDimension === null) return;
+    const done = commitDraft(
       drawDimension,
       entities,
       constraints,
-      revision,
-      tool,
-      pending,
-      datumFrameHalfMm,
-    } = get();
-    if (drawDimension === null) return;
-    const { shape, ids, from, to } = drawDimension;
-    const { typed, added } = sizeDraft(drawDimension, values, expressions);
-    if (added.length === 0) {
+      get().datumFrameHalfMm,
+      values,
+      expressions,
+    );
+    if (done === null) {
       set({ drawDimension: null, drawDimensionFocus: null });
       return;
     }
-    const reference = drawDimension.fields.find(
-      (field) => field.reference !== undefined,
-    )?.reference;
-    const resized = resizeDrawn(
-      shape,
-      ids,
-      from,
-      to,
-      entities,
-      typed,
-      reference,
-    );
-    // SKETCH-LINE-ANGLE. A typed angle replaces the Horizontal / Vertical the
-    // draw inferred on that line (SNAP-5), as Fusion's does: the user has
-    // said what the direction is, and keeping both over-constrains it. An
-    // angle to the X axis grounds the axis (the same call a picked axis
-    // makes), so the solver has a fixed line to measure it from.
-    const angled =
-      typed.angle === undefined
-        ? constraints
-        : constraints.filter(
-            (c) =>
-              !(
-                (c.kind === "horizontal" || c.kind === "vertical") &&
-                ids.includes(c.entity)
-              ),
-          );
-    const grounded = groundDatums(
-      resized,
-      added.flatMap(constraintEntityRefs),
-      datumFrame(datumFrameHalfMm),
-    );
     set({
-      ...chainAfterResize(tool, pending, drawDimension, grounded.entities),
-      entities: grounded.entities,
-      constraints: [...angled, ...added, ...grounded.constraints],
+      ...chainAfterResize(tool, pending, drawDimension, done.entities),
+      ...done,
       // A typed size IS the user constraining the sketch.
       userConstrained: true,
       revision: revision + 1,
