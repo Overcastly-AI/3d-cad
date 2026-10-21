@@ -157,6 +157,16 @@ pre-upgrade backup with the old tag's images.
     are satisfied, `docker volume rm loft_minio-data`.
   - **To keep an existing MinIO** (or any S3) instead, point `S3_URL` and the
     `S3_*` credentials at it, as in section 1.
+- **Price book saves are versioned (PRICE-BOOK-VERSION, migration 0023).**
+  `PUT /api/v1/price-book` now requires `If-Match` with the book's version
+  (the `ETag` and `version` of the `GET`; `"0"` for a book never saved). A
+  save without it is refused with **428** `price_book_version_required`, and
+  one drafted from a book saved since with **412** `price_book_stale`
+  (`details.version` is the current version); neither changes the book.
+  The web app sends it; a script or integration that PUTs the book must GET
+  it first and send its `ETag` back. Existing books start at version 1.
+  Migration 0023 also adds per-sheet prices; its downgrade drops the version
+  and DELETES sheet prices (lumber prices are kept), so back up first.
 
 - **Sketch solver build (SKETCH-SOLVE-HEAP-ORDER).** Geometry now builds the
   sketch solver with a patch that makes solves independent of memory layout
