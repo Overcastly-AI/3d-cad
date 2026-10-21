@@ -3990,6 +3990,27 @@
       "ExtrudeParamsV1": {
         "description": "Linear extrusion of an earlier sketch feature's profile.\n\nWith a nonzero ``twist_angle_deg`` it is a TWISTED extrusion: the profile\nrotates uniformly about an axis parallel to the extrusion direction while it\ntravels, so every point of it traces a true helix and the far-end section is\nthe profile rotated by the full twist (docs/design/twisted-extrude.md).\n\n**The extrude twist is DEPRECATED (read-only legacy).** Twist is authored\non :class:`SweepParamsV1` (``twist_angle_deg``, \"twist along path\" as in\nFusion 360 and SolidWorks). These two fields stay so that every stored\ntwisted extrude loads and rebuilds exactly as before, but a write that\nsets or changes one is refused (:mod:`loft_wire.legacy_twist`); a twisted\nsweep along the matching straight path builds the SAME solid.\nBoth fields are additive-optional, null by default and OMITTED from a dump\nwhile null, so an extrude with no twist serializes byte-for-byte as it did\nbefore they existed (stored row, response, rebuild-cache key) and rebuilds\non the unchanged prism path \u2014 no ``param_version`` bump. A client that edits\na stored twisted extrude must carry both fields through unchanged.",
         "properties": {
+          "cut_bodies": {
+            "anyOf": [
+              {
+                "const": "all",
+                "type": "string"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FeatureRef"
+                },
+                "maxItems": 1000,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). \"all\" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.",
+            "title": "Cut Bodies"
+          },
           "direction": {
             "default": "normal",
             "enum": [
@@ -6988,6 +7009,27 @@
       "LoftParamsV1": {
         "description": "Blend a solid THROUGH two or more ordered section sketches (design \u00a74.3).\n\nThe loft sibling of :class:`SweepParamsV1` and the second non-prismatic\nbody-affecting feature: where sweep drives ONE profile along a path, a loft\nskins a solid through an ORDERED list of cross-section sketches (the\ntransitional-solid / cone / adapter primitive named in the Part-modeling\nscorecard notes). It shares the SAME ``add``/``cut`` boolean against the body\nchain as extrude/revolve/sweep; the new ingredient is ``profiles``, a list\nof ``FeatureRef``s (min 2) to earlier sketch features, blended in list order.\n\nSection representation (v1 DESIGN DECISION \u2014 docs/GEOMETRY-QA.md\n2026-07-12): each ``profiles`` entry is a whole earlier SKETCH feature\nreferenced by id \u2014 the same stable-feature-id mechanism the extrude/revolve\n``profile`` and sweep ``profile``/``path`` slots use. This is NOT topological\nnaming (#1): it references a whole feature's evaluated wire, never a picked\nsub-edge. A section's non-construction entities form either a single CLOSED\nprofile wire (built by the shared ``build_profile_face``) OR a single POINT,\ninterpreted as an APEX vertex (the standard loft-to-a-point tip); an apex may\nappear only as the FIRST or LAST section.\n\nWhy apex support in v1 (honest limit, not gold-plating): datum planes are\norigin-only and mutually perpendicular (never parallel), so two parallel\noffset circular sections \u2014 a cylinder/frustum \u2014 are not authorable until\noffset datum planes land. A closed section lofted to an apex point IS\nauthorable and gives an analytic solid (a pyramid/cone), which is the loft\ngolden's mass-property anchor.\n\nv1 limits (stated plainly \u2014 documented scope, not bugs):\n\n* a RULED (straight) loft through the sections in list order \u2014 NO guide\n  rails, NO tangency/normal end conditions, NO periodic (closed) loft, NO\n  per-section twist/alignment control (all later, additive params \u2014 no\n  ``param_version`` bump);\n* sections are coplanar-or-parallel profiles as authored (each sketch\n  carries its own plane); an open/non-closed section is a\n  ``profile_not_closed`` rebuild error, a multi-loop section is\n  ``profile_unsupported``, and a section ref that is not an earlier ok\n  sketch is ``reference_unresolved`` (exactly like extrude/sweep);\n* incompatible sections (crossed rails), an apex wedged between two wire\n  sections, or a skin OCCT cannot reduce to exactly one solid is a kernel\n  ``loft_failed`` rebuild error, never a silently bad body.",
         "properties": {
+          "cut_bodies": {
+            "anyOf": [
+              {
+                "const": "all",
+                "type": "string"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FeatureRef"
+                },
+                "maxItems": 1000,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). \"all\" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.",
+            "title": "Cut Bodies"
+          },
           "merge": {
             "default": true,
             "description": "Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md \u00a7MB-0). Ignored for a CUT. Additive \u2014 absent reads True, no param_version bump.",
@@ -9313,8 +9355,29 @@
         "type": "object"
       },
       "PipeParamsV1": {
-        "description": "A circular or ring section swept along a picked chain of curves.\n\nSee the module docstring. ``operation`` and ``merge`` are the other\nsketch solids' fields: ``add`` with ``merge`` joins the tube to the active\nbody (Fusion's *Join*), ``add`` without it starts a new body (*New Body*),\nand ``cut`` removes it from the active body (*Cut*). Failures are typed\nrebuild errors on the pipe: ``reference_unresolved`` (a missing sketch or\ncurve), ``subshape_unresolved`` / ``subshape_ambiguous`` (an edge),\n``sweep_path_not_connected`` (branched or disjoint picks, or a curve\npicked twice), ``sweep_failed`` (a bend tighter than the section),\n``sweep_self_intersecting`` (the path comes back through the tube).",
+        "description": "A circular or ring section swept along a picked chain of curves.\n\nSee the module docstring. ``operation`` and ``merge`` are the other\nsketch solids' fields: ``add`` with ``merge`` joins the tube to the active\nbody (Fusion's *Join*), ``add`` without it starts a new body (*New Body*),\nand ``cut`` removes it from the bodies ``cut_bodies`` names (*Cut*;\nObjects To Cut, :mod:`loft_wire.cut_bodies`). Failures are typed\nrebuild errors on the pipe: ``reference_unresolved`` (a missing sketch or\ncurve), ``subshape_unresolved`` / ``subshape_ambiguous`` (an edge),\n``sweep_path_not_connected`` (branched or disjoint picks, or a curve\npicked twice), ``sweep_failed`` (a bend tighter than the section),\n``sweep_self_intersecting`` (the path comes back through the tube).",
         "properties": {
+          "cut_bodies": {
+            "anyOf": [
+              {
+                "const": "all",
+                "type": "string"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FeatureRef"
+                },
+                "maxItems": 1000,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). \"all\" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.",
+            "title": "Cut Bodies"
+          },
           "merge": {
             "default": true,
             "description": "ADD only: True joins the tube to the active body (or starts the first body); False starts a NEW body. Ignored for a cut.",
@@ -10721,6 +10784,27 @@
               }
             ],
             "title": "Axis"
+          },
+          "cut_bodies": {
+            "anyOf": [
+              {
+                "const": "all",
+                "type": "string"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FeatureRef"
+                },
+                "maxItems": 1000,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). \"all\" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.",
+            "title": "Cut Bodies"
           },
           "direction": {
             "default": "normal",
@@ -12540,6 +12624,27 @@
       "SweepParamsV1": {
         "description": "Sweep an earlier sketch's closed profile along an earlier sketch's path.\n\nThe first NON-PRISMATIC body-affecting feature (design \u00a74.3): where extrude\nsweeps a profile along the plane normal and revolve about an axis, sweep\nfollows an arbitrary PATH wire \u2014 the shaft / pipe / rib primitive named\nin the Part-modeling scorecard notes. It consumes the SAME ``profile``\nFeatureRef to an earlier sketch (a single closed wire, built by the shared\n``build_profile_face``) and the SAME ``add``/``cut`` boolean against the body\nchain as extrude/revolve; the new ingredient is ``path``, a SECOND\nFeatureRef to an earlier sketch whose entities form one wire, open or closed.\n\nPath representation (v1 DESIGN DECISION \u2014 docs/design/feature-tree.md\n\u00a72.1/\u00a72.2, docs/GEOMETRY-QA.md 2026-07-12): the path is a whole earlier\nSKETCH feature referenced by id (option A \u2014 the most general model, matching\nhow production CAD names a sweep path, and reusing the tree's stable feature\nids exactly as the ``profile`` slot does). This is NOT topological naming\n(#1): it references a whole feature's evaluated wire, never a picked\nsub-edge \u2014 the same mechanism extrude/revolve already use for their profile.\n\nv1 limits (stated plainly \u2014 documented scope, not bugs):\n\n* the path must resolve to a single connected wire; disjoint path loops are\n  ``sweep_path_not_connected``, and a path with no curve entities is\n  ``sweep_path_empty`` (construction geometry excluded, as from the profile);\n* a CLOSED path sweeps once around into one capless solid; every joint must\n  be G1, else ``sweep_path_not_tangent`` names it (docs/RESEARCH.md \u00a719);\n* an open sweep is **anchored at the profile** \u2014 build123d applies the path as a\n  relative trajectory from the profile's own location, so the path's\n  absolute position is not used. Author the path starting at the profile\n  origin, with its first segment perpendicular to the profile plane, for a\n  predictable result (as the golden's vertical path over an XY circle is);\n* NO scale-along-path, NO multi-section, NO guide rails, NO per-segment\n  transition control \u2014 one profile swept along one path (all later,\n  additive params \u2014 no ``param_version`` bump);\n* a self-intersecting path, or a corner tighter than the profile can turn\n  without sweeping through itself, is a kernel ``sweep_failed`` rebuild\n  error, never a silently bad body.\n\n**Twist along the path** (``twist_angle_deg``, TWIST-TO-SWEEP; Fusion 360's\nand SolidWorks' \"twist along path\"): the profile turns uniformly about the\nPATH as it travels, so every point of it traces a true helix \u2014 a helical\ngear's tooth gap, a twisted column. v1 twists along a STRAIGHT path that is\nperpendicular to the profile's sketch plane and does not pass through it\n(it starts on the profile, or lies wholly to one side of it); that sweep is\nexact (docs/design/twisted-extrude.md). Any other path with a twist \u2014 an\narc, a bend, a slanted line, a line through the profile \u2014 is the typed\nrebuild error ``twist_path_unsupported``, never an approximated body.\nAdditive-optional and omitted from a dump while null, so every untwisted\nsweep serializes and rebuilds byte-for-byte as before (no ``param_version``\nbump).",
         "properties": {
+          "cut_bodies": {
+            "anyOf": [
+              {
+                "const": "all",
+                "type": "string"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FeatureRef"
+                },
+                "maxItems": 1000,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). \"all\" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.",
+            "title": "Cut Bodies"
+          },
           "merge": {
             "default": true,
             "description": "Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md \u00a7MB-0). Ignored for a CUT. Additive \u2014 absent reads True, no param_version bump.",

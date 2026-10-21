@@ -17,10 +17,12 @@ from loft_wire.features import (
     SubshapeRef,
     SubshapeResolutionTier,
 )
+from loft_wire.geometry import Vec3
 from loft_wire.resolution_tiers import SUBSHAPE_RESOLUTION_TIERS
 
 from geometry.features.state import EvaluationState
 from geometry.kernel import edge_match_tier, face_match_tier
+from geometry.kernel.removal import Bounds
 from geometry.kernel.types import BodyShape
 
 #: How certainly a body matches one reference: the tier, or ``None`` (no match).
@@ -28,7 +30,7 @@ TierOf = Callable[[BodyShape, list[str | None]], SubshapeResolutionTier | None]
 
 
 def _owner(
-    state: EvaluationState, tier_of: TierOf, upstream: uuid.UUID
+    state: EvaluationState, tier_of: TierOf, upstream: uuid.UUID, point: Vec3
 ) -> uuid.UUID | FeatureError | None:
     """The body ONE picked reference belongs to.
 
@@ -54,6 +56,22 @@ def _owner(
     # and a tie keeps the active body), so the common case scans one body.
     if tier_of(state.bodies[active_id], state.body_face_names(active_id)) == "exact":
         return active_id
+    # The EXACT screen (CUT-OBJECTS-TO-CUT): an exact match puts the stored
+    # point within 1e-6 mm of a point of the body, so only a body whose box
+    # holds it can match exactly. Exact is the best tier, so when such bodies
+    # match exactly the answer is theirs, the ranking below would give the
+    # same, and no other body is enumerated (0.16 s -> ~2 ms at 200 bodies).
+    exact = [
+        body_id
+        for body_id, body in state.bodies.items()
+        if body_id != active_id
+        and _holds(state.body_bounds(body_id), point)
+        and tier_of(body, state.body_face_names(body_id)) == "exact"
+    ]
+    if len(exact) == 1:
+        return exact[0]
+    if exact:
+        return _ambiguous(len(exact), upstream)
     ranked: dict[uuid.UUID, int] = {}
     for body_id, body in state.bodies.items():
         tier = tier_of(body, state.body_face_names(body_id))
@@ -67,10 +85,31 @@ def _owner(
         return active_id
     if len(tied) == 1:
         return tied[0]
+    return _ambiguous(len(tied), upstream)
+
+
+#: How far past a body's box the exact screen still looks (mm). Any margin
+#: above the 1e-6 mm match tolerance is exact; a wider one only admits more
+#: bodies to the full match, never fewer.
+_SCREEN_MARGIN_MM = 1e-3
+
+
+def _holds(bounds: Bounds, point: Vec3) -> bool:
+    """Whether *point* lies in *bounds* grown by the screen margin."""
+    xmin, ymin, zmin, xmax, ymax, zmax = bounds
+    m = _SCREEN_MARGIN_MM
+    return (
+        xmin - m <= point.x <= xmax + m
+        and ymin - m <= point.y <= ymax + m
+        and zmin - m <= point.z <= zmax + m
+    )
+
+
+def _ambiguous(bodies: int, upstream: uuid.UUID) -> FeatureError:
     return FeatureError(
         code="subshape_ambiguous",
         message=(
-            f"The picked face or edge matches one on {len(tied)} different "
+            f"The picked face or edge matches one on {bodies} different "
             "bodies equally well, so the body it belongs to is ambiguous. "
             "Refusing to guess; re-pick it."
         ),
@@ -87,6 +126,7 @@ def face_owner_body_id(
         state,
         lambda body, names: face_match_tier(body, signature, names),
         face.feature_id,
+        signature.centroid,
     )
 
 
@@ -134,6 +174,7 @@ def edge_owner_body_id(
         state,
         lambda body, names: edge_match_tier(body, signature, names),
         edge.feature_id,
+        signature.midpoint,
     )
 
 

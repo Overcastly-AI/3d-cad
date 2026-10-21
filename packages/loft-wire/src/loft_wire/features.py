@@ -30,6 +30,9 @@ from pydantic import (
     model_validator,
 )
 
+from loft_wire.cut_bodies import CUT_BODIES_FIELD as CUT_BODIES_FIELD
+from loft_wire.cut_bodies import CutBodies as CutBodies
+from loft_wire.cut_bodies import check_cut_bodies
 from loft_wire.datum_angle import DatumAngleLine as DatumAngleLine
 from loft_wire.datum_angle import DatumAngleParams as DatumAngleParams
 from loft_wire.datum_angle import DatumOriginAxisRef as DatumOriginAxisRef
@@ -93,6 +96,9 @@ from loft_wire.resolution_tiers import (
 from loft_wire.resolution_tiers import SketchProjectionReason as SketchProjectionReason
 from loft_wire.resolution_tiers import SketchProjectionStatus as SketchProjectionStatus
 from loft_wire.resolution_tiers import SubshapeResolutionTier as SubshapeResolutionTier
+from loft_wire.revolve_axis import OriginAxis as OriginAxis
+from loft_wire.revolve_axis import RevolveAxis as RevolveAxis
+from loft_wire.revolve_axis import SketchLineAxis as SketchLineAxis
 from loft_wire.sheet_metal import (
     HEM_CLOSED_MAX_RADIUS_RATIO as HEM_CLOSED_MAX_RADIUS_RATIO,
 )
@@ -600,6 +606,8 @@ class ExtrudeParamsV1(BaseModel):
             "None is the sketch origin; dropped when there is no twist."
         ),
     )
+    cut_bodies: CutBodies | None = CUT_BODIES_FIELD
+    _cut_scope = model_validator(mode="after")(check_cut_bodies)
 
     @model_validator(mode="after")
     def _normalise_twist(self) -> Self:
@@ -633,73 +641,6 @@ class ExtrudeParamsV1(BaseModel):
     def is_twisted(self) -> bool:
         """Whether this extrude takes the twisted-sweep path (a real twist)."""
         return self.twist_angle_deg is not None
-
-
-class SketchLineAxis(BaseModel):
-    """``kind: "sketch_line"`` — a LINE entity of the profile's own sketch.
-
-    The v1 axis reference, and still the most direct one: a line entity named by
-    its sketch-local id (design §2.4 entity ids) within the SAME sketch the
-    profile comes from. A **construction** line is the natural choice — a
-    centerline is reference-only (excluded from the closed-wire profile) and is
-    exactly what an axis of revolution is — but any line entity resolves; the
-    axis is defined by the line's two solved endpoints, mapped to world space
-    through the profile's datum plane.
-
-    This variant alone can also CLOSE a half-profile: a three-sided L or
-    rectangle whose fourth side is the centerline builds the face the
-    revolution needs (see :func:`geometry.kernel.revolve.build_revolve_profile_face`).
-    An :class:`OriginAxis` is not a sketch entity, so it cannot close anything —
-    a profile revolved about an origin axis must already be a closed loop.
-    """
-
-    kind: Literal["sketch_line"] = "sketch_line"
-    entity: EntityId = Field(
-        description="Sketch-local id of a LINE entity in the profile's sketch "
-        "(a construction centerline is ideal) used as the axis of revolution"
-    )
-
-
-class OriginAxis(BaseModel):
-    """``kind: "origin_axis"`` — one of the three WORLD origin axes (X, Y, Z).
-
-    The always-available axis (REVOLVE-1): a part that has no construction
-    centerline drawn still has X, Y and Z through the world origin, so a plain
-    closed profile can be turned without first learning the centerline idiom.
-    The reference is a pure enum — no sketch entity, no picked sub-geometry —
-    so it is the most rebuild-stable axis there is: nothing upstream can move,
-    rename or delete it, and it is wholly independent of topological naming (#1).
-
-    The axis must LIE IN the profile's sketch plane, exactly as a sketch-line
-    axis does by construction. Revolving a planar profile about an axis that
-    leaves its plane sweeps material out of the profile's own cross-section, so
-    an out-of-plane pick is the per-feature ``axis_not_in_sketch_plane`` error,
-    never a silently wrong solid. Concretely: a sketch on the ``XY`` origin
-    datum turns about ``X`` or ``Y`` and REFUSES ``Z`` (its normal); ``XZ``
-    turns about ``X`` or ``Z`` and refuses ``Y``; ``YZ`` turns about ``Y`` or
-    ``Z`` and refuses ``X``. A sketch on an OFFSET datum refuses every origin
-    axis that its offset has lifted the plane away from (RESEARCH §12 — the
-    plane slides along its own normal), which is honest: the origin axis is no
-    longer in that plane.
-    """
-
-    kind: Literal["origin_axis"]
-    axis: Literal["X", "Y", "Z"] = Field(
-        description="World origin axis (through 0,0,0) to revolve about. It "
-        "must lie in the profile's sketch plane — an out-of-plane choice (e.g. "
-        "Z for a sketch on the XY datum) is an `axis_not_in_sketch_plane` "
-        "rebuild error."
-    )
-
-
-#: Discriminated axis-of-revolution union (the :data:`DatumParams` /
-#: :data:`PatternGeometry` idiom). ``origin_axis`` joined ADDITIVELY (REVOLVE-1)
-#: with **no** ``param_version`` bump: every persisted axis is
-#: ``{"kind": "sketch_line", "entity": ...}``, which still validates unchanged,
-#: and :meth:`RevolveParamsV1._legacy_sketch_line_kind` supplies the
-#: discriminator for the older rows that omit it entirely. A future
-#: ``datum_axis`` or ``model_edge`` variant joins the same way.
-RevolveAxis = Annotated[SketchLineAxis | OriginAxis, Field(discriminator="kind")]
 
 
 class RevolveParamsV1(BaseModel):
@@ -746,6 +687,8 @@ class RevolveParamsV1(BaseModel):
         "(irrelevant at a full 360°): 'reverse' sweeps the opposite way",
     )
     merge: bool = MERGE_FIELD
+    cut_bodies: CutBodies | None = CUT_BODIES_FIELD
+    _cut_scope = model_validator(mode="after")(check_cut_bodies)
 
     @model_validator(mode="before")
     @classmethod
@@ -854,6 +797,8 @@ class SweepParamsV1(BaseModel):
         "`twist_path_unsupported`; a twist with too many turns for the profile "
         "to build in reasonable time is `twist_failed`."
     )
+    cut_bodies: CutBodies | None = CUT_BODIES_FIELD
+    _cut_scope = model_validator(mode="after")(check_cut_bodies)
 
     @model_validator(mode="after")
     def _normalise_twist(self) -> Self:
@@ -922,6 +867,8 @@ class LoftParamsV1(BaseModel):
     )
     operation: Literal["add", "cut"]
     merge: bool = MERGE_FIELD
+    cut_bodies: CutBodies | None = CUT_BODIES_FIELD
+    _cut_scope = model_validator(mode="after")(check_cut_bodies)
 
 
 class FilletParamsV1(BaseModel):
@@ -2934,6 +2881,14 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
             )
         case _:
             assert_never(feature)  # exhaustive: new types must map their slots
+    # Objects To Cut names bodies by base feature, the boolean operand rule.
+    scope: object = getattr(feature.params, "cut_bodies", None)
+    listed = cast(list[FeatureRef], scope) if isinstance(scope, list) else []
+    for index, ref in enumerate(listed):
+        slot = f"cut_bodies[{index}]"
+        references.append(
+            FeatureReference(slot, ref, BASE_BODY_AFFECTING_FEATURE_TYPES)
+        )
 
     walked = sorted(ref.feature_id for ref in iter_feature_refs(feature))
     mapped = sorted(reference.ref.feature_id for reference in references)
@@ -3607,6 +3562,14 @@ class FeatureResult(BaseModel):
         "picked subshape reference (or did not evaluate ok). A worst_tier other "
         "than 'exact' means the feature rebuilt on a best-effort re-match - "
         "worth a dismissable warning, never a refusal.",
+    )
+    cut_bodies: list[uuid.UUID] | None = Field(
+        default=None,
+        exclude_if=_is_none,
+        description="For an ok extrude, revolve, sweep, loft or pipe CUT: the "
+        "bodies (by base feature id, tree order) it removed material from on "
+        "this rebuild, which the dialog's Objects To Cut list shows. Absent "
+        "for every other feature.",
     )
 
 

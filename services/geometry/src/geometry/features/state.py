@@ -12,6 +12,7 @@ active-body cut :func:`_cut_active`.
 import dataclasses
 import functools
 import uuid
+import weakref
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, cast
@@ -33,6 +34,7 @@ from geometry.kernel.fork import fork_shapes
 from geometry.kernel.healing import new_geometry_is_valid, shape_volume
 from geometry.kernel.naming import BodyNames, NameHook, carry_names, tool_face_names
 from geometry.kernel.provenance import FaceProvenanceRecorder
+from geometry.kernel.removal import Bounds, shape_bounds
 from geometry.kernel.resolution import ResolutionTally
 from geometry.kernel.types import BodyShape
 from geometry.sheet_metal import (
@@ -262,6 +264,10 @@ class EvaluationState:
     #: later feature holding the old one. Handlers pass it as ``tally=`` to every
     #: resolver of a picked reference.
     subshape_tally: ResolutionTally = field(default_factory=ResolutionTally)
+    #: The bodies the cut BEING evaluated removed material from (tree order),
+    #: read into ``FeatureResult.cut_bodies`` (CUT-OBJECTS-TO-CUT). Per-feature
+    #: scratch like :attr:`subshape_tally`: reset before every dispatch.
+    cut_bodies_met: list[uuid.UUID] | None = None
     #: The history-based face names of each body (DESIGN-INTENT-REFS,
     #: :mod:`geometry.kernel.naming`), keyed like :attr:`bodies`. Kept in step by
     #: the three body funnels below, which carry every body change through
@@ -279,6 +285,23 @@ class EvaluationState:
     #: always describes the shape in :attr:`bodies` (the funnels are the only
     #: writers of :attr:`bodies`). Read through :meth:`body_volume`.
     body_volumes: dict[uuid.UUID, float] = field(default_factory=dict[uuid.UUID, float])
+    #: Each body's box, memoised against the shape it was taken from (a weak
+    #: reference, so a replaced shape is never answered for and never kept
+    #: alive): the owner scan's screen (:mod:`geometry.features.owner`). Read
+    #: through :meth:`body_bounds`; a fork starts its own.
+    bounds_memo: dict[uuid.UUID, tuple[weakref.ref[BodyShape], Bounds]] = field(
+        default_factory=dict[uuid.UUID, tuple[weakref.ref[BodyShape], Bounds]]
+    )
+
+    def body_bounds(self, body_id: uuid.UUID) -> Bounds:
+        """Body *body_id*'s box (:func:`shape_bounds`), taken once per shape."""
+        body = self.bodies[body_id]
+        held = self.bounds_memo.get(body_id)
+        if held is not None and held[0]() is body:
+            return held[1]
+        bounds = shape_bounds(body)
+        self.bounds_memo[body_id] = (weakref.ref(body), bounds)
+        return bounds
 
     def body_volume(self, body_id: uuid.UUID) -> float:
         """The volume of body *body_id*'s current shape, integrated at most once."""
@@ -623,6 +646,7 @@ class EvaluationState:
             },
             scoped_feature_types=dict(self.scoped_feature_types),
             body_volumes=dict(self.body_volumes),
+            bounds_memo={},
         )
         # The twin's containers are its own now, so its slots can be rewritten
         # with the copies without touching this state.
@@ -710,6 +734,10 @@ def _cut_active(
 ) -> FeatureError | None:
     """Subtract *tool* from the ACTIVE body (a modifying op — §MB-0).
 
+    The cut of every revolve, sweep, loft and pipe cut stored before Objects
+    To Cut (no ``cut_bodies``); one that has the field takes
+    :func:`geometry.features.cut_scope.cut_scoped_bodies` instead.
+
     The caller has already verified an active body exists (``no_prior_body``
     otherwise). ``state.bodies`` is mutated only on success (§4.3). A tool that
     cannot reach the body is the typed ``cut_removed_nothing`` (CM-3) — the same
@@ -748,6 +776,7 @@ def _cut_active(
         return FeatureError(code="cut_removed_nothing", message=str(exc))
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
+    state.cut_bodies_met = [body_id]
     state.record_cut_tools(feature_id, [tool])
     state.record_feature_tools(feature_id, "cut", [tool], generated)
     return None

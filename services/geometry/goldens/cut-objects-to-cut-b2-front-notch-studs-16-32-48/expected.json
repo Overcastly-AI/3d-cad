@@ -1,0 +1,48 @@
+{
+  "description": "CUT-OBJECTS-TO-CUT (Fusion 360's Objects To Cut, SolidWorks' Feature Scope): B2's walls without openings at 16 in o.c. (model.json of b2-walls-no-openings-16oc, materials included) plus a notch: a rectangle on the XZ origin plane, X 10..52 in, Z 88..96 in, extrude-CUT 1 in into the front wall (direction reverse, +Y) with cut_bodies \"all\". The tool meets five members, all SPF: the front studs at X 16, 32 and 48 (each X c-0.75..c+0.75) and both front top plates. Before the fix a cut removed material from the ACTIVE body only (the right wall's bottom plate), which this tool does not reach, so the same cut was refused (cut_removed_nothing).",
+  "derivation": [
+    "All in inches, exact rationals; x 25.4 = mm. Notch box N = X 10..52, Y 0..1, Z 88..96. The base is golden b2-walls-no-openings-16oc: volume 25 601.625 in^3, area 49 269 in^2, centroid (72, 60, 2753267/52016), mass 194628.065291478 g, centre of mass z 619756467/12065456.",
+    "",
+    "Removed from each stud (X c-0.75..c+0.75, Y 0..3.5, Z 1.5..94.125): 1.5 x 1 x (94.125 - 88) = 9.1875, centroid (c, 0.5, 91.0625), c = 16, 32, 48.",
+    "Removed from the lower top plate (Z 94.125..95.625): 42 x 1 x 1.5 = 63, centroid (31, 0.5, 94.875). From the upper (Z 95.625..97.125): 42 x 1 x 0.375 = 15.75, centroid (31, 0.5, 95.8125). The bottom plate (Z 0..1.5) and every other member are not reached.",
+    "Total removed 3 x 9.1875 + 63 + 15.75 = 106.3125 in^3; volume = 25 495.3125 in^3 = 417793317.6375 mm^3.",
+    "",
+    "Area: each stud loses its notched corner (1.5 x 6.125 front, 1.5 x 1 top, 2 x 1 x 6.125 sides) and gains the notch's back wall (1.5 x 6.125) and floor (1.5 x 1): -12.25 in^2. The lower plate is notched top to bottom: -42 x 1.5 (front) -2 x 42 (top, bottom) +42 x 1.5 (back wall) +2 x 1.5 (ends) = -81. The upper plate is pocketed on its front-bottom edge: -42 x 0.375 (front) -42 (bottom) +42 x 0.375 +42 (back wall, ceiling) +2 x 0.375 (ends) = +0.75. Total -117: 49 152 in^2 = 31710904.32 mm^2.",
+    "",
+    "Centroid = (base volume x base centroid - sum of removed volume x its centroid) / volume = (1833.1150579150578, 1530.3019459459458, 1340.0988513513512) mm.",
+    "Mass: all removed material is SPF at 450 kg/m^3: 106.3125 x 16387.064 mm^3 x 4.5e-4 g/mm^3 = 783.967 g; mass = 193844.09790780302 g; centre of mass by the same subtraction, mass-weighted = (1832.9851212996143, 1530.1121794253006, 1300.318941102398) mm.",
+    "",
+    "Bounding box unchanged: X 0..144, Y 0..120, Z 0..97.125 in.",
+    "",
+    "Topology: a notched stud is an L-section prism (8 faces, 18 edges, +2 and +6); each top plate gains 4 faces and 12 edges (the lower one a notched-rectangle prism, 10 faces / 24 edges; the upper one a box with a pocket on an edge, 16 vertices, 10 faces, 24 edges). 288 + 6 + 8 = 302 faces, 576 + 18 + 24 = 618 edges, 48 shells.",
+    "",
+    "Mesh (linear_deflection 0.1): 1236 vertices / 632 triangles, equal to the mesh of the independent build123d construction.",
+    "",
+    "Independently cross-checked against a direct build123d construction (48 boxes typed from buildings.md, the notch box cut from each member it shares volume with) in tests/test_cut_objects_to_cut.py, member for member."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "The base golden's (b2-walls-no-openings-16oc): bounds are ABSOLUTE on a ~4e8 mm^3 part, whose separate-body sums carry round-off near the ULP of the sum. Measured against the hand derivation: 1.2e-7 mm^3 on the volume, 0 on the area, <= 1.4e-12 mm on the centroid, 6e-11 g on the mass. A stud missed by the notch moves the volume by 150 557 mm^3.",
+  "roundtrip_tolerance": 1e-6,
+  "roundtrip_tolerance_rationale": "Same cause as b2-walls-no-openings-16oc: the STEP round trip re-sums the 48 re-imported solids in another order, which moves a ~4e8 sum by ~1e-7; it applies to volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 417793317.6375,
+    "surface_area": 31710904.32,
+    "centroid": {
+      "x": 1833.1150579150578,
+      "y": 1530.3019459459458,
+      "z": 1340.0988513513512
+    },
+    "mass_g": 193844.09790780302,
+    "center_of_mass": {
+      "x": 1832.9851212996143,
+      "y": 1530.1121794253006,
+      "z": 1300.318941102398
+    },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 3657.6, "y": 3048.0, "z": 2466.975 }
+    }
+  },
+  "topology": { "faces": 302, "edges": 618, "shells": 48 },
+  "mesh": { "vertices": 1236, "triangles": 632 }
+}

@@ -902,10 +902,9 @@ def test_thinning_only_touches_its_own_chain() -> None:
     assert len(kept) < 40
 
 
-#: Every EvaluationState field, by how ``EvaluationState.fork`` treats it. A new
-#: field fails ``test_every_state_field_is_classified_for_the_fork`` until it is
-#: classified; one holding a kernel shape must join ``shape_slots`` or a rung
-#: shares it (``test_every_shape_the_state_holds_is_forked_and_detached``).
+#: Every EvaluationState field, by how ``EvaluationState.fork`` treats it: a new
+#: one fails until classified, and one holding a shape must join ``shape_slots``
+#: (``test_every_shape_the_state_holds_is_forked_and_detached``).
 _FORKED_FIELDS = frozenset(
     {
         "bodies",
@@ -923,6 +922,7 @@ _FORKED_FIELDS = frozenset(
         "corner_reliefs",
         "scoped_feature_types",
         "body_volumes",
+        "bounds_memo",  # a fork starts its own (the memo is keyed on shapes)
     }
 )
 _SHARED_IMMUTABLE_FIELDS = frozenset(
@@ -938,7 +938,7 @@ _SHARED_IMMUTABLE_FIELDS = frozenset(
 #: Scratch owned by ONE feature's dispatch and replaced before the next
 #: (``_dispatch_one`` installs a fresh object), so a fork may share it: no
 #: feature evaluated after a rung ever sees the one the rung holds.
-_PER_FEATURE_SCRATCH_FIELDS = frozenset({"subshape_tally"})
+_PER_FEATURE_SCRATCH_FIELDS = frozenset({"subshape_tally", "cut_bodies_met"})
 
 
 def test_every_state_field_is_classified_for_the_fork() -> None:

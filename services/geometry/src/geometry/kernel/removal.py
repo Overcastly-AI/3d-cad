@@ -51,6 +51,8 @@ tool of a plain cut) costs at most one classification and one boolean.
 from collections.abc import Sequence
 
 from build123d import CenterOf, Solid
+from OCP.Bnd import Bnd_Box
+from OCP.BRepBndLib import BRepBndLib
 from OCP.BRepClass3d import BRepClass3d_SolidClassifier
 from OCP.gp import gp_Pnt
 from OCP.TopAbs import TopAbs_IN
@@ -84,6 +86,35 @@ def shares_interior_point(body: BodyShape, tool: BodyShape) -> bool:
         return _strictly_inside(tool, point) and _strictly_inside(body, point)
     except Exception:  # OCCT failure modes are not a stable taxonomy
         return False
+
+
+def bounds_apart(body: BodyShape, tool: BodyShape) -> bool:
+    """A cheap SUFFICIENT condition for :func:`removal_reaches_body`'s ``False``.
+
+    ``True`` when the axis-aligned boxes of *body* and *tool* do not meet. OCCT
+    grows each box by its shapes' own tolerances (``BRepBndLib``, no
+    triangulation), so boxes apart prove the solids share no volume; boxes that
+    meet or touch prove nothing and the caller asks the boolean. The Objects To
+    Cut prefilter (CUT-OBJECTS-TO-CUT): a cut across a 64-member wall skips the
+    members it cannot reach without a boolean each.
+    """
+    return _bounds(body).IsOut(_bounds(tool))
+
+
+#: An axis-aligned box: ``(xmin, ymin, zmin, xmax, ymax, zmax)`` (mm).
+Bounds = tuple[float, float, float, float, float, float]
+
+
+def shape_bounds(shape: BodyShape) -> Bounds:
+    """*shape*'s box as :func:`bounds_apart` builds it (shape tolerances
+    included, no triangulation), as plain floats a cache can hold."""
+    return _bounds(shape).Get()
+
+
+def _bounds(shape: BodyShape) -> Bnd_Box:
+    box = Bnd_Box()
+    BRepBndLib.Add_s(shape.wrapped, box, False)
+    return box
 
 
 def removal_reaches_body(body: BodyShape, tools: Sequence[BodyShape]) -> bool:

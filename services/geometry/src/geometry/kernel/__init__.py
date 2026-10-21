@@ -148,7 +148,7 @@ from geometry.kernel.provenance import (
     FaceProvenanceRecorder,
     attribute_faces,
 )
-from geometry.kernel.removal import removal_reaches_body
+from geometry.kernel.removal import bounds_apart, removal_reaches_body
 from geometry.kernel.resolution import ResolutionTally
 from geometry.kernel.revolve import (
     AxisIntersectsProfileError,
@@ -287,6 +287,7 @@ __all__ = [
     "boolean_bodies_measured",
     "bore_hole",
     "bore_tool",
+    "bounds_apart",
     "build_box",
     "build_cylinder",
     "build_datum_plane",

@@ -30,6 +30,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 
+from loft_wire.cut_bodies import CUT_BODIES_FIELD, CutBodies, check_cut_bodies
 from loft_wire.refs import FeatureRef
 from loft_wire.signatures import EdgeSubshapeRef
 from loft_wire.sketch import EntityId
@@ -67,7 +68,8 @@ class PipeParamsV1(BaseModel):
     See the module docstring. ``operation`` and ``merge`` are the other
     sketch solids' fields: ``add`` with ``merge`` joins the tube to the active
     body (Fusion's *Join*), ``add`` without it starts a new body (*New Body*),
-    and ``cut`` removes it from the active body (*Cut*). Failures are typed
+    and ``cut`` removes it from the bodies ``cut_bodies`` names (*Cut*;
+    Objects To Cut, :mod:`loft_wire.cut_bodies`). Failures are typed
     rebuild errors on the pipe: ``reference_unresolved`` (a missing sketch or
     curve), ``subshape_unresolved`` / ``subshape_ambiguous`` (an edge),
     ``sweep_path_not_connected`` (branched or disjoint picks, or a curve
@@ -101,6 +103,8 @@ class PipeParamsV1(BaseModel):
         description="ADD only: True joins the tube to the active body (or "
         "starts the first body); False starts a NEW body. Ignored for a cut.",
     )
+    cut_bodies: CutBodies | None = CUT_BODIES_FIELD
+    _cut_scope = model_validator(mode="after")(check_cut_bodies)
 
     @model_validator(mode="after")
     def _wall_inside_radius(self) -> Self:

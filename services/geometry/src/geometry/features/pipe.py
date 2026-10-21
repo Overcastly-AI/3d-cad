@@ -30,9 +30,10 @@ from loft_wire.features import (
 )
 from loft_wire.sketch import SketchPoint
 
+from geometry.features.cut_scope import cut_one_tool
 from geometry.features.naming_hooks import labelled_names
 from geometry.features.owner import edge_owner_body_id
-from geometry.features.state import EvaluationState, _add_body, _cut_active
+from geometry.features.state import EvaluationState, _add_body
 from geometry.kernel.datum_path import DatumPathRangeError, plane_along_edge
 from geometry.kernel.edges import resolve_edge_durable
 from geometry.kernel.extrude import ProfileNotClosedError, entity_edges
@@ -195,7 +196,13 @@ def _evaluate_pipe(
         return FeatureError(code="sweep_self_intersecting", message=str(exc))
     generated = labelled_names(item.id, history)
     if params.operation == "cut":
-        return _cut_active(state, tool, feature_id=item.id, generated=generated)
+        return cut_one_tool(
+            state,
+            tool,
+            feature_id=item.id,
+            scope=params.cut_bodies,
+            generated=generated,
+        )
     return _add_body(item, state, tool, merge=params.merge, generated=generated)
 
 
