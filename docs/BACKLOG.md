@@ -9,16 +9,17 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
-Ranked 2026-10-17 (third pass) by the product-manager (delegated by the
-founder). B1-B4 now build from Build features alone and are priced. A builder
-still cannot frame a house on a floor, sheathe it and price the sheets, or
-frame a timber frame, so those come next, in that order. Before them comes one
-fix that Severity puts first. Each plugin lives in `packages/loft-plugins`
-(base features only), has a golden checked on STEP against
-`docs/reference-parts/buildings.md` (B5, B6), and has one e2e from the Build
-group. Done 2026-10-16..17 and dropped (`git log --grep=<ID>`): DECK,
-STUD-WALL, WINDOW-DOOR, ROOF, B2-E2E, ROOF-HIP, PRICE-BOOK, CUT-LIST-PRICES,
-ROOF-VALLEY.
+Ranked 2026-10-21 (fourth pass) by the product-manager (delegated by the
+founder). B1-B6 frame from Build features alone, but HOLE-ACTIVE-BODY showed
+that the multi-body rules behind every framing plugin still send cuts and
+some picks to the last-built body, which is wrong geometry on any building.
+That class goes first (Severity). Then a stored-roof fix of the same class,
+then a priced small house (B7) to find what still stops a builder. Done
+2026-10-16..21 and dropped (`git log --grep=<ID>`): DECK, STUD-WALL,
+WINDOW-DOOR, ROOF, B2-E2E, ROOF-HIP, PRICE-BOOK, CUT-LIST-PRICES,
+ROOF-VALLEY, FLOOR-FRAME, TIMBER-FRAME. Integrating: WALL-MEMBER-RENUMBER,
+HOLE-ACTIVE-BODY, OBJECT-STORE (SeaweedFS). Building: SHEATHING (with
+PRICE-BOOK-VERSION) and ROOF-MEMBER-RENUMBER.
 
 0. [x] **WALL-MEMBER-RENUMBER** (fix now: silent wrong geometry;
 - [x] **HOLE-ACTIVE-BODY** (fix now: wrong geometry; kernel-architect): a
@@ -86,6 +87,7 @@ ROOF-VALLEY.
    (10 ft). Spacing 16 -> 12 gives 13 joists and 23 847.375 in³.
    E2e: a Floor from the Build group lists 10 Joist, 2 Rim and 4 Sill.
 2. [x] **SHEATHING** (sheet goods, priced per sheet; kernel-architect for
+2. [ ] **SHEATHING** (sheet goods, priced per sheet; kernel-architect for
    the plugins and goldens, backend-builder for the price book and cut list,
    frontend-builder for the dialog's sheet unit): sheathing is an option on
    the host tool, not a tool of its own, as in Chief Architect's wall and
@@ -140,10 +142,51 @@ ROOF-VALLEY.
    56 025 in³. Width 12 -> 14 ft gives tie beams of 161 and 58 725 in³. Both
    match an independent script to 1e-4. E2e: a Timber frame from Build lists
    4 Post, 2 Tie beam, 2 Girt and 8 Peg.
+4. [ ] **CUT-OBJECTS-TO-CUT** (fix now: wrong geometry; kernel-architect,
+   then frontend-builder for the dialog): an extrude, revolve, sweep, loft or
+   pipe cut removes material from the active body only, so a notch drawn
+   across a top plate and three studs cuts the plate and leaves the studs
+   whole, and a cut through a stud alone is refused. Fusion's Objects To Cut
+   and SolidWorks' Feature Scope (Auto-select) both default to every body
+   the tool meets, with a body list to narrow it. Cuts get an optional
+   `cut_bodies`; new cuts store every body met, and stored cuts without it
+   keep the active body, so no saved part changes. The same change finishes
+   the owner rule (MULTIBODY-ACTIVE-REFS: sketch projection, sheet-metal edge
+   picks, body-scope pattern and mirror) and puts a bounding-box prefilter on
+   owner scans (the 0.7 s per pick at 200 bodies note). Step 2 is the
+   dialog's Objects To Cut list, which Hole's Feature Scope reuses
+   (HOLE-SCOPE-UI).
+   _Accept:_ goldens: a cut across B2's front top plates and the studs at
+   X 16, 32 and 48 removes the same volume from each member as an
+   independent build123d script; a Ø1 hole and an R0.25 fillet on the first
+   stud of a framed wall (not the last member) match the script; a stored
+   pre-change cut and all tree goldens rebuild byte-identical. B5's rebuild
+   is no slower than before, and an owner pick at 200 bodies takes under
+   0.05 s. E2e: Extrude Cut across a wall lists the 4 bodies under Objects
+   To Cut, and unticking one leaves it whole.
+5. [ ] **ROOF-L-DOUBLED-COMMON** (fix now: wrong geometry and a wrong
+   price; kernel-architect): a stored `loft.roof` 1.2.0 L whose wing jacks
+   land an ulp off the flush ridge-end common frames two coincident commons
+   (25 of 64 constructed footprints): an overlap and a doubled, priced
+   cut-list line. Fix 1.2.0 in place, as HOLE-ACTIVE-BODY fixed stored
+   holes: merge layout lines within 1e-9 in as 1.3.0 does. The member that
+   survives keeps its id, and a reference to the dropped twin is flagged as
+   lost (SolidWorks' dangling reference), never rebound.
+   _Accept:_ a golden on one of the 25 footprints at 1.2.0 frames one
+   common, with no interference and the script's volume; its cut list has
+   one line fewer. B4 and the other roof goldens rebuild byte-identical.
+6. [ ] **QA-B7-HOUSE** (gap-finding round; qa-tester): model B7
+   (`docs/reference-parts/buildings.md`), a 24 x 16 ft 2x6 house on a 2x10
+   floor with sheathing, a door, four windows and a 6/12 gable, priced to
+   the last line, in the real app, as a reference-part round. It starts
+   once SHEATHING and CUT-OBJECTS-TO-CUT are on main.
+   _Accept:_ VISION gets a B7 row (pass or fail, time, gestures, STEP
+   volume against the script); every blocker is a BACKLOG line ranked under
+   "Plugins and buildings", wrong geometry in Now; the three edits are run.
 
 ## Next
 
-Bike gaps first (round 2), then the hard-parts blockers, then speed.
+Bike gaps first (rounds 2 and 3), then the hard-parts blockers, then speed.
 
 - [ ] **SKETCH-3D** (bike chain and seat stays): a 3D sketch of lines and
       arcs between picked points and skeleton vertices, usable as a Pipe or
@@ -195,9 +238,6 @@ Bike gaps first (round 2), then the hard-parts blockers, then speed.
       viewport (`duct-datum-not-drawn.png`), only a tree row and a plane-pick
       chip. _Accept:_ a datum is drawn as a sized, selectable plane, as origin
       planes are.
-- [ ] **HOLE-ANY-BODY**: Hole drills only the active body, although the face
-      pick offers every body. _Accept:_ a hole on body 1 of a two-body part
-      drills body 1 (checked by the change in volume).
 - [ ] **EMPTY-SKETCH-SAVE**: undoing the last entity of a saved sketch shows
       an empty sheet while the server keeps the old geometry. _Accept:_ an
       empty bound sketch saves as empty.
@@ -230,7 +270,7 @@ every member. A plugin registers a custom feature that expands into base
 features (RESEARCH §23). First-party plugins ship preinstalled; no install
 step.
 
-B1-B4 are done. FLOOR-FRAME, SHEATHING and TIMBER-FRAME are in Now (B5, B6).
+B1-B6 are done once SHEATHING lands. B7 (QA-B7-HOUSE, Now) ranks what follows.
 
 - [ ] **ROOF-GABLE-WALLS** (was the note ROOF-BEARING-WALLS): a gable on
       picked walls, each wall marked as defining a slope or not (Revit's

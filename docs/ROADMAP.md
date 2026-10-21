@@ -3,7 +3,7 @@
 Where we are and what comes next. The orchestrator keeps "Now" true; the
 `product-manager` owns the rest. The detail lives in `docs/BACKLOG.md`.
 
-## Now (2026-10-17)
+## Now (2026-10-21)
 
 Since 10-16, the Build group frames B1-B4 from plugins alone: a deck, stud
 walls with hosted windows and doors, and gable, hip and valley roofs. Each
@@ -14,6 +14,13 @@ has a cut list priced from a per-user price book. Next, in order:
 - wall sheathing and subfloor, priced per sheet;
 - a pegged timber frame (B6).
 
+B1-B6 frame from plugins alone and are priced; the object store is
+SeaweedFS. Finishing: sheathing priced per sheet, and stable roof member
+ids. Next, in order:
+- cuts that reach every body they meet (Objects To Cut), so a notch across
+  studs cuts the studs (a fix);
+- one common, not two, on stored L roofs (a fix);
+- a priced small house (B7), modelled to find the next gaps.
 
 ## Shipped
 
@@ -42,9 +49,8 @@ has a cut list priced from a per-user price book. Next, in order:
 4. MCP server on top of `loft-script`.
 5. Assemblies a working engineer can use: joints, drag, limits, component patterns
    and in-context edits, driven by the reference assemblies A1-A3.
-6. Building generators beyond B1-B4: floors, sheathing, timber frames, then
-   slabs, steel studs and stairs, driven by the reference buildings B5 and B6
-   (RESEARCH §23).
+6. Building generators beyond B1-B6: slabs, steel studs, stairs, roof
+   sheathing and window and door units, driven by B7's gaps (RESEARCH §23).
 
 ## Later
 

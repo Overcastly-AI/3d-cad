@@ -332,3 +332,31 @@ Cut list: Post 8x8 4 @ 96 (8 ft); Tie beam 8x8 2 @ 137 (12 ft); Girt 8x8
 
 **Edit:** width 12 -> 14 ft. The tie beams become 161 overall, and the frame
 58 725 in³.
+
+## B7 Small house, 24 x 16 ft, sheathed and priced (gap-finding round)
+
+The founder's "homes" goal end to end: B5's floor and sheathing, B2's walls
+and openings and B2's gable, at house size and in 2x6, with every cut-list
+line priced. It names no new tool; `qa-tester` builds it to find what stops
+a builder, and the numbers come from the round's independent script.
+
+- **Floor:** 288 x 192 (X x Y) on a foundation top at Z 0. PT 2x6 sills,
+  2x10 rims along X, 2x10 joists along Y at 16 in o.c., and a 23/32 plywood
+  subfloor.
+- **Walls:** 2x6 at 16 in o.c. standing on the subfloor, 7/16 OSB outside.
+  Front and back run 288; the sides fit between them (181).
+- **Openings:** front, a 36 x 80 door centred on X 144 and two 36 x 48
+  windows (head 82.5) centred on X 60 and 228; back, one 36 x 48 window on
+  X 144; each side, one 24 x 36 window centred.
+- **Roof:** a 6/12 gable, ridge along X, 2x8 rafters at 24 in o.c., a 2x10
+  ridge, 12 in overhangs, bearing on the front and back walls.
+- **Price:** every material, profile and sheet in the price book; the cut
+  list has no unpriced line and its total equals the lines summed by hand.
+
+**Edits** (each from the base house): length 24 -> 28 ft (floor, front and
+back walls, roof); the front left window moved 24 in; pitch 6/12 -> 8/12.
+
+The round passes or fails B7 as any building (built, edits survive with no
+interference, checked to 1e-4 on STEP), times the build and files every
+gap: expected candidates are SHEATHING-WALL-BASE, B2-E2E-INTERFERENCE,
+ROOF-GABLE-WALLS and the owner-scan cost at about 400 bodies.
