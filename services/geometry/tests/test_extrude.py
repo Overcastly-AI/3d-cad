@@ -26,7 +26,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from geometry.main import app
-from loft_wire.features import EvaluateTreeResult
+from loft_wire.features import EvaluateTreeResult, SolvedSketchData
 
 client = TestClient(app)
 
@@ -895,7 +895,7 @@ def test_construction_geometry_is_excluded_from_the_profile() -> None:
     # The construction entity still rides the solved-sketch payload (§7.10) so
     # the sketcher can render it dashed — reference geometry, not deletion.
     solved = result.features[0].data
-    assert solved is not None
+    assert isinstance(solved, SolvedSketchData)
     assert {e.id: e.construction for e in solved.entities} == {
         "e1": False,
         "e2": False,
