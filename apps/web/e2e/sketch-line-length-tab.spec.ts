@@ -16,9 +16,10 @@ import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
  * formula error that named no cause. Retyping the second number there, as a
  * user does, stores the horizontal line at length 450.469.
  *
- * Now, as Fusion's draw boxes do, Tab never leaves the box. In a one-cell box
- * it says the box takes one value, the length, and how to type an end point
- * instead, and Enter refuses a second number typed after it.
+ * Now, as Fusion's draw boxes do, Tab never leaves the box. Since
+ * SKETCH-LINE-ANGLE the line's box is Length and Angle, so Tab walks to the
+ * angle cell; a Y typed there is past 180°, and Enter refuses it and says how
+ * to type an end point instead.
  */
 
 interface PersistedLine {
@@ -74,7 +75,7 @@ async function saveAndReadLines(
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-test("x Tab y in a drawn line's length box applies nothing and says the box is the length", async ({
+test("x Tab y in a drawn line's box applies nothing and says how to type a point", async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -101,20 +102,19 @@ test("x Tab y in a drawn line's length box applies nothing and says the box is t
 
   await press(page, "426.562");
   await page.keyboard.press("Tab");
-  // Tab stays in the box and says what the box is.
-  await expect(length).toBeFocused();
-  await expect(page.getByTestId("draw-dimensions-error")).toContainText(
-    "one value, the length",
-  );
+  // Tab stays in the box: it walks to the angle cell.
+  const angle = page.getByTestId("draw-dimension-angle");
+  await expect(angle).toBeFocused();
   await press(page, "450.469");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("draw-dimensions-error")).toContainText(
     "type X Tab Y before you click",
   );
-  await expect(length).toBeFocused();
+  await expect(angle).toBeFocused();
   await page.screenshot({ path: `${SCREENSHOT_DIR}/line-entry-after.png` });
 
   // The length typed alone applies.
+  await angle.fill("");
   await length.fill("426.562");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("draw-dimensions-error")).toHaveCount(0);

@@ -200,7 +200,7 @@ Bike gaps first (rounds 2 and 3), then the hard-parts blockers, then speed.
       Sweep path (SolidWorks 3D Sketch, Fusion's 3D sketch). _Accept:_ the
       bike's splayed chain stays are Pipes on a 3D sketch tied to the
       dropouts and BB, matching a script to 1e-4.
-- [ ] **SKETCH-LINE-ANGLE** (was DRAW-BOX-LINE-ANGLE): the Line draw box
+- [x] **SKETCH-LINE-ANGLE** (was DRAW-BOX-LINE-ANGLE): the Line draw box
       shows Length and Angle cells, as Fusion does; the angle becomes an
       angle-to-axis dimension, which ships first. _Accept:_ typing 450 Tab 73
       Enter draws a 450 mm line at 73° to the sketch X axis, dimensioned,
@@ -325,6 +325,10 @@ B1-B6 are done once SHEATHING lands. B7 (QA-B7-HOUSE, Now) ranks what follows.
 ## Notes
 
 One line each. The founder triages weekly; most are closed without work.
+
+- SKETCH-LINE-ANGLE-WHEN: the L / ∠ cells arm after the end click (type 450 Tab 73 Enter then); keys typed BEFORE the end click stay the X / Y point cells (G2, sketch-line-length-tab), whereas Fusion's box takes length and angle mid-drag. Founder to decide whether the mid-drag keys should become L / ∠.
+- SKETCH-LINE-ANGLE-ZERO: the angle cell takes (0, 180) as `AngleConstraint` does; 0 or 180 is refused with a message rather than becoming Horizontal (or Collinear to the previous segment), which Fusion does.
+- SKETCH-LINE-ANGLE-WIRE: the angle-to-axis dimension is the existing `angle` constraint against the `x-axis` datum line (no wire change); planegcs holds 450 at 73° to 3e-14° with 0 DOF. A typed angle drops the inferred H/V on that line. No document angle-unit setting exists; the cell reads degrees.
 
 - TIMBER-CLEARANCE: joints are line to line (tenon = mortise, peg = hole); hsbCAD and Cadwork offer mortise-depth and width clearances and a drawbore offset, which a shop sets before cutting.
 - TIMBER-OPPOSED: an inner bent's post takes two girt tenons at one height, each shortened to half the post less 1/4 in (3.5 in an 8x8); framers also stagger the girts or house them, which the plugin does not offer.

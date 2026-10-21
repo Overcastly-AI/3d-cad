@@ -200,6 +200,7 @@
     "sketch-fit.spec.ts": 77.5,
     "sketch-fix-grounded.spec.ts": 17.3,
     "sketch-ghost-unsplit.spec.ts": 19.2,
+    "sketch-line-angle.spec.ts": 30.1,
     "sketch-line-chain.spec.ts": 53.8,
     "sketch-line-length-tab.spec.ts": 29.0,
     "sketch-mirror.spec.ts": 82.1,
