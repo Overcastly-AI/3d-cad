@@ -364,6 +364,7 @@ def test_drawing_sheets_over_ceiling_rejected() -> None:
             "orientation": "landscape",
             "projection": "third_angle",
             "title_block": None,
+            "parts_list_structure": "top_level",
             "order_index": 0,
             "created_at": now,
             "updated_at": now,
