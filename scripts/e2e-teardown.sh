@@ -122,9 +122,12 @@ _td_self_test() {
   local dir fails=0 pid inner out rc t0 ms
   dir="$(mktemp -d -t td-selftest.XXXXXX)"
   # Fixtures leak nothing even when a check fails half-way. EXIT, not RETURN:
-  # this only ever runs as the script's last act.
+  # this only ever runs as the script's last act. `|| true`: errexit still
+  # holds inside the trap, and pkill's rc says only whether an orphaned zombie
+  # (the stubborn loop's last `sleep`) was still awaiting init's reaping. That
+  # is a race, and a 1 here turned an all-passed run into exit 1 under load.
   # shellcheck disable=SC2064
-  trap "pkill -KILL -g \$(paste -sd, '$dir/pgids' 2>/dev/null) 2>/dev/null; rm -rf '$dir'" EXIT
+  trap "pkill -KILL -g \$(paste -sd, '$dir/pgids' 2>/dev/null) 2>/dev/null || true; rm -rf '$dir'" EXIT
   check() {
     if [[ "$2" == 1 ]]; then
       echo "  ok   $1"
