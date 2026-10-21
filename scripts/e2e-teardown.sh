@@ -136,7 +136,9 @@ _td_self_test() {
       fails=$((fails + 1))
     fi
   }
-  alive() { kill -0 "$1" 2>/dev/null && [[ "$(ps -o stat= -p "$1")" != Z* ]]; }
+  # ONE ps call: `kill -0 && ps` raced the reaper — a zombie reaped between the
+  # two printed no stat, and "" is not Z*, so a dead process read as alive.
+  alive() { [[ "$(ps -o stat= -p "$1" 2>/dev/null)" =~ ^[[:space:]]*[^Z[:space:]] ]]; }
   # disown: the "Killed" job notice bash would print is expected noise here.
   started() { echo "$1" >>"$dir/pgids"; disown "$1"; }
   # Every fixture writes a marker from INSIDE its new group, after its traps.
