@@ -56,24 +56,48 @@ describe("Objects To Cut (CUT-OBJECTS-TO-CUT)", () => {
       ["Body 2 · Wall 2", true],
       ["Body 4 · Wall 4", true],
     ]);
-    expect(toggleCutBody(rows, "b2", false)).toEqual([
+    expect(toggleCutBody("all", rows, "b2", false)).toEqual([
       { kind: "feature", feature_id: "b1" },
       { kind: "feature", feature_id: "b4" },
     ]);
   });
 
-  it("ticking every row again is every body met", () => {
-    const narrowed = toggleCutBody(
-      cutBodyRows("all", ["b1", "b2"], BODIES),
-      "b1",
-      false,
+  it("re-ticking a body never widens a narrowed cut to every body", () => {
+    // The review's repro: bodies b1, b2, b3; the cut lists [b1, b2] (b3 was
+    // excluded earlier and is no longer met, so it is not a row). Unticking
+    // b2 and ticking it back must restore [b1, b2], not "all", which would
+    // cut b3, the body the modeller left out.
+    const three = BODIES.slice(0, 3);
+    const listed = [
+      { kind: "feature" as const, feature_id: "b1" },
+      { kind: "feature" as const, feature_id: "b2" },
+    ];
+    const rows = cutBodyRows(listed, ["b1", "b2"], three);
+    expect(rows.map((r) => [r.id, r.checked])).toEqual([
+      ["b1", true],
+      ["b2", true],
+    ]);
+    const unticked = toggleCutBody(listed, rows, "b2", false);
+    expect(unticked).toEqual([{ kind: "feature", feature_id: "b1" }]);
+    const again = toggleCutBody(
+      unticked,
+      cutBodyRows(unticked, ["b1", "b2"], three),
+      "b2",
+      true,
     );
-    const rows = cutBodyRows(narrowed, ["b2"], BODIES);
-    // The unticked body stays listed (it was met) only while it is listed;
-    // the rows are the met bodies plus the listed ones.
-    expect(rows.map((r) => r.id)).toEqual(["b2"]);
+    expect(again).toEqual(listed);
+  });
+
+  it("every body met stays every body until a row is unticked", () => {
+    const rows = cutBodyRows("all", ["b1", "b2"], BODIES);
+    const narrowed = toggleCutBody("all", rows, "b1", false);
+    expect(narrowed).toEqual([{ kind: "feature", feature_id: "b2" }]);
+    // Ticking b1 back is the explicit list of both, not "all".
     const both = cutBodyRows(narrowed, ["b1", "b2"], BODIES);
-    expect(toggleCutBody(both, "b1", true)).toBe("all");
+    expect(toggleCutBody(narrowed, both, "b1", true)).toEqual([
+      { kind: "feature", feature_id: "b1" },
+      { kind: "feature", feature_id: "b2" },
+    ]);
   });
 
   it("refuses a Save with nothing ticked", () => {

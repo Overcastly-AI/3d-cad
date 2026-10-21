@@ -8,7 +8,8 @@
  *  · `"all"`: every body the tool meets, found on each rebuild. What a NEW
  *    cut stores, so a notch drawn across a plate and three studs cuts all four.
  *  · a list of bodies, each by its base feature: exactly those. What a cut
- *    stores once the modeller unticks a body in the list.
+ *    stores once the modeller unticks a body in the list; it stays a list
+ *    (re-ticking adds the body back) until "Cut every body it meets".
  *  · absent: the ACTIVE body only. Every cut saved before Objects To Cut has
  *    none and rebuilds as it always did; a Save keeps it absent until the
  *    modeller asks for every body.
@@ -101,11 +102,16 @@ export function cutBodyRows(
 }
 
 /**
- * The choice after (un)ticking row `id`. Every row ticked is `"all"`, the
- * new-cut default, so ticking a body back restores it; anything less is the
- * ticked bodies, in body order.
+ * The choice after (un)ticking row `id`: the ticked bodies, in body order.
+ *
+ * Never `"all"` unless the choice already was: the rows are only the bodies
+ * the cut met plus the listed ones, so a body excluded earlier (and no longer
+ * met) is not a row, and "every row ticked" does not mean "every body". Turning
+ * a narrowed cut back into `"all"` is its own action ("Cut every body it
+ * meets"), never a side effect of re-ticking a row.
  */
 export function toggleCutBody(
+  choice: CutBodiesChoice,
   rows: readonly CutBodyRow[],
   id: string,
   checked: boolean,
@@ -113,7 +119,7 @@ export function toggleCutBody(
   const ticked = rows
     .filter((row) => (row.id === id ? checked : row.checked))
     .map((row) => row.id);
-  if (ticked.length === rows.length) return "all";
+  if (choice === "all" && ticked.length === rows.length) return "all";
   return ticked.map((featureId): BodyRef => ({
     kind: "feature",
     feature_id: featureId,

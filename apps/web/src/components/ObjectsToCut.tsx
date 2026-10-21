@@ -6,8 +6,9 @@
  * Shown only on a part with more than one body: with one there is nothing to
  * choose. The rows are the bodies the cut met on its last rebuild, so a NEW cut
  * (not yet built) says what it will do instead of listing guesses; once it is
- * built, Edit lists them. A cut saved before Objects To Cut cuts its active
- * body only, and says so, with the one action that changes it.
+ * built, Edit lists them. Unticking narrows the cut to a list, which stays a
+ * list; "Cut every body it meets" is the one way back to every body, and the
+ * one action a cut saved before Objects To Cut (its active body only) has.
  */
 import { Button, Checkbox, FieldRow } from "@loft/design";
 
@@ -41,19 +42,10 @@ export function ObjectsToCut({
     <FieldRow label="Objects To Cut">
       <div className="flex min-w-0 flex-col" data-testid="objects-to-cut">
         {choice === undefined ? (
-          <>
-            <span className="font-body text-xs text-gauge" role="note">
-              Its active body only (saved before Objects To Cut).
-            </span>
-            <Button
-              className="mt-1 self-start"
-              data-testid="objects-to-cut-all"
-              onClick={() => onChange("all")}
-            >
-              Cut every body it meets
-            </Button>
-          </>
-        ) : rows.length === 0 ? (
+          <span className="font-body text-xs text-gauge" role="note">
+            Its active body only (saved before Objects To Cut).
+          </span>
+        ) : rows.length === 0 && choice === "all" ? (
           <span
             className="font-body text-xs text-mist"
             data-testid="objects-to-cut-every"
@@ -69,13 +61,24 @@ export function ObjectsToCut({
                   data-testid={`objects-to-cut-${row.id}`}
                   checked={row.checked}
                   onChange={(checked) =>
-                    onChange(toggleCutBody(rows, row.id, checked))
+                    onChange(toggleCutBody(choice, rows, row.id, checked))
                   }
                 />
               </li>
             ))}
           </ul>
         )}
+        {choice !== "all" ? (
+          // A narrowed (or pre-list) cut returns to every body only by asking:
+          // re-ticking rows never does it (`toggleCutBody`).
+          <Button
+            className="mt-1 self-start"
+            data-testid="objects-to-cut-all"
+            onClick={() => onChange("all")}
+          >
+            Cut every body it meets
+          </Button>
+        ) : null}
       </div>
     </FieldRow>
   );

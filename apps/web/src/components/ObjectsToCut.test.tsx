@@ -64,6 +64,24 @@ describe("ObjectsToCut", () => {
     ]);
   });
 
+  it("a narrowed cut offers the way back to every body", () => {
+    const onChange = vi.fn();
+    render(
+      <ObjectsToCut
+        choice={[{ kind: "feature", feature_id: "b1" }]}
+        context={{ bodies: BODIES, met: ["b1", "b3"] }}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("objects-to-cut-b3"));
+    expect(onChange).toHaveBeenLastCalledWith([
+      { kind: "feature", feature_id: "b1" },
+      { kind: "feature", feature_id: "b3" },
+    ]);
+    fireEvent.click(screen.getByTestId("objects-to-cut-all"));
+    expect(onChange).toHaveBeenLastCalledWith("all");
+  });
+
   it("offers a cut saved before the list every body it meets", () => {
     const onChange = vi.fn();
     render(
