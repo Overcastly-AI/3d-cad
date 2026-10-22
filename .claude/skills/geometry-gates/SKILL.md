@@ -12,7 +12,7 @@ These gates check that the geometry is right, not just that the code runs
 
 ```bash
 uv run pytest services/geometry/tests                      # everything, incl. goldens
-uv run pytest services/geometry/tests/test_goldens.py -k <name>
+uv run pytest services/geometry/tests/test_goldens.py services/geometry/tests/test_goldens_restart_?.py -k <name>
 scripts/e2e.sh --geometry-only                             # the e2e geometry leg
 just bench                                                 # detailed timings (not a gate)
 ```
