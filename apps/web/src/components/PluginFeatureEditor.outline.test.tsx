@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FeatureResponse } from "../api/parts";
 import type { CustomFeatureWrite, PluginManifest } from "../api/plugins";
 import { useOutlinePickStore } from "../features/outlinePickStore";
+import { withPluginValue } from "../features/pluginForm";
 import { sceneOriginBasis } from "../sketch/plane";
 import type { SketchEntity } from "../sketch/tools";
 import type { SolvedSketchLayer } from "../viewport/solvedSketchLayer";
@@ -198,6 +199,66 @@ describe("a side pick (an opening's Wall)", () => {
       screen.getByRole("button", { name: "Wall: Right" }),
     ).toBeInTheDocument();
     expect(useOutlinePickStore.getState().offer?.selected).toEqual(["e2"]);
+  });
+});
+
+describe("a new outline drops the side picks made on the old one", () => {
+  // A second house on its own rectangle: its lines are e1..e4 too.
+  const SKETCH_2 = row("s2", "Garage", {
+    type: "sketch",
+    version: 1,
+    params: {
+      entities: B7,
+      constraints: [],
+      plane: { kind: "datum_plane", plane: "XY" },
+    },
+  });
+  const WALL_2 = row("w2", "Wall 2", {
+    type: "custom",
+    version: 1,
+    params: {
+      plugin_id: "loft.wall",
+      plugin_version: "1.3.0",
+      inputs: { outline: { kind: "feature", feature_id: "s2" } },
+    },
+  });
+  const TREE = [SKETCH, WALL, SKETCH_2, WALL_2];
+  const SEGMENT = WINDOW.inputs[1] as Extract<
+    PluginManifest["inputs"][number],
+    { kind: "segments" }
+  >;
+
+  it("clears e2 when the host moves to another outline, keeps it otherwise", () => {
+    const values = { host_wall: "w1", wall_segment: "e2" };
+    expect(
+      withPluginValue(WINDOW, values, "host_wall", "w2", TREE).wall_segment,
+    ).toBe("");
+    // The same outline (the host re-picked): the pick still means its wall.
+    expect(
+      withPluginValue(WINDOW, values, "host_wall", "w1", TREE).wall_segment,
+    ).toBe("e2");
+    // Other fields never touch it.
+    expect(
+      withPluginValue(WINDOW, values, "offset_mm", "60", TREE).wall_segment,
+    ).toBe("e2");
+    expect(SEGMENT.outline_input).toBe("host_wall");
+  });
+
+  it("in the dialog: Right on Wall 1, then Wall 2, reads Select again", () => {
+    renderEditor(WINDOW, TREE);
+    fireEvent.change(screen.getByTestId("plugin-input-host_wall"), {
+      target: { value: "w1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Right" }));
+    expect(
+      screen.getByRole("button", { name: "Wall: Right" }),
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("plugin-input-host_wall"), {
+      target: { value: "w2" },
+    });
+    expect(
+      screen.getByRole("button", { name: "Wall: Select" }),
+    ).toBeInTheDocument();
   });
 });
 

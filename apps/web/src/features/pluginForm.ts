@@ -429,3 +429,28 @@ export function firstPluginBlocker(
   }
   return null;
 }
+
+/**
+ * The form's values with *name* set to *value*, and every side pick whose
+ * outline that changes cleared (BUILDING-OUTLINE). Side picks store sketch
+ * line ids, and every rectangle's lines are e1..e4, so a kept `e2` would
+ * silently name a different wall of the new outline; Fusion drops a
+ * selection whose source changed, and so does this.
+ */
+export function withPluginValue(
+  manifest: PluginManifest,
+  values: Readonly<Record<string, string>>,
+  name: string,
+  value: string,
+  features: readonly FeatureResponse[],
+): Record<string, string> {
+  const next: Record<string, string> = { ...values, [name]: value };
+  for (const input of manifest.inputs) {
+    if (input.kind !== "segments" || input.outline_input !== name) continue;
+    if ((next[input.name] ?? "") === "") continue;
+    const before = segmentsOutlineSketch(manifest, input, values, features);
+    const after = segmentsOutlineSketch(manifest, input, next, features);
+    if (before?.id !== after?.id) next[input.name] = "";
+  }
+  return next;
+}

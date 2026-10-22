@@ -63,6 +63,7 @@ import {
   functionCandidates,
   mountFormulaField,
   type ScopeDimension,
+  bareScanNames,
   scopeQuantities,
   sessionFieldErrors,
   sessionFormulas,
@@ -238,18 +239,27 @@ export function ValueField({
       ),
     [parameters, dimensions],
   );
+  const scanNames = useMemo(
+    () => bareScanNames(names, dimensions),
+    [names, dimensions],
+  );
   const display = pointer === undefined ? value : (formula ?? value);
-  // The sketcher sends anything but a plain number as the dimension's
-  // formula (`20mm` included), so that is what wears the mark there.
-  // A length in carpenter notation (`11-15/32`, `5' 6"`) is a number there
-  // too: the box reads it as one (RESEARCH §29), so it is never a formula.
+  // The sketcher sends anything it cannot read as a number as the
+  // dimension's formula, so that is what wears the mark there. A length box
+  // reads a number with its own unit (`28 ft`) and carpenter notation
+  // (`11-15/32`, `5' 6"`, RESEARCH §29) as numbers in the part's unit, so
+  // neither is ever a formula.
   const textFormula =
     pointer === undefined
       ? (() => {
           if (kind === "length" && isCarpenterLength(display, bareUnit)) {
             return null;
           }
-          const entry = parseFieldEntry(display, "unitless", unit);
+          const entry = parseFieldEntry(
+            display,
+            kind === "length" ? "length" : "unitless",
+            bareUnit,
+          );
           return entry.kind === "formula" ? entry.expression : null;
         })()
       : formula;
@@ -268,15 +278,15 @@ export function ValueField({
     : textFormula === null
       ? null
       : typedFormulaError(textFormula, kind, bareUnit);
-  // FORMULA-BARE-UNIT: a feature field's stored formula is read as stored
-  // (and flagged below when a bare term in it reads as mm); one typed here is
-  // read as the save will store it, with the part's unit written into its
-  // bare terms (`wall + 1/2` is `wall + 1 in/2`). The sketcher's text is the
-  // dimension itself, read as the solver reads it.
+  // FORMULA-BARE-UNIT: a stored formula is read as stored (and a feature
+  // field's is flagged below when a bare term in it reads as mm); one typed
+  // here is read as the save will store it, with the part's unit written into
+  // its bare terms (`wall + 1/2` is `wall + 1 in/2`): a feature field's and a
+  // sketch dimension's alike, so the preview is what the save builds.
   const entered =
-    pointer === undefined || textFormula === null || stored
+    textFormula === null || stored
       ? null
-      : bareFieldFormula(textFormula, kind, names, unit);
+      : bareFieldFormula(textFormula, kind, scanNames, unit);
   const result: FormulaResult | null =
     textFormula === null
       ? null

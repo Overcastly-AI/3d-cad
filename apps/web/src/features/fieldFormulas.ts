@@ -44,6 +44,13 @@ export const useParameterScopeStore = create<ParameterScopeState>()((set) => ({
 export interface ScopeDimension {
   name: string;
   value: number;
+  /**
+   * What the dimension measures, for the bare-unit scan only: the save reads
+   * a length dimension as a length in mm and an angle as an angle
+   * (`loft_wire.bare_units`), while the formula still reads its NUMBER.
+   * Absent: a length.
+   */
+  kind?: "length" | "angle";
 }
 
 /**
@@ -65,6 +72,24 @@ export function scopeQuantities(
     names.set(d.name, { value: d.value, kind: "unitless" });
   }
   return names;
+}
+
+/**
+ * *names* as the save's bare-unit scan types them (FORMULA-BARE-UNIT): each
+ * sketch dimension a length (or an angle), not the unitless number the
+ * formula reads, so `width + 96` in an inch part is previewed as the save
+ * stores it, `width + 96 in`. Only the kinds matter to the scan.
+ */
+export function bareScanNames(
+  names: ReadonlyMap<string, Quantity> | null,
+  dimensions: readonly ScopeDimension[] = [],
+): Map<string, Quantity> | null {
+  if (names === null) return null;
+  const out = new Map(names);
+  for (const d of dimensions) {
+    out.set(d.name, { value: d.value, kind: d.kind ?? "length" });
+  }
+  return out;
 }
 
 // --- autocomplete ----------------------------------------------------------------
