@@ -12,6 +12,7 @@ exercise the code paths and error taxonomy.
 """
 
 import io
+import math
 import os
 import uuid
 from typing import Any
@@ -211,29 +212,52 @@ def test_cpu_limit_kills_a_real_cpu_burn_regardless_of_wall_clock() -> None:
     This proves the PRIMARY DoS bound actually fires — the worker's production
     ``_apply_cpu_limit`` caps CPU seconds, so a process that busy-loops past the
     budget is signalled dead (``SIGXCPU`` at the soft limit, or ``SIGKILL`` at the
-    hard limit) — with a large wall-clock allowance, showing the kill is driven by
-    CPU consumption, NOT wall-clock. This is the contention-invariant half of the
-    bound: a legit ~1 s-CPU parse never reaches a 1 s budget's kill on a starved
-    machine, but a genuine CPU burn always does.
+    hard limit) — and the child's OWN CPU time at death (``wait4`` rusage) is the
+    budget, showing the kill is driven by CPU consumption, NOT wall-clock. This
+    is the contention-invariant half of the bound: a legit ~1 s-CPU parse never
+    reaches a 1 s budget's kill on a starved machine, but a genuine CPU burn
+    always does. The child's CPU time, not the parent's wall-clock, is what is
+    asserted, so a loaded machine (which only stretches wall-clock) cannot fail
+    it; the wall-clock timeout is only a hang guard.
     """
     import signal
     import subprocess
     import sys
     import time
 
+    # Importing the worker loads OCP, which itself costs seconds of CPU, and
+    # RLIMIT_CPU counts the whole process: the budget is set 1 s past what the
+    # import already used, so the busy loop really burns before it is killed.
     prog = (
+        "import time\n"
         "from geometry.kernel._step_parse_worker import _apply_cpu_limit\n"
-        "_apply_cpu_limit(1)\n"
+        "start = time.process_time()\n"
+        "print(start, flush=True)\n"
+        "_apply_cpu_limit(start + 1)\n"
         "while True:\n    pass\n"
     )
-    start = time.monotonic()
-    # wall-clock timeout is a huge safety net (15 s) - if the CPU bound works the
-    # child dies in ~1-2 s of CPU, far sooner, via a signal (negative returncode).
-    completed = subprocess.run([sys.executable, "-c", prog], timeout=15)
-    elapsed = time.monotonic() - start
-    assert completed.returncode in (-signal.SIGXCPU, -signal.SIGKILL)
-    # Killed by the 1 s CPU budget, nowhere near the 15 s wall safety net.
-    assert elapsed < 10.0
+    child = subprocess.Popen([sys.executable, "-c", prog], stdout=subprocess.PIPE)
+    # A hang guard only: a broken CPU bound would burn until this fires.
+    deadline = time.monotonic() + 120
+    pid, status, usage = os.wait4(child.pid, os.WNOHANG)
+    while not pid:
+        if time.monotonic() > deadline:
+            child.kill()
+            child.wait()
+            pytest.fail("the CPU limit never fired")
+        time.sleep(0.05)
+        pid, status, usage = os.wait4(child.pid, os.WNOHANG)
+    child.returncode = returncode = os.waitstatus_to_exitcode(status)
+    assert returncode in (-signal.SIGXCPU, -signal.SIGKILL)
+    assert child.stdout is not None
+    start = float(child.stdout.read())
+    child.stdout.close()
+    # Killed at the soft limit (ceil(start + 1) s of process CPU) or at the
+    # hard one a second later: the CPU it burned in the loop is the budget,
+    # whatever the wall-clock was.
+    soft = math.ceil(start + 1)
+    cpu_s = usage.ru_utime + usage.ru_stime
+    assert soft - 0.1 <= cpu_s < soft + 1.5, (start, cpu_s)
 
 
 def test_cpu_limit_signal_maps_to_import_parse_timeout(
