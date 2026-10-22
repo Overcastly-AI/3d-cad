@@ -27,8 +27,10 @@ lumber lengths :data:`STOCK_LENGTHS_FT`; the shortest that covers the member
 is suggested, with the offcut it leaves. A member longer than the longest
 stock is SPLICED from stock pieces, as a framer buys a long plate
 (:func:`stock_splices`, RESEARCH §27): the pieces covering it with the least
-waste, then the fewest joints. A member no :data:`MAX_SPLICE_PIECES`-piece
-splice covers, or one that is not lumber, has no stock suggestion.
+waste, then the fewest joints; when pricing, the least-waste splice whose
+every piece the book prices, as a yard quotes it. A member no
+:data:`MAX_SPLICE_PIECES`-piece splice covers, or one that is not lumber,
+has no stock suggestion.
 
 **Sheet goods** (SHEATHING): a member whose ``profile`` names a sheet product
 (:mod:`loft_wire.sheet_goods`, "7/16 OSB") is a PANEL. Its thickness is its
@@ -361,36 +363,41 @@ def _evenness(splice: tuple[int, ...]) -> tuple[int, ...]:
 
 
 @lru_cache(maxsize=1024)
-def stock_splices(length_mm: float) -> tuple[tuple[int, ...], ...]:
-    """The equally good splices for a member longer than the longest stock,
-    best first, each longest piece first (RESEARCH §27).
+def stock_splice_tiers(length_mm: float) -> tuple[tuple[tuple[int, ...], ...], ...]:
+    """Every splice that covers a member longer than the longest stock,
+    grouped into tiers of equally good splices, the best tier first
+    (RESEARCH §27).
 
     A framer splices a plate or rim longer than stock from stock pieces, the
     joints over studs or joists (Chief Architect's materials list buys it the
-    same way). The splice is the combination of at most
-    :data:`MAX_SPLICE_PIECES` stock pieces that covers *length_mm* with the
-    LEAST WASTE (the fewest feet bought), then the FEWEST PIECES (joints).
-    More than one can tie (24 ft is 12 + 12, 14 + 10 or 16 + 8); they are
-    ordered most even first (:func:`_evenness`), and :func:`price_lines`
-    picks among them the cheapest the book prices Each. Empty for a member
-    that one stock length covers, or that no splice covers."""
+    same way). A splice is a combination of at most :data:`MAX_SPLICE_PIECES`
+    stock pieces covering *length_mm*, each longest piece first; tiers are
+    ordered by LEAST WASTE (the fewest feet bought), then FEWEST PIECES
+    (joints), and within a tier most even first (:func:`_evenness`). The
+    first tier is the least-waste choice (:func:`stock_splices`); the later
+    ones let :func:`price_lines` buy what the book prices, as a yard quotes
+    28 ft as 16 + 16 when it stocks no 14 ft. Empty for a member that one
+    stock length covers, or that no splice covers."""
     if stock_length_ft(length_mm) is not None:
         return ()
-    best: tuple[int, int] | None = None
-    ties: list[tuple[int, ...]] = []
+    tiers: dict[tuple[int, int], list[tuple[int, ...]]] = {}
     for pieces in range(2, MAX_SPLICE_PIECES + 1):
         for splice in combinations_with_replacement(
             sorted(STOCK_LENGTHS_FT, reverse=True), pieces
         ):
             feet = sum(splice)
-            if not _covers(length_mm, feet):
-                continue
-            key = (feet, pieces)
-            if best is None or key < best:
-                best, ties = key, [splice]
-            elif key == best:
-                ties.append(splice)
-    return tuple(sorted(ties, key=_evenness))
+            if _covers(length_mm, feet):
+                tiers.setdefault((feet, pieces), []).append(splice)
+    return tuple(tuple(sorted(tiers[key], key=_evenness)) for key in sorted(tiers))
+
+
+def stock_splices(length_mm: float) -> tuple[tuple[int, ...], ...]:
+    """The equally good least-waste splices for a member longer than the
+    longest stock, best first: the first tier of :func:`stock_splice_tiers`
+    (24 ft is 12 + 12, 14 + 10 or 16 + 8). Empty for a member that one stock
+    length covers, or that no splice covers."""
+    tiers = stock_splice_tiers(length_mm)
+    return tiers[0] if tiers else ()
 
 
 def stock_pieces_ft(length_mm: float) -> tuple[int, ...] | None:
@@ -705,7 +712,9 @@ def price_lines(
 ) -> list[CutListLine]:
     """*lines* priced from *book*, on the stock pieces bought: each line's
     unit price is an 'each' entry for its stock length (for a spliced line,
-    for every piece of a splice, :func:`_price_stock`), else a per-foot entry
+    for every piece of a splice, :func:`_price_stock`, from the least-waste
+    tier of :func:`stock_splice_tiers` the book prices whole, its offcut
+    recomputed), else a per-foot entry
     on the feet bought, else a per-board-foot entry (for its material and
     profile), and its extended price is that times its stock quantity (one
     per piece, a splice set counting once), so the offcut is paid for. A
@@ -737,12 +746,20 @@ def price_lines(
             and stock
             and quantity is not None
         ):
-            splices = stock_splices(line.length_mm) if len(stock) > 1 else ()
-            options = splices if tuple(stock) in splices else (tuple(stock),)
-            found = _price_stock(entries, line.material, lumber, options)
+            tiers = stock_splice_tiers(line.length_mm) if len(stock) > 1 else ()
+            if not tiers or tuple(stock) not in tiers[0]:
+                tiers = ((tuple(stock),),)
+            found = None
+            for options in tiers:
+                found = _price_stock(entries, line.material, lumber, options)
+                if found is not None:
+                    break
             if found is not None:
                 unit_price, unit, bought = found
                 update["stock_pieces_ft"] = list(bought)
+                update["waste_mm"] = round(
+                    sum(bought) * MM_PER_FOOT - line.length_mm, 6
+                )
         priced.append(
             line.model_copy(
                 update={

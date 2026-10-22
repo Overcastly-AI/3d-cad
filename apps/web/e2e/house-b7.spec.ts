@@ -128,7 +128,7 @@ const PITCH_8_12: CutRow[] = HOUSE_PRICED.map((row) =>
 /** 28 ft long, every opening kept at its X. */
 const HOUSE_28: CutRow[] = [
   ["Joist", "22", "189", "16 ft"],
-  ["Rim", "2", "336", "2 × 14 ft"],
+  ["Rim", "2", "336", "2 × 16 ft"],
   ["Sill", "2", "336", "16 ft + 12 ft"],
   ["Sill", "2", "181", "16 ft"],
   ["Subfloor", "16", "64,512 in²", "14 × 4x8"],
@@ -139,7 +139,7 @@ const HOUSE_28: CutRow[] = [
   ["Cripple", "14", "6.125", "8 ft"],
   ["Sill", "3", "36.5", "8 ft"],
   ["Cripple", "7", "31", "8 ft"],
-  ["Top plate", "4", "336", "2 × 14 ft"],
+  ["Top plate", "4", "336", "2 × 16 ft"],
   ["Bottom plate", "1", "173", "16 ft"],
   ["Bottom plate", "1", "125", "12 ft"],
   ["Sheathing", "26", "92,499.7188 in²", "18 × 4x9"],
@@ -150,7 +150,7 @@ const HOUSE_28: CutRow[] = [
   ["Bottom plate", "2", "181", "16 ft"],
   ["Bottom plate", "1", "336", "16 ft + 12 ft"],
   ["Rafter", "30", "123.5341", "12 ft"],
-  ["Ridge", "1", "336", "2 × 14 ft"],
+  ["Ridge", "1", "336", "2 × 16 ft"],
 ];
 
 /** The line whose blank is clicked (member, stock cell) and its price. */
@@ -175,13 +175,13 @@ const PRICE = "$2,868.87";
 /**
  * 28 ft: the short lines (22 joists, 14 plywood and 18 OSB sheets, 120
  * 2x6 x 8, 30 rafters, ...) come to 2 884.98, and the PT sills and bottom
- * plate splice 16 + 12 (3 x 29.46 = 88.38). The 28 ft SPF rims, top plates and ridge stay
- * unpriced: the splice is chosen among the least-waste ties (2 x 14, 16 + 12,
- * 20 + 8), and the book has no 14, 12 or 20 ft SPF 2x10 or 2x6, though 16 +
- * 16 would do (CUT-LIST-SPLICE-TIES).
+ * plate splice 16 + 12 (3 x 29.46 = 88.38). The SPF rims, top plates and
+ * ridge have no priced least-waste splice (2 x 14, 16 + 12, 20 + 8: the book
+ * has no 14, 12 or 20 ft SPF 2x10 or 2x6), so they buy the least-waste one
+ * it prices whole, 2 x 16: rims 2 x 45.94, top plates 4 x 27.96, ridge
+ * 45.94 = 249.66 more.
  */
-const PRICE_28 = "$2,973.36";
-const UNPRICED_28 = "3 lines unpriced";
+const PRICE_28 = "$3,223.02";
 
 const VOLUME = "264,895.4795";
 const VOLUME_8_12 = "267,494.1504";
@@ -452,7 +452,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await expectSolved(page);
     await openCutList(page);
     await expectTable(page, HOUSE_28, "234");
-    await expectPrice(page, PRICE_28, UNPRICED_28);
+    await expectPrice(page, PRICE_28);
     await shoot(page, "b7-edit-length", "iso");
 
     // A reload keeps it.
@@ -461,6 +461,6 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await expectSolved(page);
     await openCutList(page);
     await expectTable(page, HOUSE_28, "234");
-    await expectPrice(page, PRICE_28, UNPRICED_28);
+    await expectPrice(page, PRICE_28);
   });
 });
