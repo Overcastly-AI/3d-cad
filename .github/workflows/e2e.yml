@@ -268,6 +268,19 @@
 # headroom it now leaves is for a slow runner's setup. The next full
 # `--emit-durations` replaces the per-shard estimate.
 #
+# ── 2026-10-22: the Chromium install is bounded ─────────────────────────────
+#
+# The slow runner came back at N=7. On `8b8d8f6` (run 39819343469), shard 6/7
+# spent 11.4 min installing Chromium and 2.9 min on the planegcs apt step, and
+# was cancelled 30 min into its tests. On `7479bde`, shard 5/6 lost 9.8 min the
+# same way. A normal install takes 10-60 s. `--with-deps` ran an unbounded
+# `apt-get update && install` on every job, whether or not the browser cache
+# hit. The same runner's planegcs apt step was also slow, which points at the
+# apt mirror. .github/actions/playwright-chromium now runs apt only for
+# packages that are missing, and gives apt 3 min and the download 4 min per
+# attempt, with 3 attempts each, as a510b6a did for planegcs. A stall now costs
+# minutes, not the shard.
+#
 # The property that must survive is GATE-1's — a spec nobody named still runs.
 # It survives because the planner iterates the DISCOVERED set and looks the
 # manifest up per file, so an unmeasured file is still placed (and assumed to be
@@ -444,21 +457,10 @@ jobs:
         run: uv sync --locked
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
-      - name: Resolve the pinned Playwright version
-        id: pw
-        run: |
-          version=$(node -p "require('./apps/web/node_modules/@playwright/test/package.json').version")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Playwright $version"
-      - name: Cache the browser binaries
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
-      # Chromium only — playwright.config.ts declares no other browser, so
-      # installing the rest would be minutes of download nothing runs.
-      - name: Install Chromium
-        run: pnpm --filter @loft/web exec playwright install --with-deps chromium
+      # Cached binary + apt deps, each in bounded, retried attempts; the
+      # action's header has the 2026-10-22 stall it answers.
+      - name: Chromium (cached, bounded install)
+        uses: ./.github/actions/playwright-chromium
       # scripts/e2e.sh boots geometry/documents/gateway itself (PID-tracked,
       # cleaned up on exit) and Playwright starts Vite. CI is set by GitHub, and
       # the script keys off it to REFUSE to reuse any listener: reuse exists so
@@ -690,21 +692,10 @@ jobs:
         run: uv sync --locked
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
-      - name: Resolve the pinned Playwright version
-        id: pw
-        run: |
-          version=$(node -p "require('./apps/web/node_modules/@playwright/test/package.json').version")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Playwright $version"
-      # The SAME cache key the shards use, so this job is a cache hit rather
-      # than a fifth download of the browser.
-      - name: Cache the browser binaries
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
-      - name: Install Chromium
-        run: pnpm --filter @loft/web exec playwright install --with-deps chromium
+      # Cached binary + apt deps, each in bounded, retried attempts; the
+      # action's header has the 2026-10-22 stall it answers.
+      - name: Chromium (cached, bounded install)
+        uses: ./.github/actions/playwright-chromium
       # nginx, because `vite preview` would leave the CSP half untested — it
       # serves no such header, and the header is half of what this job exists
       # for. `nginx-light` is the smallest package that has the http core;
@@ -827,20 +818,10 @@ jobs:
         run: uv sync --locked
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
-      - name: Resolve the pinned Playwright version
-        id: pw
-        run: |
-          version=$(node -p "require('./apps/web/node_modules/@playwright/test/package.json').version")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Playwright $version"
-      # The SAME cache key the shards use.
-      - name: Cache the browser binaries
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
-      - name: Install Chromium
-        run: pnpm --filter @loft/web exec playwright install --with-deps chromium
+      # Cached binary + apt deps, each in bounded, retried attempts; the
+      # action's header has the 2026-10-22 stall it answers.
+      - name: Chromium (cached, bounded install)
+        uses: ./.github/actions/playwright-chromium
       # scripts/e2e.sh boots the three services, and they inherit this step's
       # env, so JWT_TTL_S reaches the gateway. The file is a positional filter,
       # so Playwright loads auth.spec.ts alone.

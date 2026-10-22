@@ -1,0 +1,98 @@
+# Chromium for the Playwright suite: the browser binary (cached by the pinned
+# Playwright version) and the apt packages it needs. Chromium only, because
+# playwright.config.ts declares no other browser, so installing the rest would
+# be minutes of download nothing runs. Every e2e job uses this (ci.yml's smoke,
+# e2e.yml's shards, dist-bundle and auth-short-ttl), and they share one cache key.
+#
+# ── 2026-10-22: bounded, retried, apt only when something is missing ───────
+#
+# Two full-lane shards were lost to this step alone: `8b8d8f6` (run
+# 39819343469), shard 6/7, spent 11.4 min here plus 2.9 min on the planegcs apt
+# step and the 45-min job limit cancelled it 30 min into its tests. `7479bde`,
+# shard 5/6, spent 9.8 min here and was cancelled the same way. A normal
+# install takes 10-60 s.
+#
+# The step was `playwright install --with-deps chromium`. The browser cache
+# only covers the binary, so `--with-deps` ran an unbounded
+# `apt-get update && apt-get install` of ~30 packages on EVERY job, cache hit
+# or not. On the same runner the planegcs apt step took 2.9 min against its
+# usual seconds, so that runner's apt mirror was slow. That makes the apt half
+# the likely stall (the logs that would separate apt from download cannot be
+# reached from the sandbox). Both halves are now bounded, the same way a510b6a
+# bounds planegcs-build-deps:
+#   - apt runs only when `dpkg-query` reports a package missing. The list is
+#     what `playwright install-deps --dry-run` would install, so it follows a
+#     Playwright bump. Each apt command gets 3 min, with 3 attempts.
+#   - the download gets 4 min per attempt, with 3 attempts. GNU `timeout` signals
+#     the whole process group, so Playwright's forked downloader dies with it.
+#     An interrupted install leaves no completion marker and is fetched again.
+# Each phase logs its own time and whether the cache hit, so the next slow
+# runner will show which half was slow.
+name: Playwright Chromium
+description: Cached Chromium binary + its apt dependencies, with bounded retried attempts.
+runs:
+  using: composite
+  steps:
+    - name: Resolve the pinned Playwright version
+      id: pw
+      shell: bash
+      run: |
+        version=$(node -p "require('./apps/web/node_modules/@playwright/test/package.json').version")
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "Playwright $version"
+    - name: Cache the browser binaries
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+    - name: Chromium apt dependencies
+      shell: bash
+      run: |
+        start=$SECONDS
+        pw=apps/web/node_modules/.bin/playwright
+        # The dry run prints: sh -c "apt-get update&& apt-get install -y --no-install-recommends <pkgs>"
+        plan=$("$pw" install-deps --dry-run chromium)
+        pkgs=$(sed -n 's/.*--no-install-recommends \([^"]*\)".*/\1/p' <<<"$plan")
+        if [ -z "$pkgs" ]; then
+          # A Playwright bump changed the dry-run format. Stop here with a clear
+          # error instead of skipping deps and failing later at browser launch.
+          echo "::error::could not read the apt package list from: $plan"
+          exit 1
+        fi
+        missing=()
+        for p in $pkgs; do
+          dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'install ok installed' || missing+=("$p")
+        done
+        if [ ${#missing[@]} -eq 0 ]; then
+          echo "all $(wc -w <<<"$pkgs") Chromium apt packages already present"
+          exit 0
+        fi
+        echo "missing ${#missing[@]}: ${missing[*]}"
+        for attempt in 1 2 3; do
+          # A timeout can kill dpkg mid-install; finish that first or the
+          # retry fails with "dpkg was interrupted".
+          [ "$attempt" = 1 ] || sudo timeout 180 dpkg --configure -a || true
+          if sudo timeout 180 apt-get update -qq &&
+            sudo DEBIAN_FRONTEND=noninteractive timeout 180 apt-get install -y -qq --no-install-recommends "${missing[@]}"; then
+            echo "apt dependencies installed in $((SECONDS - start)) s (attempt $attempt)"
+            exit 0
+          fi
+          echo "::warning::Chromium apt dependencies: attempt $attempt stalled or failed after $((SECONDS - start)) s; retrying"
+        done
+        exit 1
+    - name: Install Chromium
+      shell: bash
+      env:
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+      run: |
+        start=$SECONDS
+        echo "browser cache hit: ${CACHE_HIT:-false}"
+        for attempt in 1 2 3; do
+          if timeout --kill-after=10 240 apps/web/node_modules/.bin/playwright install chromium; then
+            echo "Chromium ready in $((SECONDS - start)) s (attempt $attempt)"
+            exit 0
+          fi
+          echo "::warning::Chromium download: attempt $attempt stalled or failed after $((SECONDS - start)) s; retrying"
+        done
+        exit 1

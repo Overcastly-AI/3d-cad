@@ -399,6 +399,34 @@ describe("ValueField in the sketcher (no pointer)", () => {
     expect(mark(input)).not.toBeNull();
   });
 
+  it("in an inch part, previews a formula as the save stores it, and reads 28 ft as a number", () => {
+    const DIMENSIONS = [{ name: "width", value: 192 * 25.4 }];
+    function Box() {
+      const [text, setText] = useState("288");
+      return (
+        <DocumentUnitProvider unit="in">
+          <ValueField
+            label="Distance"
+            kind="length"
+            value={text}
+            dimensions={DIMENSIONS}
+            data-testid="dim"
+            onValueChange={setText}
+          />
+        </DocumentUnitProvider>
+      );
+    }
+    render(<Box />);
+    const input = screen.getByTestId<HTMLInputElement>("dim");
+    // The save writes the part's unit into the bare 96 (`width + 96 in`).
+    fireEvent.change(input, { target: { value: "width + 96" } });
+    expect(mark(input)).not.toBeNull();
+    expect(screen.getByTestId("dim-hint").textContent).toBe("= 288 in");
+    // A number with its own unit is a number, as the box reads it.
+    fireEvent.change(input, { target: { value: "28 ft" } });
+    expect(mark(input)).toBeNull();
+  });
+
   it("never writes a late echo of its own typing over newer keys", () => {
     // A draw box's owner renders a frame behind (drei's own React root): its
     // echo of `2` can land after `23` was typed, and must not undo the `3`.

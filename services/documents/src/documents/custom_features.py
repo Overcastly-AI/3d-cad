@@ -46,6 +46,7 @@ from loft_wire.feature_resolve import (
     FeatureExpressionError,
     evaluation_input,
     parameter_values,
+    resolve_dimensions,
     resolve_feature,
 )
 from loft_wire.features import (
@@ -169,17 +170,30 @@ def is_body_affecting(row: db.Feature) -> bool:
 def _earlier_from_rows(
     rows: Sequence[db.Feature],
     overrides: Mapping[uuid.UUID, AuthoredEnvelope] | None = None,
+    parameters: Mapping[str, Quantity] | None = None,
 ) -> dict[uuid.UUID, AuthoredEnvelope]:
     """Every row's envelope by id, and every stored member's by member id.
-    *overrides* replaces a row's stored envelope (a write not yet stored)."""
+    *overrides* replaces a row's stored envelope (a write not yet stored).
+    A sketch is handed over with its dimension formulas resolved against
+    *parameters* (:func:`_as_plugins_see`)."""
     earlier: dict[uuid.UUID, AuthoredEnvelope] = {}
     for row in rows:
         envelope = (overrides or {}).get(row.id) or load_feature(row)[0]
-        earlier[row.id] = envelope
+        earlier[row.id] = _as_plugins_see(envelope, parameters or {})
         if isinstance(envelope, CustomFeature):
             for member in envelope.params.expansion or []:
                 earlier[member.id] = member.feature
     return earlier
+
+
+def _as_plugins_see(
+    envelope: AuthoredEnvelope, parameters: Mapping[str, Quantity]
+) -> AuthoredEnvelope:
+    """What a later custom feature reads of *envelope*: a sketch with every
+    driving dimension's formula evaluated (``336 in``, a parameter ``L``),
+    as geometry solves it, so an outline's walls, floor and roof follow the
+    sketch the user sees (BUILDING-OUTLINE). Everything else as stored."""
+    return resolve_dimensions(envelope, parameters)
 
 
 # --- references ------------------------------------------------------------------
@@ -213,11 +227,16 @@ def custom_references(envelope: CustomFeature) -> list[FeatureReference]:
 
 def _picks(name: str, value: CustomInputValue | None) -> list[tuple[str, FeatureRef]]:
     """The references one stored input holds, by slot: ``inputs/<name>``, or
-    ``inputs/<name>/<i>`` for each pick of a feature list."""
+    ``inputs/<name>/<i>`` for each pick of a feature list. A segments input's
+    line ids (BUILDING-OUTLINE) are sketch-local names, not references."""
     if isinstance(value, FeatureRef):
         return [(f"inputs/{name}", value)]
     if isinstance(value, list):
-        return [(f"inputs/{name}/{i}", ref) for i, ref in enumerate(value)]
+        return [
+            (f"inputs/{name}/{i}", ref)
+            for i, ref in enumerate(value)
+            if isinstance(ref, FeatureRef)
+        ]
     return []
 
 
@@ -275,7 +294,9 @@ def _expanded(
     )
     resolved = resolve_feature(typed, parameters)
     inputs = _canonical(manifest, resolved.params.inputs)
-    members = _expand(plugin, feature_id, inputs, earlier, hosted=hosted)
+    members = _expand(
+        plugin, feature_id, inputs, earlier, hosted=hosted, parameters=parameters
+    )
     return _with(resolved, inputs, members)
 
 
@@ -526,7 +547,7 @@ def prepare_custom_write(
             feature_id,
             envelope,
             parameters,
-            _earlier_from_rows(earlier_rows),
+            _earlier_from_rows(earlier_rows, parameters=parameters),
             Hosts(rows).of(feature_id, parameters),
         )
     except PluginError as exc:
@@ -696,12 +717,24 @@ def reexpand_pickers(
     pin moves, a member a later feature references, as an edit of the picker
     itself would be. A picker that no longer expands is left to report that
     at rebuild (a wall drawn in steps passes through outlines no roof
-    frames), keeping its stored members."""
+    frames), keeping its stored members.
+
+    Pickers of pickers follow, in tree order (BUILDING-OUTLINE): an outline
+    sketch's walls are picked by a roof, and a floor by its walls, so one
+    dimension edit re-lays the walls, the floor and the roof together."""
     by_id = {row.id: row for row in rows}
     index = Hosts(rows)
     parameters = parameter_values(part.parameters)
-    for picker in pickers_of(rows, written):
-        _reexpand(by_id[picker], rows, index, parameters, strict=False)
+    done: set[uuid.UUID] = set()
+    pending = [written]
+    while pending:
+        source = pending.pop(0)
+        for picker in pickers_of(rows, source):
+            if picker in done:
+                continue
+            done.add(picker)
+            _reexpand(by_id[picker], rows, index, parameters, strict=False)
+            pending.append(picker)
 
 
 def reexpand_reordered(part: db.Part, rows: Sequence[db.Feature]) -> None:
@@ -741,7 +774,7 @@ def _reexpand(
             row.id,
             envelope,
             parameters,
-            _earlier_from_rows(earlier_rows),
+            _earlier_from_rows(earlier_rows, parameters=parameters),
             index.of(row.id, parameters),
         )
     except PluginError as exc:
@@ -865,7 +898,7 @@ def evaluation_entries(
     hosts = Hosts(rows)
     for row in rows:
         envelope, error = load_feature(row)
-        earlier[row.id] = envelope
+        earlier[row.id] = _as_plugins_see(envelope, values)
         if not isinstance(envelope, CustomFeature):
             budget.base()
             feature, resolve_error = evaluation_input(envelope, values)
@@ -913,7 +946,7 @@ def refresh_expansions(
     hosts = Hosts(rows)
     for row in rows:
         envelope = load_feature(row)[0]
-        earlier[row.id] = envelope
+        earlier[row.id] = _as_plugins_see(envelope, values)
         params = row.params
         if not isinstance(envelope, CustomFeature):
             budget.base()
@@ -953,7 +986,9 @@ def retabled(
     try:
         plugin = PLUGINS.get(envelope.params.plugin_id, envelope.params.plugin_version)
         earlier = _earlier_from_rows(
-            [r for r in rows if r.order_index < row.order_index], earlier_writes
+            [r for r in rows if r.order_index < row.order_index],
+            earlier_writes,
+            parameters,
         )
         hosted = (hosts or Hosts(rows)).of(row.id, parameters)
         return _expanded(plugin, row.id, envelope, parameters, earlier, hosted)

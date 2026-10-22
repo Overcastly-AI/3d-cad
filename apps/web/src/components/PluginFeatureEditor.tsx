@@ -21,6 +21,7 @@ import {
   PanelActionCell,
   SegmentedControl,
   SelectField,
+  SelectionField,
   Stamp,
 } from "@loft/design";
 import { useQuery } from "@tanstack/react-query";
@@ -55,9 +56,13 @@ import {
   referenceOptions,
   togglePick,
   validatePluginForm,
+  withPluginValue,
 } from "../features/pluginForm";
+import { isOutlinePick, sideName } from "../features/outline";
 import { useDocumentLengthUnit } from "../units/documentUnit";
+import type { SolvedSketchLayer } from "../viewport/solvedSketchLayer";
 import { EditorCard } from "./EditorCard";
+import { toggleSide, useOutlinePick } from "./useOutlinePick";
 import { ValueField } from "./ValueField";
 
 export interface PluginFeatureEditorProps {
@@ -77,7 +82,14 @@ export interface PluginFeatureEditorProps {
   saving: boolean;
   /** A save's refusal or the feature's own rebuild error, or null. */
   error: string | null;
+  /**
+   * The part's solved sketches: where an Outline's lines are drawn for the
+   * viewport pick (BUILDING-OUTLINE). Absent: the picks are the form's only.
+   */
+  sketchLayers?: readonly SolvedSketchLayer[] | undefined;
 }
+
+const NO_LAYERS: readonly SolvedSketchLayer[] = [];
 
 /** A segmented control reads cleanly for a few short options, else a select. */
 function segmented(input: Extract<PluginInput, { kind: "choice" }>): boolean {
@@ -116,6 +128,7 @@ function GeneratedForm({
   onCancel,
   saving,
   error,
+  sketchLayers = NO_LAYERS,
 }: PluginFeatureEditorProps & { manifest: PluginManifest }) {
   const unit = useDocumentLengthUnit();
   const selfId = featureId ?? null;
@@ -127,9 +140,25 @@ function GeneratedForm({
       : formFromCustomParams(manifest, stored, unit),
   );
 
-  const setValue = useCallback((name: string, value: string) => {
-    setForm((f) => ({ ...f, values: { ...f.values, [name]: value } }));
-  }, []);
+  // A new outline drops the side picks made on the old one.
+  const setValue = useCallback(
+    (name: string, value: string) => {
+      setForm((f) => ({
+        ...f,
+        values: withPluginValue(manifest, f.values, name, value, features),
+      }));
+    },
+    [manifest, features],
+  );
+
+  const outlinePick = useOutlinePick({
+    manifest,
+    values: form.values,
+    setValue,
+    features,
+    selfId,
+    layers: sketchLayers,
+  });
 
   const errors = validatePluginForm(manifest, form, unit, features, selfId);
   const blocker = saving ? null : firstPluginBlocker(manifest, errors);
@@ -221,6 +250,9 @@ function GeneratedForm({
         </p>
         <div className="flex flex-col gap-2 px-3 pb-3 pt-1">
           {manifest.inputs.map((input, index) => {
+            // A field a pick has replaced is hidden (superseded_by): a
+            // wall's typed line once its Outline is picked.
+            if (outlinePick.hidden.has(input.name)) return null;
             const value = form.values[input.name] ?? "";
             const fieldError = errors[input.name] ?? null;
             const testId = `plugin-input-${input.name}`;
@@ -273,6 +305,37 @@ function GeneratedForm({
                   ) : null}
                 </fieldset>
               );
+            } else if (input.kind === "segments") {
+              // Lines of the outline, picked in the viewport or toggled here,
+              // named by the way their walls face (BUILDING-OUTLINE).
+              const sides = outlinePick.outlines.get(input.name)?.sides ?? null;
+              const picked = pickedIds(value);
+              field = (
+                <SelectionField
+                  label={input.label}
+                  data-testid={testId}
+                  armed={outlinePick.live === input.name}
+                  onArm={() => outlinePick.arm(input.name)}
+                  picked={picked.map((id) => sideName(sides, id))}
+                  placeholder={sides === null ? "No outline" : "Select"}
+                  onClear={() => setValue(input.name, "")}
+                  options={(sides ?? []).map((side) => ({
+                    value: side.lineId,
+                    label: side.name,
+                    selected: picked.includes(side.lineId),
+                  }))}
+                  onToggle={(lineId) => {
+                    outlinePick.arm(input.name);
+                    setValue(input.name, toggleSide(input, value, lineId));
+                  }}
+                  emptyHint={
+                    sides === null
+                      ? "Picks the walls of an outline: pick one above."
+                      : undefined
+                  }
+                  error={fieldError}
+                />
+              );
             } else if (input.kind === "choice" && segmented(input)) {
               field = (
                 <SegmentedControl
@@ -302,11 +365,22 @@ function GeneratedForm({
               const optional =
                 input.kind === "material" ||
                 (input.kind === "feature" && input.optional);
+              const outline = isOutlinePick(input);
               field = (
                 <SelectField
                   label={input.label}
                   data-testid={testId}
+                  data-armed={
+                    outline
+                      ? String(outlinePick.live === input.name)
+                      : undefined
+                  }
                   autoFocus={index === 0}
+                  // An Outline field is live once touched: a click on a
+                  // sketch in the viewport or the browser fills it.
+                  onFocus={
+                    outline ? () => outlinePick.arm(input.name) : undefined
+                  }
                   value={value}
                   error={fieldError}
                   options={
@@ -321,9 +395,21 @@ function GeneratedForm({
                 />
               );
             }
+            const hint =
+              isOutlinePick(input) && outlinePick.live === input.name
+                ? "Click a closed sketch in the viewport or the browser."
+                : null;
             return (
               <div key={input.name} className="flex flex-col gap-0.5">
                 {field}
+                {hint !== null ? (
+                  <p
+                    className="font-body text-2xs text-brass"
+                    data-testid={`${testId}-hint`}
+                  >
+                    {hint}
+                  </p>
+                ) : null}
                 {input.description ? (
                   <p className="font-body text-2xs text-gauge">
                     {input.description}
@@ -353,7 +439,11 @@ function ReadOnlyCard({
   const rows = Object.entries(stored?.inputs ?? {}).map(([key, value]) => [
     key,
     Array.isArray(value)
-      ? value.map((ref) => name(ref.feature_id)).join(", ")
+      ? value
+          .map((item) =>
+            typeof item === "string" ? item : name(item.feature_id),
+          )
+          .join(", ")
       : typeof value === "object"
         ? name(value.feature_id)
         : String(value),

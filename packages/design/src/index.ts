@@ -187,6 +187,11 @@ export {
 } from "./vec3";
 export { TextField, type TextFieldProps } from "./primitives/TextField";
 export { Checkbox, type CheckboxProps } from "./primitives/Checkbox";
+export {
+  SelectionField,
+  type SelectionFieldProps,
+  type SelectionOption,
+} from "./primitives/SelectionField";
 export { Disclosure, type DisclosureProps } from "./primitives/Disclosure";
 export {
   ScrollRegion,

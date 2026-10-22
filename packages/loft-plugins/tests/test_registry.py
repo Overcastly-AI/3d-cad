@@ -17,6 +17,7 @@ from loft_plugins import (
     PluginRegistry,
     canonical_inputs,
     expand,
+    registry,
 )
 from loft_plugins.testing import BLOCKS_V1, BLOCKS_V2, expand_v1
 from loft_wire.features import (
@@ -95,19 +96,24 @@ def test_the_catalog_lists_every_version_newest_first() -> None:
     assert [(m.id, m.version, m.latest) for m in served.plugins] == [
         ("loft.deck", "1.1.0", True),
         ("loft.deck", "1.0.0", False),
-        ("loft.door", "1.0.0", True),
-        ("loft.floor", "1.1.0", True),
+        ("loft.door", "1.1.0", True),
+        ("loft.door", "1.0.0", False),
+        ("loft.floor", "1.2.0", True),
+        ("loft.floor", "1.1.0", False),
         ("loft.floor", "1.0.0", False),
-        ("loft.roof", "1.3.0", True),
+        ("loft.roof", "1.4.0", True),
+        ("loft.roof", "1.3.0", False),
         ("loft.roof", "1.2.0", False),
         ("loft.roof", "1.1.0", False),
         ("loft.roof", "1.0.0", False),
         ("loft.timber_frame", "1.0.0", True),
         ("loft.twisted_prism", "1.0.0", True),
-        ("loft.wall", "1.2.0", True),
+        ("loft.wall", "1.3.0", True),
+        ("loft.wall", "1.2.0", False),
         ("loft.wall", "1.1.0", False),
         ("loft.wall", "1.0.0", False),
-        ("loft.window", "1.0.0", True),
+        ("loft.window", "1.1.0", True),
+        ("loft.window", "1.0.0", False),
     ]
 
 
@@ -200,14 +206,138 @@ def test_over_5000_members_is_a_typed_error() -> None:
     assert str(MAX_PLUGIN_EXPANSION) in refused.value.message
 
 
-def test_over_the_time_limit_is_a_typed_error() -> None:
-    def slow(inputs: ExpandInputs) -> list[Member]:
+class _FakeClock:
+    """A clock that reads *now*; a test's plugin advances it."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _datum(n: int) -> Member:
+    return Member(
+        role="block",
+        index=n,
+        feature=DatumFeature(
+            type="datum",
+            version=1,
+            params=DatumOffsetParams(kind="offset", base="XY", offset_mm=float(n)),
+        ),
+    )
+
+
+@pytest.fixture
+def clocks(monkeypatch: pytest.MonkeyPatch) -> tuple[_FakeClock, _FakeClock]:
+    """Faked (cpu, wall) clocks, so the budget tests never depend on load."""
+    cpu, wall = _FakeClock(), _FakeClock()
+    monkeypatch.setattr(registry, "_cpu_clock", cpu)
+    monkeypatch.setattr(registry, "_wall_clock", wall)
+    return cpu, wall
+
+
+def test_a_cpu_burning_plugin_trips_the_cpu_budget(
+    clocks: tuple[_FakeClock, _FakeClock],
+) -> None:
+    """Each member costs 0.5 s of CPU: past the 2 s budget it is refused, and
+    the message names the CPU limit, not the wall-clock one."""
+    cpu, wall = clocks
+
+    def burn(inputs: ExpandInputs) -> Iterator[Member]:
+        for n in range(100):
+            cpu.now += 0.5
+            wall.now += 0.5
+            yield _datum(n)
+
+    with pytest.raises(PluginError) as refused:
+        expand(_plugin(burn), FEATURE_ID, {}, {})
+    assert refused.value.code == "plugin_expansion_timeout"
+    assert "2 s of CPU time" in refused.value.message
+    assert cpu.now == pytest.approx(2.5)  # stopped at the first member over
+
+
+def test_a_loaded_machine_does_not_trip_the_cpu_budget(
+    clocks: tuple[_FakeClock, _FakeClock],
+) -> None:
+    """The regression: 0.1 s of CPU that takes 5 s of wall-clock (a loaded
+    machine) expands, where a 2 s wall-clock budget refused it."""
+    cpu, wall = clocks
+
+    def cheap_but_starved(inputs: ExpandInputs) -> Iterator[Member]:
+        for n in range(5):
+            cpu.now += 0.02
+            wall.now += 1.0
+            yield _datum(n)
+
+    members = expand(_plugin(cheap_but_starved), FEATURE_ID, {}, {})
+    assert len(members) == 5
+
+
+def test_a_sleeping_plugin_trips_the_wall_clock_backstop(
+    clocks: tuple[_FakeClock, _FakeClock],
+) -> None:
+    """A plugin that sleeps or blocks spends no CPU, but past the 10 s
+    wall-clock backstop it is refused, and the message names that limit."""
+    _cpu, wall = clocks
+
+    def sleeper(inputs: ExpandInputs) -> Iterator[Member]:
+        for n in range(100):
+            wall.now += 3.0
+            yield _datum(n)
+
+    with pytest.raises(PluginError) as refused:
+        expand(_plugin(sleeper), FEATURE_ID, {}, {})
+    assert refused.value.code == "plugin_expansion_timeout"
+    assert "10 s (wall-clock)" in refused.value.message
+    assert wall.now == pytest.approx(12.0)
+
+
+def test_the_budget_is_checked_after_the_last_member(
+    clocks: tuple[_FakeClock, _FakeClock],
+) -> None:
+    """A plugin that does all its work before returning still meets both
+    limits (the final check)."""
+    cpu, wall = clocks
+
+    def burn_then_return(inputs: ExpandInputs) -> list[Member]:
+        cpu.now += 3.0
+        return []
+
+    def sleep_then_return(inputs: ExpandInputs) -> list[Member]:
+        wall.now += 11.0
+        return []
+
+    for expander, limit in ((burn_then_return, "CPU"), (sleep_then_return, "wall")):
+        with pytest.raises(PluginError) as refused:
+            expand(_plugin(expander), FEATURE_ID, {}, {})
+        assert refused.value.code == "plugin_expansion_timeout"
+        assert limit in refused.value.message
+
+
+def test_the_real_clocks_tell_cpu_from_sleep() -> None:
+    """On the real clocks: a real sleep trips the wall-clock backstop and not
+    the CPU budget, and a real busy loop trips the CPU budget. Both hold under
+    any load (load only lengthens wall-clock, which the CPU test allows 60 s)."""
+
+    def sleeper(inputs: ExpandInputs) -> list[Member]:
         time.sleep(0.05)
         return []
 
-    with pytest.raises(PluginError) as refused:
-        expand(_plugin(slow), FEATURE_ID, {}, {}, time_limit_s=0.01)
-    assert refused.value.code == "plugin_expansion_timeout"
+    with pytest.raises(PluginError) as slept:
+        expand(_plugin(sleeper), FEATURE_ID, {}, {}, wall_limit_s=0.01)
+    assert "wall-clock" in slept.value.message
+
+    def busy(inputs: ExpandInputs) -> Iterator[Member]:
+        for n in range(MAX_PLUGIN_EXPANSION):
+            stop = time.thread_time() + 0.01
+            while time.thread_time() < stop:
+                pass
+            yield _datum(n)
+
+    with pytest.raises(PluginError) as burned:
+        expand(_plugin(busy), FEATURE_ID, {}, {}, cpu_limit_s=0.05, wall_limit_s=60)
+    assert "CPU time" in burned.value.message
 
 
 def test_members_get_the_authoring_checks() -> None:

@@ -1808,8 +1808,8 @@ and reframe it, a material per member, and a cut list that is always current.
   (a `.loft` opened on another server) still rebuilds, read-only, like the
   legacy extrude twist.
 - **Bounds.** An expansion is validated by the same pydantic models and
-  authoring checks as a user's features, and is capped (2 s per custom
-  feature; in size, by the part's 1,000-feature tree bound counted after
+  authoring checks as a user's features, and is capped (2 s of CPU per custom
+  feature, with a 10 s wall-clock backstop for a plugin that sleeps; in size, by the part's 1,000-feature tree bound counted after
   expansion); over a cap is a typed error on that feature.
 - **Security.** First-party plugins are reviewed code in the repo: no I/O, no
   imports beyond `loft-wire`, run in the documents process. Third-party
@@ -1855,7 +1855,9 @@ and reframe it, a material per member, and a cut list that is always current.
     `input_error` naming `plugin_expansion_too_large`. The per-plugin
     `MAX_PLUGIN_EXPANSION` (5,000) is moot under it and stays only as the
     wire bound on a stored expansion (lowering it is a wire change). The 2 s
-    cap is checked per member as the expander yields, plus a final check: an
+    CPU cap (thread CPU time, so a loaded server does not fail a cheap
+    expansion) and the 10 s wall-clock backstop are checked per member as the
+    expander yields, plus a final check: an
     in-process first-party plugin cannot be pre-empted, so the third-party
     sandbox must hard-kill.
   - *Members obey the write rules.* A stored member (with or without its
@@ -2454,6 +2456,78 @@ and reframe it, a material per member, and a cut list that is always current.
     82 139.814453125 in³) matches that script and
     a build123d one (panels as boxes less the openings) solid for solid, with
     no interference.
+- **Decided while building the outline** (BUILDING-OUTLINE, 2026-10-22;
+  Chief Architect's floors and roofs from the exterior wall loop, Revit's
+  walls on picked lines and Roof by Footprint with "Defines Slope"):
+  - *One sketch, read without a solver.* Plugins run in documents, which
+    has no sketch solver (§2), so `loft_plugins.builtin.outline` reads the
+    loop from the sketch's constraints in closed form: the non-construction
+    lines close one loop (ends joined by `coincident`, read symbolically),
+    each is horizontal or vertical (directly, or through parallel,
+    perpendicular or collinear), and the corners are the unique solution of
+    the linear system the constraints make (fixed points, the origin
+    included; line lengths; horizontal and vertical point distances;
+    point-to-line distances; equal; collinear; midpoint; symmetric about an
+    axis line), in exact rationals of the stored values, a length's sign
+    taken from the drawing as the solver keeps it. The loop must be FULLY
+    DEFINED by those, or it is refused naming what to add: a solver leaves an
+    under-defined sketch near its stale drawing, which no closed form can
+    reproduce, and a wall off the sketch the user sees is wrong geometry.
+    Other constraints are not read; with the loop fully defined they can only
+    agree or make the sketch itself fail. Dimension values are the stored,
+    documents-resolved ones (§20), so a dimension edit re-reads the outline
+    in the same rebuild. Lines run along the sketch axes in this rung; a
+    turned house needs angle dimensions read (OUTLINE-ANGLES).
+  - *The outline is the framing's outside face*, walked clockwise from the
+    sketch's first line (the framing on each line's right, §23 "Placement").
+    `loft.wall` 1.3.0 frames one wall per line: lines along the first line's
+    direction run THROUGH (to an outside corner, a wall's depth past an
+    inside one), the others FIT BETWEEN (a depth short of an outside corner,
+    to an inside one). B2's and B7's corners. Each wall is a 1.2.0 wall of
+    its spec, its members named under its sketch line (`e3/slot/2`), so a
+    member keeps its id when another wall changes, as an opening move keeps
+    it (WALL-MEMBER-RENUMBER). Outline sheathing laps the fitted wall past an
+    outside corner (WALL-SHEATHING-CORNER's rip) and at an inside corner stops
+    the through wall's at the corner and starts the fitted wall's the
+    sheathing's thickness clear, so no two panels overlap.
+  - *On floor* (SHEATHING-WALL-BASE): a wall stands on a picked
+    `loft.floor`'s top, its subfloor's when it has one, read from the floor's
+    inputs (hosting by inputs, no member read).
+  - *Floor* 1.2.0 fills a rectangular outline, its width along the first
+    line walked counter-clockwise (the inside on its left): B7's floor is the
+    typed floor exactly. Other shapes later (FLOOR-OUTLINE-SHAPES).
+  - *Openings* 1.1.0 name their wall of an outline by its line
+    (`wall_segment`, a new wire input kind `segments`: sketch line ids of the
+    outline another input leads to). 1.0.0 openings cannot sit in an outline
+    wall; nothing stored is affected, as outline walls are new.
+  - *Roof* 1.4.0: Defines Slope is a `segments` pick of the outline wall's
+    lines. Gable: two opposite walls of a rectangle, the ridge between and
+    parallel to them, the plate read from the walls, placed anywhere and
+    along X or Y (rafters on `XZ` planes along Y); at the origin along X it
+    is 1.3.0's gable byte for byte. Hip: every wall (empty is every wall, as
+    Revit's default), 1.3.0's hip on the outline's corners. One wall, two
+    adjacent or three are later rungs (shed, Dutch gable, ROOF-GABLE-END-HIP).
+  - *The tails cross the wall sheathing.* The heel is on the framing's
+    outside face, so a 12 in tail passes through the eave wall's OSB below
+    the plate's top: the round's typed B7 shares 43.1005859375 in^3 between
+    its 26 tails and the OSB (36 interfering pairs). Framers notch the
+    sheathing round the tails, as a Revit wall attached to the roof is cut
+    by it: 1.4.0's gable cuts each tail's own side profile, its thickness,
+    from exactly the panels it crosses (Objects To Cut, `cutter` members).
+    The panel then meets the rafter face to face. A hip on sheathed outline
+    walls is refused until its hips and jacks are notched too
+    (ROOF-HIP-SHEATHING-NOTCH).
+  - *Re-expansion follows picks of picks*: a write re-expands the features
+    picking it and theirs in turn, so one dimension edit stores the walls',
+    floor's and roof's new expansions in the same write; every evaluation
+    re-expands everything anyway.
+  - *Numbers.* B7 on its outline is the QA-B7-HOUSE round's typed build
+    member for member (217 bodies) but for the 26 notches: 264 895.4795 less
+    43.1005859375 = 264 852.3788656 in^3 (analytic: the boxes and panels in
+    exact rationals, the rafters by the shoelace), no interference, the
+    round's 23 cut-list lines and $2,868.87 (§27). An independent build123d script
+    of B7 typed from buildings.md matches the STEP solid for solid, at 288 and
+    at 336 (234 bodies). Golden `b7-outline`.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

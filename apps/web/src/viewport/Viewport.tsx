@@ -24,11 +24,7 @@ import {
 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
-import { useGlobalKeys } from "../lib/modalGate";
 import { useReducedMotion } from "../lib/useReducedMotion";
-import { resolveSpecBasis } from "../sketch/plane";
-import { zeroStartsAValue } from "../sketch/pointEntry";
-import { useSketchStore } from "../sketch/store";
 import { navigationControls, usePreferences } from "../settings/preferences";
 import { NavCue } from "../components/NavCue";
 import { ViewBar } from "../components/ViewBar";
@@ -63,7 +59,12 @@ import {
 } from "./projection";
 import { groundShadowTexture } from "./groundShadow";
 import { ModelMesh, type BodyHighlight } from "./ModelMesh";
-import { sketchWorldBox } from "./sketchFit";
+import {
+  FIT_KEY,
+  type FramedSketch,
+  useSketchFitHotkey,
+  useSketchFraming,
+} from "./useSketchFraming";
 import { OriginGeometry } from "./OriginGeometry";
 import { MateColumnStrip } from "./MateColumnStrip";
 import { ViewCube } from "./ViewCube";
@@ -80,7 +81,6 @@ import {
   useViewCommandStore,
   useViewHotkeys,
   VIEW_DIRECTIONS,
-  VIEW_SHORTCUTS,
   type Projection,
 } from "./viewCommands";
 
@@ -167,6 +167,7 @@ const SKETCH_FIT_MAX_WAIT_FRAMES = 120;
  */
 function CameraRig({
   bounds,
+  bodyBounds,
   proposal,
   fitKey,
   reducedMotion,
@@ -176,7 +177,10 @@ function CameraRig({
   sketchFitNonce,
   onSettle,
 }: {
+  /** What a Fit frames: the bodies and the drawn sketches. */
   bounds: Box3 | null;
+  /** The bodies alone: what the AUTOMATIC fits (chrome, proposal) frame. */
+  bodyBounds: Box3 | null;
   /**
    * The world box of everything the OPEN COMMAND is drawing — the extrude
    * ghost, the pattern copies, the shell's inner offset, a datum sheet — or
@@ -224,6 +228,10 @@ function CameraRig({
 
   const boundsRef = useRef<Box3 | null>(bounds);
   boundsRef.current = bounds;
+  const bodyRef = useRef<Box3 | null>(bodyBounds);
+  bodyRef.current = bodyBounds;
+  /** The pending `fit` is the chrome's, not the modeler's (see below). */
+  const chromeFit = useRef(false);
   const goal = useRef<CameraGoal | null>(null);
   /** Did the previous rendered frame take an ease step? See `cameraEase.ts`. */
   const easing = useRef(false);
@@ -508,7 +516,13 @@ function CameraRig({
     // reference-cube pick — so from here on this scene HAS a viewpoint. One
     // assignment rather than three: a branch added later inherits it.
     framedOnce.current = true;
-    const box = boundsRef.current;
+    // Fusion frames sketches on Fit, but finishing one never zooms: a fit the
+    // CHROME asks for (a sketch exit moves it) frames the bodies only.
+    const box =
+      command.kind === "fit" && chromeFit.current
+        ? bodyRef.current
+        : boundsRef.current;
+    chromeFit.current = false;
     const hasBounds = box !== null && !box.isEmpty();
     const center = hasBounds
       ? box.getCenter(new Vector3())
@@ -655,6 +669,7 @@ function CameraRig({
       // taken it by hand — the two ways a refit here would be a THEFT rather
       // than a courtesy.
       if (!owns || userMoved.current) return;
+      chromeFit.current = true;
       useViewCommandStore.getState().request("fit");
     };
     window.addEventListener(VIEWPORT_CHROME_EVENT, onChromeChange);
@@ -739,7 +754,7 @@ function CameraRig({
     if (goal.current !== null) return;
     refitDue.current = false;
 
-    const body = boundsRef.current;
+    const body = bodyRef.current;
     const subject = refitSubject.current.copy(box);
     if (body !== null && !body.isEmpty()) subject.union(body);
     const measured = framing();
@@ -1077,43 +1092,6 @@ const ORBIT_BUTTONS: Record<
 };
 
 /**
- * The Fit key, read off the view rail's own table rather than restated, so the
- * sketcher's Fit is the model's Fit key by construction (F-11) and the key
- * card, which also reads `VIEW_SHORTCUTS`, cannot disagree with it.
- */
-const FIT_KEY: string | null =
-  Object.entries(VIEW_SHORTCUTS).find(([, kind]) => kind === "fit")?.[0] ??
-  null;
-
-/**
- * `0` = Fit while drawing (F-11) — the part rail's key, armed while the rail
- * itself is not (`useViewHotkeys` stands down with `viewNav`, and the named
- * snaps it carries must: they would turn the view off the plane).
- *
- * YIELDS TO A VALUE BEING TYPED. `0` is a digit — "100", "0.5", "0 Tab 25" —
- * so whenever one may start (`zeroStartsAValue`: a draw tool armed, a size,
- * coordinate or dimension cell open or mounting) the key is the value's, read
- * LIVE from the store: FLOW-A1's draft is set inside the pointer handler, a
- * render before anything React could tell this listener.
- */
-function useSketchFitHotkey(onFit: (() => void) | null): void {
-  useGlobalKeys(
-    "sketch fit",
-    onFit !== null && FIT_KEY !== null
-      ? (event: KeyboardEvent) => {
-          if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
-            return;
-          if (event.key !== FIT_KEY) return;
-          // A digit being TYPED (a size, or a coordinate, G2) is not a Fit.
-          if (zeroStartsAValue(useSketchStore.getState())) return;
-          event.preventDefault();
-          onFit();
-        }
-      : null,
-  );
-}
-
-/**
  * The sketcher's view rail: Fit, and only Fit (F-11).
  *
  * The part rail's frame, icon and key, SEATED BESIDE THE REFERENCE CUBE — not
@@ -1204,6 +1182,8 @@ export interface ViewportProps {
    * parsed geometry when this is undefined.
    */
   worldBounds?: Box3 | null;
+  /** The part's saved sketches: the drawn ones join what Fit frames. */
+  sketchLayers?: readonly FramedSketch[];
   /**
    * Refit trigger: the camera re-frames `worldBounds` when this changes (the
    * assembly passes its LOADED-instance set, so the fit waits for meshes —
@@ -1263,6 +1243,7 @@ export function Viewport({
   viewNav = true,
   sketchNav = false,
   worldBounds,
+  sketchLayers,
   fitKey,
   bodyInteractive = false,
   bodySelected = false,
@@ -1302,23 +1283,6 @@ export function Viewport({
   );
   useSketchFitHotkey(sketchFitShown ? requestSketchFit : null);
 
-  /**
-   * What a Fit frames while drawing: the open sketch's drawn entities, in the
-   * scene frame, or null when nothing is drawn (the rig then falls back to the
-   * model). Read from the store at the instant of the Fit, never subscribed —
-   * a sketch that changes on every pointer move must not re-render the scene.
-   */
-  const sketchFitBox = useRef(new Box3());
-  const readSketchSubject = useCallback((): Box3 | null => {
-    const { mode, plane, entities } = useSketchStore.getState();
-    if (mode !== "draw" || plane === null) return null;
-    return sketchWorldBox(
-      entities,
-      resolveSpecBasis(plane),
-      sketchFitBox.current,
-    );
-  }, []);
-
   // The subject the camera frames. A part viewport prefers the bounds of what
   // is DRAWN over the whole mesh's, so hiding a body genuinely takes it out of
   // the fit (UI-W2) instead of leaving the camera parked around a solid nobody
@@ -1328,6 +1292,12 @@ export function Viewport({
     if (worldBounds !== undefined) return worldBounds;
     return visibleBounds ?? geometry?.boundingBox ?? null;
   }, [worldBounds, visibleBounds, geometry]);
+  // Fit frames drawn sketches too, and what Fit frames while drawing.
+  const { fitBounds, framesSketches, readSketchSubject } = useSketchFraming(
+    bounds,
+    worldBounds,
+    sketchLayers,
+  );
   const partBodies = usePartViewStore((state) => state.bodies);
   const partView = usePartViewStore((state) => state.view);
   const partSubject = usePartViewStore((state) => state.subjectId);
@@ -1342,7 +1312,11 @@ export function Viewport({
   const hiddenFitKey = `${partHidden}:${partBodies.length}`;
   const resolvedFitKey =
     fitKey ??
-    (geometry === null ? "empty" : `geometry-${geometry.id}-${hiddenFitKey}`);
+    (geometry !== null
+      ? `geometry-${geometry.id}-${hiddenFitKey}`
+      : framesSketches
+        ? "sketches"
+        : "empty");
 
   // Ground the stock: a soft contact pool sized to the subject's footprint.
   // Sits a hair ABOVE the grid plane so it shades the bench, never z-fights.
@@ -1745,7 +1719,8 @@ export function Viewport({
           {children}
         </group>
         <CameraRig
-          bounds={bounds}
+          bounds={fitBounds}
+          bodyBounds={bounds}
           proposal={readProposal}
           fitKey={resolvedFitKey}
           reducedMotion={reducedMotion}

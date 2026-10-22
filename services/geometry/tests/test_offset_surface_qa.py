@@ -149,6 +149,10 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # bounded as the WINDOW-DOOR goldens are.
     "cut-objects-to-cut-b2-front-notch-studs-16-32-48": 3e-6,
     "framing-hole-d1-fillet-r0.25-first-stud-b2": 3e-6,
+    # B7 from one outline sketch (BUILDING-OUTLINE): b2-roof's STEP rounding
+    # over 26 sloped rafters and the notched OSB, measured 3.3e-4 mm^3 (the
+    # build123d twin 3.6e-4).
+    "b7-outline": 1e-3,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

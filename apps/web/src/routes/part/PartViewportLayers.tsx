@@ -8,6 +8,7 @@ import { MeasureOverlay } from "../../viewport/MeasureOverlay";
 import { BendHighlightOverlay } from "../../viewport/BendHighlightOverlay";
 import { FlangeSpanOverlay } from "../../viewport/FlangeSpanOverlay";
 import { EdgePickOverlay } from "../../viewport/EdgePickOverlay";
+import { OutlinePickOverlay } from "../../viewport/OutlinePickOverlay";
 import { useEdgePickStore } from "../../features/edgePickStore";
 import { ShellFaceOverlay } from "../../viewport/ShellFaceOverlay";
 import { HolePointOverlay } from "../../viewport/HolePointOverlay";
@@ -256,6 +257,11 @@ export function PartViewportLayers({
       <MeasureOverlay />
       {edgePicking && (mode === "off" || (mode === "draw" && projecting)) ? (
         <EdgePickOverlay />
+      ) : null}
+      {/* A custom feature's Outline and side picks (BUILDING-OUTLINE): the
+          dialog publishes what may be picked; nothing draws until it does. */}
+      {mode === "off" && editor?.kind === "custom" ? (
+        <OutlinePickOverlay />
       ) : null}
       {/* The fillet/chamfer gauges stand on the picked edges and draw
                   the RESULT at the live value — route (b) of direction §8.4,

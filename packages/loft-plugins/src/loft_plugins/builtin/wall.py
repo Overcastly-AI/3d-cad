@@ -840,6 +840,11 @@ def _emit(
         )
 
 
+#: :func:`_emit` for the outline walls (BUILDING-OUTLINE), which emit each
+#: wall's pieces under its sketch line's name.
+emit_pieces = _emit
+
+
 def hosted_openings(inputs: ExpandInputs) -> list[Opening]:
     """The openings hosted in this wall (the doors and windows naming it)."""
     found = (Opening.from_hosted(hosted) for hosted in inputs.hosted)

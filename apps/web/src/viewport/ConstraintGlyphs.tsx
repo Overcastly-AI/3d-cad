@@ -19,8 +19,12 @@
  * founder's report while the ink they annotate did not.
  */
 import {
+  formatLength,
+  type LengthUnit,
+  lengthUnitLabel,
   NumberField,
   Panel,
+  parseLength,
   SegmentedControl,
   SketchGlyph,
   TextField,
@@ -60,6 +64,8 @@ import { cornerPoint } from "../sketch/corner";
 import { entityAnchor } from "../sketch/geometry";
 import { planeToWorld, type PlaneBasis } from "../sketch/plane";
 import { useSketchStore } from "../sketch/store";
+import { useDocumentLengthUnit } from "../units/documentUnit";
+import { lengthInputValue } from "../units/length";
 import { PointDimensionInk } from "./PointDimensionInk";
 import { VirtualSharpMarks } from "./VirtualSharpMarks";
 
@@ -194,7 +200,7 @@ function dimensionValueError(
   return dimensionAmbiguity(parsed, options);
 }
 
-function glyphAria(glyph: ConstraintGlyph): string {
+function glyphAria(glyph: ConstraintGlyph, unit = "mm"): string {
   switch (glyph.kind) {
     case "horizontal":
       return "Horizontal constraint";
@@ -212,7 +218,7 @@ function glyphAria(glyph: ConstraintGlyph): string {
       const noun = glyph.kind === "radius" ? "Radius" : "Distance";
       const ref = glyph.driven ? " reference" : "";
       const from = glyph.expression ? ` from ${glyph.expression}` : "";
-      return `${noun}${ref} ${bare} mm${from} — edit`;
+      return `${noun}${ref} ${bare} ${unit}${from} — edit`;
     }
     case "parallel":
       return "Parallel constraint";
@@ -240,7 +246,7 @@ function glyphAria(glyph: ConstraintGlyph): string {
       return `Angle${glyph.driven ? " reference" : ""} ${glyph.label.replace(/[()\u00b0]/g, "")} degrees — edit`;
     case "diameter": {
       const bare = glyph.label.replace(/[()\u2300]/g, "");
-      return `Diameter${glyph.driven ? " reference" : ""} ${bare} mm — edit`;
+      return `Diameter${glyph.driven ? " reference" : ""} ${bare} ${unit} — edit`;
     }
   }
 }
@@ -254,8 +260,18 @@ function glyphAria(glyph: ConstraintGlyph): string {
  * reference (`false` on the wire), excluded from the solver so it can't
  * over-constrain. Enter applies; Escape dismisses.
  */
+/**
+ * A length cell's text for a stored mm value, in the part's unit: the
+ * drawing's notation in mm, else the length fields' round-trip precision, so
+ * an unchanged re-commit never moves the geometry.
+ */
+function lengthCell(mm: number, unit: LengthUnit): string {
+  return unit === "mm" ? formatDimensionMm(mm) : lengthInputValue(mm, unit);
+}
+
 function DimensionEditor({ basis }: { basis: PlaneBasis }) {
   const target = useSketchStore((state) => state.dimensionEdit);
+  const documentUnit = useDocumentLengthUnit();
   const entities = useSketchStore((state) => state.entities);
   // An angle's editor sits on the bisector of the corner its two lines SHARE,
   // and that corner is read from the sketch's own coincident constraints.
@@ -300,11 +316,19 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
     target === null
       ? null
       : `${target.constraintIndex ?? "new"}:${target.entity}`;
+  // A length reads and parses in the part's unit, as every length field does;
+  // an angle stays in degrees.
+  const lengthUnit: LengthUnit | null =
+    target === null || target.unit === "deg" ? null : documentUnit;
+  const cellText = (value: number) =>
+    lengthUnit === null
+      ? formatDimensionMm(value)
+      : lengthCell(value, lengthUnit);
   const valueField = useTypedField(
     editKey,
     target === null
       ? ""
-      : (target.initialExpression ?? formatDimensionMm(target.initialValue)),
+      : (target.initialExpression ?? cellText(target.initialValue)),
   );
   const nameField = useTypedField(editKey, target?.initialName ?? "");
   const [driving, setDriving] = useRetargetedDraft<boolean>(editKey);
@@ -320,11 +344,12 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
   const valueText = valueField.text;
   const nameText = nameField.text;
 
-  // Carpenter notation reads as a literal in a length box; the stored
-  // expression keeps its meaning (RESEARCH §29).
+  // A length box reads the part's unit and carpenter notation as a literal;
+  // the stored expression keeps its meaning (RESEARCH §29).
   const classify: ClassifyOptions = {
-    length: target.unit !== "deg",
+    length: lengthUnit !== null,
     stored: target.initialExpression,
+    unit: lengthUnit ?? "mm",
   };
   const parsedValue = classifyDimensionValue(valueText, classify);
   const nameError = dimensionNameError(nameText);
@@ -347,7 +372,9 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
   // angle reads "= 45 deg" and never "= 45 mm".
   const resolved =
     isDriving && parsedValue.kind === "expression" && solved !== undefined
-      ? `= ${formatDimensionMm(solved.value)} ${target.unit}`
+      ? lengthUnit === null
+        ? `= ${formatDimensionMm(solved.value)} ${target.unit}`
+        : `= ${formatLength(solved.value, lengthUnit)}`
       : null;
 
   const close = (commit: boolean) => {
@@ -412,7 +439,9 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
               // dimension's text sitting in the second one's cell.
               key={`value:${editKey ?? ""}`}
               label={noun}
-              unit={target.unit}
+              unit={
+                lengthUnit === null ? target.unit : lengthUnitLabel(lengthUnit)
+              }
               // The formula is the dimension's own `expression` (no pointer):
               // it may read this sketch's named dimensions and the part's
               // parameters, both offered as it is typed (PART-PARAMETERS).
@@ -435,8 +464,10 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
             // value; committing keeps it as the placeholder `value_mm`.
             <NumberField
               label={`${noun} · reference`}
-              unit={target.unit}
-              value={formatDimensionMm(solved?.value ?? target.initialValue)}
+              unit={
+                lengthUnit === null ? target.unit : lengthUnitLabel(lengthUnit)
+              }
+              value={cellText(solved?.value ?? target.initialValue)}
               readOnly
               data-testid="dimension-input"
               aria-label={`${noun} reference value (measured)`}
@@ -514,6 +545,14 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
   );
 }
 
+/**
+ * A tool's default size in the part's unit family: the metric default as it
+ * is, an imperial part's 1/8 in (a 2 mm default would read 0.0787 in).
+ */
+function defaultSketchLengthMm(metricMm: number, unit: LengthUnit): number {
+  return unit === "in" || unit === "ft" ? 3.175 : metricMm;
+}
+
 /** Default offset when the editor opens (mm) — a typical rib/wall thickness. */
 const DEFAULT_OFFSET_MM = 2;
 
@@ -530,8 +569,12 @@ function OffsetEditor({ basis }: { basis: PlaneBasis }) {
   const entities = useSketchStore((state) => state.entities);
   const armOffset = useSketchStore((state) => state.armOffset);
   const cancelOffset = useSketchStore((state) => state.cancelOffset);
+  const unit = useDocumentLengthUnit();
   // Uncontrolled for the same reason as the dimension cell above (DIM-1).
-  const field = useTypedField(draft?.target ?? null, String(DEFAULT_OFFSET_MM));
+  const field = useTypedField(
+    draft?.target ?? null,
+    lengthCell(defaultSketchLengthMm(DEFAULT_OFFSET_MM, unit), unit),
+  );
 
   const target =
     draft === null
@@ -544,22 +587,22 @@ function OffsetEditor({ basis }: { basis: PlaneBasis }) {
 
   if (draft === null || target === null || anchor === null) return null;
 
-  const parsed = Number.parseFloat(field.text);
-  const valid = Number.isFinite(parsed) && parsed !== 0;
+  const parsed = parseLength(field.text, unit);
+  const valid = parsed !== null && parsed !== 0;
 
   const apply = () => {
     // The cell, not the shadow — the last digit of "12.5" may not have reached
     // React yet, and offsetting by 12 instead is a wrong part, not a slow one.
-    const typed = Number.parseFloat(field.read());
-    if (!Number.isFinite(typed) || typed === 0) {
+    const typed = parseLength(field.read(), unit);
+    if (typed === null || typed === 0) {
       field.write(field.read()); // surface the error against what was typed
       return;
     }
     armOffset(typed);
   };
   const flip = () => {
-    const typed = Number.parseFloat(field.read());
-    if (Number.isFinite(typed)) field.write(formatDimensionMm(-typed));
+    const typed = parseLength(field.read(), unit);
+    if (typed !== null) field.write(lengthCell(-typed, unit));
   };
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -583,7 +626,7 @@ function OffsetEditor({ basis }: { basis: PlaneBasis }) {
           <NumberField
             key={draft.target}
             label="Offset"
-            unit="mm"
+            unit={lengthUnitLabel(unit)}
             ref={field.ref}
             defaultValue={field.defaultValue}
             error={valid ? null : "Enter a nonzero distance."}
@@ -592,7 +635,7 @@ function OffsetEditor({ basis }: { basis: PlaneBasis }) {
             autoFocus
             onFocus={(event) => event.target.select()}
             data-testid="offset-input"
-            aria-label="Offset distance (mm, signed)"
+            aria-label={`Offset distance (${lengthUnitLabel(unit)}, signed)`}
           />
           {/* Sign convention, spelled out so the direction is never a guess. */}
           <p className="mt-1 font-body text-2xs text-gauge">
@@ -610,7 +653,7 @@ function OffsetEditor({ basis }: { basis: PlaneBasis }) {
             <button
               type="button"
               className="font-display text-2xs uppercase tracking-[0.14em] text-gauge hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-50"
-              disabled={!Number.isFinite(parsed)}
+              disabled={parsed === null}
               data-testid="offset-flip"
               onClick={flip}
             >
@@ -657,18 +700,22 @@ function CornerEditor({ basis }: { basis: PlaneBasis }) {
   // A fresh corner never inherits the previous one's typed value: the picks are
   // the cell's identity. Uncontrolled, as the dimension cell above (DIM-1).
   const picksKey = corner?.picks.join(",") ?? null;
-  const field = useTypedField(picksKey, String(DEFAULT_CORNER_MM));
+  const unit = useDocumentLengthUnit();
+  const field = useTypedField(
+    picksKey,
+    lengthCell(defaultSketchLengthMm(DEFAULT_CORNER_MM, unit), unit),
+  );
 
   if (!open || corner === null || anchor === null) return null;
 
   const isFillet = corner.op === "fillet";
-  const parsed = Number.parseFloat(field.text);
-  const valid = Number.isFinite(parsed) && parsed > 0;
+  const parsed = parseLength(field.text, unit);
+  const valid = parsed !== null && parsed > 0;
   const label = isFillet ? "Radius" : "Distance";
 
   const apply = () => {
-    const typed = Number.parseFloat(field.read());
-    if (!Number.isFinite(typed) || typed <= 0) {
+    const typed = parseLength(field.read(), unit);
+    if (typed === null || typed <= 0) {
       field.write(field.read()); // surface the error against what was typed
       return;
     }
@@ -696,7 +743,7 @@ function CornerEditor({ basis }: { basis: PlaneBasis }) {
           <NumberField
             key={picksKey ?? ""}
             label={isFillet ? "Fillet radius" : "Chamfer distance"}
-            unit="mm"
+            unit={lengthUnitLabel(unit)}
             ref={field.ref}
             defaultValue={field.defaultValue}
             error={valid ? null : "Enter a value above 0."}
@@ -705,7 +752,7 @@ function CornerEditor({ basis }: { basis: PlaneBasis }) {
             autoFocus
             onFocus={(event) => event.target.select()}
             data-testid="corner-input"
-            aria-label={`${label} (mm)`}
+            aria-label={`${label} (${lengthUnitLabel(unit)})`}
           />
           <p className="mt-1 font-body text-2xs text-gauge">
             {isFillet
@@ -811,6 +858,7 @@ function SplineHandles({ basis }: { basis: PlaneBasis }) {
 }
 
 export function ConstraintGlyphs({ basis }: { basis: PlaneBasis }) {
+  const documentUnit = useDocumentLengthUnit();
   const constraints = useSketchStore((state) => state.constraints);
   const entities = useSketchStore((state) => state.entities);
   const selectedConstraint = useSketchStore(
@@ -834,8 +882,9 @@ export function ConstraintGlyphs({ basis }: { basis: PlaneBasis }) {
         entities,
         sketch.glyphOffsetMm,
         solvedReadout,
+        documentUnit,
       ),
-    [constraints, entities, solvedReadout],
+    [constraints, entities, solvedReadout, documentUnit],
   );
   const flagged = useMemo(
     () => new Set([...(solve?.conflicting ?? []), ...(solve?.redundant ?? [])]),
@@ -870,7 +919,7 @@ export function ConstraintGlyphs({ basis }: { basis: PlaneBasis }) {
               data-driven={glyph.driven || undefined}
               data-expression={glyph.expression ?? undefined}
               data-flagged={flagged.has(glyph.index) || undefined}
-              aria-label={glyphAria(glyph)}
+              aria-label={glyphAria(glyph, lengthUnitLabel(documentUnit))}
               onClick={() =>
                 glyph.editable
                   ? editDimension(glyph.index)

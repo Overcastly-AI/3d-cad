@@ -36,6 +36,12 @@ import type {
 import type { FeatureResponse } from "../api/parts";
 import type { FieldKind } from "../units/length";
 import {
+  outlineSides,
+  segmentsOutlineSketch,
+  sideName,
+  supersededInputs,
+} from "./outline";
+import {
   storedLengthInput,
   storedLengthMm,
   storedNumber,
@@ -164,6 +170,7 @@ export function defaultPluginForm(
           : lastOption(referenceOptions(input, features, null));
         break;
       case "features":
+      case "segments":
         values[input.name] = "";
         break;
     }
@@ -190,7 +197,10 @@ export function formFromCustomParams(
     } else if (typeof stored === "string") {
       values[input.name] = stored;
     } else if (Array.isArray(stored)) {
-      values[input.name] = stored.map((ref) => ref.feature_id).join(",");
+      // Feature picks by id; a segments input's sketch line ids as they are.
+      values[input.name] = stored
+        .map((item) => (typeof item === "string" ? item : item.feature_id))
+        .join(",");
     } else {
       values[input.name] = stored.feature_id;
     }
@@ -293,7 +303,10 @@ export function validatePluginForm(
   selfId: string | null,
 ): Record<string, string> {
   const errors: Record<string, string> = {};
+  // A field a pick has replaced is neither shown nor checked (superseded_by).
+  const hidden = supersededInputs(manifest, form.values);
   for (const input of manifest.inputs) {
+    if (hidden.has(input.name)) continue;
     const text = form.values[input.name] ?? "";
     let error: string | null = null;
     if (isNumericInput(input)) {
@@ -327,6 +340,32 @@ export function validatePluginForm(
       } else if (ids.length > input.max_items) {
         error = `Pick at most ${input.max_items}.`;
       }
+    } else if (input.kind === "segments") {
+      // Lines of an outline by sketch id (BUILDING-OUTLINE), named by side.
+      const ids = pickedIds(text);
+      const sketch = segmentsOutlineSketch(
+        manifest,
+        input,
+        form.values,
+        features,
+      );
+      const sides =
+        sketch?.feature.type === "sketch"
+          ? outlineSides(sketch.feature.params.entities)
+          : null;
+      const stray =
+        sides === null
+          ? undefined
+          : ids.find((id) => !sides.some((side) => side.lineId === id));
+      if (ids.length > 0 && sketch === null) {
+        error = "Pick an outline first.";
+      } else if (stray !== undefined) {
+        error = `${sideName(sides, stray)} is not a line of the outline.`;
+      } else if (ids.length < input.min_items) {
+        error = `Pick at least ${input.min_items}.`;
+      } else if (ids.length > input.max_items) {
+        error = `Pick at most ${input.max_items}.`;
+      }
     }
     if (error !== null) errors[input.name] = error;
   }
@@ -348,11 +387,16 @@ export function pluginInputsFromForm(
   const errors = validatePluginForm(manifest, form, unit, features, selfId);
   if (Object.keys(errors).length > 0) return null;
   const inputs: Record<string, CustomInputValue> = {};
+  const hidden = supersededInputs(manifest, form.values);
   for (const input of manifest.inputs) {
     const text = form.values[input.name] ?? "";
     if (isNumericInput(input)) {
       const value = numericValue(input, text, unit, form.stored?.[input.name]);
-      if (value === null) return null;
+      if (value === null) {
+        // A hidden field is unused: left out rather than blocking the write.
+        if (hidden.has(input.name)) continue;
+        return null;
+      }
       inputs[input.name] = value;
     } else if (input.kind === "profile" || input.kind === "feature") {
       if (text !== "")
@@ -364,6 +408,9 @@ export function pluginInputsFromForm(
           kind: "feature" as const,
           feature_id: id,
         }));
+    } else if (input.kind === "segments") {
+      const ids = pickedIds(text);
+      if (ids.length > 0) inputs[input.name] = ids;
     } else if (text !== "") {
       inputs[input.name] = text;
     }
@@ -381,4 +428,29 @@ export function firstPluginBlocker(
     if (error !== undefined) return `${input.label}: ${error}`;
   }
   return null;
+}
+
+/**
+ * The form's values with *name* set to *value*, and every side pick whose
+ * outline that changes cleared (BUILDING-OUTLINE). Side picks store sketch
+ * line ids, and every rectangle's lines are e1..e4, so a kept `e2` would
+ * silently name a different wall of the new outline; Fusion drops a
+ * selection whose source changed, and so does this.
+ */
+export function withPluginValue(
+  manifest: PluginManifest,
+  values: Readonly<Record<string, string>>,
+  name: string,
+  value: string,
+  features: readonly FeatureResponse[],
+): Record<string, string> {
+  const next: Record<string, string> = { ...values, [name]: value };
+  for (const input of manifest.inputs) {
+    if (input.kind !== "segments" || input.outline_input !== name) continue;
+    if ((next[input.name] ?? "") === "") continue;
+    const before = segmentsOutlineSketch(manifest, input, values, features);
+    const after = segmentsOutlineSketch(manifest, input, next, features);
+    if (before?.id !== after?.id) next[input.name] = "";
+  }
+  return next;
 }

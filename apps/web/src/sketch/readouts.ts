@@ -93,8 +93,8 @@ export function sketchDimensionScope(
   constraints: readonly object[],
   solved: ReadonlyMap<number, SolvedReadout>,
   except: number | null,
-): { name: string; value: number }[] {
-  const out: { name: string; value: number }[] = [];
+): { name: string; value: number; kind: "length" | "angle" }[] {
+  const out: { name: string; value: number; kind: "length" | "angle" }[] = [];
   constraints.forEach((constraint, index) => {
     if (index === except) return;
     const c = constraint as {
@@ -107,7 +107,8 @@ export function sketchDimensionScope(
       return;
     }
     const value = solved.get(index)?.value ?? c.value_mm ?? c.value_deg;
-    if (typeof value === "number") out.push({ name: c.name, value });
+    const kind = c.value_deg !== undefined ? "angle" : "length";
+    if (typeof value === "number") out.push({ name: c.name, value, kind });
   });
   return out;
 }

@@ -19,6 +19,9 @@ runs:
           # 2026-10-22: 20 min on one shard), so each attempt gets 3 min and
           # a stall is retried rather than waited out.
           for attempt in 1 2 3; do
+            # A timeout can kill dpkg mid-install; finish that first or the
+            # retry fails with "dpkg was interrupted".
+            [ "$attempt" = 1 ] || sudo timeout 180 dpkg --configure -a || true
             if sudo timeout 180 apt-get update -qq &&
               sudo timeout 180 apt-get install -y -qq --no-install-recommends libeigen3-dev libboost-dev; then
               exit 0
