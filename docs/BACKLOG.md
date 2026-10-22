@@ -359,6 +359,7 @@ B1-B6 are done once SHEATHING lands. B7 (QA-B7-HOUSE, Now) ranks what follows.
 
 One line each. The founder triages weekly; most are closed without work.
 
+- PLUGIN-BUDGET-WALLCLOCK: the 2 s plugin expansion budget is wall-clock, so roof/wall/deck tests (test_roof_l_doubled_common, test_roof_feature b4 valley, test_deck metric guard post) failed under a load-11 local gate and pass alone; measure CPU time or give tests a slack budget before CI hits it.
 - SKETCH-LINE-ANGLE-WHEN: the L / ∠ cells arm after the end click (type 450 Tab 73 Enter then); keys typed BEFORE the end click stay the X / Y point cells (G2, sketch-line-length-tab), whereas Fusion's box takes length and angle mid-drag. Founder to decide whether the mid-drag keys should become L / ∠.
 - SKETCH-LINE-ANGLE-ZERO: the angle cell takes (0, 180) as `AngleConstraint` does; 0 or 180 is refused with a message rather than becoming Horizontal (or Collinear to the previous segment), which Fusion does.
 - SKETCH-LINE-ANGLE-WIRE: the angle-to-axis dimension is the existing `angle` constraint against the `x-axis` datum line (no wire change); planegcs holds 450 at 73° to 3e-14° with 0 DOF. A typed angle drops the inferred H/V on that line. No document angle-unit setting exists; the cell reads degrees.
