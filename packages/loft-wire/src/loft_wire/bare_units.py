@@ -164,6 +164,21 @@ def write_units[E: AuthoredEnvelope](
                 )
                 changed = True
         if changed:
+            # The unit moves the value: store what the new text gives, for the
+            # rewritten dimension and every formula reading it. A sketch that
+            # reads no parameter is not re-resolved later, so this is where
+            # its value_mm stops being the client's mm reading. One that does
+            # not evaluate keeps its values; its own resolution reports it.
+            try:
+                values = evaluate_driving_dimensions(constraints, parameters)
+            except ExpressionError:
+                values = {}
+            for index, dim in dims:
+                if index in values and constraints[index].expression is not None:
+                    field = "value_deg" if dim.kind == "angle" else "value_mm"
+                    constraints[index] = constraints[index].model_copy(
+                        update={field: values[index]}
+                    )
             update["params"] = cast(Any, envelope.params).model_copy(
                 update={"constraints": constraints}
             )

@@ -229,7 +229,7 @@ def test_a_parameter_and_a_sketch_dimension_follow_the_same_rule(
                 {
                     "kind": "distance",
                     "entity": "e2",
-                    "value_mm": 40,
+                    "value_mm": 41,  # the client's mm reading
                     "expression": "d1 + 1",
                 },
             ],
@@ -237,6 +237,9 @@ def test_a_parameter_and_a_sketch_dimension_follow_the_same_rule(
     }
     stored = part.add(sketch)["feature"]["params"]["constraints"]
     assert stored[1]["expression"] == "d1 + 1 in"
+    # The stored value is the new text's, not the client's mm reading.
+    assert stored[1]["value_mm"] == pytest.approx(40 + IN)
+    assert stored[0]["value_mm"] == 40
 
 
 def _seeded(client: TestClient) -> tuple[Part, str, dict[str, Any]]:

@@ -187,6 +187,8 @@ def test_a_sketch_dimension_counts_as_a_length_in_mm() -> None:
     written = write_units(sketch, "in", {})
     dims = [c.expression for c in written.params.constraints]  # type: ignore[attr-defined]
     assert dims == ["30 in", "d1 + 2 in"]
+    values = [c.value_mm for c in written.params.constraints]  # type: ignore[attr-defined]
+    assert values == pytest.approx([30 * IN, 32 * IN])
     # Re-saved as stored, the old text stays (each text matched once).
     old = _sketch(("d1", "30"), ("d2", "d1 + 2"))
     assert write_units(old, "in", {}, stored=old) is old
