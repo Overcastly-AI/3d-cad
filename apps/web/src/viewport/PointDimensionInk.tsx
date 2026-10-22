@@ -12,7 +12,8 @@ import { Html } from "@react-three/drei";
 import { useEffect, useMemo } from "react";
 import { BufferGeometry, Float32BufferAttribute } from "three";
 
-import { formatDimensionMm } from "../sketch/constraints";
+import { formatSketchLength } from "../sketch/constraints";
+import { useDocumentLengthUnit } from "../units/documentUnit";
 import { datumFrame, withDatums } from "../sketch/datum";
 import { planeToWorld, type PlaneBasis } from "../sketch/plane";
 import {
@@ -78,6 +79,7 @@ function PlacementPreview({ basis }: { basis: PlaneBasis }) {
   const cursor = useSketchStore((state) => state.cursor);
   const entities = useSketchStore((state) => state.entities);
   const frameHalfMm = useSketchStore((state) => state.datumFrameHalfMm);
+  const unit = useDocumentLengthUnit();
   const preview = useMemo(() => {
     if (placing === null || cursor === null) return null;
     const byId = new Map(
@@ -118,7 +120,7 @@ function PlacementPreview({ basis }: { basis: PlaneBasis }) {
           data-direction={preview.direction}
           className="ml-2 block whitespace-nowrap font-mono text-2xs text-brass"
         >
-          {formatDimensionMm(preview.value)} · {preview.direction}
+          {formatSketchLength(preview.value, unit)} · {preview.direction}
         </span>
       </Html>
     </group>

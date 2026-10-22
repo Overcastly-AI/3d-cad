@@ -5,6 +5,7 @@
  * constraints, constraints into in-viewport glyphs (engineering-drawing
  * notation), and solver payloads into DRO feedback.
  */
+import type { LengthUnit } from "@loft/design";
 import type { components } from "@loft/ts-client/gateway";
 
 import {
@@ -32,6 +33,12 @@ import { dimensionSpan, lineAnnotationAnchor, sharpIds } from "./virtualSharp";
 import { allProjected, projectedRefusal } from "./project";
 import { directionFrom, measuredAngleDeg, sharedCorner } from "./angleCorner";
 export { measuredAngleDeg } from "./angleCorner";
+import { formatDimensionLabel } from "./dimensionFormat";
+export {
+  formatDimensionLabel,
+  formatDimensionMm,
+  formatSketchLength,
+} from "./dimensionFormat";
 
 export type SketchConstraint =
   components["schemas"]["SketchParamsV1"]["constraints"][number];
@@ -1388,36 +1395,6 @@ export interface ConstraintGlyph {
   expression: string | null;
 }
 
-/** Dimension text: trailing zeros trimmed, mm implied (drawing convention). */
-export function formatDimensionMm(value: number): string {
-  const text = value.toFixed(2).replace(/\.?0+$/, "");
-  return text === "" || text === "-" ? "0" : text;
-}
-
-/**
- * A dimension glyph's label, in the drawing's own notation: a length is bare
- * ("40"), a radius takes the R prefix ("R12.5"), a diameter the ⌀ ring
- * ("⌀25"), an angle the degree ring ("30°"). DRIVEN (reference) dims wear the
- * drafting convention — parentheses, "(40)" — so a measured, informational
- * value is never mistaken for a driving one.
- */
-export function formatDimensionLabel(
-  kind: DimensionKind,
-  value: number,
-  driven: boolean,
-): string {
-  const text = formatDimensionMm(value);
-  const core =
-    kind === "radius"
-      ? `R${text}`
-      : kind === "diameter"
-        ? `⌀${text}`
-        : kind === "angle"
-          ? `${text}°`
-          : text;
-  return driven ? `(${core})` : core;
-}
-
 function pointOf(
   ref: EntityPointRef,
   byId: ReadonlyMap<string, SketchEntity>,
@@ -1594,6 +1571,7 @@ export function constraintGlyphs(
   entities: readonly SketchEntity[],
   offsetMm: number,
   solved?: ReadonlyMap<number, SolvedReadout>,
+  unit: LengthUnit = "mm",
 ): ConstraintGlyph[] {
   const byId = new Map(entities.map((e) => [e.id, e]));
   const glyphs: ConstraintGlyph[] = [];
@@ -1633,7 +1611,7 @@ export function constraintGlyphs(
         glyphs.push({
           index,
           kind: constraint.kind,
-          label: formatDimensionLabel(constraint.kind, value, driven),
+          label: formatDimensionLabel(constraint.kind, value, driven, unit),
           // Opposite side from H/V marks — annotations never stack.
           anchor:
             constraint.kind === "distance"
@@ -1668,6 +1646,7 @@ export function constraintGlyphs(
             "distance",
             readout?.value ?? constraint.value_mm,
             driven,
+            unit,
           ),
           anchor: layout.anchor,
           editable: true,

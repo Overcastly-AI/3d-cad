@@ -6,7 +6,7 @@
     "apps/web/src/components/DocumentRegister.tsx": 1538,
     "apps/web/src/components/DrawingSheet.tsx": 2232,
     "apps/web/src/sketch/constraints.test.ts": 1653,
-    "apps/web/src/sketch/constraints.ts": 1855,
+    "apps/web/src/sketch/constraints.ts": 1834,
     "apps/web/src/sketch/store.test.ts": 2729,
     "apps/web/src/sketch/store.ts": 2067,
     "apps/web/src/viewport/ParametricGauge.tsx": 1523,
