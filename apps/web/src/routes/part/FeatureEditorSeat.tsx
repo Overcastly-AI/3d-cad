@@ -131,7 +131,7 @@ export function FeatureEditorSeat({
     | "datumOffsetOverride"
   >;
   rebuildNotices: Pick<RebuildNotices, "sweepRebuildError">;
-  solvedSketches: Pick<SolvedSketches, "profileEntities">;
+  solvedSketches: Pick<SolvedSketches, "profileEntities" | "solved">;
   pickOverlays: Pick<
     PickOverlays,
     | "pickAnchorFeatureId"
@@ -534,6 +534,7 @@ export function FeatureEditorSeat({
             onCancel={closeEditor}
             saving={editorSaving}
             error={seatError}
+            sketchLayers={solvedSketches.solved}
           />
         ) : editor.kind === "datum" ? (
           <DatumEditor

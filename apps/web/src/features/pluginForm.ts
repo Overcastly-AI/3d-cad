@@ -36,6 +36,12 @@ import type {
 import type { FeatureResponse } from "../api/parts";
 import type { FieldKind } from "../units/length";
 import {
+  outlineSides,
+  segmentsOutlineSketch,
+  sideName,
+  supersededInputs,
+} from "./outline";
+import {
   storedLengthInput,
   storedLengthMm,
   storedNumber,
@@ -297,7 +303,10 @@ export function validatePluginForm(
   selfId: string | null,
 ): Record<string, string> {
   const errors: Record<string, string> = {};
+  // A field a pick has replaced is neither shown nor checked (superseded_by).
+  const hidden = supersededInputs(manifest, form.values);
   for (const input of manifest.inputs) {
+    if (hidden.has(input.name)) continue;
     const text = form.values[input.name] ?? "";
     let error: string | null = null;
     if (isNumericInput(input)) {
@@ -332,10 +341,27 @@ export function validatePluginForm(
         error = `Pick at most ${input.max_items}.`;
       }
     } else if (input.kind === "segments") {
-      // Lines of an outline by sketch id (BUILDING-OUTLINE); the plugin
-      // checks each is a line of the outline.
+      // Lines of an outline by sketch id (BUILDING-OUTLINE), named by side.
       const ids = pickedIds(text);
-      if (ids.length < input.min_items) {
+      const sketch = segmentsOutlineSketch(
+        manifest,
+        input,
+        form.values,
+        features,
+      );
+      const sides =
+        sketch?.feature.type === "sketch"
+          ? outlineSides(sketch.feature.params.entities)
+          : null;
+      const stray =
+        sides === null
+          ? undefined
+          : ids.find((id) => !sides.some((side) => side.lineId === id));
+      if (ids.length > 0 && sketch === null) {
+        error = "Pick an outline first.";
+      } else if (stray !== undefined) {
+        error = `${sideName(sides, stray)} is not a line of the outline.`;
+      } else if (ids.length < input.min_items) {
         error = `Pick at least ${input.min_items}.`;
       } else if (ids.length > input.max_items) {
         error = `Pick at most ${input.max_items}.`;
@@ -361,11 +387,16 @@ export function pluginInputsFromForm(
   const errors = validatePluginForm(manifest, form, unit, features, selfId);
   if (Object.keys(errors).length > 0) return null;
   const inputs: Record<string, CustomInputValue> = {};
+  const hidden = supersededInputs(manifest, form.values);
   for (const input of manifest.inputs) {
     const text = form.values[input.name] ?? "";
     if (isNumericInput(input)) {
       const value = numericValue(input, text, unit, form.stored?.[input.name]);
-      if (value === null) return null;
+      if (value === null) {
+        // A hidden field is unused: left out rather than blocking the write.
+        if (hidden.has(input.name)) continue;
+        return null;
+      }
       inputs[input.name] = value;
     } else if (input.kind === "profile" || input.kind === "feature") {
       if (text !== "")
