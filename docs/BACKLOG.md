@@ -274,6 +274,7 @@ None open. The B7 decisions are in VISION's delegated log.
 
 One line each. The founder triages weekly; most are closed without work.
 
+- SPLICE-FEWEST-PIECES: splice tiers rank feet bought before pieces, so a book pricing 10 ft SPF buys 28 ft as 10 + 10 + 8 (3 pieces, 2 joints) before 2 x 16; a yard may prefer fewer joints over 4 ft of offcut. Founder call.
 - PLUGIN-BUDGET-WALLCLOCK: the 2 s plugin expansion budget is wall-clock, so roof/wall/deck tests (test_roof_l_doubled_common, test_roof_feature b4 valley, test_deck metric guard post) failed under a load-11 local gate and pass alone; measure CPU time or give tests a slack budget before CI hits it.
 - BARE-UNIT-SURFACES: `expression_bare_mm` rides on `FeatureResponse.formula_warnings` and `PartParametersResponse.formula_warnings`, but the web shows it (with "Read as in") only on a feature editor's field; the parameters table, sketch dimensions and the feature tree do not show it yet, and the sketcher's echo still reads a bare term as mm until the save writes the unit.
 - BARE-UNIT-COMPARE: `min`/`max`/`atan2` arguments compared with a length also take the part unit (`max(wall, 3)` is stored as `max(wall, 3 in)`), one step past the spec's added/subtracted rule, because a bare 3 there is the same silent mm.
@@ -716,4 +717,3 @@ One line each. The founder triages weekly; most are closed without work.
 - B7-OPENING-SIZES (QA-B7): Window defaults to 24 x 36 and has no size list, so each of B7's three 36 x 48 windows has two fields retyped. Chief and Revit pick from a catalogue (3048, 2436).
 - B7-TREE-STATUS-DASH (QA-B7, seen once): after editing Wall 1's start and length on a solved B7, the tree showed "—" instead of OK for Wall 4 and Window 5 until the next edit.
 - B7-BODY-NAMES (QA-B7): the Bodies panel lists B7's 217 members as "Body 1..217" and the Material panel names every row by its feature ("Floor 1"). Only the cut list and the unfolded tree say Joist, Stud or Rafter; Fusion shows body names.
-- CUT-LIST-SPLICE-TIES (QA-B7): the splice is chosen only from the least-waste ties, so B7 lengthened to 28 ft, with SPF 2x10 and 2x6 priced at 16 and 8 ft, leaves its rims, top plates and ridge unpriced ("2 × 14 ft", 3 lines). 16 + 16 or 16 + 8 + 8 would price them. A framer buys the lengths the yard stocks, so the cheapest priced cover could win over the least waste.

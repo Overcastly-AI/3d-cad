@@ -423,9 +423,54 @@ def test_a_splice_is_priced_on_its_pieces_each_per_foot_or_board_foot() -> None:
     (line,) = _priced(ridge, [_per(SPF, "us_2x10", "board_foot", 145)]).lines
     assert (line.stock_pieces_ft, line.unit_price_cents) == ([14, 12], 3383 + 2900)
     assert line.price_unit == "board_foot"
-    # Only 16 ft priced Each: no tied splice is priced whole, so blank.
+    # Only 16 ft priced Each: no tied splice is priced whole, so the yard
+    # sells 2 x 16 (8 ft more waste), its offcut recomputed.
     (line,) = _priced(plate, each[:1]).lines
+    assert (line.stock_pieces_ft, line.unit_price_cents) == ([16, 16], 2796)
+    assert line.waste_mm == pytest.approx(8 * 12 * MM_PER_INCH)
+    # Nothing priced at all: the least-waste splice, blank.
+    (line,) = _priced(plate, []).lines
     assert line.unit_price_cents is None and line.stock_pieces_ft == [12, 12]
+
+
+def test_a_28_ft_member_buys_the_least_waste_splice_the_book_prices() -> None:
+    """B7 stretched to 28 ft (CUT-LIST-SPLICE-TIES): the least-waste ties,
+    2 x 14, 16 + 12 and 20 + 8, have no SPF price, and neither has any 28 or
+    30 ft cover, so the yard quotes 2 x 16 (32 ft, 4 ft = 1219.2 mm over;
+    two pieces before 16 + 8 + 8's three). The PT sill's 16 + 12 tie is
+    priced and kept."""
+    pieces = _pieces(
+        [
+            ("Rim", "2x10", SPF, 2, 336.0),
+            ("Sill", "2x6", PT, 2, 336.0),
+            ("Top plate", "2x6", SPF, 4, 336.0),
+            ("Ridge", "2x10", SPF, 1, 336.0),
+        ]
+    )
+    cut_list = _priced(pieces, B7_BOOK)
+    assert cut_list.unpriced_lines == 0
+    assert [
+        (
+            line.member,
+            splice_label(line.stock_pieces_ft or []),
+            line.unit_price_cents,
+            line.extended_price_cents,
+            round(line.waste_mm or 0, 6),
+        )
+        for line in cut_list.lines
+    ] == [
+        ("Rim", "2 x 16 ft", 2 * 2297, 2 * 4594, 1219.2),
+        ("Sill", "16 ft + 12 ft", 1698 + 1248, 2 * 2946, 0),
+        ("Top plate", "2 x 16 ft", 2 * 1398, 4 * 2796, 1219.2),
+        ("Ridge", "2 x 16 ft", 2 * 2297, 4594, 1219.2),
+    ]
+    # Unpriced, the least-waste choice stands.
+    assert [line.stock_pieces_ft for line in _priced(pieces, []).lines] == [
+        [14, 14],
+        [14, 14],
+        [14, 14],
+        [14, 14],
+    ]
 
 
 def test_b7_is_priced_to_the_last_line_2868_87() -> None:

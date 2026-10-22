@@ -15,6 +15,15 @@ runs:
         if [ -f /usr/include/eigen3/Eigen/QR ] && [ -f /usr/include/boost/graph/adjacency_list.hpp ]; then
           echo "planegcs build prerequisites already present"
         else
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends libeigen3-dev libboost-dev
+          # An apt mirror can stall a runner for the job's whole timeout (seen
+          # 2026-10-22: 20 min on one shard), so each attempt gets 3 min and
+          # a stall is retried rather than waited out.
+          for attempt in 1 2 3; do
+            if sudo timeout 180 apt-get update -qq &&
+              sudo timeout 180 apt-get install -y -qq --no-install-recommends libeigen3-dev libboost-dev; then
+              exit 0
+            fi
+            echo "::warning::planegcs prerequisites: attempt $attempt stalled or failed; retrying"
+          done
+          exit 1
         fi

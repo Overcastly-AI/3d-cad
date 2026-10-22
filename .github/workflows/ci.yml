@@ -190,11 +190,17 @@ jobs:
     # at N=6 (16.2 at N=5, 11.5 at N=7); the largest file is now 6.6 min. The
     # next `pytest_shards.py durations` from CI ledgers replaces this estimate.
     #
+    # 25-minute timeout since 2026-10-22: at 8941a51 shard 2 ran its tests in
+    # 15.1 min and was cancelled at 20 because setup (an apt install) took 4;
+    # shard 1's apt install stalled 20 min (now retried after 3 min). The
+    # timeout covers setup, which varies 0.5-4 min, so 20 left no margin over
+    # a 13.5-16.5 min shard.
+    #
     # NB a timed-out job is reported `cancelled`, the SAME word GitHub uses for
     # a concurrency eviction — see CLAUDE.md for telling them apart.
     name: pytest (shard ${{ matrix.shard }}/6)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       # Every shard reports: a red in shard 1 must not cancel shard 2's result.
       fail-fast: false
