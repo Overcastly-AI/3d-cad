@@ -914,6 +914,7 @@ _FORKED_FIELDS = frozenset(
         "provenance",
         "topo_names",  # re-anchored like provenance
         "solved_sketches",
+        "solved_sketches_3d",
         "sketch_planes",
         "datum_planes",
         "sketch_projections",

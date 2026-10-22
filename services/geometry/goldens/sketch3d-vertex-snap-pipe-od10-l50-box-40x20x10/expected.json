@@ -1,0 +1,43 @@
+{
+  "description": "A 3D SKETCH POINT SNAPPED TO A MODEL VERTEX (SKETCH-3D, RESEARCH \u00a728): a 40 x 20 x 10 box (extrude of a rectangle on XY), a 3D sketch whose point 'corner' is attached to the top end (signature end b) of the box's vertical edge at x=40, y=20, and a free point typed at z=55; the line between them is Along Z with a driving Length of 50, so the free end slides 5 mm up to (40, 20, 60). A solid Pipe of OD 10 on that line is a NEW body (merge false), so the part is the box plus a cylinder standing on its corner. Locks the vertex snap's resolution (it reports its tier: exact) and Pipe on a 3D line.",
+  "derivation": [
+    "Solved points by hand: corner = (40, 20, 10), the edge's upper end; top = corner + 50 z = (40, 20, 60) (Along Z holds x and y; the length slides the free end along the line). DOF 0.",
+    "Volume = box 40 * 20 * 10 = 8000 + cylinder pi 5^2 * 50 = 1250 pi = 3926.990816987241; total 11926.990816987241.",
+    "Area = box 2 (800 + 400 + 200) = 2800 + cylinder side pi 10 * 50 + two caps 2 * 25 pi = 4527.875959474386 (separate bodies share no face).",
+    "Centroid = (8000 (20, 10, 5) + 1250 pi (40, 20, 35)) / total.",
+    "Bounding box: the box from the origin; the cylinder spans x 35..45, y 15..25, z 10..60: (0, 0, 0) .. (45, 25, 60).",
+    "Topology: box 6 faces / 12 edges, cylinder 3 faces / 3 edges (side, two caps, seam), 2 shells. Mesh recorded from the harness."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "A planar box and an analytic cylinder: measured 2026-10-22 against the hand numbers, volume 3e-12 mm^3, area 2e-12 mm^2, centroid below 1e-12 mm. 1e-6 is the analytic primitives' bound; never loosen it to go green.",
+  "properties": {
+    "volume": 11926.990816987241,
+    "surface_area": 4527.875959474386,
+    "centroid": {
+      "x": 26.585048780945066,
+      "y": 13.292524390472533,
+      "z": 14.8775731714176
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 45.0,
+        "y": 25.0,
+        "z": 60.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 9,
+    "edges": 15,
+    "shells": 2
+  },
+  "mesh": {
+    "vertices": 530,
+    "triangles": 512
+  }
+}

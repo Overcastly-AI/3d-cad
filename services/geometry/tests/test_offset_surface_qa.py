@@ -82,6 +82,8 @@ TRUTH_REL = 1e-10
 REVIEWED_OVERRIDE: dict[str, float] = {
     "frame-moto-cradle-tube-od25.4-t1.6": 0.5,
     "frame-bike-4-pipes-one-skeleton-head73": 0.025,
+    # The same four tubes on a 3D sketch skeleton (SKETCH-3D): the same solid.
+    "frame-bike-3d-sketch-skeleton-4-pipes": 0.025,
     # Not an offset surface: a 1.06e9 mm^3 sum over 46 re-imported solids moves
     # by 2.1e-6 (2e-15 relative) with summation order (CUT-LIST, expected.json).
     "b1-deck-framing-16ft": 1e-5,
