@@ -16,6 +16,7 @@ import {
   ExprError,
   evaluateExpression,
   type FieldKind,
+  lengthEntryExpression,
 } from "../features/expr";
 
 export type PatternKind = ComponentPattern["type"];
@@ -138,7 +139,16 @@ export function buildPattern(
           }
         : { kind: "origin_axis" as const, axis: form.axis as "x" | "y" | "z" };
     if (form.kind === "linear") {
-      const spacing = value(form.spacing, "length", "Spacing");
+      // `11-15/32` is a mixed number here too, sent spelled out (RESEARCH §29).
+      let spacingExpr: string;
+      try {
+        spacingExpr = lengthEntryExpression(form.spacing, "mm");
+      } catch (error) {
+        const reason =
+          error instanceof ExprError ? error.message : String(error);
+        throw new Error(`Spacing: ${reason}`);
+      }
+      const spacing = value(spacingExpr, "length", "Spacing");
       if (spacing <= 0) return { error: "Spacing: more than 0" };
       return {
         pattern: {
@@ -149,7 +159,7 @@ export function buildPattern(
           count,
           spacing_mm: spacing,
           count_expr: form.count,
-          spacing_expr: form.spacing,
+          spacing_expr: spacingExpr,
         },
       };
     }

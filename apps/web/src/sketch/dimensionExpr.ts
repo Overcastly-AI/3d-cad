@@ -9,6 +9,10 @@
  * source of truth (uniqueness / a bad expression come back as `sketch_invalid`).
  */
 
+import { isCarpenterLength, parseLength } from "@loft/design";
+
+import { typedFormulaError } from "../units/length";
+
 /** A bare literal: optional sign, digits, optional decimal. Nothing else. */
 const LITERAL_RE = /^[+-]?\d+(\.\d+)?$/;
 
@@ -25,13 +29,44 @@ export type DimensionValue =
  * any other non-empty text is an EXPRESSION (sent verbatim — the server parses
  * and validates it). Empty is its own case so callers can require a value.
  */
-export function classifyDimensionValue(text: string): DimensionValue {
+export function classifyDimensionValue(
+  text: string,
+  { length = false, stored = null }: ClassifyOptions = {},
+): DimensionValue {
   const trimmed = text.trim();
   if (trimmed === "") return { kind: "empty" };
   if (LITERAL_RE.test(trimmed)) {
     return { kind: "literal", valueMm: Number.parseFloat(trimmed) };
   }
+  // Carpenter notation in a length box is a literal, read as the box reads a
+  // bare number (mm) unless it carries its own marks: `11 15/32`, `5' 6"`
+  // (RESEARCH §29). The stored expression, re-committed untouched, keeps the
+  // meaning the server gave it.
+  if (length && trimmed !== stored && isCarpenterLength(trimmed)) {
+    const valueMm = parseLength(trimmed, "mm");
+    if (valueMm !== null) return { kind: "literal", valueMm };
+  }
   return { kind: "expression", expression: trimmed };
+}
+
+export interface ClassifyOptions {
+  /** A length dimension (carpenter notation is a literal there). */
+  length?: boolean;
+  /** The dimension's stored expression, which keeps its meaning. */
+  stored?: string | null;
+}
+
+/**
+ * Why a length expression typed into the box reads two ways (`2*11-15/32`),
+ * or null; the stored expression is the server's and is never questioned.
+ */
+export function dimensionAmbiguity(
+  parsed: DimensionValue,
+  { length = false, stored = null }: ClassifyOptions = {},
+): string | null {
+  if (!length || parsed.kind !== "expression") return null;
+  if (parsed.expression === stored) return null;
+  return typedFormulaError(parsed.expression, "length", "mm");
 }
 
 /**

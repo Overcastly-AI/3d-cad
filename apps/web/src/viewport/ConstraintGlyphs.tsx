@@ -49,6 +49,8 @@ import {
 } from "../sketch/constraints";
 import {
   classifyDimensionValue,
+  type ClassifyOptions,
+  dimensionAmbiguity,
   dimensionNameError,
   type DimensionValue,
 } from "../sketch/dimensionExpr";
@@ -182,13 +184,14 @@ function useTypedField(resetKey: string | null, initial: string): TypedField {
 function dimensionValueError(
   isDriving: boolean,
   parsed: DimensionValue,
+  options: ClassifyOptions,
 ): string | null {
   if (!isDriving) return null;
   if (parsed.kind === "empty") return "Enter a value or an expression.";
   if (parsed.kind === "literal" && !(parsed.valueMm > 0)) {
     return "Enter a value above 0.";
   }
-  return null;
+  return dimensionAmbiguity(parsed, options);
 }
 
 function glyphAria(glyph: ConstraintGlyph): string {
@@ -317,9 +320,15 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
   const valueText = valueField.text;
   const nameText = nameField.text;
 
-  const parsedValue = classifyDimensionValue(valueText);
+  // Carpenter notation reads as a literal in a length box; the stored
+  // expression keeps its meaning (RESEARCH §29).
+  const classify: ClassifyOptions = {
+    length: target.unit !== "deg",
+    stored: target.initialExpression,
+  };
+  const parsedValue = classifyDimensionValue(valueText, classify);
   const nameError = dimensionNameError(nameText);
-  const valueError = dimensionValueError(isDriving, parsedValue);
+  const valueError = dimensionValueError(isDriving, parsedValue, classify);
   const valid = valueError === null && nameError === null;
 
   // The positive value sent to the wire (`value_mm`, or `value_deg` for an
@@ -351,9 +360,10 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
     // how "125" got solved as 43 (DIM-1).
     const typedValue = valueField.read();
     const typedName = nameField.read();
-    const parsed = classifyDimensionValue(typedValue);
+    const parsed = classifyDimensionValue(typedValue, classify);
     const errors =
-      dimensionValueError(isDriving, parsed) ?? dimensionNameError(typedName);
+      dimensionValueError(isDriving, parsed, classify) ??
+      dimensionNameError(typedName);
     if (errors !== null) {
       // Stay open, showing the error against what was actually typed. Enter used
       // to fall through to cancelDimension() here — a key that sometimes applies
@@ -407,6 +417,7 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
               // it may read this sketch's named dimensions and the part's
               // parameters, both offered as it is typed (PART-PARAMETERS).
               kind={target.unit === "deg" ? "angle" : "length"}
+              lengthUnit="mm"
               dimensions={dimensionScope}
               inputRef={valueField.ref}
               value={valueField.defaultValue}

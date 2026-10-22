@@ -13,6 +13,7 @@ import {
   formatAngle,
   formatLength,
   fromMm,
+  isCarpenterLength,
   isPartialLength,
   type LengthUnit,
   parseLength,
@@ -24,6 +25,7 @@ import {
   evaluateExpression,
   ExprError,
   type FieldKind,
+  mixedNumberAmbiguity,
   type Quantity,
 } from "../features/expr";
 
@@ -143,6 +145,35 @@ export function formatFieldHint(
   if (field === "length") return `= ${formatLength(value, unit)}`;
   if (field === "angle") return `= ${formatAngle(value)}`;
   return `= ${formatAngle(value, { unitSuffix: false })}`;
+}
+
+/**
+ * The echo a length NUMBER written in carpenter notation gets (`11-15/32` →
+ * `= 11.46875 in`), as Fusion echoes a formula, so a mis-typed fraction shows
+ * before it is committed; null for a plain decimal, which echoes itself.
+ * Six fraction digits carry every 1/64 exactly.
+ */
+export function carpenterHint(text: string, unit: LengthUnit): string | null {
+  if (!isCarpenterLength(text)) return null;
+  const mm = parseLength(text, unit);
+  if (mm === null) return null;
+  return `= ${formatLength(mm, unit, { maxFractionDigits: 6 })}`;
+}
+
+/**
+ * Why a length formula TYPED NOW cannot be taken as written, or null: a
+ * hyphenated mixed number inside it (`2*11-15/32`) reads two ways, and the
+ * field refuses rather than guess (RESEARCH §29). Stored formulas never come
+ * through here, so their meaning is the server's, unchanged.
+ */
+export function typedFormulaError(
+  expression: string,
+  field: FieldKind,
+  unit: LengthUnit,
+): string | null {
+  if (field !== "length") return null;
+  const why = mixedNumberAmbiguity(expression, unit);
+  return why === null ? null : `${why.charAt(0).toUpperCase()}${why.slice(1)}.`;
 }
 
 /** A formula's outcome for one field. */
