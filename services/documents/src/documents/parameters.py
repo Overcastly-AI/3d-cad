@@ -32,6 +32,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter
+from loft_wire.bare_units import parameter_warnings, write_parameter_units
 from loft_wire.expr import (
     MAX_EXPRESSION_LENGTH,
     ExpressionLimitError,
@@ -120,15 +121,35 @@ def stored_parameters(part: db.Part) -> list[PartParameter]:
     return [PartParameter.model_validate(row) for row in part.parameters]
 
 
+def table_response(part: db.Part) -> PartParametersResponse:
+    """The stored table, with its bare-number warnings (FORMULA-BARE-UNIT)."""
+    return PartParametersResponse(
+        tree_version=part.tree_version,
+        parameters=stored_parameters(part),
+        formula_warnings=parameter_warnings(part.parameters, part.length_unit) or None,
+    )
+
+
+def entered_rows(
+    part: db.Part, rows: list[PartParameterInput]
+) -> list[PartParameterInput]:
+    """*rows* with the part's unit written into every expression this PUT
+    enters (a row left as stored keeps its text); 422 past the length cap."""
+    try:
+        return write_parameter_units(rows, part.parameters, part.length_unit)
+    except ParameterTableError as exc:
+        raise ValidationApiError(
+            exc.message, code=exc.code, details={"parameter": exc.parameter}
+        ) from exc
+
+
 @router.get("/{part_id}/parameters")
 async def get_parameters(
     part_id: uuid.UUID, owner_id: Principal, session: SessionDep
 ) -> PartParametersResponse:
     """The part's parameter table, in its stored order."""
     part = await get_owned_part(session, owner_id, part_id)
-    return PartParametersResponse(
-        tree_version=part.tree_version, parameters=stored_parameters(part)
-    )
+    return table_response(part)
 
 
 @router.put("/{part_id}/parameters")
@@ -149,11 +170,10 @@ async def put_parameters(
     """
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
     ensure_fresh(part, request.expected_tree_version)
-    rows = resolved_rows(follow_renames(part.parameters, request.parameters))
+    entered = entered_rows(part, request.parameters)
+    rows = resolved_rows(follow_renames(part.parameters, entered))
     if rows == part.parameters:
-        return PartParametersResponse(
-            tree_version=part.tree_version, parameters=stored_parameters(part)
-        )
+        return table_response(part)
     pre_op = await history.PART_HISTORY.baseline_state(session, part)
     features = (
         await session.execute(
@@ -173,6 +193,4 @@ async def put_parameters(
         parameters=len(rows),
         tree_version=part.tree_version,
     )
-    return PartParametersResponse(
-        tree_version=part.tree_version, parameters=stored_parameters(part)
-    )
+    return table_response(part)

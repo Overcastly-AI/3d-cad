@@ -54,7 +54,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import ClassVar, Final, Literal, Protocol, TypeGuard, runtime_checkable
 
 # ---------------------------------------------------------------------------
@@ -274,6 +274,9 @@ _LEGACY_TOKEN_RE = re.compile(
 class _Token:
     kind: str  # "num" | "ident" | "op"
     value: str
+    #: Character offsets of the token itself (leading whitespace excluded).
+    start: int = 0
+    end: int = 0
 
 
 def _tokenize(text: str, legacy_text: bool = False) -> list[_Token]:
@@ -292,7 +295,14 @@ def _tokenize(text: str, legacy_text: bool = False) -> list[_Token]:
         pos = match.end()
         kind = match.lastgroup
         assert kind is not None  # one alternative always captures
-        tokens.append(_Token(kind=kind, value=match.group(kind)))
+        tokens.append(
+            _Token(
+                kind=kind,
+                value=match.group(kind),
+                start=match.start(kind),
+                end=match.end(kind),
+            )
+        )
     return tokens
 
 
@@ -301,20 +311,31 @@ def _tokenize(text: str, legacy_text: bool = False) -> list[_Token]:
 # ---------------------------------------------------------------------------
 
 
+#: Where a node sits in its text, ``(start, end)`` character offsets; a
+#: parenthesised group spans its contents. Only :func:`bare_lengths` reads it.
+_Span = tuple[int, int]
+_NO_SPAN: Final[_Span] = (0, 0)
+
+
 @dataclass(frozen=True)
 class _Num:
     quantity: Quantity
+    #: Where the NUMBER ends when it has no unit suffix (``pi`` has none).
+    bare_end: int | None = None
+    span: _Span = field(default=_NO_SPAN, compare=False)
 
 
 @dataclass(frozen=True)
 class _Ref:
     name: str
+    span: _Span = field(default=_NO_SPAN, compare=False)
 
 
 @dataclass(frozen=True)
 class _Unary:
     op: str
     operand: _Node
+    span: _Span = field(default=_NO_SPAN, compare=False)
 
 
 @dataclass(frozen=True)
@@ -322,12 +343,14 @@ class _Binary:
     op: str
     left: _Node
     right: _Node
+    span: _Span = field(default=_NO_SPAN, compare=False)
 
 
 @dataclass(frozen=True)
 class _Call:
     name: str
     args: tuple[_Node, ...]
+    span: _Span = field(default=_NO_SPAN, compare=False)
 
 
 _Node = _Num | _Ref | _Unary | _Binary | _Call
@@ -487,6 +510,7 @@ class _Parser:
         self._names = names
         self._pos = 0
         self._depth = 0
+        self._last_end = 0
 
     def _peek(self) -> _Token | None:
         return self._tokens[self._pos] if self._pos < len(self._tokens) else None
@@ -494,6 +518,7 @@ class _Parser:
     def _advance(self) -> _Token:
         token = self._tokens[self._pos]
         self._pos += 1
+        self._last_end = token.end
         return token
 
     def _error(self, message: str) -> ExpressionSyntaxError:
@@ -510,14 +535,16 @@ class _Parser:
         node = self._parse_term()
         while (token := self._peek()) is not None and token.value in ("+", "-"):
             op = self._advance().value
-            node = _Binary(op=op, left=node, right=self._parse_term())
+            right = self._parse_term()
+            node = _Binary(op, node, right, (node.span[0], right.span[1]))
         return node
 
     def _parse_term(self) -> _Node:
         node = self._parse_factor()
         while (token := self._peek()) is not None and token.value in ("*", "/"):
             op = self._advance().value
-            node = _Binary(op=op, left=node, right=self._parse_factor())
+            right = self._parse_factor()
+            node = _Binary(op, node, right, (node.span[0], right.span[1]))
         return node
 
     def _parse_factor(self) -> _Node:
@@ -532,8 +559,9 @@ class _Parser:
                 )
             token = self._peek()
             if token is not None and token.value in ("+", "-"):
-                op = self._advance().value
-                return _Unary(op=op, operand=self._parse_factor())
+                sign = self._advance()
+                operand = self._parse_factor()
+                return _Unary(sign.value, operand, (sign.start, operand.span[1]))
             return self._parse_primary()
         finally:
             self._depth -= 1
@@ -549,18 +577,22 @@ class _Parser:
             if unit is not None and unit.kind == "ident" and unit.value in UNITS:
                 self._advance()
                 factor, kind = UNITS[unit.value]
-                return _Num(Quantity(value * factor, kind))
-            return _Num(Quantity(value, UNITLESS))
+                return _Num(
+                    Quantity(value * factor, kind), span=(token.start, unit.end)
+                )
+            return _Num(Quantity(value, UNITLESS), token.end, (token.start, token.end))
         if token.kind == "ident":
-            return self._parse_word(self._advance().value)
+            word = self._advance()
+            return self._parse_word(word.value, word.start)
         if token.value == "(":
-            self._advance()
+            opening = self._advance()
             node = self._parse_expr()
             self._expect(")")
-            return node
+            return replace(node, span=(opening.start, self._last_end))
         raise self._error(f"unexpected {token.value!r}")
 
-    def _parse_word(self, word: str) -> _Node:
+    def _parse_word(self, word: str, start: int) -> _Node:
+        span = (start, self._last_end)
         following = self._peek()
         calls = following is not None and following.value == "("
         if word in self._names and not calls:
@@ -568,20 +600,20 @@ class _Parser:
             # a stored sketch with a dimension called ``rad`` or ``pi`` keeps
             # meaning what it meant. A unit suffix (after a number) or a call
             # (before ``(``) never sat in that position in valid older text.
-            return _Ref(name=word)
+            return _Ref(word, span)
         if word in FUNCTIONS:
             if not calls:
                 raise self._error(f"{word!r} is a function; write {word}(...)")
-            return self._parse_call(word)
+            return self._parse_call(word, start)
         if calls:
             raise self._error(f"unknown function {word!r}")
         if word in UNITS:
             raise self._error(f"unit {word!r} must follow a number, as in 10 {word}")
         if word in CONSTANTS:
-            return _Num(Quantity(CONSTANTS[word], UNITLESS))
-        return _Ref(name=word)
+            return _Num(Quantity(CONSTANTS[word], UNITLESS), span=span)
+        return _Ref(word, span)
 
-    def _parse_call(self, name: str) -> _Node:
+    def _parse_call(self, name: str, start: int) -> _Node:
         self._advance()  # '('
         args = [self._parse_expr()]
         while (token := self._peek()) is not None and token.value == ",":
@@ -592,7 +624,7 @@ class _Parser:
         if len(args) < low or (high is not None and len(args) > high):
             wanted = f"{low}" if low == high else f"at least {low}"
             raise self._error(f"{name}() takes {wanted} argument(s), got {len(args)}")
-        return _Call(name=name, args=tuple(args))
+        return _Call(name, tuple(args), (start, self._last_end))
 
     def _expect(self, value: str) -> None:
         token = self._peek()
@@ -743,6 +775,197 @@ def rename_references(
             out.append(match.group(0))
         pos = match.end()
     return "".join(out)
+
+
+# ---------------------------------------------------------------------------
+# Bare numbers in a non-mm part (FORMULA-BARE-UNIT)
+# ---------------------------------------------------------------------------
+
+
+def _tree(text: str, names: frozenset[str], legacy_text: bool) -> _Node:
+    tokens = _tokenize(text, legacy_text)
+    if not tokens:
+        raise ExpressionSyntaxError(f"empty expression {text!r}")
+    return _Parser(tokens, text, names).parse()
+
+
+def _static_kind(
+    node: _Node, kind_of: Mapping[str, Kind], into: dict[int, Kind]
+) -> Kind:
+    """The kind *node* evaluates to, from its references' kinds alone, by the
+    rules :func:`_evaluate` applies (it raises the same unit errors). Every
+    node's kind is recorded in *into* by ``id``."""
+    kind: Kind
+    match node:
+        case _Num():
+            kind = node.quantity.kind
+        case _Ref():
+            if node.name not in kind_of:
+                raise ExpressionReferenceError(f"unknown name {node.name!r}")
+            kind = kind_of[node.name]
+        case _Unary():
+            kind = _static_kind(node.operand, kind_of, into)
+        case _Binary():
+            a = _static_kind(node.left, kind_of, into)
+            b = _static_kind(node.right, kind_of, into)
+            if node.op in ("+", "-"):
+                kind = _additive_kind(a, b, "add")
+            elif node.op == "*":
+                kind = _multiply_kind(a, b)
+            else:
+                kind = _divide_kind(a, b)
+        case _Call():
+            args: list[Kind] = [_static_kind(a, kind_of, into) for a in node.args]
+            kind = _call_kind(node.name, args)
+    into[id(node)] = kind
+    return kind
+
+
+def _call_kind(name: str, args: list[Kind]) -> Kind:
+    first = args[0]
+    if name in ("sin", "cos", "tan", "rad"):
+        if first == LENGTH:
+            raise ExpressionUnitError(f"{name}() takes an angle, not a length")
+        return UNITLESS
+    if name in ("asin", "acos", "atan", "sqrt", "deg"):
+        if first != UNITLESS:
+            raise ExpressionUnitError(f"{name}() takes a plain number, not {_a(first)}")
+        return UNITLESS if name == "sqrt" else ANGLE
+    if name in _COMPARING:
+        kind = first
+        for arg in args[1:]:
+            kind = _additive_kind(kind, arg, "compare")
+        return ANGLE if name == "atan2" else kind
+    return first  # abs round floor ceil keep their argument's kind
+
+
+#: Functions whose arguments are compared with one another, as terms are added.
+_COMPARING: Final = frozenset({"min", "max", "atan2"})
+#: Functions that hand their argument's kind straight through.
+_PASSING: Final = frozenset({"abs", "round", "floor", "ceil"})
+
+
+def _bare_terms(
+    node: _Node, kinds: Mapping[int, Kind], wants_length: bool, out: list[_Node]
+) -> None:
+    """Collect every WHOLE unitless sub-expression that stands where a length
+    is wanted: a term added to, subtracted from or compared with a length, or
+    the whole value of a length field. Factors, divisors and other function
+    arguments stay plain, but a sum of lengths inside one is looked into."""
+    kind = kinds[id(node)]
+    if wants_length and kind == UNITLESS:
+        out.append(node)
+    match node:
+        case _Num() | _Ref():
+            pass
+        case _Unary():
+            _bare_terms(node.operand, kinds, wants_length and kind != UNITLESS, out)
+        case _Binary():
+            additive = node.op in ("+", "-") and kind == LENGTH
+            _bare_terms(node.left, kinds, additive, out)
+            _bare_terms(node.right, kinds, additive, out)
+        case _Call():
+            if node.name in _COMPARING:
+                compared = any(kinds[id(arg)] == LENGTH for arg in node.args)
+            else:
+                compared = node.name in _PASSING and wants_length and kind != UNITLESS
+            for arg in node.args:
+                _bare_terms(arg, kinds, compared, out)
+
+
+def _unit_insertions(
+    node: _Node, kinds: Mapping[int, Kind], unit: str, out: list[tuple[int, str]]
+) -> None:
+    """Where to write *unit* so the unitless *node* reads as a length in it:
+    after the leading bare number of each of its terms (``1/2`` becomes
+    ``1 in/2``), else as ``*1 in`` after the term (``n*1 in``,
+    ``W/wall*1 in``), which binds to the whole term by precedence."""
+    match node:
+        case _Num() if node.bare_end is not None:
+            out.append((node.bare_end, f" {unit}"))
+        case _Unary():
+            _unit_insertions(node.operand, kinds, unit, out)
+        case _Binary() if node.op in ("+", "-"):
+            _unit_insertions(node.left, kinds, unit, out)
+            _unit_insertions(node.right, kinds, unit, out)
+        case _Binary() if kinds[id(node.left)] == UNITLESS:
+            _unit_insertions(node.left, kinds, unit, out)
+        case _:
+            out.append((node.span[1], f"*1 {unit}"))
+
+
+@dataclass(frozen=True)
+class BareLengths:
+    """The bare numbers of a formula that are read as mm, and the formula
+    with the part's unit written in (:func:`bare_lengths`)."""
+
+    #: Each whole unitless term as written (``1/2`` in ``wall + 1/2``).
+    literals: tuple[str, ...]
+    #: The formula with the unit written in: ``wall + 1 in/2``.
+    text: str
+
+
+def _fits(kind: Kind, field_kind: Kind) -> bool:
+    return kind in (field_kind, UNITLESS)
+
+
+def bare_lengths(
+    text: str,
+    unit: str,
+    field_kind: Kind,
+    kind_of: Mapping[str, Kind],
+    *,
+    names: frozenset[str] = frozenset(),
+    legacy_text: bool = False,
+) -> BareLengths | None:
+    """The terms of *text* a part in *unit* would read as mm, and the text
+    that reads them in *unit* (Fusion's rule for a bare number), or None.
+
+    A term is a whole unitless sub-expression added to, subtracted from or
+    compared with a length (``wall + 1/2``, ``max(wall, 3)``), or the whole
+    value of a *field_kind* ``length`` field (``1/2``). Factors, divisors,
+    counts, angles and trig arguments stay plain. *kind_of* types every name
+    the text reads (a sketch dimension is a length in mm, or an angle).
+
+    None when *unit* is mm, nothing is bare, or the text does not parse or
+    type (its own resolution reports that), and when writing the unit in
+    would not type. The grammar is unchanged: the returned text means, under
+    it, what a Fusion user meant by the original. Raises
+    :class:`ExpressionLimitError` when the unit takes the text past
+    :data:`MAX_EXPRESSION_LENGTH`.
+    """
+    if unit == "mm" or UNITS.get(unit, (0.0, ANGLE))[1] != LENGTH:
+        return None
+    try:
+        root = _tree(text, names, legacy_text)
+        kinds: dict[int, Kind] = {}
+        if not _fits(_static_kind(root, kind_of, kinds), field_kind):
+            return None
+    except ExpressionError:
+        return None
+    terms: list[_Node] = []
+    _bare_terms(root, kinds, field_kind == LENGTH, terms)
+    if not terms:
+        return None
+    inserts: list[tuple[int, str]] = []
+    for term in terms:
+        _unit_insertions(term, kinds, unit, inserts)
+    fixed = text
+    for offset, piece in sorted(inserts, reverse=True):
+        fixed = fixed[:offset] + piece + fixed[offset:]
+    try:
+        checked = _tree(fixed, names, True)
+        if not _fits(_static_kind(checked, kind_of, {}), field_kind):
+            return None
+    except ExpressionError:
+        return None
+    if len(fixed) > MAX_EXPRESSION_LENGTH:
+        raise ExpressionLimitError(
+            f"writing the unit {unit!r} into {text!r} makes it {len(fixed)} "
+            f"characters; the limit is {MAX_EXPRESSION_LENGTH}"
+        )
+    literals = tuple(text[term.span[0] : term.span[1]] for term in terms)
+    return BareLengths(literals=literals, text=fixed)
 
 
 # ---------------------------------------------------------------------------

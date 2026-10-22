@@ -3,7 +3,10 @@
 RESEARCH §20. The evaluation itself is :mod:`loft_wire.feature_resolve`; this
 module is where documents applies it:
 
-* **on every feature write** (:func:`resolve_for_write`): every formula is
+* **on every feature write** (:func:`enter_units`, then
+  :func:`resolve_for_write`): the part's unit is written into every formula
+  the write enters (FORMULA-BARE-UNIT, :mod:`loft_wire.bare_units`); every
+  formula is
   evaluated against the part's table and the numbers are stored in
   ``params``. A syntax error, an unknown name, a cycle, a unit clash or a value
   its field refuses is a 422 with the expression error's code; so is a sketch
@@ -22,6 +25,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
+from loft_wire.bare_units import feature_warnings, write_units
 from loft_wire.expr import Quantity
 from loft_wire.feature_input import PARAMETER_UNRESOLVED
 from loft_wire.feature_resolve import (
@@ -41,6 +45,7 @@ from loft_wire.features import (
     EvaluatedFeatureInput,
     FeatureError,
 )
+from loft_wire.formula_warning import FormulaWarning
 from py_kit import ConflictError, ValidationApiError
 from pydantic import ValidationError
 
@@ -66,6 +71,36 @@ def resolve_for_write[E: AuthoredEnvelope](part: db.Part, envelope: E) -> E:
         return resolve_feature(envelope, parameter_values(part.parameters))
     except FeatureExpressionError as exc:
         raise _api_error(exc) from exc
+
+
+def enter_units[E: AuthoredEnvelope](
+    part: db.Part, envelope: E, stored: db.Feature | None = None
+) -> E:
+    """*envelope* with the part's unit written into every formula this write
+    enters (``wall + 1/2`` is stored as ``wall + 1 in/2`` in an inch part); a
+    formula as *stored* has it keeps its text. 422 past the length cap."""
+    before: AuthoredEnvelope | None = None
+    if stored is not None:
+        try:
+            before = load_feature(stored)[0]
+        except ValidationError:
+            before = None
+    try:
+        return write_units(
+            envelope, part.length_unit, parameter_values(part.parameters), before
+        )
+    except FeatureExpressionError as exc:
+        raise _api_error(exc) from exc
+
+
+def formula_warnings(
+    part: db.Part, envelope: AuthoredEnvelope
+) -> list[FormulaWarning] | None:
+    """The stored feature's ``expression_bare_mm`` warnings, or None."""
+    found = feature_warnings(
+        envelope, part.length_unit, parameter_values(part.parameters)
+    )
+    return found or None
 
 
 def load_feature(row: db.Feature) -> tuple[AuthoredEnvelope, FeatureError | None]:
