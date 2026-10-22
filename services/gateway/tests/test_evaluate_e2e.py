@@ -15,19 +15,14 @@ epsilon.
 """
 
 import asyncio
-import socket
-import threading
-import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, NamedTuple
 
 import httpx2 as httpx
 import pytest
-import uvicorn
 from documents.main import DocumentsSettings
 from documents.main import build_app as build_documents_app
-from fastapi import FastAPI
 from gateway.db import Base as GatewayBase
 from gateway.main import GatewaySettings
 from gateway.main import build_app as build_gateway_app
@@ -35,15 +30,13 @@ from geometry.main import build_app as build_geometry_app
 from loft_wire.features import EvaluateTreeResult
 from loft_wire.sketch import SketchLine
 from py_kit.db import async_dsn
+from py_kit.loopback import LoopbackServer
 from sqlalchemy.ext.asyncio import create_async_engine
 
 TEST_JWT_SECRET = "e2e-test-jwt-secret-0123456789abcdef"
 
 #: Documented solver benchmark tolerance (mm) — see module docstring.
 RECTANGLE_TOLERANCE_MM = 1e-9
-
-#: Server boot budget; loopback uvicorn starts in well under a second.
-BOOT_TIMEOUT_S = 30.0
 
 
 def _sketch_params() -> dict[str, Any]:
@@ -100,35 +93,6 @@ EXPECTED_CORNERS: dict[str, tuple[tuple[float, float], tuple[float, float]]] = {
 }
 
 
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        port: int = probe.getsockname()[1]
-    return port
-
-
-class _Server:
-    """One uvicorn server on a loopback port, run in a daemon thread."""
-
-    def __init__(self, app: FastAPI, port: int) -> None:
-        self.server = uvicorn.Server(
-            uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-        )
-        self.thread = threading.Thread(target=self.server.run, daemon=True)
-
-    def start(self) -> None:
-        self.thread.start()
-        deadline = time.monotonic() + BOOT_TIMEOUT_S
-        while not self.server.started:
-            if time.monotonic() > deadline or not self.thread.is_alive():
-                raise RuntimeError("uvicorn server failed to boot")
-            time.sleep(0.01)
-
-    def stop(self) -> None:
-        self.server.should_exit = True
-        self.thread.join(timeout=BOOT_TIMEOUT_S)
-
-
 async def _create_gateway_schema(url: str) -> None:
     engine = create_async_engine(async_dsn(url))
     async with engine.begin() as connection:
@@ -163,37 +127,28 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Stack]:
     asyncio.run(_create_documents_schema(documents_db))
     asyncio.run(_create_gateway_schema(gateway_db))
 
-    documents_port, geometry_port, gateway_port = (
-        _free_port(),
-        _free_port(),
-        _free_port(),
+    # Each server holds its port from construction on (see py_kit.loopback):
+    # no probe-then-rebind window for another process to take it.
+    documents = LoopbackServer(
+        build_documents_app(DocumentsSettings(postgres_url=documents_db))
     )
-    servers = [
-        _Server(
-            build_documents_app(DocumentsSettings(postgres_url=documents_db)),
-            documents_port,
-        ),
-        _Server(build_geometry_app(), geometry_port),
-        _Server(
-            build_gateway_app(
-                GatewaySettings(
-                    geometry_url=f"http://127.0.0.1:{geometry_port}",
-                    documents_url=f"http://127.0.0.1:{documents_port}",
-                    postgres_url=gateway_db,
-                    loft_env="dev",
-                    jwt_secret=TEST_JWT_SECRET,
-                )
-            ),
-            gateway_port,
-        ),
-    ]
+    geometry = LoopbackServer(build_geometry_app())
+    gateway = LoopbackServer(
+        build_gateway_app(
+            GatewaySettings(
+                geometry_url=geometry.url,
+                documents_url=documents.url,
+                postgres_url=gateway_db,
+                loft_env="dev",
+                jwt_secret=TEST_JWT_SECRET,
+            )
+        )
+    )
+    servers = [documents, geometry, gateway]
     try:
         for server in servers:
             server.start()
-        yield Stack(
-            gateway_url=f"http://127.0.0.1:{gateway_port}",
-            geometry_url=f"http://127.0.0.1:{geometry_port}",
-        )
+        yield Stack(gateway_url=gateway.url, geometry_url=geometry.url)
     finally:
         for server in reversed(servers):
             server.stop()

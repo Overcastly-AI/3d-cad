@@ -5,22 +5,17 @@ transports anywhere. That is the point: this package's whole claim is that a
 script travels the SAME path as the browser, and a test that stubbed the
 gateway would be asserting the claim rather than exercising it.
 
-DUPLICATION, ACKNOWLEDGED: ``services/gateway/tests/test_evaluate_e2e.py``
-boots the same stack the same way. It is not shared because a test module in
-another distribution is not importable from here (pytest's ``importlib``
-import-mode gives each suite its own namespace, and ``services/gateway/tests``
-is not a package). The honest fix is to lift the boot into a root ``conftest.py``
-fixture both suites use; that touches a live test file in another territory and
-is filed rather than done here.
+``services/gateway/tests/test_evaluate_e2e.py`` boots the same stack. The
+per-server mechanics (port held from bind to serve, loud boot failure) live in
+``py_kit.loopback`` so the two cannot drift; the three-service wiring is still
+written out in each, because a test module in another distribution is not
+importable from here (pytest's ``importlib`` import-mode).
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
-import socket
-import threading
-import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import NamedTuple
@@ -38,48 +33,17 @@ os.environ.setdefault("LOFT_ENV", "dev")
 os.environ.setdefault("BLEND_SERVER_PREWARM", "false")
 
 import pytest
-import uvicorn
 from documents.main import DocumentsSettings
 from documents.main import build_app as build_documents_app
-from fastapi import FastAPI
 from gateway.db import Base as GatewayBase
 from gateway.main import GatewaySettings
 from gateway.main import build_app as build_gateway_app
 from geometry.main import build_app as build_geometry_app
 from py_kit.db import async_dsn
+from py_kit.loopback import LoopbackServer
 from sqlalchemy.ext.asyncio import create_async_engine
 
 TEST_JWT_SECRET = "loft-script-test-jwt-secret-0123456789"
-BOOT_TIMEOUT_S = 30.0
-
-
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        port: int = probe.getsockname()[1]
-    return port
-
-
-class _Server:
-    """One uvicorn server on a loopback port, run in a daemon thread."""
-
-    def __init__(self, app: FastAPI, port: int) -> None:
-        self.server = uvicorn.Server(
-            uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-        )
-        self.thread = threading.Thread(target=self.server.run, daemon=True)
-
-    def start(self) -> None:
-        self.thread.start()
-        deadline = time.monotonic() + BOOT_TIMEOUT_S
-        while not self.server.started:
-            if time.monotonic() > deadline or not self.thread.is_alive():
-                raise RuntimeError("uvicorn server failed to boot")
-            time.sleep(0.01)
-
-    def stop(self) -> None:
-        self.server.should_exit = True
-        self.thread.join(timeout=BOOT_TIMEOUT_S)
 
 
 async def _create_schema(url: str, base: type) -> None:
@@ -106,34 +70,28 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Stack]:
     asyncio.run(_create_schema(documents_db, DocumentsBase))
     asyncio.run(_create_schema(gateway_db, GatewayBase))
 
-    documents_port, geometry_port, gateway_port = (
-        _free_port(),
-        _free_port(),
-        _free_port(),
+    # Each server holds its port from construction on (see py_kit.loopback):
+    # no probe-then-rebind window for another process to take it.
+    documents = LoopbackServer(
+        build_documents_app(DocumentsSettings(postgres_url=documents_db))
     )
-    servers = [
-        _Server(
-            build_documents_app(DocumentsSettings(postgres_url=documents_db)),
-            documents_port,
-        ),
-        _Server(build_geometry_app(), geometry_port),
-        _Server(
-            build_gateway_app(
-                GatewaySettings(
-                    geometry_url=f"http://127.0.0.1:{geometry_port}",
-                    documents_url=f"http://127.0.0.1:{documents_port}",
-                    postgres_url=gateway_db,
-                    loft_env="dev",
-                    jwt_secret=TEST_JWT_SECRET,
-                )
-            ),
-            gateway_port,
-        ),
-    ]
+    geometry = LoopbackServer(build_geometry_app())
+    gateway = LoopbackServer(
+        build_gateway_app(
+            GatewaySettings(
+                geometry_url=geometry.url,
+                documents_url=documents.url,
+                postgres_url=gateway_db,
+                loft_env="dev",
+                jwt_secret=TEST_JWT_SECRET,
+            )
+        )
+    )
+    servers = [documents, geometry, gateway]
     try:
         for server in servers:
             server.start()
-        yield Stack(gateway_url=f"http://127.0.0.1:{gateway_port}")
+        yield Stack(gateway_url=gateway.url)
     finally:
         for server in reversed(servers):
             server.stop()
