@@ -26,7 +26,6 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 import { useGlobalKeys } from "../lib/modalGate";
 import { useReducedMotion } from "../lib/useReducedMotion";
-import { resolveSpecBasis } from "../sketch/plane";
 import { zeroStartsAValue } from "../sketch/pointEntry";
 import { useSketchStore } from "../sketch/store";
 import { navigationControls, usePreferences } from "../settings/preferences";
@@ -63,7 +62,7 @@ import {
 } from "./projection";
 import { groundShadowTexture } from "./groundShadow";
 import { ModelMesh, type BodyHighlight } from "./ModelMesh";
-import { sketchWorldBox } from "./sketchFit";
+import { type FramedSketch, useSketchFraming } from "./useSketchFraming";
 import { OriginGeometry } from "./OriginGeometry";
 import { MateColumnStrip } from "./MateColumnStrip";
 import { ViewCube } from "./ViewCube";
@@ -1204,6 +1203,8 @@ export interface ViewportProps {
    * parsed geometry when this is undefined.
    */
   worldBounds?: Box3 | null;
+  /** The part's saved sketches: the drawn ones join what Fit frames. */
+  sketchLayers?: readonly FramedSketch[];
   /**
    * Refit trigger: the camera re-frames `worldBounds` when this changes (the
    * assembly passes its LOADED-instance set, so the fit waits for meshes —
@@ -1263,6 +1264,7 @@ export function Viewport({
   viewNav = true,
   sketchNav = false,
   worldBounds,
+  sketchLayers,
   fitKey,
   bodyInteractive = false,
   bodySelected = false,
@@ -1302,23 +1304,6 @@ export function Viewport({
   );
   useSketchFitHotkey(sketchFitShown ? requestSketchFit : null);
 
-  /**
-   * What a Fit frames while drawing: the open sketch's drawn entities, in the
-   * scene frame, or null when nothing is drawn (the rig then falls back to the
-   * model). Read from the store at the instant of the Fit, never subscribed —
-   * a sketch that changes on every pointer move must not re-render the scene.
-   */
-  const sketchFitBox = useRef(new Box3());
-  const readSketchSubject = useCallback((): Box3 | null => {
-    const { mode, plane, entities } = useSketchStore.getState();
-    if (mode !== "draw" || plane === null) return null;
-    return sketchWorldBox(
-      entities,
-      resolveSpecBasis(plane),
-      sketchFitBox.current,
-    );
-  }, []);
-
   // The subject the camera frames. A part viewport prefers the bounds of what
   // is DRAWN over the whole mesh's, so hiding a body genuinely takes it out of
   // the fit (UI-W2) instead of leaving the camera parked around a solid nobody
@@ -1328,6 +1313,12 @@ export function Viewport({
     if (worldBounds !== undefined) return worldBounds;
     return visibleBounds ?? geometry?.boundingBox ?? null;
   }, [worldBounds, visibleBounds, geometry]);
+  // Fit frames drawn sketches too, and what Fit frames while drawing.
+  const { fitBounds, framesSketches, readSketchSubject } = useSketchFraming(
+    bounds,
+    worldBounds,
+    sketchLayers,
+  );
   const partBodies = usePartViewStore((state) => state.bodies);
   const partView = usePartViewStore((state) => state.view);
   const partSubject = usePartViewStore((state) => state.subjectId);
@@ -1342,7 +1333,11 @@ export function Viewport({
   const hiddenFitKey = `${partHidden}:${partBodies.length}`;
   const resolvedFitKey =
     fitKey ??
-    (geometry === null ? "empty" : `geometry-${geometry.id}-${hiddenFitKey}`);
+    (geometry !== null
+      ? `geometry-${geometry.id}-${hiddenFitKey}`
+      : framesSketches
+        ? "sketches"
+        : "empty");
 
   // Ground the stock: a soft contact pool sized to the subject's footprint.
   // Sits a hair ABOVE the grid plane so it shades the bench, never z-fights.
@@ -1745,7 +1740,7 @@ export function Viewport({
           {children}
         </group>
         <CameraRig
-          bounds={bounds}
+          bounds={fitBounds}
           proposal={readProposal}
           fitKey={resolvedFitKey}
           reducedMotion={reducedMotion}

@@ -1052,6 +1052,7 @@ export function PartPage() {
           <ChromeRailProvider>
             <Viewport
               glb={body.data}
+              sketchLayers={solved}
               onContextMenu={openViewportMenu}
               rotateEnabled={mode !== "draw"}
               groundGrid={mode !== "draw"}

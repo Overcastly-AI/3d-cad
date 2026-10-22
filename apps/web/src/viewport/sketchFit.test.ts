@@ -4,7 +4,26 @@ import { describe, expect, it } from "vitest";
 import { DATUM_X_AXIS_ID } from "../sketch/datum";
 import { sceneOriginBasis } from "../sketch/plane";
 import type { SketchEntity } from "../sketch/tools";
-import { MIN_SKETCH_FIT_MM, sketchWorldBox } from "./sketchFit";
+import {
+  MIN_SKETCH_FIT_MM,
+  sketchLayersBox,
+  sketchWorldBox,
+} from "./sketchFit";
+
+describe("sketchLayersBox", () => {
+  it("frames every saved sketch together, and nothing when none draws", () => {
+    expect(sketchLayersBox([])).toBeNull();
+    expect(sketchLayersBox([{ entities: [], basis: XY }])).toBeNull();
+    // A 24 x 16 ft outline and a second sketch beside it.
+    const box = sketchLayersBox([
+      { entities: [line("e1", [0, 0], [7315.2, 4876.8])], basis: XY },
+      { entities: [line("e1", [8000, 0], [9000, 100])], basis: XY },
+    ]);
+    expect(box?.min.x).toBe(0);
+    expect(box?.min.z).toBeCloseTo(-4876.8, 2);
+    expect(box?.max.toArray()).toEqual([9000, 0, 0]);
+  });
+});
 
 const XY = sceneOriginBasis("XY");
 
