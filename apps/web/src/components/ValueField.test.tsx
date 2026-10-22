@@ -428,3 +428,52 @@ describe("ValueField in the sketcher (no pointer)", () => {
     expect(input.value).toBe("7");
   });
 });
+
+describe("ValueField in an inch part (FORMULA-BARE-UNIT)", () => {
+  const session: FormulaSession = {
+    key: "extrude:bare",
+    seed: { "/distance_mm": "wall + 1/2" },
+    inputError: null,
+  };
+  beforeEach(() => {
+    useParameterScopeStore
+      .getState()
+      .setParameters([{ name: "wall", value: 5.5 * 25.4, unit: "length" }]);
+  });
+
+  it("reads a typed bare term in inches, as the save will store it", () => {
+    const f = mount({ unit: "in", initial: "1" });
+    f.type("wall + 1/2");
+    expect(screen.getByTestId("field-hint").textContent).toBe("= 6 in");
+    expect(Number(f.form())).toBeCloseTo(6, 9);
+    expect(screen.queryByTestId("field-bare-unit")).toBeNull();
+  });
+
+  it("reads a stored formula as stored, flags it, and fixes it on a click", () => {
+    const f = mount({ unit: "in", initial: "5.52", session });
+    expect(f.input.value).toBe("wall + 1/2");
+    expect(Number(f.form())).toBeCloseTo(5.5 + 0.5 / 25.4, 6);
+    const notice = screen.getByTestId("field-bare-unit");
+    expect(notice.textContent).toContain("1/2 in this formula is read as mm");
+    expect(notice.textContent).toContain(
+      "Read as in (wall + 1 in/2), it gives 6 in",
+    );
+    fireEvent.click(screen.getByTestId("field-bare-unit-fix"));
+    expect(f.input.value).toBe("wall + 1 in/2");
+    expect(screen.getByTestId("field-hint").textContent).toBe("= 6 in");
+    expect(screen.queryByTestId("field-bare-unit")).toBeNull();
+    expect(
+      sessionFormulas(
+        useFormulaSessionStore.getState(),
+        session.key,
+        session.seed,
+      ),
+    ).toEqual({ "/distance_mm": "wall + 1 in/2" });
+  });
+
+  it("flags nothing in an mm part", () => {
+    mount({ unit: "mm", initial: "140.2", session });
+    expect(screen.queryByTestId("field-bare-unit")).toBeNull();
+    expect(screen.getByTestId("field-hint").textContent).toBe("= 140.2 mm");
+  });
+});

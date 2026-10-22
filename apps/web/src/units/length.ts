@@ -21,8 +21,11 @@ import {
 } from "@loft/design";
 
 import {
+  type BareLengths,
+  bareLengths,
   coerceToField,
   evaluateExpression,
+  type ExprKind,
   ExprError,
   type FieldKind,
   mixedNumberAmbiguity,
@@ -174,6 +177,30 @@ export function typedFormulaError(
   if (field !== "length") return null;
   const why = mixedNumberAmbiguity(expression, unit);
   return why === null ? null : `${why.charAt(0).toUpperCase()}${why.slice(1)}.`;
+}
+
+/**
+ * The bare terms a part in `unit` reads as mm in `expression`, and the text
+ * that reads them in `unit` (FORMULA-BARE-UNIT, `bare_lengths` on the
+ * server). Null in an mm part, while the names are unread, or when nothing
+ * is bare. A formula a save ENTERS is stored as that text; one already stored
+ * keeps its own and is flagged with it as the fix.
+ */
+export function bareFieldFormula(
+  expression: string,
+  field: FieldKind,
+  names: ReadonlyMap<string, Quantity> | null,
+  unit: LengthUnit,
+): BareLengths | null {
+  if (names === null) return null;
+  const kinds = new Map<string, ExprKind>();
+  for (const [name, q] of names) kinds.set(name, q.kind);
+  return bareLengths(
+    expression,
+    unit,
+    field === "int" ? "unitless" : field,
+    kinds,
+  );
 }
 
 /** A formula's outcome for one field. */

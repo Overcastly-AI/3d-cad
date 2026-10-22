@@ -91,8 +91,8 @@ export const RESERVED_WORDS: ReadonlySet<string> = new Set([
 /** The function names, for the field's completion list. */
 export const FUNCTION_NAMES: readonly string[] = Object.keys(FUNCTIONS);
 
-type Token =
-  { t: "num"; v: string } | { t: "id"; v: string } | { t: "op"; v: string };
+/** A token and where it sits in the text (`s`..`e`, whitespace excluded). */
+type Token = { t: "num" | "id" | "op"; v: string; s: number; e: number };
 
 const TOKEN_RE =
   /[ \t\r\n]*(?:([0-9]+\.[0-9]*|\.[0-9]+|[0-9]+)|([A-Za-z_][A-Za-z0-9_]*)|([-+*/(),]))/y;
@@ -112,19 +112,25 @@ function tokenize(text: string): Token[] {
       );
     }
     at = TOKEN_RE.lastIndex;
-    if (match[1] !== undefined) tokens.push({ t: "num", v: match[1] });
-    else if (match[2] !== undefined) tokens.push({ t: "id", v: match[2] });
-    else tokens.push({ t: "op", v: match[3] as string });
+    const v = match[1] ?? match[2] ?? (match[3] as string);
+    const t =
+      match[1] !== undefined ? "num" : match[2] !== undefined ? "id" : "op";
+    tokens.push({ t, v, s: at - v.length, e: at });
   }
   return tokens;
 }
 
-type Node =
-  | { n: "num"; q: Quantity }
+/**
+ * A parsed node and where it sits (`s`..`e`; a parenthesised group spans its
+ * parentheses). `bareEnd` is where a NUMBER with no unit suffix ends.
+ */
+type Node = { s: number; e: number } & (
+  | { n: "num"; q: Quantity; bareEnd?: number }
   | { n: "ref"; name: string }
   | { n: "neg"; operand: Node }
   | { n: "bin"; op: string; left: Node; right: Node }
-  | { n: "call"; name: string; args: Node[] };
+  | { n: "call"; name: string; args: Node[] }
+);
 
 function parse(text: string, names: ReadonlySet<string>): Node {
   if (text.length > MAX_EXPRESSION_LENGTH) {
@@ -138,6 +144,7 @@ function parse(text: string, names: ReadonlySet<string>): Node {
   let at = 0;
   let depth = 0;
   const peek = (): Token | undefined => tokens[at];
+  const lastEnd = (): number => tokens[at - 1]?.e ?? 0;
   const isOp = (v: string): boolean => {
     const token = peek();
     return token?.t === "op" && token.v === v;
@@ -152,7 +159,8 @@ function parse(text: string, names: ReadonlySet<string>): Node {
     while (isOp("+") || isOp("-")) {
       const op = (tokens[at] as Token).v;
       at += 1;
-      node = { n: "bin", op, left: node, right: term() };
+      const right = term();
+      node = { n: "bin", op, left: node, right, s: node.s, e: right.e };
     }
     return node;
   }
@@ -162,7 +170,8 @@ function parse(text: string, names: ReadonlySet<string>): Node {
     while (isOp("*") || isOp("/")) {
       const op = (tokens[at] as Token).v;
       at += 1;
-      node = { n: "bin", op, left: node, right: factor() };
+      const right = factor();
+      node = { n: "bin", op, left: node, right, s: node.s, e: right.e };
     }
     return node;
   }
@@ -177,10 +186,12 @@ function parse(text: string, names: ReadonlySet<string>): Node {
         );
       }
       if (isOp("+") || isOp("-")) {
-        const op = (tokens[at] as Token).v;
+        const sign = tokens[at] as Token;
         at += 1;
         const operand = factor();
-        return op === "-" ? { n: "neg", operand } : operand;
+        return sign.v === "-"
+          ? { n: "neg", operand, s: sign.s, e: operand.e }
+          : operand;
       }
       return primary();
     } finally {
@@ -200,26 +211,29 @@ function parse(text: string, names: ReadonlySet<string>): Node {
       if (unit?.t === "id" && UNITS[unit.v] !== undefined) {
         at += 1;
         const [factorTo, kind] = UNITS[unit.v] as readonly [number, ExprKind];
-        return { n: "num", q: { value: value * factorTo, kind } };
+        const q = { value: value * factorTo, kind };
+        return { n: "num", q, s: token.s, e: unit.e };
       }
-      return { n: "num", q: { value, kind: "unitless" } };
+      const q: Quantity = { value, kind: "unitless" };
+      return { n: "num", q, bareEnd: token.e, s: token.s, e: token.e };
     }
     if (token.t === "id") {
       at += 1;
-      return word(token.v);
+      return word(token.v, token.s);
     }
     if (token.v === "(") {
       at += 1;
       const node = expr();
       expect(")");
-      return node;
+      return { ...node, s: token.s, e: lastEnd() };
     }
     throw new ExprError("expression_syntax", `unexpected '${token.v}'`);
   }
 
-  function word(name: string): Node {
+  function word(name: string, s: number): Node {
+    const e = lastEnd();
     const calls = isOp("(");
-    if (names.has(name) && !calls) return { n: "ref", name };
+    if (names.has(name) && !calls) return { n: "ref", name, s, e };
     if (FUNCTIONS[name] !== undefined) {
       if (!calls) {
         throw new ExprError(
@@ -227,7 +241,7 @@ function parse(text: string, names: ReadonlySet<string>): Node {
           `'${name}' is a function; write ${name}(...)`,
         );
       }
-      return call(name);
+      return call(name, s);
     }
     if (calls) {
       throw new ExprError("expression_syntax", `unknown function '${name}'`);
@@ -238,12 +252,13 @@ function parse(text: string, names: ReadonlySet<string>): Node {
         `unit '${name}' must follow a number, as in 10 ${name}`,
       );
     }
-    if (name === "pi")
-      return { n: "num", q: { value: Math.PI, kind: "unitless" } };
-    return { n: "ref", name };
+    if (name === "pi") {
+      return { n: "num", q: { value: Math.PI, kind: "unitless" }, s, e };
+    }
+    return { n: "ref", name, s, e };
   }
 
-  function call(name: string): Node {
+  function call(name: string, s: number): Node {
     at += 1; // '('
     const args = [expr()];
     while (isOp(",")) {
@@ -259,7 +274,7 @@ function parse(text: string, names: ReadonlySet<string>): Node {
         `${name}() takes ${wanted} argument(s), got ${args.length}`,
       );
     }
-    return { n: "call", name, args };
+    return { n: "call", name, args, s, e: lastEnd() };
   }
 
   const root = expr();
@@ -566,4 +581,179 @@ export function coerceToField(q: Quantity, kind: FieldKind): number {
     throw new ExprError("expression_domain", "this field needs a whole number");
   }
   return nearest;
+}
+
+// --- bare numbers in a non-mm part (FORMULA-BARE-UNIT) --------------------------
+
+const COMPARING = new Set(["min", "max", "atan2"]);
+const PASSING = new Set(["abs", "round", "floor", "ceil"]);
+const TRIG_IN = new Set(["sin", "cos", "tan", "rad"]);
+const PLAIN_IN = new Set(["asin", "acos", "atan", "sqrt", "deg"]);
+
+function staticCallKind(name: string, args: ExprKind[]): ExprKind {
+  const first = args[0] as ExprKind;
+  const refuse = () => new ExprError("expression_units", `${name}()`);
+  if (TRIG_IN.has(name)) {
+    if (first === "length") throw refuse();
+    return "unitless";
+  }
+  if (PLAIN_IN.has(name)) {
+    if (first !== "unitless") throw refuse();
+    return name === "sqrt" ? "unitless" : "angle";
+  }
+  if (COMPARING.has(name)) {
+    const kind = args
+      .slice(1)
+      .reduce((k, arg) => additive(k, arg, "compare"), first);
+    return name === "atan2" ? "angle" : kind;
+  }
+  return first;
+}
+
+/** The kind `node` evaluates to from its names' kinds alone (`expr.py`). */
+function staticKind(
+  node: Node,
+  kinds: ReadonlyMap<string, ExprKind>,
+  into: Map<Node, ExprKind>,
+): ExprKind {
+  let kind: ExprKind;
+  switch (node.n) {
+    case "num":
+      kind = node.q.kind;
+      break;
+    case "ref": {
+      const found = kinds.get(node.name);
+      if (found === undefined) {
+        throw new ExprError("expression_unknown_name", node.name, node.name);
+      }
+      kind = found;
+      break;
+    }
+    case "neg":
+      kind = staticKind(node.operand, kinds, into);
+      break;
+    case "bin": {
+      const x = staticKind(node.left, kinds, into);
+      const y = staticKind(node.right, kinds, into);
+      if (node.op === "+" || node.op === "-") kind = additive(x, y, "add");
+      else if (node.op === "*") {
+        if (x !== "unitless" && y !== "unitless") {
+          throw new ExprError("expression_units", "two factors carry a unit");
+        }
+        kind = x === "unitless" ? y : x;
+      } else if (y === "unitless") kind = x;
+      else if (x === y) kind = "unitless";
+      else throw new ExprError("expression_units", "cannot divide");
+      break;
+    }
+    case "call":
+      kind = staticCallKind(
+        node.name,
+        node.args.map((arg) => staticKind(arg, kinds, into)),
+      );
+      break;
+  }
+  into.set(node, kind);
+  return kind;
+}
+
+function bareTerms(
+  node: Node,
+  kinds: ReadonlyMap<Node, ExprKind>,
+  wantsLength: boolean,
+  out: Node[],
+): void {
+  const kind = kinds.get(node);
+  if (wantsLength && kind === "unitless") out.push(node);
+  if (node.n === "neg") {
+    bareTerms(node.operand, kinds, wantsLength && kind !== "unitless", out);
+  } else if (node.n === "bin") {
+    const sum = (node.op === "+" || node.op === "-") && kind === "length";
+    bareTerms(node.left, kinds, sum, out);
+    bareTerms(node.right, kinds, sum, out);
+  } else if (node.n === "call") {
+    const compared = COMPARING.has(node.name)
+      ? node.args.some((arg) => kinds.get(arg) === "length")
+      : PASSING.has(node.name) && wantsLength && kind !== "unitless";
+    for (const arg of node.args) bareTerms(arg, kinds, compared, out);
+  }
+}
+
+function unitInsertions(
+  node: Node,
+  kinds: ReadonlyMap<Node, ExprKind>,
+  unit: string,
+  out: [number, string][],
+): void {
+  if (node.n === "num" && node.bareEnd !== undefined) {
+    out.push([node.bareEnd, ` ${unit}`]);
+  } else if (node.n === "neg") {
+    unitInsertions(node.operand, kinds, unit, out);
+  } else if (node.n === "bin" && (node.op === "+" || node.op === "-")) {
+    unitInsertions(node.left, kinds, unit, out);
+    unitInsertions(node.right, kinds, unit, out);
+  } else if (node.n === "bin" && kinds.get(node.left) === "unitless") {
+    unitInsertions(node.left, kinds, unit, out);
+  } else {
+    out.push([node.e, `*1 ${unit}`]);
+  }
+}
+
+/** The bare terms of a formula, and the formula with the unit written in. */
+export interface BareLengths {
+  /** Each whole unitless term as written (`1/2` in `wall + 1/2`). */
+  literals: string[];
+  /** `wall + 1 in/2`. */
+  text: string;
+}
+
+/** `kinds` of `text`'s tree, or null when it does not parse or type. */
+function typedTree(
+  text: string,
+  kinds: ReadonlyMap<string, ExprKind>,
+): { root: Node; nodeKinds: Map<Node, ExprKind> } | null {
+  const nodeKinds = new Map<Node, ExprKind>();
+  try {
+    const root = parse(text, new Set(kinds.keys()));
+    staticKind(root, kinds, nodeKinds);
+    return { root, nodeKinds };
+  } catch (error) {
+    if (error instanceof ExprError) return null;
+    throw error;
+  }
+}
+
+/**
+ * The server's rule (`bare_lengths` in `loft_wire/expr.py`): in a part whose
+ * unit is not mm, a whole unitless term added to, subtracted from or
+ * compared with a length, or a length field's whole value, reads in the
+ * part's unit. Documents writes the unit into a formula a save enters, so
+ * the field echoes what the save will store. Null when nothing changes.
+ */
+export function bareLengths(
+  text: string,
+  unit: string,
+  field: ExprKind,
+  kinds: ReadonlyMap<string, ExprKind>,
+): BareLengths | null {
+  if (unit === "mm" || UNITS[unit]?.[1] !== "length") return null;
+  const fits = (kind: ExprKind | undefined) =>
+    kind === field || kind === "unitless";
+  const tree = typedTree(text, kinds);
+  if (tree === null || !fits(tree.nodeKinds.get(tree.root))) return null;
+  const terms: Node[] = [];
+  bareTerms(tree.root, tree.nodeKinds, field === "length", terms);
+  if (terms.length === 0) return null;
+  const inserts: [number, string][] = [];
+  for (const term of terms) unitInsertions(term, tree.nodeKinds, unit, inserts);
+  inserts.sort((x, y) => y[0] - x[0]);
+  let fixed = text;
+  for (const [at, piece] of inserts) {
+    fixed = fixed.slice(0, at) + piece + fixed.slice(at);
+  }
+  const checked = typedTree(fixed, kinds);
+  if (checked === null || !fits(checked.nodeKinds.get(checked.root))) {
+    return null;
+  }
+  return { literals: terms.map((t) => text.slice(t.s, t.e)), text: fixed };
 }
