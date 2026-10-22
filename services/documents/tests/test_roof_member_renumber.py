@@ -195,10 +195,12 @@ def _roof(
     return part, roof, part.drill(target), target
 
 
-def test_a_new_roof_is_inserted_at_1_3(client: TestClient) -> None:
+def test_a_new_roof_is_inserted_at_1_4(client: TestClient) -> None:
+    """1.4.0 (BUILDING-OUTLINE) is 1.3.0 with Defines Slope on outline walls;
+    without one it expands as 1.3.0, names and all."""
     catalog = client.get("/api/v1/plugins", headers=HEADERS).json()["plugins"]
     latest = [p["version"] for p in catalog if p["id"] == "loft.roof" and p["latest"]]
-    assert latest == ["1.3.0"]
+    assert latest == ["1.4.0"]
 
 
 def test_1_3_lengthening_keeps_the_hole_in_its_common(client: TestClient) -> None:

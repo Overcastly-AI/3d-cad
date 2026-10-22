@@ -207,9 +207,16 @@ def test_one_dimension_edit_re_lays_the_walls_floor_and_roof(
     assert _roles(before, "Floor")["joist"] == 19
     assert _roles(before, "Roof")["rafter"] == 26
     request = part.request()
-    bodies = sum(1 for e in request.features if e.feature.type == "extrude")
+    extrudes = [
+        e.feature.params.model_dump()
+        for e in request.features
+        if e.feature.type == "extrude"
+    ]
+    bodies = sum(1 for p in extrudes if p["operation"] == "add")
     # Every member that is a body (it carries metadata) is sent: the floor
-    # 39, the walls with the back window and their OSB, the roof 27.
+    # 39, the walls with the back window and their OSB, the roof 27; and the
+    # 26 tails' notches in the front and back OSB, cuts of no body.
+    assert sum(1 for p in extrudes if p["operation"] == "cut") == 26
     members = [
         m
         for name in ("Floor", "Walls", "Roof")
