@@ -53,9 +53,15 @@ from loft_wire.twist import is_none
 #: ``MAX_TREE_FEATURES``, which is the tighter bound today.
 MAX_PLUGIN_EXPANSION: Final = 5000
 
-#: Wall-clock budget for ONE custom feature's expansion (seconds, RESEARCH §23).
-#: Over it is the typed error ``plugin_expansion_timeout`` on that feature.
+#: CPU-time budget for ONE custom feature's expansion (seconds of the expanding
+#: thread's CPU, RESEARCH §23). CPU, not wall-clock, so a loaded server never
+#: fails an expansion that is cheap alone. Over it is the typed error
+#: ``plugin_expansion_timeout`` on that feature.
 PLUGIN_EXPAND_TIME_LIMIT_S: Final = 2.0
+#: Wall-clock backstop for the same expansion: a plugin that sleeps or blocks
+#: spends no CPU but still cannot hang a request. Also
+#: ``plugin_expansion_timeout``.
+PLUGIN_EXPAND_WALL_LIMIT_S: Final = 10.0
 
 #: Most inputs one manifest declares, and most member roles.
 MAX_PLUGIN_INPUTS: Final = 32

@@ -8,7 +8,8 @@
   manifest: unknown names, kinds, options, bounds; defaults filled in; numbers
   in the type their unit says (a length ``30`` is stored ``30.0``, which is
   what lets ``expressions`` drive it).
-* :func:`expand` runs the expander under the caps (5,000 members, 2 s) and
+* :func:`expand` runs the expander under the caps (5,000 members, 2 s of CPU,
+  10 s of wall-clock) and
   validates what comes back exactly as a user's features are validated: the
   same pydantic models, declared roles, unique ``(role, index)``, and every
   reference to a strictly earlier feature of an allowed type (§2.2).
@@ -41,6 +42,7 @@ from loft_wire.materials import MaterialKey
 from loft_wire.plugins import (
     MAX_PLUGIN_EXPANSION,
     PLUGIN_EXPAND_TIME_LIMIT_S,
+    PLUGIN_EXPAND_WALL_LIMIT_S,
     PLUGIN_EXPANSION_INVALID,
     PLUGIN_EXPANSION_TIMEOUT,
     PLUGIN_EXPANSION_TOO_LARGE,
@@ -67,6 +69,13 @@ from pydantic import TypeAdapter, ValidationError
 from loft_plugins.api import ExpandInputs, Hosted, InputValue, Plugin, PluginError
 
 _FEATURE: TypeAdapter[Feature] = TypeAdapter(Feature)
+
+#: The clocks the expansion budget reads (module attributes so tests can fake
+#: them). The CPU clock is the CALLING thread's: an expansion runs in-process,
+#: in the thread that calls :func:`expand`, so other requests' work and a
+#: loaded machine do not count against it.
+_cpu_clock = time.thread_time
+_wall_clock = time.monotonic
 
 
 class PluginRegistry:
@@ -372,7 +381,8 @@ def expand(
     earlier: Mapping[uuid.UUID, AuthoredEnvelope],
     *,
     hosted: Sequence[Hosted] = (),
-    time_limit_s: float = PLUGIN_EXPAND_TIME_LIMIT_S,
+    cpu_limit_s: float = PLUGIN_EXPAND_TIME_LIMIT_S,
+    wall_limit_s: float = PLUGIN_EXPAND_WALL_LIMIT_S,
     parameters: Mapping[str, Quantity] | None = None,
 ) -> list[ExpandedMember]:
     """The members of custom feature *feature_id*, from canonical *inputs*.
@@ -381,7 +391,9 @@ def expand(
     custom features with their members by member id); *hosted* the later
     features naming it as host, in tree order. Raises
     :class:`PluginError`: the plugin's own refusal, ``plugin_expansion_too_large``
-    past 5,000 members, ``plugin_expansion_timeout`` past the time limit, or
+    past 5,000 members, ``plugin_expansion_timeout`` past the CPU budget or
+    the wall-clock backstop (checked as each member is yielded, and at the
+    end), or
     ``plugin_expansion_invalid`` for a member the authoring checks refuse.
     """
     manifest = plugin.manifest
@@ -390,16 +402,25 @@ def expand(
     values: dict[str, InputValue] = {item.name: None for item in manifest.inputs}
     values.update(inputs)
     roles = {item.role for item in manifest.members}
-    deadline = time.monotonic() + time_limit_s
+    cpu_deadline = _cpu_clock() + cpu_limit_s
+    wall_deadline = _wall_clock() + wall_limit_s
     members: list[ExpandedMember] = []
     keys: set[tuple[str, int]] = set()
     ids: set[uuid.UUID] = set()
 
-    def over_time() -> PluginError:
-        return PluginError(
-            PLUGIN_EXPANSION_TIMEOUT,
-            f"{manifest.title} took longer than {time_limit_s:g} s to expand.",
-        )
+    def check_time() -> None:
+        if _cpu_clock() > cpu_deadline:
+            raise PluginError(
+                PLUGIN_EXPANSION_TIMEOUT,
+                f"{manifest.title} used more than {cpu_limit_s:g} s of CPU time "
+                "to expand.",
+            )
+        if _wall_clock() > wall_deadline:
+            raise PluginError(
+                PLUGIN_EXPANSION_TIMEOUT,
+                f"{manifest.title} took longer than {wall_limit_s:g} s "
+                "(wall-clock) to expand.",
+            )
 
     try:
         context = ExpandInputs(
@@ -412,8 +433,7 @@ def expand(
                     f"{manifest.title} expands to more than {MAX_PLUGIN_EXPANSION} "
                     "features; reduce its counts.",
                 )
-            if time.monotonic() > deadline:
-                raise over_time()
+            check_time()
             if member.role not in roles:
                 raise _invalid(title, f"undeclared role {member.role!r}")
             key = (member.role, member.index)
@@ -448,7 +468,6 @@ def expand(
         raise
     except Exception as exc:  # a plugin bug is the feature's error, never a 500
         raise _invalid(title, f"{type(exc).__name__}: {exc}") from exc
-    if time.monotonic() > deadline:
-        raise over_time()
+    check_time()
     _check_references(title, members, earlier)
     return members

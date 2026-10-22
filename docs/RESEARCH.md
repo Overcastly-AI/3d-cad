@@ -1808,8 +1808,8 @@ and reframe it, a material per member, and a cut list that is always current.
   (a `.loft` opened on another server) still rebuilds, read-only, like the
   legacy extrude twist.
 - **Bounds.** An expansion is validated by the same pydantic models and
-  authoring checks as a user's features, and is capped (2 s per custom
-  feature; in size, by the part's 1,000-feature tree bound counted after
+  authoring checks as a user's features, and is capped (2 s of CPU per custom
+  feature, with a 10 s wall-clock backstop for a plugin that sleeps; in size, by the part's 1,000-feature tree bound counted after
   expansion); over a cap is a typed error on that feature.
 - **Security.** First-party plugins are reviewed code in the repo: no I/O, no
   imports beyond `loft-wire`, run in the documents process. Third-party
@@ -1855,7 +1855,9 @@ and reframe it, a material per member, and a cut list that is always current.
     `input_error` naming `plugin_expansion_too_large`. The per-plugin
     `MAX_PLUGIN_EXPANSION` (5,000) is moot under it and stays only as the
     wire bound on a stored expansion (lowering it is a wire change). The 2 s
-    cap is checked per member as the expander yields, plus a final check: an
+    CPU cap (thread CPU time, so a loaded server does not fail a cheap
+    expansion) and the 10 s wall-clock backstop are checked per member as the
+    expander yields, plus a final check: an
     in-process first-party plugin cannot be pre-empted, so the third-party
     sandbox must hard-kill.
   - *Members obey the write rules.* A stored member (with or without its
