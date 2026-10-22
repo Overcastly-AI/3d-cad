@@ -121,6 +121,28 @@ async function choose(page: Page, input: string, value: string): Promise<void> {
   else await page.getByTestId(`plugin-input-${input}`).selectOption(value);
 }
 
+/** Open the outline sketch, set its *from* length dimension, save it. */
+async function editLength(page: Page, from: string, typed: string) {
+  await page.getByTestId("feature-select-0").click();
+  await expect(page.getByTestId("sketch-save")).toBeVisible({
+    timeout: 30_000,
+  });
+  await page
+    .locator('[data-testid^="glyph-"][data-kind="distance"]')
+    .filter({ hasText: new RegExp(`^${from}$`) })
+    .click();
+  const cell = page.getByTestId("dimension-input");
+  await expect(cell).toHaveValue(from);
+  await cell.fill(typed);
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("dimension-editor")).toHaveCount(0);
+  await page.getByTestId("sketch-save").click();
+  await expect(page.getByTestId("sketch-strip")).toHaveCount(0, {
+    timeout: 30_000,
+  });
+  await expectSolved(page);
+}
+
 /** One side of a side pick, by the name the form gives it. */
 function side(page: Page, input: string, name: string) {
   return page
@@ -260,26 +282,14 @@ test.describe("B7 from one outline sketch", () => {
 
     // EDIT 1, one action: the sketch's 288 dimension set to 336, read and
     // typed in the part's inches as every length field is.
-    await page.getByTestId("feature-select-0").click();
-    await expect(page.getByTestId("sketch-save")).toBeVisible({
-      timeout: 30_000,
-    });
-    await page
-      .locator('[data-testid^="glyph-"][data-kind="distance"]')
-      .filter({ hasText: /^288$/ })
-      .click();
-    const cell = page.getByTestId("dimension-input");
-    await expect(cell).toHaveValue("288");
-    await cell.fill("336");
-    await page.keyboard.press("Enter");
-    await expect(page.getByTestId("dimension-editor")).toHaveCount(0);
-    await page.getByTestId("sketch-save").click();
-    await expect(page.getByTestId("sketch-strip")).toHaveCount(0, {
-      timeout: 30_000,
-    });
-    await expectSolved(page);
+    await editLength(page, "288", "336");
     await expectBodies(page, 234);
     await frameShot(page, "outline-b7-336");
+
+    // The same dimension as a FORMULA over the sketch's own names: the walls
+    // follow what it evaluates to (width + 96 in = 288 in), back to 217.
+    await editLength(page, "336", "width + 96 in");
+    await expectBodies(page, 217);
 
     // Stored: the openings and the roof name their walls by line, not by
     // anything the edit moved.
