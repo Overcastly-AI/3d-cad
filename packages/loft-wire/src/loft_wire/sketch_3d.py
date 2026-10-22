@@ -19,8 +19,9 @@ plane; its coordinates are world millimetres.
   driving.
 
 The geometry service solves the sketch from the stored positions (a small
-least-squares Newton solve: the smallest move that satisfies every relation,
-so a length dimension slides the free end along its line). Pipe and Plane
+Gauss-Newton solve with minimum-norm steps, so the answer stays near the
+stored positions, though it is not in general the nearest solution; a lone
+length dimension slides the free end along its line). Pipe and Plane
 Along Path take its lines as path curves through the ordinary
 :class:`loft_wire.pipe.PathSketchCurve`, naming the 3D sketch as ``sketch``.
 
@@ -91,7 +92,8 @@ class Sketch3DPoint(BaseModel):
     kind: Literal["point"]
     position: Vec3 = Field(
         description="World position (mm): typed, or the last solved position. "
-        "The solve starts here and moves it as little as the relations allow."
+        "The solve starts here; the answer stays near it (minimum-norm "
+        "Gauss-Newton steps), though not always at the nearest solution."
     )
     snap: Sketch3DSnap | None = Field(
         default=None,

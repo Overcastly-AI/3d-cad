@@ -12405,7 +12405,7 @@ export interface components {
              * @enum {string}
              */
             kind: "point";
-            /** @description World position (mm): typed, or the last solved position. The solve starts here and moves it as little as the relations allow. */
+            /** @description World position (mm): typed, or the last solved position. The solve starts here; the answer stays near it (minimum-norm Gauss-Newton steps), though not always at the nearest solution. */
             position: components["schemas"]["Vec3"];
             /**
              * Snap

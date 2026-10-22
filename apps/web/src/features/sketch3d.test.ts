@@ -243,5 +243,12 @@ describe("3D sketch snap targets", () => {
       point: "position",
     });
     expect(targets[3]?.snap).toMatchObject({ kind: "vertex", end: "b" });
+    // A 3D sketch's joints are offered as points (`position`) only, never as
+    // a line's start or end, which the kernel does not resolve.
+    for (const t of targets) {
+      if (t.snap.kind === "sketch_point") {
+        expect(t.snap.point).toBe("position");
+      }
+    }
   });
 });
