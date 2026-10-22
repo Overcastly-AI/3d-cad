@@ -70,6 +70,9 @@ runs:
         fi
         echo "missing ${#missing[@]}: ${missing[*]}"
         for attempt in 1 2 3; do
+          # A timeout can kill dpkg mid-install; finish that first or the
+          # retry fails with "dpkg was interrupted".
+          [ "$attempt" = 1 ] || sudo timeout 180 dpkg --configure -a || true
           if sudo timeout 180 apt-get update -qq &&
             sudo DEBIAN_FRONTEND=noninteractive timeout 180 apt-get install -y -qq --no-install-recommends "${missing[@]}"; then
             echo "apt dependencies installed in $((SECONDS - start)) s (attempt $attempt)"
