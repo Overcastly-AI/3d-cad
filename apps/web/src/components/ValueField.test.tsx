@@ -441,6 +441,23 @@ describe("ValueField in an inch part (FORMULA-BARE-UNIT)", () => {
       .setParameters([{ name: "wall", value: 5.5 * 25.4, unit: "length" }]);
   });
 
+  it("keeps carpenter numbers as numbers beside the bare-unit rule", () => {
+    const f = mount({ unit: "in", initial: "1" });
+    for (const typed of ["11-15/32", "11 15/32"]) {
+      f.type(typed);
+      expect(mark(f.input)).toBeNull();
+      expect(f.form()).toBe(typed);
+      expect(screen.getByTestId("field-hint").textContent).toBe(
+        "= 11.46875 in",
+      );
+    }
+    f.type("wall + 1/2");
+    expect(screen.getByTestId("field-hint").textContent).toBe("= 6 in");
+    // A hyphenated mixed number inside a formula is still refused first.
+    f.type("wall + 11-15/32");
+    expect(screen.getByRole("alert").textContent).toMatch(/could be 11 15\/32/);
+  });
+
   it("reads a typed bare term in inches, as the save will store it", () => {
     const f = mount({ unit: "in", initial: "1" });
     f.type("wall + 1/2");
