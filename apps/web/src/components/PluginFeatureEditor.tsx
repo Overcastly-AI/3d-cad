@@ -56,6 +56,7 @@ import {
   referenceOptions,
   togglePick,
   validatePluginForm,
+  withPluginValue,
 } from "../features/pluginForm";
 import { isOutlinePick, sideName } from "../features/outline";
 import { useDocumentLengthUnit } from "../units/documentUnit";
@@ -139,9 +140,16 @@ function GeneratedForm({
       : formFromCustomParams(manifest, stored, unit),
   );
 
-  const setValue = useCallback((name: string, value: string) => {
-    setForm((f) => ({ ...f, values: { ...f.values, [name]: value } }));
-  }, []);
+  // A new outline drops the side picks made on the old one.
+  const setValue = useCallback(
+    (name: string, value: string) => {
+      setForm((f) => ({
+        ...f,
+        values: withPluginValue(manifest, f.values, name, value, features),
+      }));
+    },
+    [manifest, features],
+  );
 
   const outlinePick = useOutlinePick({
     manifest,
