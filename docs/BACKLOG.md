@@ -204,6 +204,20 @@ PRICE-BOOK-VERSION) and ROOF-MEMBER-RENUMBER.
    in a metric reading `100-10/2` is refused as ambiguous, never 105.
    Follow-up FORMULA-BARE-UNIT: inside a formula a bare number is mm even in
    an inch part (`wall + 1/2` adds 0.5 mm).
+7. [x] **CUT-LIST-LONG-STOCK** (QA-B7; backend): a member over 20 ft had no
+   stock, so nothing priced it and B7 stayed "5 lines unpriced". It is now
+   spliced as a framer buys it (least waste, then fewest joints, ties most
+   even first, so 24 ft = 2 x 12; at most 5 pieces), `stock_pieces_ft` on
+   the wire, Each priced on the cheapest tied splice the book prices whole,
+   per foot and board foot on the feet bought. RESEARCH §27.
+   _Accept:_ B7's 21 lumber and 2 sheet lines price to $2,868.87 with the
+   QA round's book plus an 8 ft SPF 2x10 ($2,608.83 + $260.04,
+   `test_price_book.py`); B1, B2, B5 unchanged (no member over 20 ft).
+   _Notes:_ `house-b7.spec.ts` (QA branch, not merged here) expects "—" and
+   "5 lines unpriced" for the long lines and must be re-pinned when merged;
+   a blank on a mixed splice (14 + 12) seeds only its longest piece, so
+   pricing it may take two blanks; the B7 golden is still the e2e's typed
+   table, not a measured geometry golden.
 
 ## Next
 

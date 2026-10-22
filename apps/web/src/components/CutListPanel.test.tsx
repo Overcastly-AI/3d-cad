@@ -16,8 +16,12 @@ import {
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { type CutListResponse, fetchCutList } from "../api/cutList";
-import { CutListPanel, unpricedLabel } from "./CutListPanel";
+import {
+  type CutListLine,
+  type CutListResponse,
+  fetchCutList,
+} from "../api/cutList";
+import { CutListPanel, spliceLabel, unpricedLabel } from "./CutListPanel";
 
 const IN = 25.4;
 
@@ -43,6 +47,7 @@ const RESPONSE: CutListResponse = {
       total_length_mm: 1833 * IN,
       section_mm: [1.5 * IN, 9.25 * IN],
       stock_length_ft: 12,
+      stock_pieces_ft: [12],
       waste_mm: 3 * IN,
       stock_quantity: 13,
       unit_price_cents: 1998,
@@ -59,6 +64,7 @@ const RESPONSE: CutListResponse = {
       total_length_mm: 10.5 * IN,
       section_mm: [5.5 * IN, 5.5 * IN],
       stock_length_ft: 8,
+      stock_pieces_ft: [8],
       waste_mm: 85.5 * IN,
       // No entry in the book: blank, never 0.
       stock_quantity: 1,
@@ -76,6 +82,7 @@ const RESPONSE: CutListResponse = {
       total_length_mm: 30 * IN,
       section_mm: [1 * IN, 2 * IN],
       stock_length_ft: null,
+      stock_pieces_ft: null,
       waste_mm: null,
       stock_quantity: null,
       unit_price_cents: null,
@@ -120,7 +127,10 @@ vi.mock("../api/materials", () => ({
           source: "",
         },
       ],
-      profiles: [{ key: "us_6x6", name: "6x6" }],
+      profiles: [
+        { key: "us_6x6", name: "6x6" },
+        { key: "us_2x6", name: "2x6" },
+      ],
       sheet_goods: [{ key: "osb_7_16", name: "7/16 OSB", material: "osb" }],
       sheet_sizes: [
         { key: "4x8", width_in: 48, length_in: 96 },
@@ -264,6 +274,7 @@ describe("CutListPanel", () => {
           sheet: "4x9",
           area_mm2: 45893 * IN * IN,
           stock_length_ft: null,
+          stock_pieces_ft: null,
           waste_mm: null,
           stock_quantity: 9,
           unit_price_cents: null,
@@ -293,6 +304,78 @@ describe("CutListPanel", () => {
     const seeded = await screen.findByTestId("price-book-row");
     expect(seeded).toHaveAttribute("data-profile", "osb_7_16");
     expect(within(seeded).getByLabelText("Sheet, price 1")).toHaveValue("4x9");
+  });
+
+  it("shows a long member's splice and prices it per member", async () => {
+    // B7's 288 in top plates and sills (CUT-LIST-LONG-STOCK): 24 ft, spliced.
+    const plate = {
+      member: "Top plate",
+      profile: "2x6",
+      material: "southern_pine_pt",
+      classification: "member",
+      quantity: 4,
+      length_mm: 288 * IN,
+      total_length_mm: 1152 * IN,
+      section_mm: [1.5 * IN, 5.5 * IN],
+      stock_length_ft: null,
+      stock_pieces_ft: [16, 8],
+      waste_mm: 0,
+      stock_quantity: 8,
+      unit_price_cents: 2046,
+      price_unit: "each",
+      extended_price_cents: 8184,
+    } satisfies CutListLine;
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      total_quantity: 6,
+      unclassified: 0,
+      missing: [],
+      total_price_cents: 8184,
+      unpriced_lines: 1,
+      lines: [
+        plate,
+        {
+          ...plate,
+          member: "Sill",
+          quantity: 2,
+          total_length_mm: 576 * IN,
+          stock_pieces_ft: [12, 12],
+          stock_quantity: 4,
+          unit_price_cents: null,
+          price_unit: null,
+          extended_price_cents: null,
+        },
+      ],
+    });
+    renderPanel();
+    const [top, sill] = await screen.findAllByTestId("cut-list-row");
+    expect(within(top!).getByTestId("cut-list-stock")).toHaveTextContent(
+      "16 ft + 8 ft",
+    );
+    expect(within(top!).getByTestId("cut-list-unit-price")).toHaveAttribute(
+      "title",
+      "Each: 16 ft + 8 ft: one member's spliced stock",
+    );
+    expect(within(top!).getByTestId("cut-list-ext-price")).toHaveTextContent(
+      "$81.84",
+    );
+    expect(within(sill!).getByTestId("cut-list-stock")).toHaveTextContent(
+      "2 × 12 ft",
+    );
+    // Its blank opens the book on the splice's stock length.
+    fireEvent.click(
+      within(sill!).getByRole("button", { name: "Price Sill, 2x6 at 12 ft" }),
+    );
+    const seeded = await screen.findByTestId("price-book-row");
+    expect(within(seeded).getByLabelText("Stock length, price 1")).toHaveValue(
+      "12",
+    );
+  });
+
+  it("writes a splice as a framer does", () => {
+    expect(spliceLabel([12, 12])).toBe("2 × 12 ft");
+    expect(spliceLabel([20, 20, 8])).toBe("2 × 20 ft + 8 ft");
+    expect(spliceLabel([14, 12])).toBe("14 ft + 12 ft");
   });
 
   it("counts the unpriced lines", () => {

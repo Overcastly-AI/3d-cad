@@ -2680,12 +2680,38 @@ property feeds a BOM column; Loft's price book feeds the cut list.
   round(10 x 533.33)). No float touches money: ints and `Fraction` in
   Python, BIGINT in Postgres, JSON integers on the wire.
 - **A missing price is blank, never $0.** A line with no entry, no material
-  or no stock length (unclassified, or longer than 20 ft) has null unit and
+  or no stock length (unclassified, or longer than any splice) has null unit and
   extended price; the response has `currency`, `total_price_cents` (the
   priced lines' sum, null when none is priced) and `unpriced_lines`. An
   assembly's list is already one grouped list across its parts, so its total
   is the sum of its lines. A deleted part an assembly still places is in
   `missing`, not a line, so it is not counted as unpriced.
+- **A member longer than stock is spliced** (CUT-LIST-LONG-STOCK, after
+  QA-B7 left B7's 288 in rims, sills, plates and ridge blank). A framer
+  splices a long plate or rim from stock pieces, joints over studs or
+  joists, and Chief Architect's materials list buys it that way. The rule
+  (`stock_splices`): only a member longer than the longest stock (20 ft) is
+  spliced; its stock is the combination of at most 5 pieces covering it with
+  the LEAST WASTE (fewest feet bought), then the FEWEST PIECES (joints).
+  Ties are common (24 ft is 12 + 12, 14 + 10 or 16 + 8; 26 ft is 14 + 12 or
+  16 + 10) and list most even first; for pricing, the cheapest tie whose every
+  piece has an Each price wins, so the stock shown can follow the book, at
+  the same waste and piece count. Waste comes first, so 37 ft is 14 + 12 + 12
+  (1 ft over), not 2 x 20 (3 ft over). The line's `stock_pieces_ft` carries
+  the pieces (`[12, 12]`; `[16]` unspliced), `stock_length_ft` is null for a
+  splice, `stock_quantity` counts every piece and `waste_mm` sums the
+  splice's offcut. Each prices only a splice the book prices whole (one unit
+  per line, never Each and per foot mixed); else per foot prices the feet
+  bought and per board foot each piece, rounded once per piece. The unit
+  price of a spliced line is one member's pieces summed, and its extended
+  price is that times the quantity. Past 5 x 20 ft (100 ft, more often a
+  modelling slip than a plate) a member has no stock and stays unpriced. The
+  panel and CSV write the splice as a framer does (`2 × 12 ft`,
+  `16 ft + 8 ft`; the CSV with an ASCII x), and a blank opens the book on the
+  splice's longest piece. B7 with the QA round's book plus an 8 ft SPF 2x10
+  at $11.47 prices to the last line: $2,608.83 + $260.04 = $2,868.87
+  (`packages/loft-wire/tests/test_price_book.py`). B1, B2 and B5 have no
+  member over 20 ft, so their totals are unchanged.
 - **CSV:** `Stock qty`, `Unit price (USD)`, `Price unit` (Each, Per ft,
   Per BF) and `Extended (USD)` as plain numbers (`28.47`, no symbol or
   separator, so a spreadsheet sums them), an unpriced line's cells blank, and

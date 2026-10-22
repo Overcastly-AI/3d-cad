@@ -19,7 +19,10 @@ from loft_wire.cut_list import (
     format_cents,
     lumber_for,
     nominal_size_in,
+    splice_label,
     stock_piece_price,
+    stock_pieces_ft,
+    stock_splices,
 )
 from loft_wire.lumber import LUMBER_PROFILES, MM_PER_INCH
 from loft_wire.price_book import (
@@ -29,6 +32,7 @@ from loft_wire.price_book import (
     PriceBookResponse,
     PriceBookUpdate,
 )
+from loft_wire.sheet_goods import SHEET_SIZES_BY_KEY, sheet_good_for
 from pydantic import ValidationError
 
 PT, SPF = "southern_pine_pt", "spf_lumber"
@@ -256,7 +260,8 @@ def test_board_feet_are_nominal_and_round_half_up_once_per_piece() -> None:
 
 
 def test_a_line_without_stock_or_material_is_unpriced() -> None:
-    long = _pieces([("Beam", "2x10", PT, 1, 300.0)])  # longer than 20 ft
+    # Longer than any splice (5 x 20 ft = 100 ft): no stock, even per foot.
+    long = _pieces([("Beam", "2x10", PT, 1, 1200.01)])
     no_material = [
         CutListPiece(
             member=None,
@@ -284,6 +289,184 @@ def test_a_line_without_stock_or_material_is_unpriced() -> None:
     assert [line.unit_price_cents for line in cut_list.lines] == [None, None, None]
     assert [line.stock_quantity for line in cut_list.lines] == [None, 1, None]
     assert (cut_list.total_price_cents, cut_list.unpriced_lines) == (None, 3)
+
+
+# --- long members are spliced (CUT-LIST-LONG-STOCK) -----------------------------
+
+#: house-b7.spec.ts's book (the 8 prices the QA round typed), plus an 8 ft
+#: SPF 2x10 so the 24 ft rims and ridge splice as 16 + 8.
+B7_BOOK: list[dict[str, Any]] = [
+    _each(SPF, "us_2x10", 16, 2297),
+    _each(PT, "us_2x6", 16, 1698),
+    {
+        "material": "plywood",
+        "profile": "plywood_23_32",
+        "unit": "each",
+        "sheet": "4x8",
+        "price_cents": 4250,
+    },
+    _each(SPF, "us_2x6", 8, 648),
+    _each(PT, "us_2x6", 12, 1248),
+    {
+        "material": "osb",
+        "profile": "osb_7_16",
+        "unit": "each",
+        "sheet": "4x9",
+        "price_cents": 2498,
+    },
+    _each(SPF, "us_2x6", 16, 1398),
+    _each(SPF, "us_2x8", 12, 1347),
+    _each(SPF, "us_2x10", 8, 1147),
+]
+
+#: B7's lumber, house-b7.spec.ts's independently calculated table in tree
+#: order (member, profile, material, qty, length in).
+B7 = [
+    ("Joist", "2x10", SPF, 19, 189.0),
+    ("Rim", "2x10", SPF, 2, 288.0),
+    ("Sill", "2x6", PT, 2, 288.0),
+    ("Sill", "2x6", PT, 2, 181.0),
+    ("Stud", "2x6", SPF, 60, 92.625),
+    ("Jack", "2x6", SPF, 12, 81.0),
+    ("Header", "2x6", SPF, 6, 39.5),
+    ("Header", "2x6", SPF, 2, 41.0),
+    ("Cripple", "2x6", SPF, 14, 6.125),
+    ("Sill", "2x6", SPF, 3, 36.5),
+    ("Cripple", "2x6", SPF, 7, 31.0),
+    ("Top plate", "2x6", SPF, 4, 288.0),
+    ("Bottom plate", "2x6", PT, 2, 125.0),
+    ("Header", "2x6", SPF, 4, 27.5),
+    ("Sill", "2x6", SPF, 2, 24.5),
+    ("Cripple", "2x6", SPF, 4, 43.0),
+    ("Top plate", "2x6", SPF, 4, 181.0),
+    ("Bottom plate", "2x6", PT, 2, 181.0),
+    ("Bottom plate", "2x6", PT, 1, 288.0),
+    ("Rafter", "2x8", SPF, 26, 123.5341),
+    ("Ridge", "2x10", SPF, 1, 288.0),
+]
+
+
+def _sheets(member: str, key: str, area_in2: float) -> CutListPiece:
+    """B7's subfloor or sheathing as one panel of the table's net area."""
+    good = sheet_good_for(key)
+    assert good is not None
+    sheet = SHEET_SIZES_BY_KEY["4x8" if key == "plywood_23_32" else "4x9"]
+    return CutListPiece(
+        member=member,
+        profile=good.name,
+        lumber=False,
+        material=good.material,
+        classification="member",
+        length_mm=sheet.length_mm,
+        section_mm=(good.thickness_in * MM_PER_INCH, sheet.width_mm),
+        sheet=sheet,
+        area_mm2=area_in2 * MM_PER_INCH**2,
+    )
+
+
+def test_stock_for_a_long_member_is_the_least_waste_then_fewest_joints() -> None:
+    ft = 12 * MM_PER_INCH
+    assert stock_pieces_ft(20 * ft) == (20,)  # one stock length: no splice
+    assert stock_splices(20 * ft) == ()
+    # 24 ft: three zero-waste two-piece splices, the most even first.
+    assert stock_splices(24 * ft) == ((12, 12), (14, 10), (16, 8))
+    assert stock_pieces_ft(26 * ft) == (14, 12)
+    assert stock_pieces_ft(36 * ft) == (20, 16)
+    # 37 ft: 20 + 20 wastes 3 ft; three pieces waste 1, so waste wins.
+    assert stock_pieces_ft(37 * ft) == (14, 12, 12)
+    assert stock_pieces_ft(100 * ft) == (20, 20, 20, 20, 20)
+    assert stock_pieces_ft(100 * ft + 0.01) is None
+    assert splice_label((12, 12)) == "2 x 12 ft"
+    assert splice_label((20, 20, 8)) == "2 x 20 ft + 8 ft"
+    assert splice_label((14, 12)) == "14 ft + 12 ft"
+
+
+def test_a_long_line_lists_its_splice_and_counts_its_pieces() -> None:
+    (line,) = _priced(_pieces([("Top plate", "2x6", SPF, 4, 288.0)]), []).lines
+    assert (line.stock_length_ft, line.stock_pieces_ft, line.waste_mm) == (
+        None,
+        [12, 12],
+        0,
+    )
+    assert line.stock_quantity == 8 and line.unit_price_cents is None
+    (short,) = _priced(_pieces([("Stud", "2x6", SPF, 3, 92.625)]), []).lines
+    assert (short.stock_length_ft, short.stock_pieces_ft) == (8, [8])
+
+
+def test_a_splice_is_priced_on_its_pieces_each_per_foot_or_board_foot() -> None:
+    plate = _pieces([("Top plate", "2x6", SPF, 4, 288.0)])
+    # Each: the cheapest tied splice the book prices whole (16 + 8 here).
+    each = [_each(SPF, "us_2x6", 16, 1398), _each(SPF, "us_2x6", 8, 648)]
+    (line,) = _priced(plate, each).lines
+    assert (line.stock_pieces_ft, line.unit_price_cents, line.price_unit) == (
+        [16, 8],
+        2046,
+        "each",
+    )
+    assert (line.stock_quantity, line.extended_price_cents) == (8, 8184)
+    # With 12 ft priced too, 2 x 12 at 12.00 beats 16 + 8 at 20.46.
+    (line,) = _priced(plate, [*each, _each(SPF, "us_2x6", 12, 600)]).lines
+    assert (line.stock_pieces_ft, line.unit_price_cents) == ([12, 12], 1200)
+    # A splice the book cannot price whole falls to per foot on 24 ft bought.
+    (line,) = _priced(plate, [each[0], _per(SPF, "us_2x6", "linear_foot", 95)]).lines
+    assert (line.stock_pieces_ft, line.unit_price_cents, line.price_unit) == (
+        [12, 12],
+        2280,
+        "linear_foot",
+    )
+    assert line.extended_price_cents == 9120
+    # Board feet, rounded once per piece: a 26 ft 2x10 is 14 + 12 ft, 23 1/3
+    # and 20 BF, at $1.45: 33.8333 -> 33.83, plus 29.00.
+    ridge = _pieces([("Ridge", "2x10", SPF, 1, 312.0)])
+    (line,) = _priced(ridge, [_per(SPF, "us_2x10", "board_foot", 145)]).lines
+    assert (line.stock_pieces_ft, line.unit_price_cents) == ([14, 12], 3383 + 2900)
+    assert line.price_unit == "board_foot"
+    # Only 16 ft priced Each: no tied splice is priced whole, so blank.
+    (line,) = _priced(plate, each[:1]).lines
+    assert line.unit_price_cents is None and line.stock_pieces_ft == [12, 12]
+
+
+def test_b7_is_priced_to_the_last_line_2868_87() -> None:
+    """B7's 5 lines over 20 ft (the 288 in rims, sills, top and bottom plates
+    and the ridge) were blank; spliced, they price.
+
+    By hand, the QA round's $2,608.83 (18 lines) plus the five splices:
+    rims 2 x (22.97 + 11.47) = 68.88, sills 2 x (2 x 12.48) = 49.92, top
+    plates 4 x (13.98 + 6.48) = 81.84, bottom plate 1 x 24.96 = 24.96 and
+    ridge 1 x 34.44 = 34.44: 260.04 more, $2,868.87.
+    """
+    pieces = _pieces(B7)
+    pieces.insert(4, _sheets("Subfloor", "plywood_23_32", 55296))
+    pieces.insert(15, _sheets("Sheathing", "osb_7_16", 83175.71875))
+    cut_list = _priced(pieces, B7_BOOK)
+    assert len(cut_list.lines) == 23 and cut_list.unpriced_lines == 0
+    long = [
+        (
+            line.member,
+            splice_label(line.stock_pieces_ft or []),
+            line.extended_price_cents,
+        )
+        for line in cut_list.lines
+        if line.length_mm > 20 * 12 * MM_PER_INCH
+    ]
+    assert long == [
+        ("Rim", "16 ft + 8 ft", 6888),
+        ("Sill", "2 x 12 ft", 4992),
+        ("Top plate", "16 ft + 8 ft", 8184),
+        ("Bottom plate", "2 x 12 ft", 2496),
+        ("Ridge", "16 ft + 8 ft", 3444),
+    ]
+    assert cut_list.total_price_cents == 286887
+    short = sum(
+        line.extended_price_cents or 0
+        for line in cut_list.lines
+        if line.length_mm <= 20 * 12 * MM_PER_INCH
+    )
+    assert short == 260883  # the QA round's total, unchanged
+    rows = cut_list_csv(cut_list).split("\r\n")
+    assert rows[2].endswith(",16 ft + 8 ft,0,4,34.44,Each,68.88")
+    assert rows[3].endswith(",2 x 12 ft,0,4,24.96,Each,49.92")
+    assert rows[-2] == ",Total,,,,,,,,,,,,,2868.87"
 
 
 # --- the wire rules -------------------------------------------------------------

@@ -25,7 +25,10 @@ Material: a body's own override wins (what the user set on that body), then
 the member's metadata, then the document default. Stock lengths are the US
 lumber lengths :data:`STOCK_LENGTHS_FT`; the shortest that covers the member
 is suggested, with the offcut it leaves. A member longer than the longest
-stock, or one that is not lumber, has no stock suggestion.
+stock is SPLICED from stock pieces, as a framer buys a long plate
+(:func:`stock_splices`, RESEARCH §27): the pieces covering it with the least
+waste, then the fewest joints. A member no :data:`MAX_SPLICE_PIECES`-piece
+splice covers, or one that is not lumber, has no stock suggestion.
 
 **Sheet goods** (SHEATHING): a member whose ``profile`` names a sheet product
 (:mod:`loft_wire.sheet_goods`, "7/16 OSB") is a PANEL. Its thickness is its
@@ -52,7 +55,8 @@ import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
-from itertools import permutations
+from functools import lru_cache
+from itertools import combinations_with_replacement, permutations
 from typing import Final, Literal
 
 from pydantic import BaseModel, Field
@@ -76,6 +80,7 @@ from loft_wire.price_book import (
     Currency,
     PriceBookEntry,
     PriceBookResponse,
+    PriceKey,
     PriceUnit,
 )
 from loft_wire.sheet_goods import (
@@ -100,6 +105,11 @@ PRISM_TOLERANCE: Final = 1e-6
 
 #: Lengths group when equal to this many decimals of a millimetre (1 um).
 LENGTH_DECIMALS: Final = 3
+
+#: The most stock pieces one member is spliced from: 5 x 20 ft covers 100 ft.
+#: A longer member (a modelling slip more often than a real plate) has no
+#: stock, so it is listed and left unpriced, never guessed at.
+MAX_SPLICE_PIECES: Final = 5
 
 #: A sheet line buys ``ceil(area / sheet area - SHEET_COUNT_SLACK)`` sheets,
 #: so a panel exactly one sheet's size buys one, not two by a rounding ulp.
@@ -213,22 +223,35 @@ class CutListLine(BaseModel):
     )
     stock_length_ft: int | None = Field(
         description="Shortest standard stock that covers the piece (ft); null "
-        "for a piece that is not lumber or is longer than the longest stock."
+        "for a piece that is not lumber, or is spliced (stock_pieces_ft), or "
+        "is longer than any splice covers."
+    )
+    stock_pieces_ft: list[int] | None = Field(
+        default=None,
+        max_length=MAX_SPLICE_PIECES,
+        description="The stock pieces ONE piece of the line is cut from (ft), "
+        "longest first: [16] for one stock length, [12, 12] for a member "
+        "spliced from two 12 ft pieces (longer than the longest stock); null "
+        "with no stock.",
     )
     waste_mm: float | None = Field(
-        description="Offcut of each piece from its stock (mm); null with no stock."
+        description="Offcut of each piece from its stock (mm), a splice's "
+        "pieces summed; null with no stock."
     )
     stock_quantity: int | None = Field(
         ge=0,
-        description="Stock pieces bought for the line: one per piece (until "
-        "pieces are nested); for a sheet line, ceil(area / sheet area) "
-        "sheets; null with no stock length or sheet.",
+        description="Stock pieces bought for the line: quantity x the pieces "
+        "each is cut or spliced from (until pieces are nested); for a sheet "
+        "line, ceil(area / sheet area) sheets; null with no stock length or "
+        "sheet.",
     )
     unit_price_cents: int | None = Field(
         ge=0,
-        description="Price of ONE stock piece (or sheet) in the book's "
-        "currency's cents, rounded once per piece; null (blank, never 0) when "
-        "the book has no price for the line or the line has no stock.",
+        description="Price of the stock ONE piece of the line is cut from, in "
+        "the book's currency's cents: one stock piece, or a spliced piece's "
+        "stock pieces summed, each rounded once; for a sheet line, one sheet. "
+        "Null (blank, never 0) when the book has no price for the line or the "
+        "line has no stock.",
     )
     price_unit: PriceUnit | None = Field(
         description="Which entry priced the line: 'each' for its stock "
@@ -236,7 +259,9 @@ class CutListLine(BaseModel):
     )
     extended_price_cents: int | None = Field(
         ge=0,
-        description="stock_quantity x unit_price_cents; null when unpriced.",
+        description="unit_price_cents x quantity for lumber (x "
+        "stock_quantity for a sheet line): every stock piece bought; null "
+        "when unpriced.",
     )
 
 
@@ -318,12 +343,77 @@ def _is_prism(body: BodyExtent) -> bool:
     return box > 0 and abs(body.volume_mm3 - box) <= PRISM_TOLERANCE * box
 
 
+def _covers(length_mm: float, feet: int) -> bool:
+    return length_mm <= feet * MM_PER_FOOT + 1e-6
+
+
 def stock_length_ft(length_mm: float) -> int | None:
     """The shortest standard stock (ft) that covers *length_mm*, or ``None``."""
     for feet in STOCK_LENGTHS_FT:
-        if length_mm <= feet * MM_PER_FOOT + 1e-6:
+        if _covers(length_mm, feet):
             return feet
     return None
+
+
+def _evenness(splice: tuple[int, ...]) -> tuple[int, ...]:
+    """Sort key among equally good splices: the most even first (the longest
+    shortest piece, then the shortest longest), then the longer pieces first,
+    so 24 ft is 12 + 12, then 14 + 10, then 16 + 8."""
+    return (-min(splice), max(splice), *(-feet for feet in splice))
+
+
+@lru_cache(maxsize=1024)
+def stock_splices(length_mm: float) -> tuple[tuple[int, ...], ...]:
+    """The equally good splices for a member longer than the longest stock,
+    best first, each longest piece first (RESEARCH §27).
+
+    A framer splices a plate or rim longer than stock from stock pieces, the
+    joints over studs or joists (Chief Architect's materials list buys it the
+    same way). The splice is the combination of at most
+    :data:`MAX_SPLICE_PIECES` stock pieces that covers *length_mm* with the
+    LEAST WASTE (the fewest feet bought), then the FEWEST PIECES (joints).
+    More than one can tie (24 ft is 12 + 12, 14 + 10 or 16 + 8); they are
+    ordered most even first (:func:`_evenness`), and :func:`price_lines`
+    picks among them the cheapest the book prices Each. Empty for a member
+    that one stock length covers, or that no splice covers."""
+    if stock_length_ft(length_mm) is not None:
+        return ()
+    best: tuple[int, int] | None = None
+    ties: list[tuple[int, ...]] = []
+    for pieces in range(2, MAX_SPLICE_PIECES + 1):
+        for splice in combinations_with_replacement(
+            sorted(STOCK_LENGTHS_FT, reverse=True), pieces
+        ):
+            feet = sum(splice)
+            if not _covers(length_mm, feet):
+                continue
+            key = (feet, pieces)
+            if best is None or key < best:
+                best, ties = key, [splice]
+            elif key == best:
+                ties.append(splice)
+    return tuple(sorted(ties, key=_evenness))
+
+
+def stock_pieces_ft(length_mm: float) -> tuple[int, ...] | None:
+    """The stock one member of *length_mm* is cut from: one stock length, the
+    best splice, or ``None`` when no splice covers it."""
+    single = stock_length_ft(length_mm)
+    if single is not None:
+        return (single,)
+    splices = stock_splices(length_mm)
+    return splices[0] if splices else None
+
+
+def splice_label(pieces: Sequence[int]) -> str:
+    """A member's stock as a framer writes it: ``16 ft``, ``2 x 12 ft``,
+    ``14 ft + 12 ft``, ``2 x 20 ft + 8 ft`` (longest first), as the CSV writes it."""
+    counts: dict[int, int] = {}
+    for feet in sorted(pieces, reverse=True):
+        counts[feet] = counts.get(feet, 0) + 1
+    return " + ".join(
+        f"{feet} ft" if n == 1 else f"{n} x {feet} ft" for feet, n in counts.items()
+    )
 
 
 @dataclass(frozen=True)
@@ -516,9 +606,9 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
             lines.append(_sheet_line(panels[group_key], quantity))
             continue
         length = round(piece.length_mm, 6)
-        stock = stock_length_ft(length) if piece.lumber else None
+        stock = stock_pieces_ft(length) if piece.lumber else None
         thickness, width = (round(v, 6) for v in piece.section_mm)
-        waste = None if stock is None else round(stock * MM_PER_FOOT - length, 6)
+        waste = None if stock is None else round(sum(stock) * MM_PER_FOOT - length, 6)
         lines.append(
             CutListLine(
                 member=piece.member,
@@ -529,9 +619,12 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
                 length_mm=length,
                 total_length_mm=round(length * quantity, 6),
                 section_mm=[thickness, width],
-                stock_length_ft=stock,
+                stock_length_ft=(
+                    stock[0] if stock is not None and len(stock) == 1 else None
+                ),
+                stock_pieces_ft=None if stock is None else list(stock),
                 waste_mm=waste,
-                stock_quantity=None if stock is None else quantity,
+                stock_quantity=None if stock is None else quantity * len(stock),
                 unit_price_cents=None,
                 price_unit=None,
                 extended_price_cents=None,
@@ -575,25 +668,62 @@ def stock_piece_price(
 PRICE_PRECEDENCE: Final[tuple[PriceUnit, ...]] = ("each", "linear_foot", "board_foot")
 
 
+def _price_stock(
+    entries: Mapping[PriceKey, PriceBookEntry],
+    material: MaterialKey,
+    lumber: LumberProfile,
+    options: Sequence[tuple[int, ...]],
+) -> tuple[int, PriceUnit, tuple[int, ...]] | None:
+    """The price (cents) of one member's stock, the unit that priced it and
+    the stock it prices, from the equally good *options* (one stock length,
+    or the tied splices, best first). Each prices a splice whose every piece
+    has an 'each' entry, the cheapest such (ties: the first); else a per-foot
+    entry prices the feet bought, else a per-board-foot entry, both on the
+    first option. One unit per line; each piece rounded once."""
+
+    def entry(unit: PriceUnit, feet: int | None) -> PriceBookEntry | None:
+        return entries.get((material, lumber.key, unit, feet, None))
+
+    best: tuple[int, int] | None = None
+    for index, stock in enumerate(options):
+        found = [entry("each", feet) for feet in stock]
+        if all(e is not None for e in found):
+            cents = sum(e.price_cents for e in found if e is not None)
+            if best is None or (cents, index) < best:
+                best = (cents, index)
+    if best is not None:
+        return best[0], "each", options[best[1]]
+    for unit in PRICE_PRECEDENCE[1:]:
+        found_entry = entry(unit, None)
+        if found_entry is not None:
+            stock = options[0]
+            cents = sum(stock_piece_price(found_entry, lumber, ft) for ft in stock)
+            return cents, unit, stock
+    return None
+
+
 def price_lines(
     lines: Sequence[CutListLine], book: PriceBookResponse
 ) -> list[CutListLine]:
     """*lines* priced from *book*, on the stock pieces bought: each line's
-    unit price is an 'each' entry for its stock length, else a per-foot entry,
-    else a per-board-foot entry (for its material and profile), and its
-    extended price is that times its stock quantity, so the offcut is paid
-    for. A sheet line is priced by the 'each' entry for its product and
-    sheet, times its sheets. A line with no stock or no entry stays unpriced
-    (null)."""
+    unit price is an 'each' entry for its stock length (for a spliced line,
+    for every piece of a splice, :func:`_price_stock`), else a per-foot entry
+    on the feet bought, else a per-board-foot entry (for its material and
+    profile), and its extended price is that times its quantity, so the
+    offcut is paid for. A sheet line is priced by the 'each' entry for its
+    product and sheet, times its sheets. A line with no stock or no entry
+    stays unpriced (null)."""
     entries = {entry.key: entry for entry in book.entries}
     priced: list[CutListLine] = []
     for line in lines:
         lumber = lumber_for(line.profile)
         good = sheet_good_for(line.profile)
-        stock = line.stock_length_ft
+        stock = line.stock_pieces_ft
         quantity = line.stock_quantity
         unit_price: int | None = None
         unit: PriceUnit | None = None
+        multiple = quantity
+        update: dict[str, object] = {}
         if (
             good is not None
             and line.sheet is not None
@@ -606,32 +736,26 @@ def price_lines(
         elif (
             lumber is not None
             and line.material is not None
-            and stock is not None
+            and stock
             and quantity is not None
         ):
-            for candidate in PRICE_PRECEDENCE:
-                entry = entries.get(
-                    (
-                        line.material,
-                        lumber.key,
-                        candidate,
-                        stock if candidate == "each" else None,
-                        None,
-                    )
-                )
-                if entry is not None:
-                    unit_price = stock_piece_price(entry, lumber, stock)
-                    unit = candidate
-                    break
+            multiple = line.quantity
+            splices = stock_splices(line.length_mm) if len(stock) > 1 else ()
+            options = splices if tuple(stock) in splices else (tuple(stock),)
+            found = _price_stock(entries, line.material, lumber, options)
+            if found is not None:
+                unit_price, unit, bought = found
+                update["stock_pieces_ft"] = list(bought)
         priced.append(
             line.model_copy(
                 update={
+                    **update,
                     "unit_price_cents": unit_price,
                     "price_unit": unit,
                     "extended_price_cents": (
                         None
-                        if unit_price is None or quantity is None
-                        else unit_price * quantity
+                        if unit_price is None or multiple is None
+                        else unit_price * multiple
                     ),
                 }
             )
@@ -784,6 +908,8 @@ def csv_text(value: str) -> str:
 def _stock(line: CutListLine) -> str:
     if line.sheet is not None:
         return f"{line.sheet} sheet"
+    if line.stock_pieces_ft:
+        return splice_label(line.stock_pieces_ft)
     return "" if line.stock_length_ft is None else f"{line.stock_length_ft} ft"
 
 

@@ -21,6 +21,11 @@
  * count, their net AREA in the Length column (openings cut out), and in Stock
  * the sheets that area needs ("9 × 4x9"), counted by area as Chief
  * Architect's materials list counts them; priced Each per sheet.
+ *
+ * A member longer than the longest stock (CUT-LIST-LONG-STOCK) is SPLICED from
+ * stock pieces, as a framer buys a long plate: Stock reads "2 × 12 ft" or
+ * "16 ft + 8 ft" (the gateway's choice), and its unit price is that splice's
+ * pieces summed, one member's stock.
  */
 import { Button, lengthUnitLabel, Panel, PanelSection } from "@loft/design";
 import { useQuery } from "@tanstack/react-query";
@@ -88,12 +93,29 @@ function seedFor(line: CutListLine): PriceBookSeed | null {
       sheet,
     };
   }
-  if (line.stock_length_ft === null) return null;
+  const feet = line.stock_length_ft ?? line.stock_pieces_ft?.[0] ?? null;
+  if (feet === null) return null;
   return {
     material: line.material,
     profile: line.profile,
-    stockLengthFt: line.stock_length_ft,
+    stockLengthFt: feet,
   };
+}
+
+/** A member's stock pieces as a framer writes them: "16 ft", "2 × 12 ft",
+ * "16 ft + 8 ft" (longest first, as the gateway sends them). */
+export function spliceLabel(pieces: readonly number[]): string {
+  const counts = new Map<number, number>();
+  for (const feet of pieces) counts.set(feet, (counts.get(feet) ?? 0) + 1);
+  return [...counts]
+    .map(([feet, n]) => (n === 1 ? `${feet} ft` : `${n} × ${feet} ft`))
+    .join(" + ");
+}
+
+/** The pieces one member of the line is spliced from, or null for one. */
+function splice(line: CutListLine): readonly number[] | null {
+  const pieces = line.stock_pieces_ft ?? null;
+  return pieces !== null && pieces.length > 1 ? pieces : null;
 }
 
 /** What the line buys: "12 ft" of lumber, "9 × 4x9" sheets, or a dash. */
@@ -103,6 +125,8 @@ function stockLabel(line: CutListLine): string {
       ? "—"
       : `${formatCount(line.stock_quantity ?? 0)} × ${line.sheet}`;
   }
+  const pieces = splice(line);
+  if (pieces !== null) return spliceLabel(pieces);
   return line.stock_length_ft === null ? "—" : `${line.stock_length_ft} ft`;
 }
 
@@ -111,6 +135,15 @@ function priceBasis(line: CutListLine): string | undefined {
   if (line.price_unit === null) return undefined;
   if (line.sheet !== null && line.sheet !== undefined) {
     return `Each per ${line.sheet} sheet`;
+  }
+  const pieces = splice(line);
+  if (pieces !== null) {
+    const label = spliceLabel(pieces);
+    const each =
+      line.price_unit === "each"
+        ? `Each: ${label}`
+        : `${PRICE_UNIT_LABEL[line.price_unit]}, ${label} stock`;
+    return `${each}: one member's spliced stock`;
   }
   const basis =
     line.price_unit === "each"
@@ -251,14 +284,14 @@ export function CutListPanel({
                     <th
                       scope="col"
                       className={HEAD}
-                      title="Shortest standard stock that covers each piece"
+                      title="Shortest standard stock that covers each piece, or the pieces a longer one is spliced from"
                     >
                       Stock
                     </th>
                     <th
                       scope="col"
                       className={HEAD}
-                      title={`Unit price: one stock piece (${data.currency})`}
+                      title={`Unit price: one piece's stock (${data.currency})`}
                     >
                       Unit price
                     </th>
@@ -373,7 +406,7 @@ export function CutListPanel({
                               data-testid="cut-list-price-blank"
                               aria-label={
                                 sheet === null
-                                  ? `Price ${name}, ${line.profile} at ${line.stock_length_ft} ft`
+                                  ? `Price ${name}, ${line.profile} at ${seed.stockLengthFt} ft`
                                   : `Price ${name}, ${line.profile} ${sheet} sheet`
                               }
                               aria-haspopup="dialog"
@@ -392,7 +425,9 @@ export function CutListPanel({
                             line.extended_price_cents === null ||
                             line.unit_price_cents === null
                               ? undefined
-                              : `${formatCount(line.stock_quantity ?? 0)} stock × ${formatMoney(line.unit_price_cents, data.currency)}`
+                              : splice(line) !== null
+                                ? `${formatCount(line.quantity)} spliced × ${formatMoney(line.unit_price_cents, data.currency)}`
+                                : `${formatCount(line.stock_quantity ?? 0)} stock × ${formatMoney(line.unit_price_cents, data.currency)}`
                           }
                         >
                           {line.extended_price_cents === null
