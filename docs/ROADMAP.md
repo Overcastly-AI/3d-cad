@@ -3,24 +3,18 @@
 Where we are and what comes next. The orchestrator keeps "Now" true; the
 `product-manager` owns the rest. The detail lives in `docs/BACKLOG.md`.
 
-## Now (2026-10-21)
+## Now (2026-10-22)
 
-Since 10-16, the Build group frames B1-B4 from plugins alone: a deck, stud
-walls with hosted windows and doors, and gable, hip and valley roofs. Each
-has a cut list priced from a per-user price book. Next, in order:
-- stable stud and joist ids, so moving a door no longer moves a hole to
-  another stud (a fix);
-- a framed floor (B5);
-- wall sheathing and subfloor, priced per sheet;
-- a pegged timber frame (B6).
-
-B1-B6 frame from plugins alone and are priced; the object store is
-SeaweedFS. Finishing: sheathing priced per sheet, and stable roof member
-ids. Next, in order:
-- cuts that reach every body they meet (Objects To Cut), so a notch across
-  studs cuts the studs (a fix);
-- one common, not two, on stored L roofs (a fix);
-- a priced small house (B7), modelled to find the next gaps.
+B1-B7 build from the Build group alone and are priced; B7, a 24 x 16 ft
+house, prices to the last line once long members are spliced
+(integrating, with carpenter notation in length fields). Next, in order:
+- a bare number in a formula read in the part's unit, so `wall + 1/2` in
+  an inch part adds half an inch, not half a millimetre (a fix);
+- one outline sketch for a house's walls and floor, with the roof on the
+  walls, so making B7 4 ft longer is one dimension, not 8 edits;
+- openings measured from either wall end, so they stay put when a wall
+  grows;
+- a cut list that fits the screen, grouped by floor, walls and roof.
 
 ## Shipped
 
