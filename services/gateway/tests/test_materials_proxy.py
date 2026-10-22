@@ -18,6 +18,7 @@ from gateway.db import Base
 from gateway.main import GatewaySettings, build_app
 from loft_wire.lumber import LUMBER_PROFILES
 from loft_wire.materials import MATERIALS, MaterialLibraryResponse
+from loft_wire.sheet_goods import SHEET_GOODS, SHEET_SIZES
 from py_kit.db import async_dsn
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -58,7 +59,10 @@ def _library(seen: list[httpx.Request]) -> Handler:
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         body = MaterialLibraryResponse(
-            materials=list(MATERIALS), profiles=list(LUMBER_PROFILES)
+            materials=list(MATERIALS),
+            profiles=list(LUMBER_PROFILES),
+            sheet_goods=list(SHEET_GOODS),
+            sheet_sizes=list(SHEET_SIZES),
         )
         return httpx.Response(200, content=body.model_dump_json())
 

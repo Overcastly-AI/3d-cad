@@ -28,6 +28,7 @@ from loft_wire.features import (
 from loft_wire.sketch import classify_overconstraint
 
 from geometry.features.datum_angle import resolve_angle_plane
+from geometry.features.owner import face_owner_body_id
 from geometry.features.pipe import resolve_along_path_plane
 from geometry.features.sketch_projection import project_entities
 from geometry.features.state import (
@@ -110,7 +111,11 @@ def _resolve_datum_feature_plane(
 
 
 def _resolve_face_datum_plane(
-    face: SubshapeRef, offset_mm: float, state: EvaluationState
+    face: SubshapeRef,
+    offset_mm: float,
+    state: EvaluationState,
+    *,
+    body_id: uuid.UUID | None = None,
 ) -> Plane | FeatureError:
     """Resolve a stage-1 face reference to the face's (offset) sketch plane.
 
@@ -118,10 +123,17 @@ def _resolve_face_datum_plane(
     face sides — one taxonomy, datum-planes §7): no prior body, or a signature
     that no longer matches, is ``subshape_unresolved``; a congruent twin is
     ``subshape_ambiguous`` (refuse to guess — determinism, topo-naming §7.2).
-    Errors pin the named body feature as the upstream cause.
+    Errors pin the named body feature as the upstream cause. The face is
+    resolved on the body that owns it (:func:`face_owner_body_id`,
+    HOLE-ACTIVE-BODY), or on body *body_id* when the caller already found it.
     """
-    active = state.active_body
-    if active is None:
+    if body_id is None:
+        owner = face_owner_body_id(face, state)
+        if isinstance(owner, FeatureError):
+            return owner
+        body_id = owner
+    active = None if body_id is None else state.bodies[body_id]
+    if active is None or body_id is None:
         return FeatureError(
             code="subshape_unresolved",
             message=(
@@ -137,7 +149,7 @@ def _resolve_face_datum_plane(
             face.selector.signature,
             offset_mm,
             tally=state.subshape_tally,
-            face_names=state.face_names(),
+            face_names=state.body_face_names(body_id),
         )
     except SubshapeUnresolvedError as exc:
         return FeatureError(

@@ -194,7 +194,10 @@ class TestResolution:
         assert MATERIALS_BY_KEY["pla"].density_kg_m3 == 1240.0
         assert MATERIALS_BY_KEY["nylon_6"].density_kg_m3 == 1140.0
         assert MATERIALS_BY_KEY["white_oak"].density_kg_m3 == 759.0
-        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 15
+        # APA panel weights: 40 pcf = 640.7 and 36 pcf = 576.7 kg/m^3 (SHEATHING).
+        assert MATERIALS_BY_KEY["osb"].density_kg_m3 == 641.0
+        assert MATERIALS_BY_KEY["plywood"].density_kg_m3 == 577.0
+        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 17
 
     def test_a_2x10_x_12ft_spf_member_weighs_the_hand_calculation(self) -> None:
         """LUMBER-MATERIALS: the kernel measures the member, the library weighs it.

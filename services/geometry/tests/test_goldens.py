@@ -216,6 +216,8 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
     {
         "frame-moto-cradle-tube-od25.4-t1.6",
         "frame-bike-4-pipes-one-skeleton-head73",
+        # The same four Pipes on a 3D sketch skeleton (SKETCH-3D): same solid.
+        "frame-bike-3d-sketch-skeleton-4-pipes",
         # A 1.06e9 mm^3 sum of 46 solids: re-import order moves it by 2e-15.
         "b1-deck-framing-16ft",
         # The same deck from the loft.deck plugin, and its 20 ft edit (DECK).
@@ -231,6 +233,12 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         "b2-walls-door-moved-24",
         "b2-walls-window-30",
         "b2-walls-door-deleted",
+        # Those walls and B1's deck at 1.1.0 with a hole in one member, before
+        # and after the edit that renumbered 1.0.0 (WALL-MEMBER-RENUMBER).
+        "b2-walls-v1.1-hole-stud-128",
+        "b2-walls-v1.1-hole-door-moved-24",
+        "plugin-deck-v1.1-b1-16ft-hole-end-joist",
+        "plugin-deck-v1.1-b1-20ft-hole-end-joist",
         # The loft.roof B2 gable at 6/12 and 8/12 (ROOF): OCCT's STEP rounds
         # the sloped rafters' coordinates; a build123d twin drifts the same.
         "b2-roof-6-12",
@@ -252,6 +260,23 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # ~9.2e8 mm^3, the posts' bores re-integrated (1.5e-6 at worst).
         "b6-frame-12x16",
         "b6-frame-14x16",
+        # B3 at 1.3.0 with a hole in one rafter, before and after the edits
+        # that renumbered 1.2.0 (ROOF-MEMBER-RENUMBER): b3-hip's STEP rounding.
+        "b3-hip-v1.3-hole-common",
+        "b3-hip-v1.3-168-hole-common",
+        "b3-hip-v1.3-hole-jack",
+        "b3-hip-v1.3-8-12-hole-jack",
+        # An L at 1.2.0 framing one common where it framed two
+        # (ROOF-L-DOUBLED-COMMON): b4's STEP rounding (8.5e-4 measured).
+        "l-hip-16oc-v1.2-one-common",
+        # B5 sheathed: the floor's subfloor and B2's OSB walls on it
+        # (SHEATHING): the same summation drift over 98 bodies.
+        "b5-shed-sheathed",
+        # B2's walls with a notch across five members, and with a hole and a
+        # fillet on its first stud (CUT-OBJECTS-TO-CUT): B2's summation drift,
+        # 1.5e-7 and 7e-7 mm^3 on the volume.
+        "cut-objects-to-cut-b2-front-notch-studs-16-32-48",
+        "framing-hole-d1-fillet-r0.25-first-stud-b2",
     }
 )
 

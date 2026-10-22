@@ -17,6 +17,7 @@
  * line): the press-drag-release gesture is a single segment, so the next drag
  * starts a fresh line rather than being joined to the last one.
  */
+import { X_AXIS_REFERENCE, type AngleReference } from "./drawDimensions";
 import type { Point2D } from "./plane";
 import type { SnapAnchor } from "./snap";
 import type { PlacementResult, SketchEntity, SketchTool } from "./tools";
@@ -96,4 +97,42 @@ export function chainAfterResize(
   const line = entities.find((entity) => entity.id === ids[0]);
   if (line === undefined || line.kind !== "line") return null;
   return { pending: [line.end], snapAnchors: jointAnchor(line) };
+}
+
+/**
+ * What the next segment's ANGLE cell is measured from (SKETCH-LINE-ANGLE), as
+ * Fusion's Line does: a segment that CONTINUES an open chain measures from the
+ * segment before it, at the joint (the interior angle `AngleConstraint` reads
+ * there); any other line measures from the sketch X axis. The previous segment
+ * is the one whose end the chain's joint anchor names (`jointAnchor`), so the
+ * corner the angle is read at is the coincident that anchor authors.
+ */
+export function chainAngleReference(
+  tool: SketchTool,
+  pending: readonly Point2D[],
+  chainStart: Point2D | null,
+  anchors: readonly SnapAnchor[],
+  entities: readonly SketchEntity[],
+): AngleReference {
+  const [from] = pending;
+  if (tool !== "line" || pending.length !== 1 || from === undefined) {
+    return X_AXIS_REFERENCE;
+  }
+  // The chain's first segment starts AT the chain start: nothing before it.
+  if (chainStart === null || samePoint(from, chainStart)) {
+    return X_AXIS_REFERENCE;
+  }
+  for (const anchor of anchors) {
+    if (anchor.ref.point !== "end" || !samePoint(anchor.at, from)) continue;
+    const previous = entities.find((e) => e.id === anchor.ref.entity);
+    if (previous?.kind !== "line") continue;
+    return {
+      entity: previous.id,
+      direction: {
+        x: previous.start.x - previous.end.x,
+        y: previous.start.y - previous.end.y,
+      },
+    };
+  }
+  return X_AXIS_REFERENCE;
 }

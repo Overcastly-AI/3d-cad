@@ -18,10 +18,10 @@ walk is needed; deleting a drawing simply cascades its whole layout.
 """
 
 import uuid
-from collections.abc import Mapping
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Query, status
+from loft_wire.drawing_bom import PartsListStructure
 from loft_wire.drawings import (
     MAX_DRAWING_ANNOTATIONS,
     MAX_DRAWING_DIMENSIONS,
@@ -74,12 +74,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from documents import db
-from documents.bom import (
-    direct_quantities,
-    line_name,
-    parse_pattern_counts,
-    resolve_document_names,
-)
+from documents.bom import BomViews, bom_views, parse_pattern_counts
 from documents.filing import resolve_destination
 from documents.parts import (
     Principal,
@@ -643,48 +638,43 @@ async def _bom_source_assembly(
     return sheet, assembly
 
 
-async def _bom_lines(
-    session: AsyncSession,
-    assembly: db.Assembly,
-    counts: Mapping[uuid.UUID, int],
-    unresolved: set[uuid.UUID],
-) -> list[DrawingBomLine]:
-    """Number the assembly's direct instances into drawing BOM lines (design §7).
+def _bom_lines(views: BomViews, structure: PartsListStructure) -> list[DrawingBomLine]:
+    """Number the assembly's BOM in the sheet's *structure* (design §7).
 
     **Item numbers are DERIVED here, never stored** (the identity decision, design
-    §7.1): the instances are walked in the assembly's own stable ``order_index``
-    (its display/BOM order) and each referenced document takes the next item number
-    at its FIRST appearance, quantities accumulating onto that line. Consequences,
-    stated: a part RENAME never renumbers (unlike the name-sorted
-    ``GET /assemblies/{id}/bom``, whose order is a display convenience); adding,
-    removing, or reordering an instance does — a real edit, and the reason nothing
-    downstream may cache a number.
+    §7.1): *views* keep first-appearance order over the assembly's own stable
+    ``order_index`` at every level (``bom_views(by_name=False)``), and each line
+    takes the next number at its level. Consequences, stated: a part RENAME never
+    renumbers (unlike the name-sorted ``GET /assemblies/{id}/bom``, whose order
+    is a display convenience); adding, removing, or reordering an instance does —
+    a real edit, and the reason nothing downstream may cache a number.
 
-    TOP LEVEL, the same lines and quantities as the assembly BOM's ``lines``
-    (SolidWorks' default for a drawing parts list): a rigid sub-assembly instance
-    is a single ``kind: "assembly"`` line, ballooned once; its contents are on the
-    assembly BOM's indented and parts-only views. A referenced document deleted while
-    still instanced keeps its line with ``missing`` true and a null name — the
-    quantity is never silently dropped. A component pattern's copies count on
-    their seed's line (ASM-A3; see :func:`documents.bom.direct_quantities`); a
-    mirror's opposite-hand twins are an item of their own, after the instances
-    (ASM-MIRROR-COMPONENT).
+    TOP LEVEL (the default, SolidWorks' and Fusion's): a rigid sub-assembly is a
+    single ``kind: "assembly"`` line. INDENTED keeps those numbers and numbers
+    each sub-assembly's own lines beneath it (4.1, 4.2, ...). PARTS ONLY numbers
+    every part at every level 1..n, in the order the indented walk first meets
+    it. A referenced document deleted while still instanced keeps its line with
+    ``missing`` true and a null name. A component pattern's copies count on
+    their seed's line; a mirror's opposite-hand twins are an item of their own,
+    after the instances (ASM-MIRROR-COMPONENT).
     """
-    quantities = await direct_quantities(session, assembly.id, counts, unresolved)
-    names = await resolve_document_names(
-        session, assembly.owner_id, {(ref_id, kind) for ref_id, kind, _ in quantities}
-    )
+    if structure == "indented":
+        return [
+            DrawingBomLine(
+                **line.model_dump(), item_number=int(line.item.rsplit(".", 1)[-1])
+            )
+            for line in views.indented
+        ]
+    lines = views.parts_only if structure == "parts_only" else views.lines
     return [
         DrawingBomLine(
-            item_number=index + 1,
-            ref_document_id=key[0],
-            ref_document_kind=key[1],
-            name=line_name(names, key),
-            missing=(key[0], key[1]) not in names,
-            quantity=count,
-            opposite_hand=key[2],
+            **line.model_dump(),
+            item=str(index),
+            item_number=index,
+            level=0,
+            total_quantity=line.quantity,
         )
-        for index, (key, count) in enumerate(quantities.items())
+        for index, line in enumerate(lines, start=1)
     ]
 
 
@@ -727,18 +717,20 @@ async def get_drawing_bom(
     """
     drawing = await get_owned_drawing(session, owner_id, drawing_id)
     sheet_row, assembly = await _bom_source_assembly(session, owner_id, drawing, sheet)
-    unresolved: set[uuid.UUID] = set()
-    lines = await _bom_lines(
-        session, assembly, parse_pattern_counts(pattern_count or []), unresolved
+    views = await bom_views(
+        session, assembly, parse_pattern_counts(pattern_count or []), by_name=False
     )
+    structure = cast(PartsListStructure, sheet_row.parts_list_structure)
     return DrawingBomResponse(
         drawing_id=drawing.id,
         sheet_id=sheet_row.id,
         assembly_id=assembly.id,
         assembly_version=assembly.doc_version,
-        lines=lines,
-        total_instances=sum(line.quantity for line in lines),
-        unresolved_patterns=sorted(unresolved, key=str),
+        structure=structure,
+        lines=_bom_lines(views, structure),
+        total_instances=sum(line.quantity for line in views.lines),
+        total_parts=sum(line.quantity for line in views.parts_only),
+        unresolved_patterns=sorted(views.unresolved, key=str),
     )
 
 
@@ -852,10 +844,11 @@ async def update_sheet(
         and request.orientation is None
         and request.projection is None
         and request.title_block is None
+        and request.parts_list_structure is None
     ):
         raise ValidationApiError(
-            "Provide at least one of name, size, orientation, projection, or "
-            "title_block.",
+            "Provide at least one of name, size, orientation, projection, "
+            "title_block, or parts_list_structure.",
             code="empty_sheet_update",
         )
     drawing = await get_owned_drawing(session, owner_id, drawing_id, for_update=True)
@@ -872,6 +865,8 @@ async def update_sheet(
         sheet.projection = request.projection
     if request.title_block is not None:
         sheet.title_block = request.title_block.model_dump(mode="json")
+    if request.parts_list_structure is not None:
+        sheet.parts_list_structure = request.parts_list_structure
 
     drawing.doc_version += 1
     await session.commit()

@@ -182,7 +182,14 @@ def apply_table_change(
     # Every change is computed before any row is touched: a rename that a
     # feature cannot take refuses the whole PUT.
     changes: list[tuple[db.Feature, AuthoredEnvelope]] = []
-    from documents.custom_features import Hosts, expanded_size, retabled, row_size
+    from documents.custom_features import (
+        Hosts,
+        check_referenced_members,
+        expanded_size,
+        picked_ids,
+        retabled,
+        row_size,
+    )
 
     renamed_by_id: dict[uuid.UUID, AuthoredEnvelope] = {}
     for row, envelope in loaded:
@@ -214,15 +221,25 @@ def apply_table_change(
     # stored members, as a formula that no longer resolves keeps its numbers;
     # the next evaluation reports it (plugin_expansion_too_large).
     size = expanded_size(rows)
-    for row, envelope in loaded:
+    # A custom feature that picks one this change rewrites (a roof on a wall
+    # that reads the table) is re-expanded on the rewritten features and held
+    # to the same check, transitively in tree order (ROOF-MEMBER-RENUMBER).
+    rewritten: dict[uuid.UUID, AuthoredEnvelope] = {}
+    for row, envelope in sorted(loaded, key=lambda item: item[0].order_index):
         renamed = renamed_by_id.get(row.id)
-        if renamed is None or not reads_table(row, renamed):
+        if renamed is None:
+            continue
+        picks_rewritten = not picked_ids(renamed).isdisjoint(rewritten)
+        if not picks_rewritten and not reads_table(row, renamed):
             continue
         resolved: AuthoredEnvelope
         if isinstance(renamed, CustomFeature):
             resolved = renamed
-            expanded = retabled(row, renamed, rows, values, hosts)
+            expanded = retabled(row, renamed, rows, values, hosts, rewritten)
             if expanded is not None:
+                # A re-expansion that removes, or renumbers, a member a later
+                # feature references is refused as an edit of it would be.
+                check_referenced_members(row, expanded.params.expansion or [], rows)
                 grown = len(expanded.params.expansion or []) - row_size(row)
                 if size + grown <= MAX_TREE_FEATURES:
                     resolved, size = expanded, size + grown
@@ -233,5 +250,6 @@ def apply_table_change(
                 resolved = renamed
         if resolved.model_dump(mode="json") != envelope.model_dump(mode="json"):
             changes.append((row, resolved))
+            rewritten[row.id] = resolved
     for row, resolved in changes:
         _store(row, resolved)

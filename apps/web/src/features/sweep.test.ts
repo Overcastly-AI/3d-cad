@@ -64,6 +64,7 @@ describe("defaultSweepForm", () => {
       pathFeatureId: "s2",
       operation: "add",
       merge: true,
+      cutBodies: "all",
       twistInput: "",
     });
   });
@@ -202,9 +203,11 @@ describe("twist along path (TWIST-TO-SWEEP)", () => {
       ...twisted,
       path: { kind: "feature", feature_id: "s3" },
     });
+    // An add switched to a cut is a NEW cut: every body it meets.
     expect(buildSweepParams({ ...form, operation: "cut" })).toEqual({
       ...twisted,
       operation: "cut",
+      cut_bodies: "all",
     });
     expect(buildSweepParams({ ...form, merge: false })).toEqual({
       ...twisted,

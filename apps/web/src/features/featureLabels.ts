@@ -11,6 +11,7 @@
  * so it falls through to the raw type.
  */
 const FEATURE_TYPE_LABEL: Record<string, string> = {
+  sketch_3d: "3D sketch",
   sheet_metal_base_flange: "base flange",
   sheet_metal_edge_flange: "edge flange",
   sheet_metal_hem: "hem",

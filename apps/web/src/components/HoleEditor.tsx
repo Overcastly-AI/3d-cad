@@ -52,6 +52,8 @@ import {
 
 import { useCommandBridge } from "../features/commandActions";
 import { EditorCard } from "./EditorCard";
+import { HoleFeatureScope } from "./HoleFeatureScope";
+import type { BodyInfo } from "../features/bodies";
 import { ValueField } from "./ValueField";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 import { useDocumentLengthUnit } from "../units/documentUnit";
@@ -215,6 +217,8 @@ export interface HoleEditorProps {
   diameterOverride?: { mm: number } | null;
   /** A blind depth asserted by the viewport's depth gauge, boxed the same way. */
   depthOverride?: { mm: number } | null;
+  /** The part's bodies, for the Feature Scope list (HOLE-SCOPE-UI). */
+  scopeBodies?: readonly BodyInfo[];
   /**
    * The live bore and depth in canonical mm, published on every keystroke so
    * the viewport can stand its gauges and draw the bore before Save. Null on
@@ -400,6 +404,7 @@ export function HoleEditor({
   diameterOverride = null,
   depthOverride = null,
   onGaugeChange,
+  scopeBodies,
 }: HoleEditorProps) {
   const unit = useDocumentLengthUnit();
   // THE ECHO (direction contract β). Each field must take the number its gauge
@@ -1011,6 +1016,11 @@ export function HoleEditor({
               onFocus={(e) => e.currentTarget.select()}
             />
           ) : null}
+          <HoleFeatureScope
+            form={form}
+            bodies={scopeBodies}
+            onChange={(update) => setForm(update)}
+          />
 
           {/* Type — a plain bore, or a coaxial recess at the face (a
               counterbore cylinder for a cap screw, a countersink cone for a

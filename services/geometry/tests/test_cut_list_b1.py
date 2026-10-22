@@ -52,15 +52,16 @@ B1_TABLE = [
 _PT = '"Southern pine, pressure-treated"'
 B1_CSV = (
     "Item,Member,Profile,Section (in),Material,Qty,Length (in),"
-    "Total length (in),Stock,Waste each (in),Stock qty,Unit price (USD),"
+    "Total length (in),Area (sq in),Stock,Waste each (in),"
+    "Stock qty,Unit price (USD),"
     "Price unit,Extended (USD)\r\n"
-    f"1,Ledger,2x10,1.5 x 9.25,{_PT},1,192,192,16 ft,0,1,,,\r\n"
-    f"2,Rim,2x10,1.5 x 9.25,{_PT},1,192,192,16 ft,0,1,,,\r\n"
-    f"3,Beam,2x10,1.5 x 9.25,{_PT},2,192,384,16 ft,0,2,,,\r\n"
-    f"4,Joist,2x10,1.5 x 9.25,{_PT},13,141,1833,12 ft,3,13,,,\r\n"
-    f"5,Post,6x6,5.5 x 5.5,{_PT},3,10.5,31.5,8 ft,85.5,3,,,\r\n"
-    f"6,Deck,5/4x6,1 x 5.5,{_PT},26,192,4992,16 ft,0,26,,,\r\n"
-    ',"Total of priced lines, 6 unpriced",,,,,,,,,,,,\r\n'
+    f"1,Ledger,2x10,1.5 x 9.25,{_PT},1,192,192,,16 ft,0,1,,,\r\n"
+    f"2,Rim,2x10,1.5 x 9.25,{_PT},1,192,192,,16 ft,0,1,,,\r\n"
+    f"3,Beam,2x10,1.5 x 9.25,{_PT},2,192,384,,16 ft,0,2,,,\r\n"
+    f"4,Joist,2x10,1.5 x 9.25,{_PT},13,141,1833,,12 ft,3,13,,,\r\n"
+    f"5,Post,6x6,5.5 x 5.5,{_PT},3,10.5,31.5,,8 ft,85.5,3,,,\r\n"
+    f"6,Deck,5/4x6,1 x 5.5,{_PT},26,192,4992,,16 ft,0,26,,,\r\n"
+    ',"Total of priced lines, 6 unpriced",,,,,,,,,,,,,\r\n'
 )
 
 

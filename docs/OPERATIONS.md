@@ -23,9 +23,18 @@ you trust any of it.
 | ------------------------- | --------------------------------------------------------------------------------------------- | --------- |
 | Postgres `loft_gateway`   | users, password hashes                                                                        | **yes**   |
 | Postgres `loft_documents` | parts, feature trees, assemblies, drawings, undo snapshots, materials, inline STEP of imports | **yes**   |
-| MinIO / S3 bucket         | content-addressed meshes and drawing artifacts                                                | no        |
+| S3 bucket (SeaweedFS)     | content-addressed meshes, drawing artifacts and thumbnails                                    | no        |
 | Redis                     | rate-limit counters, job queue                                                                | no        |
 | `.loft` files users export | one part's tree and cached body; no undo history, drawings, assemblies or accounts ([FILE-FORMAT.md](./FILE-FORMAT.md)) | **not a backup** |
+
+The bundled object store is SeaweedFS (Apache-2.0), the `seaweedfs` compose
+service: one container running `weed server -s3`, pinned by image tag and
+digest. It creates `S3_BUCKET` at startup and reports healthy only once the
+bucket exists and accepts its own credentials. To use any other S3 instead
+(AWS, Cloudflare R2, an existing MinIO), set `S3_URL`, `S3_REGION`,
+`S3_BUCKET`, `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` in `.env` and create
+the bucket yourself. Geometry uses path-style requests, which all of these
+accept. The bundled container keeps running but holds nothing.
 
 The object store holds only artifacts derived from Postgres. Evaluation is
 deterministic, so a restored part re-derives a bit-identical mesh with the same
@@ -85,7 +94,7 @@ Downgrades are not supported.
 ```bash
 just backup /srv/loft/pre-upgrade      # always first
 git pull && docker compose build
-docker compose up -d --wait db redis minio
+docker compose up -d --wait --remove-orphans db redis seaweedfs
 for s in gateway documents; do
   docker compose run --rm --no-deps "$s" alembic -c /app/migrations/alembic.ini upgrade head
 done
@@ -97,6 +106,67 @@ Migrations only go forward, and run from the images. To roll back, restore the
 pre-upgrade backup with the old tag's images.
 
 ### Upgrade notes
+
+- **Object store: MinIO -> SeaweedFS (2026-10-21).** The bundled store is now
+  SeaweedFS, because MinIO is AGPL-3.0 and no longer maintained upstream. The
+  `minio` and `minio-init` services and the locally built `loft-minio` image
+  are gone; the new `seaweedfs` service pulls a pinned image and creates the
+  bucket itself. Run `docker compose up -d --remove-orphans` once so compose
+  removes the old containers.
+  - **Rename these in `.env`.** The old names still work for one release,
+    when the new one is unset, and are then removed:
+
+    | Old (deprecated)      | New                    |
+    | --------------------- | ---------------------- |
+    | `MINIO_ROOT_USER`     | `S3_ACCESS_KEY_ID`     |
+    | `MINIO_ROOT_PASSWORD` | `S3_SECRET_ACCESS_KEY` |
+    | `MINIO_PORT`          | `S3_PORT`              |
+    | `MINIO_CONSOLE_PORT`  | none: SeaweedFS has no console here; ignored |
+
+    The defaults changed too (`loft-s3` / `loft-s3-dev-only`). Outside
+    `LOFT_ENV=dev`, geometry still refuses both the old and the new default
+    secret.
+  - **Your data does not need to move.** The bucket is a cache of meshes,
+    drawings and thumbnails derived from Postgres (section 1). The new store
+    starts empty and each part rebuilds once, the first time it is opened. The
+    old volume, `loft_minio-data`, is left in place.
+  - **To carry the cache across anyway,** start the old server on its volume
+    on a spare port, then copy with `rclone` (or `aws s3 sync` through a local
+    directory, since it cannot copy between two endpoints):
+
+    ```bash
+    docker compose up -d --wait seaweedfs
+    docker run -d --name loft-minio-old -p 127.0.0.1:9100:9000 \
+      -v loft_minio-data:/data -e MINIO_ROOT_USER=<old user> \
+      -e MINIO_ROOT_PASSWORD=<old password> loft-minio server /data
+    export RCLONE_CONFIG_OLD_TYPE=s3 RCLONE_CONFIG_OLD_PROVIDER=Minio \
+      RCLONE_CONFIG_OLD_ENDPOINT=http://127.0.0.1:9100 \
+      RCLONE_CONFIG_OLD_ACCESS_KEY_ID=<old user> \
+      RCLONE_CONFIG_OLD_SECRET_ACCESS_KEY=<old password>
+    export RCLONE_CONFIG_NEW_TYPE=s3 RCLONE_CONFIG_NEW_PROVIDER=SeaweedFS \
+      RCLONE_CONFIG_NEW_ENDPOINT=http://127.0.0.1:9000 \
+      RCLONE_CONFIG_NEW_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID" \
+      RCLONE_CONFIG_NEW_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
+    rclone copy old:loft new:loft --checksum --progress
+    docker rm -f loft-minio-old
+    ```
+
+    `loft-minio` is the image the old compose file built. If you pruned it,
+    `docker compose build minio` in a checkout of the previous release builds
+    it again. The bucket name is your `S3_BUCKET` (`loft` by default). When you
+    are satisfied, `docker volume rm loft_minio-data`.
+  - **To keep an existing MinIO** (or any S3) instead, point `S3_URL` and the
+    `S3_*` credentials at it, as in section 1.
+- **Price book saves are versioned (PRICE-BOOK-VERSION, migration 0023).**
+  `PUT /api/v1/price-book` now requires `If-Match` with the book's version
+  (the `ETag` and `version` of the `GET`; `"0"` for a book never saved). A
+  save without it is refused with **428** `price_book_version_required`, and
+  one drafted from a book saved since with **412** `price_book_stale`
+  (`details.version` is the current version); neither changes the book.
+  The web app sends it; a script or integration that PUTs the book must GET
+  it first and send its `ETag` back. Existing books start at version 1.
+  Migration 0023 also adds per-sheet prices; its downgrade drops the version
+  and DELETES sheet prices (lumber prices are kept), so back up first.
 
 - **Sketch solver build (SKETCH-SOLVE-HEAP-ORDER).** Geometry now builds the
   sketch solver with a patch that makes solves independent of memory layout
@@ -216,7 +286,7 @@ is down. STEP import is capped at 20 CPU-seconds and a 16 MiB upload.
   trusts the gateway's `X-Loft-User` header. `scripts/check-compose.py`
   gates this.
 - Set `LOFT_ENV=production`, a real `JWT_SECRET` (at least 32 characters),
-  `POSTGRES_PASSWORD` and `MINIO_ROOT_PASSWORD`. Outside dev, the services
+  `POSTGRES_PASSWORD` and `S3_SECRET_ACCESS_KEY`. Outside dev, the services
   refuse to boot on the dev defaults.
 - Session limits: `SESSION_IDLE_TTL_S` (24 h, sliding), `SESSION_MAX_AGE_S`
   (7 d) and `JWT_TTL_S` (1 h), checked at boot. The refresh cookie is

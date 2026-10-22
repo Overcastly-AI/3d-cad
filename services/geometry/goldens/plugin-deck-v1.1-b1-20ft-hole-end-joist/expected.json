@@ -1,0 +1,54 @@
+{
+  "description": "WALL-MEMBER-RENUMBER acceptance: plugin-deck-v1.1-b1-16ft-hole-end-joist after B1's edit, width 16 -> 20 ft (plugin-deck-v1-b1-20ft's deck at 1.1.0), the hole moved with the end joist to X 239.25. The Boolean still names joist/end. Under 1.0.0 the same reference (joist/12) would name the layout joist at 192: documents refuses that edit with a 409 instead.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC, derived in services/geometry/tests/test_member_renumber.py (derived()) from the BASE golden's hand-derived expected.json and the cylinder's closed form, never from the kernel; that test asserts this file equals the derivation.",
+    "",
+    "bore = 0.375 pi in^3, area change pi in^2, centre (239.25, 72, 24.375) in.",
+    "",
+    "volume = plugin-deck-v1-b1-20ft's 80212.5 in^3 - 0.375 pi in^3, x 25.4^3; centroid, mass (582 kg/m^3 PT) and centre of mass re-weighted from the base's by the bore.",
+    "",
+    "bounding_box: unchanged. topology: the base's + 1 face + 3 edges = 301, 603, 50.",
+    "",
+    "MESH counts are the kernel's, recorded."
+  ],
+  "tolerance": 1e-5,
+  "tolerance_rationale": "Measured 2026-10-17: 1.7e-6 mm^3 on the volume, 6.0e-8 mm^2 on the area, <= 3.2e-12 mm on the centroid and centre of mass, 5.8e-10 g on the mass. 1e-5 is plugin-deck-v1-b1-20ft's bound, 6x the worst.",
+  "roundtrip_tolerance": 1e-5,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-17: the STEP round trip moves the volume by 2.1e-6 mm^3 (the base golden 1.4e-6), the area by 4.5e-8 mm^2 and the centroid by 6.8e-12 mm. 1e-5 is the base golden's bound, 4.7x the worst; volume and area only.",
+  "properties": {
+    "volume": 1314428065.5450463,
+    "surface_area": 98241185.18991639,
+    "centroid": {
+      "x": 3047.9555125440415,
+      "y": 1975.9573403853176,
+      "z": 647.6205017356657
+    },
+    "mass_g": 764997.1341472169,
+    "center_of_mass": {
+      "x": 3047.9555125440415,
+      "y": 1975.9573403853178,
+      "z": 647.6205017356658
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 6096.0,
+        "y": 3711.575,
+        "z": 762.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 301,
+    "edges": 603,
+    "shells": 50
+  },
+  "mesh": {
+    "vertices": 1706,
+    "triangles": 1108
+  }
+}

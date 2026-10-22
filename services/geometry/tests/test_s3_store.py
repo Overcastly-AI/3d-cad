@@ -1,20 +1,22 @@
-"""S3/MinIO mesh-store tests — the §7.8 object-storage swap.
+"""S3 mesh-store tests — the §7.8 object-storage swap.
 
 Exercises the S3 code path against **moto**'s in-process S3 HTTP server
 (``ThreadedMotoServer``, Apache-2.0) so the store's real boto3 put/get travels a
-genuine HTTP round-trip against a MinIO-shaped endpoint (path-style addressing):
+genuine HTTP round-trip against a path-style S3 endpoint (as SeaweedFS serves):
 put/get round-trip, content-address correctness, miss→None, idempotent put, the
 content-addressed (tenant-free) key scheme, and the config-driven backend
 selection + single-worker-guard lift.
 
 **The cross-process property (CI-verified).** moto runs in this one process, so
 it cannot prove the *cross-process* property the swap exists for: an evaluate on
-one worker/replica and a fetch on another see one shared store. That real-MinIO
-evaluate→fetch smoke needs a live MinIO + docker daemon (unavailable in this
-sandbox), so it is gated on ``LOFT_MINIO_SMOKE`` and runs in the dedicated
-``geometry-minio-smoke`` CI job (``.github/workflows/ci.yml``), which boots MinIO
-and provisions the mesh bucket. Under the default (no-MinIO) ``uv run pytest`` it
-skips cleanly. See ``test_real_minio_cross_process_smoke_is_ci_gated`` below,
+one worker/replica and a fetch on another see one shared store. That real-store
+evaluate→fetch smoke needs a live S3 server, so it is gated on ``LOFT_S3_SMOKE``
+and runs in the dedicated ``geometry-s3-smoke`` CI job
+(``.github/workflows/deploy-path.yml``), which boots the bundled SeaweedFS (bucket
+created at boot). Locally, point it at a native ``weed`` booted through
+``deploy/docker/seaweedfs/entrypoint.sh``. Under the default (no-store)
+``uv run pytest`` it skips cleanly. See
+``test_real_s3_cross_process_smoke_is_ci_gated`` below,
 docs/design/feature-tree.md §7.8, and docs/GEOMETRY-QA.md.
 """
 
@@ -72,7 +74,7 @@ def _restore_active_store() -> Iterator[None]:
 def s3() -> Iterator[str]:
     """An in-process S3 HTTP server (moto) with the mesh bucket provisioned.
 
-    Yields the endpoint URL. A real HTTP S3 endpoint (path-style, MinIO-shaped)
+    Yields the endpoint URL. A real HTTP S3 endpoint (path-style)
     so the store's boto3 put/get is genuinely exercised end-to-end.
     """
     server = ThreadedMotoServer(ip_address="127.0.0.1", port=0)
@@ -203,12 +205,13 @@ def test_module_functions_route_through_configured_s3_backend(s3: str) -> None:
     assert fetch_mesh_glb(key) == glb  # fetch-reader path, same shared store
 
 
-# --- CI-gated acceptance: real-MinIO cross-process smoke --------------------
+# --- CI-gated acceptance: real-object-store cross-process smoke -------------
 
-#: Truthy only in the ``geometry-minio-smoke`` CI job, which boots a real MinIO
-#: and points S3_URL/S3_BUCKET/creds at it. Unset everywhere else (the default
-#: ``uv run pytest``), so this smoke skips cleanly without a live object store.
-_MINIO_SMOKE = os.environ.get("LOFT_MINIO_SMOKE")
+#: Truthy only in the ``geometry-s3-smoke`` CI job, which boots the bundled
+#: SeaweedFS and points S3_URL/S3_BUCKET/creds at it. Unset everywhere else (the
+#: default ``uv run pytest``), so this smoke skips cleanly without a live store.
+#: ``LOFT_MINIO_SMOKE`` is the deprecated name, honoured for one release.
+_S3_SMOKE = os.environ.get("LOFT_S3_SMOKE") or os.environ.get("LOFT_MINIO_SMOKE")
 
 #: The **reader** half (process B), run as a genuinely separate OS process. It
 #: builds its OWN store instance (fresh boto3 client, no shared in-memory state
@@ -238,19 +241,20 @@ sys.stdout.buffer.write(glb)
 
 
 @pytest.mark.skipif(
-    not _MINIO_SMOKE,
+    not _S3_SMOKE,
     reason=(
-        "Real-MinIO cross-process evaluate->fetch smoke: set LOFT_MINIO_SMOKE=1 "
-        "with a live MinIO (S3_URL/S3_BUCKET/creds). Runs in the geometry-minio-"
-        "smoke CI job (.github/workflows/ci.yml); skipped in the default no-MinIO "
+        "Real-object-store cross-process evaluate->fetch smoke: set LOFT_S3_SMOKE=1 "
+        "with a live S3 server (S3_URL/S3_BUCKET/creds). Runs in the geometry-s3-"
+        "smoke CI job (.github/workflows/deploy-path.yml); skipped in the default "
+        "no-store "
         "suite. moto proves the S3 code path in-process; this job proves the "
         "cross-process topology the swap exists for. See "
         "docs/design/feature-tree.md §7.8 and docs/GEOMETRY-QA.md."
     ),
 )
-def test_real_minio_cross_process_smoke_is_ci_gated() -> None:
+def test_real_s3_cross_process_smoke_is_ci_gated() -> None:
     """Evaluate-writer stores on one process; a SEPARATE process fetches and gets
-    byte-identical bytes from the same MinIO — the multi-worker/replica property
+    byte-identical bytes from the same store — the multi-worker/replica property
     the in-process LRU could never provide (design §7.8, engineering audit F6).
 
     Process A (this pytest process): its own S3-backed store, via the real
@@ -272,7 +276,7 @@ def test_real_minio_cross_process_smoke_is_ci_gated() -> None:
         s3_secret_access_key=os.environ.get("S3_SECRET_ACCESS_KEY"),
         s3_region=os.environ.get("S3_REGION", "us-east-1"),
     )
-    glb = b"loft-minio-cross-process-smoke-" + os.urandom(32)
+    glb = b"loft-s3-cross-process-smoke-" + os.urandom(32)
     mesh_id = store_mesh_glb(glb)
     assert mesh_id == mesh_glb_key(glb)
 

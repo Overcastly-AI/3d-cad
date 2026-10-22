@@ -18,7 +18,7 @@
 #                   ordinary feature-tree persistence, docs/design/step-import.md
 #                   §2b), so an imported part is inside the dump too.
 #
-# The MinIO/S3 bucket is NOT backed up, on purpose. It holds only
+# The S3 bucket (SeaweedFS, or an external store) is NOT backed up, on purpose. It holds only
 # content-addressed DERIVED artifacts — `meshes/sha256/<hex>.glb` and composed
 # drawing artifacts keyed on a hash of the compose inputs. Both are pure
 # functions of data that IS in Postgres (RESEARCH §9 determinism), so copying

@@ -33,6 +33,7 @@ from geometry.kernel.edges import (
     ResolvedEdge,
     durable_edge_match,
     edge_adjacency,
+    edge_match_tier,
     edge_signature_dto,
     enumerate_edges,
     enumerate_edges_with_adjacency,
@@ -73,6 +74,7 @@ from geometry.kernel.faces import (
     PlanarFaceRecord,
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
+    face_match_tier,
     planar_faces,
     resolve_face_plane,
     resolve_faces,
@@ -146,7 +148,7 @@ from geometry.kernel.provenance import (
     FaceProvenanceRecorder,
     attribute_faces,
 )
-from geometry.kernel.removal import removal_reaches_body
+from geometry.kernel.removal import bounds_apart, removal_reaches_body
 from geometry.kernel.resolution import ResolutionTally
 from geometry.kernel.revolve import (
     AxisIntersectsProfileError,
@@ -285,6 +287,7 @@ __all__ = [
     "boolean_bodies_measured",
     "bore_hole",
     "bore_tool",
+    "bounds_apart",
     "build_box",
     "build_cylinder",
     "build_datum_plane",
@@ -313,6 +316,7 @@ __all__ = [
     "draft_body",
     "durable_edge_match",
     "edge_adjacency",
+    "edge_match_tier",
     "edge_signature_dto",
     "enumerate_edges",
     "enumerate_edges_with_adjacency",
@@ -328,6 +332,7 @@ __all__ = [
     "export_stl_assembly_bytes",
     "export_stl_bytes",
     "extrude_face",
+    "face_match_tier",
     "fillet_body",
     "find_zero_width_slits",
     "format_designation",

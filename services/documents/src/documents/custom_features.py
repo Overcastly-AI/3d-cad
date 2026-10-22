@@ -168,11 +168,13 @@ def is_body_affecting(row: db.Feature) -> bool:
 
 def _earlier_from_rows(
     rows: Sequence[db.Feature],
+    overrides: Mapping[uuid.UUID, AuthoredEnvelope] | None = None,
 ) -> dict[uuid.UUID, AuthoredEnvelope]:
-    """Every row's envelope by id, and every stored member's by member id."""
+    """Every row's envelope by id, and every stored member's by member id.
+    *overrides* replaces a row's stored envelope (a write not yet stored)."""
     earlier: dict[uuid.UUID, AuthoredEnvelope] = {}
     for row in rows:
-        envelope = load_feature(row)[0]
+        envelope = (overrides or {}).get(row.id) or load_feature(row)[0]
         earlier[row.id] = envelope
         if isinstance(envelope, CustomFeature):
             for member in envelope.params.expansion or []:
@@ -305,23 +307,126 @@ def check_members_authorable(
         prior_body = prior_body or feature.type in BODY_AFFECTING_FEATURE_TYPES
 
 
-def _check_vanished_members(
+def _placements(members: Sequence[Mapping[str, Any]]) -> dict[uuid.UUID, Any]:
+    """Each member's PLACEMENT: its feature as JSON with every reference to
+    another member of the same expansion replaced by that member's placement,
+    and an extrude's distance left out (WALL-MEMBER-RENUMBER). Two members
+    with one placement sit in the same place in plan and on the same plane,
+    whatever their ids; a member whose placement changed has moved (or, under
+    an ordinal id, been renumbered). A taller wall's studs keep theirs."""
+    table = {uuid.UUID(str(m["id"])): m["feature"] for m in members}
+    memo: dict[uuid.UUID, Any] = {}
+
+    def substitute(node: Any) -> Any:
+        if isinstance(node, dict):
+            fields = cast(dict[str, Any], node)
+            target = fields.get("feature_id")
+            if fields.get("kind") == "feature" and isinstance(target, str):
+                ref = uuid.UUID(target)
+                if ref in table:
+                    return {"member": place(ref)}
+            return {key: substitute(value) for key, value in fields.items()}
+        if isinstance(node, list):
+            return [substitute(item) for item in cast(list[Any], node)]
+        return node
+
+    def place(member: uuid.UUID) -> Any:
+        if member not in memo:
+            feature = dict(cast(dict[str, Any], table[member]))
+            if feature.get("type") == "extrude":
+                params = dict(cast(dict[str, Any], feature.get("params", {})))
+                params.pop("distance_mm", None)
+                feature["params"] = params
+            memo[member] = substitute(feature)
+        return memo[member]
+
+    return {member: place(member) for member in table}
+
+
+def _normalised(member: Mapping[str, Any]) -> Mapping[str, Any]:
+    """A stored member as this server would dump it, so a field a later
+    loft-wire added (and omits while default) never reads as a move."""
+    try:
+        return ExpandedMember.model_validate(member).model_dump(mode="json")
+    except ValidationError:
+        return member
+
+
+def _renumbered_roles(
+    stored: db.Feature, envelope_pin: tuple[str, str]
+) -> frozenset[str]:
+    """The roles whose ordinal ids a re-layout can hand to another member,
+    for a stored custom feature re-expanded under the SAME pin (a changed pin
+    names its members afresh, so only a vanished reference counts there)."""
+    pin = (
+        str(stored.params.get("plugin_id")),
+        str(stored.params.get("plugin_version")),
+    )
+    if pin != envelope_pin:
+        return frozenset()
+    try:
+        return PLUGINS.get(*pin).renumbered_roles
+    except PluginError:
+        return frozenset()
+
+
+def check_referenced_members(
     stored: db.Feature,
     members: Sequence[ExpandedMember],
     rows: Sequence[db.Feature],
+    pin: tuple[str, str] | None = None,
 ) -> None:
     """409 ``feature_has_dependents`` when a re-expansion drops (or retypes) a
     member a later feature references: the same refusal a delete of that
-    feature would get, raised at the write instead of as a rebuild error."""
+    feature would get, raised at the write instead of as a rebuild error.
+
+    Also when it MOVES a referenced member whose id is an ordinal a re-layout
+    can renumber (``loft.wall`` 1.0.0's ``stud/6``, WALL-MEMBER-RENUMBER):
+    the reference cannot tell the stud that moved from another stud that
+    took its number, and SolidWorks and Fusion flag such a reference rather
+    than rebind it silently. *pin* is the re-expansion's plugin and version
+    (the stored row's own when omitted)."""
     if stored.type != "custom":
         return
-    new = {member.id: member.feature.type for member in members}
-    old = {
-        uuid.UUID(str(member["id"]))
-        for member in stored_members(stored.params)
-        if "id" in member
-    }
-    broken: list[db.Feature] = []
+    stored_pin = (
+        str(stored.params.get("plugin_id")),
+        str(stored.params.get("plugin_version")),
+    )
+    renumbered = _renumbered_roles(stored, pin or stored_pin)
+    new = {member.id: member for member in members}
+    old_raw = [m for m in stored_members(stored.params) if "id" in m]
+    old = {uuid.UUID(str(m["id"])): m for m in old_raw}
+    placements: list[dict[uuid.UUID, Any]] = []
+
+    def placed() -> list[dict[uuid.UUID, Any]]:
+        if not placements:  # computed once, and only for a referenced member
+            placements.append(_placements([_normalised(m) for m in old_raw]))
+            placements.append(_placements([m.model_dump(mode="json") for m in members]))
+        return placements
+
+    def moved_member(target: uuid.UUID) -> bool:
+        if str(old[target].get("role")) not in renumbered:
+            return False
+        before, after = placed()
+        return before.get(target) != after.get(target)
+
+    def dropped_duplicate(target: uuid.UUID) -> bool:
+        """*target* was stored as an exact copy of another member of its role
+        that the re-expansion keeps: a duplicate the plugin now drops
+        (ROOF-L-DOUBLED-COMMON), lost at rebuild whatever this write does."""
+        before = placed()[0]
+        role = old[target].get("role")
+        return any(
+            other != target
+            and other in new
+            and old[other].get("role") == role
+            and before.get(other) == before.get(target)
+            for other in old
+        )
+
+    removed: list[db.Feature] = []
+    duplicates: list[db.Feature] = []
+    moved: list[db.Feature] = []
     for row in sorted(rows, key=lambda r: r.order_index):
         if row.order_index <= stored.order_index:
             continue
@@ -329,26 +434,55 @@ def _check_vanished_members(
             target = reference.ref.feature_id
             if target not in old:
                 continue
-            kind = new.get(target)
-            if kind is None or (
+            member = new.get(target)
+            if member is None or (
                 "*" not in reference.allowed_types
-                and kind not in reference.allowed_types
+                and member.feature.type not in reference.allowed_types
             ):
-                broken.append(row)
+                if member is None and dropped_duplicate(target):
+                    duplicates.append(row)
+                else:
+                    removed.append(row)
                 break
-    if broken:
-        dependents = FeatureDependents(
-            dependents=[
-                FeatureDependent(id=row.id, name=row.name, kind="feature")
-                for row in broken
-            ]
+            if moved_member(target):
+                moved.append(row)
+                break
+    broken = removed + duplicates + moved
+    if not broken:
+        return
+    dependents = FeatureDependents(
+        dependents=[
+            FeatureDependent(id=row.id, name=row.name, kind="feature")
+            for row in sorted(broken, key=lambda r: r.order_index)
+        ]
+    )
+    parts: list[str] = []
+    if removed:
+        parts.append(
+            f"This change removes geometry that {len(removed)} later feature(s) "
+            "reference; re-point or delete them first."
         )
-        raise ConflictError(
-            f"This change removes geometry that {len(broken)} later feature(s) "
-            "reference; re-point or delete them first.",
-            code="feature_has_dependents",
-            details=dependents.model_dump(mode="json"),
+    if duplicates:
+        names = ", ".join(repr(row.name) for row in duplicates)
+        parts.append(
+            f"{names} refer(s) to a duplicate rafter that was removed from "
+            f"{stored.name!r} (it was framed twice in the same place); delete "
+            "or re-pick it."
         )
+    if moved:
+        names = ", ".join(repr(row.name) for row in moved)
+        parts.append(
+            f"This change moves a member that {names} reference(s). "
+            f"{stored.name!r} is {stored_pin[0]} {stored_pin[1]}, which numbers "
+            "its members in order, so the reference would land on another "
+            "member; re-point or delete them first."
+        )
+    message = " ".join(parts)
+    raise ConflictError(
+        message,
+        code="feature_has_dependents",
+        details=dependents.model_dump(mode="json"),
+    )
 
 
 def prepare_custom_write(
@@ -409,7 +543,12 @@ def prepare_custom_write(
     )
     check_members_authorable(members, earlier_rows)
     if stored is not None:
-        _check_vanished_members(stored, members, rows)
+        check_referenced_members(
+            stored,
+            members,
+            rows,
+            (envelope.params.plugin_id, envelope.params.plugin_version),
+        )
     return result
 
 
@@ -522,38 +661,107 @@ def reexpand_hosts(
         row = by_id.get(host)
         if row is None or row.type != "custom":
             continue
-        envelope = load_feature(row)[0]
-        assert isinstance(envelope, CustomFeature)
-        try:
-            plugin = PLUGINS.get(
-                envelope.params.plugin_id, envelope.params.plugin_version
-            )
-        except PluginError:
+        _reexpand(row, rows, index, parameters, strict=True)
+
+
+def picked_ids(envelope: AuthoredEnvelope) -> set[uuid.UUID]:
+    """The features a custom feature picks through its inputs (a roof's
+    walls); none for a base feature."""
+    if not isinstance(envelope, CustomFeature):
+        return set()
+    return {ref.ref.feature_id for ref in custom_references(envelope)}
+
+
+def pickers_of(rows: Sequence[db.Feature], feature_id: uuid.UUID) -> list[uuid.UUID]:
+    """The custom features in *rows* that pick *feature_id* through an input
+    (a roof's walls), in tree order."""
+    out: list[uuid.UUID] = []
+    for row in sorted(rows, key=lambda r: r.order_index):
+        if row.type != "custom" or row.suppressed or row.id == feature_id:
             continue
-        earlier_rows = [r for r in rows if r.order_index < row.order_index]
-        try:
-            result = _expanded(
-                plugin,
-                row.id,
-                envelope,
-                parameters,
-                _earlier_from_rows(earlier_rows),
-                index.of(row.id, parameters),
-            )
-        except PluginError as exc:
-            raise _refuse(exc) from exc
-        except FeatureExpressionError as exc:
-            raise ValidationApiError(exc.message, code=exc.code) from exc
-        members = result.params.expansion or []
-        check_tree_size(
-            expanded_size(r for r in rows if r.id != row.id) + len(members),
-            f"Reframing {row.name!r}, the part",
+        envelope = load_feature(row)[0]
+        if isinstance(envelope, CustomFeature) and any(
+            ref.ref.feature_id == feature_id for ref in custom_references(envelope)
+        ):
+            out.append(row.id)
+    return out
+
+
+def reexpand_pickers(
+    part: db.Part, rows: Sequence[db.Feature], written: uuid.UUID
+) -> None:
+    """After a write to *written* (a wall), re-expand the custom features
+    that pick it (a roof on its walls, ROOF-MEMBER-RENUMBER) on the tree as
+    written, and refuse the write (409) when that drops, or under an ordinal
+    pin moves, a member a later feature references, as an edit of the picker
+    itself would be. A picker that no longer expands is left to report that
+    at rebuild (a wall drawn in steps passes through outlines no roof
+    frames), keeping its stored members."""
+    by_id = {row.id: row for row in rows}
+    index = Hosts(rows)
+    parameters = parameter_values(part.parameters)
+    for picker in pickers_of(rows, written):
+        _reexpand(by_id[picker], rows, index, parameters, strict=False)
+
+
+def reexpand_reordered(part: db.Part, rows: Sequence[db.Feature]) -> None:
+    """After a reorder, re-expand every custom feature of *rows* (the tree in
+    its new order) and refuse the reorder (409) when that drops, or under an
+    ordinal pin moves, a member a later feature references. A wall frames
+    its openings in tree order, so swapping two doors can renumber a
+    ``loft.wall`` 1.0.0 wall's opening members. One that no longer expands
+    keeps its stored members, to report at rebuild."""
+    index = Hosts(rows)
+    parameters = parameter_values(part.parameters)
+    for row in sorted(rows, key=lambda r: r.order_index):
+        if row.type == "custom" and not row.suppressed:
+            _reexpand(row, rows, index, parameters, strict=False)
+
+
+def _reexpand(
+    row: db.Feature,
+    rows: Sequence[db.Feature],
+    index: Hosts,
+    parameters: Mapping[str, Quantity],
+    *,
+    strict: bool,
+) -> None:
+    """Re-expand *row* in *rows*, check what it drops or moves and store it.
+    A plugin or formula error is a 422 when *strict*, else leaves the row."""
+    envelope = load_feature(row)[0]
+    assert isinstance(envelope, CustomFeature)
+    try:
+        plugin = PLUGINS.get(envelope.params.plugin_id, envelope.params.plugin_version)
+    except PluginError:
+        return
+    earlier_rows = [r for r in rows if r.order_index < row.order_index]
+    try:
+        result = _expanded(
+            plugin,
+            row.id,
+            envelope,
+            parameters,
+            _earlier_from_rows(earlier_rows),
+            index.of(row.id, parameters),
         )
-        check_members_authorable(members, earlier_rows)
-        _check_vanished_members(row, members, rows)
-        params = result.params.model_dump(mode="json")
-        if params != row.params:
-            row.params = params
+    except PluginError as exc:
+        if not strict:
+            return
+        raise _refuse(exc) from exc
+    except FeatureExpressionError as exc:
+        if not strict:
+            return
+        raise ValidationApiError(exc.message, code=exc.code) from exc
+    members = result.params.expansion or []
+    check_tree_size(
+        expanded_size(r for r in rows if r.id != row.id) + len(members),
+        f"Reframing {row.name!r}, the part",
+    )
+    check_members_authorable(members, earlier_rows)
+    check_referenced_members(row, members, rows)
+    params = result.params.model_dump(mode="json")
+    if params != row.params:
+        row.params = params
 
 
 # --- evaluation ------------------------------------------------------------------
@@ -734,20 +942,31 @@ def retabled(
     rows: Sequence[db.Feature],
     parameters: Mapping[str, Quantity],
     hosts: Hosts | None = None,
+    earlier_writes: Mapping[uuid.UUID, AuthoredEnvelope] | None = None,
 ) -> CustomFeature | None:
     """*envelope* (its formulas renamed) re-resolved and re-expanded against a
     new parameter table, or ``None`` when it no longer expands: it then keeps
     its last good inputs and members, as a base feature keeps its numbers.
-    *hosts* gives it the features it hosts with their formulas renamed."""
+    *hosts* gives it the features it hosts with their formulas renamed;
+    *earlier_writes* the earlier features the same table change rewrote (the
+    walls a roof picks)."""
     try:
         plugin = PLUGINS.get(envelope.params.plugin_id, envelope.params.plugin_version)
         earlier = _earlier_from_rows(
-            [r for r in rows if r.order_index < row.order_index]
+            [r for r in rows if r.order_index < row.order_index], earlier_writes
         )
         hosted = (hosts or Hosts(rows)).of(row.id, parameters)
         return _expanded(plugin, row.id, envelope, parameters, earlier, hosted)
     except (PluginError, FeatureExpressionError):
         return None
+
+
+def remap_member_name(name: str, mapping: Mapping[str, str]) -> str:
+    """A member's name on a copy that re-mints ids: every segment that is an
+    old id becomes its new one (a 1.1.0 wall names an opening's members
+    after the opening, ``opening/<door-id>/0``), so the copy's names are the
+    ones its own re-expansion gives (WALL-MEMBER-RENUMBER)."""
+    return "/".join(mapping.get(segment, segment) for segment in name.split("/"))
 
 
 def member_id_mapping(
@@ -765,7 +984,15 @@ def member_id_mapping(
             continue
         for member in stored_members(params):
             role, index = str(member["role"]), int(member["index"])
-            out[str(member["id"])] = str(member_id(uuid.UUID(new), role, index))
+            name = member.get("name")
+            out[str(member["id"])] = str(
+                member_id(
+                    uuid.UUID(new),
+                    role,
+                    index,
+                    None if name is None else remap_member_name(str(name), mapping),
+                )
+            )
     return out
 
 
@@ -792,6 +1019,7 @@ __all__ = [
     "SentMembers",
     "authored_references",
     "check_members_authorable",
+    "check_referenced_members",
     "check_tree_size",
     "evaluation_entries",
     "expanded_size",
@@ -799,9 +1027,14 @@ __all__ = [
     "is_body_affecting",
     "member_id_mapping",
     "member_targets",
+    "picked_ids",
+    "pickers_of",
     "prepare_custom_write",
     "reexpand_hosts",
+    "reexpand_pickers",
+    "reexpand_reordered",
     "refresh_expansions",
+    "remap_member_name",
     "router",
     "stored_host_id",
 ]

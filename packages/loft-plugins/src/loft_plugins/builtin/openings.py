@@ -165,21 +165,23 @@ DOOR_MANIFEST_V1 = PluginManifest(
 )
 
 
-def _host(inputs: ExpandInputs) -> WallSpec:
+def _host(inputs: ExpandInputs) -> tuple[WallSpec, bool]:
     """The host wall's spec, from its stored inputs (the registry has checked
-    it is an earlier ``loft.wall``)."""
+    it is an earlier ``loft.wall``), and whether it frames as 1.1.0 does."""
     ref = inputs.feature("host_wall")
     host = inputs.resolve(ref)
     if not isinstance(host, CustomFeature):
         raise PluginError(
             PLUGIN_INPUT_INVALID, "Host wall: pick an earlier Wall.", input="host_wall"
         )
-    return WallSpec.from_inputs(ExpandInputs(ref.feature_id, host.params.inputs))
+    spec = WallSpec.from_inputs(ExpandInputs(ref.feature_id, host.params.inputs))
+    return spec, host.params.plugin_version != "1.0.0"
 
 
 def _expander(kind: Literal["door", "window"], title: str) -> Expander:
     def expand(inputs: ExpandInputs) -> Iterator[Member]:
-        frame_opening(_host(inputs), Opening.from_inputs(kind, f"This {title}", inputs))
+        wall, named = _host(inputs)
+        frame_opening(wall, Opening.from_inputs(kind, f"This {title}", inputs), named)
         return iter(())
 
     return expand

@@ -2,7 +2,7 @@
 
 Three concerns, mirroring the mesh-store test split:
 
-1. **The store seam** — the in-process LRU (``DrawingArtifactStore``) and the S3/MinIO
+1. **The store seam** — the in-process LRU (``DrawingArtifactStore``) and the S3
    backend (``S3DrawingArtifactStore``, exercised against moto's in-process S3),
    plus config-driven backend selection and the ``S3_URL``-unset in-memory fallback
    — the SAME conventions ``test_mesh_store.py`` / ``test_s3_store.py`` pin.
@@ -161,14 +161,14 @@ def test_configure_selects_s3_when_s3_configured() -> None:
 
 
 def test_module_functions_use_the_in_memory_fallback_when_s3_unset() -> None:
-    # The S3_URL-unset dev path: store/fetch route through the LRU with no MinIO.
+    # The S3_URL-unset dev path: store/fetch route through the LRU with no object store.
     configure_drawing_artifact_store(None, _BUCKET)
     key = drawing_artifact_key(_golden_request())
     store_drawing_artifact(key, b"fallback-bytes")
     assert fetch_drawing_artifact(key) == b"fallback-bytes"
 
 
-# --- the S3/MinIO backend (moto) ------------------------------------------------
+# --- the S3 backend (moto) ------------------------------------------------
 
 
 @pytest.fixture(scope="module")

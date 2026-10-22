@@ -9,17 +9,29 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
-Ranked 2026-10-17 (third pass) by the product-manager (delegated by the
-founder). B1-B4 now build from Build features alone and are priced. A builder
-still cannot frame a house on a floor, sheathe it and price the sheets, or
-frame a timber frame, so those come next, in that order. Before them comes one
-fix that Severity puts first. Each plugin lives in `packages/loft-plugins`
-(base features only), has a golden checked on STEP against
-`docs/reference-parts/buildings.md` (B5, B6), and has one e2e from the Build
-group. Done 2026-10-16..17 and dropped (`git log --grep=<ID>`): DECK,
-STUD-WALL, WINDOW-DOOR, ROOF, B2-E2E, ROOF-HIP, PRICE-BOOK, CUT-LIST-PRICES,
-ROOF-VALLEY.
+Ranked 2026-10-21 (fourth pass) by the product-manager (delegated by the
+founder). B1-B6 frame from Build features alone, but HOLE-ACTIVE-BODY showed
+that the multi-body rules behind every framing plugin still send cuts and
+some picks to the last-built body, which is wrong geometry on any building.
+That class goes first (Severity). Then a stored-roof fix of the same class,
+then a priced small house (B7) to find what still stops a builder. Done
+2026-10-16..21 and dropped (`git log --grep=<ID>`): DECK, STUD-WALL,
+WINDOW-DOOR, ROOF, B2-E2E, ROOF-HIP, PRICE-BOOK, CUT-LIST-PRICES,
+ROOF-VALLEY, FLOOR-FRAME, TIMBER-FRAME. Integrating: WALL-MEMBER-RENUMBER,
+HOLE-ACTIVE-BODY, OBJECT-STORE (SeaweedFS). Building: SHEATHING (with
+PRICE-BOOK-VERSION) and ROOF-MEMBER-RENUMBER.
 
+0. [x] **WALL-MEMBER-RENUMBER** (fix now: silent wrong geometry;
+- [x] **HOLE-ACTIVE-BODY** (fix now: wrong geometry; kernel-architect): a
+  Hole cut the most recently built body, not the body whose face was picked,
+  so a hole on a stud failed or drilled another member. It now cuts the body
+  owning the face (Fusion/SolidWorks), with an optional SolidWorks-style
+  Feature Scope (`scope_bodies`) for a through-all bore. RESEARCH §28.
+  _Accept:_ goldens `hole-through-r5-first-of-two-bodies-40x25x10` and
+  `hole-scope-through-two-bodies-r3-40x25x10` match independent build123d
+  builds; all tree goldens rebuild byte-identical. The same owner rule now
+  serves on-face/midplane/angle datums, pipe edge paths, fillet, chamfer,
+  shell and draft. Notes below list what still targets the active body.
 0. [ ] **WALL-MEMBER-RENUMBER** (fix now: silent wrong geometry;
    kernel-architect): adding or moving an opening renumbers a wall's studs,
    and widening a deck renumbers its end joist, so a later feature on
@@ -36,6 +48,27 @@ ROOF-VALLEY.
    on the end joist. Under 1.0.0 both edits are a 409 naming the hole. The
    1.0.0 goldens stay byte-identical.
 1. [x] **FLOOR-FRAME** (`loft.floor`, homes; kernel-architect): a platform
+0. [x] **ROOF-MEMBER-RENUMBER** (fix now: silent wrong geometry;
+   kernel-architect): `loft.roof` 1.0.0-1.2.0 number rafters, jacks, hips
+   and ridges in emission order, so lengthening B3 hands 1.2.0's `common/3`
+   (the front ridge-end common) to the left king. `loft.roof` 1.3.0 is 1.2.0
+   renamed: planes by world facing (`front`, `left_notch`), commons by
+   ridge-layout slot (`front/ridge/start`), kings by plane, jacks by hip and
+   count (`front/left/1`), hips, valleys and ridges by the two planes they
+   divide. New roofs are inserted at 1.3.0; 1.0.0-1.2.0 list their
+   renumbered roles, so documents refuses (409) an edit that moves a
+   referenced member, including from a write to a picked wall.
+   _Accept:_ goldens `b3-hip-v1.3-hole-common` / `-168-hole-common` (hole
+   in the front ridge-end common, roof lengthened 24) and
+   `b3-hip-v1.3-hole-jack` / `-8-12-hole-jack` (hole in the jack at X 36,
+   re-pitched), derived from the B3 goldens and closed forms; the old roof
+   goldens unchanged; e2e `roof-member-renumber`.
+   _Notes:_ the guard refuses any pitch edit of an old roof whose rafter is
+   referenced (its profile moves). 1.3.0 also merges layout lines within
+   1e-9 in: 1.2.0 frames two coincident commons where an L's wing jacks
+   reach the flush ridge-end common an ulp off (25 of 64 constructed L
+   footprints); 1.2.0 itself now frames one (ROOF-L-DOUBLED-COMMON).
+1. [ ] **FLOOR-FRAME** (`loft.floor`, homes; kernel-architect): a platform
    floor, as in Chief Architect's floor framing and Medeek Foundation. It
    takes a rectangle (start point, width, depth, direction), a joist profile,
    spacing and direction (along the depth by default), and a base elevation
@@ -53,6 +86,7 @@ ROOF-VALLEY.
    Rim 2x8 2 @ 144 (12 ft), and Sill PT 2x6 2 @ 144 (12 ft) plus 2 @ 109
    (10 ft). Spacing 16 -> 12 gives 13 joists and 23 847.375 in³.
    E2e: a Floor from the Build group lists 10 Joist, 2 Rim and 4 Sill.
+2. [x] **SHEATHING** (sheet goods, priced per sheet; kernel-architect for
 2. [ ] **SHEATHING** (sheet goods, priced per sheet; kernel-architect for
    the plugins and goldens, backend-builder for the price book and cut list,
    frontend-builder for the dialog's sheet unit): sheathing is an option on
@@ -84,6 +118,10 @@ ROOF-VALLEY.
    downgrades. E2e: a 144 in Wall from Build with OSB ticked lists 3 sheets
    of 4x9, and a $24.98 per-sheet entry in the dialog extends it to $74.94.
 3. [x] **TIMBER-FRAME** (`loft.timber_frame`, founder goal; kernel-architect):
+   _Revised in review (2026-10-21):_ corners are lapped, not butted, so B2's
+   walls are 16 panels, 47 422.71875 in², 20 747.439453125 in³ and 10 sheets
+   ($249.80); buildings.md B5 has the derivation.
+3. [ ] **TIMBER-FRAME** (`loft.timber_frame`, founder goal; kernel-architect):
    a frame of bents, as built in Cadwork, hsbCAD and the SketchUp timber
    framing extensions. One joint placement cuts both members: a blind
    mortise in the post, a tenon on the beam, and a peg through both (the
@@ -104,17 +142,67 @@ ROOF-VALLEY.
    56 025 in³. Width 12 -> 14 ft gives tie beams of 161 and 58 725 in³. Both
    match an independent script to 1e-4. E2e: a Timber frame from Build lists
    4 Post, 2 Tie beam, 2 Girt and 8 Peg.
+4. [x] **CUT-OBJECTS-TO-CUT** (fix now: wrong geometry; kernel-architect,
+   then frontend-builder for the dialog): an extrude, revolve, sweep, loft or
+   pipe cut removes material from the active body only, so a notch drawn
+   across a top plate and three studs cuts the plate and leaves the studs
+   whole, and a cut through a stud alone is refused. Fusion's Objects To Cut
+   and SolidWorks' Feature Scope (Auto-select) both default to every body
+   the tool meets, with a body list to narrow it. Cuts get an optional
+   `cut_bodies`; new cuts store every body met, and stored cuts without it
+   keep the active body, so no saved part changes. The same change finishes
+   the owner rule (MULTIBODY-ACTIVE-REFS: sketch projection, sheet-metal edge
+   picks, body-scope pattern and mirror) and puts a bounding-box prefilter on
+   owner scans (the 0.7 s per pick at 200 bodies note). Step 2 is the
+   dialog's Objects To Cut list, which Hole's Feature Scope reuses
+   (HOLE-SCOPE-UI).
+   _Accept:_ goldens: a cut across B2's front top plates and the studs at
+   X 16, 32 and 48 removes the same volume from each member as an
+   independent build123d script; a Ø1 hole and an R0.25 fillet on the first
+   stud of a framed wall (not the last member) match the script; a stored
+   pre-change cut and all tree goldens rebuild byte-identical. B5's rebuild
+   is no slower than before, and an owner pick at 200 bodies takes under
+   0.05 s. E2e: Extrude Cut across a wall lists the 4 bodies under Objects
+   To Cut, and unticking one leaves it whole.
+   _Done:_ `cut_bodies` ("all", a list, or absent = active body), RESEARCH
+   §28; goldens `cut-objects-to-cut-b2-front-notch-studs-16-32-48` and
+   `framing-hole-d1-fillet-r0.25-first-stud-b2`; 150 stored trees
+   byte-identical; owner pick at 200 bodies 0.16 s -> 0.012 s; sketch
+   projection follows the owner; e2e `objects-to-cut.spec.ts`. The
+   sheet-metal edge picks and body-scope pattern/mirror stay on the active
+   body (Notes).
+5. [ ] **ROOF-L-DOUBLED-COMMON** (fix now: wrong geometry and a wrong
+   price; kernel-architect): a stored `loft.roof` 1.2.0 L whose wing jacks
+   land an ulp off the flush ridge-end common frames two coincident commons
+   (25 of 64 constructed footprints): an overlap and a doubled, priced
+   cut-list line. Fix 1.2.0 in place, as HOLE-ACTIVE-BODY fixed stored
+   holes: merge layout lines within 1e-9 in as 1.3.0 does. The member that
+   survives keeps its id, and a reference to the dropped twin is flagged as
+   lost (SolidWorks' dangling reference), never rebound.
+   _Accept:_ a golden on one of the 25 footprints at 1.2.0 frames one
+   common, with no interference and the script's volume; its cut list has
+   one line fewer. B4 and the other roof goldens rebuild byte-identical.
+6. [ ] **QA-B7-HOUSE** (gap-finding round; qa-tester): model B7
+   (`docs/reference-parts/buildings.md`), a 24 x 16 ft 2x6 house on a 2x10
+   floor with sheathing, a door, four windows and a 6/12 gable, priced to
+   the last line, in the real app, as a reference-part round. It starts
+   once SHEATHING and CUT-OBJECTS-TO-CUT are on main.
+   _Accept:_ VISION gets a B7 row (pass or fail, time, gestures, STEP
+   volume against the script); every blocker is a BACKLOG line ranked under
+   "Plugins and buildings", wrong geometry in Now; the three edits are run.
 
 ## Next
 
-Bike gaps first (round 2), then the hard-parts blockers, then speed.
+Bike gaps first (rounds 2 and 3), then the hard-parts blockers, then speed.
 
-- [ ] **SKETCH-3D** (bike chain and seat stays): a 3D sketch of lines and
+- [x] **SKETCH-3D** (done; golden `frame-bike-3d-sketch-skeleton-4-pipes`,
+      e2e `sketch-3d-bike.spec.ts`, RESEARCH §28) (bike chain and seat
+      stays): a 3D sketch of lines and
       arcs between picked points and skeleton vertices, usable as a Pipe or
       Sweep path (SolidWorks 3D Sketch, Fusion's 3D sketch). _Accept:_ the
       bike's splayed chain stays are Pipes on a 3D sketch tied to the
       dropouts and BB, matching a script to 1e-4.
-- [ ] **SKETCH-LINE-ANGLE** (was DRAW-BOX-LINE-ANGLE): the Line draw box
+- [x] **SKETCH-LINE-ANGLE** (was DRAW-BOX-LINE-ANGLE): the Line draw box
       shows Length and Angle cells, as Fusion does; the angle becomes an
       angle-to-axis dimension, which ships first. _Accept:_ typing 450 Tab 73
       Enter draws a 450 mm line at 73° to the sketch X axis, dimensioned,
@@ -122,7 +210,7 @@ Bike gaps first (round 2), then the hard-parts blockers, then speed.
       founder to product-manager):_ yes, after Pipe — it is Fusion's
       established entry and saves hand trig on every tube frame, but typed
       coordinates already work (bike skeleton in 18 s).
-- [ ] **DRAWING-PARTS-LIST-LEVEL** (was BIKE2-DRAWING-BOM-LEVEL): the parts
+- [x] **DRAWING-PARTS-LIST-LEVEL** (was BIKE2-DRAWING-BOM-LEVEL): the parts
       list keeps Top level as its default and gains a Structure choice of Top
       level, Indented and Parts only, editable after placing; balloons follow
       the chosen level. _Accept:_ the bike's parts list switched to Parts only
@@ -131,6 +219,9 @@ Bike gaps first (round 2), then the hard-parts blockers, then speed.
       top-level default plus a choice — SolidWorks (Top-level only / Parts
       only / Indented) and Fusion (First Level / All Levels) both default to
       the top level and both let the user change it.
+      _Done 2026-10-21:_ stored per sheet (`sheets.parts_list_structure`,
+      migration 0024); indented keeps the top-level numbers (4, 4.3); see
+      `drawing-parts-list-level.png` and the Notes below.
 - [ ] **FILLET-PARTIAL-RESOLVE**: when some of a fillet's picked edges no
       longer exist (an impeller going 7 -> 6 blades), the whole fillet fails.
       Fusion keeps the edges that still resolve and warns about the rest.
@@ -159,9 +250,6 @@ Bike gaps first (round 2), then the hard-parts blockers, then speed.
       viewport (`duct-datum-not-drawn.png`), only a tree row and a plane-pick
       chip. _Accept:_ a datum is drawn as a sized, selectable plane, as origin
       planes are.
-- [ ] **HOLE-ANY-BODY**: Hole drills only the active body, although the face
-      pick offers every body. _Accept:_ a hole on body 1 of a two-body part
-      drills body 1 (checked by the change in volume).
 - [ ] **EMPTY-SKETCH-SAVE**: undoing the last entity of a saved sketch shows
       an empty sheet while the server keeps the old geometry. _Accept:_ an
       empty bound sketch saves as empty.
@@ -194,7 +282,7 @@ every member. A plugin registers a custom feature that expands into base
 features (RESEARCH §23). First-party plugins ship preinstalled; no install
 step.
 
-B1-B4 are done. FLOOR-FRAME, SHEATHING and TIMBER-FRAME are in Now (B5, B6).
+B1-B6 are done once SHEATHING lands. B7 (QA-B7-HOUSE, Now) ranks what follows.
 
 - [ ] **ROOF-GABLE-WALLS** (was the note ROOF-BEARING-WALLS): a gable on
       picked walls, each wall marked as defining a slope or not (Revit's
@@ -235,17 +323,27 @@ B1-B4 are done. FLOOR-FRAME, SHEATHING and TIMBER-FRAME are in Now (B5, B6).
 
 ## Founder decisions
 
-- [ ] **Object store**: MinIO (AGPL-3.0, upstream no longer maintained,
-      built here from source) or an Apache-2.0 S3-compatible server? Left
-      for the founder: it turns on whether Overcastly publishes images
-      (AGPL §6, `docs/LICENSING.md`). The product-manager recommends
-      replacing it (an unmaintained store is security debt either way),
-      chosen by a spike that passes the backup drill and the air-gap gate.
+- [x] **Object store** (OBJECT-STORE): SeaweedFS (Apache-2.0) replaces
+      MinIO (AGPL-3.0, unmaintained). Founder decision 2026-10-21; RESEARCH
+      §4, migration note in OPERATIONS §5.
 
 ## Notes
 
 One line each. The founder triages weekly; most are closed without work.
 
+- SKETCH-LINE-ANGLE-WHEN: the L / ∠ cells arm after the end click (type 450 Tab 73 Enter then); keys typed BEFORE the end click stay the X / Y point cells (G2, sketch-line-length-tab), whereas Fusion's box takes length and angle mid-drag. Founder to decide whether the mid-drag keys should become L / ∠.
+- SKETCH-LINE-ANGLE-ZERO: the angle cell takes (0, 180) as `AngleConstraint` does; 0 or 180 is refused with a message rather than becoming Horizontal (or Collinear to the previous segment), which Fusion does.
+- SKETCH-LINE-ANGLE-WIRE: the angle-to-axis dimension is the existing `angle` constraint against the `x-axis` datum line (no wire change); planegcs holds 450 at 73° to 3e-14° with 0 DOF. A typed angle drops the inferred H/V on that line. No document angle-unit setting exists; the cell reads degrees.
+
+- SKETCH-3D-ARCS: a 3D sketch holds points and lines only; Fusion and SolidWorks also draw arcs and splines in 3D, and there is no angle dimension (a typed coordinate covers the bike).
+- SKETCH-3D-PREVIEW: the 3D sketch editor draws the points as typed; a dimension moves them only after Create/Save (the server solves; there is no client-side 3D solve as there is for 2D).
+- SKETCH-3D-FORMULAS: 3D sketch dimensions take numbers, not parameters or formulas (pointers into `constraints` are refused, as for 2D sketches, and a 3D dimension has no `expression`).
+- SKETCH-3D-STAY-STEP: Pipes on the splayed chain stays move 4e-5 mm (centroid) and 0.05 mm^3 through a STEP round trip, the build123d twin identically (OCCT re-approximating oblique tube-tube faces), so the golden pipes only the main triangle; the stays are checked against the twin in tests.
+- SKETCH-3D-SEAT-STAY-VOIDS: piping the seat stays as rings into the seat cluster closes three internal voids (a correct union of ring tubes); a real frame copes the stays, which needs the cope cut (bike.md, not reached).
+- SKETCH-3D-EDIT-VERTEX: editing a 3D sketch that is not at the tip offers no model-vertex snaps (the overlay is the tip body's); origin and earlier sketch points are offered.
+- SKETCH-3D-FIT: Fit (0) frames the body, not a 3D sketch alone, so a skeleton drawn before any body can sit off screen (the 2D sketch's bike.md finding); the editor's Join buttons reach points out of view.
+- SKETCH-3D-SWEEP: a Sweep's path is still a whole 2D sketch; a 3D sketch's lines are a path for Pipe and Plane Along Path only.
+- SKETCH-3D-SCRIPT: loft-script has no `Part.sketch_3d` yet; a script builds one through the raw feature API.
 - TIMBER-CLEARANCE: joints are line to line (tenon = mortise, peg = hole); hsbCAD and Cadwork offer mortise-depth and width clearances and a drawbore offset, which a shop sets before cutting.
 - TIMBER-OPPOSED: an inner bent's post takes two girt tenons at one height, each shortened to half the post less 1/4 in (3.5 in an 8x8); framers also stagger the girts or house them, which the plugin does not offer.
 - TIMBER-PEG-PROUD: pegs are cut flush with the post faces (B6's 7.5); real pegs are left proud and trimmed, so a peg cut list would add an allowance.
@@ -253,6 +351,24 @@ One line each. The founder triages weekly; most are closed without work.
 - TIMBER-BODY-SPLIT: a frame's bodies weld into one mesh component in the viewport (tenon corners are mortise corners, peg circles are hole circles), so the Bodies panel cannot hide a post to show its mortise; the evaluate payload carries no per-body face ranges.
 - TIMBER-SPECIES: the frame defaults to Douglas fir-larch (`dfl_lumber`), whose density is NDS's kiln-dried value; timbers are sold green and weigh more until seasoned.
 
+- WALL-UPDATE-REBIND: re-pinning a 1.0.0 wall or deck to 1.1.0 renames every member, so it is a 409 while any member is referenced; 1.1.0 keeps 1.0.0's (role, index) for the same inputs, so documents could rebind the references in the same step (Onshape's update badge). No pin-update UI exists yet.
+- ROOF-PICKER-SUPPRESS: suppressing a wall a roof picks does not run the roof's referenced-member check (a write to the wall does, ROOF-MEMBER-RENUMBER); the roof then fails at rebuild, as before.
+- MEMBER-NAME-WIRE-TEXT: `loft_wire.plugins.MemberNameField`'s description names wall and deck 1.1.0 only; loft.roof 1.3.0 names members too (text only, regenerates contracts).
+- HOLE-ACTIVE-BODY: the Hole feature (and the on_face datum) resolves the picked face against the ACTIVE body, the last one built, so on a framed part a hole on a stud face is `hole_off_body` or cuts the last member; Fusion's Hole cuts the picked face's body. The renumber goldens use a Boolean subtract naming the stud.
+- BOOLEAN-EMPTY-CUT: a Boolean subtract whose tool misses its target removes nothing with no error or warning (how 1.0.0's renumbered hole vanished); SolidWorks' Combine reports a tool that does not intersect.
+- WALL-GUARD-STRICT: the 1.0.0 guard compares a referenced member's placement, so a 1.0.0 joist that only lengthens (a deeper deck) is refused too; an ordinal id cannot tell growth from a renumber.
+- HOLE-SCOPE-UI: `scope_bodies` (a through-all Hole's Feature Scope) is wire and kernel only; the Hole dialog has no body list yet (SolidWorks' Feature Scope box).
+- HOLE-SCOPE-LIST: the Hole's Feature Scope lists every body of the part (64 rows on a framed wall, scrolling); SolidWorks picks scope bodies in the viewport.
+- HOLE-SCOPE-REPEAT: a pattern or mirror of a scoped Hole repeats its bore in the owner body only, not in the scoped bodies.
+- CUT-LIVE-LIST: a new cut's Objects To Cut lists its bodies only once it is built (Edit); Fusion lists them live while the dialog is open, which needs a draft evaluate. The same gap: a narrowed cut's Edit lists only the bodies it cuts, so a body left out comes back through "Cut every body it meets", not a row.
+- CUT-SCOPE-REPEAT: a pattern or mirror of a cut that met several bodies repeats it in the active body only (as HOLE-SCOPE-REPEAT).
+- CUT-ACTIVE-AFTER: a cut that does not cut the active body makes the first body it cut active (the Hole's owner rule), so a following merged add fuses there.
+- CUT-LEGACY-UPGRADE: a cut saved before Objects To Cut keeps the active body; its dialog offers "Cut every body it meets", one cut at a time.
+- CUT-PLUGIN-CUTS: plugin expansions (`loft.twisted_prism` cut) still emit cuts without `cut_bodies` (active body); changing that is a plugin version bump.
+- OWNER-SCAN-MOVED: the owner screen shortcuts an exact match only; a pick that resolves at the named or durable tier still scans every body (0.16 s at 200 boxes).
+- MULTIBODY-FILLET: a fillet, chamfer, shell or draft with picks on two bodies is refused (`subshapes_on_several_bodies`); Fusion applies one fillet across bodies.
+- REF-BACKFILL-MULTIBODY: the name backfill reads only the active body, so a stored pick on another body stays unnamed (safe: it never names a wrong face).
+- MULTIBODY-ACTIVE-REFS: sheet-metal flange/hem/relief edges and body-scope pattern/mirror still resolve on the active body, not the owner of the pick (sketch projection follows the owner since CUT-OBJECTS-TO-CUT).
 - B2-E2E-INTERFERENCE: a part has no interference check (only assemblies have Clash), so a building's members cannot be checked for overlap in the UI; SolidWorks' Interference Detection and Fusion's Interference both run on a multibody part.
 - B2-E2E-HOSTS: walls placed from the Build row are named "Wall 1".."Wall 4", so the door's and window's host list reads by number, not by side; Chief Architect and Revit pick the host wall in the plan view.
 - THUMB-WARM: thumbnails render on first library view, not on save; Fusion renders at save. A warm after the modeller leaves the editor would hide the first-view wait.
@@ -324,7 +440,10 @@ One line each. The founder triages weekly; most are closed without work.
 - CTRL-S-OTHER-MODALS: Ctrl+S inside other modals (delete confirm, shortcut sheet) still opens the browser's Save page.
 - An aligned `point_distance` between two points drawn coincident reads `conflicting`: planegcs P2PDistance has no gradient at zero, so the solve cannot pull them apart (review of 564aa68).
 - An impossible pair of a point-line and an aligned point distance reads `diverged` with no constraint named, so the sketcher cannot flag which one to remove (review of 564aa68).
-- MinIO is built from RELEASE.2024-12-18 with Go 1.23.4 and has no image scan; a weekly trivy scan of the shipped images (plus `pnpm audit` / pip-audit) would catch advisories without reddening unrelated commits.
+- No image scan covers the pulled SeaweedFS (or postgres/redis) image; a weekly trivy scan of the shipped and pulled images (plus `pnpm audit` / pip-audit) would catch advisories without reddening unrelated commits.
+- OBJECT-STORE-EXTERNAL-PROFILE: with an external `S3_URL` the bundled seaweedfs still boots and geometry still waits on it; a compose profile could skip it (review of the SeaweedFS swap).
+- OBJECT-STORE-ALIASES: drop the deprecated MINIO_ROOT_USER / MINIO_ROOT_PASSWORD / MINIO_PORT compose fallbacks and LOFT_MINIO_SMOKE after the next release.
+- `scripts/e2e.sh` with a non-default `GATEWAY_PORT` still proxies Vite to :8000 unless `GATEWAY_ORIGIN` is also set, so every spec fails at register with a 500.
 - PARAM-FIELD-KIND: a driven field's unit comes from its name (`*_deg` angle, `*_mm`/x/y/z/radius length, `k_factor`/`relief_ratio` unitless, ints whole); a new float field named otherwise cannot take a formula until listed in `loft_wire/feature_expressions.py`.
 - PARAM-SKETCH-SYNTAX: a sketch dimension whose formula does not parse is still accepted at write and reported by geometry as `sketch_invalid`, as before step 4; only names it cannot resolve are a 422.
 - PARAM-PUT-OUT-OF-RANGE: a parameter PUT that drives a feature out of range is accepted; the feature keeps its last good numbers and goes sick on evaluation (Fusion's behaviour), rather than the PUT being refused.
@@ -567,6 +686,9 @@ One line each. The founder triages weekly; most are closed without work.
 - BIKE3-CUTLIST-MERGED (bike round 3, b8b1eb0): four Pipes on one skeleton merge into one body by default, so the cut list shows one "Unclassified · 50 × 498.93" member 699.82 long; with `merge: false` it lists 608.42 / 500 / 539.67 / 150, matching the skeleton by hand. A SolidWorks weldment keeps each member a separate cut-list item by default (`bike-r3-cut-list.png`, `bike-r3-cut-list-separate.png`).
 - BIKE3-CUTLIST-ROUND: a Ø44 tube reads "Unclassified · 44 × 44 mm" with no stock, and each row is named "Body" rather than after its Pipe; Fusion and SolidWorks would say "Tube Ø44 × 1.2".
 - BIKE3-PARTS-404: typing `/parts` (the breadcrumb's word) gives a bare "Not Found" page; the parts library lives at `/`.
+- DRAWING-BALLOONS: a drawing has no balloons yet; the parts list's circled numbers are the only ones. When balloons land they must stamp the BOM's `item` in the sheet's structure (4.3 in Indented, the parts-only number in Parts only).
+- DRAWING-PARTS-LIST-EXPORT: the parts list is not drawn on the exported PDF/SVG/DXF sheet in any structure (as CUT-LIST-PDF); a sheet table must use the stored structure and the same item numbers.
+- DRAWING-PARTS-LIST-ORDER: the drawing numbers every level in instance order (a rename never renumbers) while the assembly page sorts by name, so the same Indented BOM can number a child 4.1 on the drawing and 4.2 on the assembly page.
 - Bike round 3: SKETCH-3D (Create has no 3D sketch), SKETCH-LINE-ANGLE (the Line box shows L only, `bike-r3-line-box.png`) and DRAWING-PARTS-LIST-LEVEL (the drawing lists Frame 1 / Crankset 1 with no structure choice and no balloons, while the assembly BOM has all three levels, `bike-r3-drawing.png`) are still open.
 - WALL-DRAW: a wall is placed by typing its start, direction and length in the form; Chief Architect and Revit draw it with two clicks in plan, chained round a building.
 - BUILD-ROW: the Build row is a web-side list (Wall, Deck) and every other plugin sits in BUILD ▾; Window and Door sit in BUILD ▾ (the row is full at 1280, toolbar-overflow); Roof must still be measured, as the manifest has no row priority (see PLUGIN-TOOL-ICONS).
@@ -599,6 +721,12 @@ One line each. The founder triages weekly; most are closed without work.
 - TIMBER-GIRT-MIN: `girt_height_mm` minimum 6 in is stricter than a 6x6 beam (5.5) needs; harmless.
 - TIMBER-RATIONALE-TEXT: the 12x16 round-trip rationale says 6.5x headroom where it is 6.7x.
 - SEAT-STAMP-FACE-MARKS: face marks (`useSurfaceMarkBurial`) still re-seat on a 1e-3 mm camera stamp; the half-pixel `SeatPoseStamp` edge marks now use would cut their damping tail too.
+- SEAWEED-READY-RACE (SeaweedFS review): after a restart on existing data the ready marker can precede volume registration, so a first GET of an old object returned 500 for ~1 s; probe a sentinel object before `ready`.
+- SEAWEED-STOP-MARGIN: `weed` stops in ~28 s against the 40 s `stop_grace_period`; little margin.
+- SEAWEED-CRED-ARGV: credentials pass on curl's argv inside the container, and the native helper's module commit is only asserted to be 4.48 by a comment.
+- HOLE-OWNER-NO-MULTIBODY-FIXTURE (HOLE-ACTIVE-BODY review): no stored tree fixture exercises the owner path (0 of 89 resolver calls on a multi-body part); only `test_hole_owner_body.py` covers it.
+- HOLE-SCOPE-PATTERN: a pattern or mirror of a scoped hole repeats the bore in the owner body only.
+- FILLET-SEVERAL-BODIES: a fillet whose edges span two bodies is refused; Fusion fillets each body.
 - TOOLBAR-ROVING-TABINDEX: every command-band button is its own Tab stop, so each Build tool pushes Export one stop further (36 with Wall and Deck; `export-reach.spec.ts` bound raised 34 -> 36). The WAI-ARIA toolbar pattern (one Tab stop per group, arrows within), as Fusion's ribbon does, would end this.
 - OPENING-DRAG: a door or window moves by its Offset field; Revit and Chief Architect also drag it along its wall in the viewport (and show temporary dimensions to the nearest opening).
 - OPENING-HOST-MISSING-PLUGIN: a door whose plugin a server lacks is not handed to its wall there, so the wall (if that server has `loft.wall`) re-expands without framing it.
@@ -628,3 +756,10 @@ One line each. The founder triages weekly; most are closed without work.
 - ROOF-SHEATHING: roof planes get no sheathing; after SHEATHING, a gable's two planes first (rectangles), then hips and valleys (triangles and trapezoids).
 - FLOOR-WALLS-ON-FLOOR: a wall's base elevation is typed (8.75 on B5's floor); Chief Architect seats walls on the floor below automatically. A wall could read a picked floor's framing top (later its subfloor's) as a feature input.
 - FLOOR-IDS: `loft.floor` 1.0.0 names joists by slot with integer indices (`joist/0`, `joist/1` the end joists, `joist/k+1` slot k), so it does not have WALL-MEMBER-RENUMBER's bug; if that fix adds string slot names, the floor can adopt them in a 1.1.0.
+- WALL-SHEATHING-JOINTS: outside corners are lapped only where one wall butts another square on the same base (B2's corners); a mitred or offset corner, walls on different bases and T-junctions keep butt ends, and a wall end within 1/8 in past a joint still leaves a hair panel (only openings snap).
+- SHEATHING-OVER-RIM: wall sheathing stops at the wall's base; on a platform floor real OSB laps the rim joist down to the sill (Chief's sheathing extension), which would also tie the walls to the floor.
+- SHEATHING-WALL-BASE: walls do not read the floor, so a wall on a sheathed floor needs its base elevation set to the subfloor's top by hand (B5: 9.46875); at 8.75 the bottom plates overlap the subfloor and a part has no interference check (B2-E2E-INTERFERENCE).
+- SUBFLOOR-OPTIONS: the subfloor offers 23/32 plywood only; 23/32 T&G OSB (AdvanTech) is the common alternative, and the panels are not glued or T&G in the model.
+- SHEATHING-TREE-SIZE: each panel is a sketch and an extrude, so an 80 x 80 ft floor at 8 in o.c. with its subfloor is 676 features of the 1,000-feature tree (PLUGIN-CAP).
+- CUT-LIST-SHEET-WASTE: a sheet line shows its net area and sheets but not the offcut area (sheets x sheet area - net area), which Chief's materials list also omits.
+- PRICE-BOOK-428: a client that PUTs the price book without If-Match now gets 428 (OPERATIONS upgrade notes); loft-script has no price-book helper, so only raw API callers are affected.

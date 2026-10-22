@@ -52,6 +52,8 @@ import {
 export const VERB_GLYPHS: Readonly<Record<string, ComponentType<IconProps>>> = {
   // Feature types (the `feature.type` discriminator).
   sketch: SketchIcon,
+  // A 3D sketch is a sketch out of its plane (Fusion draws them alike).
+  sketch_3d: SketchIcon,
   datum: DatumIcon,
   extrude: ExtrudeIcon,
   revolve: RevolveIcon,

@@ -1,16 +1,22 @@
 """Modify features: fillet, chamfer, shell and draft.
 
-Each resolves picked edges or faces on the ACTIVE body and replaces that body
-with the result. None starts a body or records a reflectable tool, which is why
-a ``features``-scope mirror refuses them (mirror-semantics §4.3).
+Each resolves picked edges or faces on the body that OWNS them (the active body
+when nothing is picked; HOLE-ACTIVE-BODY, :mod:`geometry.features.owner`),
+replaces that body with the result and makes it active. None starts a body or
+records a reflectable tool, which is why a ``features``-scope mirror refuses
+them (mirror-semantics §4.3).
 """
+
+import uuid
 
 from loft_wire.features import (
     ChamferFeature,
     DraftFeature,
+    EdgeSelector,
     EvaluatedFeatureInput,
     FeatureError,
     FilletFeature,
+    PickedEdgesSelector,
     ShellFeature,
 )
 
@@ -21,6 +27,7 @@ from geometry.features.naming_hooks import (
     offset_names,
     tilted_face_names,
 )
+from geometry.features.owner import edges_owner_body_id, faces_owner_body_id
 from geometry.features.state import (
     EvaluationState,
 )
@@ -43,6 +50,22 @@ from geometry.kernel import (
 )
 from geometry.kernel.naming import OpHistory
 from geometry.kernel.shell import offset_history
+
+
+def _edges_target(
+    selector: EdgeSelector, state: EvaluationState
+) -> uuid.UUID | FeatureError:
+    """The body a fillet / chamfer modifies: the one owning its picked edges,
+    or the active body for a predicate selection (which re-selects by rule)."""
+    owner = (
+        edges_owner_body_id(selector.refs, state)
+        if isinstance(selector, PickedEdgesSelector)
+        else state.active_body_id
+    )
+    if isinstance(owner, FeatureError):
+        return owner
+    assert owner is not None, "callers gate on an active body"
+    return owner
 
 
 def _evaluate_fillet(
@@ -71,7 +94,11 @@ def _evaluate_fillet(
             ),
         )
 
-    names = state.face_names()
+    body_id = _edges_target(params.edges, state)
+    if isinstance(body_id, FeatureError):
+        return body_id
+    active = state.bodies[body_id]
+    names = state.body_face_names(body_id)
     try:
         edges = select_edges(
             active, params.edges, tally=state.subshape_tally, face_names=names
@@ -88,11 +115,13 @@ def _evaluate_fillet(
         filleted = fillet_body(active, edges, params.radius_mm, history=history)
     except FilletError as exc:
         return FeatureError(code="fillet_failed", message=str(exc))
-    state.set_active_body(
+    state.set_body(
+        body_id,
         filleted,
         edge_blend_names(item.id, "fillet", history, sources),
         worked_on=history.worked_on,
     )
+    state.active_body_id = body_id
     return None
 
 
@@ -122,7 +151,11 @@ def _evaluate_chamfer(
             ),
         )
 
-    names = state.face_names()
+    body_id = _edges_target(params.edges, state)
+    if isinstance(body_id, FeatureError):
+        return body_id
+    active = state.bodies[body_id]
+    names = state.body_face_names(body_id)
     try:
         edges = select_edges(
             active, params.edges, tally=state.subshape_tally, face_names=names
@@ -139,11 +172,13 @@ def _evaluate_chamfer(
         chamfered = chamfer_body(active, edges, params.distance_mm, history=history)
     except ChamferError as exc:
         return FeatureError(code="chamfer_failed", message=str(exc))
-    state.set_active_body(
+    state.set_body(
+        body_id,
         chamfered,
         edge_blend_names(item.id, "chamfer", history, sources),
         worked_on=history.worked_on,
     )
+    state.active_body_id = body_id
     return None
 
 
@@ -179,12 +214,18 @@ def _evaluate_shell(
             ),
         )
 
+    body_id = faces_owner_body_id(params.faces.refs, state)
+    if isinstance(body_id, FeatureError):
+        return body_id
+    assert body_id is not None, "an active body exists"
+    active = state.bodies[body_id]
+    names = state.body_face_names(body_id)
     try:
         faces = resolve_faces(
             active,
             [ref.selector.signature for ref in params.faces.refs],
             tally=state.subshape_tally,
-            face_names=state.face_names(),
+            face_names=names,
         )
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
@@ -209,15 +250,17 @@ def _evaluate_shell(
     # copy of the body (kernel/working_faces.py), whose faces are the result's
     # kept faces; the copy keeps the body's face order, so the names align.
     source_body = active if worked.worked_on is None else worked.worked_on
-    sources = face_sources(source_body, state.face_names())
+    sources = face_sources(source_body, names)
     history = OpHistory(
         generated=[*offset_history(source_body, shelled, params.thickness_mm)]
     )
-    state.set_active_body(
+    state.set_body(
+        body_id,
         shelled,
         offset_names(item.id, history, sources),
         worked_on=worked.worked_on,
     )
+    state.active_body_id = body_id
     return None
 
 
@@ -254,12 +297,18 @@ def _evaluate_draft(
             ),
         )
 
+    body_id = faces_owner_body_id(params.faces.refs, state)
+    if isinstance(body_id, FeatureError):
+        return body_id
+    assert body_id is not None, "an active body exists"
+    active = state.bodies[body_id]
+    names = state.body_face_names(body_id)
     try:
         faces = resolve_faces(
             active,
             [ref.selector.signature for ref in params.faces.refs],
             tally=state.subshape_tally,
-            face_names=state.face_names(),
+            face_names=names,
         )
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
@@ -281,12 +330,16 @@ def _evaluate_draft(
         params.neutral_plane.flip,
     )
     history = OpHistory()
-    sources = face_sources(active, state.face_names())
+    sources = face_sources(active, names)
     try:
         drafted = draft_body(active, faces, neutral, params.angle_deg, history=history)
     except DraftError as exc:
         return FeatureError(code="draft_failed", message=str(exc))
-    state.set_active_body(
-        drafted, tilted_face_names(history, sources), worked_on=history.worked_on
+    state.set_body(
+        body_id,
+        drafted,
+        tilted_face_names(history, sources),
+        worked_on=history.worked_on,
     )
+    state.active_body_id = body_id
     return None

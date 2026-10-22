@@ -54,6 +54,8 @@ def test_the_library_is_closed_and_ordered() -> None:
         "white_oak",
         "lvl",
         "glulam_dfl",
+        "osb",
+        "plywood",
         "steel_a992",
         "concrete",
     ]

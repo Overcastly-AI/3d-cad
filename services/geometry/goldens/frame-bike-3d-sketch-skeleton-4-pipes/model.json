@@ -1,0 +1,249 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000003d1",
+  "tree_version": 1,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "feature": {
+        "type": "sketch_3d",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "bb",
+              "kind": "point",
+              "position": {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 0.0
+              },
+              "snap": {
+                "kind": "origin"
+              }
+            },
+            {
+              "id": "st",
+              "kind": "point",
+              "position": {
+                "x": -141.43964166255353,
+                "y": 0.0,
+                "z": 477.49222796436015
+              }
+            },
+            {
+              "id": "ht",
+              "kind": "point",
+              "position": {
+                "x": 390.0,
+                "y": 0.0,
+                "z": 570.0
+              }
+            },
+            {
+              "id": "hb",
+              "kind": "point",
+              "position": {
+                "x": 433.27101229896505,
+                "y": 0.0,
+                "z": 428.46689611747075
+              }
+            },
+            {
+              "id": "dl",
+              "kind": "point",
+              "position": {
+                "x": -403.9801975344831,
+                "y": 64.0,
+                "z": 70.0
+              }
+            },
+            {
+              "id": "dr",
+              "kind": "point",
+              "position": {
+                "x": -403.9801975344831,
+                "y": -64.0,
+                "z": 70.0
+              }
+            },
+            {
+              "id": "seat",
+              "kind": "line",
+              "start": "bb",
+              "end": "st"
+            },
+            {
+              "id": "top",
+              "kind": "line",
+              "start": "st",
+              "end": "ht"
+            },
+            {
+              "id": "head",
+              "kind": "line",
+              "start": "ht",
+              "end": "hb"
+            },
+            {
+              "id": "down",
+              "kind": "line",
+              "start": "bb",
+              "end": "hb"
+            },
+            {
+              "id": "cs_l",
+              "kind": "line",
+              "start": "bb",
+              "end": "dl"
+            },
+            {
+              "id": "cs_r",
+              "kind": "line",
+              "start": "bb",
+              "end": "dr"
+            },
+            {
+              "id": "ss_l",
+              "kind": "line",
+              "start": "st",
+              "end": "dl"
+            },
+            {
+              "id": "ss_r",
+              "kind": "line",
+              "start": "st",
+              "end": "dr"
+            },
+            {
+              "id": "axle",
+              "kind": "line",
+              "start": "dl",
+              "end": "dr",
+              "construction": true
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "fixed",
+              "point": "ht"
+            },
+            {
+              "kind": "length",
+              "line": "seat",
+              "value_mm": 500.0
+            },
+            {
+              "kind": "length",
+              "line": "head",
+              "value_mm": 150.0
+            },
+            {
+              "kind": "along",
+              "line": "axle",
+              "axis": "y"
+            },
+            {
+              "kind": "distance",
+              "a": "dl",
+              "b": "dr",
+              "value_mm": 130.0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "feature": {
+        "type": "pipe",
+        "version": 1,
+        "params": {
+          "path": [
+            {
+              "kind": "sketch_curve",
+              "sketch": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "entity": "down"
+            }
+          ],
+          "outer_diameter_mm": 44.0,
+          "wall_thickness_mm": 1.2,
+          "operation": "add",
+          "merge": true
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "feature": {
+        "type": "pipe",
+        "version": 1,
+        "params": {
+          "path": [
+            {
+              "kind": "sketch_curve",
+              "sketch": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "entity": "seat"
+            }
+          ],
+          "outer_diameter_mm": 31.8,
+          "wall_thickness_mm": 1.0,
+          "operation": "add",
+          "merge": true
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000004",
+      "feature": {
+        "type": "pipe",
+        "version": 1,
+        "params": {
+          "path": [
+            {
+              "kind": "sketch_curve",
+              "sketch": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "entity": "top"
+            }
+          ],
+          "outer_diameter_mm": 35.0,
+          "wall_thickness_mm": 1.0,
+          "operation": "add",
+          "merge": true
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000005",
+      "feature": {
+        "type": "pipe",
+        "version": 1,
+        "params": {
+          "path": [
+            {
+              "kind": "sketch_curve",
+              "sketch": {
+                "kind": "feature",
+                "feature_id": "00000000-0000-0000-0000-000000000001"
+              },
+              "entity": "head"
+            }
+          ],
+          "outer_diameter_mm": 50.0,
+          "wall_thickness_mm": 3.0,
+          "operation": "add",
+          "merge": true
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

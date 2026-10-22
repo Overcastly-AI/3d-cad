@@ -26,12 +26,19 @@ from typing import Annotated, Any, Literal, Self, assert_never, cast, get_args
 from pydantic import (
     BaseModel,
     Field,
-    StrictFloat,
-    StrictInt,
     StringConstraints,
     model_validator,
 )
 
+from loft_wire.body_types import (
+    BASE_BODY_AFFECTING_FEATURE_TYPES as BASE_BODY_AFFECTING_FEATURE_TYPES,
+)
+from loft_wire.body_types import (
+    BODY_AFFECTING_FEATURE_TYPES as BODY_AFFECTING_FEATURE_TYPES,
+)
+from loft_wire.cut_bodies import CUT_BODIES_FIELD as CUT_BODIES_FIELD
+from loft_wire.cut_bodies import CutBodies as CutBodies
+from loft_wire.cut_bodies import check_cut_bodies
 from loft_wire.datum_angle import DatumAngleLine as DatumAngleLine
 from loft_wire.datum_angle import DatumAngleParams as DatumAngleParams
 from loft_wire.datum_angle import DatumOriginAxisRef as DatumOriginAxisRef
@@ -55,7 +62,15 @@ from loft_wire.geometry import (
     ShapeProperties,
     Vec3,
 )
-from loft_wire.hole_placement import FACE_X_FIELD, FACE_Y_FIELD, derive_hole_position
+from loft_wire.hole_params import HoleBlindDepth as HoleBlindDepth
+from loft_wire.hole_params import HoleCounterbore as HoleCounterbore
+from loft_wire.hole_params import HoleCountersink as HoleCountersink
+from loft_wire.hole_params import HoleDepth as HoleDepth
+from loft_wire.hole_params import HoleParamsV1 as HoleParamsV1
+from loft_wire.hole_params import HoleSimple as HoleSimple
+from loft_wire.hole_params import HoleThroughAll as HoleThroughAll
+from loft_wire.hole_params import HoleType as HoleType
+from loft_wire.hole_params import IsoMetricThread as IsoMetricThread
 from loft_wire.instrument import notify_feature_error
 from loft_wire.materials import MaterialAssignment, MaterialKey
 from loft_wire.merge_field import MERGE_FIELD as MERGE_FIELD
@@ -64,16 +79,16 @@ from loft_wire.pipe import PathSegment as PathSegment
 from loft_wire.pipe import PathSketchCurve as PathSketchCurve
 from loft_wire.pipe import PipeParamsV1 as PipeParamsV1
 from loft_wire.plugins import (
-    MAX_FEATURE_LIST,
     MAX_PLUGIN_EXPANSION,
     MAX_PLUGIN_INPUTS,
-    MAX_PLUGIN_TEXT,
     InputName,
     MemberMetadata,
+    MemberNameField,
     PluginId,
     RoleName,
     SemVer,
 )
+from loft_wire.plugins import CustomInputValue as CustomInputValue
 from loft_wire.refs import DatumPlaneRef as DatumPlaneRef
 from loft_wire.refs import FeatureRef as FeatureRef
 from loft_wire.refs import GeomRef as GeomRef
@@ -87,6 +102,9 @@ from loft_wire.resolution_tiers import (
 from loft_wire.resolution_tiers import SketchProjectionReason as SketchProjectionReason
 from loft_wire.resolution_tiers import SketchProjectionStatus as SketchProjectionStatus
 from loft_wire.resolution_tiers import SubshapeResolutionTier as SubshapeResolutionTier
+from loft_wire.revolve_axis import OriginAxis as OriginAxis
+from loft_wire.revolve_axis import RevolveAxis as RevolveAxis
+from loft_wire.revolve_axis import SketchLineAxis as SketchLineAxis
 from loft_wire.sheet_metal import (
     HEM_CLOSED_MAX_RADIUS_RATIO as HEM_CLOSED_MAX_RADIUS_RATIO,
 )
@@ -123,6 +141,13 @@ from loft_wire.sketch import (
     SketchDefinition,
     SketchProjection,
     SolvedSketch,
+)
+from loft_wire.sketch_3d import Sketch3DParamsV1 as Sketch3DParamsV1
+from loft_wire.sketch_3d import (
+    Sketch3DPoint,
+    Sketch3DSketchPointSnap,
+    Sketch3DVertexSnap,
+    SolvedSketch3DData,
 )
 from loft_wire.twist import MAX_TWIST_ANGLE_DEG as MAX_TWIST_ANGLE_DEG
 from loft_wire.twist import MIN_TWIST_ANGLE_DEG as MIN_TWIST_ANGLE_DEG
@@ -594,6 +619,8 @@ class ExtrudeParamsV1(BaseModel):
             "None is the sketch origin; dropped when there is no twist."
         ),
     )
+    cut_bodies: CutBodies | None = CUT_BODIES_FIELD
+    _cut_scope = model_validator(mode="after")(check_cut_bodies)
 
     @model_validator(mode="after")
     def _normalise_twist(self) -> Self:
@@ -627,73 +654,6 @@ class ExtrudeParamsV1(BaseModel):
     def is_twisted(self) -> bool:
         """Whether this extrude takes the twisted-sweep path (a real twist)."""
         return self.twist_angle_deg is not None
-
-
-class SketchLineAxis(BaseModel):
-    """``kind: "sketch_line"`` — a LINE entity of the profile's own sketch.
-
-    The v1 axis reference, and still the most direct one: a line entity named by
-    its sketch-local id (design §2.4 entity ids) within the SAME sketch the
-    profile comes from. A **construction** line is the natural choice — a
-    centerline is reference-only (excluded from the closed-wire profile) and is
-    exactly what an axis of revolution is — but any line entity resolves; the
-    axis is defined by the line's two solved endpoints, mapped to world space
-    through the profile's datum plane.
-
-    This variant alone can also CLOSE a half-profile: a three-sided L or
-    rectangle whose fourth side is the centerline builds the face the
-    revolution needs (see :func:`geometry.kernel.revolve.build_revolve_profile_face`).
-    An :class:`OriginAxis` is not a sketch entity, so it cannot close anything —
-    a profile revolved about an origin axis must already be a closed loop.
-    """
-
-    kind: Literal["sketch_line"] = "sketch_line"
-    entity: EntityId = Field(
-        description="Sketch-local id of a LINE entity in the profile's sketch "
-        "(a construction centerline is ideal) used as the axis of revolution"
-    )
-
-
-class OriginAxis(BaseModel):
-    """``kind: "origin_axis"`` — one of the three WORLD origin axes (X, Y, Z).
-
-    The always-available axis (REVOLVE-1): a part that has no construction
-    centerline drawn still has X, Y and Z through the world origin, so a plain
-    closed profile can be turned without first learning the centerline idiom.
-    The reference is a pure enum — no sketch entity, no picked sub-geometry —
-    so it is the most rebuild-stable axis there is: nothing upstream can move,
-    rename or delete it, and it is wholly independent of topological naming (#1).
-
-    The axis must LIE IN the profile's sketch plane, exactly as a sketch-line
-    axis does by construction. Revolving a planar profile about an axis that
-    leaves its plane sweeps material out of the profile's own cross-section, so
-    an out-of-plane pick is the per-feature ``axis_not_in_sketch_plane`` error,
-    never a silently wrong solid. Concretely: a sketch on the ``XY`` origin
-    datum turns about ``X`` or ``Y`` and REFUSES ``Z`` (its normal); ``XZ``
-    turns about ``X`` or ``Z`` and refuses ``Y``; ``YZ`` turns about ``Y`` or
-    ``Z`` and refuses ``X``. A sketch on an OFFSET datum refuses every origin
-    axis that its offset has lifted the plane away from (RESEARCH §12 — the
-    plane slides along its own normal), which is honest: the origin axis is no
-    longer in that plane.
-    """
-
-    kind: Literal["origin_axis"]
-    axis: Literal["X", "Y", "Z"] = Field(
-        description="World origin axis (through 0,0,0) to revolve about. It "
-        "must lie in the profile's sketch plane — an out-of-plane choice (e.g. "
-        "Z for a sketch on the XY datum) is an `axis_not_in_sketch_plane` "
-        "rebuild error."
-    )
-
-
-#: Discriminated axis-of-revolution union (the :data:`DatumParams` /
-#: :data:`PatternGeometry` idiom). ``origin_axis`` joined ADDITIVELY (REVOLVE-1)
-#: with **no** ``param_version`` bump: every persisted axis is
-#: ``{"kind": "sketch_line", "entity": ...}``, which still validates unchanged,
-#: and :meth:`RevolveParamsV1._legacy_sketch_line_kind` supplies the
-#: discriminator for the older rows that omit it entirely. A future
-#: ``datum_axis`` or ``model_edge`` variant joins the same way.
-RevolveAxis = Annotated[SketchLineAxis | OriginAxis, Field(discriminator="kind")]
 
 
 class RevolveParamsV1(BaseModel):
@@ -740,6 +700,8 @@ class RevolveParamsV1(BaseModel):
         "(irrelevant at a full 360°): 'reverse' sweeps the opposite way",
     )
     merge: bool = MERGE_FIELD
+    cut_bodies: CutBodies | None = CUT_BODIES_FIELD
+    _cut_scope = model_validator(mode="after")(check_cut_bodies)
 
     @model_validator(mode="before")
     @classmethod
@@ -848,6 +810,8 @@ class SweepParamsV1(BaseModel):
         "`twist_path_unsupported`; a twist with too many turns for the profile "
         "to build in reasonable time is `twist_failed`."
     )
+    cut_bodies: CutBodies | None = CUT_BODIES_FIELD
+    _cut_scope = model_validator(mode="after")(check_cut_bodies)
 
     @model_validator(mode="after")
     def _normalise_twist(self) -> Self:
@@ -916,6 +880,8 @@ class LoftParamsV1(BaseModel):
     )
     operation: Literal["add", "cut"]
     merge: bool = MERGE_FIELD
+    cut_bodies: CutBodies | None = CUT_BODIES_FIELD
+    _cut_scope = model_validator(mode="after")(check_cut_bodies)
 
 
 class FilletParamsV1(BaseModel):
@@ -1113,271 +1079,6 @@ class DraftParamsV1(BaseModel):
         description="The fixed plane the picked faces rotate about; its normal is "
         "the pull direction (:class:`DraftNeutralPlaneV1`)."
     )
-
-
-# --- Hole params — a first-class face-placed drill (slice 1: the simple hole) ----
-#
-# A dedicated HOLE feature, NOT a hand-sketched circle cut: pick a planar face,
-# a point on it, a diameter, and a depth (through-all or blind), and the geometry
-# service drills a cylinder INTO the material (opposite the face's outward normal
-# — the correct cut direction, automatically). This erases the highest-frequency
-# everyday-modeling friction (sketch a circle → constrain → extrude-cut, every
-# time) and later seeds drawing hole callouts.
-#
-# The placement REUSES the existing face-reference grammar, not a new taxonomy:
-# `face` is the SAME stage-1 planar-face :class:`SubshapeRef` the `on_face` datum,
-# the shell openings, and the sketch-on-a-face path already resolve (topo-naming
-# §4) — a pick UI echoes a `/overlay` face signature straight in. So a hole is
-# body-MODIFYING off the implicit single body chain (design §7.6, like fillet/
-# shell/draft) AND names a face reference that materialises into
-# feature_dependencies (deleting the placement-face's feature is a write-time
-# 409-with-dependents; a reorder re-checks strict-backward).
-#
-# SCOPE: a SIMPLE straight drilled hole — through-all OR a blind depth (slice 1)
-# — PLUS an optional coaxial RECESS at the placement face (slice 2): a larger
-# cylindrical `counterbore` (seats a socket-head cap screw) or a `countersink`
-# cone (seats a flat-head screw). The recess is a `HoleType`-discriminated member
-# (:data:`HoleType`) added to `HoleParamsV1` ADDITIVELY — the base bore is
-# unchanged and a legacy hole with no `type` reads `simple`, so NO `param_version`
-# bump (the RevolveAxis / DatumParams / PatternGeometry idiom).
-#
-# SLICE 2 TAIL — TAPPED holes (2026-07-25): a tapped hole is the tap-drill bore
-# PLUS a typed thread callout (`thread`), NOT modelled helical geometry (the
-# COSMETIC representation every incumbent defaults to; the decision, its
-# trade-off, and what would have to change to model threads later are recorded in
-# `geometry.kernel.threads`). Two shape decisions worth stating, because both
-# could reasonably have gone the other way:
-#
-#   * `thread` is its OWN optional field, NOT a fourth `HoleType` member.
-#     Threading is ORTHOGONAL to the recess — a counterbored tapped hole (cap
-#     screw head sunk over a tapped bore) is an everyday feature, and a `tapped`
-#     member of the `type` union would have made those mutually exclusive. It
-#     also keeps the `HoleType` union (and every consumer narrowing on its
-#     `kind`) unchanged.
-#   * The bore stays AUTHORED (`diameter_mm`), and the callout is checked against
-#     it: the drilled hole must lie in `[minor diameter, nominal diameter)` for
-#     the designation (the ISO tap drill `D - P` sits strictly inside), so a shop
-#     table's rounded stock drill is accepted while an M6 callout on a Ø20 bore
-#     is a typed `hole_thread_mismatch`. An unknown (nominal, pitch) pair is a
-#     typed `hole_thread_unsupported`. Neither EVER degrades to a plain hole
-#     carrying a thread callout nobody can cut.
-#
-# Standard drill-size tables remain a future additive member.
-
-
-class HoleThroughAll(BaseModel):
-    """A hole that cuts fully THROUGH the body (``kind: "through_all"``).
-
-    No depth to specify — the drill clears the body on both sides regardless of
-    the local wall thickness (the geometry service spans the bounding box). The
-    default ``kind`` makes ``{"kind": "through_all"}`` explicit while a future
-    additive depth mode joins the discriminated union without a bump.
-    """
-
-    kind: Literal["through_all"] = "through_all"
-
-
-class HoleBlindDepth(BaseModel):
-    """A blind hole drilled ``depth_mm`` into the material (``kind: "blind"``).
-
-    ``depth_mm`` is measured from the placement face INTO the solid along the
-    (inward) drill axis. A depth that exceeds the available material — the drill
-    would break through the far side — is a per-feature ``hole_too_deep`` rebuild
-    error (use a through-all hole instead), never a silently wrong body.
-    """
-
-    kind: Literal["blind"]
-    depth_mm: float = Field(
-        gt=0,
-        description="Depth of the blind hole from the face into the material (mm)",
-    )
-
-
-#: A hole's depth mode — cut fully through, or a blind pocket — discriminated on
-#: ``kind``. The ``counterbore`` / ``countersink`` shape is a SEPARATE param
-#: (the hole TYPE — :data:`HoleType`), not a depth mode; this union stays
-#: through-all|blind (a recess is measured from the face independently of it).
-HoleDepth = Annotated[HoleThroughAll | HoleBlindDepth, Field(discriminator="kind")]
-
-
-class HoleSimple(BaseModel):
-    """A plain straight drilled hole — no recess (``kind: "simple"``, the default).
-
-    The slice-1 shape: the bore alone (``diameter_mm`` + the through-all|blind
-    ``depth``), with no counterbore/countersink recess at the face. ``kind``
-    DEFAULTS to ``"simple"`` so a legacy :class:`HoleParamsV1` that carries NO
-    ``type`` validates unchanged — the discriminated :data:`HoleType` is a purely
-    ADDITIVE member (NO ``param_version`` bump; the RevolveAxis / DatumParams
-    idiom).
-    """
-
-    kind: Literal["simple"] = "simple"
-
-
-class HoleCounterbore(BaseModel):
-    """A larger coaxial CYLINDRICAL recess at the face (``kind: "counterbore"``).
-
-    Seats a socket-head cap screw: a flat-bottomed cylinder of
-    ``cbore_diameter_mm`` sunk ``cbore_depth_mm`` from the placement face, coaxial
-    with the bore, subtracted ALONGSIDE the bore. The recess diameter must exceed
-    the bore ``diameter_mm`` and its depth must fit within the body's thickness —
-    an invalid recess degrades to a typed ``hole_cbore_invalid`` (diameter) /
-    ``hole_too_deep`` (depth) rebuild error, never a raise or a silently wrong
-    body (the never-500 posture the simple hole already holds).
-    """
-
-    kind: Literal["counterbore"]
-    cbore_diameter_mm: float = Field(
-        gt=0,
-        description="Counterbore recess diameter (mm); must EXCEED the bore "
-        "`diameter_mm` (a `hole_cbore_invalid` rebuild error otherwise)",
-    )
-    cbore_depth_mm: float = Field(
-        gt=0,
-        description="Depth of the counterbore recess from the face into the "
-        "material (mm); must fit the body thickness (a `hole_too_deep` otherwise)",
-    )
-
-
-class HoleCountersink(BaseModel):
-    """A coaxial CONICAL recess at the face (``kind: "countersink"``).
-
-    Seats a flat-head screw: a truncated cone — ``csink_diameter_mm`` wide at the
-    surface, tapering at the ``csink_angle_deg`` INCLUDED angle (82° and 90° are
-    the fastener standards) down to the bore diameter — subtracted alongside the
-    bore. The mouth diameter must exceed the bore ``diameter_mm`` and the cone
-    depth the angle implies must fit the body — an invalid recess degrades to a
-    typed ``hole_csink_invalid`` (diameter) / ``hole_too_deep`` (depth) rebuild
-    error, never a raise.
-    """
-
-    kind: Literal["countersink"]
-    csink_diameter_mm: float = Field(
-        gt=0,
-        description="Countersink mouth diameter at the face surface (mm); must "
-        "EXCEED the bore `diameter_mm` (a `hole_csink_invalid` otherwise)",
-    )
-    csink_angle_deg: float = Field(
-        gt=0.0,
-        lt=180.0,
-        description="INCLUDED cone angle (degrees); 82 and 90 are the flat-head "
-        "fastener standards. The cone tapers from the mouth diameter down to the "
-        "bore diameter over a depth the angle implies.",
-    )
-
-
-#: A hole's TYPE — a plain bore, or a bore PLUS a coaxial recess at the face —
-#: discriminated on ``kind``. ADDITIVE to :class:`HoleParamsV1` (the base bore is
-#: unchanged; the type only ADDS the recess): a legacy hole with no ``type`` reads
-#: ``simple``, so NO ``param_version`` bump (the RevolveAxis / DatumParams /
-#: PatternGeometry idiom). A tapped hole is NOT a member here — threading is
-#: orthogonal to the recess (a counterbored tapped hole is an everyday feature),
-#: so it rides on its own :class:`IsoMetricThread` field (see the section comment).
-HoleType = Annotated[
-    HoleSimple | HoleCounterbore | HoleCountersink, Field(discriminator="kind")
-]
-
-
-class IsoMetricThread(BaseModel):
-    """An ISO 261 metric thread callout on a hole (``standard: "iso_metric"``).
-
-    The COSMETIC thread representation: the kernel cuts the tap-drill bore only
-    (``diameter_mm``) and carries this designation as metadata for drawing/BOM/
-    export callouts — it does NOT model helical geometry (decision + rationale +
-    the upgrade path in ``geometry.kernel.threads``). ``standard`` is required so
-    a future thread standard (UNC/UNF, NPT) joins as a discriminated union member
-    without a ``param_version`` bump.
-
-    The pair (``nominal_diameter_mm``, ``pitch_mm``) must be a real ISO 261
-    combination — M10 x 1.5 (coarse) or M10 x 1.25/1/0.75 (fine), say — and the
-    hole's ``diameter_mm`` must be a hole the tap can actually cut, i.e. within
-    ``[D - 1.0825*P, D)``. The ISO recommended tap drill is ``D - P`` (5.0 mm for
-    M6 x 1, 8.5 mm for M10 x 1.5 — the published tables' values). Violations are
-    the typed rebuild errors ``hole_thread_unsupported`` / ``hole_thread_mismatch``
-    — never a silent fallback to an untapped hole.
-    """
-
-    standard: Literal["iso_metric"]
-    nominal_diameter_mm: float = Field(
-        gt=0,
-        description="Nominal (major) thread diameter — the `M` number, mm: 10.0 "
-        "for M10x1.5. Must be an ISO 261 size (a `hole_thread_unsupported` "
-        "rebuild error otherwise)",
-    )
-    pitch_mm: float = Field(
-        gt=0,
-        description="Thread pitch (mm): 1.5 for M10x1.5. Must be a standard pitch "
-        "for that nominal diameter (a `hole_thread_unsupported` otherwise)",
-    )
-
-
-class HoleParamsV1(BaseModel):
-    """A face-placed cylindrical hole — through-all or blind, plain or recessed.
-
-    The dedicated Hole feature (BACKLOG P2): drill a straight cylinder of
-    ``diameter_mm`` into the current body at ``position`` on the planar ``face``,
-    cutting INTO the material (opposite the face's outward normal — the correct
-    direction, chosen automatically, no direction knob to get wrong). Like a
-    fillet/shell/draft it modifies the implicit single body chain (design §7.6),
-    so it carries no whole-feature ``FeatureRef`` — its dependency on the prior
-    body-affecting feature is tree order. The placement face IS a named reference,
-    though: ``face`` is the SAME stage-1 planar-face :class:`SubshapeRef` the
-    ``on_face`` datum / shell openings resolve, so it materialises into
-    ``feature_dependencies`` (deleting that body feature is a 409-with-dependents;
-    a reorder re-checks strict-backward).
-
-    ``position`` is a WORLD point, projected onto the resolved face plane to fix
-    the drill axis; with ``face_x_mm``/``face_y_mm`` it is derived from them
-    (:mod:`loft_wire.hole_placement`). Off the body is ``hole_off_body``.
-
-    ``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;
-    ``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the
-    available material is ``hole_too_deep``. A non-planar / missing / congruent
-    face reference degrades exactly as the ``on_face`` datum does
-    (``subshape_unresolved`` / ``subshape_ambiguous``) — planar faces only carry a
-    signature, so a non-planar pick cannot be authored.
-
-    ``type`` is a :data:`HoleType`: ``simple`` (the default when omitted — the
-    slice-1 plain bore) or a bore PLUS a coaxial recess at the face —
-    ``counterbore`` (a larger cylinder) or ``countersink`` (a cone). A recess
-    whose diameter does not exceed the bore is ``hole_cbore_invalid`` /
-    ``hole_csink_invalid``; a recess deeper than the material is ``hole_too_deep``.
-
-    ``thread`` (optional, ``None`` = an untapped hole) makes the hole TAPPED: a
-    cosmetic :class:`IsoMetricThread` callout over the tap-drill bore, ORTHOGONAL
-    to ``type`` (a counterbored tapped hole sets both). It adds NO geometry, so a
-    tapped hole mirrors, patterns, shells and exports exactly as its bore does.
-    ``hole_thread_unsupported`` / ``hole_thread_mismatch`` refuse a bad callout.
-    """
-
-    face: SubshapeRef = Field(
-        description="Planar face of an earlier body-affecting feature to drill "
-        "into (the SAME stage-1 signature reference the on_face datum uses)"
-    )
-    position: Vec3 = Field(
-        description="World-space placement point, projected onto the face plane "
-        "to fix the drill axis (mm)"
-    )
-    diameter_mm: float = Field(gt=0, description="Hole diameter (mm)")
-    depth: HoleDepth = Field(
-        description="Through-all, or a blind pocket depth (:data:`HoleDepth`)"
-    )
-    type: HoleType = Field(
-        default_factory=HoleSimple,
-        description="Hole type: a plain bore (`simple`, the default when omitted "
-        "— slice-1 behaviour) or a bore plus a coaxial counterbore / countersink "
-        "recess at the face (:data:`HoleType`)",
-    )
-    thread: IsoMetricThread | None = Field(
-        default=None,
-        description="Optional COSMETIC thread callout making this a TAPPED hole "
-        "(`null`/omitted = untapped). Carries the designation for drawing/BOM "
-        "callouts; adds no geometry — `diameter_mm` is the tap-drill bore "
-        "(:class:`IsoMetricThread`)",
-    )
-    face_x_mm: float | None = FACE_X_FIELD
-    face_y_mm: float | None = FACE_Y_FIELD
-    _derive_position = model_validator(mode="after")(derive_hole_position)
 
 
 # --- Pattern params (linear / circular) -----------------------------------------
@@ -2114,6 +1815,15 @@ class SketchFeature(FeatureEnvelopeBase):
     params: SketchParamsV1
 
 
+class Sketch3DFeature(FeatureEnvelopeBase):
+    """``{"type": "sketch_3d", ...}``: points and lines in model space
+    (:mod:`loft_wire.sketch_3d`, SKETCH-3D)."""
+
+    type: Literal["sketch_3d"]
+    version: Literal[1]
+    params: Sketch3DParamsV1
+
+
 class ExtrudeFeature(FeatureEnvelopeBase):
     """``{"type": "extrude", "version": 1, "params": {...}}`` envelope."""
 
@@ -2316,6 +2026,7 @@ class BooleanFeature(FeatureEnvelopeBase):
 Feature = Annotated[
     DatumFeature
     | SketchFeature
+    | Sketch3DFeature
     | ExtrudeFeature
     | RevolveFeature
     | SweepFeature
@@ -2341,6 +2052,7 @@ Feature = Annotated[
 FeatureEnvelope = (
     DatumFeature
     | SketchFeature
+    | Sketch3DFeature
     | ExtrudeFeature
     | RevolveFeature
     | SweepFeature
@@ -2534,6 +2246,7 @@ class FeatureTypeRegistry[ModelT: BaseModel]:
 FEATURE_REGISTRY: FeatureTypeRegistry[FeatureEnvelope] = FeatureTypeRegistry()
 FEATURE_REGISTRY.register(DatumFeature)
 FEATURE_REGISTRY.register(SketchFeature)
+FEATURE_REGISTRY.register(Sketch3DFeature)
 FEATURE_REGISTRY.register(ExtrudeFeature)
 FEATURE_REGISTRY.register(RevolveFeature)
 FEATURE_REGISTRY.register(SweepFeature)
@@ -2557,25 +2270,16 @@ FEATURE_REGISTRY.validate_chains()
 
 # --- Custom features (PLUGIN-REGISTRY, RESEARCH §23; manifests: loft_wire.plugins) --
 
-#: One input value: a number (mm, degrees or a count, by the input's kind), an
-#: option or material key, or one or more earlier features. Strict: no ``true``.
-CustomInputValue = (
-    StrictInt
-    | StrictFloat
-    | Annotated[str, StringConstraints(max_length=MAX_PLUGIN_TEXT)]
-    | FeatureRef
-    | Annotated[list[FeatureRef], Field(min_length=1, max_length=MAX_FEATURE_LIST)]
-)
-
 
 class ExpandedMember(BaseModel):
     """One base feature a custom feature expanded to, as stored with it."""
 
     role: RoleName = Field(description="The manifest role this member takes.")
     index: int = Field(ge=0, lt=MAX_PLUGIN_EXPANSION, description="n within role.")
+    name: MemberNameField = None
     id: uuid.UUID = Field(
-        description="loft_wire.plugins.member_id(<feature-id>, role, index): the "
-        "stable id geometry builds, results and picks name this member by."
+        description="loft_wire.plugins.member_id(<feature-id>, role, index, name): "
+        "the stable id geometry builds, results and picks name this member by."
     )
     feature: Feature
     metadata: MemberMetadata | None = Field(default=None, exclude_if=_is_none)
@@ -2639,6 +2343,7 @@ class CustomFeature(FeatureEnvelopeBase):
 AuthoredFeature = Annotated[
     DatumFeature
     | SketchFeature
+    | Sketch3DFeature
     | ExtrudeFeature
     | RevolveFeature
     | SweepFeature
@@ -2717,74 +2422,6 @@ AUTHORED_FEATURES = AuthoredFeatureRegistry()
 # --- §2.2/§2.3 Reference helpers --------------------------------------------------
 
 
-#: Feature types that produce/mutate the body chain — the acceptable targets of
-#: a :class:`SubshapeRef` face reference (topo-naming §4: a face is named on a
-#: body-affecting feature's result). ``datum``/``sketch`` are NOT body-affecting.
-BODY_AFFECTING_FEATURE_TYPES = frozenset(
-    {
-        "extrude",
-        "revolve",
-        "sweep",
-        "pipe",
-        "loft",
-        "fillet",
-        "chamfer",
-        "shell",
-        "draft",
-        # `hole` drills a cylinder into the body (a body-affecting modifier like
-        # fillet/shell/draft), so its result faces/edges are nameable by a later
-        # SubshapeRef (a datum on the new bore face, a hole near an earlier hole).
-        "hole",
-        "pattern",
-        # `mirror` reflects the current body about a plane and unions the
-        # reflection in (a body-affecting modifier like pattern), so its result
-        # faces/edges are nameable by a later SubshapeRef (a hole on a mirrored
-        # boss, a sketch on the reflected face).
-        "mirror",
-        # `import` produces the base body (step-import.md §1), so its faces/edges
-        # are nameable by a later SubshapeRef — "sketch on an imported part's face".
-        "import",
-        # `sheet_metal_base_flange` produces the sheet body (sheet-metal.md §4.1),
-        # so its faces/edges are nameable by a later SubshapeRef — a sketch/hole on
-        # a flange face (§7), or (slice #3) the edge-flange bend attaches to a base
-        # edge. A base flange IS a body-affecting result like any extrude.
-        "sheet_metal_base_flange",
-        # `sheet_metal_edge_flange` folds a flange onto the sheet body (sheet-metal
-        # §4.2), so its result faces/edges are nameable by a later SubshapeRef — a
-        # hole on a formed flange face, or a second edge flange off a NEW edge the
-        # first created (still a depth-1 star off the base, §4.3).
-        "sheet_metal_edge_flange",
-        # `sheet_metal_hem` folds a ~180 deg return onto the sheet body (parity §2,
-        # closed hem) — the SAME body-affecting result as an edge flange (it reuses
-        # `build_edge_flange`), so its faces/edges are nameable by a later
-        # SubshapeRef (a hole on the hemmed return, a bend off a new edge).
-        "sheet_metal_hem",
-        # `sheet_metal_corner_relief` cuts a notch into the sheet body (sheet-metal
-        # §4.4) — a body-affecting modifier like fillet/shell — so its result
-        # faces/edges are nameable by a later SubshapeRef (a hole near a relieved
-        # corner). It never keys a standalone body (no `merge`).
-        "sheet_metal_corner_relief",
-        # `boolean` produces a combined body (multi-body §Decisions-3), so its
-        # result faces/edges are nameable by a later SubshapeRef (a fillet on a
-        # boolean seam — MB-3, the honest stage-1-degrade-under-edit case).
-        "boolean",
-    }
-)
-
-
-#: The body-CREATING (base) feature types — the acceptable target/tool of a
-#: `boolean` operand ref (multi-body §Decisions-3: a boolean combines two bodies
-#: named by their BASE features). A body's identity is its base-feature id
-#: (§MB-0 Decision 1), and only these features CREATE a body (extrude/revolve/
-#: sweep/loft build a primitive, import brings one in). The MODIFIERS (fillet/
-#: chamfer/shell/draft/pattern) mutate the active body in place and never key a
-#: body, so they are NOT valid boolean operands; `boolean` itself is excluded too
-#: (it takes over its target's base id, not its own — boolean-on-boolean is MB-4).
-BASE_BODY_AFFECTING_FEATURE_TYPES = frozenset(
-    {"extrude", "revolve", "sweep", "pipe", "loft", "import", "sheet_metal_base_flange"}
-)
-
-
 #: The named-subshape reference kinds (face + edge) — both carry a graph-joining
 #: ``feature_id`` and are yielded WHOLE by the walk (their signature payloads
 #: carry no nested refs). A runtime alias so the ``isinstance`` check and the
@@ -2835,11 +2472,15 @@ class FeatureReference:
     allowed_types: frozenset[str]
 
 
+#: A path curve or a 3D sketch snap may come from a 2D or a 3D sketch.
+_SKETCH_TYPES = frozenset({"sketch", "sketch_3d"})
+
+
 def _path_references(path: list[PathSegment]) -> list[FeatureReference]:
     """A pipe's or along-path datum's picked curves: a sketch curve depends on
     its sketch, a model edge on the body-affecting feature it names."""
     return [
-        FeatureReference(f"path[{index}]", segment.sketch, frozenset({"sketch"}))
+        FeatureReference(f"path[{index}]", segment.sketch, _SKETCH_TYPES)
         if isinstance(segment, PathSketchCurve)
         else FeatureReference(f"path[{index}]", segment, BODY_AFFECTING_FEATURE_TYPES)
         for index, segment in enumerate(path)
@@ -2952,6 +2593,22 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                             BODY_AFFECTING_FEATURE_TYPES,
                         )
                     )
+        case Sketch3DFeature():
+            # A snapped point depends on the sketch or body feature it follows.
+            for entity in feature.params.entities:
+                snap = entity.snap if isinstance(entity, Sketch3DPoint) else None
+                if isinstance(snap, Sketch3DSketchPointSnap):
+                    references.append(
+                        FeatureReference(
+                            f"snap:{entity.id}", snap.sketch, _SKETCH_TYPES
+                        )
+                    )
+                elif isinstance(snap, Sketch3DVertexSnap):
+                    references.append(
+                        FeatureReference(
+                            f"snap:{entity.id}", snap.edge, BODY_AFFECTING_FEATURE_TYPES
+                        )
+                    )
         case ExtrudeFeature() | RevolveFeature():
             # Both take a single sketch profile ref; revolve's axis is either a
             # sketch-LOCAL entity id (a line within that same sketch) or a world
@@ -3046,6 +2703,16 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                     "face", feature.params.face, BODY_AFFECTING_FEATURE_TYPES
                 )
             )
+            # A Feature Scope names further BODIES by their base feature, the
+            # boolean operand rule (a body's identity is its base feature id).
+            for index, ref in enumerate(feature.params.scope_bodies or []):
+                references.append(
+                    FeatureReference(
+                        f"scope_bodies[{index}]",
+                        ref,
+                        BASE_BODY_AFFECTING_FEATURE_TYPES,
+                    )
+                )
         case PatternFeature():
             # A `body`-scope pattern replicates the implicit body about world-space
             # direction/axis vectors (no picked sub-geometry — independent of #1);
@@ -3192,6 +2859,12 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
             )
         case _:
             assert_never(feature)  # exhaustive: new types must map their slots
+    # Objects To Cut names bodies by base feature, the boolean operand rule.
+    scope: object = getattr(feature.params, "cut_bodies", None)
+    listed = cast(list[FeatureRef], scope) if isinstance(scope, list) else []
+    base = BASE_BODY_AFFECTING_FEATURE_TYPES
+    for i, ref in enumerate(listed):
+        references.append(FeatureReference(f"cut_bodies[{i}]", ref, base))
 
     walked = sorted(ref.feature_id for ref in iter_feature_refs(feature))
     mapped = sorted(reference.ref.feature_id for reference in references)
@@ -3797,13 +3470,11 @@ class SolvedSketchData(SolvedSketch):
     )
 
 
-#: The typed per-feature ``FeatureResult.data`` payload (design §7.10).
-#: Every variant carries a ``kind`` literal tag, so when a second feature
-#: type grows a payload this alias becomes the discriminated union
-#: ``Annotated[SolvedSketchData | NewData, Field(discriminator="kind")]`` —
-#: purely additive on the wire (pydantic forbids a discriminator on a
-#: single-member union, hence the plain alias until then).
-FeatureData = SolvedSketchData
+#: The typed per-feature ``FeatureResult.data`` payload (design §7.10): a 2D
+#: sketch's or a 3D sketch's solve, discriminated on ``kind``.
+FeatureData = Annotated[
+    SolvedSketchData | SolvedSketch3DData, Field(discriminator="kind")
+]
 
 
 class SubshapeResolutionSummary(BaseModel):
@@ -3865,6 +3536,16 @@ class FeatureResult(BaseModel):
         "picked subshape reference (or did not evaluate ok). A worst_tier other "
         "than 'exact' means the feature rebuilt on a best-effort re-match - "
         "worth a dismissable warning, never a refusal.",
+    )
+    cut_bodies: list[uuid.UUID] | None = Field(
+        default=None,
+        exclude_if=_is_none,
+        description="For every ok extrude, revolve, sweep, loft or pipe CUT, "
+        "whatever its cut_bodies (absent included, so a stored cut reports "
+        "its active body, and a plugin member's cut reports too): the bodies "
+        "(by base feature id, tree order) it removed material from on this "
+        "rebuild, which the dialog's Objects To Cut list shows. Absent for "
+        "every other feature.",
     )
 
 

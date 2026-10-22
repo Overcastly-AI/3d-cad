@@ -101,7 +101,7 @@ class TestUrlCredential:
         [
             (_DEFAULT_PASSWORD_DSN, "loft-dev-only"),
             ("redis://:s3cret@redis:6379/0", "s3cret"),
-            ("http://loft-minio:loft-minio-dev-only@minio:9000", "loft-minio-dev-only"),
+            ("http://loft-s3:loft-s3-dev-only@seaweedfs:8333", "loft-s3-dev-only"),
             # Percent-escapes are decoded, so an encoded blank reads as blank.
             ("postgresql://loft:%20%20@db:5432/loft", "  "),
             # No credential embedded at all — peer/IAM/out-of-band auth.
@@ -132,6 +132,7 @@ class TestCredentialDefect:
         "value",
         [
             "loft-dev-only",
+            "loft-s3-dev-only",
             "loft-minio-dev-only",
             "MinioAdmin",
             " postgres ",
@@ -198,7 +199,7 @@ class TestDatastoreCredentialGuard:
             (
                 "S3_URL",
                 lambda: BaseServiceSettings(
-                    s3_url="http://loft-minio:loft-minio-dev-only@minio:9000"
+                    s3_url="http://loft-s3:loft-s3-dev-only@seaweedfs:8333"
                 ),
             ),
         ],
@@ -238,7 +239,7 @@ class TestDatastoreCredentialGuard:
         assert record["variable"] == "POSTGRES_URL"
 
     def test_subclass_declares_extra_credential_fields(self) -> None:
-        # Geometry's MinIO secret is the one datastore credential that does
+        # Geometry's S3 secret is the one datastore credential that does
         # not live inside a URL; a subclass opts it into the same guard.
         class GeometrySettings(BaseServiceSettings):
             datastore_credential_fields: ClassVar[tuple[str, ...]] = (
@@ -249,8 +250,10 @@ class TestDatastoreCredentialGuard:
         assert GeometrySettings().s3_secret_access_key is None
         assert GeometrySettings(s3_secret_access_key="cb6f0a1d9e4f").loft_env is None
         with pytest.raises(RuntimeError, match="S3_SECRET_ACCESS_KEY"):
-            GeometrySettings(s3_secret_access_key="loft-minio-dev-only")
-        with pytest.raises(RuntimeError, match="MINIO_ROOT_PASSWORD"):
+            GeometrySettings(s3_secret_access_key="loft-s3-dev-only")
+        # The old compose default stays refused: an old .env still supplies it
+        # through the deprecated MINIO_ROOT_PASSWORD alias.
+        with pytest.raises(RuntimeError, match="S3_SECRET_ACCESS_KEY"):
             GeometrySettings(s3_secret_access_key="loft-minio-dev-only")
         with pytest.raises(RuntimeError, match="empty/whitespace-only"):
             GeometrySettings(s3_secret_access_key="   ")

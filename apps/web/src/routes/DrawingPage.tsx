@@ -41,6 +41,7 @@ import { useDrawingData } from "./drawing/useDrawingData";
 import { useDrawingExport } from "./drawing/useDrawingExport";
 import { useDrawingNotes } from "./drawing/useDrawingNotes";
 import { useLayoutActions } from "./drawing/useLayoutActions";
+import { usePartsListStructure } from "./drawing/usePartsListStructure";
 import { useSheetManagement } from "./drawing/useSheetManagement";
 import { useViewPlacement } from "./drawing/useViewPlacement";
 
@@ -206,6 +207,8 @@ export function DrawingPage() {
     data,
     ctx,
   );
+  const { partsListStructure, partsListBusy, setPartsListStructure } =
+    usePartsListStructure(data, ctx);
 
   // Keyboard-first: L lays out (or re-projects once laid out).
   useEffect(() => {
@@ -624,7 +627,14 @@ export function DrawingPage() {
               <PartsListPanel
                 sourceKind={effectiveSourceKind}
                 lines={bomQuery.data?.lines ?? []}
-                totalInstances={bomQuery.data?.total_instances ?? 0}
+                total={
+                  (bomQuery.data?.structure === "parts_only"
+                    ? bomQuery.data.total_parts
+                    : bomQuery.data?.total_instances) ?? 0
+                }
+                structure={partsListStructure}
+                structureBusy={partsListBusy}
+                onStructureChange={setPartsListStructure}
                 loading={bomQuery.isLoading}
                 error={bomQuery.error}
                 onOpen={handleOpenBomLine}

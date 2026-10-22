@@ -149,6 +149,19 @@ def _every_slot_tree() -> list[dict[str, Any]]:
         ),
         _feature("datum", {"kind": "along_path", "path": _edge(9), "ratio": 0.5}),
         _feature(
+            "sketch_3d",
+            {
+                "entities": [
+                    {
+                        "id": "p1",
+                        "kind": "point",
+                        "position": _v(0, 0, 0),
+                        "snap": {"kind": "vertex", "edge": _edge(10), "end": "a"},
+                    }
+                ]
+            },
+        ),
+        _feature(
             "sheet_metal_edge_flange",
             {"edge": _edge(4), "flange_length_mm": 10.0, "bend_angle_deg": 90.0},
         ),
@@ -193,7 +206,7 @@ def test_the_walk_yields_exactly_the_subshape_refs_iter_feature_refs_yields() ->
         ]
         assert [id(r) for r in walked] == [id(r) for r in expected]
         total += len(walked)
-    assert total == 17
+    assert total == 18
 
 
 def test_every_pointer_lands_on_its_ref_in_the_stored_json() -> None:
@@ -239,6 +252,7 @@ _KNOWN_SLOTS = {
     ("DatumAngleParams", "reference"),
     ("DatumAlongPathParams", "path"),
     ("PipeParamsV1", "path"),
+    ("Sketch3DVertexSnap", "edge"),
     ("HoleParamsV1", "face"),
     ("SheetMetalEdgeFlangeParamsV1", "edge"),
     ("SheetMetalHemParamsV1", "edge"),

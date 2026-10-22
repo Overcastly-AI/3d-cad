@@ -2190,7 +2190,7 @@ CUT_ROW_EXEMPT = {
 
 #: Registered types that do not touch the body at all — they contribute
 #: references, not geometry, so they are not matrix material.
-NON_BODY_AFFECTING = {"sketch", "datum"}
+NON_BODY_AFFECTING = {"sketch", "sketch_3d", "datum"}
 
 #: Body-affecting types with NO catalogue verb, each with its reason. Same
 #: posture as :data:`CUT_ROW_EXEMPT`: an omission has to be argued in writing.

@@ -5,7 +5,7 @@ Get Loft running and model something. Two paths:
 - **[Option A — Docker Compose](#option-a--docker-compose-self-hosting)**: the
   self-hosting path. Datastores included. Start here if you want to *use* Loft.
 - **[Option B — container-free](#option-b--container-free-development)**: no
-  Docker, no Postgres, no MinIO. Start here if you want to *develop* Loft.
+  Docker, no Postgres, no object store. Start here if you want to *develop* Loft.
 
 Both end at the same place: a browser at a modeling viewport with a part in it.
 

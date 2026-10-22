@@ -20,8 +20,8 @@ def test_default_settings() -> None:
     assert settings.web_concurrency == 1  # single-worker default (§7.8 guard)
 
 
-class TestMinioCredentialPosture:
-    """The MinIO root password is the one datastore credential outside a URL.
+class TestS3CredentialPosture:
+    """The S3 secret is the one datastore credential outside a URL.
 
     Geometry declares it to py-kit's dev-credential guard
     (``datastore_credential_fields``), so the published compose default is
@@ -36,17 +36,23 @@ class TestMinioCredentialPosture:
         # process-wide, and a whole-repo pytest run collects that conftest first.
         monkeypatch.delenv("LOFT_ENV", raising=False)
         with pytest.raises(RuntimeError, match="S3_SECRET_ACCESS_KEY"):
-            GeometrySettings(s3_secret_access_key="loft-minio-dev-only")
-        with pytest.raises(RuntimeError, match="MINIO_ROOT_PASSWORD"):
+            GeometrySettings(s3_secret_access_key="loft-s3-dev-only")
+        with pytest.raises(RuntimeError, match="S3_SECRET_ACCESS_KEY"):
+            GeometrySettings(
+                loft_env="production", s3_secret_access_key="loft-s3-dev-only"
+            )
+        # The pre-SeaweedFS default, still reachable via the deprecated
+        # MINIO_ROOT_PASSWORD compose alias in an old .env.
+        with pytest.raises(RuntimeError, match="S3_SECRET_ACCESS_KEY"):
             GeometrySettings(
                 loft_env="production", s3_secret_access_key="loft-minio-dev-only"
             )
 
     def test_dev_allows_the_default(self) -> None:
         settings = GeometrySettings(
-            loft_env="dev", s3_secret_access_key="loft-minio-dev-only"
+            loft_env="dev", s3_secret_access_key="loft-s3-dev-only"
         )
-        assert settings.s3_secret_access_key == "loft-minio-dev-only"
+        assert settings.s3_secret_access_key == "loft-s3-dev-only"
 
     def test_real_credential_boots(self) -> None:
         settings = GeometrySettings(s3_secret_access_key="cb6f0a1d9e4f7c2b8a35")
@@ -72,8 +78,8 @@ def test_build_app_refuses_multiworker() -> None:
 
 
 def test_build_app_lifts_guard_when_s3_configured() -> None:
-    # With S3_URL set the shared S3/MinIO store is installed, so multi-worker is
-    # safe and the single-worker guard is lifted (§7.8 swap; audit F6). No MinIO
+    # With S3_URL set the shared S3 store is installed, so multi-worker is
+    # safe and the single-worker guard is lifted (§7.8 swap; audit F6). No live store
     # is contacted — boto3.client() opens no connection and /healthz never
     # touches the store. Restore the LRU global afterward so no S3 backend leaks.
     from geometry.mesh_store import MeshStore, configure_mesh_store

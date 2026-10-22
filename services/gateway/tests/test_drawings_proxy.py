@@ -79,6 +79,7 @@ def _sheet() -> SheetResponse:
         orientation="landscape",
         projection="third_angle",
         title_block=None,
+        parts_list_structure="top_level",
         order_index=0,
         created_at=NOW,
         updated_at=NOW,
@@ -134,9 +135,13 @@ def _bom() -> DrawingBomResponse:
         sheet_id=SHEET,
         assembly_id=ASSEMBLY,
         assembly_version=4,
+        structure="top_level",
         lines=[
             DrawingBomLine(
                 item_number=1,
+                item="1",
+                level=0,
+                total_quantity=2,
                 ref_document_id=BOM_PART_A,
                 ref_document_kind="part",
                 name="bracket",
@@ -145,6 +150,9 @@ def _bom() -> DrawingBomResponse:
             ),
             DrawingBomLine(
                 item_number=2,
+                item="2",
+                level=0,
+                total_quantity=1,
                 ref_document_id=BOM_PART_B,
                 ref_document_kind="part",
                 name=None,
@@ -153,6 +161,7 @@ def _bom() -> DrawingBomResponse:
             ),
         ],
         total_instances=3,
+        total_parts=3,
     )
 
 

@@ -42,6 +42,8 @@ import {
 } from "./part/WorkspaceNotices";
 import { InspectorRail, FeatureTreeRail } from "./part/PartSidePanels";
 import { PartViewportLayers } from "./part/PartViewportLayers";
+import { useSketch3DScene } from "./part/useSketch3DScene";
+import { Sketch3DSceneLayer } from "../viewport/Sketch3DLayer";
 import { FeatureEditorSeat } from "./part/FeatureEditorSeat";
 import { PartCommandBand } from "./part/PartCommandBand";
 import {
@@ -367,6 +369,16 @@ export function PartPage() {
     selectedFaceIndices,
     preselectedFaceIndices,
   } = pickOverlays;
+  const sketch3dScene = useSketch3DScene({
+    partId,
+    features,
+    results: evaluation.data?.features,
+    editor,
+    solved,
+    treeVersion,
+    meshGlbId,
+    bodyFeatureId,
+  });
   const inContext = useInContext({
     partId,
     treeVersion,
@@ -1160,6 +1172,10 @@ export function PartPage() {
               }
             >
               <SketchScene solved={solved} facePicking={facePicking} />
+              <Sketch3DSceneLayer
+                layers={sketch3dScene.layers}
+                targets={sketch3dScene.targets}
+              />
               <InContextLayer session={inContext} drawing={mode === "draw"} />
               <PartViewportLayers
                 partDocument={partDocument}

@@ -72,7 +72,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents.assembly_history import ordered_mirrors, ordered_patterns
-from documents.custom_features import member_id_mapping
+from documents.custom_features import member_id_mapping, remap_member_name
 from documents.db import (
     Annotation,
     Assembly,
@@ -188,6 +188,9 @@ def remap_ids(value: Any, mapping: dict[str, str]) -> Any:
             (mapping.get(key, key) if isinstance(key, str) else key): (
                 (remap_topo_name(item, mapping) if isinstance(item, str) else item)
                 if _is_topo_key(key)
+                # A generated member's name may hold an id as one segment.
+                else remap_member_name(item, mapping)
+                if key == "name" and isinstance(item, str) and "/" in item
                 else remap_ids(item, mapping)
             )
             for key, item in entries.items()
@@ -528,6 +531,7 @@ async def duplicate_drawing(
                 orientation=sheet.orientation,
                 projection=sheet.projection,
                 title_block=sheet.title_block,
+                parts_list_structure=sheet.parts_list_structure,
                 order_index=sheet.order_index,
             )
         )

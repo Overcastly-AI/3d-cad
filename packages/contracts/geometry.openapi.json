@@ -408,6 +408,8 @@
                   "white_oak",
                   "lvl",
                   "glulam_dfl",
+                  "osb",
+                  "plywood",
                   "steel_a992",
                   "concrete"
                 ],
@@ -453,6 +455,8 @@
               "white_oak",
               "lvl",
               "glulam_dfl",
+              "osb",
+              "plywood",
               "steel_a992",
               "concrete"
             ],
@@ -4226,6 +4230,7 @@
                 "sheet_metal_hem": "#/components/schemas/SheetMetalHemFeature",
                 "shell": "#/components/schemas/ShellFeature",
                 "sketch": "#/components/schemas/SketchFeature",
+                "sketch_3d": "#/components/schemas/Sketch3DFeature",
                 "sweep": "#/components/schemas/SweepFeature"
               },
               "propertyName": "type"
@@ -4236,6 +4241,9 @@
               },
               {
                 "$ref": "#/components/schemas/SketchFeature"
+              },
+              {
+                "$ref": "#/components/schemas/Sketch3DFeature"
               },
               {
                 "$ref": "#/components/schemas/ExtrudeFeature"
@@ -4834,6 +4842,27 @@
       "ExtrudeParamsV1": {
         "description": "Linear extrusion of an earlier sketch feature's profile.\n\nWith a nonzero ``twist_angle_deg`` it is a TWISTED extrusion: the profile\nrotates uniformly about an axis parallel to the extrusion direction while it\ntravels, so every point of it traces a true helix and the far-end section is\nthe profile rotated by the full twist (docs/design/twisted-extrude.md).\n\n**The extrude twist is DEPRECATED (read-only legacy).** Twist is authored\non :class:`SweepParamsV1` (``twist_angle_deg``, \"twist along path\" as in\nFusion 360 and SolidWorks). These two fields stay so that every stored\ntwisted extrude loads and rebuilds exactly as before, but a write that\nsets or changes one is refused (:mod:`loft_wire.legacy_twist`); a twisted\nsweep along the matching straight path builds the SAME solid.\nBoth fields are additive-optional, null by default and OMITTED from a dump\nwhile null, so an extrude with no twist serializes byte-for-byte as it did\nbefore they existed (stored row, response, rebuild-cache key) and rebuilds\non the unchanged prism path \u2014 no ``param_version`` bump. A client that edits\na stored twisted extrude must carry both fields through unchanged.",
         "properties": {
+          "cut_bodies": {
+            "anyOf": [
+              {
+                "const": "all",
+                "type": "string"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FeatureRef"
+                },
+                "maxItems": 1000,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). \"all\" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.",
+            "title": "Cut Bodies"
+          },
           "direction": {
             "default": "normal",
             "enum": [
@@ -5003,16 +5032,47 @@
       "FeatureResult": {
         "description": "Per-feature evaluation status. Strict-prefix rule (\u00a74.3): the first build\nfailure is ``error``, every later feature ``skipped``; a feature sent with an\n``input_error`` is ``error`` and the later ones still build. ``suppressed``\n(\u00a74.3a) is a deliberate skip, distinct from a downstream ``skipped``, so the\ntree UI can show it dimmed rather than red.",
         "properties": {
-          "data": {
+          "cut_bodies": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/SolvedSketchData"
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Typed per-feature payload for ok features that produce one (\u00a77.10): solved sketch geometry today; future feature types add kind-tagged variants additively."
+            "description": "For every ok extrude, revolve, sweep, loft or pipe CUT, whatever its cut_bodies (absent included, so a stored cut reports its active body, and a plugin member's cut reports too): the bodies (by base feature id, tree order) it removed material from on this rebuild, which the dialog's Objects To Cut list shows. Absent for every other feature.",
+            "title": "Cut Bodies"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "solved_sketch": "#/components/schemas/SolvedSketchData",
+                    "solved_sketch_3d": "#/components/schemas/SolvedSketch3DData"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SolvedSketchData"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SolvedSketch3DData"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Typed per-feature payload for ok features that produce one (\u00a77.10): solved sketch geometry today; future feature types add kind-tagged variants additively.",
+            "title": "Data"
           },
           "error": {
             "anyOf": [
@@ -5422,7 +5482,7 @@
         "type": "object"
       },
       "HoleParamsV1": {
-        "description": "A face-placed cylindrical hole \u2014 through-all or blind, plain or recessed.\n\nThe dedicated Hole feature (BACKLOG P2): drill a straight cylinder of\n``diameter_mm`` into the current body at ``position`` on the planar ``face``,\ncutting INTO the material (opposite the face's outward normal \u2014 the correct\ndirection, chosen automatically, no direction knob to get wrong). Like a\nfillet/shell/draft it modifies the implicit single body chain (design \u00a77.6),\nso it carries no whole-feature ``FeatureRef`` \u2014 its dependency on the prior\nbody-affecting feature is tree order. The placement face IS a named reference,\nthough: ``face`` is the SAME stage-1 planar-face :class:`SubshapeRef` the\n``on_face`` datum / shell openings resolve, so it materialises into\n``feature_dependencies`` (deleting that body feature is a 409-with-dependents;\na reorder re-checks strict-backward).\n\n``position`` is a WORLD point, projected onto the resolved face plane to fix\nthe drill axis; with ``face_x_mm``/``face_y_mm`` it is derived from them\n(:mod:`loft_wire.hole_placement`). Off the body is ``hole_off_body``.\n\n``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;\n``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the\navailable material is ``hole_too_deep``. A non-planar / missing / congruent\nface reference degrades exactly as the ``on_face`` datum does\n(``subshape_unresolved`` / ``subshape_ambiguous``) \u2014 planar faces only carry a\nsignature, so a non-planar pick cannot be authored.\n\n``type`` is a :data:`HoleType`: ``simple`` (the default when omitted \u2014 the\nslice-1 plain bore) or a bore PLUS a coaxial recess at the face \u2014\n``counterbore`` (a larger cylinder) or ``countersink`` (a cone). A recess\nwhose diameter does not exceed the bore is ``hole_cbore_invalid`` /\n``hole_csink_invalid``; a recess deeper than the material is ``hole_too_deep``.\n\n``thread`` (optional, ``None`` = an untapped hole) makes the hole TAPPED: a\ncosmetic :class:`IsoMetricThread` callout over the tap-drill bore, ORTHOGONAL\nto ``type`` (a counterbored tapped hole sets both). It adds NO geometry, so a\ntapped hole mirrors, patterns, shells and exports exactly as its bore does.\n``hole_thread_unsupported`` / ``hole_thread_mismatch`` refuse a bad callout.",
+        "description": "A face-placed cylindrical hole \u2014 through-all or blind, plain or recessed.\n\nThe dedicated Hole feature (BACKLOG P2): drill a straight cylinder of\n``diameter_mm`` into the body that OWNS the planar ``face`` (in a multi-body\npart, the body whose face was picked \u2014 not the last one built), at ``position``,\ncutting INTO the material (opposite the face's outward normal \u2014 the correct\ndirection, chosen automatically, no direction knob to get wrong). Like a\nfillet/shell/draft it modifies the implicit single body chain (design \u00a77.6),\nso it carries no whole-feature ``FeatureRef`` \u2014 its dependency on the prior\nbody-affecting feature is tree order. The placement face IS a named reference,\nthough: ``face`` is the SAME stage-1 planar-face :class:`SubshapeRef` the\n``on_face`` datum / shell openings resolve, so it materialises into\n``feature_dependencies`` (deleting that body feature is a 409-with-dependents;\na reorder re-checks strict-backward).\n\n``position`` is a WORLD point, projected onto the resolved face plane to fix\nthe drill axis; with ``face_x_mm``/``face_y_mm`` it is derived from them\n(:mod:`loft_wire.hole_placement`). Off the body is ``hole_off_body``.\n\n``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;\n``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the\navailable material is ``hole_too_deep``. A non-planar / missing / congruent\nface reference degrades exactly as the ``on_face`` datum does\n(``subshape_unresolved`` / ``subshape_ambiguous``) \u2014 planar faces only carry a\nsignature, so a non-planar pick cannot be authored.\n\n``type`` is a :data:`HoleType`: ``simple`` (the default when omitted \u2014 the\nslice-1 plain bore) or a bore PLUS a coaxial recess at the face \u2014\n``counterbore`` (a larger cylinder) or ``countersink`` (a cone). A recess\nwhose diameter does not exceed the bore is ``hole_cbore_invalid`` /\n``hole_csink_invalid``; a recess deeper than the material is ``hole_too_deep``.\n\n``thread`` (optional, ``None`` = an untapped hole) makes the hole TAPPED: a\ncosmetic :class:`IsoMetricThread` callout over the tap-drill bore, ORTHOGONAL\nto ``type`` (a counterbored tapped hole sets both). It adds NO geometry, so a\ntapped hole mirrors, patterns, shells and exports exactly as its bore does.\n``hole_thread_unsupported`` / ``hole_thread_mismatch`` refuse a bad callout.",
         "properties": {
           "depth": {
             "description": "Through-all, or a blind pocket depth (:data:`HoleDepth`)",
@@ -5480,6 +5540,21 @@
           "position": {
             "$ref": "#/components/schemas/Vec3",
             "description": "World-space placement point, projected onto the face plane to fix the drill axis (mm)"
+          },
+          "scope_bodies": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FeatureRef"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Feature Scope (SolidWorks): further bodies a THROUGH-ALL bore also cuts, each named by its base (body-creating) feature. `null`/omitted cuts only the body that owns `face` (the Fusion 360 / SolidWorks default). The bore cuts each listed body coaxially; a counterbore / countersink recess seats in the owner only. A listed body the bore cannot reach is `hole_off_body`. A BLIND hole keeps its scope (so switching back to through-all restores it) but cuts only its owner: the scope is not read while the depth is blind",
+            "title": "Scope Bodies"
           },
           "thread": {
             "anyOf": [
@@ -6766,6 +6841,27 @@
       "LoftParamsV1": {
         "description": "Blend a solid THROUGH two or more ordered section sketches (design \u00a74.3).\n\nThe loft sibling of :class:`SweepParamsV1` and the second non-prismatic\nbody-affecting feature: where sweep drives ONE profile along a path, a loft\nskins a solid through an ORDERED list of cross-section sketches (the\ntransitional-solid / cone / adapter primitive named in the Part-modeling\nscorecard notes). It shares the SAME ``add``/``cut`` boolean against the body\nchain as extrude/revolve/sweep; the new ingredient is ``profiles``, a list\nof ``FeatureRef``s (min 2) to earlier sketch features, blended in list order.\n\nSection representation (v1 DESIGN DECISION \u2014 docs/GEOMETRY-QA.md\n2026-07-12): each ``profiles`` entry is a whole earlier SKETCH feature\nreferenced by id \u2014 the same stable-feature-id mechanism the extrude/revolve\n``profile`` and sweep ``profile``/``path`` slots use. This is NOT topological\nnaming (#1): it references a whole feature's evaluated wire, never a picked\nsub-edge. A section's non-construction entities form either a single CLOSED\nprofile wire (built by the shared ``build_profile_face``) OR a single POINT,\ninterpreted as an APEX vertex (the standard loft-to-a-point tip); an apex may\nappear only as the FIRST or LAST section.\n\nWhy apex support in v1 (honest limit, not gold-plating): datum planes are\norigin-only and mutually perpendicular (never parallel), so two parallel\noffset circular sections \u2014 a cylinder/frustum \u2014 are not authorable until\noffset datum planes land. A closed section lofted to an apex point IS\nauthorable and gives an analytic solid (a pyramid/cone), which is the loft\ngolden's mass-property anchor.\n\nv1 limits (stated plainly \u2014 documented scope, not bugs):\n\n* a RULED (straight) loft through the sections in list order \u2014 NO guide\n  rails, NO tangency/normal end conditions, NO periodic (closed) loft, NO\n  per-section twist/alignment control (all later, additive params \u2014 no\n  ``param_version`` bump);\n* sections are coplanar-or-parallel profiles as authored (each sketch\n  carries its own plane); an open/non-closed section is a\n  ``profile_not_closed`` rebuild error, a multi-loop section is\n  ``profile_unsupported``, and a section ref that is not an earlier ok\n  sketch is ``reference_unresolved`` (exactly like extrude/sweep);\n* incompatible sections (crossed rails), an apex wedged between two wire\n  sections, or a skin OCCT cannot reduce to exactly one solid is a kernel\n  ``loft_failed`` rebuild error, never a silently bad body.",
         "properties": {
+          "cut_bodies": {
+            "anyOf": [
+              {
+                "const": "all",
+                "type": "string"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FeatureRef"
+                },
+                "maxItems": 1000,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). \"all\" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.",
+            "title": "Cut Bodies"
+          },
           "merge": {
             "default": true,
             "description": "Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md \u00a7MB-0). Ignored for a CUT. Additive \u2014 absent reads True, no param_version bump.",
@@ -6900,6 +6996,8 @@
                   "white_oak",
                   "lvl",
                   "glulam_dfl",
+                  "osb",
+                  "plywood",
                   "steel_a992",
                   "concrete"
                 ],
@@ -7839,7 +7937,7 @@
         "type": "object"
       },
       "PathSketchCurve": {
-        "description": "``kind: \"sketch_curve\"``: one curve entity of an EARLIER sketch.\n\n``sketch`` materialises into ``feature_dependencies`` like an extrude's\nprofile; ``entity`` is the sketch-local id of a line, arc, circle or spline\n(a construction curve counts: it is what a skeleton is drawn in). The curve\nis read from the SOLVED sketch on every rebuild, so re-dimensioning the\nskeleton moves every pipe on it.",
+        "description": "``kind: \"sketch_curve\"``: one curve entity of an EARLIER sketch.\n\n``sketch`` may also name a 3D sketch (:mod:`loft_wire.sketch_3d`), whose\nlines are already in model space; ``entity`` is then a line id.\n\n``sketch`` materialises into ``feature_dependencies`` like an extrude's\nprofile; ``entity`` is the sketch-local id of a line, arc, circle or spline\n(a construction curve counts: it is what a skeleton is drawn in). The curve\nis read from the SOLVED sketch on every rebuild, so re-dimensioning the\nskeleton moves every pipe on it.",
         "properties": {
           "entity": {
             "description": "Sketch-local id of a line, arc, circle or spline in it.",
@@ -8209,8 +8307,29 @@
         "type": "object"
       },
       "PipeParamsV1": {
-        "description": "A circular or ring section swept along a picked chain of curves.\n\nSee the module docstring. ``operation`` and ``merge`` are the other\nsketch solids' fields: ``add`` with ``merge`` joins the tube to the active\nbody (Fusion's *Join*), ``add`` without it starts a new body (*New Body*),\nand ``cut`` removes it from the active body (*Cut*). Failures are typed\nrebuild errors on the pipe: ``reference_unresolved`` (a missing sketch or\ncurve), ``subshape_unresolved`` / ``subshape_ambiguous`` (an edge),\n``sweep_path_not_connected`` (branched or disjoint picks, or a curve\npicked twice), ``sweep_failed`` (a bend tighter than the section),\n``sweep_self_intersecting`` (the path comes back through the tube).",
+        "description": "A circular or ring section swept along a picked chain of curves.\n\nSee the module docstring. ``operation`` and ``merge`` are the other\nsketch solids' fields: ``add`` with ``merge`` joins the tube to the active\nbody (Fusion's *Join*), ``add`` without it starts a new body (*New Body*),\nand ``cut`` removes it from the bodies ``cut_bodies`` names (*Cut*;\nObjects To Cut, :mod:`loft_wire.cut_bodies`). Failures are typed\nrebuild errors on the pipe: ``reference_unresolved`` (a missing sketch or\ncurve), ``subshape_unresolved`` / ``subshape_ambiguous`` (an edge),\n``sweep_path_not_connected`` (branched or disjoint picks, or a curve\npicked twice), ``sweep_failed`` (a bend tighter than the section),\n``sweep_self_intersecting`` (the path comes back through the tube).",
         "properties": {
+          "cut_bodies": {
+            "anyOf": [
+              {
+                "const": "all",
+                "type": "string"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FeatureRef"
+                },
+                "maxItems": 1000,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). \"all\" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.",
+            "title": "Cut Bodies"
+          },
           "merge": {
             "default": true,
             "description": "ADD only: True joins the tube to the active body (or starts the first body); False starts a NEW body. Ignored for a cut.",
@@ -9083,6 +9202,27 @@
             ],
             "title": "Axis"
           },
+          "cut_bodies": {
+            "anyOf": [
+              {
+                "const": "all",
+                "type": "string"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FeatureRef"
+                },
+                "maxItems": 1000,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). \"all\" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.",
+            "title": "Cut Bodies"
+          },
           "direction": {
             "default": "normal",
             "description": "Sweep sense about the axis for a partial revolution (irrelevant at a full 360\u00b0): 'reverse' sweeps the opposite way",
@@ -9930,6 +10070,451 @@
           "faces"
         ],
         "title": "ShellParamsV1",
+        "type": "object"
+      },
+      "Sketch3DAlong": {
+        "description": "A line parallel to a world axis (SolidWorks' Along X / Y / Z).",
+        "properties": {
+          "axis": {
+            "enum": [
+              "x",
+              "y",
+              "z"
+            ],
+            "title": "Axis",
+            "type": "string"
+          },
+          "kind": {
+            "const": "along",
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Line",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "line",
+          "axis"
+        ],
+        "title": "Sketch3DAlong",
+        "type": "object"
+      },
+      "Sketch3DCoincident": {
+        "description": "Two points at one place.",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "kind": {
+            "const": "coincident",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b"
+        ],
+        "title": "Sketch3DCoincident",
+        "type": "object"
+      },
+      "Sketch3DDistance": {
+        "description": "A driving point-to-point distance (straight, in model space).",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "kind": {
+            "const": "distance",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value_mm": {
+            "exclusiveMinimum": 0.0,
+            "title": "Value Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b",
+          "value_mm"
+        ],
+        "title": "Sketch3DDistance",
+        "type": "object"
+      },
+      "Sketch3DFeature": {
+        "description": "``{\"type\": \"sketch_3d\", ...}``: points and lines in model space\n(:mod:`loft_wire.sketch_3d`, SKETCH-3D).",
+        "properties": {
+          "expressions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 64,
+                "propertyNames": {
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.",
+            "title": "Expressions"
+          },
+          "params": {
+            "$ref": "#/components/schemas/Sketch3DParamsV1"
+          },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
+          "type": {
+            "const": "sketch_3d",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "Sketch3DFeature",
+        "type": "object"
+      },
+      "Sketch3DFixed": {
+        "description": "A point held at its stored position.",
+        "properties": {
+          "kind": {
+            "const": "fixed",
+            "title": "Kind",
+            "type": "string"
+          },
+          "point": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Point",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "point"
+        ],
+        "title": "Sketch3DFixed",
+        "type": "object"
+      },
+      "Sketch3DLength": {
+        "description": "A driving length dimension on a line.",
+        "properties": {
+          "kind": {
+            "const": "length",
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Line",
+            "type": "string"
+          },
+          "value_mm": {
+            "exclusiveMinimum": 0.0,
+            "title": "Value Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "line",
+          "value_mm"
+        ],
+        "title": "Sketch3DLength",
+        "type": "object"
+      },
+      "Sketch3DLine": {
+        "description": "A straight line between two points of the same 3D sketch.",
+        "properties": {
+          "construction": {
+            "default": false,
+            "description": "Reference-only: solves and can be dimensioned and picked, but reads as a construction line in the sketch.",
+            "title": "Construction",
+            "type": "boolean"
+          },
+          "end": {
+            "description": "Id of the end point.",
+            "minLength": 1,
+            "title": "End",
+            "type": "string"
+          },
+          "id": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "line",
+            "title": "Kind",
+            "type": "string"
+          },
+          "start": {
+            "description": "Id of the start point.",
+            "minLength": 1,
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "start",
+          "end"
+        ],
+        "title": "Sketch3DLine",
+        "type": "object"
+      },
+      "Sketch3DOriginSnap": {
+        "description": "``kind: \"origin\"``: the world origin (the part's origin point).",
+        "properties": {
+          "kind": {
+            "const": "origin",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "Sketch3DOriginSnap",
+        "type": "object"
+      },
+      "Sketch3DParamsV1": {
+        "description": "A 3D sketch: points and lines in model space, and their relations.",
+        "properties": {
+          "constraints": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "along": "#/components/schemas/Sketch3DAlong",
+                  "coincident": "#/components/schemas/Sketch3DCoincident",
+                  "distance": "#/components/schemas/Sketch3DDistance",
+                  "fixed": "#/components/schemas/Sketch3DFixed",
+                  "length": "#/components/schemas/Sketch3DLength"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Sketch3DCoincident"
+                },
+                {
+                  "$ref": "#/components/schemas/Sketch3DFixed"
+                },
+                {
+                  "$ref": "#/components/schemas/Sketch3DAlong"
+                },
+                {
+                  "$ref": "#/components/schemas/Sketch3DLength"
+                },
+                {
+                  "$ref": "#/components/schemas/Sketch3DDistance"
+                }
+              ]
+            },
+            "maxItems": 2000,
+            "title": "Constraints",
+            "type": "array"
+          },
+          "entities": {
+            "description": "Points and lines; ids are unique within the sketch and a line names two distinct points of it.",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "line": "#/components/schemas/Sketch3DLine",
+                  "point": "#/components/schemas/Sketch3DPoint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Sketch3DPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/Sketch3DLine"
+                }
+              ]
+            },
+            "maxItems": 1000,
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entities"
+        ],
+        "title": "Sketch3DParamsV1",
+        "type": "object"
+      },
+      "Sketch3DPoint": {
+        "description": "A point in model space.",
+        "properties": {
+          "id": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "point",
+            "title": "Kind",
+            "type": "string"
+          },
+          "position": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "World position (mm): typed, or the last solved position. The solve starts here; the answer stays near it (minimum-norm Gauss-Newton steps), though not always at the nearest solution."
+          },
+          "snap": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "origin": "#/components/schemas/Sketch3DOriginSnap",
+                    "sketch_point": "#/components/schemas/Sketch3DSketchPointSnap",
+                    "vertex": "#/components/schemas/Sketch3DVertexSnap"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Sketch3DOriginSnap"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Sketch3DSketchPointSnap"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Sketch3DVertexSnap"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Geometry the point is attached to (it follows it and is fixed for the solve), or absent for a free point.",
+            "title": "Snap"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "position"
+        ],
+        "title": "Sketch3DPoint",
+        "type": "object"
+      },
+      "Sketch3DSketchPointSnap": {
+        "description": "``kind: \"sketch_point\"``: a point of an EARLIER sketch, 2D or 3D.\n\n``point`` names which point of ``entity``: a curve's ``start``/``end``, a\ncircle's or arc's ``center``, a 2D sketch point's or a 3D sketch point's\n``position``. Read from the solved sketch on every rebuild, so editing\nthat sketch moves this point.",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "kind": {
+            "const": "sketch_point",
+            "title": "Kind",
+            "type": "string"
+          },
+          "point": {
+            "enum": [
+              "start",
+              "end",
+              "center",
+              "position"
+            ],
+            "title": "Point",
+            "type": "string"
+          },
+          "sketch": {
+            "$ref": "#/components/schemas/FeatureRef",
+            "description": "The EARLIER sketch that owns the point."
+          }
+        },
+        "required": [
+          "kind",
+          "sketch",
+          "entity",
+          "point"
+        ],
+        "title": "Sketch3DSketchPointSnap",
+        "type": "object"
+      },
+      "Sketch3DVertexSnap": {
+        "description": "``kind: \"vertex\"``: a model vertex, named as one end of a picked edge.\n\n``end`` is ``a`` or ``b`` of the edge signature (its canonically ordered\nendpoints). The edge resolves through the same tiers as every picked edge.",
+        "properties": {
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSubshapeRef"
+          },
+          "end": {
+            "enum": [
+              "a",
+              "b"
+            ],
+            "title": "End",
+            "type": "string"
+          },
+          "kind": {
+            "const": "vertex",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "edge",
+          "end"
+        ],
+        "title": "Sketch3DVertexSnap",
         "type": "object"
       },
       "SketchArc": {
@@ -11159,6 +11744,64 @@
         "title": "SolvedDimension",
         "type": "object"
       },
+      "SolvedPoint3D": {
+        "description": "One solved point of a 3D sketch.",
+        "properties": {
+          "id": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "position": {
+            "$ref": "#/components/schemas/Vec3"
+          }
+        },
+        "required": [
+          "id",
+          "position"
+        ],
+        "title": "SolvedPoint3D",
+        "type": "object"
+      },
+      "SolvedSketch3DData": {
+        "description": "Per-feature payload of an ``ok`` 3D sketch: the solved point positions\n(world mm, entity order) and how constrained it is. ``kind`` is the\n:data:`loft_wire.features.FeatureData` tag.",
+        "properties": {
+          "dof": {
+            "description": "Remaining degrees of freedom (0 = fully constrained).",
+            "minimum": 0.0,
+            "title": "Dof",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "solved_sketch_3d",
+            "default": "solved_sketch_3d",
+            "title": "Kind",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/SolvedPoint3D"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "redundant_constraints": {
+            "description": "Indices of constraints that are consistent but add nothing.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Redundant Constraints",
+            "type": "array"
+          }
+        },
+        "required": [
+          "points",
+          "dof"
+        ],
+        "title": "SolvedSketch3DData",
+        "type": "object"
+      },
       "SolvedSketchData": {
         "description": "Per-feature solved-sketch payload (\u00a77.10): the solver's solved entity\npositions, status, and DOF diagnosis for an ``ok`` sketch feature \u2014 what\nthe sketcher UI renders. ``kind`` is the :data:`FeatureData` union tag.",
         "properties": {
@@ -11506,6 +12149,27 @@
       "SweepParamsV1": {
         "description": "Sweep an earlier sketch's closed profile along an earlier sketch's path.\n\nThe first NON-PRISMATIC body-affecting feature (design \u00a74.3): where extrude\nsweeps a profile along the plane normal and revolve about an axis, sweep\nfollows an arbitrary PATH wire \u2014 the shaft / pipe / rib primitive named\nin the Part-modeling scorecard notes. It consumes the SAME ``profile``\nFeatureRef to an earlier sketch (a single closed wire, built by the shared\n``build_profile_face``) and the SAME ``add``/``cut`` boolean against the body\nchain as extrude/revolve; the new ingredient is ``path``, a SECOND\nFeatureRef to an earlier sketch whose entities form one wire, open or closed.\n\nPath representation (v1 DESIGN DECISION \u2014 docs/design/feature-tree.md\n\u00a72.1/\u00a72.2, docs/GEOMETRY-QA.md 2026-07-12): the path is a whole earlier\nSKETCH feature referenced by id (option A \u2014 the most general model, matching\nhow production CAD names a sweep path, and reusing the tree's stable feature\nids exactly as the ``profile`` slot does). This is NOT topological naming\n(#1): it references a whole feature's evaluated wire, never a picked\nsub-edge \u2014 the same mechanism extrude/revolve already use for their profile.\n\nv1 limits (stated plainly \u2014 documented scope, not bugs):\n\n* the path must resolve to a single connected wire; disjoint path loops are\n  ``sweep_path_not_connected``, and a path with no curve entities is\n  ``sweep_path_empty`` (construction geometry excluded, as from the profile);\n* a CLOSED path sweeps once around into one capless solid; every joint must\n  be G1, else ``sweep_path_not_tangent`` names it (docs/RESEARCH.md \u00a719);\n* an open sweep is **anchored at the profile** \u2014 build123d applies the path as a\n  relative trajectory from the profile's own location, so the path's\n  absolute position is not used. Author the path starting at the profile\n  origin, with its first segment perpendicular to the profile plane, for a\n  predictable result (as the golden's vertical path over an XY circle is);\n* NO scale-along-path, NO multi-section, NO guide rails, NO per-segment\n  transition control \u2014 one profile swept along one path (all later,\n  additive params \u2014 no ``param_version`` bump);\n* a self-intersecting path, or a corner tighter than the profile can turn\n  without sweeping through itself, is a kernel ``sweep_failed`` rebuild\n  error, never a silently bad body.\n\n**Twist along the path** (``twist_angle_deg``, TWIST-TO-SWEEP; Fusion 360's\nand SolidWorks' \"twist along path\"): the profile turns uniformly about the\nPATH as it travels, so every point of it traces a true helix \u2014 a helical\ngear's tooth gap, a twisted column. v1 twists along a STRAIGHT path that is\nperpendicular to the profile's sketch plane and does not pass through it\n(it starts on the profile, or lies wholly to one side of it); that sweep is\nexact (docs/design/twisted-extrude.md). Any other path with a twist \u2014 an\narc, a bend, a slanted line, a line through the profile \u2014 is the typed\nrebuild error ``twist_path_unsupported``, never an approximated body.\nAdditive-optional and omitted from a dump while null, so every untwisted\nsweep serializes and rebuilds byte-for-byte as before (no ``param_version``\nbump).",
         "properties": {
+          "cut_bodies": {
+            "anyOf": [
+              {
+                "const": "all",
+                "type": "string"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FeatureRef"
+                },
+                "maxItems": 1000,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). \"all\" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.",
+            "title": "Cut Bodies"
+          },
           "merge": {
             "default": true,
             "description": "Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md \u00a7MB-0). Ignored for a CUT. Additive \u2014 absent reads True, no param_version bump.",

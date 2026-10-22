@@ -412,6 +412,37 @@ def bore_hole_measured(
     return result
 
 
+def cut_scoped_bore_measured(
+    body: BodyShape,
+    tool: Solid,
+    *,
+    body_volume: float | None = None,
+) -> MeasuredBody:
+    """Cut a through-all bore *tool* from a FURTHER body of a hole's scope.
+
+    The Feature Scope half of the Hole (HOLE-ACTIVE-BODY): the owner body is
+    drilled by :func:`bore_hole_measured` exactly as before, and every scoped
+    body is cut by the ONE coaxial tool the feature built over all of them
+    (:func:`bore_tool` given their union, so its span clears every body). A
+    tool that removes no material from *body* raises :class:`HoleOffBodyError`:
+    a body the user listed and the bore misses is reported, never a silent
+    no-op.
+
+    Raises:
+        HoleOffBodyError: the bore does not reach *body*.
+        BooleanError: the kernel cut failed or changed the body's lump count.
+    """
+    off_body = HoleOffBodyError(
+        "The through-all hole does not reach a body in its scope: the bore "
+        "misses it. Remove the body from the hole's scope, or move the hole."
+    )
+    volume = float(body.volume) if body_volume is None else body_volume
+    result, removed, _ = _cut_drill(body, tool, off_body, body_volume=volume)
+    if removed <= volume * _REMOVED_REL_TOL:
+        raise off_body
+    return result
+
+
 def counterbore_tool(
     body: BodyShape,
     face_plane: Plane,

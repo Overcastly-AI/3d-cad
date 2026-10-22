@@ -73,7 +73,13 @@ from loft import parameters as table
 from loft.datum import LineLike, ReferenceLike, plane_at_angle_feature
 from loft.errors import FeatureFailed, InvalidRequest, NoBody, StaleDocument
 from loft.parameters import Numeric, field_numbers
-from loft.pipe import CurveLike, pipe_feature, plane_along_path_feature
+from loft.pipe import (
+    BodiesToCut,
+    CurveLike,
+    cut_scope,
+    pipe_feature,
+    plane_along_path_feature,
+)
 from loft.sketch import Sketch, resolve_plane
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -140,7 +146,7 @@ class Evaluation:
     def sketch_data(self, feature_id: uuid.UUID) -> SolvedSketchData | None:
         """The solved-sketch payload a sketch feature returned, if any."""
         entry = self.feature(feature_id)
-        if entry is None or entry.data is None:
+        if entry is None or not isinstance(entry.data, SolvedSketchData):
             return None
         return entry.data
 
@@ -519,6 +525,7 @@ class Part:
         direction: Literal["normal", "reverse"] = "normal",
         extent: ExtrudeExtent = "one_side",
         merge: bool = True,
+        cut_bodies: BodiesToCut = "all",
         name: str = "Extrude",
         twist_angle_deg: float | None = None,
         twist_center: object = None,
@@ -536,6 +543,10 @@ class Part:
         Plane, Onshape and Fusion Symmetric); ``direction`` then only names
         which cap is ``start`` and which ``end``, as one-sided.
         It works for add and cut.
+
+        A cut removes material from every body the tool meets (``cut_bodies``
+        ``"all"``, Fusion 360's Objects To Cut default); a sequence of bodies,
+        each by its base feature's ref or id, narrows it to those.
 
         Extrude has no twist: the extrude twist is deprecated, read-only legacy
         (:mod:`loft_wire.legacy_twist`). A twisted prism is :meth:`sweep` with
@@ -572,6 +583,7 @@ class Part:
                     direction=direction,
                     extent=extent,
                     merge=merge,
+                    cut_bodies=cut_scope(operation, cut_bodies),
                 ),
                 expressions=formulas,
             ),
@@ -586,6 +598,7 @@ class Part:
         wall_thickness_mm: Numeric | None = None,
         operation: Literal["add", "cut"] = "add",
         merge: bool = True,
+        cut_bodies: BodiesToCut = "all",
         name: str = "Pipe",
     ) -> FeatureResponse:
         """Fusion 360's Pipe: a round bar (or, with a wall, a tube) along *path*.
@@ -594,7 +607,8 @@ class Part:
         or a picked edge's ref; they must chain into one unbranched path, open
         or closed, or :meth:`evaluate` raises ``sweep_path_not_connected``.
         Sharp corners are mitred. ``operation="add"`` joins the tube to the
-        body (``merge=False`` makes it a new body); ``"cut"`` removes it. The
+        body (``merge=False`` makes it a new body); ``"cut"`` removes it from
+        every body it meets, or from ``cut_bodies`` (:meth:`extrude`). The
         diameter and wall may be formulas over the part's parameters.
         """
         numbers, formulas = field_numbers(
@@ -614,6 +628,7 @@ class Part:
                 wall_thickness_mm=numbers["wall_thickness_mm"],
                 operation=operation,
                 merge=merge,
+                cut_bodies=cut_scope(operation, cut_bodies),
                 expressions=formulas,
             ),
         )
@@ -685,6 +700,7 @@ class Part:
         *,
         operation: Literal["add", "cut"] = "add",
         merge: bool = True,
+        cut_bodies: BodiesToCut = "all",
         twist_angle_deg: Numeric | None = None,
         name: str = "Sweep",
     ) -> FeatureResponse:
@@ -710,7 +726,8 @@ class Part:
         ``twist_failed`` one, both raised by :meth:`evaluate`. ``None`` or ``0``
         is the plain sweep. A non-finite twist, or one beyond ten turns, is
         refused client-side by the shared DTO (a ``ValueError``). The twist may
-        be a formula over the part's parameters.
+        be a formula over the part's parameters. A cut's bodies are
+        ``cut_bodies``, as for :meth:`extrude`.
         """
         numbers, formulas = field_numbers(
             {"twist_angle_deg": twist_angle_deg}, self.parameter_values
@@ -725,6 +742,7 @@ class Part:
                     path=_sketch_ref(path),
                     operation=operation,
                     merge=merge,
+                    cut_bodies=cut_scope(operation, cut_bodies),
                     twist_angle_deg=numbers["twist_angle_deg"],
                 ),
                 expressions=formulas,

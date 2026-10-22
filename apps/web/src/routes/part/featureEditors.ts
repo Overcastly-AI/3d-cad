@@ -12,6 +12,7 @@ import { formFromRevolveParams } from "../../features/revolve";
 import { formFromPatternParams } from "../../features/pattern";
 import { formFromSweepParams } from "../../features/sweep";
 import { formFromPipeParams } from "../../features/pipe";
+import { formFromSketch3DParams } from "../../features/sketch3d";
 import { formFromLoftParams } from "../../features/loft";
 import {
   formFromBaseFlangeParams,
@@ -68,6 +69,14 @@ export function editorForFeature(
       mode: "edit",
       featureId: feature.id,
       initial: formFromSweepParams(feature.feature.params),
+    };
+  }
+  if (feature.feature.type === "sketch_3d") {
+    return {
+      kind: "sketch3d",
+      mode: "edit",
+      featureId: feature.id,
+      initial: formFromSketch3DParams(feature.feature.params),
     };
   }
   if (feature.feature.type === "pipe") {

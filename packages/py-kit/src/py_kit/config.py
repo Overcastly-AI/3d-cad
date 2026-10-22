@@ -11,7 +11,7 @@ credential guard below read. One variable, one policy, three services.
 
 The datastore guard closes an asymmetry that was real until 2026-07-30: the
 gateway refused to boot without a real ``JWT_SECRET``, while NOTHING refused
-to boot on the compose default ``POSTGRES_PASSWORD``/``MINIO_ROOT_PASSWORD``
+to boot on the compose default ``POSTGRES_PASSWORD``/object-store secret
 — both published in this public repository. Deliberately enforced in the
 APPLICATION, not in compose interpolation (``${VAR:?}``): interpolation is
 evaluated per file before overlay merge, so requiring it in the base file
@@ -43,8 +43,11 @@ DEV_ENV: Final = "dev"
 KNOWN_DEV_CREDENTIALS: Final[frozenset[str]] = frozenset(
     {
         "loft-dev-only",  # docker-compose.yml POSTGRES_PASSWORD default
-        "loft-minio-dev-only",  # docker-compose.yml MINIO_ROOT_PASSWORD default
-        "minioadmin",  # MinIO's own published default
+        "loft-s3-dev-only",  # docker-compose.yml S3_SECRET_ACCESS_KEY default
+        # The pre-2026-10-21 compose default (MINIO_ROOT_PASSWORD), still in
+        # old .env files that the deprecated MINIO_* aliases keep working.
+        "loft-minio-dev-only",
+        "minioadmin",  # MinIO's own published default (an external MinIO)
         "postgres",
         "password",
         "changeme",
@@ -58,7 +61,6 @@ _DATASTORE_URL_FIELDS: Final = ("postgres_url", "redis_url", "s3_url")
 #: for fields whose env var is not itself the knob they edit. Keyed by field.
 _COMPOSE_SOURCE: Final[dict[str, str]] = {
     "postgres_url": "POSTGRES_PASSWORD",
-    "s3_secret_access_key": "MINIO_ROOT_PASSWORD",
 }
 
 
@@ -133,7 +135,7 @@ class BaseServiceSettings(BaseSettings):
 
     #: Credential-bearing fields BEYOND the datastore URLs that the
     #: dev-credential guard should also inspect — e.g. geometry's
-    #: ``s3_secret_access_key``, which carries the MinIO root password outside
+    #: ``s3_secret_access_key``, which carries the object-store secret outside
     #: any URL. Subclasses override with their own field names; the guard
     #: reports the env var (the field name, upper-cased).
     datastore_credential_fields: ClassVar[tuple[str, ...]] = ()

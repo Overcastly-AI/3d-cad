@@ -65,6 +65,8 @@ from documents.custom_features import (
     member_targets,
     prepare_custom_write,
     reexpand_hosts,
+    reexpand_pickers,
+    reexpand_reordered,
     stored_host_id,
 )
 from documents.feature_expressions import (
@@ -601,6 +603,9 @@ async def update_feature(
         feature.suppressed = envelope.suppressed
         await _rewrite_edges(session, part.id, feature.id, target_ids)
         await _reframe_hosts(session, part, [hosts_before, host_id(envelope)])
+        # A roof on its walls re-lays when a picked wall changes: refused
+        # if that drops, or renumbers, a member a later feature references.
+        reexpand_pickers(part, await _ordered_features(session, part.id), feature.id)
     if request.name is not None:
         feature.name = request.name
 
@@ -868,6 +873,10 @@ async def reorder_features(
             .where(db.Feature.id == feature.id)
             .values(order_index=final_index[feature.id])
         )
+    # A custom feature's expansion can depend on tree order (a wall frames
+    # its doors in order): refused if that drops, or renumbers, a member a
+    # later feature references (WALL-/ROOF-MEMBER-RENUMBER).
+    reexpand_reordered(part, await _ordered_features(session, part.id))
     part.tree_version += 1
     await history.PART_HISTORY.record(session, part, pre_op)
     await session.commit()

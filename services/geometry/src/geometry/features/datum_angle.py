@@ -33,6 +33,7 @@ from loft_wire.features import (
 )
 from loft_wire.sketch import SketchLine
 
+from geometry.features.owner import edge_owner_body_id
 from geometry.features.state import EvaluationState
 from geometry.kernel.datum_angle import (
     DATUM_LINE_MIN_LENGTH_MM,
@@ -99,8 +100,10 @@ def _sketch_line(
 
 
 def _edge_line(ref: EdgeSubshapeRef, state: EvaluationState) -> _Line | FeatureError:
-    active = state.active_body
-    if active is None:
+    owner = edge_owner_body_id(ref, state)
+    if isinstance(owner, FeatureError):
+        return owner
+    if owner is None:
         return FeatureError(
             code="subshape_unresolved",
             message=(
@@ -111,10 +114,10 @@ def _edge_line(ref: EdgeSubshapeRef, state: EvaluationState) -> _Line | FeatureE
         )
     try:
         resolved = resolve_edge_durable(
-            active,
+            state.bodies[owner],
             ref.selector.signature,
             tally=state.subshape_tally,
-            face_names=state.face_names(),
+            face_names=state.body_face_names(owner),
         )
     except SubshapeUnresolvedError as exc:
         return FeatureError(

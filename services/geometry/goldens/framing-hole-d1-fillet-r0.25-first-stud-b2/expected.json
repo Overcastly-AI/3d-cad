@@ -1,0 +1,46 @@
+{
+  "description": "HOLE-ACTIVE-BODY and the owner rule on a framed wall, on a member that is NOT the last body: B2's walls without openings at 16 in o.c. (model.json of b2-walls-no-openings-16oc, materials included) plus a through Hole of diameter 1 in on the outer end face (X 144) of the FIRST stud (the front wall's flush end stud, X 142.5..144, the first body in tree order) at Y 1.75, Z 48 in, and an R0.25 in fillet on that stud's outer vertical edge (X 144, Y 0). The face and edge signatures are the ones /overlay hands a client; both picks resolve on the stud, which the hole and the fillet modify, while the active body when they are picked is the right wall's bottom plate (the 48th).",
+  "derivation": [
+    "All in inches; x 25.4 = mm. The base is golden b2-walls-no-openings-16oc: volume 25 601.625 in^3, area 49 269 in^2, centroid (72, 60, 2753267/52016), mass 194628.065291478 g, centre of mass (72, 60, 619756467/12065456).",
+    "",
+    "Hole: a through-all bore of radius 0.5 along -X through the stud's 1.5 thickness: volume pi x 0.25 x 1.5 = 0.375 pi = 1.1780972450961724, centroid (143.25, 1.75, 48). Area: + the bore wall 2 pi x 0.5 x 1.5 - the two discs 2 x 0.25 pi = +pi.",
+    "Fillet r = 0.25 along the full stud edge L = 92.625: volume (1 - pi/4) r^2 L = 1.2423434447069597; the removed spandrel's centroid sits r (5/6 - pi/4) / (1 - pi/4) = 0.0556 in from each face, at (144 - 0.0556, 0.0556, 47.8125). Area: L (pi r / 2 - 2 r) - 2 (1 - pi/4) r^2 (the two strips replaced by the quarter cylinder, and the corner off each end face). The bore (Y 1.25..2.25) clears the fillet's tangent line (Y 0.25) on the X 144 face.",
+    "",
+    "volume = 25 601.625 - 1.1780972450961724 - 1.2423434447069597 in^3 = 419495803.4625079 mm^3; surface_area = 49 269 + pi + the fillet's change = 31781985.48097698 mm^2.",
+    "centroid = (base x base centroid - each removal x its centroid) / volume = (1828.6280299277373, 1524.141981875149, 1344.4634310928982) mm.",
+    "mass: the stud is SPF (450 kg/m^3): mass = 194628.065291478 - (removed volume x 16387.064 x 4.5e-4) = 194610.2165290566 g; centre of mass, mass-weighted the same way = (1828.6331879681607, 1524.1377232954917, 1304.7092112726248) mm.",
+    "",
+    "Bounding box unchanged: X 0..144, Y 0..120, Z 0..97.125 in (the fillet is interior to the stud's box).",
+    "",
+    "Topology: the bore adds 1 face and 3 edges (2 circles, 1 seam); the fillet replaces 1 edge with 1 face, 2 lines and 2 arcs (+1 face, +3 edges). 288 + 2 = 290 faces, 576 + 6 = 582 edges, 48 shells.",
+    "",
+    "Mesh (linear_deflection 0.1): 1788 vertices / 1212 triangles, equal to the mesh of the independent build123d construction.",
+    "",
+    "Independently cross-checked against a direct build123d construction (48 boxes typed from buildings.md; the first stud cut by a Cylinder and filleted with Solid.fillet on its X 144, Y 0 edge) in tests/test_cut_objects_to_cut.py, member for member."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "The base golden's (b2-walls-no-openings-16oc), absolute on a ~4e8 mm^3 part. Measured against the hand derivation: 1e-7 mm^3 on the volume, 0 on the area, <= 2e-12 mm on the centroid, 8e-11 g on the mass. The hole on the wrong member (the last plate) moves the centroid by metres.",
+  "roundtrip_tolerance": 3e-6,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-21: the STEP round trip re-sums the 48 re-imported solids in another order and moves the VOLUME by 7e-7 mm^3 (above ROUNDTRIP_TOL, 1e-7), the cause of b2-walls-no-openings-16oc and the WINDOW-DOOR goldens. The bound is those goldens' 3e-6 (7.2e-7 at worst there), so the headroom over this one's drift is >= 4x rather than 1.4x; it applies to volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 419495803.4625079,
+    "surface_area": 31781985.48097698,
+    "centroid": {
+      "x": 1828.6280299277373,
+      "y": 1524.141981875149,
+      "z": 1344.4634310928982
+    },
+    "mass_g": 194610.2165290566,
+    "center_of_mass": {
+      "x": 1828.6331879681607,
+      "y": 1524.1377232954917,
+      "z": 1304.7092112726248
+    },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 3657.6, "y": 3048.0, "z": 2466.975 }
+    }
+  },
+  "topology": { "faces": 290, "edges": 582, "shells": 48 },
+  "mesh": { "vertices": 1788, "triangles": 1212 }
+}

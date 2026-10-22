@@ -48,6 +48,7 @@ from geometry.features.sheet_metal_features import (
     _evaluate_sheet_metal_edge_flange,
     _evaluate_sheet_metal_hem,
 )
+from geometry.features.sketch_3d import _evaluate_sketch_3d
 from geometry.features.sketch_solids import (
     _evaluate_extrude,
     _evaluate_loft,
@@ -96,6 +97,7 @@ BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
 FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "datum": _evaluate_datum,
     "sketch": _evaluate_sketch,
+    "sketch_3d": _evaluate_sketch_3d,
     "extrude": _evaluate_extrude,
     "revolve": _evaluate_revolve,
     "sweep": _evaluate_sweep,
@@ -155,6 +157,9 @@ def _dispatch(
 def _feature_data(feature_id: uuid.UUID, state: EvaluationState) -> FeatureData | None:
     """The §7.10 payload of an ``ok`` feature: solved sketch geometry, when
     the feature produced one (body-affecting features produce none today)."""
+    solved_3d = state.solved_sketches_3d.get(feature_id)
+    if solved_3d is not None:
+        return solved_3d.data
     solved = state.solved_sketches.get(feature_id)
     if solved is None:
         return None

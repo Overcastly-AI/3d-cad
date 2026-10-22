@@ -1,5 +1,5 @@
 # pyright: reportMissingTypeStubs=false
-"""S3/MinIO-backed content-addressed GLB store — the §7.8 object-storage swap.
+"""S3-backed content-addressed GLB store — the §7.8 object-storage swap.
 
 This is the **shared** mesh-store backend that retires the in-process LRU's
 single-worker limitation (engineering audit F1/F6): put/get land in object
@@ -117,8 +117,9 @@ def _build_s3_client(
 ) -> _S3Client:
     """Construct the path-style boto3 S3 client both content-addressed stores share.
 
-    Path-style addressing: MinIO (and many S3-compatibles) don't do virtual-host
-    buckets by default. Deterministic, no DNS surprises.
+    Path-style addressing: SeaweedFS, MinIO and many S3-compatibles don't do
+    virtual-host buckets by default; AWS S3 and R2 accept path-style too.
+    Deterministic, no DNS surprises.
     """
     return cast(
         _S3Client,
@@ -152,7 +153,7 @@ def _get_object_or_none(
 
 
 class S3MeshStore:
-    """Content-addressed GLB store backed by S3/MinIO (shared across processes).
+    """Content-addressed GLB store backed by S3 (shared across processes).
 
     ``is_shared`` is ``True`` so :func:`geometry.main.build_app` lifts the
     single-worker guard for this backend — a shared store is exactly what makes
@@ -212,7 +213,7 @@ class S3MeshStore:
 
 
 class S3DrawingArtifactStore:
-    """Content-addressed composed-drawing-artifact store backed by S3/MinIO (DE-4).
+    """Content-addressed composed-drawing-artifact store backed by S3 (DE-4).
 
     The drawing twin of :class:`S3MeshStore` on the SAME object-storage seam
     (drawing-export.md §8.3): a SHARED backend, so a compose on one worker/replica

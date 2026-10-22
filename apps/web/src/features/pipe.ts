@@ -19,6 +19,13 @@
  * THE OPERATION is Join / New body / Cut (the wire's `add`+`merge` / `cut`).
  */
 import type { LengthUnit } from "@loft/design";
+import {
+  cutBodiesBlocker,
+  cutBodiesField,
+  type CutBodiesChoice,
+  NEW_CUT_BODIES,
+  seedCutBodies,
+} from "./cutBodies";
 
 import type {
   EdgeSignature,
@@ -28,6 +35,7 @@ import type {
   PathSegment,
   PipeFeature,
   PipeParams,
+  SolvedSketch3DData,
 } from "../api/parts";
 import { parsePositiveLengthMm } from "../units/length";
 import { storedLengthInput, storedLengthMm } from "./storedNumber";
@@ -36,7 +44,8 @@ import { fieldBlocker } from "./submitBlocker";
 /** Join, New body or Cut (Fusion's Pipe operations). */
 export type PipeOperation = "join" | "newBody" | "cut";
 
-type Point = { x: number; y: number };
+/** A sketch-plane point, or a 3D sketch's world point (with `z`). */
+type Point = { x: number; y: number; z?: number };
 
 /** One curve of an earlier sketch the path can take. */
 export interface PipeCurveOption {
@@ -74,6 +83,12 @@ export interface PipeForm {
   hollow: boolean;
   wallInput: string;
   operation: PipeOperation;
+  /**
+   * Objects To Cut (CUT-OBJECTS-TO-CUT, `./cutBodies`): every body the cut
+   * meets, the ticked bodies, or `undefined` for a cut saved before the list
+   * (its active body only). Read on a cut only.
+   */
+  cutBodies?: CutBodiesChoice;
   /** The params as STORED, when editing (a no-op Save sends them back). */
   stored?: PipeParams;
 }
@@ -84,8 +99,18 @@ export function curveKey(sketchId: string, entityId: string): string {
 }
 
 function unit(v: Point): Point {
-  const n = Math.hypot(v.x, v.y);
-  return n === 0 ? { x: 0, y: 0 } : { x: v.x / n, y: v.y / n };
+  const z = v.z ?? 0;
+  const n = Math.hypot(v.x, v.y, z);
+  if (n === 0) return { x: 0, y: 0 };
+  return v.z === undefined
+    ? { x: v.x / n, y: v.y / n }
+    : { x: v.x / n, y: v.y / n, z: z / n };
+}
+
+function minus(a: Point, b: Point): Point {
+  return a.z === undefined && b.z === undefined
+    ? { x: a.x - b.x, y: a.y - b.y }
+    : { x: a.x - b.x, y: a.y - b.y, z: (a.z ?? 0) - (b.z ?? 0) };
 }
 
 /** Counter-clockwise travel direction of an arc about `c` at `p`. */
@@ -104,9 +129,39 @@ function arcLength(c: Point, a: Point, b: Point): number {
 /** Every curve of every sketch in the tree, in tree then entity order. */
 export function pipeCurveOptions(
   features: readonly FeatureResponse[],
+  solved3d: ReadonlyMap<string, SolvedSketch3DData> = new Map(),
 ): PipeCurveOption[] {
   const options: PipeCurveOption[] = [];
   for (const f of features) {
+    if (f.feature.type === "sketch_3d") {
+      // A 3D sketch's lines, at their solved positions when the rebuild has
+      // them (a length dimension moves an end off where it was typed).
+      const at = new Map<string, Point>();
+      for (const e of f.feature.params.entities) {
+        if (e.kind === "point") at.set(e.id, e.position);
+      }
+      for (const p of solved3d.get(f.id)?.points ?? [])
+        at.set(p.id, p.position);
+      for (const e of f.feature.params.entities) {
+        if (e.kind !== "line") continue;
+        const a = at.get(e.start);
+        const b = at.get(e.end);
+        if (a === undefined || b === undefined) continue;
+        const d = minus(b, a);
+        options.push({
+          key: curveKey(f.id, e.id),
+          sketchId: f.id,
+          sketchName: f.name,
+          entityId: e.id,
+          construction: e.construction === true,
+          kind: "line",
+          ends: [a, b],
+          lengthMm: Math.hypot(d.x, d.y, d.z ?? 0),
+          tangents: [unit(d), unit(d)],
+        });
+      }
+      continue;
+    }
     if (f.feature.type !== "sketch") continue;
     for (const e of f.feature.params.entities) {
       const base = {
@@ -186,7 +241,8 @@ const JOINT_TOLERANCE_MM = 1e-3;
 function same(a: Point, b: Point): boolean {
   return (
     Math.abs(a.x - b.x) <= JOINT_TOLERANCE_MM &&
-    Math.abs(a.y - b.y) <= JOINT_TOLERANCE_MM
+    Math.abs(a.y - b.y) <= JOINT_TOLERANCE_MM &&
+    Math.abs((a.z ?? 0) - (b.z ?? 0)) <= JOINT_TOLERANCE_MM
   );
 }
 
@@ -197,7 +253,10 @@ const TANGENT_TOLERANCE = 1e-2;
 function outward(o: PipeCurveOption, index: 0 | 1): Point | null {
   if (o.tangents === null) return null;
   const t = o.tangents[index];
-  return index === 0 ? { x: -t.x, y: -t.y } : t;
+  if (index !== 0) return t;
+  return t.z === undefined
+    ? { x: -t.x, y: -t.y }
+    : { x: -t.x, y: -t.y, z: -t.z };
 }
 
 function endAt(o: PipeCurveOption, at: Point): 0 | 1 {
@@ -214,7 +273,8 @@ function tangentJoint(
   const ob = outward(b, endAt(b, at));
   if (oa === null || ob === null) return false;
   // The outward directions of a smooth joint are opposite.
-  return Math.hypot(oa.x + ob.x, oa.y + ob.y) <= TANGENT_TOLERANCE;
+  const dz = (oa.z ?? 0) + (ob.z ?? 0);
+  return Math.hypot(oa.x + ob.x, oa.y + ob.y, dz) <= TANGENT_TOLERANCE;
 }
 
 /**
@@ -281,6 +341,7 @@ export function defaultPipeForm(edges: readonly PipeEdge[] = []): PipeForm {
     hollow: true,
     wallInput: "2",
     operation: "join",
+    cutBodies: NEW_CUT_BODIES,
   };
 }
 
@@ -316,6 +377,7 @@ export function formFromPipeParams(
         : params.merge === false
           ? "newBody"
           : "join",
+    cutBodies: seedCutBodies(params),
     stored: params,
   };
 }
@@ -379,6 +441,11 @@ export function pipeSubmitBlocker(
   }
   const od = fieldBlocker(form.odInput, diameter(form, unit), "diameter");
   if (od !== null) return od;
+  const scope = cutBodiesBlocker(
+    form.operation === "cut" ? "cut" : "add",
+    form.cutBodies,
+  );
+  if (scope !== null) return scope;
   if (!form.hollow) return null;
   const w = fieldBlocker(form.wallInput, wall(form, unit), "wall");
   if (w !== null) return w;
@@ -398,6 +465,12 @@ export function buildPipeParams(
     outer_diameter_mm: od,
     operation: form.operation === "cut" ? "cut" : "add",
     merge: form.operation !== "newBody",
+    ...cutBodiesField(
+      form.operation === "cut" ? "cut" : "add",
+      form.stored === undefined
+        ? (form.cutBodies ?? NEW_CUT_BODIES)
+        : form.cutBodies,
+    ),
   };
   if (form.hollow) {
     const w = wall(form, unit);

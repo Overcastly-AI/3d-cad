@@ -14,6 +14,7 @@ import { type RevolveForm } from "../../features/revolve";
 import { type PatternForm } from "../../features/pattern";
 import { type SweepForm } from "../../features/sweep";
 import { type PipeForm } from "../../features/pipe";
+import { type Sketch3DForm } from "../../features/sketch3d";
 import { type LoftForm } from "../../features/loft";
 import {
   type BaseFlangeForm,
@@ -61,6 +62,12 @@ export type OpenEditor =
       kind: "pipe";
       mode: "create" | "edit";
       initial: PipeForm;
+      featureId?: string;
+    }
+  | {
+      kind: "sketch3d";
+      mode: "create" | "edit";
+      initial: Sketch3DForm;
       featureId?: string;
     }
   | {
@@ -172,6 +179,7 @@ export const COMMAND_LABEL: Record<OpenEditor["kind"], string> = {
   revolve: "Revolve",
   sweep: "Sweep",
   pipe: "Pipe",
+  sketch3d: "3D sketch",
   loft: "Loft",
   pattern: "Pattern",
   fillet: "Fillet",

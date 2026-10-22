@@ -291,11 +291,15 @@ plywood 4x8 at $42.50.
   17 280 / 4 608 = 3.75, so **4 sheets** ($170.00).
 - **Wall sheathing:** 7/16 OSB on each wall's exterior face, full height
   (97.125), 48 in panels from the wall start (3 per wall, 12 in all), the
-  rough openings cut out. The net area is 45 893 in² (front 13 986 - 3 135,
-  right 10 975.125 - 894.25, back 13 986, left 10 975.125), so the volume is
-  **20 078.1875 in³**. Each sheet is 4x9, because the walls are taller than
-  96: 45 893 / 5 184 = 8.85, so **9 sheets** ($224.82). Corners are butted
-  in this target.
+  rough openings cut out: 45 893 in² (front 13 986 - 3 135, right
+  10 975.125 - 894.25, back 13 986, left 10 975.125). At each outside corner
+  the side wall's sheathing laps past its end over the front or back wall's
+  end grain and sheathing edge, so the corner is closed: 4 rips of 3.9375
+  (3.5 + 7/16) x 97.125, 1 529.71875 in², X -7/16..0 and 144..144 7/16 at
+  Y -7/16..3.5 and 116.5..120 7/16. That is 16 panels and 47 422.71875 in²,
+  so the volume is **20 747.439453125 in³**. Each sheet is 4x9, because the
+  walls are taller than 96: 47 422.71875 / 5 184 = 9.15, so **10 sheets**
+  ($249.80).
 
 Cut list (floor): Joist 2x8 10 @ 117 (10 ft); Rim 2x8 2 @ 144 (12 ft); Sill
 PT 2x6 2 @ 144 (12 ft) and 2 @ 109 (10 ft).
@@ -328,3 +332,31 @@ Cut list: Post 8x8 4 @ 96 (8 ft); Tie beam 8x8 2 @ 137 (12 ft); Girt 8x8
 
 **Edit:** width 12 -> 14 ft. The tie beams become 161 overall, and the frame
 58 725 in³.
+
+## B7 Small house, 24 x 16 ft, sheathed and priced (gap-finding round)
+
+The founder's "homes" goal end to end: B5's floor and sheathing, B2's walls
+and openings and B2's gable, at house size and in 2x6, with every cut-list
+line priced. It names no new tool; `qa-tester` builds it to find what stops
+a builder, and the numbers come from the round's independent script.
+
+- **Floor:** 288 x 192 (X x Y) on a foundation top at Z 0. PT 2x6 sills,
+  2x10 rims along X, 2x10 joists along Y at 16 in o.c., and a 23/32 plywood
+  subfloor.
+- **Walls:** 2x6 at 16 in o.c. standing on the subfloor, 7/16 OSB outside.
+  Front and back run 288; the sides fit between them (181).
+- **Openings:** front, a 36 x 80 door centred on X 144 and two 36 x 48
+  windows (head 82.5) centred on X 60 and 228; back, one 36 x 48 window on
+  X 144; each side, one 24 x 36 window centred.
+- **Roof:** a 6/12 gable, ridge along X, 2x8 rafters at 24 in o.c., a 2x10
+  ridge, 12 in overhangs, bearing on the front and back walls.
+- **Price:** every material, profile and sheet in the price book; the cut
+  list has no unpriced line and its total equals the lines summed by hand.
+
+**Edits** (each from the base house): length 24 -> 28 ft (floor, front and
+back walls, roof); the front left window moved 24 in; pitch 6/12 -> 8/12.
+
+The round passes or fails B7 as any building (built, edits survive with no
+interference, checked to 1e-4 on STEP), times the build and files every
+gap: expected candidates are SHEATHING-WALL-BASE, B2-E2E-INTERFERENCE,
+ROOF-GABLE-WALLS and the owner-scan cost at about 400 bodies.

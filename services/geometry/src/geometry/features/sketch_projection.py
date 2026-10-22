@@ -24,10 +24,12 @@ the least summed distance to the stored ends.
 """
 
 import math
+import uuid
 from dataclasses import dataclass
 
 from build123d import Plane
 from loft_wire.features import (
+    FeatureError,
     SketchParamsV1,
     SketchProjectionReason,
     SketchProjectionStatus,
@@ -35,6 +37,7 @@ from loft_wire.features import (
 from loft_wire.in_context import InContextLine
 from loft_wire.signatures import EdgeSignature
 
+from geometry.features.owner import edge_owner_body_id
 from geometry.features.state import EvaluationState
 from geometry.kernel.edges import (
     ResolvedEdge,
@@ -68,17 +71,17 @@ _P2 = tuple[float, float]
 
 @dataclass
 class _Ends:
-    """The body's :class:`EdgeEnds`, built at most once per sketch and only
+    """One body's :class:`EdgeEnds`, built at most once per sketch and only
     when a line needs its named end."""
 
     state: EvaluationState
+    body_id: uuid.UUID
     built: EdgeEnds | None = None
 
     def get(self) -> EdgeEnds:
         if self.built is None:
-            active = self.state.active_body
-            assert active is not None
-            self.built = EdgeEnds(active, self.state.face_names())
+            body = self.state.bodies[self.body_id]
+            self.built = EdgeEnds(body, self.state.body_face_names(self.body_id))
         return self.built
 
 
@@ -256,27 +259,54 @@ def project_entities(
             continue
         replaced[entity.id] = placed
         status_of[entity.id] = SketchProjectionStatus(entity=entity.id, state="ok")
-    body = state.active_body
-    if linked and body is None:
+    if linked and state.active_body is None:
         status_of.update({e.id: _sick(e, "no_body") for e in linked})
         linked = []
+    # Each picked edge resolves on the body that OWNS it (the owner rule of
+    # HOLE-ACTIVE-BODY, MULTIBODY-ACTIVE-REFS): an edge of an earlier member
+    # never re-finds a congruent edge of the last one. A one-body part has
+    # one group, the active body, exactly as before.
+    groups: dict[uuid.UUID, list[SketchEntity]] = {}
+    for entity in linked:
+        assert entity.projection is not None and entity.projection.edge is not None
+        owner = edge_owner_body_id(entity.projection.edge, state)
+        if isinstance(owner, FeatureError):
+            status_of[entity.id] = _sick(entity, "ambiguous")
+            continue
+        assert owner is not None, "a part with an active body has an owner"
+        groups.setdefault(owner, []).append(entity)
+    for owner, members in groups.items():
+        _project_on_body(members, owner, plane, state, replaced, status_of)
+    statuses = [status_of[e.id] for e in projected]
+    if not replaced:
+        return params, statuses
+    entities = [replaced.get(e.id, e) for e in params.entities]
+    return params.model_copy(update={"entities": entities}), statuses
+
+
+def _project_on_body(
+    members: list[SketchEntity],
+    body_id: uuid.UUID,
+    plane: Plane,
+    state: EvaluationState,
+    replaced: dict[str, SketchEntity],
+    status_of: dict[str, SketchProjectionStatus],
+) -> None:
+    """Re-project *members*, whose picked edges body *body_id* owns, writing
+    each one's entity and status. The body is enumerated once for all."""
     targets = [
         e.projection.edge.selector.signature
-        for e in linked
+        for e in members
         if e.projection is not None and e.projection.edge is not None
     ]
-    resolved_each = (
-        resolve_edges_each(
-            body,
-            targets,
-            tally=state.subshape_tally,
-            face_names=state.face_names(),
-        )
-        if linked and body is not None
-        else []
+    resolved_each = resolve_edges_each(
+        state.bodies[body_id],
+        targets,
+        tally=state.subshape_tally,
+        face_names=state.body_face_names(body_id),
     )
-    ends = _Ends(state)
-    for entity, resolved in zip(linked, resolved_each, strict=True):
+    ends = _Ends(state, body_id)
+    for entity, resolved in zip(members, resolved_each, strict=True):
         if not isinstance(resolved, ResolvedEdge):
             reason: SketchProjectionReason = (
                 "ambiguous"
@@ -293,8 +323,3 @@ def project_entities(
         status_of[entity.id] = SketchProjectionStatus(
             entity=entity.id, state="ok", tier=resolved.tier
         )
-    statuses = [status_of[e.id] for e in projected]
-    if not replaced:
-        return params, statuses
-    entities = [replaced.get(e.id, e) for e in params.entities]
-    return params.model_copy(update={"entities": entities}), statuses

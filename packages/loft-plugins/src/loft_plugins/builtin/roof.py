@@ -354,6 +354,36 @@ def unsupported(message: str, input_name: str) -> PluginError:
 
 
 def expand(inputs: ExpandInputs) -> Iterator[Member]:
+    """1.0.0's gable (and 1.1.0's and 1.2.0's Style Gable): members by ordinal."""
+    return gable(inputs, named=False)
+
+
+def number_name(value: float) -> str:
+    """A length (in) as a name segment: rounded to 1e-9 in, printed to 9
+    places without trailing zeros (``58.5``, ``-120``)."""
+    return f"{round(value, _INCH_DIGITS) + 0.0:.{_INCH_DIGITS}f}".rstrip("0").rstrip(
+        "."
+    )
+
+
+def layout_slots(count: int) -> list[str]:
+    """The 1.3.0 names of :func:`~loft_plugins.builtin.deck.joist_centres`'
+    centres, in order: ``start``, ``slot/n`` for the layout centre at ``n x
+    spacing`` from the start, and ``end`` (the flush far one). A slot's name
+    depends on the spacing alone, so lengthening the roof renames none."""
+    return ["start", *(f"slot/{n}" for n in range(1, count - 1)), "end"][:count]
+
+
+#: The gable's ridge, and its section, in 1.3.0: the board between the front
+#: and back planes (a hip roof's ridges are named by their planes too).
+GABLE_RIDGE = "back/front"
+
+
+def gable(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
+    """The gable. *named* (1.3.0, ROOF-MEMBER-RENUMBER) gives every member a
+    stable name: a rafter by its side and layout slot (``front/slot/3``), its
+    section after it, a plane by its X (``yz/71.25``), the ridge by the planes
+    it divides. Same members, order and geometry as unnamed."""
     span = inches("span_mm", inputs)
     length = inches("length_mm", inputs)
     plate_height = inches("plate_height_mm", inputs)
@@ -389,12 +419,15 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
     planes = 0
     sections = 0
     rafters = 0
-    for centre in joist_centres(length, spacing, t):
+    centres = joist_centres(length, spacing, t)
+    slots = layout_slots(len(centres)) if named else [None] * len(centres)
+    for centre, slot in zip(centres, slots, strict=True):
         x0 = centre - t / 2
         plane: DatumPlaneRef | FeatureRef
         if x0 == 0.0:
             plane = DatumPlaneRef(kind="datum_plane", plane="YZ")
         else:
+            plane_name = None if slot is None else f"yz/{number_name(x0)}"
             yield Member(
                 "plane",
                 planes,
@@ -403,10 +436,13 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
                     version=1,
                     params=DatumOffsetParams(base="YZ", offset_mm=_mm(x0)),
                 ),
+                name=plane_name,
             )
-            plane = inputs.ref("plane", planes)
+            plane = inputs.ref("plane", planes, plane_name)
             planes += 1
-        for outline in (front, back):
+        for side, outline in (("front", front), ("back", back)):
+            rafter_name = None if slot is None else f"{side}/{slot}"
+            section_name = None if slot is None else f"rafter/{rafter_name}"
             yield Member(
                 "section",
                 sections,
@@ -417,6 +453,7 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
                         plane=plane, entities=list(_polygon(outline)), constraints=[]
                     ),
                 ),
+                name=section_name,
             )
             yield Member(
                 "rafter",
@@ -425,13 +462,14 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
                     type="extrude",
                     version=1,
                     params=ExtrudeParamsV1(
-                        profile=inputs.ref("section", sections),
+                        profile=inputs.ref("section", sections, section_name),
                         distance_mm=_mm(t),
                         operation="add",
                         merge=False,
                     ),
                 ),
                 rafter_meta,
+                name=rafter_name,
             )
             sections += 1
             rafters += 1
@@ -441,6 +479,8 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
     top = r.top_at_ridge
     bottom = top - ridge_p.width_in
     centre_y = span / 2
+    ridge_name = GABLE_RIDGE if named else None
+    ridge_section = f"ridge/{GABLE_RIDGE}" if named else None
     yield Member(
         "section",
         sections,
@@ -462,6 +502,7 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
                 constraints=[],
             ),
         ),
+        name=ridge_section,
     )
     yield Member(
         "ridge",
@@ -470,17 +511,23 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
             type="extrude",
             version=1,
             params=ExtrudeParamsV1(
-                profile=inputs.ref("section", sections),
+                profile=inputs.ref("section", sections, ridge_section),
                 distance_mm=_mm(length),
                 operation="add",
                 merge=False,
             ),
         ),
         MemberMetadata(profile=ridge_p.name, material=ridge_mat),
+        name=ridge_name,
     )
 
 
-ROOF_V1 = Plugin(MANIFEST_V1, expand)
+#: 1.0.0 numbers planes, sections and rafters in layout order, so a longer
+#: roof hands the end rafters' numbers to new layout rafters, and a shorter
+#: or re-spaced one moves every number (ROOF-MEMBER-RENUMBER). One ridge.
+_RENUMBERED_V1 = frozenset({"plane", "section", "rafter"})
+
+ROOF_V1 = Plugin(MANIFEST_V1, expand, renumbered_roles=_RENUMBERED_V1)
 
 
 # --- 1.1.0: Style, Gable or Hip (ROOF-HIP) -----------------------------------------
@@ -764,10 +811,17 @@ PlaneRef = DatumPlaneRef | FeatureRef
 
 
 class Builder:
-    """One expansion's members: an index per role, datums emitted once."""
+    """One expansion's members: an index per role, datums emitted once.
 
-    def __init__(self, inputs: ExpandInputs) -> None:
+    *named* (1.3.0, ROOF-MEMBER-RENUMBER): every member carries a stable name
+    given by its caller, and each offset datum is named by its base, its
+    offset rounded to 1e-9 in, and its flip (``yz/58.5``, ``xz/-120/flip``),
+    so a datum's id never depends on what was emitted before it. Unnamed (1.1.0
+    and 1.2.0), members are numbered per role in emission order."""
+
+    def __init__(self, inputs: ExpandInputs, named: bool = False) -> None:
         self.inputs = inputs
+        self.named = named
         self.members: list[Member] = []
         self._next: dict[str, int] = {}
         self._planes: dict[tuple[str, float, bool], PlaneRef] = {}
@@ -777,21 +831,30 @@ class Builder:
         role: str,
         feature: DatumFeature | SketchFeature | ExtrudeFeature | BooleanFeature,
         metadata: MemberMetadata | None = None,
+        name: str | None = None,
     ) -> FeatureRef:
         index = self._next.get(role, 0)
         self._next[role] = index + 1
-        self.members.append(Member(role, index, feature, metadata))
-        return self.inputs.ref(role, index)
+        if not self.named:
+            name = None
+        elif name is None:
+            raise ValueError(f"a named roof's {role} needs a name")
+        self.members.append(Member(role, index, feature, metadata, name))
+        return self.inputs.ref(role, index, name)
 
     def plane(
         self, base: Literal["XY", "XZ", "YZ"], offset_in: float, flip: bool = False
     ) -> PlaneRef:
-        """An origin plane, or an offset datum (one per position)."""
+        """An origin plane, or an offset datum (one per position: 1.3.0 shares
+        it by the offset rounded to 1e-9 in, so one ulp never makes two)."""
         offset_in += 0.0  # never a -0.0 on the wire
         if offset_in == 0.0 and not flip:
             return DatumPlaneRef(kind="datum_plane", plane=base)
-        key = (base, offset_in, flip)
+        key = (base, round(offset_in, _INCH_DIGITS) if self.named else offset_in, flip)
         if key not in self._planes:
+            name = f"{base.lower()}/{number_name(offset_in)}" + (
+                "/flip" if flip else ""
+            )
             self._planes[key] = self.add(
                 "plane",
                 DatumFeature(
@@ -801,10 +864,13 @@ class Builder:
                         base=base, offset_mm=_mm(offset_in), flip=flip
                     ),
                 ),
+                name=name,
             )
         return self._planes[key]
 
-    def sketch(self, plane: PlaneRef, outline: list[Vec2]) -> FeatureRef:
+    def sketch(
+        self, plane: PlaneRef, outline: list[Vec2], name: str | None = None
+    ) -> FeatureRef:
         """A closed polygon, in inches on the plane's (u, v)."""
         return self.add(
             "section",
@@ -815,6 +881,7 @@ class Builder:
                     plane=plane, entities=list(_polygon(ccw(outline))), constraints=[]
                 ),
             ),
+            name=name,
         )
 
     def extrude(
@@ -825,6 +892,7 @@ class Builder:
         metadata: MemberMetadata | None = None,
         *,
         symmetric: bool = False,
+        name: str | None = None,
     ) -> FeatureRef:
         return self.add(
             role,
@@ -840,6 +908,7 @@ class Builder:
                 ),
             ),
             metadata,
+            name=name,
         )
 
     def prism(self, outline: list[Vec2], height_in: float) -> FeatureRef:
@@ -852,6 +921,7 @@ class Builder:
         target: FeatureRef,
         tool: FeatureRef,
         operation: Literal["intersect", "subtract"],
+        name: str | None = None,
     ) -> None:
         self.add(
             "trim",
@@ -860,6 +930,7 @@ class Builder:
                 version=1,
                 params=BooleanParamsV1(operation=operation, target=target, tool=tool),
             ),
+            name=name,
         )
 
 
@@ -1079,4 +1150,12 @@ def expand_v1_1(inputs: ExpandInputs) -> Iterable[Member]:
     return list(expand(inputs))
 
 
-ROOF_V1_1 = Plugin(MANIFEST_V1_1, expand_v1_1)
+#: 1.1.0 numbers in emission order: a longer roof, a new spacing or (Hip) a
+#: pitch that frames another jack moves the numbers of planes, sections,
+#: rafters, commons, jacks and their cutters and trims. Its four hips are
+#: always the typed rectangle's corners in one order, and it has one ridge.
+_RENUMBERED_V1_1 = frozenset(
+    {"plane", "section", "rafter", "common", "jack", "cutter", "trim"}
+)
+
+ROOF_V1_1 = Plugin(MANIFEST_V1_1, expand_v1_1, renumbered_roles=_RENUMBERED_V1_1)

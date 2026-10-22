@@ -99,6 +99,18 @@ export type PathSegment = PipeParams["path"][number];
 /** A plane normal to a curve at a point along it (Plane Along Path). */
 export type DatumAlongPathParams =
   components["schemas"]["DatumAlongPathParams"];
+/** A 3D sketch: points and lines in model space (SKETCH-3D). */
+export type Sketch3DFeature = components["schemas"]["Sketch3DFeature"];
+export type Sketch3DParams = components["schemas"]["Sketch3DParamsV1"];
+export type Sketch3DEntity = Sketch3DParams["entities"][number];
+export type Sketch3DConstraint = NonNullable<
+  Sketch3DParams["constraints"]
+>[number];
+export type Sketch3DSnap = NonNullable<
+  components["schemas"]["Sketch3DPoint"]["snap"]
+>;
+/** An ok 3D sketch's solved points (``FeatureResult.data``). */
+export type SolvedSketch3DData = components["schemas"]["SolvedSketch3DData"];
 export type LoftFeature = components["schemas"]["LoftFeature"];
 export type LoftParams = components["schemas"]["LoftParamsV1"];
 /** One ordered section slot of a loft — a `FeatureRef` to an earlier sketch. */

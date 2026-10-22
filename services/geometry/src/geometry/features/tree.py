@@ -654,6 +654,7 @@ def _dispatch_one(
     # success — a feature that failed has no body built on its references, and its
     # error already says so.
     state.subshape_tally = ResolutionTally()
+    state.cut_bodies_met = None
     if observer is not None:
         # The backfill's observer (DESIGN-INTENT-BACKFILL): it sees exactly the
         # body and names this feature's resolvers are about to see, and writes
@@ -667,6 +668,7 @@ def _dispatch_one(
                 status="ok",
                 data=_feature_data(item.id, state),
                 subshape_resolution=state.subshape_tally.summary(),
+                cut_bodies=state.cut_bodies_met,
             )
         )
         # Remember the TYPE of every captured feature, in evaluation order: a

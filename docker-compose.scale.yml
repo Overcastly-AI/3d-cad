@@ -35,7 +35,7 @@
 # is worse than two workers on two cores. See docs/OPERATIONS.md §6.
 #
 # REQUIRES a SHARED mesh store (S3_URL, which the base file already points at
-# the bundled MinIO). Without it each worker keeps meshes in its own process
+# the bundled SeaweedFS). Without it each worker keeps meshes in its own process
 # memory and a mesh written by worker 2 is a 404 on worker 3 — geometry refuses
 # to start multi-worker in that configuration on purpose.
 #
@@ -60,10 +60,13 @@ x-geometry-worker: &geometry-worker
     PORT: "8002"
     LOG_FORMAT: ${LOG_FORMAT:-json}
     REDIS_URL: redis://redis:6379/0
-    S3_URL: http://minio:9000
+    # Same values, and the same deprecated MINIO_* fallbacks, as the base
+    # file's x-s3-credentials anchors (anchors do not cross compose files).
+    S3_URL: ${S3_URL:-http://seaweedfs:8333}
     S3_BUCKET: ${S3_BUCKET:-loft}
-    S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-loft-minio}
-    S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-loft-minio-dev-only}
+    S3_REGION: ${S3_REGION:-us-east-1}
+    S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-loft-s3}}
+    S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-loft-s3-dev-only}}
     LOFT_ENV: ${LOFT_ENV:-dev}
     ADMISSION_CONCURRENCY: ${ADMISSION_CONCURRENCY:-1}
     ADMISSION_QUEUE_DEPTH: ${ADMISSION_QUEUE_DEPTH:-8}
@@ -71,7 +74,7 @@ x-geometry-worker: &geometry-worker
   depends_on:
     redis:
       condition: service_healthy
-    minio:
+    seaweedfs:
       condition: service_healthy
 
 services:

@@ -4,6 +4,8 @@
  * Split out of `PartPage.tsx` (SPLIT-PARTPAGE); behaviour unchanged.
  */
 
+import { useMemo } from "react";
+
 import { ChamferEditor } from "../../components/ChamferEditor";
 import { CombineEditor } from "../../components/CombineEditor";
 import { DatumEditor } from "../../components/DatumEditor";
@@ -22,6 +24,8 @@ import { RevolveEditor } from "../../components/RevolveEditor";
 import { ShellEditor } from "../../components/ShellEditor";
 import { SweepEditor } from "../../components/SweepEditor";
 import { PipeEditor } from "../../components/PipeEditor";
+import { Sketch3DEditor } from "../../components/Sketch3DEditor";
+import { solvedSketch3DMap } from "../../features/sketch3d";
 import { pipeCurveOptions } from "../../features/pipe";
 import { PluginFeatureEditor } from "../../components/PluginFeatureEditor";
 import type { CustomFeatureWrite, PluginManifest } from "../../api/plugins";
@@ -62,7 +66,7 @@ export function FeatureEditorSeat({
   submitCustom,
 }: {
   editorFormulas: Pick<EditorFormulas, "formulaSession" | "editorInputError">;
-  partDocument: Pick<PartDocument, "mode">;
+  partDocument: Pick<PartDocument, "mode" | "evaluation">;
   partBody: Pick<PartBody, "editor" | "hasBody">;
   featureCatalog: Pick<
     FeatureCatalog,
@@ -75,6 +79,7 @@ export function FeatureEditorSeat({
     | "datumPlaneOptions"
     | "bodies"
     | "features"
+    | "cutBodiesByFeature"
   >;
   featureSubmit: Pick<
     FeatureSubmit,
@@ -82,6 +87,7 @@ export function FeatureEditorSeat({
     | "submitRevolve"
     | "submitSweep"
     | "submitPipe"
+    | "submitSketch3D"
     | "submitLoft"
     | "submitPattern"
     | "submitFillet"
@@ -162,7 +168,11 @@ export function FeatureEditorSeat({
   pluginCatalog?: readonly PluginManifest[] | undefined;
   submitCustom?: (write: CustomFeatureWrite) => void;
 }) {
-  const { mode } = partDocument;
+  const { mode, evaluation } = partDocument;
+  const solved3d = useMemo(
+    () => solvedSketch3DMap(evaluation.data?.features),
+    [evaluation.data],
+  );
   const { editor, hasBody } = partBody;
   const {
     sketchProfiles,
@@ -174,12 +184,14 @@ export function FeatureEditorSeat({
     datumPlaneOptions,
     bodies,
     features,
+    cutBodiesByFeature,
   } = featureCatalog;
   const {
     submitExtrude,
     submitRevolve,
     submitSweep,
     submitPipe,
+    submitSketch3D,
     submitLoft,
     submitPattern,
     submitFillet,
@@ -253,6 +265,18 @@ export function FeatureEditorSeat({
   // A save's refusal, else the feature's own `input_error` when no field on
   // screen carries it (PART-PARAMETERS step 8).
   const seatError = editorError ?? editorInputError;
+  // A cut editor's Objects To Cut: the part's bodies, and those the cut met on
+  // its last rebuild (none yet for a new cut).
+  const objectsToCut =
+    editor === null
+      ? undefined
+      : {
+          bodies,
+          met:
+            editor.featureId === undefined
+              ? null
+              : (cutBodiesByFeature.get(editor.featureId) ?? null),
+        };
   return (
     <FormulaSessionContext.Provider value={formulaSession}>
       {mode === "off" && editor !== null ? (
@@ -262,6 +286,7 @@ export function FeatureEditorSeat({
             profiles={closedProfiles}
             initial={editor.initial}
             onSubmit={submitExtrude}
+            objectsToCut={objectsToCut}
             onCancel={closeEditor}
             saving={editorSaving}
             error={seatError}
@@ -275,6 +300,7 @@ export function FeatureEditorSeat({
             axesByProfile={axesByProfile}
             initial={editor.initial}
             onSubmit={submitRevolve}
+            objectsToCut={objectsToCut}
             onCancel={closeEditor}
             saving={editorSaving}
             error={seatError}
@@ -288,6 +314,7 @@ export function FeatureEditorSeat({
             pathsByProfile={pathsByProfile}
             initial={editor.initial}
             onSubmit={submitSweep}
+            objectsToCut={objectsToCut}
             onCancel={closeEditor}
             saving={editorSaving}
             error={seatError}
@@ -309,9 +336,26 @@ export function FeatureEditorSeat({
                       features.findIndex((f) => f.id === editor.featureId),
                     ),
                   ),
+              solved3d,
             )}
             initial={editor.initial}
             onSubmit={submitPipe}
+            objectsToCut={objectsToCut}
+            onCancel={closeEditor}
+            saving={editorSaving}
+            error={seatError}
+          />
+        ) : editor.kind === "sketch3d" ? (
+          <Sketch3DEditor
+            mode={editor.mode}
+            featureId={editor.featureId}
+            initial={editor.initial}
+            solved={
+              editor.featureId === undefined
+                ? null
+                : (solved3d.get(editor.featureId) ?? null)
+            }
+            onSubmit={submitSketch3D}
             onCancel={closeEditor}
             saving={editorSaving}
             error={seatError}
@@ -322,6 +366,7 @@ export function FeatureEditorSeat({
             sections={sketchProfiles}
             initial={editor.initial}
             onSubmit={submitLoft}
+            objectsToCut={objectsToCut}
             onCancel={closeEditor}
             saving={editorSaving}
             error={seatError}
@@ -416,6 +461,7 @@ export function FeatureEditorSeat({
             onGaugeChange={setHoleGauge}
             diameterOverride={holeDiameterOverride}
             depthOverride={holeDepthOverride}
+            scopeBodies={bodies}
           />
         ) : editor.kind === "baseFlange" ? (
           <BaseFlangeEditor

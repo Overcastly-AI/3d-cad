@@ -226,6 +226,21 @@ for rate limiting and the job queue. Meshes and exports go to S3-compatible
 object storage, content-addressed. Without `S3_URL` the geometry service uses
 an in-process LRU.
 
+**The bundled object store is SeaweedFS** (founder decision, 2026-10-21). It
+replaced MinIO, which is AGPL-3.0 (forbidden by §8) and whose upstream stopped
+publishing images and declared itself unmaintained, which forced us to build
+it from source. Garage is also AGPL-3.0. Ceph RGW is LGPL but needs a cluster.
+SeaweedFS is Apache-2.0, actively released, and runs master, volume, filer
+and S3 gateway in one `weed server -s3` process, as the one-container MinIO
+did. The compose service pulls `chrislusf/seaweedfs` pinned by tag and digest,
+writes one S3 identity from `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` (no
+anonymous access) and creates the bucket before it reports healthy
+(`deploy/docker/seaweedfs/entrypoint.sh`). The store holds only derived,
+content-addressed artifacts, so switching stores loses nothing a rebuild
+cannot recreate. The client stays generic boto3 with path-style addressing,
+so AWS S3, R2 or an existing MinIO work by setting `S3_URL` and the `S3_*`
+credentials.
+
 ## 5. Frontend
 
 React 19 + Vite + TypeScript SPA; TanStack Router and Query; Tailwind; three.js
@@ -2190,6 +2205,255 @@ and reframe it, a material per member, and a cut list that is always current.
     recorded; the goldens' every mass property is the closed form (area
     5 025 + 14π in² for a joint), which the kernel meets to 1.2e-6 mm³ (the
     16-body sum's round-off).
+- **Decided while fixing renumbered members** (WALL-MEMBER-RENUMBER,
+  2026-10-17; SolidWorks, Fusion and Onshape reference handling, Chief
+  Architect's framing):
+  - *The bug.* 1.0.0 names a member `<role>/<n>`, n its order of emission.
+    Moving B2's door 72 -> 48 turns the front wall's `stud/6` from the stud
+    at 128 along the wall into the end stud at 143.25, and widening B1 turns
+    `joist/12` from the end joist into the layout joist at 192. A Boolean
+    subtract whose target is that member then cuts nothing, with no error
+    (measured: the part reads 8 068.5 in³, the hole gone). SolidWorks and
+    Fusion flag a reference that loses its entity and never rebind it to
+    another; Onshape's queries identify a patterned instance by its place in
+    the pattern, not by a running count; Chief Architect keys a framing
+    member to its layout position so a manual edit survives a rebuild.
+  - *Names, not ordinals.* `ExpandedMember` gains an optional `name`; a
+    named member's id is `uuid5(<feature-id>/<role>/<name>)`. An unnamed
+    member's id is unchanged, so every stored 1.0.0 expansion and every 1.0.0
+    golden is byte-identical. A name is lowercase slash-separated segments,
+    the first starting with a letter, so it never reads as an index.
+  - *What a name says.* Wall 1.1.0: a layout stud by its slot (`start`,
+    `slot/n` at n x spacing from the start, `end`), a cripple by the slot
+    it stands at, an opening's kings, jacks, header plies and sill by the
+    opening's feature id and their order in it (`opening/<id>/0`), the
+    bottom plate by what starts it (`start`, `opening/<door-id>`), a top
+    plate by its course, a section by its member (`stud/slot/8`) and a level
+    by its height (`z/94.125`). Deck 1.1.0: joists by slot (and bay when a
+    flush beam cuts them), blocking by the joist it follows, plies and posts
+    by beam line (`outer/ply/0`, `outer/end`), boards by row, guard members
+    by side and bay. A slot depends on the spacing alone, so nothing outside
+    a member renames it. Posts and guard members are equally spaced: their
+    number is a share of the length, not a place, so deck 1.1.0 still lists
+    `post`, `guard_post`, `rail` and `baluster` as renumbered roles and the
+    guard below refuses a move of a referenced one (the end post included).
+  - *Copies.* A name can hold a feature id (`opening/<door-id>/0`), so
+    duplicate and `.loft` import rewrite every name segment through the id
+    map, and derive the member's new id from the rewritten name; the copy's
+    stored expansion is then exactly its own re-expansion.
+  - *1.1.0 is 1.0.0 renamed.* Same members, same order, same geometry, so
+    the cut list and every golden's bodies are unchanged; a test proves it
+    member for member over 14 wall and deck cases. New walls and decks are
+    inserted at 1.1.0. Stored ones stay pinned (§23 "Determinism and
+    versions").
+  - *The 1.0.0 guard.* A plugin release lists its renumbered roles (every
+    1.0.0 wall and deck role whose ordinal can pass to another member; not
+    top plates, rims, the ledger or boards). Documents compares a referenced
+    member's placement before and after a re-expansion: its feature with
+    every reference into the expansion replaced by the referenced member's
+    placement, the extrude distance left out. A changed placement under the
+    same pin is 409 `feature_has_dependents` naming the referencing features,
+    on a write to the wall or deck, on a door's or window's write, suppress
+    or delete (its host re-expands), and on a parameter-table `PUT`. A taller
+    wall keeps its studs' placements and is allowed. The check is
+    conservative: a 1.0.0 joist that only grows longer is refused too,
+    because an ordinal id cannot tell growth from a renumber.
+  - *Parameter edits.* The parameter `PUT` now refuses a re-expansion that
+    drops or moves a referenced member, as an edit of the feature does; it
+    used to store it and leave the reference to fail at rebuild.
+  - *No silent upgrade.* Re-pinning a 1.0.0 wall to 1.1.0 renames every
+    member, so it is refused while a member is referenced (the existing
+    vanished-member 409). Rebinding by (role, index), which 1.1.0 keeps
+    identical to 1.0.0's for the same inputs, is WALL-UPDATE-REBIND.
+  - *Openings and roofs.* Doors, windows and the 1.2.0 roof read a wall's
+    stored inputs (`WallSpec`), which 1.1.0 keeps, so they host in and bear
+    on a 1.1.0 wall as on a 1.0.0 one. An opening checks its fit by its
+    wall's release rules.
+  - *Coincident faces.* 1.0.0 decides which layout studs an opening replaces
+    with exact float comparisons, so two faces that meet exactly in decimal
+    (400 mm centres, a 600 mm door) differ by an ulp and a touching stud is
+    dropped or a cripple is lost: 203 of 2 044 constructed touching cases.
+    1.1.0 counts faces within 1e-9 in as touching and matches exact
+    arithmetic in all of them. The deck's comparisons already carried 1e-9.
+  - *Goldens.* `b2-walls-v1.1-hole-stud-128` / `-door-moved-24` and
+    `plugin-deck-v1.1-b1-16ft` / `-20ft-hole-end-joist` are the 1.0.0 goldens'
+    bodies at 1.1.0 with the hole, derived from the base goldens' hand
+    numbers and the cylinder's closed form; the kernel meets them to
+    1.7e-6 mm³. The hole is a Boolean subtract because the Hole feature cuts
+    the ACTIVE body (the last one built), not the picked face's body
+    (HOLE-ACTIVE-BODY).
+- **Decided while fixing renumbered roof members** (ROOF-MEMBER-RENUMBER,
+  2026-10-18; the wall's rules above, Chief Architect's and Medeek's rafter
+  layout from a ridge end, framing-square practice):
+  - *The bug.* `loft.roof` 1.0.0-1.2.0 number members in emission order.
+    Lengthening B3 by one spacing (144 -> 168) turns 1.2.0's `common/3` from
+    the front ridge-end common at X 60 into the left king common (a back
+    common is emitted first); the 1.0.0 gable's `rafter/12` passes from the
+    front end rafter to a layout rafter.
+  - *1.3.0 is 1.2.0 renamed.* Same inputs, members, order and geometry
+    (a test proves it member for member over ten gable, hip and L cases),
+    every member named; new roofs are inserted at 1.3.0.
+  - *What a name says.* A PLANE by the way its wall faces in the world
+    (`front` is -Y, `left` -X; `_notch` for the two walls at an L's inside
+    corner), never by the canonical frame or the pick, so picking the walls
+    in another order, or redrawing them, renames nothing, and no name embeds
+    a feature id (copies and imports re-mint ids whole). A common by its slot
+    on the ridge layout from the ridge-end common, the layout's origin as a
+    framer measures it (`front/ridge/start`, `.../ridge/slot/n`,
+    `.../ridge/end` for the flush far one); a king by its plane
+    (`left/king`); a jack, valley jack or cripple by the hip it runs to and
+    its count on the spacing from the end common (`front/left/1`); a hip,
+    valley or ridge by the two planes it divides (`back/left`); the gable's
+    rafters by side and slot (`front/slot/3`, `front/end`). Sections,
+    cutters, trims and midplanes are named after their member, offset datums
+    by base, offset (to 1e-9 in) and flip (`yz/59.25`). Nothing is numbered
+    by count, so a length, overhang or pitch change keeps the name of every
+    member that stays; members of the far end keep theirs and move with it.
+  - *The guard.* 1.0.0-1.2.0 list their renumbered roles (1.2.0: all but the
+    valley; 1.1.0: all but its four corner hips and its ridge; 1.0.0:
+    planes, sections, rafters), so WALL-MEMBER-RENUMBER's placement check
+    refuses an edit to an old roof that moves a referenced member. It also
+    refuses a pitch edit when a rafter is referenced: its profile moves.
+    A write to a wall now re-expands the roofs that pick it and runs the
+    same check (a roof the new walls cannot frame still reports that at
+    rebuild, so a wall can be redrawn in steps).
+  - *Coincident layout lines.* An L's wing jacks are laid out from the king
+    toward the narrow arm's ridge end, and where that lands on the flush
+    ridge-end common (arms differing by twice a multiple of the spacing) it
+    can arrive an ulp off; 1.2.0 deduplicated positions exactly and framed
+    two coincident commons (25 of 64 constructed footprints). 1.3.0 counts
+    lines within 1e-9 in as one, the first series (king, ridge layout,
+    jacks) naming it. No other comparison in the roof layout drops or
+    doubles a member: the rest carry 1e-9 or wider margins.
+  - *1.2.0 fixed in place* (ROOF-L-DOUBLED-COMMON, 2026-10-21, as
+    HOLE-ACTIVE-BODY fixed stored holes): every evaluation re-expands a
+    stored roof, so 1.2.0 itself now frames one common there. It still lays
+    the twin out and numbers it (indices are 1.2.0's ids), then drops the
+    twin's own features (its section and body), so every other member keeps
+    its id and the survivor is the line 1.3.0 keeps. A feature that named
+    the twin finds no body (`reference_unresolved` on the twin's id), as
+    SolidWorks flags a dangling reference; it is never rebound to the
+    survivor, which has its own id. A later write to that roof is refused
+    (409) while the reference stands, as for any member a re-expansion
+    removes. Golden `l-hip-16oc-v1.2-one-common`: 45 bodies, the old
+    expansion less one common of 383.727405 in^3 (closed form and an
+    independent script), no interference, one Common fewer in the cut list;
+    every other roof golden byte-identical.
+  - *Goldens.* `b3-hip-v1.3-hole-common` / `-168-hole-common` and
+    `b3-hip-v1.3-hole-jack` / `-8-12-hole-jack`: B3 at 1.3.0 with a 1 in
+    hole through the front ridge-end common (lengthened by 24) and through
+    the jack at X 36 (re-pitched to 8/12). Derived from `b3-hip-6-12` and
+    `-8-12` (1.1.0) less ROOF-HIP-TAIL's rip, which on B3 is a sheared prism
+    under each hip's tail, vertical thickness P_hip - (P_common - drop) over
+    a 1.5 x 12 sqrt 2 plan (45.967 in³ at 6/12, as B4's), plus a pair of
+    commons and 24 in of ridge, and the bore; the kernel meets them to
+    1.2e-7 mm³.
+- **Decided while building the floor** (FLOOR-FRAME, 2026-10-17; Chief
+  Architect's floor framing, Medeek Foundation, common platform framing):
+  - *A rectangle, as a wall is a line.* Start corner, direction (degrees from
+    +X), width along it and depth to its left, so the default floor is
+    X 0..width, Y 0..depth, B2's frame. The base elevation is the top of the
+    foundation (the sills' underside). Walls stand on the floor through their
+    own base elevation, set to the joists' top (B5: 8.75); no wall input
+    reads the floor, as hosting by inputs keeps the order the tree's.
+  - *Framing.* Joists run along the depth by default, or along the width.
+    Rims run the full length across the joist ends; the end joists are the
+    other two sides, flush, between the rims. Rims and end joists are cut
+    from the joist size, tops flush. Layout is the deck's and the wall's
+    (half a thickness, every spacing, the far end joist flush, a layout
+    joist that would overlap it dropped), in the floor's own copy so a deck
+    or wall change cannot move a stored floor.
+  - *Sill plates* (on by default, PT 2x6, Chief's mudsill): laid flat under
+    the rims and end joists, outer edges flush, butted as wall plates are:
+    full length under the rims, between them under the end joists (B5: 2 at
+    144, 2 at 109). Joists and rims default to SPF, as the wall's studs.
+    Anchor bolts, sill gaskets, doubled joists under walls, openings,
+    blocking and beams are later rungs.
+  - *Ids by slot.* Member ids are `<feature>/<role>/<n>` with an integer `n`,
+    so the floor picks `n` to name the place, not the rank: `joist/0` and
+    `joist/1` are the end joists and `joist/k+1` the layout joist k spacings
+    from the start. Widening adds joists after the ones it had, so a hole on
+    any joist stays on it (WALL-MEMBER-RENUMBER is the same bug in 1.0.0's
+    wall and deck, which count by rank). It needs no wire change.
+  - *No float overlaps.* A layout joist within 1e-9 in of the end joist (the
+    drop rule's slack) takes the end joist's face, so the pieces never
+    overlap even by 1e-10. A plugin sweep of 400 random floors (any size in
+    mm, every spacing, profile and direction) finds no pair overlapping by
+    any amount; a kernel sweep of six floors (turned 30, -45 and 117.3 deg,
+    along the width, a joist touching the end joist, no sill, 2x6 to 2x12)
+    probes every pair whose boxes overlap at all and finds none.
+  - *Numbers.* The PM's B5 figures (10 joists at 117, 20 030.25 in³;
+    13 and 23 847.375 at 12 in o.c.) held in an independent build123d script
+    of the spec's boxes before use, with no interference; the STEP matches
+    that script solid for solid. Goldens `b5-floor-2x8-16oc`, `-12oc` and
+    `b5-shed-walls-on-floor` (B2's walls on it, 45 631.875 in³).
+  - *The subfloor seam* (SHEATHING). The framing is a pure list of pieces in
+    the floor's frame (`floor_pieces`), placed only at emission, and
+    `FloorSpec.framing_top` is the joists' top. A 1.1.0 adds a Subfloor input
+    and appends its panels at that height, moving no framing member, so 1.0.0
+    stays byte-identical.
+- **Decided while building sheathing** (SHEATHING, 2026-10-17; Chief
+  Architect's wall and floor structure layers, Medeek's sheathing options):
+  - *An option on the host, a new version each.* `loft.wall` 1.2.0 adds
+    Exterior sheathing (None by default, 7/16 OSB, 15/32 plywood) and
+    `loft.floor` 1.1.0 adds Subfloor (23/32 plywood by default, or None).
+    Each new version's expansion is the previous version's, member for
+    member (the wall's is WALL-MEMBER-RENUMBER's place-named 1.1.0, the
+    floor's 1.0.0), then the panels on their own roles (`sheathing_plane`/
+    `_section`/`sheathing`, `subfloor_level`/`_section`/`subfloor`), so
+    upgrading the pin keeps every framing id and level, and an unsheathed
+    1.2.0 wall is a 1.1.0 wall byte for byte. The panels read only the
+    wall's spec and its openings, never the stud layout, so wall.py is
+    unchanged.
+  - *Panels are named by place*, as 1.1.0 names studs: `exterior/<col>/<row>`
+    (the 48 in strip from the wall's start, and the piece of it from the
+    bottom where an opening cuts it in two) and `row/<r>/<c>` for the
+    subfloor, with their sections and planes, so moving a door keeps every
+    panel's id on the panel at that place.
+  - *Wall panels.* The full wall height (base of the bottom plate to the top
+    of the top plate) on the exterior face, outside the framing, 48 in wide
+    from the wall's start with the last cut to the end. Every hosted door's and window's rough opening is cut out; an
+    opening inside a panel is a hole, one across a panel joint notches both,
+    and a panel an opening cuts in two is two panels. A panel's outline is
+    the panel rectangle less the openings, traced as a rectilinear region on
+    the cut edges, so each corner is an input coordinate.
+  - *Wall planes.* An axis wall's panels are sketched on `XZ` or `YZ` offset
+    to the face (exact) and extruded outward; any other direction on a plane
+    through +Z at the outward normal's angle from `YZ`, offset to the face. A
+    kernel sweep (30 and 117.3 deg walls with a door and window across panel
+    joints, a window hole, a left-side wall, turned and width-joisted floors)
+    finds every panel valid and no shared volume with the framing.
+  - *Subfloor.* 4x8 panels on the joists' top, the long edge across the
+    joists, rows 48 along the joists from the start and every other row
+    starting with a 48 piece (staggered 4 ft); the floor's edges cut the last
+    panels. Walls standing on a sheathed floor take the subfloor's top as
+    their base elevation (B5: 9.46875).
+  - *Sheet goods* (`loft_wire.sheet_goods`): a product is a material at a
+    nominal thickness (APA panels are built to it), with the 4x8, 4x9 and
+    4x10 sheets; OSB 641 and plywood 577 kg/m³ (40 and 36 lb/ft³). The cut
+    list measures a panel (thickness its thinnest extent, net area its volume
+    over that) and cuts it from the shortest sheet covering its other two
+    extents; panels group by product, material and sheet, and a line buys
+    ceil(net area / sheet area) sheets, Chief Architect's count.
+  - *Outside corners are lapped* (SHEATHING review, WALL-SHEATHING-CORNER):
+    butted corners left 3.9375 in of bare end grain at each B2 corner and the
+    count a sheet short. Where wall B butts wall T (B's end on T's interior
+    face, B's face flush with T's end, square, same base), B's plane carries
+    a rip T's depth plus T's sheathing thickness wide past B's end, in B's
+    product, as Chief Architect runs one wall's sheathing past the corner.
+    An expansion sees only earlier features, so the later wall of the two
+    emits it, and the rip is the same in any tree order. Lone walls and other
+    joints keep butt ends. Openings within 1/8 in of a joint snap to it (the
+    trade's minimum rip).
+  - *Numbers.* The BACKLOG's figures held in an independent exact-rational
+    script before use (12 panels, 45 893 in², 9 sheets); with the corners
+    lapped, re-derived the same way, B2's walls are 16 panels, 47 422.71875
+    in², 20 747.439453125 in³ and 10 sheets of 4x9; B5's subfloor 6 panels,
+    12 420 in³, 4 sheets of 4x8 (3.75). Golden `b5-shed-sheathed` (B5's
+    sheathed floor and B2's sheathed walls with the door and window on it,
+    82 139.814453125 in³) matches that script and
+    a build123d one (panels as boxes less the openings) solid for solid, with
+    no interference.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
@@ -2399,7 +2663,7 @@ property feeds a BOM column; Loft's price book feeds the cut list.
   entries; 0 to 10,000,000 cents, a strict JSON integer (`3.98`, `398.0`
   and `"398"` are refused). The database backs the two rules a bad write
   would corrupt silently with CHECKs: no negative price, and a stock length
-  exactly when the unit is `each`. Sheet goods and per-part prices are later.
+  exactly when the unit is `each`. Per-part prices are later.
 - **Lines are priced on the stock pieces bought** (`loft_wire.cut_list.
   price_lines`, pure code the gateway applies to every part and assembly cut
   list). Stock quantity is one per piece until CUT-LIST-NESTING, so the
@@ -2434,3 +2698,229 @@ property feeds a BOM column; Loft's price book feeds the cut list.
   twice $1,736.08 (`services/geometry/tests/test_cut_list_prices.py`); the
   same B1 numbers and CSV through the three services
   (`test_cut_list_chain.py`).
+
+## 28. Hole target body (HOLE-ACTIVE-BODY)
+
+A Hole used to resolve its face against, and cut, the ACTIVE body: the most
+recently built one. In a multi-body part (every framing plugin: one body per
+stud, plate or joist) a hole on an earlier member either failed
+(`hole_off_body`) or, when the active member had a congruent face, matched it
+through a resilient tier and drilled that member instead. Fusion 360 and
+SolidWorks cut the body the picked face belongs to.
+
+- **The owner is the body whose face matches best.** A stored face reference
+  holds a signature, not a body (its `feature_id` is the tip body feature at
+  pick time), so the evaluator matches it against every body at the
+  resolver's own tiers (`face_match_tier`, `face_owner_body_id`). The most
+  certain tier wins (exact < named < durable), so an exact match on a stud
+  beats a translated match on the last plate. A tie keeps the active body
+  when it is tied (the pre-fix answer, so nothing that resolved there moves)
+  and is otherwise `subshape_ambiguous`. No match anywhere falls back to the
+  active body, which fails as before. A one-body part never scans.
+- **The drilled body becomes active**, as a boolean's result or a new body
+  does, so a following pattern or mirror of the hole repeats it in that body.
+- **Feature Scope** (SolidWorks): `scope_bodies` lists further bodies,
+  by base feature (the boolean operand rule), that a through-all bore also
+  cuts. Absent means the owner only, which is also what keeps a through-all
+  hole on a stud from drilling every member behind it (SolidWorks'
+  auto-select would). One coaxial tool spans all of them; the counterbore or
+  countersink seats in the owner, where its depth is validated. A scoped body
+  the bore misses is `hole_off_body` pinned to it; a scope naming a body
+  twice is a 422. A blind hole may keep a scope (since HOLE-SCOPE-UI) but
+  drills its owner only: its depth is measured there.
+- **Stored parts: fixed in place, not versioned.** The change can only alter
+  a multi-body tree whose hole resolved off its owner, and every such hole
+  was wrong: it failed (so nothing after it built) or drilled a member the
+  user did not pick. Versioning would keep that wrong geometry for every
+  stored framing part. A single-body part cannot change: all 132 tree goldens
+  (the 64-body walls included) rebuild to the same GLB and BREP bytes before
+  and after, and `test_single_body_hole_is_byte_identical_to_the_direct_cut`
+  pins it.
+- **The same rule for every picked face or edge** (`geometry/features/owner.py`):
+  an `on_face` datum, a midplane or angle-datum face side, an angle datum's
+  edge line and a pipe's model-edge path resolve on the owning body; a
+  fillet, chamfer, shell or draft modifies the body owning its picked edges
+  or faces and makes it active. Each had the same bug (a datum on a stud's
+  face sat on the last plate's congruent face). One feature modifies one
+  body, so picks on two bodies are `subshapes_on_several_bodies`; Fusion
+  would fillet both, which is a later slice. Predicate edge selections
+  (`all_edges`, `axis_parallel`) still mean the active body.
+- **Not changed, by design or for later:** body-scope pattern and mirror
+  repeat the active body; the sheet-metal flange, hem and relief resolve on
+  the active body. (Cuts and sketch projection followed: Objects To Cut,
+  below.)
+- **Checked:** goldens `hole-through-r5-first-of-two-bodies-40x25x10` and
+  `hole-scope-through-two-bodies-r3-40x25x10`, each equal to a direct
+  build123d construction in volume, area, centroid, topology and mesh
+  (`tests/test_hole_owner_body.py`).
+- **Sheet goods are priced Each per sheet** (SHEATHING, migration 0023). An
+  entry's profile is a lumber profile or a sheet product (`osb_7_16`); a
+  sheet product's entry is `each` with its `sheet` ('4x8', '4x9', '4x10')
+  and no stock length. A sheet line (one per product, material and sheet) is
+  priced by that entry times its sheets: B2's OSB 10 x $24.98 = $249.80, B5's
+  plywood 4 x $42.50 = $170.00. The CHECKs became "each has a stock length
+  or a sheet" and "never both". The CSV gains `Area (sq <unit>)`; a sheet
+  line has its area there, `4x9 sheet` as its stock and no lengths.
+- **Saves are versioned** (PRICE-BOOK-VERSION, migration 0023). The book has
+  a `version`, 0 until the first save and one more per save, served in the
+  body and as the `ETag`. A `PUT` sends the version its draft was read at in
+  `If-Match`; documents compares it under the row lock and refuses a book
+  saved since with 412 `price_book_stale` (`details.version` the current
+  one), and a `PUT` with no `If-Match` with 428. Two first saves race on the
+  owner unique, and the loser is a 412 too. So of two saves drafted from one
+  version the second is refused and nothing is lost or merged; the dialog
+  says the book changed elsewhere and Reload drafts from the stored book.
+  This replaces the dialog's re-read before its `PUT` (e50182d), which a
+  save landing between the read and the write could still overwrite.
+  Existing books start at version 1. The downgrade drops the version and the
+  sheet prices (an older Loft cannot hold them) and keeps every lumber price.
+
+### Objects To Cut (CUT-OBJECTS-TO-CUT)
+
+An extrude, revolve, sweep, loft or pipe CUT removed material from the active
+body only, so a notch drawn across a top plate and three studs cut the plate
+and left the studs whole, and a cut through an earlier stud alone was
+refused (`cut_removed_nothing`). Fusion 360's Objects To Cut lists every body
+the tool meets, ticked; SolidWorks' Feature Scope has *All bodies* (applied
+on every rebuild, so a body added later is cut too) and *Selected bodies*.
+
+- **`cut_bodies` on the five cut params** (`loft_wire/cut_bodies.py`):
+  `"all"` is every body the tool meets, found on each rebuild (SolidWorks'
+  All bodies, Fusion's default list); a list names bodies by base feature
+  (the boolean operand rule) and cuts exactly those; absent is the active
+  body. A new cut stores `"all"` (web dialogs and loft-script); unticking a
+  body stores the ticked list, which stays a list when a body is re-ticked
+  (the rows are only the bodies met and listed, so "every row ticked" is not
+  "every body"); "Cut every body it meets" is the way back to `"all"`. A
+  scope on an add, an empty list or a body named twice is a 422. `"all"`
+  was chosen over storing the met list because a framing edit adds and
+  renumbers members, and a cut over a wall should keep cutting the studs
+  under it; a list is the narrowing choice, as in both incumbents.
+- **Stored cuts are versioned by absence, not fixed in place.** Unlike
+  HOLE-ACTIVE-BODY, an active-body cut is not wrong for every stored part: a
+  modeller may have relied on it (a cut through two bodies meant for one).
+  So absent keeps today's code path exactly. All 150 stored trees (tree
+  goldens, sheet-metal goldens, test fixtures) rebuild to identical GLB,
+  BREP, statuses and errors before and after (hashed at the HOLE-ACTIVE-BODY
+  tip and with this change). Every Save of a stored cut keeps it absent; the
+  dialog offers "Cut every body it meets" to opt in.
+- **What is cut:** each body (tree order) is cut by every tool that reaches
+  it, through the shared guarded boolean and its CM-3 predicate. An
+  axis-aligned box test (`bounds_apart`: OCCT's boxes grown by shape
+  tolerance, a sufficient condition for "shares no volume") skips the
+  booleans it rules out. Errors stay typed and leave every body untouched:
+  nothing cut, or one region of a multi-region profile meeting no body, is
+  `cut_removed_nothing`; a LISTED body the cut misses is
+  `cut_removed_nothing` pinned to that body (as a scoped Hole's
+  `hole_off_body`); a listed id that is not a current body is
+  `reference_unresolved`. `FeatureResult.cut_bodies` reports the bodies cut,
+  which the dialog's list shows.
+- **The active body after a cut** stays active if it was cut, else the first
+  body cut becomes active (the Hole's owner rule: the body the feature
+  touched), so a pattern or mirror of the cut repeats it there. A pattern or
+  mirror of a cut over several bodies repeats it in that one body (BACKLOG
+  CUT-SCOPE-REPEAT).
+- **Sketch edge projection follows the owner.** Each projected edge resolves
+  on the body owning it (`edge_owner_body_id`), grouped so each body is
+  enumerated once; an edge of an earlier member no longer comes out sick
+  (or, with a congruent last member, re-found there).
+- **The owner scan's exact screen.** An exact match puts the stored point
+  (a face's centroid, an edge's midpoint) within 1e-6 mm of the body, so only
+  a body whose box (memoised per shape by weak reference, grown 1e-3 mm)
+  holds it can match exactly. Exact is the best tier, so when screened
+  bodies match exactly the ranking over all bodies would return the same
+  answer (the active body on a tie, else the one body, else ambiguous); when
+  none does, the full scan runs as before. Measured on 200 blocks, a hole on
+  the first: 0.163 s -> 0.012 s cold, 2 full matches instead of 201
+  (`test_an_owner_pick_at_200_bodies_...`). B5's trees have no picks, so
+  their rebuild path is unchanged (0.33 / 0.19 / 1.16 s before, within noise
+  after).
+- **Hole Feature Scope in the dialog (HOLE-SCOPE-UI).** The Hole dialog lists
+  the part's bodies to add to a through-all bore. Switching to Blind keeps the
+  ticks, SAVES them, and says "Blind cuts its own body only: N scoped bodies
+  are kept, not cut". The wire accepts a scope on a blind hole and the kernel
+  ignores it there (the owner is byte-identical to the same hole without one;
+  `test_a_blind_hole_keeps_its_scope_but_cuts_only_its_owner`), so a switch
+  back to through-all, now or after a reload, bores the same bodies.
+- **Checked:** goldens `cut-objects-to-cut-b2-front-notch-studs-16-32-48`
+  (B2 plus a notch 1 in deep, X 10..52, Z 88..96 in: 106.3125 in^3 from three
+  studs and both top plates, hand-derived) and
+  `framing-hole-d1-fillet-r0.25-first-stud-b2` (a 1 in hole and an R0.25
+  fillet on B2's first stud, the first of 48 bodies), each equal member for
+  member to an independent build123d construction of the 48 boxes typed
+  from buildings.md (`tests/test_cut_objects_to_cut.py`, which also runs
+  every cut verb across two blocks against build123d tools).
+## 28. 3D sketch (SKETCH-3D)
+SolidWorks' *3D Sketch* and Fusion 360's 3D sketch, scoped to a tube frame's
+skeleton (bike rounds 2 and 3: the chain and seat stays splay out of the
+frame plane, so no 2D sketch can hold them). Decisions:
+- **A new feature type, `sketch_3d`, not a sketch plane option.** It holds
+  points (a world `position`, and an optional `snap`) and lines that join two
+  of its points by id, so a chained skeleton shares its joints as SolidWorks'
+  merged 3D sketch points do. No plane, no profile: it never makes a body.
+  Arcs and splines are not built (Fusion has them; the bike does not need
+  them).
+- **Snaps are relations, not copies** (SolidWorks adds a coincident to the
+  vertex; Fusion projects it): a snapped point follows the origin, a point of
+  an earlier 2D or 3D sketch (through that sketch's plane), or one end of a
+  model edge (a vertex is named as `end` `a`/`b` of a picked edge's
+  signature, resolved through the usual edge tiers, the end nearer the
+  signature's `end_a` being `a`). Snapped points are constants in the solve.
+  A missing target is `reference_unresolved` / `subshape_unresolved`. Loft has
+  no datum-point feature, so "datum points" are the origin and sketch points.
+- **Relations** (SolidWorks' 3D sketch set, trimmed): `coincident`, `fixed`,
+  `along` X/Y/Z (SolidWorks' Along X/Y/Z: the line's direction has no
+  component across the axis), and two driving dimensions, `length` of a line
+  and point-to-point `distance`. No angle dimension yet (a hand-worked
+  coordinate, as in the bike's first round, covers it).
+- **Solver: our own, not planegcs.** planegcs is 2D through and through (its
+  primitives are planar points, lines and arcs); extending it to 3D would be
+  a fork of a C++ library for five equations. `geometry.sketch.solver3d` is a
+  small damped Gauss-Newton over the free points' coordinates with
+  minimum-norm steps (`numpy.linalg.lstsq`), starting at the stored
+  positions. Each step is the smallest move that zeroes the LINEARISED
+  residual, so the answer stays near what was typed but is not, in general,
+  the nearest solution. Consequences, stated as the behaviour users see:
+  - a length dimension on a line from a held point slides the free end ALONG
+    the line (the residual's gradient is the line's direction), met exactly
+    in one step, so a typed point plus a length lands on the reference to
+    the last ulp (the bike skeleton: every point within 1e-13 of the hand
+    numbers);
+  - when both ends are free the move is split evenly (minimum norm), e.g. a
+    130 mm distance between two dropouts typed 128 apart moves each by 1;
+  - DOF is the free coordinates minus the Jacobian's rank at the solution;
+    a relation whose rows add no rank is reported `redundant`; a residual
+    above 1e-9 x the sketch size after the iterations is
+    `sketch_conflicting` naming the worst relation; a dimensioned line of
+    zero length is refused, never divided by.
+  - Cost (review 2026-10-22): the Jacobian is assembled vectorised, the
+    redundancy diagnosis is ONE incremental Gram-Schmidt pass in constraint
+    order (the same greedy answer as one SVD per constraint prefix, which an
+    oracle test checks on 40 random sketches; the first version took 118 s
+    at 200 points this way), and BLAS is pinned to one thread for the solve
+    (bit-stable). A work budget of 6e9 flops, counted from the sketch's size
+    and never a clock, refuses a larger sketch as `sketch_too_large`. A
+    200-point skeleton solves in 0.22 s; 300 points 0.76 s; a 400-point
+    chain or a 1000-entity sketch is refused (in 1.5 s at most).
+  - Limits: a local solver, so an under-defined sketch keeps a solution near
+    what was typed (Fusion's behaviour too), and a far edit can
+    flip to another branch only where the relations allow two (none of the
+    five relations has a fold except a length through zero, which is
+    refused).
+- **Pipe and Plane Along Path read its lines** through the same
+  `sketch_curve` path segment, naming the 3D sketch as `sketch` (the slot
+  accepts `sketch` and `sketch_3d`). A 3D line has no owning plane, so Plane
+  Along Path takes the on-face `x_dir` rule for it.
+- **Ids**: snaps hold a `FeatureRef` and an `EdgeSubshapeRef` (with its
+  `topo_name`); Duplicate and `.loft` import rewrite them by value like every
+  other ref (`test_sketch_3d_copy.py`); point and line ids are sketch-local.
+- **The bike** (`frame-bike-3d-sketch-skeleton-4-pipes`): the whole skeleton
+  in one 3D sketch (main triangle, both dropouts at 410 / 70 / 130), typed
+  2 mm short and 1 mm in, put on the reference by three dimensions and one
+  Along Y; the four main Pipes are the 2D skeleton golden's solid to 1e-10.
+  The splayed chain stays match a plain build123d twin to 4.5e-9 (empty two-way
+  difference). They are not in the golden: their oblique tube-tube faces move
+  4e-5 mm in a STEP round trip, the twin's identically (OCCT's
+  re-approximation), past the golden gates' 1e-7 centroid bound. Piping the
+  seat stays too closes three internal voids in the seat cluster (a correct
+  union of ring tubes; a real frame copes the stays).

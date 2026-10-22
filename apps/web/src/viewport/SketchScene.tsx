@@ -40,10 +40,7 @@ import {
   entitySegmentPositions,
   pickedPointPositions,
 } from "../sketch/geometry";
-import {
-  dimensionWitness,
-  type DrawDimensionKey,
-} from "../sketch/drawDimensions";
+import { witnessPositions } from "./drawWitness";
 import {
   ORIGIN_AXIS_FRACTION,
   ORIGIN_DASH_FRACTION,
@@ -106,17 +103,8 @@ import {
   PointEntityInk,
   usePositionsGeometry,
 } from "./sketchInk";
-import {
-  useSketchStore,
-  type DrawDimensionDraft,
-  type SketchState,
-} from "../sketch/store";
-import {
-  dragDraws,
-  placesPoints,
-  previewEntities,
-  type SketchEntity,
-} from "../sketch/tools";
+import { useSketchStore, type SketchState } from "../sketch/store";
+import { dragDraws, placesPoints, previewEntities } from "../sketch/tools";
 import { AdaptiveGrid } from "./AdaptiveGrid";
 import type { SolvedSketchLayer } from "./solvedSketchLayer";
 export type { SolvedSketchLayer } from "./solvedSketchLayer";
@@ -1447,49 +1435,6 @@ function FaceBluing({
       />
     </mesh>
   );
-}
-
-/**
- * The drafting callout for the size cell that has focus — extension lines and a
- * dimension line laid on the very edge the number drives. Without it a pair of
- * cells labelled W and H is a form floating over a picture; with it, typing in
- * a cell points at its own edge, which is how a drawing says the same thing.
- * Empty whenever no cell has focus.
- */
-function witnessPositions(
-  draft: DrawDimensionDraft | null,
-  focus: DrawDimensionKey | null,
-  entities: readonly SketchEntity[],
-  basis: PlaneBasis,
-): Float32Array {
-  if (draft === null || focus === null) return new Float32Array(0);
-  const field = draft.fields.find((f) => f.key === focus);
-  if (field?.entity == null) return new Float32Array(0);
-  const entity = entities.find((e) => e.id === field.entity);
-  if (entity === undefined) return new Float32Array(0);
-  const centre = {
-    x: (draft.from.x + draft.to.x) / 2,
-    y: (draft.from.y + draft.to.y) / 2,
-  };
-  const segments: Array<[Point2D, Point2D]> =
-    entity.kind === "line"
-      ? dimensionWitness(entity.start, entity.end, centre, sketch.glyphOffsetMm)
-      : entity.kind === "circle"
-        ? [
-            // The diameter the Ø cell drives, rim to rim through the centre.
-            [
-              { x: entity.center.x - entity.radius, y: entity.center.y },
-              { x: entity.center.x + entity.radius, y: entity.center.y },
-            ],
-          ]
-        : [];
-  if (segments.length === 0) return new Float32Array(0);
-  const positions = new Float32Array(segments.length * 6);
-  segments.forEach(([a, b], i) => {
-    positions.set(planeToWorld(basis, a), i * 6);
-    positions.set(planeToWorld(basis, b), i * 6 + 3);
-  });
-  return positions;
 }
 
 /**

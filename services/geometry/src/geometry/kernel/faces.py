@@ -1148,6 +1148,22 @@ def resolve_face_plane(
     )
 
 
+def face_match_tier(
+    body: BodyShape,
+    target: PlanarFaceSignature,
+    face_names: Sequence[str | None] | None = None,
+) -> SubshapeResolutionTier | None:
+    """The tier at which *target* matches a planar face of *body*, or ``None``.
+
+    The same tiered match :func:`resolve_face_plane` runs, asked only "does any
+    face of this body answer, and how certainly?" — one or several matches both
+    count (a congruent twin is the owner's own honest ambiguity, raised when the
+    owner is resolved). Reports to no tally. The feature layer ranks bodies by
+    it to find the body that OWNS a picked face (HOLE-ACTIVE-BODY)."""
+    matches, tier = _match_planar_faces(body, face_names, target)
+    return tier if matches else None
+
+
 def resolve_faces(
     body: BodyShape,
     targets: list[PlanarFaceSignature],

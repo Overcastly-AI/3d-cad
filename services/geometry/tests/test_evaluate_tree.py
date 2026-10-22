@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 from geometry.features import FEATURE_HANDLERS, evaluate_tree
 from geometry.main import app
 from geometry.sketch import SketchEntity, SketchLine
-from loft_wire.features import EvaluateTreeRequest, EvaluateTreeResult
+from loft_wire.features import EvaluateTreeRequest, EvaluateTreeResult, SolvedSketchData
 
 client = TestClient(app)
 
@@ -207,7 +207,7 @@ def test_underconstrained_sketch_is_ok_with_diagnosis() -> None:
 
     assert result.features[0].status == "ok"
     solved = result.features[0].data
-    assert solved is not None
+    assert isinstance(solved, SolvedSketchData)
     assert solved.status == "underconstrained"
     assert solved.dof == 4
 
@@ -288,7 +288,7 @@ def test_overconstrained_sketch_is_ok_with_redundant_diagnosis() -> None:
 
     assert result.features[0].status == "ok"
     data = result.features[0].data
-    assert data is not None
+    assert isinstance(data, SolvedSketchData)
     diag = data.diagnosis
     assert diag is not None
     assert diag.classification == "redundant"

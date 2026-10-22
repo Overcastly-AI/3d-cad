@@ -16,7 +16,7 @@
 #   4. the gateway is live (/healthz + /readyz via scripts/smoke-healthz.sh);
 #   5. a genuine modeling round-trip works over the published gateway port —
 #      register → part → sketch → extrude → evaluate → FETCH THE MESH (the
-#      MinIO credential path, audit G1) → export STEP;
+#      S3 credential path, audit G1) → export STEP;
 #   6. documents/geometry are unreachable from the host (audit G3);
 #   7. THE APP IS SERVED and the published ports carry no CDN-loading API
 #      explorer (scripts/web-smoke.sh — entry document, hashed bundle, SPA
@@ -36,8 +36,8 @@ KEEP_STACK="${KEEP_STACK:-0}"
 # EPHEMERAL, NON-DEFAULT datastore credentials for this run.
 #
 # Until 2026-07-30 this proof booted on the compose defaults — POSTGRES_PASSWORD
-# `loft-dev-only` and MINIO_ROOT_PASSWORD `loft-minio-dev-only`, both published
-# in our own repo. So step 5's "the MinIO credential path works (audit G1)"
+# `loft-dev-only` and the object-store secret `loft-minio-dev-only`, both published
+# in our own repo. So step 5's "the S3 credential path works (audit G1)"
 # claim was only ever exercised with the ONE password every reader of the repo
 # already knows, and a service that ignored its env and hardcoded that literal
 # would have passed this gate silently. A real self-hoster sets their own
@@ -54,14 +54,14 @@ rand_secret() {
   od -An -tx1 -N18 /dev/urandom | tr -d ' \n'
 }
 export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-pg-$(rand_secret)}"
-export MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-minio-$(rand_secret)}"
+export S3_SECRET_ACCESS_KEY="${S3_SECRET_ACCESS_KEY:-s3-$(rand_secret)}"
 
 # Fail loudly rather than quietly re-testing the known-password path: if a
 # caller (or a stray .env) pins these back to the repo-public defaults, the
 # stronger proof silently weakens back to what it was before.
-for var in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD; do
+for var in POSTGRES_PASSWORD S3_SECRET_ACCESS_KEY; do
   case "${!var}" in
-    loft-dev-only | loft-minio-dev-only)
+    loft-dev-only | loft-s3-dev-only | loft-minio-dev-only)
       echo "compose-smoke: $var is the repo-public dev default." >&2
       echo "  This proof must run on credentials a real deploy would use." >&2
       echo "  Unset it (the script generates one) or set a real value." >&2
@@ -70,11 +70,10 @@ for var in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD; do
   esac
 done
 
-# Long-running services only. NEVER name a one-shot (minio-init) in a --wait
-# list: `--wait` treats a container that EXITS as a failure, so the bucket
-# bootstrap succeeding would fail the step. One-shots run separately, where
-# their own exit code is the gate.
-SERVICES=(db redis minio gateway documents geometry web)
+# Long-running services only. NEVER name a one-shot in a --wait list: `--wait`
+# treats a container that EXITS as a failure. The bucket needs no one-shot any
+# more: seaweedfs creates it before it reports healthy, so `--wait` covers it.
+SERVICES=(db redis seaweedfs gateway documents geometry web)
 
 # THE STEP CURRENTLY RUNNING, so the verdict can name it without the reader
 # having to locate the failure inside ~150 lines of service logs.
@@ -136,8 +135,18 @@ trap teardown EXIT
 step "1/6 build + boot (docker compose up -d --build)"
 docker compose up -d --build --wait "${SERVICES[@]}"
 
-step "2/6 provision the mesh bucket (one-shot)"
-docker compose run --rm -T minio-init
+# The bucket itself needs no step: seaweedfs creates it, with the credentials
+# geometry uses, before its healthcheck passes, so step 1's --wait covered it.
+# What --wait cannot see is the identity file's OTHER half: there must be no
+# anonymous identity, or every mesh is world-readable on the published port.
+step "2/6 the object store refuses anonymous access"
+anon="$(curl -s -o /dev/null -w '%{http_code}' \
+  "http://127.0.0.1:${S3_PORT:-9000}/${S3_BUCKET:-loft}" || true)"
+if [[ "$anon" != "403" ]]; then
+  echo "compose-smoke: anonymous GET on the bucket answered HTTP $anon, expected 403" >&2
+  exit 1
+fi
+echo "  ok  anonymous bucket listing -> 403"
 
 # Each schema-owning service migrates its OWN database with the alembic tree
 # baked into its image — no host Python, no host DB port. --no-deps: the

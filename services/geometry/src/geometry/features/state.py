@@ -12,6 +12,7 @@ active-body cut :func:`_cut_active`.
 import dataclasses
 import functools
 import uuid
+import weakref
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, cast
@@ -22,6 +23,7 @@ from loft_wire.features import (
     FeatureError,
     SketchProjectionStatus,
 )
+from loft_wire.sketch_3d import SolvedSketch3DData
 
 from geometry.kernel import (
     BooleanError,
@@ -33,6 +35,7 @@ from geometry.kernel.fork import fork_shapes
 from geometry.kernel.healing import new_geometry_is_valid, shape_volume
 from geometry.kernel.naming import BodyNames, NameHook, carry_names, tool_face_names
 from geometry.kernel.provenance import FaceProvenanceRecorder
+from geometry.kernel.removal import Bounds, shape_bounds
 from geometry.kernel.resolution import ResolutionTally
 from geometry.kernel.types import BodyShape
 from geometry.sheet_metal import (
@@ -62,6 +65,17 @@ class InvalidBodyError(RuntimeError):
 #: active body, and therefore the operation a ``features``-scope mirror re-applies
 #: to the reflected tools (docs/design/mirror-semantics.md §4.1/§4.2).
 ToolOp = Literal["fuse", "cut"]
+
+
+@dataclass(frozen=True)
+class Solved3DSketch:
+    """A solved 3D sketch (SKETCH-3D): point id -> world position, and line
+    id -> (start point id, end point id), both in entity order."""
+
+    points: dict[str, tuple[float, float, float]]
+    lines: dict[str, tuple[str, str]]
+    #: The feature's ``FeatureResult.data``.
+    data: SolvedSketch3DData
 
 
 @dataclass(frozen=True)
@@ -146,6 +160,10 @@ class EvaluationState:
         default_factory=dict[uuid.UUID, Plane]
     )
     datum_planes: dict[uuid.UUID, Plane] = field(default_factory=dict[uuid.UUID, Plane])
+    #: Each ok 3D sketch's solved points and lines (SKETCH-3D), world mm.
+    solved_sketches_3d: dict[uuid.UUID, Solved3DSketch] = field(
+        default_factory=dict[uuid.UUID, Solved3DSketch]
+    )
     #: How each ok sketch's projected entities re-projected (SKETCH-PROJECT-
     #: EDGES), keyed by sketch id; absent for a sketch with none. Read into the
     #: sketch's ``SolvedSketchData.projections``.
@@ -262,6 +280,10 @@ class EvaluationState:
     #: later feature holding the old one. Handlers pass it as ``tally=`` to every
     #: resolver of a picked reference.
     subshape_tally: ResolutionTally = field(default_factory=ResolutionTally)
+    #: The bodies the cut BEING evaluated removed material from (tree order),
+    #: read into ``FeatureResult.cut_bodies`` (CUT-OBJECTS-TO-CUT). Per-feature
+    #: scratch like :attr:`subshape_tally`: reset before every dispatch.
+    cut_bodies_met: list[uuid.UUID] | None = None
     #: The history-based face names of each body (DESIGN-INTENT-REFS,
     #: :mod:`geometry.kernel.naming`), keyed like :attr:`bodies`. Kept in step by
     #: the three body funnels below, which carry every body change through
@@ -279,6 +301,23 @@ class EvaluationState:
     #: always describes the shape in :attr:`bodies` (the funnels are the only
     #: writers of :attr:`bodies`). Read through :meth:`body_volume`.
     body_volumes: dict[uuid.UUID, float] = field(default_factory=dict[uuid.UUID, float])
+    #: Each body's box, memoised against the shape it was taken from (a weak
+    #: reference, so a replaced shape is never answered for and never kept
+    #: alive): the owner scan's screen (:mod:`geometry.features.owner`). Read
+    #: through :meth:`body_bounds`; a fork starts its own.
+    bounds_memo: dict[uuid.UUID, tuple[weakref.ref[BodyShape], Bounds]] = field(
+        default_factory=dict[uuid.UUID, tuple[weakref.ref[BodyShape], Bounds]]
+    )
+
+    def body_bounds(self, body_id: uuid.UUID) -> Bounds:
+        """Body *body_id*'s box (:func:`shape_bounds`), taken once per shape."""
+        body = self.bodies[body_id]
+        held = self.bounds_memo.get(body_id)
+        if held is not None and held[0]() is body:
+            return held[1]
+        bounds = shape_bounds(body)
+        self.bounds_memo[body_id] = (weakref.ref(body), bounds)
+        return bounds
 
     def body_volume(self, body_id: uuid.UUID) -> float:
         """The volume of body *body_id*'s current shape, integrated at most once."""
@@ -298,13 +337,15 @@ class EvaluationState:
     def face_names(self) -> list[str | None]:
         """The ACTIVE body's face names, aligned with ``active_body.faces()``
         (empty with no active body)."""
-        active = self.active_body
-        if active is None or self.active_body_id is None:
+        if self.active_body_id is None:
             return []
-        names = self.topo_names.get(self.active_body_id)
-        return (
-            [None] * len(active.faces()) if names is None else names.face_names(active)
-        )
+        return self.body_face_names(self.active_body_id)
+
+    def body_face_names(self, body_id: uuid.UUID) -> list[str | None]:
+        """Body *body_id*'s face names, aligned with its ``faces()``."""
+        body = self.bodies[body_id]
+        names = self.topo_names.get(body_id)
+        return [None] * len(body.faces()) if names is None else names.face_names(body)
 
     def record_cut_tools(self, feature_id: uuid.UUID, tools: list[Solid]) -> None:
         """Record the removal tool(s) an ok CUT feature just subtracted.
@@ -444,6 +485,25 @@ class EvaluationState:
         """
         body_id = self.active_body_id
         assert body_id is not None, "no active body to modify"
+        self.set_body(
+            body_id, shape, generated, merged, worked_on=worked_on, volume=volume
+        )
+
+    def set_body(
+        self,
+        body_id: uuid.UUID,
+        shape: BodyShape,
+        generated: NameHook = (),
+        merged: Sequence[MergedFaces] = (),
+        *,
+        worked_on: BodyShape | None = None,
+        volume: float | None = None,
+    ) -> None:
+        """:meth:`set_active_body` for the body *body_id*, active or not.
+
+        A feature that modifies the body OWNING a picked face (the Hole,
+        HOLE-ACTIVE-BODY) writes through here; the active body is unchanged.
+        """
         before = self.bodies[body_id]
         consumed = before if worked_on is None else worked_on
         self.bodies[body_id] = self._admit(shape, consumed)
@@ -582,6 +642,7 @@ class EvaluationState:
             solved_sketches=dict(self.solved_sketches),
             sketch_planes=dict(self.sketch_planes),
             datum_planes=dict(self.datum_planes),
+            solved_sketches_3d=dict(self.solved_sketches_3d),
             sketch_projections=dict(self.sketch_projections),
             bodies=dict(self.bodies),
             sheet_metal_defaults=dict(self.sheet_metal_defaults),
@@ -602,6 +663,7 @@ class EvaluationState:
             },
             scoped_feature_types=dict(self.scoped_feature_types),
             body_volumes=dict(self.body_volumes),
+            bounds_memo={},
         )
         # The twin's containers are its own now, so its slots can be rewritten
         # with the copies without touching this state.
@@ -689,6 +751,10 @@ def _cut_active(
 ) -> FeatureError | None:
     """Subtract *tool* from the ACTIVE body (a modifying op — §MB-0).
 
+    The cut of every revolve, sweep, loft and pipe cut stored before Objects
+    To Cut (no ``cut_bodies``); one that has the field takes
+    :func:`geometry.features.cut_scope.cut_scoped_bodies` instead.
+
     The caller has already verified an active body exists (``no_prior_body``
     otherwise). ``state.bodies`` is mutated only on success (§4.3). A tool that
     cannot reach the body is the typed ``cut_removed_nothing`` (CM-3) — the same
@@ -727,6 +793,7 @@ def _cut_active(
         return FeatureError(code="cut_removed_nothing", message=str(exc))
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
+    state.cut_bodies_met = [body_id]
     state.record_cut_tools(feature_id, [tool])
     state.record_feature_tools(feature_id, "cut", [tool], generated)
     return None

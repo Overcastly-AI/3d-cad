@@ -94,6 +94,20 @@ export interface DimensionTagCellProps extends Omit<
   hint?: ReactNode;
   /** Test hook on the hint. */
   hintTestId?: string;
+  /**
+   * The cell's OWN unit, after its value (`mm`, `°`), for a strip whose cells
+   * do not share one: a line's `L 450 mm │ ∠ 73°`. Leave unset (and give the
+   * strip its `unit`) when every cell reads in the same unit.
+   */
+  unit?: string;
+}
+
+/** A cell's own unit, set like the strip's. */
+function CellUnit({ unit }: { unit: string | undefined }) {
+  if (unit === undefined || unit === "") return null;
+  return (
+    <span className="select-none font-body text-2xs text-gauge">{unit}</span>
+  );
 }
 
 export function DimensionTagCell({
@@ -105,6 +119,7 @@ export function DimensionTagCell({
   formula = false,
   hint,
   hintTestId,
+  unit,
   ...rest
 }: DimensionTagCellProps) {
   const id = useId();
@@ -128,6 +143,7 @@ export function DimensionTagCell({
         >
           {readout}
         </span>
+        <CellUnit unit={unit} />
       </span>
     );
   }
@@ -168,6 +184,7 @@ export function DimensionTagCell({
         style={valueStyle}
         {...rest}
       />
+      <CellUnit unit={unit} />
       {hint !== undefined && hint !== null && !invalid ? (
         <span
           data-testid={hintTestId}

@@ -56,12 +56,35 @@
 import type { Point2D } from "./plane";
 import { rectangleCorners, type SketchEntity, type SketchTool } from "./tools";
 import type { SketchConstraint } from "./constraints";
+import { DATUM_X_AXIS_ID } from "./datum";
 
 /** The shapes whose size is offered at draw time. */
 export type DrawShape = "rect" | "line" | "circle";
 
 /** Which measurement a cell drives. */
-export type DrawDimensionKey = "width" | "height" | "length" | "diameter";
+export type DrawDimensionKey =
+  "width" | "height" | "length" | "diameter" | "angle";
+
+/**
+ * What a line's ANGLE cell is measured from (SKETCH-LINE-ANGLE), as Fusion's
+ * Line does: the sketch X axis, or, for a segment that continues a chain, the
+ * segment before it. The dimension it becomes is an ordinary `angle` between
+ * that line and the new one, so `direction` follows `AngleConstraint`'s
+ * convention: the reference line's direction taken AWAY from the corner the
+ * two share (the X axis, which shares none, runs -X to +X).
+ */
+export interface AngleReference {
+  /** The line the angle is measured from: `x-axis`, or the previous segment. */
+  entity: string;
+  /** Its direction away from the shared corner (need not be unit length). */
+  direction: Point2D;
+}
+
+/** A line with no segment before it measures its angle from the X axis. */
+export const X_AXIS_REFERENCE: AngleReference = {
+  entity: DATUM_X_AXIS_ID,
+  direction: { x: 1, y: 0 },
+};
 
 /**
  * The tools that offer draw-time dimensions. Arc and spline are deliberately
@@ -84,22 +107,45 @@ export function drawShapeOf(tool: SketchTool): DrawShape | null {
 
 export interface DrawDimensionField {
   key: DrawDimensionKey;
-  /** Terse drafting label on the cell — W / H / L / Ø. */
+  /** Terse drafting label on the cell — W / H / L / Ø / ∠. */
   label: string;
   /** Spoken name, for the accessible label. */
   name: string;
-  /** The as-drawn value (mm) the cell shows until something is typed. */
-  measuredMm: number;
+  /**
+   * The as-drawn value the cell shows until something is typed, in the cell's
+   * own unit: mm, or DEGREES for the angle.
+   */
+  measured: number;
   /**
    * The entity this cell dimensions, or null while the shape is still being
    * dragged (nothing has an id until the gesture commits).
    */
   entity: string | null;
-  kind: "distance" | "diameter";
+  kind: "distance" | "diameter" | "angle";
+  /** The angle cell's reference line; absent on every other cell. */
+  reference?: AngleReference;
 }
 
 const distance = (a: Point2D, b: Point2D): number =>
   Math.hypot(b.x - a.x, b.y - a.y);
+
+/**
+ * The unsigned angle (degrees, [0, 180]) from `reference` to the line `from`
+ * -> `to`: the number `AngleConstraint` holds for that pair, so the cell shows
+ * what the solver will report back. 0 for a zero-length line.
+ */
+export function lineAngleDeg(
+  reference: Point2D,
+  from: Point2D,
+  to: Point2D,
+): number {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const scale = Math.hypot(reference.x, reference.y) * Math.hypot(dx, dy);
+  if (scale === 0) return 0;
+  const cos = (reference.x * dx + reference.y * dy) / scale;
+  return (Math.acos(Math.min(1, Math.max(-1, cos))) * 180) / Math.PI;
+}
 
 /**
  * The cells a gesture from `from` to `to` offers. `ids` are the entity ids the
@@ -118,6 +164,7 @@ export function drawDimensionFields(
   from: Point2D,
   to: Point2D,
   ids: readonly string[] = [],
+  reference: AngleReference = X_AXIS_REFERENCE,
 ): DrawDimensionField[] {
   switch (shape) {
     case "rect":
@@ -126,7 +173,7 @@ export function drawDimensionFields(
           key: "width",
           label: "W",
           name: "Width",
-          measuredMm: Math.abs(to.x - from.x),
+          measured: Math.abs(to.x - from.x),
           entity: ids[0] ?? null,
           kind: "distance",
         },
@@ -134,7 +181,7 @@ export function drawDimensionFields(
           key: "height",
           label: "H",
           name: "Height",
-          measuredMm: Math.abs(to.y - from.y),
+          measured: Math.abs(to.y - from.y),
           entity: ids[1] ?? null,
           kind: "distance",
         },
@@ -145,9 +192,18 @@ export function drawDimensionFields(
           key: "length",
           label: "L",
           name: "Length",
-          measuredMm: distance(from, to),
+          measured: distance(from, to),
           entity: ids[0] ?? null,
           kind: "distance",
+        },
+        {
+          key: "angle",
+          label: "∠",
+          name: "Angle",
+          measured: lineAngleDeg(reference.direction, from, to),
+          entity: ids[0] ?? null,
+          kind: "angle",
+          reference,
         },
       ];
     case "circle":
@@ -156,7 +212,7 @@ export function drawDimensionFields(
           key: "diameter",
           label: "Ø",
           name: "Diameter",
-          measuredMm: 2 * distance(from, to),
+          measured: 2 * distance(from, to),
           entity: ids[0] ?? null,
           kind: "diameter",
         },
@@ -164,7 +220,10 @@ export function drawDimensionFields(
   }
 }
 
-/** Typed values (mm), keyed by cell. Absent/undefined = "leave as drawn". */
+/**
+ * Typed values, keyed by cell: mm, or degrees for the angle. Absent/undefined
+ * = "leave as drawn".
+ */
 export type DrawDimensionValues = Partial<Record<DrawDimensionKey, number>>;
 
 /**
@@ -189,15 +248,43 @@ function along(from: Point2D, to: Point2D, length: number): Point2D {
 }
 
 /**
+ * A line's end at `length` from `from`, turned `angleDeg` off `reference` on
+ * the side the line was DRAWN (the side the solver keeps, `AngleConstraint`),
+ * so 73 typed into a line drawn below the axis keeps it below. A line drawn
+ * exactly along the reference turns counter-clockwise.
+ */
+function turnedFrom(
+  from: Point2D,
+  to: Point2D,
+  reference: Point2D,
+  angleDeg: number,
+  length: number,
+): Point2D {
+  const scale = Math.hypot(reference.x, reference.y);
+  const rx = scale === 0 ? 1 : reference.x / scale;
+  const ry = scale === 0 ? 0 : reference.y / scale;
+  const cross = rx * (to.y - from.y) - ry * (to.x - from.x);
+  const theta = ((cross < 0 ? -1 : 1) * angleDeg * Math.PI) / 180;
+  const cos = Math.cos(theta);
+  const sin = Math.sin(theta);
+  return {
+    x: from.x + (rx * cos - ry * sin) * length,
+    y: from.y + (rx * sin + ry * cos) * length,
+  };
+}
+
+/**
  * The second gesture point, moved so the typed values hold. The FIRST point
  * never moves — it is where the user chose to start, and every other CAD keeps
- * it put while the size is retyped.
+ * it put while the size is retyped. A typed angle turns a line about it,
+ * measured from `reference` (the angle cell's).
  */
 export function resizedTo(
   shape: DrawShape,
   from: Point2D,
   to: Point2D,
   values: DrawDimensionValues,
+  reference: AngleReference = X_AXIS_REFERENCE,
 ): Point2D {
   switch (shape) {
     case "rect": {
@@ -209,6 +296,15 @@ export function resizedTo(
       };
     }
     case "line":
+      if (values.angle !== undefined) {
+        return turnedFrom(
+          from,
+          to,
+          reference.direction,
+          values.angle,
+          values.length ?? distance(from, to),
+        );
+      }
       return values.length === undefined ? to : along(from, to, values.length);
     case "circle":
       return values.diameter === undefined
@@ -230,8 +326,9 @@ export function resizeDrawn(
   to: Point2D,
   entities: readonly SketchEntity[],
   values: DrawDimensionValues,
+  reference: AngleReference = X_AXIS_REFERENCE,
 ): SketchEntity[] {
-  const end = resizedTo(shape, from, to, values);
+  const end = resizedTo(shape, from, to, values, reference);
   const patch = new Map<string, (entity: SketchEntity) => SketchEntity>();
   switch (shape) {
     case "rect": {
@@ -341,11 +438,25 @@ export function drawDimensionConstraints(
   const constraints: SketchConstraint[] = [];
   for (const field of typed) {
     const expression = expressions[field.key];
+    const formula = expression === undefined ? {} : { expression };
+    if (field.kind === "angle") {
+      // SKETCH-LINE-ANGLE: an ordinary angle dimension between the reference
+      // line (the X axis or the previous segment) and this one, so the solver
+      // holds it and editing its number turns the line.
+      constraints.push({
+        kind: "angle",
+        a: (field.reference ?? X_AXIS_REFERENCE).entity,
+        b: field.entity as string,
+        value_deg: values[field.key] as number,
+        ...formula,
+      });
+      continue;
+    }
     constraints.push({
       kind: field.kind,
       entity: field.entity as string,
       value_mm: values[field.key] as number,
-      ...(expression === undefined ? {} : { expression }),
+      ...formula,
     });
   }
   return constraints;
@@ -353,7 +464,7 @@ export function drawDimensionConstraints(
 
 /**
  * What a commit of a draft's cells authors: the values worth applying (only
- * positive, finite values for cells this draft actually offers; a cell left
+ * positive, finite values (an angle below 180°) for cells this draft actually offers; a cell left
  * alone is not a dimension, it is a decision to leave it free) and the
  * dimensions that record them.
  */
@@ -369,9 +480,12 @@ export function sizeDraft(
   const typed: DrawDimensionValues = {};
   for (const field of draft.fields) {
     const value = values[field.key];
-    if (value !== undefined && Number.isFinite(value) && value > 0) {
-      typed[field.key] = value;
+    if (value === undefined || !Number.isFinite(value) || !(value > 0)) {
+      continue;
     }
+    // An angle dimension lies strictly within (0, 180) (`AngleConstraint`).
+    if (field.kind === "angle" && !(value < 180)) continue;
+    typed[field.key] = value;
   }
   const { shape, ids, fields } = draft;
   const added = drawDimensionConstraints(
@@ -421,4 +535,42 @@ export function dimensionWitness(
     [b, b2],
     [a2, b2],
   ];
+}
+
+/** Chords per angle-witness arc: smooth at callout size, cheap to rebuild. */
+const ARC_CHORDS = 24;
+
+/**
+ * Witness geometry for a line's ANGLE cell (SKETCH-LINE-ANGLE): the reference
+ * ray from the line's start (along the X axis, or back along the previous
+ * segment), as long as the line, and the arc between it and the line at
+ * `radiusFraction` of the line's length: the angle callout a drawing shows.
+ * Returns plane-mm segment pairs; nothing for a zero-length line.
+ */
+export function angleWitness(
+  from: Point2D,
+  to: Point2D,
+  reference: Point2D,
+  radiusFraction = 0.4,
+): Array<[Point2D, Point2D]> {
+  const length = distance(from, to);
+  const scale = Math.hypot(reference.x, reference.y);
+  if (length === 0 || scale === 0) return [];
+  const start = Math.atan2(reference.y, reference.x);
+  const cross = reference.x * (to.y - from.y) - reference.y * (to.x - from.x);
+  const sweep =
+    ((cross < 0 ? -1 : 1) * lineAngleDeg(reference, from, to) * Math.PI) / 180;
+  const at = (theta: number, r: number): Point2D => ({
+    x: from.x + Math.cos(theta) * r,
+    y: from.y + Math.sin(theta) * r,
+  });
+  const segments: Array<[Point2D, Point2D]> = [[from, at(start, length)]];
+  const radius = length * radiusFraction;
+  for (let i = 0; i < ARC_CHORDS; i += 1) {
+    segments.push([
+      at(start + (sweep * i) / ARC_CHORDS, radius),
+      at(start + (sweep * (i + 1)) / ARC_CHORDS, radius),
+    ]);
+  }
+  return segments;
 }

@@ -88,6 +88,7 @@ export function PartCommandBand({
     | "openCreateRevolve"
     | "openCreateSweep"
     | "openCreatePipe"
+    | "openCreateSketch3D"
     | "openCreateLoft"
     | "openCreateFillet"
     | "openCreateChamfer"
@@ -103,7 +104,7 @@ export function PartCommandBand({
   >;
   rebuildNotices: Pick<
     RebuildNotices,
-    "hasSolvedSketch" | "canSweep" | "canLoft"
+    "hasSolvedSketch" | "hasSolvedSketch3D" | "canSweep" | "canLoft"
   >;
   partBody: Pick<PartBody, "hasBody">;
   featureCatalog: Pick<
@@ -157,6 +158,7 @@ export function PartCommandBand({
     openCreateRevolve,
     openCreateSweep,
     openCreatePipe,
+    openCreateSketch3D,
     openCreateLoft,
     openCreateFillet,
     openCreateChamfer,
@@ -170,7 +172,8 @@ export function PartCommandBand({
     openCreateHem,
     openCreateCornerRelief,
   } = featureOpeners;
-  const { hasSolvedSketch, canSweep, canLoft } = rebuildNotices;
+  const { hasSolvedSketch, hasSolvedSketch3D, canSweep, canLoft } =
+    rebuildNotices;
   const { hasBody } = partBody;
   const { isSheetMetal, canCornerRelief, bodies, nextStep, datumPlaneOptions } =
     featureCatalog;
@@ -204,8 +207,9 @@ export function PartCommandBand({
           onNewRevolve={openCreateRevolve}
           canSweep={canSweep}
           onNewSweep={openCreateSweep}
-          canPipe={hasSolvedSketch || hasBody}
+          canPipe={hasSolvedSketch || hasSolvedSketch3D || hasBody}
           onNewPipe={openCreatePipe}
+          onNewSketch3D={openCreateSketch3D}
           canLoft={canLoft}
           onNewLoft={openCreateLoft}
           canModify={hasBody}

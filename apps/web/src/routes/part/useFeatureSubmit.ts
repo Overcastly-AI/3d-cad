@@ -65,6 +65,11 @@ import {
 import { FeatureWriteError } from "../../api/envelope";
 import type { PipeParams } from "../../api/parts";
 import { pipeFeatureCreate, pipeFeatureUpdate } from "../../features/pipe";
+import type { Sketch3DParams } from "../../api/parts";
+import {
+  sketch3DFeatureCreate,
+  sketch3DFeatureUpdate,
+} from "../../features/sketch3d";
 import {
   expressionsForParams,
   formulaFieldMounted,
@@ -303,6 +308,24 @@ export function useFeatureSubmit({
         current.mode === "create",
         current.featureId,
         "The pipe could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitSketch3D = useCallback(
+    (params: Sketch3DParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "sketch3d") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "sketch_3d").length + 1;
+      runFeatureSave(
+        (version) =>
+          sketch3DFeatureCreate(`3DSketch${nextIndex}`, params, version),
+        (version) => sketch3DFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The 3D sketch could not be saved.",
       );
     },
     [editor, features, runFeatureSave],
@@ -568,6 +591,7 @@ export function useFeatureSubmit({
     submitRevolve,
     submitSweep,
     submitPipe,
+    submitSketch3D,
     submitLoft,
     submitPattern,
     submitMirror,

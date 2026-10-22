@@ -1,0 +1,27 @@
+{
+  "description": "HOLE-ACTIVE-BODY. Two 40x25x10 mm blocks as two bodies: A at x 0..40 (built first) and B at x 60..100 (merge=false, built last, so the ACTIVE body). A through Hole (diameter 10 mm) is placed at the centre of A's top (+Z) face, its face reference anchored on B's extrude as the web stamps every pick. The hole must drill A, the body that owns the picked face (the Fusion 360 / SolidWorks rule), and leave B whole. Before the fix the face was resolved against B, the active body: the coplanar tier re-anchored it on B's top face and the drill missed B (hole_off_body).",
+  "derivation": [
+    "Body A: 40 x 25 x 10 = 10000 mm^3, less the through bore pi * 5^2 * 10 = 250*pi = 785.398163397448 mm^3, so 10000 - 250*pi = 9214.601836602552 mm^3.",
+    "Body B: 40 x 25 x 10 = 10000 mm^3, untouched.",
+    "Volume = 20000 - 250*pi = 19214.601836602552 mm^3.",
+    "Area: A is the hole-through-r5-40x25x10 golden, 3300 + 50*pi (two discs of 25*pi lost, the 100*pi bore wall gained); B is 2*(40*25 + 40*10 + 25*10) = 3300. Total 6600 + 50*pi = 6757.07963267949 mm^2.",
+    "Centroid: A's stays at its block centre (20, 12.5, 5) (the bore is on its central axis), B's is (80, 12.5, 5). x = (20*(10000 - 250*pi) + 80*10000) / (20000 - 250*pi) = (1000000 - 5000*pi) / (20000 - 250*pi) = 51.22625205051293; y = 12.5, z = 5.",
+    "AABB: (0,0,0)-(100,25,10), the union of the two block envelopes (the hole is interior to A).",
+    "Topology: A has 7 faces / 15 edges (6 planar + the bore cylinder; 12 + 2 circles + 1 seam), B 6 faces / 12 edges; 13 faces, 27 edges, 2 shells.",
+    "Mesh (linear_deflection 0.1): A meshes as the hole-through-r5-40x25x10 golden (530 vertices / 520 triangles), B as a plain box (6 faces x 4 = 24 vertices, 6 x 2 = 12 triangles): 554 / 532.",
+    "Independently cross-checked against a direct build123d construction (Box - Cylinder, plus Box) in tests/test_hole_owner_body.py::test_goldens_match_an_independent_build123d_construction: volume, area, centroid, AABB, topology and mesh counts."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Pure boolean cut of a right cylinder from a box, plus an untouched box; GProp integrates the analytic quadric exactly (the same 1e-9 as the hole-through-r5-40x25x10 golden).",
+  "properties": {
+    "volume": 19214.601836602552,
+    "surface_area": 6757.07963267949,
+    "centroid": { "x": 51.22625205051293, "y": 12.5, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 100.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 13, "edges": 27, "shells": 2 },
+  "mesh": { "vertices": 554, "triangles": 532 }
+}

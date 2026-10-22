@@ -1,8 +1,12 @@
 /**
  * Price-book data layer (PRICE-BOOK, RESEARCH §27): the caller's one book of
- * what they pay per stock piece, linear foot or board foot, in integer cents.
- * A `PUT` replaces the whole book. Every type comes from the generated
+ * what they pay per stock piece, sheet, linear foot or board foot, in integer
+ * cents. A `PUT` replaces the whole book. Every type comes from the generated
  * `@loft/ts-client`; the pricing itself is the gateway's, never redone here.
+ *
+ * PRICE-BOOK-VERSION: the book carries a `version` (its ETag). A save sends
+ * the version its draft was read at as `If-Match`, and the gateway refuses it
+ * with 412 when the book has been saved since: {@link PriceBookChangedError}.
  */
 import type { components, GatewayClient } from "@loft/ts-client/gateway";
 
@@ -14,6 +18,12 @@ export type PriceBookEntry = components["schemas"]["PriceBookEntry"];
 export type PriceUnit = PriceBookEntry["unit"];
 export type LumberProfile = components["schemas"]["LumberProfile"];
 export type LumberProfileKey = LumberProfile["key"];
+export type SheetGood = components["schemas"]["SheetGood"];
+export type SheetGoodKey = SheetGood["key"];
+export type SheetSize = components["schemas"]["SheetSize"];
+export type SheetSizeKey = SheetSize["key"];
+/** What an entry prices: a lumber profile or a sheet product. */
+export type PriceProfileKey = PriceBookEntry["profile"];
 
 /**
  * The stock lengths an `each` price may be for (ft), shortest first. Mirrors
@@ -29,7 +39,19 @@ export const PRICE_UNIT_LABEL: Record<PriceUnit, string> = {
   board_foot: "Per BF",
 };
 
-/** The caller's book; an empty USD book when they never saved one. */
+/** Why a save was refused: the stored book is no longer the one drafted. */
+export const BOOK_CHANGED =
+  "The price book changed elsewhere (another tab or device) since you opened it. Reload it, then make your changes again.";
+
+/** The gateway's 412: the book was saved since this draft's version. */
+export class PriceBookChangedError extends Error {
+  constructor() {
+    super(BOOK_CHANGED);
+    this.name = "PriceBookChangedError";
+  }
+}
+
+/** The caller's book; an empty USD book (version 0) when they never saved one. */
 export async function fetchPriceBook(
   client: GatewayClient = gatewayClient,
 ): Promise<PriceBook> {
@@ -42,15 +64,22 @@ export async function fetchPriceBook(
   return data;
 }
 
-/** Replace the caller's whole book (the later of two saves wins whole). */
+/**
+ * Replace the caller's whole book, if it is still at `version` (the version
+ * the draft was read at). A book saved since is refused by the server and
+ * this throws {@link PriceBookChangedError}; nothing is overwritten.
+ */
 export async function savePriceBook(
   entries: PriceBookEntry[],
+  version: number,
   client: GatewayClient = gatewayClient,
 ): Promise<PriceBook> {
-  const { data, error } = await client.PUT("/api/v1/price-book", {
+  const { data, error, response } = await client.PUT("/api/v1/price-book", {
+    params: { header: { "If-Match": `"${version}"` } },
     body: { currency: "USD", entries },
   });
   if (error !== undefined) {
+    if (response.status === 412) throw new PriceBookChangedError();
     throw new Error(
       envelopeMessage(error, "The price book could not be saved."),
     );

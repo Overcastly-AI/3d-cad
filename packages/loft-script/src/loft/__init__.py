@@ -81,7 +81,7 @@ from loft.part import Evaluation, Part
 from loft.session import Session, connect, register
 from loft.sketch import XY, XZ, YZ, Rect, Sketch
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "XY",

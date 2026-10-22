@@ -30,8 +30,10 @@ from loft_wire.features import (
 )
 from loft_wire.sketch import SketchPoint
 
+from geometry.features.cut_scope import cut_one_tool
 from geometry.features.naming_hooks import labelled_names
-from geometry.features.state import EvaluationState, _add_body, _cut_active
+from geometry.features.owner import edge_owner_body_id
+from geometry.features.state import EvaluationState, _add_body
 from geometry.kernel.datum_path import DatumPathRangeError, plane_along_edge
 from geometry.kernel.edges import resolve_edge_durable
 from geometry.kernel.extrude import ProfileNotClosedError, entity_edges
@@ -61,6 +63,18 @@ def _sketch_curve(
     ref: PathSketchCurve, state: EvaluationState, role: str
 ) -> _Curve | FeatureError:
     sketch_id = ref.sketch.feature_id
+    solved_3d = state.solved_sketches_3d.get(sketch_id)
+    if solved_3d is not None:
+        ends = solved_3d.lines.get(ref.entity)
+        if ends is None:
+            return FeatureError(
+                code="reference_unresolved",
+                message=f"The {role} line '{ref.entity}' is not a line of its 3D "
+                "sketch. Pick the line again.",
+                upstream_feature_id=sketch_id,
+            )
+        start, end = (Vector(*solved_3d.points[key]) for key in ends)
+        return _Curve(Edge.make_line(start, end), f"{sketch_id}:{ref.entity}", None)
     solved = state.solved_sketches.get(sketch_id)
     plane = state.sketch_planes.get(sketch_id)
     if solved is None or plane is None:
@@ -95,8 +109,10 @@ def _sketch_curve(
 def _model_edge(
     ref: EdgeSubshapeRef, state: EvaluationState, index: int, role: str
 ) -> _Curve | FeatureError:
-    active = state.active_body
-    if active is None:
+    owner = edge_owner_body_id(ref, state)
+    if isinstance(owner, FeatureError):
+        return owner
+    if owner is None:
         return FeatureError(
             code="subshape_unresolved",
             message=(
@@ -107,10 +123,10 @@ def _model_edge(
         )
     try:
         resolved = resolve_edge_durable(
-            active,
+            state.bodies[owner],
             ref.selector.signature,
             tally=state.subshape_tally,
-            face_names=state.face_names(),
+            face_names=state.body_face_names(owner),
         )
     except SubshapeUnresolvedError as exc:
         return FeatureError(
@@ -192,7 +208,13 @@ def _evaluate_pipe(
         return FeatureError(code="sweep_self_intersecting", message=str(exc))
     generated = labelled_names(item.id, history)
     if params.operation == "cut":
-        return _cut_active(state, tool, feature_id=item.id, generated=generated)
+        return cut_one_tool(
+            state,
+            tool,
+            feature_id=item.id,
+            scope=params.cut_bodies,
+            generated=generated,
+        )
     return _add_body(item, state, tool, merge=params.merge, generated=generated)
 
 

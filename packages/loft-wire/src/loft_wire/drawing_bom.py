@@ -2,11 +2,19 @@
 :mod:`loft_wire.drawings` (FILE-SIZE-RATCHET), which re-exports both models."""
 
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from loft_wire.assemblies import BomLine
+from loft_wire.assemblies import IndentedBomLine
+
+#: Which of the assembly BOM's three views a sheet's parts list shows
+#: (DRAWING-PARTS-LIST-LEVEL; SolidWorks' BOM types). ``top_level`` is the
+#: default, as in SolidWorks and Fusion; the choice is stored on the sheet.
+PartsListStructure = Literal["top_level", "indented", "parts_only"]
+
+#: A new sheet's parts-list structure.
+DEFAULT_PARTS_LIST_STRUCTURE: PartsListStructure = "top_level"
 
 # --- §7 BOM — a drawing's item list, DERIVED from the assembly it drafts ----------
 #
@@ -30,12 +38,17 @@ from loft_wire.assemblies import BomLine
 #   silently vanishes.
 
 
-class DrawingBomLine(BomLine):
+class DrawingBomLine(IndentedBomLine):
     """One NUMBERED line of a drawing's bill of materials (design §7 BOM).
 
-    The shipped assembly :class:`~loft_wire.assemblies.BomLine` (group key +
-    resolved name + `missing` + quantity, reused VERBATIM — no parallel taxonomy)
+    The shipped assembly :class:`~loft_wire.assemblies.IndentedBomLine` (group
+    key + resolved name + `missing` + quantity, and the outline ``item`` /
+    ``level`` / ``total_quantity``, reused VERBATIM — no parallel taxonomy)
     plus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.
+    ``item`` is the full number shown ('4' or '4.3' in the indented structure);
+    ``item_number`` is its last part, the number within the parent line. On a
+    top-level or parts-only line ``level`` is 0 and ``item`` is
+    ``str(item_number)``.
 
     ``item_number`` is **derived**, not authored: lines are numbered 1..n in the
     order each referenced document FIRST appears in the assembly's stable instance
@@ -46,9 +59,10 @@ class DrawingBomLine(BomLine):
 
     item_number: int = Field(
         ge=1,
-        description="1-based item number, DERIVED from the assembly's stable "
-        "instance order (first appearance of this referenced document) — never "
-        "stored on the drawing, so it can never drift from the assembly",
+        description="1-based item number within the parent line, DERIVED from "
+        "the assembly's stable instance order (first appearance of this "
+        "referenced document) — never stored on the drawing, so it can never "
+        "drift from the assembly",
     )
 
 
@@ -91,13 +105,24 @@ class DrawingBomResponse(BaseModel):
         description="The source assembly's `doc_version` at read time — the "
         "staleness handle for a tip-tracking (unpinned) view, §2.3",
     )
+    structure: PartsListStructure = Field(
+        description="The structure the `lines` are in: the sheet's stored "
+        "`parts_list_structure`"
+    )
     lines: list[DrawingBomLine] = Field(
         default_factory=list["DrawingBomLine"],
-        description="One numbered line per referenced document, in derived "
-        "`item_number` order (an assembly with no instances yields an empty list)",
+        description="The numbered lines in the sheet's structure: one per "
+        "directly-referenced document (top_level), those with every "
+        "sub-assembly's lines beneath it, depth first (indented), or one per "
+        "part at every level (parts_only). Derived `item` order; an assembly "
+        "with no instances yields an empty list",
     )
     total_instances: int = Field(
-        ge=0, description="Sum of every line's quantity (direct-instance count)"
+        ge=0, description="Sum of the top-level quantities (direct-instance count)"
+    )
+    total_parts: int = Field(
+        ge=0,
+        description="Every placed part at every level (the parts-only total)",
     )
     unresolved_patterns: list[uuid.UUID] = Field(
         default_factory=list["uuid.UUID"],
@@ -105,4 +130,23 @@ class DrawingBomResponse(BaseModel):
         json_schema_extra=_drop_default,
         description="Hole-driven component patterns whose count could not be "
         "resolved: only their seeds are counted. Omitted while empty.",
+    )
+
+
+class SheetPartsList(BaseModel):
+    """A stored sheet's parts-list choice, mixed into ``SheetResponse``."""
+
+    parts_list_structure: PartsListStructure = Field(
+        description="Which BOM structure the sheet's parts list shows "
+        "(top_level by default; DRAWING-PARTS-LIST-LEVEL)"
+    )
+
+
+class SheetPartsListUpdate(BaseModel):
+    """The parts-list choice a sheet update may carry, mixed into ``SheetUpdate``."""
+
+    parts_list_structure: PartsListStructure | None = Field(
+        default=None,
+        description="The parts list's structure: top_level, indented or "
+        "parts_only (None leaves it unchanged)",
     )

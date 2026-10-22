@@ -112,6 +112,17 @@ export function useFeatureCatalog({
     }
     return map;
   }, [evaluation.data?.bodies]);
+  // The bodies each cut removed material from on the last rebuild
+  // (`FeatureResult.cut_bodies`), keyed by the cut's feature id: the rows of a
+  // cut editor's Objects To Cut list (CUT-OBJECTS-TO-CUT).
+  const cutBodiesByFeature = useMemo(() => {
+    const map = new Map<string, readonly string[]>();
+    for (const result of evaluation.data?.features ?? []) {
+      if (result.cut_bodies != null)
+        map.set(result.feature_id, result.cut_bodies);
+    }
+    return map;
+  }, [evaluation.data?.features]);
   // Sheet-metal state: the part is sheet metal once it has a base flange, and
   // that base flange's gauge / bend-radius / K become the defaults every edge
   // flange inherits (sheet-metal.md §4.2). Edge flange + Flat pattern light up
@@ -190,6 +201,7 @@ export function useFeatureCatalog({
     nextStep,
     bodies,
     lumpsByFeature,
+    cutBodiesByFeature,
     smDefaults,
     isSheetMetal,
     edgeFlangeOpts,

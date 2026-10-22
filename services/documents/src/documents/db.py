@@ -1066,6 +1066,13 @@ class Sheet(Base):
     title_block: Mapped[dict[str, Any] | None] = mapped_column(
         _JSON_VARIANT, nullable=True
     )
+    #: The parts list's BOM structure (``PartsListStructure``); migration 0024.
+    parts_list_structure: Mapped[str] = mapped_column(
+        sa.String(16),
+        nullable=False,
+        default="top_level",
+        server_default="top_level",
+    )
     order_index: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
@@ -1084,6 +1091,10 @@ class Sheet(Base):
     __table_args__ = (
         sa.UniqueConstraint(
             "drawing_id", "order_index", name="uq_sheets_drawing_order"
+        ),
+        sa.CheckConstraint(
+            "parts_list_structure IN ('top_level', 'indented', 'parts_only')",
+            name="ck_sheets_parts_list_structure",
         ),
     )
 
@@ -1302,7 +1313,9 @@ class PriceBook(Base):
     ONE per owner (``uq_price_books_owner``), created by the first save; a
     user who never saved one reads an empty USD book. ``owner_id`` is the
     gateway-verified user id with no cross-service FK, as every document's.
-    ``currency`` is the ISO 4217 code (USD only for now).
+    ``currency`` is the ISO 4217 code (USD only for now). ``version`` counts
+    the saves (PRICE-BOOK-VERSION): 1 on the first, one more on each, and a
+    ``PUT`` naming any other version is refused with 412.
     """
 
     __tablename__ = "price_books"
@@ -1312,6 +1325,9 @@ class PriceBook(Base):
     )
     owner_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), nullable=False)
     currency: Mapped[str] = mapped_column(sa.String(3), nullable=False)
+    version: Mapped[int] = mapped_column(
+        sa.Integer(), nullable=False, default=1, server_default=sa.text("1")
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=False,
@@ -1326,7 +1342,10 @@ class PriceBook(Base):
         server_default=sa.text("now()"),
     )
 
-    __table_args__ = (sa.UniqueConstraint("owner_id", name="uq_price_books_owner"),)
+    __table_args__ = (
+        sa.UniqueConstraint("owner_id", name="uq_price_books_owner"),
+        sa.CheckConstraint("version >= 1", name="ck_price_books_version"),
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return f"PriceBook(id={self.id!r}, owner_id={self.owner_id!r})"
@@ -1334,12 +1353,14 @@ class PriceBook(Base):
 
 class PriceBookEntryRow(Base):
     """One price of a book: a material and profile per stock piece (with its
-    stock length), per linear foot or per board foot, in integer cents.
+    stock length) or per sheet (with its ``sheet``, SHEATHING), per linear
+    foot or per board foot, in integer cents.
 
     Rows are the output of :class:`loft_wire.price_book.PriceBookUpdate`'s
     validation (one per key, at most 500); the CHECKs below are the database's
-    backstop for the two rules a bad write would corrupt silently: no negative
-    price, and a stock length exactly when the unit is ``each``.
+    backstop for the rules a bad write would corrupt silently: no negative
+    price, a stock length or a sheet exactly when the unit is ``each``, and
+    never both.
     """
 
     __tablename__ = "price_book_entries"
@@ -1357,6 +1378,7 @@ class PriceBookEntryRow(Base):
     profile: Mapped[str] = mapped_column(sa.String(32), nullable=False)
     unit: Mapped[str] = mapped_column(sa.String(16), nullable=False)
     stock_length_ft: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
+    sheet: Mapped[str | None] = mapped_column(sa.String(8), nullable=True)
     price_cents: Mapped[int] = mapped_column(sa.BigInteger(), nullable=False)
 
     __table_args__ = (
@@ -1365,8 +1387,12 @@ class PriceBookEntryRow(Base):
         ),
         sa.CheckConstraint("price_cents >= 0", name="ck_price_book_entries_price"),
         sa.CheckConstraint(
-            "(unit = 'each') = (stock_length_ft IS NOT NULL)",
-            name="ck_price_book_entries_stock_length",
+            "(unit = 'each') = (stock_length_ft IS NOT NULL OR sheet IS NOT NULL)",
+            name="ck_price_book_entries_each_stock",
+        ),
+        sa.CheckConstraint(
+            "stock_length_ft IS NULL OR sheet IS NULL",
+            name="ck_price_book_entries_one_stock",
         ),
     )
 

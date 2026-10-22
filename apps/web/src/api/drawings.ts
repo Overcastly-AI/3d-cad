@@ -15,6 +15,9 @@ export type DrawingTreeResponse = components["schemas"]["DrawingTreeResponse"];
 export type SheetContent = components["schemas"]["SheetContent"];
 export type SheetResponse = components["schemas"]["SheetResponse"];
 export type SheetCreate = components["schemas"]["SheetCreate"];
+export type SheetUpdate = components["schemas"]["SheetUpdate"];
+/** Which BOM structure a sheet's parts list shows (stored on the sheet). */
+export type PartsListStructure = SheetResponse["parts_list_structure"];
 export type ViewResponse = components["schemas"]["ViewResponse"];
 export type ViewCreate = components["schemas"]["ViewCreate"];
 /** Re-frame / re-scale / re-place a view (design §2.2). The drag-to-place seam
@@ -284,6 +287,26 @@ export async function createSheet(
   );
   if (error !== undefined) {
     throw new Error(envelopeMessage(error, "The sheet could not be added."));
+  }
+  return data;
+}
+
+/**
+ * Update a sheet's header: name, size, title block, or the parts list's
+ * structure (200 with the bumped `doc_version`; 422 on a stale version).
+ */
+export async function updateSheet(
+  drawingId: string,
+  sheetId: string,
+  body: SheetUpdate,
+  client: GatewayClient = gatewayClient,
+): Promise<components["schemas"]["SheetMutationResponse"]> {
+  const { data, error } = await client.PATCH(
+    "/api/v1/drawings/{drawing_id}/sheets/{sheet_id}",
+    { params: { path: { drawing_id: drawingId, sheet_id: sheetId } }, body },
+  );
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The sheet could not be updated."));
   }
   return data;
 }

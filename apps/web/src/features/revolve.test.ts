@@ -173,6 +173,7 @@ describe("defaultRevolveForm", () => {
       operation: "add",
       direction: "normal",
       merge: true,
+      cutBodies: "all",
     });
   });
 });

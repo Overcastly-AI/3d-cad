@@ -1,0 +1,56 @@
+{
+  "description": "ROOF-L-DOUBLED-COMMON: an L-shaped hip roof from ONE loft.roof 1.2.0 custom feature, Style Hip, its footprint PICKED from six loft.wall 1.1.0 walls whose outer faces run round (0,51.1) (0,144.8) (157,144.8) (157,0) (95.3,0) (95.3,51.1) (arms 93.7 and 61.7, two spacings apart), plates at Z 97.125 and 3.5 deep, 6/12, 2x6 commons and jacks at 16 in o.c., 12 in level overhang, 2x8 ridges, dropped hips and a 2x8 valley, all spf_lumber. One of the 25 constructed L's where the wing's jacks reach the right wall's flush ridge-end common (Y 81.95) an ulp off it: before the fix 1.2.0 framed TWO coincident commons there (services/geometry/tests/fixtures/l-hip-16oc-v1.2-doubled.json.gz); now it frames one (common/16), and common/17 is gone. model.json is EXACTLY the plugin's expansion with the member materials documents applies; members.json is each body's member metadata; packages/loft-plugins/tests/test_roof_l_doubled_common.py pins both and the fixture to the plugin; services/geometry/tests/test_roof_l_doubled_common.py checks the dropped body against an independent script, interference and the cut list.",
+  "derivation": [
+    "The doubled common, from the INDEPENDENT build123d script (test_roof_l_doubled_common.script_common: its plan prism Y 81.2..82.7, X 126.9..169, cut to the right plane's slab, less everything below the plate inside the walls) and in closed form: the right plane's run to the wing ridge's face is 157 - 126.9 = 30.1 in, plus the 12 in overhang; plumb depth P = 5.5 x sqrt(180) / 12 = 6.149187; birdsmouth 3.5 x 1.75 / 2. Volume = 1.5 x (P x 42.1 - 3.0625) = 1.5 x (258.880770 - 3.0625) = 383.727405 in^3 (B4's commons, run 59.25: 1.5 x (P x 71.25 - 3.0625) = 652.600604, its derivation's number).",
+    "",
+    "volume = the roof before the fix (19 693.373073 in^3, 46 bodies, the twin overlapping its survivor entirely) less that one common = 19 309.645668 in^3 = 316 428 399.380 mm^3; the kernel's after and before differ by the closed form to 6e-8 mm^3. No two of the 45 bodies share volume (probe_overlap).",
+    "",
+    "45 bodies: 18 commons, 16 hip jacks, 2 valley jacks, 6 hips, 1 valley, 2 ridges (before: 19 commons). The cut list's Common line at 42.1 x sqrt(180) / 12 + 5.5 x 6 / 12 = 49.819 in counts one fewer; every other line is unchanged.",
+    "",
+    "mass_g = volume x 450 kg/m^3 (spf_lumber) = 142 392.780 g; center_of_mass = centroid.",
+    "",
+    "bounding_box: X and Y from -12 (the fascia) = -304.8 mm; X to 157 + 12 = 169 in = 4292.6 mm; Y to 144.8 + 12 = 156.8 in = 3982.72 mm; Z from the tails' bottoms at the fascia, 97.125 - 1.75 - 6 = 89.375 in = 2270.125 mm, to the main ridge's top, flush with its commons at the ridge face: 97.125 + P - 1.75 + 0.5 x (93.7 / 2 - 0.75) = 124.574187 in = 3164.184 mm.",
+    "",
+    "surface area, centroid, topology (410 faces, 960 edges, 45 shells) and mesh counts recorded from the build; the volume, mass and box are derived above."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): ABSOLUTE bounds on a ~3.2e8 mm^3 part of 45 separate bodies; the kernel's volume differs from the derivation (before less the closed-form common) by 6e-8 mm^3. 1e-6 is 17x that; the twin is 6.29e6 mm^3, so a common kept twice or dropped once misses by 12 orders of magnitude.",
+  "roundtrip_tolerance": 0.005,
+  "roundtrip_tolerance_rationale": "b4-l-hip-valley's reviewed bound for an L hip roof (OCCT's STEP writer rounds the sloped members' irrational coordinates; a build123d twin drifts the same, test_roof_valley_b4::test_the_roofs_step_drift_is_occts). Measured 2026-10-21: -8.5e-4 mm^3 in volume, -2.5e-5 mm^2 in area; 5e-3 is 5.9x. Volume and area only.",
+  "properties": {
+    "volume": 316428399.3798769,
+    "surface_area": 21576046.848259304,
+    "centroid": {
+      "x": 2240.32902923838,
+      "y": 2091.185383634072,
+      "z": 2680.603448824648
+    },
+    "mass_g": 142392.7797209446,
+    "center_of_mass": {
+      "x": 2240.32902923838,
+      "y": 2091.1853836340724,
+      "z": 2680.603448824647
+    },
+    "bounding_box": {
+      "min": {
+        "x": -304.8000000000004,
+        "y": -304.8000000000001,
+        "z": 2270.124999999999
+      },
+      "max": {
+        "x": 4292.599999999999,
+        "y": 3982.7200000000007,
+        "z": 3164.1843482283602
+      }
+    }
+  },
+  "topology": {
+    "faces": 410,
+    "edges": 960,
+    "shells": 45
+  },
+  "mesh": {
+    "vertices": 1920,
+    "triangles": 1100
+  }
+}

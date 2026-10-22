@@ -33,7 +33,7 @@ const HIP_6_12: Row[] = [
   ["Common", "6", "82.4099", "8 ft"],
   ["Jack", "8", "56.0683", "8 ft"],
   ["Jack", "8", "29.2355", "8 ft"],
-  // loft.roof 1.2.0 rips the hips' tails to the commons' depth
+  // loft.roof 1.2.0 and later rip the hips' tails to the commons' depth
   // (ROOF-HIP-TAIL): 106.875 + 5.884 x 6/18 (1.1.0's full tail: 109.438).
   ["Hip", "4", "108.8363", "10 ft"],
   ["Ridge", "1", "25.5", "8 ft"],
@@ -193,7 +193,7 @@ test.describe("Roof — B3's hip roof from one feature", () => {
     await page.mouse.move(800, 990);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/roof-hip-b3-8-12.png` });
 
-    // A reload keeps the edit, pinned to 1.2.0 (the latest Roof).
+    // A reload keeps the edit, pinned to 1.3.0 (the latest Roof).
     await page.reload();
     await expect(rows).toHaveCount(5);
     await expectSolved(page);
@@ -211,7 +211,7 @@ test.describe("Roof — B3's hip roof from one feature", () => {
         }[];
       }
     ).features[4]?.feature.params;
-    expect(roof?.plugin_version).toBe("1.2.0");
+    expect(roof?.plugin_version).toBe("1.3.0");
     expect(roof?.inputs.style).toBe("hip");
     expect(roof?.inputs.pitch).toBe("rise_8");
   });

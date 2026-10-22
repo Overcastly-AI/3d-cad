@@ -69,7 +69,7 @@ Every PR must pass what CI runs, across three workflows:
 | Contract drift                                                                                   | `just gen-check`                                  | `ci.yml`          |
 | Compose config, build-context, workflow-concurrency guards                                       | `just lint`'s compose-related steps               | `ci.yml`          |
 | No-GPL licence gate (reads the shipped binaries, not just wheel metadata)                        | `python3 scripts/check-licences.py`               | `ci.yml`          |
-| Cross-process mesh-store smoke (real MinIO)                                                      | `pytest services/geometry/tests/test_s3_store.py` | `ci.yml`          |
+| Cross-process mesh-store smoke (real SeaweedFS, `LOFT_S3_SMOKE=1`)                               | `pytest services/geometry/tests/test_s3_store.py` | `deploy-path.yml` |
 | Browser e2e (Playwright, real running stack)                                                     | `just e2e` (web leg)                              | `e2e.yml`         |
 | Self-host proof: image build + boot + migrate + a real modeling round-trip; backup/restore drill | `just compose-smoke`, `just backup-drill`         | `deploy-path.yml` |
 

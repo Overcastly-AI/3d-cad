@@ -44,6 +44,7 @@ from loft_wire.assemblies import (
 # Split out (FILE-SIZE-RATCHET) and re-exported: `X as X` is the explicit re-export.
 from loft_wire.drawing_bom import DrawingBomLine as DrawingBomLine
 from loft_wire.drawing_bom import DrawingBomResponse as DrawingBomResponse
+from loft_wire.drawing_bom import SheetPartsList, SheetPartsListUpdate
 from loft_wire.drawing_centres import (
     CentreToCentreMeasurement as CentreToCentreMeasurement,
 )
@@ -52,9 +53,7 @@ from loft_wire.drawing_centres import ComposedCentreMark as ComposedCentreMark
 from loft_wire.drawing_centres import EdgeToCentreMeasurement as EdgeToCentreMeasurement
 from loft_wire.drawing_centres import LinearOrientation as LinearOrientation
 from loft_wire.drawing_section import SectionViewParams as SectionViewParams
-from loft_wire.drawing_title_block import (
-    DRAWING_KIND_CAPTION as DRAWING_KIND_CAPTION,
-)
+from loft_wire.drawing_title_block import DRAWING_KIND_CAPTION as DRAWING_KIND_CAPTION
 from loft_wire.drawing_title_block import (
     TITLE_BLOCK_FIELD_MAX_LENGTH as TITLE_BLOCK_FIELD_MAX_LENGTH,
 )
@@ -619,7 +618,7 @@ class SheetCreate(BaseModel):
     )
 
 
-class SheetUpdate(BaseModel):
+class SheetUpdate(SheetPartsListUpdate):
     """Update a sheet's header (design §2.2). At least one field must be provided."""
 
     expected_version: int = Field(
@@ -636,7 +635,7 @@ class SheetUpdate(BaseModel):
     )
 
 
-class SheetResponse(BaseModel):
+class SheetResponse(SheetPartsList):
     """A sheet as stored (design §2.2)."""
 
     model_config = ConfigDict(from_attributes=True)

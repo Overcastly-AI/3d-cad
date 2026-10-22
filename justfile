@@ -5,7 +5,7 @@ default:
     @just --list
 
 # Full dev stack via docker compose — needs a running docker daemon.
-# db/redis/minio + gateway/documents/geometry + the web app, all with hot
+# db/redis/seaweedfs + gateway/documents/geometry + the web app, all with hot
 # reload (the Python services via uvicorn --reload, the web app via the Vite
 # dev server). The app is at http://localhost:${WEB_PORT:-8080}; the gateway's
 # REST API is at :8000. Foreground; Ctrl-C then `just dev-down`.

@@ -11,6 +11,13 @@ import { isApexSketch } from "../sketch/pointEntity";
 import { parsePositiveLengthMm } from "../units/length";
 import { storedLengthInput, storedLengthMm } from "./storedNumber";
 import { fieldBlocker } from "./submitBlocker";
+import {
+  cutBodiesBlocker,
+  cutBodiesField,
+  type CutBodiesChoice,
+  NEW_CUT_BODIES,
+  seedCutBodies,
+} from "./cutBodies";
 
 export type ExtrudeOperation = ExtrudeParams["operation"];
 export type ExtrudeDirection = ExtrudeParams["direction"];
@@ -74,6 +81,12 @@ export interface ExtrudeForm {
    * and never shown, but always sent (the wire field is required, MB-0).
    */
   merge: boolean;
+  /**
+   * Objects To Cut (CUT-OBJECTS-TO-CUT, `./cutBodies`): every body the cut
+   * meets, the ticked bodies, or `undefined` for a cut saved before the list
+   * (its active body only). Read on a cut only.
+   */
+  cutBodies?: CutBodiesChoice;
   /**
    * The feature's params as STORED, when this form edits an existing extrude
    * (absent on create). The form edits five fields; the feature can carry
@@ -200,6 +213,7 @@ export function defaultExtrudeForm(
     directionTouched: false,
     extent: "one_side",
     merge: true,
+    cutBodies: NEW_CUT_BODIES,
   };
 }
 
@@ -224,6 +238,7 @@ export function formFromParams(
     directionTouched: false,
     extent: params.extent ?? "one_side",
     merge: params.merge,
+    cutBodies: seedCutBodies(params),
     stored: params,
   };
 }
@@ -244,6 +259,7 @@ export function extrudeParamsFromForm(
   // existed (and a symmetric extrude switched back drops the stored key).
   const stored: Partial<ExtrudeParams> = { ...form.stored };
   delete stored.extent;
+  delete stored.cut_bodies;
   return {
     ...stored,
     profile: { kind: "feature", feature_id: form.profileFeatureId },
@@ -251,9 +267,15 @@ export function extrudeParamsFromForm(
     operation: form.operation,
     direction: form.direction,
     ...(form.extent === "symmetric" ? { extent: "symmetric" as const } : {}),
-    // Merge is an ADD choice only; a cut always removes from the active body,
-    // so it sends the neutral `true` regardless of a stale toggle.
+    // Merge is an ADD choice only; a cut's bodies are its Objects To Cut, so
+    // it sends the neutral `true` regardless of a stale toggle.
     merge: form.operation === "add" ? form.merge : true,
+    ...cutBodiesField(
+      form.operation,
+      form.stored === undefined
+        ? (form.cutBodies ?? NEW_CUT_BODIES)
+        : form.cutBodies,
+    ),
   };
 }
 
@@ -413,10 +435,12 @@ export function extrudeSubmitBlocker(
   unit: LengthUnit,
 ): string | null {
   if (form.profileFeatureId === "") return "Choose a sketch profile.";
-  return fieldBlocker(
-    form.distanceInput,
-    parseDistanceMm(form.distanceInput, unit),
-    "distance",
+  return (
+    fieldBlocker(
+      form.distanceInput,
+      parseDistanceMm(form.distanceInput, unit),
+      "distance",
+    ) ?? cutBodiesBlocker(form.operation, form.cutBodies)
   );
 }
 

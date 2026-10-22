@@ -66,6 +66,7 @@ describe("defaultLoftSections / defaultLoftForm", () => {
       sections: ["s1", "s2"],
       operation: "add",
       merge: true,
+      cutBodies: "all",
     });
   });
 
@@ -100,6 +101,7 @@ describe("ordered-section list ops", () => {
       sections: ["s1", "s2", ""],
       operation: "add",
       merge: true,
+      cutBodies: "all",
     });
   });
 

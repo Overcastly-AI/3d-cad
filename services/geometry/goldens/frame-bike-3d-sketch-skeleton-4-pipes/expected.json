@@ -1,0 +1,44 @@
+{
+  "description": "THE BIKE SKELETON AS A 3D SKETCH (SKETCH-3D acceptance; docs/reference-parts/bike.md, RESEARCH §28): ONE sketch_3d in model space holding the whole frame skeleton, main triangle AND rear triangle: BB snapped to the origin, seat tube top, head tube top (fixed), head tube bottom, and the two dropouts (rear axle 410 from the BB, 70 above it, 130 apart across Y), joined by nine lines (seat, top, head, down, both chain stays, both seat stays, and a construction axle). The points are TYPED short of the reference (seat and head tube ends 2 mm short along their lines, dropouts 1 mm in across Y) and three driving dimensions plus one Along Y put them on it: seat length 500, head length 150, dropout distance 130 with the axle line Along Y. FOUR ring Pipes on its lines (down 44 x 1.2, seat 31.8 x 1.0, top 35 x 1.0, head 50 x 3) join into one body. Locks the 3D sketch solve (every point to 1e-9 of the hand numbers, tests/test_sketch_3d.py) and Pipe on 3D sketch lines: the tubes are the 2D skeleton golden's (frame-bike-4-pipes-one-skeleton-head73) on the same joints, so its hand-derived numbers are this golden's. The splayed chain stays are piped against a build123d twin in tests/test_sketch_3d.py.",
+  "derivation": [
+    "Points by hand (world X, Y, Z mm; tests/_sketch3d_builder.py reference_points): BB (0, 0, 0); seat top 500 (-cos 73.5, 0, sin 73.5) = (-142.0076723519614, 0, 479.40986743409655); head top (390, 0, 570); head bottom (390 + 150 cos 73, 0, 570 - 150 sin 73) = (433.8557557084105, 0, 426.5542866055447); dropouts (-sqrt(410^2 - 70^2), +-65, 70) = (-403.9801975344831, +-65, 70).",
+    "Solve by hand: a lone length dimension on a line from a held point is met in one minimum-norm Newton step that moves the free end along the line (the gradient of |b - a| is the line's direction), so the seat and head ends land on the reference directions exactly; the dropouts are moved symmetrically (+-1 mm in Y) by the 130 distance because both are free and the minimum-norm step splits the correction. The axle's Along Y residual is zero from the start. DOF = 3 x 4 free points - 5 equations = 7.",
+    "Mass properties: the four tubes join at the same joints, with the same sections, as frame-bike-4-pipes-one-skeleton-head73, whose numbers come from an independent plain-build123d twin (tubes as cylinders minus bores on hand-computed joints, two-way difference empty) and whose volume is checked by inclusion-exclusion; they are copied here unchanged. This tree lands on that golden's tree to 1e-10 mm^3.",
+    "Topology: 29 faces / 86 edges / 1 shell, the 2D skeleton golden's (and its twin's).",
+    "Mesh (linear_deflection 0.1): recorded from the harness, and equal to the 2D skeleton golden's."
+  ],
+  "tolerance": 0.005,
+  "tolerance_rationale": "The 2D skeleton golden's bound, for the same solid: tree against the independent twin, volume 8.3e-4 mm^3 (3e-9 relative), area 2.1e-6 mm^2, centroid 4.9e-7 mm, AABB 1.1e-10 mm (and OCCT's 1e-7 box pad on swept faces in y). Measured again on this tree 2026-10-21: volume 8.26e-4, the same. Never loosen it to go green.",
+  "roundtrip_tolerance": 0.025,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, the 2D skeleton golden's measured and QA-signed allowance (2026-10-16) for the same one-lump frame: OCCT's STEP writer/reader re-approximates the trimmed tube-tube faces (volume 1.6e-5 mm^3, area 6.1e-3 mm^2 from the fixed-order area integral; a pure build123d twin drifts the same way). Applies to volume and area only; centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 269959.0612910233,
+    "surface_area": 419579.8813464925,
+    "centroid": {
+      "x": 193.32781783979175,
+      "y": 0.0,
+      "z": 354.1866152154453
+    },
+    "bounding_box": {
+      "min": {
+        "x": -157.25290613636565,
+        "y": -25.0,
+        "z": -15.687796047654048
+      },
+      "max": {
+        "x": 457.7633746074864,
+        "y": 25.0,
+        "z": 587.2516792819815
+      }
+    }
+  },
+  "topology": {
+    "faces": 29,
+    "edges": 86,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 7172,
+    "triangles": 7126
+  }
+}

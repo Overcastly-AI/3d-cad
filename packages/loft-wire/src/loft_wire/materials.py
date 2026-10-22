@@ -26,6 +26,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from loft_wire.lumber import LumberProfile
+from loft_wire.sheet_goods import SheetGood, SheetSize
 
 #: The built-in material library keys (v1). A closed literal, so an unknown
 #: material is a parse error at the boundary rather than a silent "no mass"
@@ -46,6 +47,8 @@ MaterialKey = Literal[
     "white_oak",
     "lvl",
     "glulam_dfl",
+    "osb",
+    "plywood",
     "steel_a992",
     "concrete",
 ]
@@ -171,6 +174,20 @@ _LIBRARY: tuple[Material, ...] = (
         density_kg_m3=561.0,
         source=f"APA/AWC glulam design weight, 35 {_PCF}",
     ),
+    # Sheet goods (SHEATHING): the panel weights APA publishes, typical for
+    # the species and resin of US structural panels.
+    Material(
+        key="osb",
+        name="OSB (oriented strand board)",
+        density_kg_m3=641.0,
+        source=f"APA typical panel weight, 40 {_PCF}",
+    ),
+    Material(
+        key="plywood",
+        name="Plywood (softwood, structural)",
+        density_kg_m3=577.0,
+        source=f"APA typical panel weight, 36 {_PCF}",
+    ),
     Material(
         key="steel_a992",
         name="Structural steel (ASTM A992)",
@@ -209,6 +226,13 @@ class MaterialLibraryResponse(BaseModel):
     materials: list[Material]
     profiles: list[LumberProfile] = Field(
         description="Lumber sections: nominal name and actual dressed size."
+    )
+    sheet_goods: list[SheetGood] = Field(
+        description="Sheet products (SHEATHING): a material at a thickness, "
+        "e.g. '7/16 OSB'."
+    )
+    sheet_sizes: list[SheetSize] = Field(
+        description="The sheets they are sold in, shortest first: 4x8, 4x9, 4x10."
     )
 
 

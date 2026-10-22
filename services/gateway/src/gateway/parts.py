@@ -76,11 +76,14 @@ async def forward_documents(
     path: str,
     json_content: str | None = None,
     params: QueryParams = None,
+    headers: dict[str, str] | None = None,
 ) -> httpx.Response:
     """Forward to documents with the authenticated principal attached.
 
     Shared by the parts and features aggregation routers (DRY) — one place
-    owns the principal-header contract with the documents service.
+    owns the principal-header contract with the documents service. *headers*
+    are extra request headers (a price book's ``If-Match``); the principal
+    header always wins.
     """
     client: httpx.AsyncClient = http_request.app.state.documents_client
     return await forward(
@@ -90,7 +93,7 @@ async def forward_documents(
         path,
         service=_SERVICE,
         json_content=json_content,
-        headers={PRINCIPAL_HEADER: str(user.id)},
+        headers={**(headers or {}), PRINCIPAL_HEADER: str(user.id)},
         params=params,
     )
 

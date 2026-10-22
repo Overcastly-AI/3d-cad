@@ -82,6 +82,8 @@ TRUTH_REL = 1e-10
 REVIEWED_OVERRIDE: dict[str, float] = {
     "frame-moto-cradle-tube-od25.4-t1.6": 0.5,
     "frame-bike-4-pipes-one-skeleton-head73": 0.025,
+    # The same four tubes on a 3D sketch skeleton (SKETCH-3D): the same solid.
+    "frame-bike-3d-sketch-skeleton-4-pipes": 0.025,
     # Not an offset surface: a 1.06e9 mm^3 sum over 46 re-imported solids moves
     # by 2.1e-6 (2e-15 relative) with summation order (CUT-LIST, expected.json).
     "b1-deck-framing-16ft": 1e-5,
@@ -101,6 +103,13 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     "b2-walls-door-moved-24": 3e-6,
     "b2-walls-window-30": 3e-6,
     "b2-walls-door-deleted": 3e-6,
+    # Those walls and B1's deck at 1.1.0 with a hole in one member
+    # (WALL-MEMBER-RENUMBER): their base goldens' bounds, measured 7.2e-7 and
+    # 2.1e-6 at worst.
+    "b2-walls-v1.1-hole-stud-128": 3e-6,
+    "b2-walls-v1.1-hole-door-moved-24": 3e-6,
+    "plugin-deck-v1.1-b1-16ft-hole-end-joist": 1e-5,
+    "plugin-deck-v1.1-b1-20ft-hole-end-joist": 1e-5,
     # Not an offset surface: the loft.roof B2 gable's sloped rafters drift
     # 3.5e-4 mm^3 through OCCT's STEP, as their build123d twin does (ROOF).
     "b2-roof-6-12": 1e-3,
@@ -109,6 +118,12 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # test_roof_hip_b3 re-measures the twin's drift (ROOF-TWIN-DRIFT-TEST).
     "b3-hip-6-12": 1e-3,
     "b3-hip-8-12": 1e-3,
+    # That roof at 1.3.0 with a hole in one rafter (ROOF-MEMBER-RENUMBER):
+    # their base goldens' bounds, measured 4.1e-4 mm^3 at worst.
+    "b3-hip-v1.3-hole-common": 1e-3,
+    "b3-hip-v1.3-168-hole-common": 1e-3,
+    "b3-hip-v1.3-hole-jack": 1e-3,
+    "b3-hip-v1.3-8-12-hole-jack": 1e-3,
     # B4's L hip roof and its 48 in wing (ROOF-VALLEY): 1.3e-3 and 7.8e-4
     # mm^3 through OCCT's STEP; test_roof_valley_b4 re-measures the twin.
     "b4-l-hip-valley": 5e-3,
@@ -123,6 +138,17 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # the twin.
     "b6-frame-12x16": 1e-5,
     "b6-frame-14x16": 1e-5,
+    # An L at 1.2.0 framing one common where it framed two
+    # (ROOF-L-DOUBLED-COMMON): b4's bound, measured 8.5e-4 mm^3.
+    "l-hip-16oc-v1.2-one-common": 5e-3,
+    # B5 sheathed (SHEATHING): the same summation drift over 98 bodies,
+    # measured 1.9e-6 mm^3.
+    "b5-shed-sheathed": 5e-6,
+    # B2 notched across five members, and B2 with a hole and a fillet on its
+    # first stud (CUT-OBJECTS-TO-CUT): B2's summation drift, 1.5e-7 and 7e-7,
+    # bounded as the WINDOW-DOOR goldens are.
+    "cut-objects-to-cut-b2-front-notch-studs-16-32-48": 3e-6,
+    "framing-hole-d1-fillet-r0.25-first-stud-b2": 3e-6,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

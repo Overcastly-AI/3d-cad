@@ -18,6 +18,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Literal
 
+from loft_wire.cut_bodies import CutBodies
 from loft_wire.features import (
     DatumAlongPathParams,
     DatumFeature,
@@ -53,6 +54,28 @@ def _segment(curve: CurveLike) -> PathSegment:
     return PathSketchCurve(kind="sketch_curve", sketch=sketch, entity=entity)
 
 
+#: The bodies a new cut removes material from: ``"all"`` (every body the tool
+#: meets, Fusion 360's Objects To Cut default), or the bodies, each by its
+#: base feature's ref or id (:mod:`loft_wire.cut_bodies`).
+BodiesToCut = Literal["all"] | Sequence[FeatureRef | uuid.UUID]
+
+
+def cut_scope(
+    operation: Literal["add", "cut"], bodies: BodiesToCut
+) -> CutBodies | None:
+    """The wire ``cut_bodies`` of a new feature: absent on an add."""
+    if operation != "cut":
+        return None
+    if bodies == "all":
+        return "all"
+    return [
+        body
+        if isinstance(body, FeatureRef)
+        else FeatureRef(kind="feature", feature_id=body)
+        for body in bodies
+    ]
+
+
 def pipe_feature(
     path: Sequence[CurveLike],
     outer_diameter_mm: float,
@@ -60,6 +83,7 @@ def pipe_feature(
     wall_thickness_mm: float | None = None,
     operation: Literal["add", "cut"] = "add",
     merge: bool = True,
+    cut_bodies: CutBodies | None = None,
     expressions: dict[str, str] | None = None,
 ) -> PipeFeature:
     """The ``pipe`` feature along *path* (picked curves, any order)."""
@@ -73,6 +97,7 @@ def pipe_feature(
             wall_thickness_mm=wall_thickness_mm,
             operation=operation,
             merge=merge,
+            cut_bodies=cut_bodies,
         ),
     )
 

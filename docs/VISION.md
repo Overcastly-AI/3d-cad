@@ -166,6 +166,7 @@ built from Build-group plugins with no member drawn by hand:
 - **B4 L-shaped house:** six walls under a hip roof with a valley and valley jacks; a narrowed wing adds a hip-valley cripple.
 - **B5 shed on a floor:** B2's walls on a framed 2x8 floor, with OSB wall sheathing and a plywood subfloor, priced per sheet.
 - **B6 timber frame:** two 8x8 bents with tie beams and girts, every joint a pegged mortise and tenon.
+- **B7 small house:** 24 x 16 ft, 2x6 walls on a 2x10 floor, a door, four windows, a 6/12 gable, sheathed and priced to the last line: a gap-finding round.
 
 ## Daily-driver scorecard
 
@@ -178,7 +179,7 @@ main `01e49e2` on 2026-10-09 and updated from shipped commits on
 | Area | Grade | Why |
 | --- | --- | --- |
 | Sketching and constraints | ➖ | Solid solver. Lines chain, points dimension to points and lines, and body edges project into a sketch (not splines). Trig expressions and named part parameters drive dimensions. Missing: 3D sketch, typed line angle. |
-| Part modelling | ➖ | Core features compose on real parts, twist is on Sweep, and Extrude is one-sided or symmetric. Plane at an angle, closed-path sweep and Pipe shipped. Shell fails on a round-to-square loft; no Through All extrude. |
+| Part modelling | ➖ | Core features compose on real parts, twist is on Sweep, and Extrude is one-sided or symmetric. Plane at an angle, closed-path sweep and Pipe shipped. Shell fails on a round-to-square loft; no Through All extrude. Cuts reach only the active body (CUT-OBJECTS-TO-CUT). |
 | Selection and picking | ❌ | Overlapping edge marks fixed (2026-10-01 rerun) and one pick rounds its tangent chain. No face or loop selection, and a fillet edit could not re-pick (2026-09-30 run, not rechecked). |
 | Assemblies | ➖ | Joints with drag and limits, Move, sub-assemblies, component patterns and in-context edits shipped (to 2026-10-16). No mirror component or flexible sub-assembly; re-grade from A1-A3. |
 | Interop (import and export) | ➖ | STEP round-trips on foreign parts. No IGES, and no recovery for a zero-solid import. |
@@ -200,6 +201,7 @@ main `01e49e2` on 2026-10-09 and updated from shipped commits on
 - Cloud SaaS billing. Self-hosting comes first.
 
 ## Delegated decisions
+- 2026-10-21 (founder): do not build or fork OCCT; stay on the published, pinned OCP wheels, work around OCCT faults and report them upstream with minimal repros.
 
 The founder delegated these on 2026-10-16 ("launch an agent to understand the
 goal and answer them"); the product-manager decided them. Each is in
@@ -287,5 +289,29 @@ goal and answer them"); the product-manager decided them. Each is in
   placement cuts both members, as in Cadwork and hsbCAD. The first rung is
   only blind mortise and tenons with coaxial pegs; drawbore, braces and
   plates come later. Cut lengths include the tenons.
-- **Left for the founder:** the object store (MinIO or an Apache-2.0 server),
-  because it turns on publishing images under AGPL §6.
+- **Object store (founder decision, 2026-10-21):** SeaweedFS (Apache-2.0)
+  replaces MinIO as the bundled S3 store. MinIO is AGPL-3.0, which the
+  licence rule forbids, and unmaintained upstream; any external S3 still
+  works by config (RESEARCH §4, OBJECT-STORE).
+- **Object store:** decided by the founder on 2026-10-21: SeaweedFS
+  (Apache-2.0) replaces MinIO.
+- **Now after SHEATHING and ROOF-MEMBER-RENUMBER (2026-10-21, fourth
+  pass):** CUT-OBJECTS-TO-CUT, then ROOF-L-DOUBLED-COMMON, then
+  QA-B7-HOUSE. Under Severity both fixes are wrong geometry: a cut across
+  several members cuts only the last-built one, and stored 1.2.0 L roofs
+  frame a doubled common that is also priced twice. The cut fix leads
+  because every building with a cut or a projected edge meets it; the roof
+  fix touches only stored L roofs. The bike gaps stay first in Next: the
+  bike builds with workarounds.
+- **Objects To Cut:** cuts default to every body the tool meets, with a
+  body list to narrow it (Fusion's Objects To Cut, SolidWorks' Feature
+  Scope auto-select). Stored cuts keep the active body, as stored plugin
+  versions stay pinned, so no saved part changes. Hole's Feature Scope
+  reuses the same list (HOLE-SCOPE-UI merged in).
+- **Doubled commons on stored roofs:** fixed in place in 1.2.0, not
+  versioned, as HOLE-ACTIVE-BODY fixed stored holes: every doubled common is
+  wrong. A reference to the dropped twin is flagged as lost, never rebound.
+- **QA round on a new building (founder: try different parts to find
+  gaps):** B7, a priced small house that composes B2, B5 and sheathing at
+  house size and in 2x6, rather than a new plugin target. It starts once
+  SHEATHING and CUT-OBJECTS-TO-CUT are on main, so it measures the fixes.

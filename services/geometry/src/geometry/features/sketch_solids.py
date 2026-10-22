@@ -2,7 +2,8 @@
 
 Each builds a tool solid from solved sketch geometry and applies it through the
 shared body ops of :mod:`geometry.features.state`: the merge-aware add, or a cut
-of the active body.
+of the bodies its Objects To Cut names (:mod:`geometry.features.cut_scope`; the
+active body for a cut stored without ``cut_bodies``).
 """
 
 # Underscore names are private to the geometry.features package rather than to
@@ -25,6 +26,7 @@ from loft_wire.features import (
 )
 from loft_wire.sketch import Point2D
 
+from geometry.features.cut_scope import cut_one_tool, cut_scoped_bodies
 from geometry.features.datum_sketch import (
     _profile_build_error,
     _resolve_profile_face,
@@ -35,7 +37,6 @@ from geometry.features.naming_hooks import prism_names, swept_names
 from geometry.features.state import (
     EvaluationState,
     _add_body,
-    _cut_active,
 )
 from geometry.kernel import (
     AxisIntersectsProfileError,
@@ -207,6 +208,16 @@ def _evaluate_extrude_cut(
                 feature_id, history, plane, solved.entities, region=len(faces) > 1
             )
         )
+    if params.cut_bodies is not None:
+        # Objects To Cut (CUT-OBJECTS-TO-CUT): every body met, or the listed
+        # ones. A cut stored without the field takes the active-body loop below.
+        return cut_scoped_bodies(
+            state,
+            tools,
+            feature_id=feature_id,
+            scope=params.cut_bodies,
+            generated=generated,
+        )
     body_id = state.active_body_id
     assert body_id is not None
     volume = state.body_volume(body_id)
@@ -219,6 +230,7 @@ def _evaluate_extrude_cut(
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
     state.set_active_body(body, generated, volume=volume)
+    state.cut_bodies_met = [body_id]
     state.record_cut_tools(feature_id, tools)
     state.record_feature_tools(feature_id, "cut", list(tools), generated)
     return None
@@ -312,7 +324,13 @@ def _evaluate_revolve(
     generated = swept_names(item.id, history, plane, solved.entities)
 
     if params.operation == "cut":
-        return _cut_active(state, tool, feature_id=item.id, generated=generated)
+        return cut_one_tool(
+            state,
+            tool,
+            feature_id=item.id,
+            scope=params.cut_bodies,
+            generated=generated,
+        )
     return _add_body(item, state, tool, merge=params.merge, generated=generated)
 
 
@@ -405,7 +423,7 @@ def _evaluate_sweep(
         return tool
 
     if params.operation == "cut":
-        return _cut_active(state, tool, feature_id=item.id)
+        return cut_one_tool(state, tool, feature_id=item.id, scope=params.cut_bodies)
     return _add_body(item, state, tool, merge=params.merge)
 
 
@@ -533,5 +551,11 @@ def _evaluate_loft(
         )
 
     if params.operation == "cut":
-        return _cut_active(state, tool, feature_id=item.id, generated=generated)
+        return cut_one_tool(
+            state,
+            tool,
+            feature_id=item.id,
+            scope=params.cut_bodies,
+            generated=generated,
+        )
     return _add_body(item, state, tool, merge=params.merge, generated=generated)

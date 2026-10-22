@@ -270,6 +270,9 @@ def test_bom_numbers_items_in_assembly_instance_order(client: TestClient) -> Non
             "name": "zeta",
             "missing": False,
             "quantity": 2,
+            "item": "1",
+            "level": 0,
+            "total_quantity": 2,
         },
         {
             "item_number": 2,
@@ -278,6 +281,9 @@ def test_bom_numbers_items_in_assembly_instance_order(client: TestClient) -> Non
             "name": "alpha",
             "missing": False,
             "quantity": 1,
+            "item": "2",
+            "level": 0,
+            "total_quantity": 1,
         },
     ]
 
@@ -448,8 +454,10 @@ def test_bom_of_an_empty_assembly_is_an_empty_item_list(client: TestClient) -> N
         "sheet_id": sheet_id,
         "assembly_id": assembly_id,
         "assembly_version": 0,
+        "structure": "top_level",
         "lines": [],
         "total_instances": 0,
+        "total_parts": 0,
     }
 
 
@@ -483,6 +491,9 @@ def test_bom_deleted_reference_keeps_its_number_and_is_flagged_missing(
             "name": "live",
             "missing": False,
             "quantity": 1,
+            "item": "1",
+            "level": 0,
+            "total_quantity": 1,
         },
         {
             "item_number": 2,
@@ -491,6 +502,9 @@ def test_bom_deleted_reference_keeps_its_number_and_is_flagged_missing(
             "name": None,
             "missing": True,
             "quantity": 2,
+            "item": "2",
+            "level": 0,
+            "total_quantity": 2,
         },
     ]
 
@@ -620,3 +634,207 @@ def test_bom_owner_isolation_is_a_uniform_404(client: TestClient) -> None:
     response = _bom(client, drawing_id, owner=OTHER)
     assert response.status_code == 404, response.text
     assert _error(response.json())["code"] == "drawing_not_found"
+
+
+# --- the parts list's structure (DRAWING-PARTS-LIST-LEVEL) ----------------------
+
+
+def _set_structure(
+    client: TestClient, drawing_id: str, sheet_id: str, structure: str
+) -> Any:
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    return client.patch(
+        f"/api/v1/drawings/{drawing_id}/sheets/{sheet_id}",
+        json={
+            "expected_version": tree["doc_version"],
+            "parts_list_structure": structure,
+        },
+        headers=_headers(),
+    )
+
+
+def _bike(client: TestClient) -> dict[str, str]:
+    """Frame, Fork, Crankset (2 arms), and 2 x Wheel (hub, rim, 32 spokes)."""
+    ids = {
+        name: _create_part(client, name)
+        for name in ("Frame", "Fork", "Crank arm", "Hub", "Rim", "Spoke")
+    }
+    crankset = _create_assembly(client, "Crankset")
+    _add_instance(client, crankset, ids["Crank arm"], 0, name="Arm <1>")
+    _add_instance(client, crankset, ids["Crank arm"], 1, name="Arm <2>")
+    wheel = _create_assembly(client, "Wheel")
+    for version, name in enumerate(("Hub", "Rim", *["Spoke"] * 32)):
+        _add_instance(client, wheel, ids[name], version, name=f"{name} <{version}>")
+    bike = _create_assembly(client, "Bike")
+    _add_instance(client, bike, ids["Frame"], 0, name="Frame <1>")
+    _add_instance(client, bike, ids["Fork"], 1, name="Fork <1>")
+    _add_instance(
+        client, bike, crankset, 2, ref_document_kind="assembly", name="Crankset <1>"
+    )
+    for version in (3, 4):
+        _add_instance(
+            client,
+            bike,
+            wheel,
+            version,
+            ref_document_kind="assembly",
+            name=f"Wheel <{version}>",
+        )
+    return ids | {"Crankset": crankset, "Wheel": wheel, "Bike": bike}
+
+
+def _rows(body: dict[str, Any]) -> list[tuple[str, str | None, int, int]]:
+    return [
+        (line["item"], line["name"], line["quantity"], line["total_quantity"])
+        for line in body["lines"]
+    ]
+
+
+def test_a_sheet_starts_top_level_and_stores_its_structure(
+    client: TestClient,
+) -> None:
+    """Top level is the default (SolidWorks, Fusion); the choice is stored on the
+    sheet, read back by the tree, and the BOM follows it on every read."""
+    ids = _bike(client)
+    drawing_id, sheet_id = _drawing_of(client, "bike-dwg", ids["Bike"])
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    assert tree["sheets"][0]["sheet"]["parts_list_structure"] == "top_level"
+    body = _bom(client, drawing_id).json()
+    assert body["structure"] == "top_level"
+    assert _rows(body) == [
+        ("1", "Frame", 1, 1),
+        ("2", "Fork", 1, 1),
+        ("3", "Crankset", 1, 1),
+        ("4", "Wheel", 2, 2),
+    ]
+    assert [line["item_number"] for line in body["lines"]] == [1, 2, 3, 4]
+    assert body["total_instances"] == 5
+    assert body["total_parts"] == 2 + 2 + 2 * 34
+
+    response = _set_structure(client, drawing_id, sheet_id, "indented")
+    assert response.status_code == 200, response.text
+    assert response.json()["sheet"]["parts_list_structure"] == "indented"
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    assert tree["sheets"][0]["sheet"]["parts_list_structure"] == "indented"
+    assert _bom(client, drawing_id).json()["structure"] == "indented"
+
+
+def test_indented_numbers_each_sub_assembly_under_its_top_level_item(
+    client: TestClient,
+) -> None:
+    """The bike's acceptance: 4.3 Spoke 32 under the wheel (64 in all), and the
+    top-level rows keep their top-level numbers."""
+    ids = _bike(client)
+    drawing_id, sheet_id = _drawing_of(client, "bike-indented", ids["Bike"])
+    _set_structure(client, drawing_id, sheet_id, "indented")
+    body = _bom(client, drawing_id).json()
+    assert _rows(body) == [
+        ("1", "Frame", 1, 1),
+        ("2", "Fork", 1, 1),
+        ("3", "Crankset", 1, 1),
+        ("3.1", "Crank arm", 2, 2),
+        ("4", "Wheel", 2, 2),
+        ("4.1", "Hub", 1, 2),
+        ("4.2", "Rim", 1, 2),
+        ("4.3", "Spoke", 32, 64),
+    ]
+    assert [line["level"] for line in body["lines"]] == [0, 0, 0, 1, 0, 1, 1, 1]
+    assert [line["item_number"] for line in body["lines"]] == [1, 2, 3, 1, 4, 1, 2, 3]
+
+    # A rename re-sorts the assembly page's name-ordered BOM, never these numbers.
+    _rename_part(client, ids["Hub"], "Zz hub")
+    renamed = _bom(client, drawing_id).json()
+    assert renamed["lines"][5]["item"] == "4.1"
+    assert renamed["lines"][5]["name"] == "Zz hub"
+
+
+def test_parts_only_lists_every_part_once_numbered_in_walk_order(
+    client: TestClient,
+) -> None:
+    """Parts only: 64 spokes, numbered 1..n in the order the indented walk meets
+    each part."""
+    ids = _bike(client)
+    drawing_id, sheet_id = _drawing_of(client, "bike-parts", ids["Bike"])
+    _set_structure(client, drawing_id, sheet_id, "parts_only")
+    body = _bom(client, drawing_id).json()
+    assert body["structure"] == "parts_only"
+    assert _rows(body) == [
+        ("1", "Frame", 1, 1),
+        ("2", "Fork", 1, 1),
+        ("3", "Crank arm", 2, 2),
+        ("4", "Hub", 2, 2),
+        ("5", "Rim", 2, 2),
+        ("6", "Spoke", 64, 64),
+    ]
+    assert all(line["level"] == 0 for line in body["lines"])
+    assert body["total_parts"] == sum(line["quantity"] for line in body["lines"])
+
+
+def test_an_unknown_structure_is_refused(client: TestClient) -> None:
+    ids = _bike(client)
+    drawing_id, sheet_id = _drawing_of(client, "bike-bad", ids["Bike"])
+    response = _set_structure(client, drawing_id, sheet_id, "all_levels")
+    assert response.status_code == 422, response.text
+    assert _bom(client, drawing_id).json()["structure"] == "top_level"
+
+
+def test_a_duplicated_drawing_keeps_its_structure(client: TestClient) -> None:
+    ids = _bike(client)
+    drawing_id, sheet_id = _drawing_of(client, "bike-dup", ids["Bike"])
+    _set_structure(client, drawing_id, sheet_id, "parts_only")
+    response = client.post(
+        f"/api/v1/drawings/{drawing_id}/duplicate", json={}, headers=_headers()
+    )
+    assert response.status_code == 201, response.text
+    copy_id = response.json()["id"]
+    assert _bom(client, copy_id).json()["structure"] == "parts_only"
+
+
+def test_an_opposite_hand_crank_arm_is_its_own_item_at_every_level(
+    client: TestClient,
+) -> None:
+    """DRAWING-PARTS-LIST-MIRROR: a Crankset whose left arm is the right arm's
+    opposite hand (ASM-MIRROR-COMPONENT) lists Crank arm and Crank arm
+    (opposite hand) as 2.1 and 2.2 under it, and as items of their own in
+    Parts only."""
+    arm = _create_part(client, "Crank arm")
+    frame = _create_part(client, "Frame")
+    crankset = _create_assembly(client, "Crankset")
+    right = _add_instance(client, crankset, arm, 0, name="Crank arm <1>")
+    mirror = client.post(
+        f"/api/v1/assemblies/{crankset}/mirrors",
+        json={
+            "expected_version": 1,
+            "mirror": {
+                "seed_instance_ids": [right],
+                "plane": {"kind": "origin_plane", "plane": "yz"},
+                "opposite_hand_instance_ids": [right],
+            },
+        },
+        headers=_headers(),
+    )
+    assert mirror.status_code == 201, mirror.text
+    bike = _create_assembly(client, "Bike")
+    _add_instance(client, bike, frame, 0, name="Frame <1>")
+    _add_instance(
+        client, bike, crankset, 1, ref_document_kind="assembly", name="Crankset"
+    )
+    drawing_id, sheet_id = _drawing_of(client, "bike-mirror", bike)
+
+    _set_structure(client, drawing_id, sheet_id, "indented")
+    body = _bom(client, drawing_id).json()
+    assert _rows(body) == [
+        ("1", "Frame", 1, 1),
+        ("2", "Crankset", 1, 1),
+        ("2.1", "Crank arm", 1, 1),
+        ("2.2", "Crank arm (opposite hand)", 1, 1),
+    ]
+    assert body["lines"][3]["opposite_hand"] is True
+
+    _set_structure(client, drawing_id, sheet_id, "parts_only")
+    body = _bom(client, drawing_id).json()
+    assert _rows(body) == [
+        ("1", "Frame", 1, 1),
+        ("2", "Crank arm", 1, 1),
+        ("3", "Crank arm (opposite hand)", 1, 1),
+    ]

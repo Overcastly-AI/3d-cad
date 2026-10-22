@@ -53,6 +53,21 @@ mapped by an isometry onto a CANONICAL one, framed there and mapped back:
   the centreline: the commons' plumb cut less the hip's drop), so the fascia
   line is straight. 1.0.0 and 1.1.0 are released and keep their full tails.
 
+**1.3.0 names** (ROOF-MEMBER-RENUMBER, RESEARCH §23): 1.2.0's members in
+1.2.0's order with 1.2.0's geometry, each named by its place, so lengthening,
+re-spacing, re-pitching or re-picking the walls never hands one member's id
+to another. A plane is named by the way its wall faces in the world
+(``front`` is -Y, ``left`` -X; ``_notch`` for the two walls at an L's inside
+corner); a layout line by its plane and slot: ``<plane>/ridge/start`` (the
+ridge-end common, the layout's origin), ``.../ridge/slot/n`` at n spacings
+from it, ``.../ridge/end`` (the flush far one), ``<plane>/king``, and
+``<plane>/<other>/n`` for the n-th line from the end common toward the hip
+it shares with plane *other*. A hip, valley or ridge is named by the two
+planes it divides (``back/left``). No name embeds a feature id. Two layout
+lines within 1e-9 in are one. 1.2.0 frames one too (ROOF-L-DOUBLED-COMMON):
+it lays the ulp-off twin out and numbers it as before, then drops its own
+features, so every other member keeps its id.
+
 Every cutter outline and every uncut profile runs past the faces it does not
 make (``PAST``, ``_SIDE``), so no cutter face coincides with a member's
 (DECK's float class). Feature counts are bounded: a roof of more than
@@ -95,7 +110,7 @@ from loft_plugins.builtin.roof import (
     PlaneRef,
     Rafter,
     ccw,
-    expand,
+    gable,
     hip_sides,
     inches,
     material_input,
@@ -424,6 +439,14 @@ class Eave:
     positions: tuple[float, ...]
     pieces: tuple[Piece, ...]
     valley: Half | None = None
+    #: 1.3.0: the plane's name (``front``, ``left_notch``) and each layout
+    #: line's slot (``ridge/slot/2``, ``king``, ``left/1``), with *positions*.
+    name: str = ""
+    names: tuple[str, ...] = ()
+    #: 1.2.0 (ROOF-L-DOUBLED-COMMON): the positions in *positions* within
+    #: 1e-9 in of a line 1.3.0 keeps. Laid out and numbered as before, then
+    #: dropped, so every other member keeps its index.
+    twins: frozenset[float] = frozenset()
 
     def at(self, p: float, d: float) -> Vec2:
         return (
@@ -448,6 +471,8 @@ class LineMember:
     slope: float
     rip: tuple[float, float] | None  # (s_step, rip depth) of a ripped tail
     seat: Strip | None
+    #: The two planes it divides (1.3.0's name: ``back/left``).
+    name: str = ""
 
 
 @dataclass(frozen=True)
@@ -459,6 +484,8 @@ class Board:
     v0: float
     v1: float
     top: float
+    #: The two planes it divides (1.3.0's name: ``back/front``).
+    name: str = ""
 
 
 @dataclass
@@ -495,6 +522,57 @@ def _outward(p: float, spacing: float, sign: int, limit: float) -> list[float]:
         n += 1
 
 
+#: 1.3.0's slack between two layout lines that are one (in): two series can
+#: reach one place by different sums (ROOF-MEMBER-RENUMBER).
+_TOUCH = 1e-9
+#: A layout line's place: its position along the eave and its slot's name.
+Slot = tuple[float, str]
+#: A king common's slot (the ridge-end common on an end wall).
+KING = "king"
+_FACING: dict[Dir, str] = {
+    (0, -1): "front",
+    (0, 1): "back",
+    (-1, 0): "left",
+    (1, 0): "right",
+}
+
+
+def eave_name(iso: Iso, inward: Dir, notch: bool = False) -> str:
+    """A plane's 1.3.0 name: the way its wall faces in the WORLD (``front`` is
+    -Y, ``left`` -X), ``_notch`` for the two walls at an L's inside corner.
+    It does not depend on the canonical frame, so neither picking the walls
+    in another order nor an arm growing past the other renames a plane."""
+    world = iso.dir(inward)
+    return _FACING[(-world[0], -world[1])] + ("_notch" if notch else "")
+
+
+def pair(a: str, b: str) -> str:
+    """A hip's, valley's or ridge's 1.3.0 name: the two planes it divides."""
+    return "/".join(sorted((a, b)))
+
+
+def ridge_slots(p0: float, p1: float, spacing: float, t: float) -> list[Slot]:
+    """:func:`ridge_layout` named: ``ridge/start`` (the ridge-end common at
+    *p0*, the layout's origin), ``ridge/slot/n`` at ``n x spacing`` from it
+    and ``ridge/end`` (the flush one at *p1*)."""
+    layout = ridge_layout(p0, p1, spacing, t)
+    names = ["ridge/start", *(f"ridge/slot/{n}" for n in range(1, len(layout)))]
+    if len(layout) > 1 and layout[-1] == p1:
+        names[-1] = "ridge/end"
+    return list(zip(layout, names, strict=True))
+
+
+def jack_slots(
+    p: float, spacing: float, sign: int, limit: float, toward: str
+) -> list[Slot]:
+    """:func:`_outward` named: ``<toward>/n``, the jack *n* spacings from the
+    end common at *p* toward the hip it shares with the plane *toward*."""
+    return [
+        (c, f"{toward}/{n}")
+        for n, c in enumerate(_outward(p, spacing, sign, limit), start=1)
+    ]
+
+
 def _face_piece(
     origin: Vec2,
     along: Dir,
@@ -516,8 +594,10 @@ def _face_piece(
     return Piece(p0, p1, side_of(n, c, ref, offset), square)
 
 
-def frame_plan(shape: Shape, dims: Dims) -> Plan:
-    """The roof's ridges, planes and hips/valleys on the canonical shape."""
+def frame_plan(shape: Shape, dims: Dims, named: bool = False) -> Plan:
+    """The roof's ridges, planes and hips/valleys on the canonical shape.
+    *named* (1.3.0): every layout line carries its slot's name, and layout
+    lines within 1e-9 in of each other are one (module docstring)."""
     t, s, oh = dims.t, dims.spacing, dims.overhang
     tr = dims.ridge.thickness_in
     hh = dims.hip.thickness_in / _R2
@@ -530,16 +610,32 @@ def frame_plan(shape: Shape, dims: Dims) -> Plan:
     uL, uR = w1 / 2, A - w1 / 2
     top = dims.plate + dims.hap
     h_top = top + dims.k * (w1 / 2 - tr / 2)
-    plan.boards.append(Board(uL - t / 2, uR + t / 2, vH - tr / 2, vH + tr / 2, h_top))
-    h_layout = ridge_layout(uL, uR, s, t)
+    iso = shape.iso
+    # The planes' names, by the way each faces in the world (module docstring).
+    n_back, n_left = eave_name(iso, (0, -1)), eave_name(iso, (1, 0))
+    n_right = eave_name(iso, (-1, 0))
+    n_front = eave_name(iso, (0, 1), notch=shape.is_l)
+    plan.boards.append(
+        Board(
+            uL - t / 2,
+            uR + t / 2,
+            vH - tr / 2,
+            vH + tr / 2,
+            h_top,
+            pair(n_back, n_front),
+        )
+    )
+    h_layout = ridge_slots(uL, uR, s, t)
 
     def eave(
         origin: Vec2,
         along: Dir,
         inward: Dir,
-        positions: Iterable[float],
+        slots: Sequence[Sequence[Slot]],
         tops: Sequence[tuple[float, float, Dir, float, float, bool]],
         valley: tuple[Dir, float] | None = None,
+        *,
+        name: str,
     ) -> Eave:
         pieces = tuple(
             _face_piece(origin, along, inward, p0, p1, n, c, off, sq)
@@ -552,7 +648,28 @@ def frame_plan(shape: Shape, dims: Dims) -> Plan:
             probe = Eave(origin, along, inward, (), pieces)
             ref = probe.at(0.0, 1e6)
             low = side_of(n, c, ref, dims.valley.thickness_in / 2)
-        return Eave(origin, along, inward, tuple(sorted(set(positions))), pieces, low)
+        # One layout line per place: the first group's (a king, then a ridge
+        # layout, then the jacks) wins a place two groups reach within 1e-9.
+        kept: list[Slot] = []
+        for group in slots:
+            for p, label in group:
+                if all(abs(p - q) > _TOUCH for q, _ in kept):
+                    kept.append((p, label))
+        kept.sort()
+        if not named:
+            positions = tuple(sorted({p for group in slots for p, _ in group}))
+            twins = frozenset(positions) - {p for p, _ in kept}
+            return Eave(origin, along, inward, positions, pieces, low, twins=twins)
+        return Eave(
+            origin,
+            along,
+            inward,
+            tuple(p for p, _ in kept),
+            pieces,
+            low,
+            name,
+            tuple(label for _, label in kept),
+        )
 
     # Hip lines (centre): n . X = c.
     h_top_left: tuple[Dir, float] = ((1, 1), B)  # from (0, B)
@@ -569,12 +686,17 @@ def frame_plan(shape: Shape, dims: Dims) -> Plan:
             (0.0, B),
             (1, 0),
             (0, -1),
-            [*h_layout, *_outward(uL, s, -1, -oh), *_outward(uR, s, 1, A + oh)],
+            [
+                h_layout,
+                jack_slots(uL, s, -1, -oh, n_left),
+                jack_slots(uR, s, 1, A + oh, n_right),
+            ],
             [
                 (-inf, uL - t / 2, *h_top_left, th2, False),
                 ridge_top,
                 (uR + t / 2, inf, *h_top_right, th2, False),
             ],
+            name=n_back,
         )
     )
     plan.eaves.append(
@@ -582,12 +704,17 @@ def frame_plan(shape: Shape, dims: Dims) -> Plan:
             (0.0, 0.0),
             (0, 1),
             (1, 0),
-            [vH, *_outward(vH, s, -1, b - oh), *_outward(vH, s, 1, B + oh)],
+            [
+                [(vH, KING)],
+                jack_slots(vH, s, -1, b - oh, n_front),
+                jack_slots(vH, s, 1, B + oh, n_back),
+            ],
             [
                 (-inf, vH - t / 2, *h_low_left, th2, False),
                 king_left,
                 (vH + t / 2, inf, *h_top_left, th2, False),
             ],
+            name=n_left,
         )
     )
     corners: list[tuple[Vec2, Dir, float]] = [
@@ -603,12 +730,17 @@ def frame_plan(shape: Shape, dims: Dims) -> Plan:
                 (0.0, 0.0),
                 (1, 0),
                 (0, 1),
-                [*h_layout, *_outward(uL, s, -1, -oh), *_outward(uR, s, 1, A + oh)],
+                [
+                    h_layout,
+                    jack_slots(uL, s, -1, -oh, n_left),
+                    jack_slots(uR, s, 1, A + oh, n_right),
+                ],
                 [
                     (-inf, uL - t / 2, *h_low_left, th2, False),
                     ridge_low,
                     (uR + t / 2, inf, *h_low_right, th2, False),
                 ],
+                name=n_front,
             )
         )
         plan.eaves.append(
@@ -616,12 +748,17 @@ def frame_plan(shape: Shape, dims: Dims) -> Plan:
                 (A, 0.0),
                 (0, 1),
                 (-1, 0),
-                [vH, *_outward(vH, s, -1, -oh), *_outward(vH, s, 1, B + oh)],
+                [
+                    [(vH, KING)],
+                    jack_slots(vH, s, -1, -oh, n_front),
+                    jack_slots(vH, s, 1, B + oh, n_back),
+                ],
                 [
                     (-inf, vH - t / 2, *h_low_right, th2, False),
                     king_right,
                     (vH + t / 2, inf, *h_top_right, th2, False),
                 ],
+                name=n_right,
             )
         )
         corners.append(((A, 0.0), (-1, 1), w1 / 2 - t / 2))
@@ -629,13 +766,24 @@ def frame_plan(shape: Shape, dims: Dims) -> Plan:
         return plan
 
     # The L: V arm, valley, and (unequal) the hip N1 -> N2.
+    n_wing_left = eave_name(iso, (1, 0), notch=True)
+    n_wing_front = eave_name(iso, (0, 1))
     w2 = shape.w2
     uV, vB = (uR if shape.equal else a + w2 / 2), w2 / 2
     vT = vH if shape.equal else b + w2 / 2
     v_top = top + dims.k * (w2 / 2 - tr / 2)
     v_end = vH - tr / 2 if shape.equal else vT + t / 2
-    plan.boards.append(Board(uV - tr / 2, uV + tr / 2, vB - t / 2, v_end, v_top))
-    v_layout = ridge_layout(vB, vT, s, t)
+    plan.boards.append(
+        Board(
+            uV - tr / 2,
+            uV + tr / 2,
+            vB - t / 2,
+            v_end,
+            v_top,
+            pair(n_wing_left, n_right),
+        )
+    )
+    v_layout = ridge_slots(vB, vT, s, t)
     valley_line: tuple[Dir, float] = ((-1, 1), b - a)  # v - u = b - a
     h5: tuple[Dir, float] = ((-1, 1), -a)  # from (a, 0)
     h4: tuple[Dir, float] = ((1, 1), A)  # from (A, 0)
@@ -649,12 +797,12 @@ def frame_plan(shape: Shape, dims: Dims) -> Plan:
         (-inf, uL - t / 2, *h_low_left, th2, False),
         ridge_low,
     ]
-    mf_positions = [*h_layout, *_outward(uL, s, -1, -oh)]
+    mf_slots = [h_layout, jack_slots(uL, s, -1, -oh, n_left)]
     if not shape.equal:
         mf_tops.append((uR + t / 2, uV - tr / 2, *h6, th2, False))
-        mf_positions += _outward(uR, s, 1, uV)
+        mf_slots.append(jack_slots(uR, s, 1, uV, n_right))
     plan.eaves.append(
-        eave((0.0, b), (1, 0), (0, 1), mf_positions, mf_tops, valley_line)
+        eave((0.0, b), (1, 0), (0, 1), mf_slots, mf_tops, valley_line, name=n_front)
     )
     # Wing left (u = a, v 0..b).
     plan.eaves.append(
@@ -662,9 +810,10 @@ def frame_plan(shape: Shape, dims: Dims) -> Plan:
             (a, 0.0),
             (0, 1),
             (1, 0),
-            [*v_layout, *_outward(vB, s, -1, -oh)],
+            [v_layout, jack_slots(vB, s, -1, -oh, n_wing_front)],
             [(-inf, vB - t / 2, *h5, th2, False), v_left],
             valley_line,
+            name=n_wing_left,
         )
     )
     # Wing front (v = 0, u a..A): V's hipped end.
@@ -673,12 +822,17 @@ def frame_plan(shape: Shape, dims: Dims) -> Plan:
             (0.0, 0.0),
             (1, 0),
             (0, 1),
-            [uV, *_outward(uV, s, -1, a - oh), *_outward(uV, s, 1, A + oh)],
+            [
+                [(uV, KING)],
+                jack_slots(uV, s, -1, a - oh, n_wing_left),
+                jack_slots(uV, s, 1, A + oh, n_right),
+            ],
             [
                 (-inf, uV - t / 2, *h5, th2, False),
                 v_king,
                 (uV + t / 2, inf, *h4, th2, False),
             ],
+            name=n_wing_front,
         )
     )
     # Right (u = A, v 0..B).
@@ -686,11 +840,15 @@ def frame_plan(shape: Shape, dims: Dims) -> Plan:
         (-inf, vB - t / 2, *h4, th2, False),
         v_right,
     ]
-    r_positions = [*v_layout, *_outward(vB, s, -1, -oh), vH]
-    r_positions += _outward(vH, s, 1, B + oh)
+    r_slots = [
+        [(vH, KING)],
+        v_layout,
+        jack_slots(vB, s, -1, -oh, n_wing_front),
+        jack_slots(vH, s, 1, B + oh, n_back),
+    ]
     if not shape.equal:
         r_tops.append((vT + t / 2, vH - t / 2, *h6, th2, False))
-        r_positions += _outward(vH, s, -1, vT)
+        r_slots.append(jack_slots(vH, s, -1, vT, n_front))
     r_tops += [king_right, (vH + t / 2, inf, *h_top_right, th2, False)]
     if shape.equal:
         r_tops = [
@@ -699,7 +857,7 @@ def frame_plan(shape: Shape, dims: Dims) -> Plan:
             king_right,
             (vH + t / 2, inf, *h_top_right, th2, False),
         ]
-    plan.eaves.append(eave((A, 0.0), (0, 1), (-1, 0), r_positions, r_tops))
+    plan.eaves.append(eave((A, 0.0), (0, 1), (-1, 0), r_slots, r_tops, name=n_right))
 
     corners += [
         ((A, 0.0), (-1, 1), w2 / 2 - t / 2),
@@ -727,6 +885,7 @@ def frame_plan(shape: Shape, dims: Dims) -> Plan:
             dims.m,
             _rip(dims, dims.valley, 0.0, top),
             _seat(strip, (a, b), (1, 1), pad, dims, reflex=True),
+            pair(n_front, n_wing_left),
         )
     )
     if not shape.equal:
@@ -738,7 +897,9 @@ def frame_plan(shape: Shape, dims: Dims) -> Plan:
         upper6 = ((Half((-1, 0), -(uR + t / 2)),), (Half((0, 1), vH - t / 2),))
         hip6 = Strip(n1, (-1, 1), pad_h, lower, upper6)
         z0 = top + dims.k * (w2 / 2) - dims.m * dims.hip.thickness_in / 2
-        plan.lines.append(LineMember("hip", hip6, z0, dims.m, None, None))
+        plan.lines.append(
+            LineMember("hip", hip6, z0, dims.m, None, None, pair(n_front, n_right))
+        )
     return plan
 
 
@@ -789,6 +950,13 @@ def _corner_hips(
     pad = dims.hip.thickness_in / 2 + _SIDE
     z0 = dims.plate + dims.hap - dims.m * dims.hip.thickness_in / 2
     for (cu, cv), (du, dv), run in corners:
+        # The two planes whose walls meet at the corner.
+        meeting = [
+            e.name
+            for e in plan.eaves
+            if abs(e.inward[0] * (cu - e.origin[0]) + e.inward[1] * (cv - e.origin[1]))
+            < _TOUCH
+        ]
         # Along each wall from the corner: -oh (the fascia corner) .. run (the
         # inside corner of the ridge-end and king commons).
         lower = (
@@ -808,6 +976,7 @@ def _corner_hips(
                 dims.m,
                 _rip(dims, dims.hip, dims.hip.thickness_in / 2, z0),
                 _seat(strip, (cu, cv), (du, dv), pad, dims, reflex=False),
+                pair(*meeting) if len(meeting) == 2 else "",
             )
         )
 
@@ -823,6 +992,11 @@ class EaveMember:
     profile: list[Vec2]  # (d, z)
     cutter: list[Vec2] | None  # canonical plan polygon, or None
     run: float  # plan run on the centreline, for the line length
+    #: 1.3.0: ``<plane>/<slot>`` (``front/ridge/slot/2``, ``left/front/1``).
+    name: str | None = None
+    #: 1.2.0: an ulp-off twin of a kept line, dropped once numbered
+    #: (:attr:`Eave.twins`).
+    twin: bool = False
 
 
 def _band_strip(
@@ -848,7 +1022,7 @@ def eave_members(eave: Eave, dims: Dims) -> list[EaveMember]:
     t, oh, seat = dims.t, dims.overhang, dims.seat
     half = t / 2
     out: list[EaveMember] = []
-    for c in eave.positions:
+    for i, c in enumerate(eave.positions):
         piece = next(
             (
                 p
@@ -931,6 +1105,8 @@ def eave_members(eave: Eave, dims: Dims) -> list[EaveMember]:
                 profile,
                 cutter.outline() if needs_cutter else None,
                 exact.hi(0.0) - low_c,
+                f"{eave.name}/{eave.names[i]}" if eave.names else None,
+                c in eave.twins,
             )
         )
     return out
@@ -1006,7 +1182,9 @@ def _line_profile(member: LineMember, plumb: float) -> list[Vec2]:
     ]
 
 
-def hip_roof(inputs: ExpandInputs, fp: Footprint, typed: bool) -> list[Member]:
+def hip_roof(
+    inputs: ExpandInputs, fp: Footprint, typed: bool, named: bool = False
+) -> list[Member]:
     rise = {pitch_value(r): r for r in PITCHES}[inputs.choice("pitch")]
     dims = Dims(
         rise=rise,
@@ -1049,7 +1227,7 @@ def hip_roof(inputs: ExpandInputs, fp: Footprint, typed: bool) -> list[Member]:
             f"({plumb:.3f} in): choose a deeper valley.",
             "valley_profile",
         )
-    plan = frame_plan(shape, dims)
+    plan = frame_plan(shape, dims, named)
     rafters = [m for e in plan.eaves for m in eave_members(e, dims)]
     total = len(rafters) + len(plan.lines) + len(plan.boards)
     if total > MAX_ROOF_MEMBERS:
@@ -1058,7 +1236,7 @@ def hip_roof(inputs: ExpandInputs, fp: Footprint, typed: bool) -> list[Member]:
             f"{MAX_ROOF_MEMBERS}: widen the spacing, or split the roof.",
             "spacing_mm",
         )
-    return _emit(inputs, shape, dims, plan, rafters)
+    return _emit(inputs, shape, dims, plan, rafters, named)
 
 
 def _emit(
@@ -1067,9 +1245,15 @@ def _emit(
     dims: Dims,
     plan: Plan,
     rafters: list[EaveMember],
+    named: bool = False,
 ) -> list[Member]:
+    """The members, in 1.2.0's order. *named* (1.3.0): a body by its place
+    (``member.name``), its section ``<role>/<name>``, its k-th cutter and
+    trim ``<role>/<name>/<k>`` (the cutter's section ``cutter/...``), a hip's
+    or valley's midplane ``<role>/<name>``; offset datums by their offset
+    (:class:`~loft_plugins.builtin.roof.Builder`)."""
     iso = shape.iso
-    b = Builder(inputs)
+    b = Builder(inputs, named)
     t = dims.t
     rafter_meta = MemberMetadata(
         profile=dims.rafter.name, material=inputs.material("rafter_material")
@@ -1090,29 +1274,38 @@ def _emit(
         else b.plane("XY", low)
     )
 
-    def prism(outline: list[Vec2], up_to: float) -> FeatureRef:
-        section = b.sketch(base, _world(iso, outline))
-        return b.extrude("cutter", section, up_to - low)
+    def prism(outline: list[Vec2], up_to: float, name: str) -> FeatureRef:
+        section = b.sketch(base, _world(iso, outline), f"cutter/{name}")
+        return b.extrude("cutter", section, up_to - low, name=name)
 
     order = {kind: i for i, kind in enumerate(_ORDER)}
     ranked = sorted(
         enumerate(rafters),
         key=lambda item: (order[item[1].kind], -round(item[1].run, 6), item[0]),
     )
+    dropped: set[int] = set()
     for _, member in ranked:
+        start = len(b.members)
+        key = f"{member.kind}/{member.name}"
         plane = _side_plane(b, iso, member.eave, member.centre, t)
         section = b.sketch(
-            plane, _side_outline(iso, member.eave, member.centre, member.profile)
+            plane,
+            _side_outline(iso, member.eave, member.centre, member.profile),
+            key,
         )
-        body = b.extrude(member.kind, section, t, rafter_meta)
+        body = b.extrude(member.kind, section, t, rafter_meta, name=member.name)
         if member.cutter is not None:
-            b.trim(body, prism(member.cutter, height), "intersect")
+            cut = f"{key}/0"
+            b.trim(body, prism(member.cutter, height, cut), "intersect", cut)
+        if member.twin:
+            dropped.update(range(start, len(b.members)))
 
     for kind in ("hip", "valley"):
         profile = dims.hip if kind == "hip" else dims.valley
         meta = MemberMetadata(profile=profile.name, material=ridge_mat)
         plumb = dims.line_plumb(profile)
         for line in (ln for ln in plan.lines if ln.kind == kind):
+            key = f"{kind}/{line.name}"
             point = iso.point(line.strip.origin)
             corner = Corner(point, iso.dir(line.strip.direction))
             y, flip = hip_sides(corner)
@@ -1127,12 +1320,28 @@ def _emit(
                         b=b.plane("XZ", -y, flip=flip),
                     ),
                 ),
+                name=key,
             )
-            section = b.sketch(mid, _line_outline(corner, _line_profile(line, plumb)))
-            body = b.extrude(kind, section, profile.thickness_in, meta, symmetric=True)
-            b.trim(body, prism(line.strip.outline(), height), "intersect")
+            section = b.sketch(
+                mid, _line_outline(corner, _line_profile(line, plumb)), key
+            )
+            body = b.extrude(
+                kind,
+                section,
+                profile.thickness_in,
+                meta,
+                symmetric=True,
+                name=line.name,
+            )
+            b.trim(
+                body,
+                prism(line.strip.outline(), height, f"{key}/0"),
+                "intersect",
+                f"{key}/0",
+            )
             if line.seat is not None:
-                b.trim(body, prism(line.seat.outline(), dims.plate), "subtract")
+                seat = prism(line.seat.outline(), dims.plate, f"{key}/1")
+                b.trim(body, seat, "subtract", f"{key}/1")
 
     ridge_meta = MemberMetadata(profile=dims.ridge.name, material=ridge_mat)
     boards = sorted(plan.boards, key=lambda bd: -max(bd.u1 - bd.u0, bd.v1 - bd.v0))
@@ -1150,9 +1359,44 @@ def _emit(
             plane = b.plane("XZ", -y1)
             outline = [(x0, bottom), (x1, bottom), (x1, board.top), (x0, board.top)]
             length = y1 - y0
-        section = b.sketch(plane, outline)
-        b.extrude("ridge", section, length, ridge_meta)
-    return b.members
+        section = b.sketch(plane, outline, f"ridge/{board.name}")
+        b.extrude("ridge", section, length, ridge_meta, name=board.name)
+    return _drop_twins(inputs, b.members, dropped)
+
+
+def _drop_twins(
+    inputs: ExpandInputs, members: list[Member], dropped: set[int]
+) -> list[Member]:
+    """*members* less the features only an ulp-off twin made
+    (ROOF-L-DOUBLED-COMMON): its datum, section, body, cutter and trim. The
+    rest keep their ``(role, index)``, so their ids; a feature that named the
+    twin finds its member gone, as SolidWorks flags a dangling reference,
+    never rebound. Only a twin's DATUM may stay, when a later member is
+    sketched on the same plane; any other feature of the twin that a kept
+    member names (its body above all) is a layout bug, refused here rather
+    than kept as a second body."""
+    if not dropped:
+        return members
+    ids = {
+        i: str(inputs.ref(m.role, m.index, m.name).feature_id)
+        for i, m in enumerate(members)
+        if i in dropped
+    }
+    kept_json = [
+        m.feature.model_dump_json() for j, m in enumerate(members) if j not in dropped
+    ]
+    used = {i for i, fid in ids.items() if any(fid in text for text in kept_json)}
+    wrong = sorted(
+        f"{members[i].role}/{members[i].index}"
+        for i in used
+        if members[i].role != "plane"
+    )
+    if wrong:
+        raise RuntimeError(
+            f"loft.roof: a kept member names a dropped twin's {', '.join(wrong)}"
+        )
+    gone = dropped - used
+    return [m for i, m in enumerate(members) if i not in gone]
 
 
 def typed_footprint(inputs: ExpandInputs) -> Footprint:
@@ -1167,6 +1411,16 @@ def typed_footprint(inputs: ExpandInputs) -> Footprint:
 
 
 def expand_v1_2(inputs: ExpandInputs) -> Iterable[Member]:
+    return _expand(inputs, named=False)
+
+
+def expand_v1_3(inputs: ExpandInputs) -> Iterable[Member]:
+    """1.3.0: 1.2.0's members in 1.2.0's order, each named by its place
+    (ROOF-MEMBER-RENUMBER, module docstring)."""
+    return _expand(inputs, named=True)
+
+
+def _expand(inputs: ExpandInputs, named: bool) -> list[Member]:
     overhang = inches("overhang_mm", inputs)
     if 0.0 < overhang < MIN_OVERHANG_IN - 1e-9:
         raise unsupported(
@@ -1181,12 +1435,43 @@ def expand_v1_2(inputs: ExpandInputs) -> Iterable[Member]:
                 "A gable bears on its typed span and length: leave Walls empty, or "
                 "choose Style Hip to roof the walls you picked."
             )
-        return list(expand(inputs))
+        return list(gable(inputs, named))
     if style != STYLE_HIP:
         raise unsupported(f"{style!r} is not a roof style", "style")
     if picked is None:
-        return hip_roof(inputs, typed_footprint(inputs), typed=True)
-    return hip_roof(inputs, picked, typed=False)
+        return hip_roof(inputs, typed_footprint(inputs), typed=True, named=named)
+    return hip_roof(inputs, picked, typed=False, named=named)
 
 
-ROOF_V1_2 = Plugin(MANIFEST_V1_2, expand_v1_2)
+#: 1.2.0 numbers in emission order (commons, then jacks, ... by run): a longer
+#: roof, a new spacing, a pitch that frames another jack or a re-shaped
+#: footprint moves the numbers of nearly every role. Its one valley is always
+#: the L's (ROOF-MEMBER-RENUMBER).
+_RENUMBERED_V1_2 = frozenset(
+    {
+        "plane",
+        "section",
+        "rafter",
+        "common",
+        "jack",
+        "valley_jack",
+        "cripple",
+        "hip",
+        "ridge",
+        "cutter",
+        "trim",
+    }
+)
+
+ROOF_V1_2 = Plugin(MANIFEST_V1_2, expand_v1_2, renumbered_roles=_RENUMBERED_V1_2)
+
+MANIFEST_V1_3 = MANIFEST_V1_2.model_copy(
+    update={
+        "version": "1.3.0",
+        "description": MANIFEST_V1_2.description
+        + " Each member keeps its name when the roof is lengthened, re-spaced or "
+        "re-pitched.",
+    }
+)
+
+ROOF_V1_3 = Plugin(MANIFEST_V1_3, expand_v1_3)

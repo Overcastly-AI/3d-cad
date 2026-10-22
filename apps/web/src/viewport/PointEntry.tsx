@@ -105,8 +105,8 @@ export function PointEntry({ basis }: { basis: PlaneBasis }) {
     buffered.current = null;
     cellsRef.current = { nonce: null, nodes: [null, null] };
     commit({
-      x: x.kind === "value" ? x.mm : anchor.x,
-      y: y.kind === "value" ? y.mm : anchor.y,
+      x: x.kind === "value" ? x.value : anchor.x,
+      y: y.kind === "value" ? y.value : anchor.y,
     });
     invalidate();
     return true;

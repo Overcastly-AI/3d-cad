@@ -9,6 +9,7 @@ changes a feature pinned to an older one.
 
 import uuid
 from collections.abc import Iterator
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -16,7 +17,8 @@ from documents import custom_features
 from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
 from loft_plugins import REGISTRY, PluginRegistry
-from loft_plugins.testing import BLOCKS_V1, BLOCKS_V2
+from loft_plugins.api import ExpandInputs, Member, Plugin
+from loft_plugins.testing import BLOCKS_V1, BLOCKS_V2, expand_v1
 from loft_wire.parts import PRINCIPAL_HEADER
 from loft_wire.plugins import member_id
 
@@ -371,14 +373,19 @@ def test_the_catalog_needs_a_principal(client: TestClient) -> None:
     served = client.get("/api/v1/plugins", headers=HEADERS)
     assert served.status_code == 200
     assert [(p["id"], p["version"]) for p in served.json()["plugins"]] == [
+        ("loft.deck", "1.1.0"),
         ("loft.deck", "1.0.0"),
         ("loft.door", "1.0.0"),
+        ("loft.floor", "1.1.0"),
         ("loft.floor", "1.0.0"),
+        ("loft.roof", "1.3.0"),
         ("loft.roof", "1.2.0"),
         ("loft.roof", "1.1.0"),
         ("loft.roof", "1.0.0"),
         ("loft.timber_frame", "1.0.0"),
         ("loft.twisted_prism", "1.0.0"),
+        ("loft.wall", "1.2.0"),
+        ("loft.wall", "1.1.0"),
         ("loft.wall", "1.0.0"),
         ("loft.window", "1.0.0"),
     ]
@@ -563,3 +570,81 @@ def test_a_re_expansion_may_not_drop_a_referenced_member(
     assert error["code"] == "feature_has_dependents"
     assert [d["name"] for d in error["details"]["dependents"]] == ["Later"]
     assert part.patch(blocks_id, feature=_blocks(count=3)).status_code == 200
+
+
+# --- Reorder: an expansion that depends on tree order -------------------------------
+
+
+def _ordered_expand(inputs: ExpandInputs) -> list[Member]:
+    """Blocks, one per sketch before the feature: an expansion a reorder
+    changes. No first-party plugin's does (a wall lays its openings out by
+    position, a roof reads only the walls it picks, which stay earlier); the
+    guard is for one that will."""
+    sketches = sum(
+        1 for env in inputs.earlier.values() if getattr(env, "type", "") == "sketch"
+    )
+    values = {**inputs.values, "count": max(sketches, 1)}
+    return expand_v1(replace(inputs, values=values))
+
+
+ORDERED = Plugin(
+    BLOCKS_V1.manifest.model_copy(update={"id": "test.ordered"}), _ordered_expand
+)
+
+
+def _reorder(part: Part, order: list[str]) -> Any:
+    response = part.client.put(
+        f"/api/v1/parts/{part.id}/features/order",
+        json={"expected_tree_version": part.version, "order": order},
+        headers=HEADERS,
+    )
+    if response.status_code == 200:
+        part.version = response.json()["tree_version"]
+    return response
+
+
+def test_a_reorder_that_drops_a_referenced_member_is_refused(
+    client: TestClient, plugins: list[PluginRegistry]
+) -> None:
+    """Two sketches before the feature give two blocks; a Boolean names
+    block/1. Moving the second sketch after the feature would expand one
+    block: the reorder is refused (409) naming the Boolean, and the tree is
+    as it was. A reorder that keeps both sketches before it is allowed."""
+    plugins[0] = PluginRegistry([BLOCKS_V1, ORDERED])
+    part = Part(client)
+    first, second = part.sketch(), part.sketch()
+    ordered = _blocks()
+    ordered["params"]["plugin_id"] = "test.ordered"
+    created = part.post(ordered, "Blocks")
+    assert created.status_code == 201, created.text
+    feature = str(created.json()["feature"]["id"])
+    block = member_id(uuid.UUID(feature), "block", 1)
+    expansion = created.json()["feature"]["feature"]["params"]["expansion"]
+    assert str(block) in {m["id"] for m in expansion}
+    cut = part.post(
+        {
+            "type": "boolean",
+            "version": 1,
+            "params": {
+                "operation": "subtract",
+                "target": {"kind": "feature", "feature_id": str(block)},
+                "tool": {
+                    "kind": "feature",
+                    "feature_id": str(member_id(uuid.UUID(feature), "block", 0)),
+                },
+            },
+        },
+        "Cut",
+    )
+    assert cut.status_code == 201, cut.text
+    cut_id = str(cut.json()["feature"]["id"])
+
+    refused = _reorder(part, [first, feature, second, cut_id])
+    assert refused.status_code == 409, refused.text
+    error = refused.json()["error"]
+    assert error["code"] == "feature_has_dependents"
+    assert [d["id"] for d in error["details"]["dependents"]] == [cut_id]
+    tree = client.get(f"/api/v1/parts/{part.id}/features", headers=HEADERS).json()
+    assert [f["id"] for f in tree["features"]] == [first, second, feature, cut_id]
+
+    assert _reorder(part, [second, first, feature, cut_id]).status_code == 200

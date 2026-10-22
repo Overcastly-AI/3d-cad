@@ -1,0 +1,1022 @@
+[
+  {
+    "feature_id": "88cc909c-bb88-5047-91a5-ec1b4321eb9a",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "7c4daa32-df41-5889-90fe-5abdea4630e5",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4e67c4cf-2d82-5a77-b444-5f1b62d1121b",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f6c89ef2-5bc4-5b1d-b10a-c04de85eda74",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "64bf5ef1-f9e7-52cd-8178-7ecb19484952",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6485a32d-bd8a-581d-bc79-67a460001308",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "7ce6a935-82d5-58c4-8552-33e23bde8774",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "109359ce-677e-5be9-98ee-757f69bd1891",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ceb6933f-ecbe-50a0-a808-dfb8ed363f42",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c0b92784-e0dd-5692-9a0c-624ebf2a3ff1",
+    "role": "joist",
+    "title": "Joist",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b0e8c43b-40eb-5bec-b72f-ae912300777a",
+    "role": "rim",
+    "title": "Rim",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c0740b57-d02a-528d-8495-7205f5883cd0",
+    "role": "rim",
+    "title": "Rim",
+    "metadata": {
+      "profile": "2x8",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "cdf5540a-2d8d-58cd-958a-c1340aa09c5d",
+    "role": "sill",
+    "title": "Sill",
+    "metadata": {
+      "profile": "2x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f9d96248-345a-503c-89d8-d630f0875568",
+    "role": "sill",
+    "title": "Sill",
+    "metadata": {
+      "profile": "2x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3f113b0a-b56c-5826-9341-34e79bc2ef1d",
+    "role": "sill",
+    "title": "Sill",
+    "metadata": {
+      "profile": "2x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "158c8ca8-c3a3-566c-81fb-b9758cb139d1",
+    "role": "sill",
+    "title": "Sill",
+    "metadata": {
+      "profile": "2x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4e3ad991-4915-5884-a882-e48a8f7a201e",
+    "role": "subfloor",
+    "title": "Subfloor",
+    "metadata": {
+      "profile": "23/32 plywood",
+      "material": "plywood",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "472a7a97-0bca-509f-962d-b08de38d7e8e",
+    "role": "subfloor",
+    "title": "Subfloor",
+    "metadata": {
+      "profile": "23/32 plywood",
+      "material": "plywood",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "48502d68-d2a0-5e60-ba2a-e7e0fb9e0b03",
+    "role": "subfloor",
+    "title": "Subfloor",
+    "metadata": {
+      "profile": "23/32 plywood",
+      "material": "plywood",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a3afd632-cb16-591d-b0a4-777cdf329a50",
+    "role": "subfloor",
+    "title": "Subfloor",
+    "metadata": {
+      "profile": "23/32 plywood",
+      "material": "plywood",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "03be490f-5ebe-5ee8-97d2-ebd60579ce2d",
+    "role": "subfloor",
+    "title": "Subfloor",
+    "metadata": {
+      "profile": "23/32 plywood",
+      "material": "plywood",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "1ae189e5-fb7b-5f7e-906e-2177bbff68f6",
+    "role": "subfloor",
+    "title": "Subfloor",
+    "metadata": {
+      "profile": "23/32 plywood",
+      "material": "plywood",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "1b0a04a2-cb91-555d-92fa-ffa3c773e947",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4edb17ab-5bc6-5495-80b5-9a99a4695ecf",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "56b9e48a-65f2-5ea0-b141-27a5bd7c4866",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a132dc16-7ee4-5fad-8ec1-5a00455d860c",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "79b95c4b-b42a-54ea-8495-c3beb73b87e9",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "512440f7-ca8e-56b7-8cb0-26b6dd6bf1f7",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "27b7909e-fa5c-5b1b-a02f-e645d0f3ba7c",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b836eab2-a242-514c-942a-f799320a8cb0",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f44010e5-c954-5f0d-896d-1808da610bb7",
+    "role": "king",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6098cec5-5306-57ec-bc1d-f5c341456079",
+    "role": "king",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ea2bef70-2194-51cb-b54b-5e8d4a4779df",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "08bcc45d-5363-534b-93e3-ebb091668ca1",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "cb87526a-315a-5999-9bb3-69b1b79feeab",
+    "role": "header",
+    "title": "Header",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ab8481c9-b440-5839-9910-07bcf38f73a2",
+    "role": "header",
+    "title": "Header",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "7810e3a2-b83b-59c6-a54e-ff4eb3dc696d",
+    "role": "cripple",
+    "title": "Cripple",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a246dfba-d6d6-52fc-88f1-4f13b9d8625d",
+    "role": "cripple",
+    "title": "Cripple",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fcded109-8539-544a-9042-c79565e1f462",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f70a7601-876a-5d0a-9d41-6f3839fd6f15",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "23433f7f-b0d4-5559-b8c9-7eb82fda8f04",
+    "role": "bottom_plate",
+    "title": "Bottom plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c9876338-a972-5de2-bb74-5c0cc7c4bab7",
+    "role": "bottom_plate",
+    "title": "Bottom plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "573e77d4-b151-51b9-bbc8-476dba5920ea",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "1cd1257d-583d-5e70-a554-078563d9dd7f",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3eac8d37-09d3-5a65-81ce-06779eb665df",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b4d8ccfa-28cc-5a12-af12-452c95c3e95d",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f555c1ee-5a11-51a5-af8e-1943b7f9c0ae",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d6e5ea6a-c3e0-5ba6-9c5f-c4a1597b104c",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3d3a94fb-310d-54fc-915c-e9d71d945c21",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "44e79d1b-198c-5c0b-9c26-ddfba192d5ae",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e074f658-e63d-5d9c-b633-5c6cc2251611",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "901b8384-4398-5301-94b0-543fd809d792",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b26ff11a-60d5-5a80-be93-e732a62b177a",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "83e2dd0d-435c-5d0d-aceb-6a06258939bf",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "eeebd2a0-1db4-53be-af53-1126ce261af8",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b18c3ca5-b0dc-590f-8926-6aca887c05f9",
+    "role": "bottom_plate",
+    "title": "Bottom plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9bda85a9-a50c-5625-9238-5bffc2717837",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4a711cb1-9702-5076-9aee-3b69346844f7",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a77c52af-d827-5ebe-822f-c77918df379a",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e8289544-9342-551a-8bcb-209e1f6c77fd",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a9188845-b19d-524e-bed2-9495be024c1e",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d3bfdb82-74e8-5ce1-a6f8-4a88bbf36ce8",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "bf338ac2-2560-5ef2-b51b-91c008fac744",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9a78eeac-2db7-5f77-ba8e-630ebd2fb692",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9040bf7c-10ba-532a-964c-16600c12fe03",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3f147f68-29c2-53ec-ac42-a95c46118bc7",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9a7f8f5b-cea3-520d-8132-71dd2683bfd4",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b802670d-09b3-5460-abbe-45cdb6afd390",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "931e73d6-f416-564c-8f75-58c87382e10a",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8fc8d6ac-afec-5795-ac29-33660ecd4d7e",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "13f77cf9-56f0-5ffc-9e02-beff086ff4eb",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "59abdddb-9d90-5521-8106-36c1e39886d1",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "20cc6e5e-b4aa-5a78-9f84-b62a22ccd16c",
+    "role": "bottom_plate",
+    "title": "Bottom plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "06a22e1d-ef69-590a-a9e8-448a10c5f8cb",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b45e0f2f-a16a-583f-ab04-4bea8192e7db",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f5cd866e-210e-505c-9140-0801a8d092e9",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "79c7e36a-3390-55cc-81c3-2da0981f3a27",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c0443a14-6e92-59ff-b287-0b892cef412f",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d7cd6f07-ad3f-5d03-acd5-f727e2f2c834",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "1558eaa6-3643-594b-a6fc-d71b8d31a76d",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9e343533-4a94-5ff6-bd29-b52879c6080a",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "bfed392b-f328-5480-a8dc-9b2d16c4380e",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e6048bc6-4cb7-5e88-a5e7-c565aff0346c",
+    "role": "stud",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fb815091-9bef-5688-8af1-50fb826a04e7",
+    "role": "king",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "5a1bb001-6a49-563f-b39e-640f746b9169",
+    "role": "king",
+    "title": "Stud",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b3adb7d5-ebdc-5ad1-85f6-eb0a520dec8a",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ecfc99d3-4128-5cb4-a237-4bc749637017",
+    "role": "jack",
+    "title": "Jack",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "0e54aae8-eac3-5ddf-83c3-165f1b7fbfb5",
+    "role": "header",
+    "title": "Header",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "65ca327e-bedf-5bcb-981b-0c1601f096c4",
+    "role": "header",
+    "title": "Header",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "07e310ee-321e-5f1d-90ef-c6ef42075ea1",
+    "role": "cripple",
+    "title": "Cripple",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b2368436-d8fa-55c5-8180-a2541ffe4942",
+    "role": "cripple",
+    "title": "Cripple",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "31e60958-b67a-5d87-9075-38cb44b2c148",
+    "role": "sill",
+    "title": "Sill",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "1e67f976-d154-5a82-8574-f6fba46d67e7",
+    "role": "sill_cripple",
+    "title": "Cripple",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d1c3f7f5-1b43-50d8-8740-a92c123cb2d2",
+    "role": "sill_cripple",
+    "title": "Cripple",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "7baebbbb-bec7-5529-b851-46f555a83d0d",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "21a0a8b1-b7cc-5806-ae64-d6bf50af78cb",
+    "role": "top_plate",
+    "title": "Top plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fb45e615-a2ff-5860-b4e6-70087a898b1a",
+    "role": "bottom_plate",
+    "title": "Bottom plate",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e7a5cc47-9bc3-56e3-803e-7dbb18bfb4db",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "34f73aa2-501a-5297-8ddf-9f628c47b695",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "5422e6df-2853-5340-9f26-5d8454499d6a",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "324505fa-028b-5a6a-ab0d-b92269ba5350",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c0315f17-e8b7-5a25-8139-620f1e3d0c57",
+    "role": "sheathing",
+    "title": "Sheathing",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  }
+]

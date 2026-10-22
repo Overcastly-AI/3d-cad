@@ -1,0 +1,54 @@
+{
+  "description": "ROOF-MEMBER-RENUMBER: b3-hip-v1.3-hole-jack's roof re-pitched to 8/12 (b3-hip-8-12's inputs), the same hole through the front jack next to the left hip's ridge end (jack/front/left/1, X 35.25..36.75): the jack keeps its id and its place in plan; (Y 20, Z 110) is inside it at both pitches. model.json is the plugin's expansion plus the hole (packages/loft-plugins/tests/test_roof_member_names.py pins it).",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC, derived in services/geometry/tests/test_roof_member_renumber.py (derived(), its docstring gives the closed forms) from the BASE golden's hand-derived expected.json and closed forms, never from the kernel; that test asserts this file equals the derivation.",
+    "",
+    "base = b3-hip-8-12 (1.1.0). 1.3.0 is 1.2.0 renamed; on B3 1.2.0 differs from 1.1.0 only by ROOF-HIP-TAIL: each of the four hips loses a sheared prism under its tail, vertical thickness d = P_hip - (P_common - drop), plan 1.5 x 12 sqrt 2, so d x 1.5 x 12 sqrt 2 in^3 (45.967 at 6/12, 44.765 at 8/12), area d sqrt 2 (2 x 12 + 2 x 1.5), centroid over s = 0.375 - 6 sqrt 2 on the hip at the top line less (P_hip + P_common - drop) / 2; the four are mirror images, so X and Y stay. The lowest point becomes the commons' tail bottom, 97.125 - (12 + seat) x rise/12.",
+    "",
+    "168 only: + 2 commons (the side profile's shoelace area x 1.5, its polygon centroid) + 24 in of the 1.5 x 7.25 ridge (its top at the commons' top at its face); centroid X 84 by symmetry; box max X + 24 in; topology + 2 seven-sided prisms (18 faces, 42 edges, 2 shells).",
+    "",
+    "hole: bore = pi r^2 L, r = 0.5, L = 1.5 in (0.375 pi in^3); area + pi (2 r L - 2 r^2) = pi in^2; centre (hole X, 20, 110) in; mass less 450 kg/m^3 x the bore (SPF); topology + 1 face (the bore) + 3 edges (two circles and the seam).",
+    "",
+    "MESH counts are the kernel's, recorded: the bore is tessellated at linear_deflection 0.1."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "b3-hip-8-12's bound, unchanged. Measured 2026-10-18 against the derivation: <= 1.2e-7 mm^3 on the volume, <= 4.9e-8 mm^2 on the area, <= 2.3e-12 mm on the centroid and centre of mass, <= 5.9e-11 g on the mass. 1e-6 is 8x the worst; the bore is 7 238 mm^3, so a hole in the wrong body or missing fails by orders of magnitude.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "b3-hip-8-12's reviewed bound (OCCT's STEP rounds the sloped members' coordinates; a build123d twin drifts the same), unchanged; the bore adds no sloped face.",
+  "properties": {
+    "volume": 238120679.87025568,
+    "surface_area": 16127815.216564737,
+    "centroid": {
+      "x": 1828.8741346759934,
+      "y": 1524.0823718622153,
+      "z": 2815.366369236808
+    },
+    "mass_g": 107154.30594161504,
+    "center_of_mass": {
+      "x": 1828.874134675994,
+      "y": 1524.0823718622153,
+      "z": 2815.3663692368086
+    },
+    "bounding_box": {
+      "min": {
+        "x": -304.8,
+        "y": -304.8,
+        "z": 2217.2083333333335
+      },
+      "max": {
+        "x": 3962.4,
+        "y": 3352.8,
+        "z": 3591.60683772744
+      }
+    }
+  },
+  "topology": {
+    "faces": 253,
+    "edges": 597,
+    "shells": 27
+  },
+  "mesh": {
+    "vertices": 1694,
+    "triangles": 1192
+  }
+}

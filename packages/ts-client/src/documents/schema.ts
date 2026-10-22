@@ -884,7 +884,7 @@ export interface paths {
         };
         /**
          * List Materials
-         * @description The built-in materials and lumber profiles, in display order.
+         * @description The built-in materials, lumber profiles and sheet goods, in display order.
          *
          *     v1 is a closed library (docs/design/materials.md §1/§5): a fixed
          *     ``MaterialKey`` literal means an unknown material is a parse error at the
@@ -1607,13 +1607,15 @@ export interface paths {
         };
         /**
          * Get Price Book
-         * @description The caller's price book; an empty USD book if they never saved one.
+         * @description The caller's price book; an empty USD book (version 0) if they never
+         *     saved one. The ``ETag`` is its version.
          */
         get: operations["get_price_book_api_v1_price_book_get"];
         /**
          * Put Price Book
          * @description Replace the caller's whole price book (at most 500 entries, one price
-         *     per material, profile, unit and stock length, integer cents).
+         *     per material, profile, unit and stock length or sheet, integer cents),
+         *     if it is still at the ``If-Match`` version (else 412).
          */
         put: operations["put_price_book_api_v1_price_book_put"];
         post?: never;
@@ -2178,7 +2180,7 @@ export interface components {
              * @description Material for THIS body only
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete";
         };
         /**
          * BomLine
@@ -3626,9 +3628,14 @@ export interface components {
          * DrawingBomLine
          * @description One NUMBERED line of a drawing's bill of materials (design §7 BOM).
          *
-         *     The shipped assembly :class:`~loft_wire.assemblies.BomLine` (group key +
-         *     resolved name + `missing` + quantity, reused VERBATIM — no parallel taxonomy)
+         *     The shipped assembly :class:`~loft_wire.assemblies.IndentedBomLine` (group
+         *     key + resolved name + `missing` + quantity, and the outline ``item`` /
+         *     ``level`` / ``total_quantity``, reused VERBATIM — no parallel taxonomy)
          *     plus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.
+         *     ``item`` is the full number shown ('4' or '4.3' in the indented structure);
+         *     ``item_number`` is its last part, the number within the parent line. On a
+         *     top-level or parts-only line ``level`` is 0 and ``item`` is
+         *     ``str(item_number)``.
          *
          *     ``item_number`` is **derived**, not authored: lines are numbered 1..n in the
          *     order each referenced document FIRST appears in the assembly's stable instance
@@ -3638,10 +3645,20 @@ export interface components {
          */
         DrawingBomLine: {
             /**
+             * Item
+             * @description Outline item number: '2' at the top level, '2.1' for the first line inside item 2
+             */
+            item: string;
+            /**
              * Item Number
-             * @description 1-based item number, DERIVED from the assembly's stable instance order (first appearance of this referenced document) — never stored on the drawing, so it can never drift from the assembly
+             * @description 1-based item number within the parent line, DERIVED from the assembly's stable instance order (first appearance of this referenced document) — never stored on the drawing, so it can never drift from the assembly
              */
             item_number: number;
+            /**
+             * Level
+             * @description Nesting depth; 0 = a top-level line
+             */
+            level: number;
             /**
              * Missing
              * @description True when the referenced document no longer exists (deleted while still instanced) — the line and its quantity are still reported so the dangling reference is visible, never silently dropped
@@ -3675,6 +3692,11 @@ export interface components {
              * @enum {string}
              */
             ref_document_kind: "part" | "assembly";
+            /**
+             * Total Quantity
+             * @description How many of this line the whole assembly holds: quantity multiplied by every parent line's quantity
+             */
+            total_quantity: number;
         };
         /**
          * DrawingBomResponse
@@ -3716,7 +3738,7 @@ export interface components {
             drawing_id: string;
             /**
              * Lines
-             * @description One numbered line per referenced document, in derived `item_number` order (an assembly with no instances yields an empty list)
+             * @description The numbered lines in the sheet's structure: one per directly-referenced document (top_level), those with every sub-assembly's lines beneath it, depth first (indented), or one per part at every level (parts_only). Derived `item` order; an assembly with no instances yields an empty list
              */
             lines?: components["schemas"]["DrawingBomLine"][];
             /**
@@ -3726,10 +3748,21 @@ export interface components {
              */
             sheet_id: string;
             /**
+             * Structure
+             * @description The structure the `lines` are in: the sheet's stored `parts_list_structure`
+             * @enum {string}
+             */
+            structure: "top_level" | "indented" | "parts_only";
+            /**
              * Total Instances
-             * @description Sum of every line's quantity (direct-instance count)
+             * @description Sum of the top-level quantities (direct-instance count)
              */
             total_instances: number;
+            /**
+             * Total Parts
+             * @description Every placed part at every level (the parts-only total)
+             */
+            total_parts: number;
             /**
              * Unresolved Patterns
              * @description Hole-driven component patterns whose count could not be resolved: only their seeds are counted. Omitted while empty.
@@ -4203,7 +4236,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["Sketch3DFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -4344,11 +4377,11 @@ export interface components {
          */
         ExpandedMember: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["Sketch3DFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
-             * @description loft_wire.plugins.member_id(<feature-id>, role, index): the stable id geometry builds, results and picks name this member by.
+             * @description loft_wire.plugins.member_id(<feature-id>, role, index, name): the stable id geometry builds, results and picks name this member by.
              */
             id: string;
             /**
@@ -4357,6 +4390,11 @@ export interface components {
              */
             index: number;
             metadata?: components["schemas"]["MemberMetadata"] | null;
+            /**
+             * Name
+             * @description The member's stable name within its role (`slot/8`, `end`), when the plugin names it by its place in a layout rather than by its ordinal (loft.wall and loft.deck 1.1.0); absent on members named by index.
+             */
+            name?: string | null;
             /**
              * Role
              * @description The manifest role this member takes.
@@ -4414,6 +4452,11 @@ export interface components {
          *     a stored twisted extrude must carry both fields through unchanged.
          */
         ExtrudeParamsV1: {
+            /**
+             * Cut Bodies
+             * @description CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). "all" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.
+             */
+            cut_bodies?: "all" | components["schemas"]["FeatureRef"][] | null;
             /**
              * Direction
              * @default normal
@@ -4495,7 +4538,7 @@ export interface components {
              */
             expected_tree_version: number;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["Sketch3DFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"];
             /**
              * Name
              * @description User-facing name ("Sketch1")
@@ -4732,7 +4775,7 @@ export interface components {
              */
             created_at: string;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["Sketch3DFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"];
             /**
              * Id
              * Format: uuid
@@ -4826,7 +4869,7 @@ export interface components {
             /** Expected Tree Version */
             expected_tree_version: number;
             /** Feature */
-            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"]) | null;
+            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["Sketch3DFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"]) | null;
             /** Name */
             name?: string | null;
         };
@@ -5172,7 +5215,8 @@ export interface components {
          * @description A face-placed cylindrical hole — through-all or blind, plain or recessed.
          *
          *     The dedicated Hole feature (BACKLOG P2): drill a straight cylinder of
-         *     ``diameter_mm`` into the current body at ``position`` on the planar ``face``,
+         *     ``diameter_mm`` into the body that OWNS the planar ``face`` (in a multi-body
+         *     part, the body whose face was picked — not the last one built), at ``position``,
          *     cutting INTO the material (opposite the face's outward normal — the correct
          *     direction, chosen automatically, no direction knob to get wrong). Like a
          *     fillet/shell/draft it modifies the implicit single body chain (design §7.6),
@@ -5231,6 +5275,11 @@ export interface components {
             face_y_mm?: number | null;
             /** @description World-space placement point, projected onto the face plane to fix the drill axis (mm) */
             position: components["schemas"]["Vec3"];
+            /**
+             * Scope Bodies
+             * @description Feature Scope (SolidWorks): further bodies a THROUGH-ALL bore also cuts, each named by its base (body-creating) feature. `null`/omitted cuts only the body that owns `face` (the Fusion 360 / SolidWorks default). The bore cuts each listed body coaxially; a counterbore / countersink recess seats in the owner only. A listed body the bore cannot reach is `hole_off_body`. A BLIND hole keeps its scope (so switching back to through-all restores it) but cuts only its owner: the scope is not read while the depth is blind
+             */
+            scope_bodies?: components["schemas"]["FeatureRef"][] | null;
             /** @description Optional COSMETIC thread callout making this a TAPPED hole (`null`/omitted = untapped). Carries the designation for drawing/BOM callouts; adds no geometry — `diameter_mm` is the tap-drill bore (:class:`IsoMetricThread`) */
             thread?: components["schemas"]["IsoMetricThread"] | null;
             /**
@@ -6276,6 +6325,11 @@ export interface components {
          */
         LoftParamsV1: {
             /**
+             * Cut Bodies
+             * @description CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). "all" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.
+             */
+            cut_bodies?: "all" | components["schemas"]["FeatureRef"][] | null;
+            /**
              * Merge
              * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
              * @default true
@@ -6604,7 +6658,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete";
             /**
              * Name
              * @description Display name, e.g. 'Aluminium 6061'
@@ -6639,7 +6693,7 @@ export interface components {
              * Default Material
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
-            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete") | null;
         };
         /**
          * MaterialInput
@@ -6647,7 +6701,7 @@ export interface components {
          */
         MaterialInput: {
             /** Default */
-            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
+            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete") | null;
             /**
              * Description
              * @description Help text under the field.
@@ -6689,6 +6743,16 @@ export interface components {
              * @description Lumber sections: nominal name and actual dressed size.
              */
             profiles: components["schemas"]["LumberProfile"][];
+            /**
+             * Sheet Goods
+             * @description Sheet products (SHEATHING): a material at a thickness, e.g. '7/16 OSB'.
+             */
+            sheet_goods: components["schemas"]["SheetGood"][];
+            /**
+             * Sheet Sizes
+             * @description The sheets they are sold in, shortest first: 4x8, 4x9, 4x10.
+             */
+            sheet_sizes: components["schemas"]["SheetSize"][];
         };
         /**
          * MemberMetadata
@@ -6701,7 +6765,7 @@ export interface components {
              * Material
              * @description Library material of the member.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete") | null;
             /**
              * Nominal Size
              * @description Nominal size as sold, e.g. '2x8x12'.
@@ -7435,6 +7499,9 @@ export interface components {
          * PathSketchCurve
          * @description ``kind: "sketch_curve"``: one curve entity of an EARLIER sketch.
          *
+         *     ``sketch`` may also name a 3D sketch (:mod:`loft_wire.sketch_3d`), whose
+         *     lines are already in model space; ``entity`` is then a line id.
+         *
          *     ``sketch`` materialises into ``feature_dependencies`` like an extrude's
          *     profile; ``entity`` is the sketch-local id of a line, arc, circle or spline
          *     (a construction curve counts: it is what a skeleton is drawn in). The curve
@@ -7721,7 +7788,8 @@ export interface components {
          *     See the module docstring. ``operation`` and ``merge`` are the other
          *     sketch solids' fields: ``add`` with ``merge`` joins the tube to the active
          *     body (Fusion's *Join*), ``add`` without it starts a new body (*New Body*),
-         *     and ``cut`` removes it from the active body (*Cut*). Failures are typed
+         *     and ``cut`` removes it from the bodies ``cut_bodies`` names (*Cut*;
+         *     Objects To Cut, :mod:`loft_wire.cut_bodies`). Failures are typed
          *     rebuild errors on the pipe: ``reference_unresolved`` (a missing sketch or
          *     curve), ``subshape_unresolved`` / ``subshape_ambiguous`` (an edge),
          *     ``sweep_path_not_connected`` (branched or disjoint picks, or a curve
@@ -7729,6 +7797,11 @@ export interface components {
          *     ``sweep_self_intersecting`` (the path comes back through the tube).
          */
         PipeParamsV1: {
+            /**
+             * Cut Bodies
+             * @description CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). "all" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.
+             */
+            cut_bodies?: "all" | components["schemas"]["FeatureRef"][] | null;
             /**
              * Merge
              * @description ADD only: True joins the tube to the active body (or starts the first body); False starts a NEW body. Ignored for a cut.
@@ -8055,7 +8128,7 @@ export interface components {
              * @description Library material, e.g. 'spf_lumber'.
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete";
             /**
              * Price Cents
              * @description Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.
@@ -8063,18 +8136,22 @@ export interface components {
             price_cents: number;
             /**
              * Profile
-             * @description Lumber profile, e.g. 'us_2x4'.
-             * @enum {string}
+             * @description Lumber profile, e.g. 'us_2x4', or sheet product, e.g. 'osb_7_16'.
              */
-            profile: "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12";
+            profile: ("us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32");
+            /**
+             * Sheet
+             * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10'); null for lumber.
+             */
+            sheet?: ("4x8" | "4x9" | "4x10") | null;
             /**
              * Stock Length Ft
-             * @description The stock length an 'each' price is for (ft); null for a per-foot or per-board-foot price.
+             * @description The stock length a lumber 'each' price is for (ft); null for a sheet or a per-foot or per-board-foot price.
              */
             stock_length_ft?: number | null;
             /**
              * Unit
-             * @description 'each' (one stock piece of `stock_length_ft`), 'linear_foot' or 'board_foot' (any stock length).
+             * @description 'each' (one stock piece of `stock_length_ft`, or one sheet of `sheet`), 'linear_foot' or 'board_foot' (any stock length; lumber only).
              * @enum {string}
              */
             unit: "each" | "linear_foot" | "board_foot";
@@ -8082,7 +8159,7 @@ export interface components {
         /**
          * PriceBookResponse
          * @description The caller's price book. A user who never saved one has an empty USD
-         *     book (``updated_at`` null).
+         *     book (``updated_at`` null, ``version`` 0).
          */
         PriceBookResponse: {
             /**
@@ -8097,6 +8174,12 @@ export interface components {
              * @description When the book was last saved; null if never.
              */
             updated_at?: string | null;
+            /**
+             * Version
+             * @description 0 until the first save, then one more per save. Send it back as `If-Match` on the `PUT` (also served as the `ETag`).
+             * @default 0
+             */
+            version: number;
         };
         /**
          * PriceBookUpdate
@@ -8112,7 +8195,7 @@ export interface components {
             currency: "USD";
             /**
              * Entries
-             * @description Every entry, in the user's order; one per material, profile, unit and stock length.
+             * @description Every entry, in the user's order; one per material, profile, unit and stock length or sheet.
              */
             entries?: components["schemas"]["PriceBookEntry"][];
         };
@@ -8507,6 +8590,11 @@ export interface components {
              */
             axis: components["schemas"]["SketchLineAxis"] | components["schemas"]["OriginAxis"];
             /**
+             * Cut Bodies
+             * @description CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). "all" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.
+             */
+            cut_bodies?: "all" | components["schemas"]["FeatureRef"][] | null;
+            /**
              * Direction
              * @description Sweep sense about the axis for a partial revolution (irrelevant at a full 360°): 'reverse' sweeps the opposite way
              * @default normal
@@ -8674,6 +8762,38 @@ export interface components {
             size: "A4" | "A3" | "A2" | "A1" | "A0" | "ANSI_A" | "ANSI_B" | "ANSI_C" | "ANSI_D";
             /** @description Free-text title block (design §9 q6) */
             title_block?: components["schemas"]["TitleBlock"] | null;
+        };
+        /**
+         * SheetGood
+         * @description One sheet product: a material at a thickness.
+         */
+        SheetGood: {
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "osb_7_16" | "plywood_15_32" | "plywood_23_32";
+            /**
+             * Material
+             * @description Library material of the panels.
+             * @enum {string}
+             */
+            material: "osb" | "plywood";
+            /**
+             * Name
+             * @description As sold, e.g. '7/16 OSB'.
+             */
+            name: string;
+            /**
+             * Thickness In
+             * @description Thickness (in).
+             */
+            thickness_in: number;
+            /**
+             * Thickness Mm
+             * @description Thickness (mm).
+             */
+            thickness_mm: number;
         };
         /**
          * SheetMetalBaseFlangeFeature
@@ -9113,6 +9233,12 @@ export interface components {
              */
             orientation: "landscape" | "portrait";
             /**
+             * Parts List Structure
+             * @description Which BOM structure the sheet's parts list shows (top_level by default; DRAWING-PARTS-LIST-LEVEL)
+             * @enum {string}
+             */
+            parts_list_structure: "top_level" | "indented" | "parts_only";
+            /**
              * Projection
              * @enum {string}
              */
@@ -9130,6 +9256,27 @@ export interface components {
             updated_at: string;
         };
         /**
+         * SheetSize
+         * @description One sheet size: 4 ft wide, 8, 9 or 10 ft long.
+         */
+        SheetSize: {
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "4x8" | "4x9" | "4x10";
+            /**
+             * Length In
+             * @description The long side (in).
+             */
+            length_in: number;
+            /**
+             * Width In
+             * @description The short side (in): 48.
+             */
+            width_in: number;
+        };
+        /**
          * SheetUpdate
          * @description Update a sheet's header (design §2.2). At least one field must be provided.
          */
@@ -9143,6 +9290,11 @@ export interface components {
             name?: string | null;
             /** Orientation */
             orientation?: ("landscape" | "portrait") | null;
+            /**
+             * Parts List Structure
+             * @description The parts list's structure: top_level, indented or parts_only (None leaves it unchanged)
+             */
+            parts_list_structure?: ("top_level" | "indented" | "parts_only") | null;
             /** Projection */
             projection?: ("third_angle" | "first_angle") | null;
             /** Size */
@@ -9236,6 +9388,262 @@ export interface components {
              * @description The part's concurrency token after the import feature (== 1)
              */
             tree_version: number;
+        };
+        /**
+         * Sketch3DAlong
+         * @description A line parallel to a world axis (SolidWorks' Along X / Y / Z).
+         */
+        Sketch3DAlong: {
+            /**
+             * Axis
+             * @enum {string}
+             */
+            axis: "x" | "y" | "z";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "along";
+            /**
+             * Line
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            line: string;
+        };
+        /**
+         * Sketch3DCoincident
+         * @description Two points at one place.
+         */
+        Sketch3DCoincident: {
+            /**
+             * A
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            a: string;
+            /**
+             * B
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            b: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "coincident";
+        };
+        /**
+         * Sketch3DDistance
+         * @description A driving point-to-point distance (straight, in model space).
+         */
+        Sketch3DDistance: {
+            /**
+             * A
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            a: string;
+            /**
+             * B
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            b: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "distance";
+            /** Value Mm */
+            value_mm: number;
+        };
+        /**
+         * Sketch3DFeature
+         * @description ``{"type": "sketch_3d", ...}``: points and lines in model space
+         *     (:mod:`loft_wire.sketch_3d`, SKETCH-3D).
+         */
+        Sketch3DFeature: {
+            /**
+             * Expressions
+             * @description Formulas driving numbers in `params`: a JSON pointer into `params` (e.g. `/distance_mm`) to an expression over the part's parameters (e.g. `D/2 + 1`). The pointer must name an int or float field. Documents stores the resolved number at each pointer on every write, and clears this before evaluation, so geometry receives numbers only. Null (omitted) when every field is a plain number.
+             */
+            expressions?: {
+                [key: string]: string;
+            } | null;
+            params: components["schemas"]["Sketch3DParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sketch_3d";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * Sketch3DFixed
+         * @description A point held at its stored position.
+         */
+        Sketch3DFixed: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "fixed";
+            /**
+             * Point
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            point: string;
+        };
+        /**
+         * Sketch3DLength
+         * @description A driving length dimension on a line.
+         */
+        Sketch3DLength: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "length";
+            /**
+             * Line
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            line: string;
+            /** Value Mm */
+            value_mm: number;
+        };
+        /**
+         * Sketch3DLine
+         * @description A straight line between two points of the same 3D sketch.
+         */
+        Sketch3DLine: {
+            /**
+             * Construction
+             * @description Reference-only: solves and can be dimensioned and picked, but reads as a construction line in the sketch.
+             * @default false
+             */
+            construction: boolean;
+            /**
+             * End
+             * @description Id of the end point.
+             */
+            end: string;
+            /**
+             * Id
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "line";
+            /**
+             * Start
+             * @description Id of the start point.
+             */
+            start: string;
+        };
+        /**
+         * Sketch3DOriginSnap
+         * @description ``kind: "origin"``: the world origin (the part's origin point).
+         */
+        Sketch3DOriginSnap: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "origin";
+        };
+        /**
+         * Sketch3DParamsV1
+         * @description A 3D sketch: points and lines in model space, and their relations.
+         */
+        Sketch3DParamsV1: {
+            /** Constraints */
+            constraints?: (components["schemas"]["Sketch3DCoincident"] | components["schemas"]["Sketch3DFixed"] | components["schemas"]["Sketch3DAlong"] | components["schemas"]["Sketch3DLength"] | components["schemas"]["Sketch3DDistance"])[];
+            /**
+             * Entities
+             * @description Points and lines; ids are unique within the sketch and a line names two distinct points of it.
+             */
+            entities: (components["schemas"]["Sketch3DPoint"] | components["schemas"]["Sketch3DLine"])[];
+        };
+        /**
+         * Sketch3DPoint
+         * @description A point in model space.
+         */
+        Sketch3DPoint: {
+            /**
+             * Id
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "point";
+            /** @description World position (mm): typed, or the last solved position. The solve starts here; the answer stays near it (minimum-norm Gauss-Newton steps), though not always at the nearest solution. */
+            position: components["schemas"]["Vec3"];
+            /**
+             * Snap
+             * @description Geometry the point is attached to (it follows it and is fixed for the solve), or absent for a free point.
+             */
+            snap?: (components["schemas"]["Sketch3DOriginSnap"] | components["schemas"]["Sketch3DSketchPointSnap"] | components["schemas"]["Sketch3DVertexSnap"]) | null;
+        };
+        /**
+         * Sketch3DSketchPointSnap
+         * @description ``kind: "sketch_point"``: a point of an EARLIER sketch, 2D or 3D.
+         *
+         *     ``point`` names which point of ``entity``: a curve's ``start``/``end``, a
+         *     circle's or arc's ``center``, a 2D sketch point's or a 3D sketch point's
+         *     ``position``. Read from the solved sketch on every rebuild, so editing
+         *     that sketch moves this point.
+         */
+        Sketch3DSketchPointSnap: {
+            /**
+             * Entity
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            entity: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "sketch_point";
+            /**
+             * Point
+             * @enum {string}
+             */
+            point: "start" | "end" | "center" | "position";
+            /** @description The EARLIER sketch that owns the point. */
+            sketch: components["schemas"]["FeatureRef"];
+        };
+        /**
+         * Sketch3DVertexSnap
+         * @description ``kind: "vertex"``: a model vertex, named as one end of a picked edge.
+         *
+         *     ``end`` is ``a`` or ``b`` of the edge signature (its canonically ordered
+         *     endpoints). The edge resolves through the same tiers as every picked edge.
+         */
+        Sketch3DVertexSnap: {
+            edge: components["schemas"]["EdgeSubshapeRef"];
+            /**
+             * End
+             * @enum {string}
+             */
+            end: "a" | "b";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "vertex";
         };
         /**
          * SketchArc
@@ -9724,6 +10132,11 @@ export interface components {
          *     bump).
          */
         SweepParamsV1: {
+            /**
+             * Cut Bodies
+             * @description CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). "all" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.
+             */
+            cut_bodies?: "all" | components["schemas"]["FeatureRef"][] | null;
             /**
              * Merge
              * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
@@ -13228,6 +13641,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description The book's version as read (its ETag, e.g. "3"; "0" for a book never saved). Required: a save drafted from an older version is refused with 412. */
+                "If-Match"?: string | null;
                 /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
                 "X-Loft-User"?: string | null;
             };
