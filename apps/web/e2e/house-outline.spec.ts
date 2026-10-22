@@ -96,9 +96,11 @@ async function submit(page: Page): Promise<void> {
 
 /** The model alone: no selection highlight, the pointer off the canvas. */
 async function frameShot(page: Page, name: string): Promise<void> {
-  await page.keyboard.press("Escape");
-  // A click on empty floor clears the selection highlight.
-  await page.mouse.click(450, 900);
+  // Measure on and off drops the feature selection, and with it the
+  // highlight a just-saved feature leaves on the whole house.
+  const measure = page.getByTestId("measure-tool");
+  await measure.click();
+  await measure.click();
   await page.getByTestId("view-fit").click();
   await page.mouse.move(800, 990);
   await page.waitForTimeout(800);
@@ -158,6 +160,8 @@ test.describe("B7 from one outline sketch", () => {
     const outline = page.getByTestId("plugin-input-outline");
     await expect(outline).toHaveAttribute("data-armed", "true");
     await expect(page.getByTestId("plugin-input-width_mm")).toBeVisible();
+    // A part holding only the sketch opens framed on it.
+    await expect(page.getByTestId(`outline-pick-${sketchId}`)).toBeInViewport();
     await page.getByTestId("feature-select-0").click();
     await expect(outline).toHaveValue(sketchId);
     await expect(page.getByTestId("plugin-editor")).toContainText("New Floor");
@@ -254,22 +258,19 @@ test.describe("B7 from one outline sketch", () => {
     await page.getByTestId("view-iso").click();
     await frameShot(page, "outline-b7-288");
 
-    // EDIT 1, one action: the sketch's 288 dimension set to 336. The
-    // sketcher reads its dimensions in mm (7315.2), so 336 in is typed as
-    // 8534.4. (Typed as the formula `336 in` the sketch moves but the walls
-    // do not: the outline reads a dimension's stored number, not its
-    // formula. Reported with BUILDING-OUTLINE.)
+    // EDIT 1, one action: the sketch's 288 dimension set to 336, read and
+    // typed in the part's inches as every length field is.
     await page.getByTestId("feature-select-0").click();
     await expect(page.getByTestId("sketch-save")).toBeVisible({
       timeout: 30_000,
     });
     await page
       .locator('[data-testid^="glyph-"][data-kind="distance"]')
-      .filter({ hasText: /^7315\.2/ })
+      .filter({ hasText: /^288$/ })
       .click();
     const cell = page.getByTestId("dimension-input");
-    await expect(cell).toBeVisible();
-    await cell.fill("8534.4");
+    await expect(cell).toHaveValue("288");
+    await cell.fill("336");
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("dimension-editor")).toHaveCount(0);
     await page.getByTestId("sketch-save").click();
