@@ -4,7 +4,7 @@
 #
 # Not to completion on every commit any more. Every push runs ci.yml, whose
 # `e2e smoke` job covers the sketch -> extrude -> save -> reload journey in
-# ~7 min: that is the per-commit gate. This workflow (the six balanced shards,
+# ~7 min: that is the per-commit gate. This workflow (the seven balanced shards,
 # the dist and short-TTL legs, and deploy-path.yml's Docker jobs, called
 # below) proves the commit that is about to be merged. It runs:
 #   * on push to `claude/**`, NEWEST TIP ONLY. The group is per branch and
@@ -250,6 +250,24 @@
 # `${{ matrix.shard }}/N`, and the audit's `--expect-shards` — and the audit's
 # `--workflow` check refuses if they disagree.
 #
+# ── 2026-10-22: N=7 ─────────────────────────────────────────────────────────
+#
+# `7479bde`'s test steps ran 35.7 / 23.0 / 34.9 / 24.5 / >33 / 33.9 min, all
+# green; shard 5 drew a slow runner (Chromium install 10 min) and the 45-min
+# JOB limit cancelled it 33 min into its tests. Two things had moved. The
+# suite: house-b7 (~560 manifest-s) landed in that batch, and the six shards
+# summed to ~187 CI min. The balance: the plan said 52.6 manifest-min for
+# every shard, CI said 23-36. With no CI reports reachable from the sandbox
+# and the dev box too loaded to re-measure, each measured file was scaled by
+# its shard's CI-to-planned ratio over the run-wide 0.594 (shard 5 taken as
+# 35.7; the note in scripts/e2e-durations.json has the factors), keeping the
+# manifest's scale. That packs to 47.0 manifest-min per shard at N=7, i.e.
+# ~27.9 CI min (0.594x), 1.43x under the 40-min step cap; N=6 would be 32.5
+# and N=8 24.4. The largest file (gauge-touch) is ~8 CI min, so the floor is
+# not near. The 45-min job limit stays: it is not the lever (above), and the
+# headroom it now leaves is for a slow runner's setup. The next full
+# `--emit-durations` replaces the per-shard estimate.
+#
 # The property that must survive is GATE-1's — a spec nobody named still runs.
 # It survives because the planner iterates the DISCOVERED set and looks the
 # manifest up per file, so an unmeasured file is still placed (and assumed to be
@@ -271,8 +289,8 @@
 # CI-TWO-LANE: it now runs on main, nightly and on dispatch only, and a merge
 # to main should be proven whole whatever it touches.
 #
-# Raising the shard count also multiplies CONCURRENT jobs: at N=6 a single run
-# occupies 15 jobs (target, 6 shards, `e2e complete`, `dist-bundle`,
+# Raising the shard count also multiplies CONCURRENT jobs: at N=7 a single run
+# occupies 16 jobs (target, 7 shards, `e2e complete`, `dist-bundle`,
 # `auth-short-ttl`, deploy-path's three, `full lane complete`). Since
 # CI-TWO-LANE that is paid a few times a day rather than on every push.
 
@@ -385,7 +403,7 @@ jobs:
           ref: ${{ steps.resolve.outputs.sha }}
 
   playwright:
-    name: playwright (shard ${{ matrix.shard }}/6)
+    name: playwright (shard ${{ matrix.shard }}/7)
     needs: target
     runs-on: ubuntu-latest
     # A real `--shard=2/4` measured 12.7 min of specs here (777 s wall with
@@ -404,7 +422,7 @@ jobs:
       # "these specs are covered by nobody", and `cancelled` is not a pass.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -450,7 +468,7 @@ jobs:
       # UPDATE_SCREENSHOTS is deliberately NOT set: the fixtures gate the
       # docs/screenshots writes behind it, so the render still happens and the
       # committed founder PNGs are left alone. The tree check below proves it.
-      - name: Playwright shard ${{ matrix.shard }}/6
+      - name: Playwright shard ${{ matrix.shard }}/7
         # 40 < the job's 45 ON PURPOSE — see the headroom note at the top: a
         # step timeout is a `failure` that keeps the artifacts, a job timeout is
         # a `cancelled` that destroys them and looks like an eviction.
@@ -507,7 +525,7 @@ jobs:
         # check — and the red now names the shard holding the offender.
         run: >-
           scripts/e2e.sh --web-only --
-          --balanced-shard=${{ matrix.shard }}/6
+          --balanced-shard=${{ matrix.shard }}/7
           --forbid-only
       # A CI job that dirties the working tree is a defect in its own right,
       # and the specific thing being guarded is the ~90 committed founder
@@ -589,11 +607,11 @@ jobs:
         run: >-
           scripts/e2e-job-verdict.sh
           "$RUNNER_TEMP/e2e-logs-shard-${{ matrix.shard }}/verdict.txt"
-          "Playwright shard ${{ matrix.shard }}/6"
+          "Playwright shard ${{ matrix.shard }}/7"
 
   # ── THE BUILT-BUNDLE LEG ────────────────────────────────────────────────
   #
-  # The six shards above drive the Vite DEV server. So does every other spec in
+  # The seven shards above drive the Vite DEV server. So does every other spec in
   # this repo, which left two things that only ship to users completely
   # untested:
   #
@@ -637,7 +655,7 @@ jobs:
   # `full lane complete`. Read `full lane complete` rather than counting. This
   # job is
   # independent of the shards and is deliberately NOT in `reconcile`'s `needs`:
-  # reconcile proves the six shards covered `apps/web/e2e/`, and these specs
+  # reconcile proves the seven shards covered `apps/web/e2e/`, and these specs
   # live in `apps/web/e2e-dist/` behind their own config, so folding them in
   # would make that count disagree with `playwright test --list`.
   dist-bundle:
@@ -775,7 +793,7 @@ jobs:
   # would go green having examined nothing.
   #
   # Deliberately NOT in `reconcile`'s `needs`, and its report is not named
-  # `playwright-json-shard-*`: reconcile proves the six shards executed every
+  # `playwright-json-shard-*`: reconcile proves the seven shards executed every
   # discovered test exactly once, and this job's second run of auth.spec would
   # read there as duplicates. The shard plan and scripts/e2e-durations.json are
   # untouched too; auth.spec stays in whichever shard it is in, with its two
@@ -974,7 +992,7 @@ jobs:
             --discovered discovered.json \
             --fail-on-flaky \
             --timeline \
-            --expect-shards 6 \
+            --expect-shards 7 \
             --workflow .github/workflows/e2e.yml \
             shard-reports/playwright-shard-*.json
       # REPORTS, never votes — same contract as `--timeline`, and for the same
