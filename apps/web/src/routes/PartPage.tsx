@@ -1052,7 +1052,14 @@ export function PartPage() {
           <ChromeRailProvider>
             <Viewport
               glb={body.data}
-              sketchLayers={solved}
+              // Undefined until the part is READ (an empty part has no
+              // evaluation): Fit latches what the part opened on.
+              sketchLayers={
+                tree.data === undefined ||
+                (tree.data.features.length > 0 && evaluation.data === undefined)
+                  ? undefined
+                  : solved
+              }
               onContextMenu={openViewportMenu}
               rotateEnabled={mode !== "draw"}
               groundGrid={mode !== "draw"}
