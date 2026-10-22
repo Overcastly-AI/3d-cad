@@ -282,6 +282,34 @@ describe("pluginInputsFromForm", () => {
       stored.inputs,
     );
   });
+
+  it("reads 11-15/32 as a mixed number, and a no-op save keeps it (B7-MIXED-FRACTION)", () => {
+    const form = defaultPluginForm(TWISTED_PRISM, "in", TREE);
+    const typedForm = {
+      ...form,
+      values: { ...form.values, distance_mm: "11-15/32" },
+    };
+    const typed = pluginInputsFromForm(
+      TWISTED_PRISM,
+      typedForm,
+      "in",
+      TREE,
+      null,
+    );
+    expect(typed?.distance_mm).toBeCloseTo(11.46875 * 25.4, 12);
+    // Stored, reopened in inches and in mm, saved untouched: byte for byte.
+    const stored: CustomParams = {
+      plugin_id: "loft.twisted_prism",
+      plugin_version: "1.0.0",
+      inputs: { ...(typed ?? {}) },
+    };
+    for (const unit of ["in", "mm"] as const) {
+      const reopened = formFromCustomParams(TWISTED_PRISM, stored, unit);
+      expect(
+        pluginInputsFromForm(TWISTED_PRISM, reopened, unit, TREE, null),
+      ).toEqual(stored.inputs);
+    }
+  });
 });
 
 describe("a feature list (a roof's picked walls, ROOF-VALLEY)", () => {

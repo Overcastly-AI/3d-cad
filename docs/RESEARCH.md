@@ -2680,12 +2680,43 @@ property feeds a BOM column; Loft's price book feeds the cut list.
   round(10 x 533.33)). No float touches money: ints and `Fraction` in
   Python, BIGINT in Postgres, JSON integers on the wire.
 - **A missing price is blank, never $0.** A line with no entry, no material
-  or no stock length (unclassified, or longer than 20 ft) has null unit and
+  or no stock length (unclassified, or longer than any splice) has null unit and
   extended price; the response has `currency`, `total_price_cents` (the
   priced lines' sum, null when none is priced) and `unpriced_lines`. An
   assembly's list is already one grouped list across its parts, so its total
   is the sum of its lines. A deleted part an assembly still places is in
   `missing`, not a line, so it is not counted as unpriced.
+- **A member longer than stock is spliced** (CUT-LIST-LONG-STOCK, after
+  QA-B7 left B7's 288 in rims, sills, plates and ridge blank). A framer
+  splices a long plate or rim from stock pieces, joints over studs or
+  joists, and Chief Architect's materials list buys it that way. The rule
+  (`stock_splices`): only a member longer than the longest stock (20 ft) is
+  spliced; its stock is the combination of at most 5 pieces covering it with
+  the LEAST WASTE (fewest feet bought), then the FEWEST PIECES (joints).
+  Ties are common (24 ft is 12 + 12, 14 + 10 or 16 + 8; 26 ft is 14 + 12 or
+  16 + 10) and list most even first; for pricing, the cheapest tie whose every
+  piece has an Each price wins, so the stock shown can follow the book, at
+  the same waste and piece count. Waste comes first, so 37 ft is 14 + 12 + 12
+  (1 ft over), not 2 x 20 (3 ft over). The line's `stock_pieces_ft` carries
+  the pieces (`[12, 12]`; `[16]` unspliced), `stock_length_ft` is null for a
+  splice and `waste_mm` sums the splice's offcut. Each prices only a splice
+  the book prices whole (one unit per line, never Each and per foot mixed);
+  else per foot prices the feet bought and per board foot each piece,
+  rounded once per piece. **Every row multiplies out:** a splice row's Stock
+  is per member ("16 ft + 8 ft"), its `stock_quantity` (the CSV's Stock qty)
+  counts one splice SET per member, its unit price is one set's pieces
+  summed, and `extended_price_cents` is unit x `stock_quantity` on every
+  line, lumber and sheets alike (B7's rims: 2 x $34.44 = $68.88). A Pieces
+  column was the other option; it was not added, because the buyer reads
+  the pieces from the Stock cell and one more column would not fit the
+  panel. Past 5 x 20 ft (100 ft, more often a
+  modelling slip than a plate) a member has no stock and stays unpriced. The
+  panel and CSV write the splice as a framer does (`2 × 12 ft`,
+  `16 ft + 8 ft`; the CSV with an ASCII x), and a blank opens the book with a
+  row for each piece length it does not price yet. B7 with the QA round's book plus an 8 ft SPF 2x10
+  at $11.47 prices to the last line: $2,608.83 + $260.04 = $2,868.87
+  (`packages/loft-wire/tests/test_price_book.py`). B1, B2 and B5 have no
+  member over 20 ft, so their totals are unchanged.
 - **CSV:** `Stock qty`, `Unit price (USD)`, `Price unit` (Each, Per ft,
   Per BF) and `Extended (USD)` as plain numbers (`28.47`, no symbol or
   separator, so a spreadsheet sums them), an unpriced line's cells blank, and
@@ -2924,3 +2955,61 @@ frame plane, so no 2D sketch can hold them). Decisions:
   re-approximation), past the golden gates' 1e-7 centroid bound. Piping the
   seat stays too closes three internal voids in the seat cluster (a correct
   union of ring tubes; a real frame copes the stays).
+
+## 29. Carpenter notation in length fields (B7-MIXED-FRACTION)
+
+**Problem.** A framer typed `11-15/32` (an 11 15/32 in sheathing-plus-joist
+drop) and got 11 − 15/32: the expression language (§20) has a minus and no
+mixed numbers, so the wall sat in the subfloor with no warning. `11 15/32`
+was refused outright.
+
+**What the tools do** (from their documented entry behaviour; not re-checked
+in this sandbox). Chief Architect and SketchUp read a length the way it is
+written on a tape or a plan: `11 15/32`, `5' 6 1/2"`, and the architectural
+hyphen `5'-6"` / `6-1/2"`. SketchUp's Measurements box has no arithmetic, so
+a hyphen there can only be a mixed number. Chief Architect does accept
+arithmetic in its numeric fields, and still reads `6-1/2` as six and a half;
+subtraction is written with spaces. Fusion in inch mode accepts fractions
+and feet-inches and echoes what a field resolves to.
+
+**Rule.** A whole length entry is a number when it is (optional sign)
+(optional feet: a magnitude and `'`, then the inches straight on, after a
+space, or after a hyphen with no spaces) then a magnitude with an optional
+`"` or unit suffix. A magnitude is a decimal, `a/b`, `w a/b` or `w-a/b` with
+no spaces round the hyphen. After feet, inches are inches whatever the
+document unit; with no mark a magnitude is in the document unit, as a bare
+number already was. So `11-15/32`, `11 15/32` and `11 15/32"` are 11.46875
+in, `5' 6-1/2"` is 66.5 in and `-3/4` is −0.75 in.
+
+- The hyphenated `w-a/b` is a mixed number only in an imperial reading: an
+  inch or foot document, or an entry that says so (`11-15/32"`, `11-15/32
+  in`, `5' 6-1/2"`). In a metric reading (mm/cm/m documents, the sketch
+  dimension box, assembly spacing and offset) `100-10/2` is far likelier
+  meant as 95 than 105, so it is not a length and is refused as ambiguous
+  with both readings. `100 10/2` (space) and `100 - 10/2` stay unambiguous.
+  A decimal whole (`11.5-1/2`) is never a mixed number: it subtracts.
+- `11 - 15/32` (spaces both sides) and `(11-15)/32` are formulas: real
+  subtraction is untouched.
+- A hyphenated mixed number inside a larger formula (`2*11-15/32`,
+  `w + 11-15/32`) or with a space on one side only (`11 -15/32`) is
+  genuinely ambiguous and is refused, naming both readings and how to write
+  each (`11 - 15/32`, `11 in + 15 in/32`). Angle and count fields are
+  unchanged.
+- The field echoes a carpenter entry (`= 11.46875 in`, six fraction digits,
+  exact to 1/64) so a typo shows before commit.
+
+**Stored data.** The rule is entry-time only and lives in the web
+(`packages/design/src/units.ts`, `apps/web/src/features/expr.ts`). The
+server grammar (`loft_wire/expr.py`) is unchanged, so every stored
+expression, including any old `a-b/c` that meant subtraction, evaluates
+exactly as before, and the field re-opens it with the server's value; only
+text typed since the field opened is checked. A number entry is stored as a
+number (mm) as before (the sketch dimension box makes it a literal, in its
+own mm). Where text is stored (part parameters, assembly pattern spacing), a
+carpenter entry is sent spelled out with explicit units (`11 in + 15 in/32`,
+`5 ft + 6 in + 1 in/2`), which the unchanged grammar reads to the same value.
+A form that reopens stored text sends it back verbatim while the field still
+reads what it opened with (ValueField's session seed, the dimension box's
+stored expression, the parameter row's stored text, the pattern's
+`spacingSeed`); a pattern spacing written out reopens looking as typed
+(`11 15/32 mm`), and is still sent as stored. No wire change.

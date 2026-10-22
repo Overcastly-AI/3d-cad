@@ -190,6 +190,34 @@ PRICE-BOOK-VERSION) and ROOF-MEMBER-RENUMBER.
    _Accept:_ VISION gets a B7 row (pass or fail, time, gestures, STEP
    volume against the script); every blocker is a BACKLOG line ranked under
    "Plugins and buildings", wrong geometry in Now; the three edits are run.
+7. [x] **B7-MIXED-FRACTION** (fix now: silent wrong geometry; frontend,
+   found in QA-B7-HOUSE): `11-15/32` in a length field was 11 − 15/32 and
+   `11 15/32` was refused. `parseLength` now reads carpenter notation
+   (`11-15/32`, `11 15/32`, `11 15/32"`, `5' 6-1/2"`, `5'-6"`, `-3/4`) with a
+   live `= 11.46875 in` echo; a hyphenated mixed number inside a formula is
+   refused with both readings. RESEARCH §29.
+   _Notes:_ entry-time only, the server grammar is unchanged, so stored
+   expressions (including any old `a-b/c`) keep their meaning; typed
+   parameters and assembly spacing are sent spelled out (`11 in + 15 in/32`).
+   Review fixes: a reopened stored pattern spacing is re-sent verbatim
+   (no-op save tests for pattern, mirror, parameters, plugin forms, sketch);
+   in a metric reading `100-10/2` is refused as ambiguous, never 105.
+   Follow-up FORMULA-BARE-UNIT: inside a formula a bare number is mm even in
+   an inch part (`wall + 1/2` adds 0.5 mm).
+7. [x] **CUT-LIST-LONG-STOCK** (QA-B7; backend): a member over 20 ft had no
+   stock, so nothing priced it and B7 stayed "5 lines unpriced". It is now
+   spliced as a framer buys it (least waste, then fewest joints, ties most
+   even first, so 24 ft = 2 x 12; at most 5 pieces), `stock_pieces_ft` on
+   the wire, Each priced on the cheapest tied splice the book prices whole,
+   per foot and board foot on the feet bought. RESEARCH §27.
+   _Accept:_ B7's 21 lumber and 2 sheet lines price to $2,868.87 with the
+   QA round's book plus an 8 ft SPF 2x10 ($2,608.83 + $260.04,
+   `test_price_book.py`); B1, B2, B5 unchanged (no member over 20 ft).
+   _Notes:_ `house-b7.spec.ts` (QA branch, not merged here) expects "—" and
+   "5 lines unpriced" for the long lines and must be re-pinned when merged;
+   a splice row's Stock qty counts sets per member, so every row multiplies
+   out; the B7 check is still the e2e's typed table, not a measured
+   geometry golden.
 
 ## Next
 
@@ -331,6 +359,7 @@ B1-B6 are done once SHEATHING lands. B7 (QA-B7-HOUSE, Now) ranks what follows.
 
 One line each. The founder triages weekly; most are closed without work.
 
+- PLUGIN-BUDGET-WALLCLOCK: the 2 s plugin expansion budget is wall-clock, so roof/wall/deck tests (test_roof_l_doubled_common, test_roof_feature b4 valley, test_deck metric guard post) failed under a load-11 local gate and pass alone; measure CPU time or give tests a slack budget before CI hits it.
 - SKETCH-LINE-ANGLE-WHEN: the L / ∠ cells arm after the end click (type 450 Tab 73 Enter then); keys typed BEFORE the end click stay the X / Y point cells (G2, sketch-line-length-tab), whereas Fusion's box takes length and angle mid-drag. Founder to decide whether the mid-drag keys should become L / ∠.
 - SKETCH-LINE-ANGLE-ZERO: the angle cell takes (0, 180) as `AngleConstraint` does; 0 or 180 is refused with a message rather than becoming Horizontal (or Collinear to the previous segment), which Fusion does.
 - SKETCH-LINE-ANGLE-WIRE: the angle-to-axis dimension is the existing `angle` constraint against the `x-axis` datum line (no wire change); planegcs holds 450 at 73° to 3e-14° with 0 DOF. A typed angle drops the inferred H/V on that line. No document angle-unit setting exists; the cell reads degrees.

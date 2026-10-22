@@ -14,6 +14,12 @@
  * {@link ExprError} with the server's stable code.
  */
 
+import {
+  isCarpenterLength,
+  lengthExpression,
+  type LengthUnit,
+} from "@loft/design";
+
 export type ExprKind = "length" | "angle" | "unitless";
 
 export interface Quantity {
@@ -479,6 +485,57 @@ export function evaluateExpression(
     return found;
   });
   return { value: finite(q.value), kind: q.kind };
+}
+
+/**
+ * A whole number, a hyphen and a simple fraction with no spaces (or lopsided
+ * ones) round the hyphen: `11-15/32`, `11 -15/32`. Spaced evenly (`11 - 15/32`)
+ * it is subtraction and is not matched.
+ */
+const MIXED_HYPHEN_RE = /(?<![\w.])(\d+)(\s*)-(\s*)(\d+)\/(\d+)(?![\w.])/g;
+
+/**
+ * Why a length FORMULA typed now is ambiguous, or null (RESEARCH §29).
+ *
+ * A framer's `11-15/32` means eleven and fifteen thirty-seconds; the grammar
+ * reads it as 11 − 15/32. A whole entry in that form never gets here (it is a
+ * length, `parseLength`); inside a larger formula (`2*11-15/32`), or with a
+ * space on one side only (`11 -15/32`), either reading is plausible, so the
+ * field refuses it rather than guess. Applied only to text typed in this
+ * session: a stored formula keeps the meaning the server gave it.
+ */
+export function mixedNumberAmbiguity(
+  expression: string,
+  unit: LengthUnit,
+): string | null {
+  for (const match of expression.matchAll(MIXED_HYPHEN_RE)) {
+    const [, whole, before, after, num, den] = match;
+    if (before !== "" && after !== "") continue;
+    const mixed = lengthExpression(`${whole} ${num}/${den}`, unit);
+    return (
+      `'${match[0].trim()}' could be ${whole} ${num}/${den} or ${whole} minus ` +
+      `${num}/${den}: type ${whole} - ${num}/${den} to subtract, or ` +
+      `${mixed ?? `${whole} ${num}/${den}`} for the mixed number`
+    );
+  }
+  return null;
+}
+
+/**
+ * A length field's typed text as the expression to evaluate and send: a
+ * carpenter-notation entry spelled out with explicit units (`11-15/32` →
+ * `11 mm + 15 mm/32` in `unit`), any other text as typed. A hyphenated mixed
+ * number inside a formula reads two ways and is an {@link ExprError}.
+ */
+export function lengthEntryExpression(text: string, unit: LengthUnit): string {
+  const trimmed = text.trim();
+  if (isCarpenterLength(trimmed, unit)) {
+    const spelled = lengthExpression(trimmed, unit);
+    if (spelled !== null) return spelled;
+  }
+  const why = mixedNumberAmbiguity(trimmed, unit);
+  if (why !== null) throw new ExprError("expression_syntax", why);
+  return trimmed;
 }
 
 /** What a field holds: mm, degrees, a plain number, or a whole number. */

@@ -3018,7 +3018,7 @@
                 "type": "null"
               }
             ],
-            "description": "stock_quantity x unit_price_cents; null when unpriced.",
+            "description": "unit_price_cents x stock_quantity, on every line, so a row multiplies out; null when unpriced.",
             "title": "Extended Price Cents"
           },
           "length_mm": {
@@ -3140,8 +3140,24 @@
                 "type": "null"
               }
             ],
-            "description": "Shortest standard stock that covers the piece (ft); null for a piece that is not lumber or is longer than the longest stock.",
+            "description": "Shortest standard stock that covers the piece (ft); null for a piece that is not lumber, or is spliced (stock_pieces_ft), or is longer than any splice covers.",
             "title": "Stock Length Ft"
+          },
+          "stock_pieces_ft": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "maxItems": 5,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stock pieces ONE piece of the line is cut from (ft), longest first: [16] for one stock length, [12, 12] for a member spliced from two 12 ft pieces (longer than the longest stock); null with no stock.",
+            "title": "Stock Pieces Ft"
           },
           "stock_quantity": {
             "anyOf": [
@@ -3153,7 +3169,7 @@
                 "type": "null"
               }
             ],
-            "description": "Stock pieces bought for the line: one per piece (until pieces are nested); for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.",
+            "description": "Stock units bought for the line (the CSV's Stock qty): one per piece (until pieces are nested), a spliced piece's stock_pieces_ft counting as ONE set; for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.",
             "title": "Stock Quantity"
           },
           "total_length_mm": {
@@ -3172,7 +3188,7 @@
                 "type": "null"
               }
             ],
-            "description": "Price of ONE stock piece (or sheet) in the book's currency's cents, rounded once per piece; null (blank, never 0) when the book has no price for the line or the line has no stock.",
+            "description": "Price of ONE stock unit (see stock_quantity) in the book's currency's cents: one stock piece, one splice set (its pieces summed, each rounded once) or one sheet. Null (blank, never 0) when the book has no price for the line or the line has no stock.",
             "title": "Unit Price Cents"
           },
           "waste_mm": {
@@ -3184,7 +3200,7 @@
                 "type": "null"
               }
             ],
-            "description": "Offcut of each piece from its stock (mm); null with no stock.",
+            "description": "Offcut of each piece from its stock (mm), a splice's pieces summed; null with no stock.",
             "title": "Waste Mm"
           }
         },

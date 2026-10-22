@@ -128,6 +128,44 @@ describe("ValueField", () => {
     expect(screen.getByTestId("field-hint").textContent).toBe("= 1 in");
   });
 
+  it("reads 11-15/32 as a mixed number and echoes it (B7-MIXED-FRACTION)", () => {
+    const f = mount({ unit: "in", initial: "1" });
+    f.type("11-15/32");
+    // A number: the editor reads it (parseLength), no fx mark.
+    expect(f.form()).toBe("11-15/32");
+    expect(mark(f.input)).toBeNull();
+    expect(screen.getByTestId("field-hint").textContent).toBe("= 11.46875 in");
+    f.type(`5' 6-1/2"`);
+    expect(screen.getByTestId("field-hint").textContent).toBe("= 66.5 in");
+    f.type("12");
+    expect(screen.queryByTestId("field-hint")).toBeNull();
+  });
+
+  it("keeps spaced subtraction a formula, and refuses a mixed number inside one", () => {
+    const f = mount();
+    f.type("H - 15/32");
+    expect(mark(f.input)).not.toBeNull();
+    expect(Number(f.form())).toBeCloseTo(20 - 15 / 32, 12);
+    f.type("2*11-15/32");
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /could be 11 15\/32 or 11 minus 15\/32/,
+    );
+    expect(f.form()).toBe("2*11-15/32");
+  });
+
+  it("leaves a STORED 11-15/32 formula reading as the server stored it", () => {
+    const session: FormulaSession = {
+      key: "extrude:stored",
+      seed: { "/distance_mm": "11-15/32" },
+      inputError: null,
+    };
+    const f = mount({ session, initial: "10.53125" });
+    expect(f.input.value).toBe("11-15/32");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByTestId("field-hint").textContent).toBe("= 10.5313 mm");
+    expect(Number(f.form())).toBeCloseTo(10.53125, 12);
+  });
+
   it("says on the field why a formula does not resolve, and keeps Save shut", () => {
     const f = mount();
     f.type("Q/2");

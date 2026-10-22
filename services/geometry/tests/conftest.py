@@ -6,9 +6,13 @@ cross-suite constants and assertion helpers live here as fixtures instead
 (single source of truth, CLAUDE.md DRY rule).
 """
 
+import hashlib
 import io
 import json
+import os
 import re
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -16,8 +20,10 @@ from typing import Any
 import ezdxf.recover
 import pytest
 from ezdxf.document import Drawing
+from fastapi.testclient import TestClient
 from geometry.drawings import evaluate_drawing_views, place_sheet
 from geometry.features.evaluate import reset_rebuild_cache
+from geometry.main import app
 from geometry.schemas import ShapeProperties
 from loft_wire.drawings import (
     ComposeDrawingRequest,
@@ -27,7 +33,7 @@ from loft_wire.drawings import (
     SheetViewPlacement,
     ViewScale,
 )
-from loft_wire.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest, ExportTreeRequest
 
 #: Round-trip tolerance for mass properties: the CLAUDE.md kernel linear
 #: tolerance (1e-7), NOT a fitted epsilon — the measured round-trip deviation
@@ -436,3 +442,112 @@ def pytest_unconfigure() -> None:
     """
     if _SWEEP_CENSUS:
         print("\n== sketch solver sweep ==\n" + "\n".join(_SWEEP_CENSUS))
+
+
+# --- Fresh-interpreter tree export (split across test_export_tree_restart_*) ------
+
+#: Feature-tree goldens, the inventory the restart gate halves between its two
+#: modules so neither outgrows a pytest shard (a shard packs whole files).
+_TREE_GOLDENS = [
+    path
+    for path in sorted(
+        (Path(__file__).resolve().parent.parent / "goldens").glob("*/model.json")
+    )
+    if "features" in json.loads(path.read_text(encoding="utf-8"))
+]
+
+
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Parametrize ``restart_tree_model`` over the module's half of the goldens.
+
+    The module's name ends in ``_a`` or ``_b`` to pick its half; the halves interleave
+    by sorted index, so a new golden lands in one of them and both stay even.
+    """
+    if "restart_tree_model" not in metafunc.fixturenames:
+        return
+    half = "ab".index(metafunc.definition.path.stem[-1])
+    models = _TREE_GOLDENS[half::2]
+    metafunc.parametrize(
+        "restart_tree_model", models, ids=[path.parent.name for path in models]
+    )
+
+
+#: Re-evaluates a feature-tree golden (EvaluateTreeRequest JSON on stdin) in a
+#: pristine interpreter and reports both formats' digests through the SAME
+#: evaluate-tree → export_solid path the endpoint uses, emulating a worker
+#: restart. Multi-body goldens (§MB-0) export as a Compound assembled in fixed
+#: base (tree) order; the parent runs this subprocess under a DIFFERENT
+#: PYTHONHASHSEED so any accidental dict/set-iteration dependence in that
+#: ordering — invisible to the in-process gate, which shares one hash seed —
+#: reorders the compound and breaks the digest match.
+_TREE_RESTART_PROBE = """\
+import hashlib
+import sys
+
+from geometry.features import evaluate_tree
+from geometry.kernel import export_solid
+from loft_wire.features import EvaluateTreeRequest, ExportTreeRequest
+
+request = ExportTreeRequest.model_validate_json(sys.stdin.read())
+body = evaluate_tree(EvaluateTreeRequest.model_validate(request.model_dump())).body
+assert body is not None, "tree evaluated to no body"
+for fmt in ("step", "stl"):
+    data = export_solid(
+        body, fmt, request.linear_deflection, request.angular_deflection
+    )
+    print(fmt, hashlib.sha256(data).hexdigest())
+"""
+
+
+@pytest.fixture(scope="session")
+def assert_tree_export_restart_stable() -> Callable[[Path], None]:
+    """Fresh-interpreter tree export (worker-restart emulation, RESEARCH §9) →
+    same STEP and STL bytes as this process, under a DIFFERENT hash seed.
+
+    Closes the multi-body determinism gap the shape-golden restart gate cannot
+    reach: a part with >1 body tessellates/exports a ``Compound`` assembled in
+    fixed base order (``list(state.bodies.values())`` over an insertion-ordered
+    dict). The in-process gate shares one PYTHONHASHSEED, so a latent dict/set
+    ordering dependence would pass it; forcing a different seed in the child is
+    what actually proves the base-order compound is hash-independent.
+    """
+    client = TestClient(app)
+
+    def request_for(model_path: Path, fmt: str) -> ExportTreeRequest:
+        tree = EvaluateTreeRequest.model_validate_json(
+            model_path.read_text(encoding="utf-8")
+        )
+        return ExportTreeRequest.model_validate(
+            {**tree.model_dump(mode="json"), "format": fmt}
+        )
+
+    def check(model_path: Path) -> None:
+        name = model_path.parent.name
+        digests = {
+            fmt: hashlib.sha256(
+                client.post(
+                    "/api/v1/export/tree",
+                    json=request_for(model_path, fmt).model_dump(mode="json"),
+                ).content
+            ).hexdigest()
+            for fmt in ("step", "stl")
+        }
+        result = subprocess.run(
+            [sys.executable, "-c", _TREE_RESTART_PROBE],
+            input=request_for(model_path, "step").model_dump_json(),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env={**os.environ, "PYTHONHASHSEED": "0"},
+        )
+        assert result.returncode == 0, (
+            f"{name}: tree restart probe failed:\n{result.stderr}"
+        )
+        remote = dict(line.split() for line in result.stdout.splitlines())
+        for fmt, digest in digests.items():
+            assert remote[fmt] == digest, (
+                f"{name}: {fmt} tree-export bytes differ across interpreter restart "
+                f"(base-order compound assembly is not hash-independent)"
+            )
+
+    return check

@@ -8,6 +8,8 @@
  * Onshape and SolidWorks: linear, circular, and on holes (pattern-driven /
  * Replicate), whose count follows the driving part.
  */
+import { lengthEntryText } from "@loft/design";
+
 import type { EdgeSignature } from "../api/parts";
 import type { InstanceResponse } from "../api/assemblies";
 import type { ComponentPattern, PatternResponse } from "../api/patterns";
@@ -16,6 +18,7 @@ import {
   ExprError,
   evaluateExpression,
   type FieldKind,
+  lengthEntryExpression,
 } from "../features/expr";
 
 export type PatternKind = ComponentPattern["type"];
@@ -38,6 +41,12 @@ export interface PatternForm {
   flip: boolean;
   count: string;
   spacing: string;
+  /**
+   * The stored `spacing_expr` and the text it reopened as. While the field
+   * still reads `shown`, the stored expression is sent byte for byte, so a
+   * no-op save never re-reads it (RESEARCH §29).
+   */
+  spacingSeed: { shown: string; stored: string } | null;
   angle: string;
   /** The hole the seed sits at (hole kind). */
   hole: PickedEdge | null;
@@ -60,6 +69,7 @@ export function newPatternForm(seeds: string[]): PatternForm {
     flip: false,
     count: "3",
     spacing: "25 mm",
+    spacingSeed: null,
     angle: "360 deg",
     hole: null,
     alsoOn: [],
@@ -88,10 +98,31 @@ export function formFromPattern(pattern: ComponentPattern): PatternForm {
   form.count = pattern.count_expr ?? String(pattern.count);
   if (pattern.type === "linear") {
     form.spacing = pattern.spacing_expr ?? `${pattern.spacing_mm} mm`;
+    if (pattern.spacing_expr != null) {
+      // A spelled-out entry (`11 mm + 15 mm/32`) reopens as typed (`11 15/32 mm`).
+      const shown =
+        lengthEntryText(pattern.spacing_expr) ?? pattern.spacing_expr;
+      form.spacing = shown;
+      form.spacingSeed = { shown, stored: pattern.spacing_expr };
+    }
   } else {
     form.angle = pattern.angle_expr ?? `${pattern.angle_deg ?? 360} deg`;
   }
   return form;
+}
+
+/**
+ * The spacing expression to evaluate and send: the STORED one, verbatim,
+ * while the field still reads what it reopened as; otherwise the typed text,
+ * a carpenter entry spelled out with units. Throws {@link ExprError} for a
+ * hyphenated mixed number that reads two ways.
+ */
+export function spacingExpression(form: PatternForm): string {
+  const seed = form.spacingSeed;
+  if (seed !== null && form.spacing.trim() === seed.shown.trim()) {
+    return seed.stored;
+  }
+  return lengthEntryExpression(form.spacing, "mm");
 }
 
 function value(text: string, kind: FieldKind, field: string): number {
@@ -138,7 +169,16 @@ export function buildPattern(
           }
         : { kind: "origin_axis" as const, axis: form.axis as "x" | "y" | "z" };
     if (form.kind === "linear") {
-      const spacing = value(form.spacing, "length", "Spacing");
+      // `11-15/32` is a mixed number here too, sent spelled out (RESEARCH §29).
+      let spacingExpr: string;
+      try {
+        spacingExpr = spacingExpression(form);
+      } catch (error) {
+        const reason =
+          error instanceof ExprError ? error.message : String(error);
+        throw new Error(`Spacing: ${reason}`);
+      }
+      const spacing = value(spacingExpr, "length", "Spacing");
       if (spacing <= 0) return { error: "Spacing: more than 0" };
       return {
         pattern: {
@@ -149,7 +189,7 @@ export function buildPattern(
           count,
           spacing_mm: spacing,
           count_expr: form.count,
-          spacing_expr: form.spacing,
+          spacing_expr: spacingExpr,
         },
       };
     }

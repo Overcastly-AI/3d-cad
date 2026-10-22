@@ -4521,7 +4521,7 @@ export interface components {
             classification: "member" | "matched" | "unclassified";
             /**
              * Extended Price Cents
-             * @description stock_quantity x unit_price_cents; null when unpriced.
+             * @description unit_price_cents x stock_quantity, on every line, so a row multiplies out; null when unpriced.
              */
             extended_price_cents: number | null;
             /**
@@ -4563,12 +4563,17 @@ export interface components {
             sheet?: ("4x8" | "4x9" | "4x10") | null;
             /**
              * Stock Length Ft
-             * @description Shortest standard stock that covers the piece (ft); null for a piece that is not lumber or is longer than the longest stock.
+             * @description Shortest standard stock that covers the piece (ft); null for a piece that is not lumber, or is spliced (stock_pieces_ft), or is longer than any splice covers.
              */
             stock_length_ft: number | null;
             /**
+             * Stock Pieces Ft
+             * @description The stock pieces ONE piece of the line is cut from (ft), longest first: [16] for one stock length, [12, 12] for a member spliced from two 12 ft pieces (longer than the longest stock); null with no stock.
+             */
+            stock_pieces_ft?: number[] | null;
+            /**
              * Stock Quantity
-             * @description Stock pieces bought for the line: one per piece (until pieces are nested); for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.
+             * @description Stock units bought for the line (the CSV's Stock qty): one per piece (until pieces are nested), a spliced piece's stock_pieces_ft counting as ONE set; for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.
              */
             stock_quantity: number | null;
             /**
@@ -4578,12 +4583,12 @@ export interface components {
             total_length_mm: number;
             /**
              * Unit Price Cents
-             * @description Price of ONE stock piece (or sheet) in the book's currency's cents, rounded once per piece; null (blank, never 0) when the book has no price for the line or the line has no stock.
+             * @description Price of ONE stock unit (see stock_quantity) in the book's currency's cents: one stock piece, one splice set (its pieces summed, each rounded once) or one sheet. Null (blank, never 0) when the book has no price for the line or the line has no stock.
              */
             unit_price_cents: number | null;
             /**
              * Waste Mm
-             * @description Offcut of each piece from its stock (mm); null with no stock.
+             * @description Offcut of each piece from its stock (mm), a splice's pieces summed; null with no stock.
              */
             waste_mm: number | null;
         };

@@ -27,6 +27,7 @@ import {
   parseFieldEntry,
   parseSignedLengthMm,
   resolveFieldFormula,
+  typedFormulaError,
 } from "../units/length";
 
 export type DrawEntry =
@@ -58,6 +59,8 @@ export function resolveDrawEntry(
     mm = parseSignedLengthMm(text.trim(), unit);
     if (mm === null) return { kind: "error", message: "Enter a number." };
   } else {
+    const ambiguous = typedFormulaError(entry.expression, "length", unit);
+    if (ambiguous !== null) return { kind: "error", message: ambiguous };
     const result = resolveFieldFormula(entry.expression, "length", names);
     if (!result.ok) return { kind: "error", message: result.message };
     mm = result.value;

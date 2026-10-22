@@ -27,6 +27,8 @@
  */
 import {
   DimensionTagCell,
+  isCarpenterLength,
+  type LengthUnit,
   NumberField,
   type NumberFieldProps,
   SuggestionList,
@@ -71,11 +73,14 @@ import {
 import { formatParameterValue } from "../features/parameters";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import {
+  carpenterHint,
   type FieldKind,
   formatFieldHint,
   formatFieldValue,
+  type FormulaResult,
   parseFieldEntry,
   resolveFieldFormula,
+  typedFormulaError,
 } from "../units/length";
 
 /** The open feature editor, for the fields inside it (FeatureEditorSeat). */
@@ -120,6 +125,11 @@ export interface ValueFieldProps extends Omit<
    * (a line's length and angle, SKETCH-LINE-ANGLE). Tag cells only.
    */
   tagUnit?: string;
+  /**
+   * The unit a carpenter-notation number in this field reads in, when it is
+   * not the document's: the sketcher's dimension box, whose literals are mm.
+   */
+  lengthUnit?: LengthUnit;
 }
 
 /**
@@ -171,9 +181,13 @@ export function ValueField({
   "data-testid": testId,
   tagWidth,
   tagUnit,
+  lengthUnit,
   ...rest
 }: ValueFieldProps) {
   const unit = useDocumentLengthUnit();
+  // What a carpenter-notation number reads in (its echo, and the mixed-number
+  // spelling a refusal suggests); everything else keeps the document's unit.
+  const bareUnit = lengthUnit ?? unit;
   const session = useContext(FormulaSessionContext);
   const listId = useId();
   const input = useRef<HTMLInputElement | null>(null);
@@ -224,15 +238,37 @@ export function ValueField({
   const display = pointer === undefined ? value : (formula ?? value);
   // The sketcher sends anything but a plain number as the dimension's
   // formula (`20mm` included), so that is what wears the mark there.
+  // A length in carpenter notation (`11-15/32`, `5' 6"`) is a number there
+  // too: the box reads it as one (RESEARCH §29), so it is never a formula.
   const textFormula =
     pointer === undefined
       ? (() => {
+          if (kind === "length" && isCarpenterLength(display, bareUnit)) {
+            return null;
+          }
           const entry = parseFieldEntry(display, "unitless", unit);
           return entry.kind === "formula" ? entry.expression : null;
         })()
       : formula;
-  const result =
-    textFormula === null ? null : resolveFieldFormula(textFormula, kind, names);
+  // The formula this field opened with: stored, so the server's reading of
+  // it stands. Only a formula typed since is checked for a hyphenated mixed
+  // number that reads two ways (`2*11-15/32`), and refused rather than guessed.
+  const openedWith = useRef(display);
+  const seedFormula = inSession
+    ? (session.seed[pointer] ?? null)
+    : pointer === undefined
+      ? openedWith.current.trim()
+      : null;
+  const ambiguity =
+    textFormula === null || textFormula === seedFormula
+      ? null
+      : typedFormulaError(textFormula, kind, bareUnit);
+  const result: FormulaResult | null =
+    textFormula === null
+      ? null
+      : ambiguity !== null
+        ? { ok: false, message: ambiguity, code: "expression_syntax" }
+        : resolveFieldFormula(textFormula, kind, names);
 
   // The editor's form follows the formula: its resolved number, or the
   // formula's text while it does not resolve (the editor's own check then
@@ -403,16 +439,19 @@ export function ValueField({
       ? session.inputError.message
       : null;
   const formulaError =
-    pointer !== undefined &&
+    ambiguity ??
+    (pointer !== undefined &&
     result !== null &&
     !result.ok &&
     result.code !== "pending"
       ? result.message
-      : null;
+      : null);
   const shownError = formulaError ?? fieldError ?? inputError ?? error ?? null;
   const hint =
     result === null
-      ? null
+      ? kind === "length"
+        ? carpenterHint(display, bareUnit)
+        : null
       : result.ok
         ? formatFieldHint(result.value, kind, unit)
         : result.code === "pending"
