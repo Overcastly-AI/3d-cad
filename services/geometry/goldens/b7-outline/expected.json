@@ -1,0 +1,56 @@
+{
+  "description": "B7 FROM ONE OUTLINE (BUILDING-OUTLINE; docs/reference-parts/buildings.md B7, docs/BACKLOG.md BUILDING-OUTLINE): one 288 x 192 in sketch on XY (the Rectangle tool from the origin, its corner on the origin, 288 and 192 dimensioned), then a loft.floor 1.2.0 on the outline (2x10 joists, PT 2x6 sills, 23/32 plywood subfloor), loft.wall 1.3.0 on the outline standing on that floor (2x6, 7/16 OSB; the front and back run through, the sides fit between), the door and four windows (loft.door / loft.window 1.1.0, each naming its wall of the outline) and a loft.roof 1.4.0 whose front and back walls define the slope (6/12, 2x8 rafters at 24 in o.c. on a 2x10 ridge, 12 in overhang), the rafter tails notched out of the eave walls' OSB. model.json is EXACTLY the sketch and the expansions with their member materials; members.json is each body's member metadata (packages/loft-plugins/tests/test_building_outline.py pins both; services/geometry/tests/test_outline_b7.py checks the STEP, interference, the cut list and price, and the 336 edit).",
+  "derivation": [
+    "INDEPENDENT of the plugins: services/geometry/tests/test_outline_b7.py's script() types B7 from buildings.md and the QA-B7-HOUSE round (house-b7.spec.ts): the floor's 39 boxes, the four walls' 151 framing boxes by B2's layout and opening rules, 20 OSB panels (48 in from each wall's start, less the rough openings) and 4 corner rips 5.5 + 7/16 wide, 26 rafters (side profile: tail (-12, 100.1770833), heel (0, 106.1770833)..(0, 108.59375), seat 29/6 (the heel held to 1/3 of 7.25), ridge face 95.25, plumb 7.25 x sqrt(1.25)) and the 2x10 ridge; each panel less the rafter tails through it. The STEP matches it solid for solid.",
+    "",
+    "volume (analytic, test_the_volume_is_the_rounds_less_the_tail_notches): the round's 264 895.4795 in^3 (the members' prisms less the birdsmouths; boxes and panels in exact rationals, rafters by the shoelace) less the 26 tail notches, each 1.5 x 1/2 x (29/6 x 7/16 + (7/16)^2 / 2) = 3395/2048 in^3, 44135/1024 = 43.1005859375 in all: 264 852.3788656 in^3 = 4340152883.022349 mm^3.",
+    "",
+    "surface_area, centroid, mass_g and center_of_mass are the script's solids summed (expected_numbers()): spf_lumber 450, southern_pine_pt 582 (sills, bottom plates), osb 641 and plywood 577 kg/m^3; X is symmetric about 144 in (3657.6 mm).",
+    "",
+    "bounding_box: X -7/16 (the left OSB) .. 288 7/16 (the right OSB), Y -12 .. 204 (the rafter tails), Z 0 .. the ridge's top 153.802083 + 8.105746 = 161.907829 in.",
+    "",
+    "topology and MESH from the script's B-rep: 1 520 faces, 3 258 edges, 217 shells; every face is planar, so a face of n edge-vertices on h holes meshes as n + 2h - 2 triangles on n vertices: 6 516 vertices and 3 476 triangles. The kernel's build of model.json meets every count exactly.",
+    "",
+    "Interference none (test_nothing_interferes probes every pair whose boxes overlap): the round's typed build shared 43.1006 in^3 between the 26 tails and the eave OSB (36 pairs); the notches leave the panels meeting the rafters face to face."
+  ],
+  "tolerance": 5e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): the bounds are ABSOLUTE and the part is ~4.3e9 mm^3 summed over 217 bodies, so the double-precision sum carries round-off near the ULP of the sum (~9.5e-7): the kernel differs from the script by +1.9e-06 mm^3 on the volume, +1.1e-06 mm^2 on the area, <= 7e-12 mm on the centroid and centre of mass and 9e-10 g on the mass. 5e-6 is 2.6x that and ~1.2e-15 relative, the B5 goldens' class; one notch missed adds 27 000 mm^3, so it fails by nine orders.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-22: OCCT's STEP writer rounds the 26 sloped rafters' and the notched panels' irrational coordinates, as for b2-roof-6-12. Round-trip drift: volume -3.34e-4 mm^3 and area -2.64e-5 mm^2 (plugin); the independent build123d twin (test_outline_b7.script, exported with build123d's export_step) drifts -3.62e-4 / -2.63e-5, so it is OCCT's STEP, not Loft's export; the centroid moves <= 1.6e-10 mm. 1e-3 is 2.8x the worst and the b2-roof goldens' bound; it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 4340152883.022349,
+    "surface_area": 383361170.61177444,
+    "centroid": {
+      "x": 3657.600000000001,
+      "y": 2432.103585088349,
+      "z": 1292.4277001003268
+    },
+    "mass_g": 2182343.6311757755,
+    "center_of_mass": {
+      "x": 3657.600000000012,
+      "y": 2441.0232553947526,
+      "z": 1248.280099910828
+    },
+    "bounding_box": {
+      "min": {
+        "x": -11.112499999999999,
+        "y": -304.79999999999995,
+        "z": 0.0
+      },
+      "max": {
+        "x": 7326.3125,
+        "y": 5181.599999999999,
+        "z": 4112.45887569496
+      }
+    }
+  },
+  "topology": {
+    "faces": 1520,
+    "edges": 3258,
+    "shells": 217
+  },
+  "mesh": {
+    "vertices": 6516,
+    "triangles": 3476
+  }
+}

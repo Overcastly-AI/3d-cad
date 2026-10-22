@@ -2525,6 +2525,11 @@ export interface components {
              */
             name: string;
             /**
+             * Superseded By
+             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             */
+            superseded_by?: string | null;
+            /**
              * Unit
              * @default deg
              * @constant
@@ -3420,6 +3425,11 @@ export interface components {
             name: string;
             /** Options */
             options: components["schemas"]["ChoiceOption"][];
+            /**
+             * Superseded By
+             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             */
+            superseded_by?: string | null;
         };
         /**
          * ChoiceOption
@@ -4442,6 +4452,11 @@ export interface components {
              * @description Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.
              */
             name: string;
+            /**
+             * Superseded By
+             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             */
+            superseded_by?: string | null;
         };
         /**
          * CustomFeature
@@ -4494,7 +4509,7 @@ export interface components {
              * @description Input name -> value, validated against the pinned manifest.
              */
             inputs: {
-                [key: string]: number | string | components["schemas"]["FeatureRef"] | components["schemas"]["FeatureRef"][];
+                [key: string]: number | string | components["schemas"]["FeatureRef"] | components["schemas"]["FeatureRef"][] | string[];
             };
             /** Plugin Id */
             plugin_id: string;
@@ -7194,6 +7209,11 @@ export interface components {
              * @description When a picked feature is a custom feature: the plugins it may be (a roof's walls are `loft.wall`). Unset: any.
              */
             plugin_ids?: string[] | null;
+            /**
+             * Superseded By
+             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             */
+            superseded_by?: string | null;
         };
         /**
          * FeatureMutationResponse
@@ -7268,6 +7288,11 @@ export interface components {
              * @description When the picked feature is a custom feature: the plugins it may be (a window's host is a `loft.wall`). Unset: any.
              */
             plugin_ids?: string[] | null;
+            /**
+             * Superseded By
+             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             */
+            superseded_by?: string | null;
         };
         /**
          * FeatureReorderRequest
@@ -8812,6 +8837,11 @@ export interface components {
              */
             name: string;
             /**
+             * Superseded By
+             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             */
+            superseded_by?: string | null;
+            /**
              * Unit
              * @default mm
              * @constant
@@ -9378,6 +9408,11 @@ export interface components {
              * @description Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.
              */
             name: string;
+            /**
+             * Superseded By
+             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             */
+            superseded_by?: string | null;
         };
         /**
          * MaterialLibraryResponse
@@ -11028,7 +11063,7 @@ export interface components {
              */
             id: string;
             /** Inputs */
-            inputs: (components["schemas"]["LengthInput"] | components["schemas"]["AngleInput"] | components["schemas"]["CountInput"] | components["schemas"]["ChoiceInput"] | components["schemas"]["ProfileInput"] | components["schemas"]["FeatureReferenceInput"] | components["schemas"]["FeatureListInput"] | components["schemas"]["MaterialInput"])[];
+            inputs: (components["schemas"]["LengthInput"] | components["schemas"]["AngleInput"] | components["schemas"]["CountInput"] | components["schemas"]["ChoiceInput"] | components["schemas"]["ProfileInput"] | components["schemas"]["FeatureReferenceInput"] | components["schemas"]["FeatureListInput"] | components["schemas"]["SegmentsInput"] | components["schemas"]["MaterialInput"])[];
             /**
              * Latest
              * @description True on the newest released version of this plugin: the one a new feature is inserted with. Older versions are listed so a feature pinned to one still gets its form.
@@ -11387,6 +11422,11 @@ export interface components {
              * @description Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.
              */
             name: string;
+            /**
+             * Superseded By
+             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             */
+            superseded_by?: string | null;
         };
         /**
          * ProjectedPoint
@@ -11731,6 +11771,71 @@ export interface components {
              * @description The cutting plane, as a datum reference (reused GeomRef): a DatumPlaneRef (XY/XZ/YZ) or a FeatureRef to an axis-aligned offset/midplane datum. A non-principal-axis normal is out of v1 (typed error, §7).
              */
             plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
+        };
+        /**
+         * SegmentsInput
+         * @description Lines of an OUTLINE, by their sketch ids, in pick order (BUILDING-OUTLINE):
+         *     the wall of an outline a window sits in, the walls of an outline that
+         *     define a roof's slope (Revit's "Defines Slope"). Stored as a list of line
+         *     ids (``["e1", "e3"]``); an empty pick is stored as no value, allowed only
+         *     when ``min_items`` is 0.
+         *
+         *     The outline is the sketch that ``outline_input`` (another input of this
+         *     manifest, a feature or feature-list pick) leads to: the picked sketch
+         *     itself, or the ``outline`` input of the picked custom feature (a
+         *     ``loft.wall`` in outline mode); for a feature list, its first pick. The
+         *     form offers that sketch's non-construction lines, each named by the way
+         *     the wall on it faces in the world, as the roof names its planes: the
+         *     outward normal of the line (the side away from the loop's inside) is
+         *     ``front`` when it points most nearly to -Y, ``back`` +Y, ``left`` -X and
+         *     ``right`` +X (a tie goes to front/back); two lines facing one way are
+         *     numbered along the loop clockwise from the sketch's first line
+         *     (``front``, ``front 2``). The plugin checks every id against the
+         *     outline.
+         */
+        SegmentsInput: {
+            /**
+             * Description
+             * @description Help text under the field.
+             */
+            description?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "segments";
+            /**
+             * Label
+             * @description Form label, e.g. 'Twist angle'.
+             */
+            label: string;
+            /**
+             * Max Items
+             * @description Most lines to pick.
+             * @default 32
+             */
+            max_items: number;
+            /**
+             * Min Items
+             * @description Fewest lines to pick; 0 makes the input optional.
+             * @default 0
+             */
+            min_items: number;
+            /**
+             * Name
+             * @description Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.
+             */
+            name: string;
+            /**
+             * Outline Input
+             * @description The input of this manifest whose pick carries the outline.
+             */
+            outline_input: string;
+            /**
+             * Superseded By
+             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             */
+            superseded_by?: string | null;
         };
         /**
          * SelectorV1

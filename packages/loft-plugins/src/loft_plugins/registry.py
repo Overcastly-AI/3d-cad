@@ -27,6 +27,7 @@ import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from typing import get_args
 
+from loft_wire.expr import Quantity
 from loft_wire.features import (
     AuthoredEnvelope,
     CustomFeature,
@@ -57,6 +58,7 @@ from loft_wire.plugins import (
     PluginInput,
     PluginManifest,
     ProfileInput,
+    SegmentsInput,
     member_id,
     semver_key,
 )
@@ -170,15 +172,35 @@ def _feature_list(
         if item.min_items == 0:
             return None
         raise _refuse(item, f"pick at least {item.min_items}")
-    if not isinstance(value, list):
+    if not isinstance(value, list) or not all(isinstance(v, FeatureRef) for v in value):
         raise _refuse(item, "must name features")
-    picks = list(value)
+    picks = [v for v in value if isinstance(v, FeatureRef)]
     if len(picks) < item.min_items:
         raise _refuse(item, f"pick at least {item.min_items}")
     if len(picks) > item.max_items:
         raise _refuse(item, f"pick at most {item.max_items}")
     if len({ref.feature_id for ref in picks}) != len(picks):
         raise _refuse(item, "names a feature twice")
+    return picks
+
+
+def _segments(item: SegmentsInput, value: CustomInputValue | None) -> list[str] | None:
+    """A segments input's stored value: the line ids in order, or ``None``
+    (not stored) for an empty pick of an optional input. Whether each id is
+    a line of the outline is the plugin's check: only it reads the sketch."""
+    if value is None:
+        if item.min_items == 0:
+            return None
+        raise _refuse(item, f"pick at least {item.min_items}")
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise _refuse(item, "must name lines of the outline")
+    picks = [v for v in value if isinstance(v, str)]
+    if len(picks) < item.min_items:
+        raise _refuse(item, f"pick at least {item.min_items}")
+    if len(picks) > item.max_items:
+        raise _refuse(item, f"pick at most {item.max_items}")
+    if len(set(picks)) != len(picks):
+        raise _refuse(item, "names a line twice")
     return picks
 
 
@@ -203,6 +225,8 @@ def _canonical(
             return value
         case FeatureListInput():
             return _feature_list(item, value)
+        case SegmentsInput():
+            return _segments(item, value)
         case ProfileInput() | FeatureReferenceInput():
             if value is None:
                 if isinstance(item, FeatureReferenceInput) and item.optional:
@@ -349,6 +373,7 @@ def expand(
     *,
     hosted: Sequence[Hosted] = (),
     time_limit_s: float = PLUGIN_EXPAND_TIME_LIMIT_S,
+    parameters: Mapping[str, Quantity] | None = None,
 ) -> list[ExpandedMember]:
     """The members of custom feature *feature_id*, from canonical *inputs*.
 
@@ -377,7 +402,10 @@ def expand(
         )
 
     try:
-        for member in plugin.expand(ExpandInputs(feature_id, values, earlier, hosted)):
+        context = ExpandInputs(
+            feature_id, values, earlier, hosted, parameters=parameters or {}
+        )
+        for member in plugin.expand(context):
             if len(members) >= MAX_PLUGIN_EXPANSION:
                 raise PluginError(
                     PLUGIN_EXPANSION_TOO_LARGE,

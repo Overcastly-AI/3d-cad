@@ -16,6 +16,7 @@ from loft_wire.features import CustomFeature
 from loft_wire.plugins import PLUGIN_INPUT_INVALID
 
 from loft_plugins.api import ExpandInputs, PluginError
+from loft_plugins.builtin.house import wall_specs_of
 from loft_plugins.builtin.roof import unsupported
 from loft_plugins.builtin.wall import WallSpec
 
@@ -144,8 +145,12 @@ def footprint_from_walls(inputs: ExpandInputs) -> Footprint | None:
             raise PluginError(
                 PLUGIN_INPUT_INVALID, "Walls: pick earlier Walls.", input="walls"
             )
-        spec = WallSpec.from_inputs(ExpandInputs(ref.feature_id, wall.params.inputs))
-        lines.append(_wall_line(f"Wall {len(lines) + 1}", spec))
+        # A 1.3.0 wall may stand on a floor, or be an outline's walls, one per
+        # line (BUILDING-OUTLINE); earlier releases are one typed line each.
+        for _, spec in wall_specs_of(
+            ref.feature_id, wall, inputs.earlier, inputs.parameters
+        ):
+            lines.append(_wall_line(f"Wall {len(lines) + 1}", spec))
     if len(lines) not in (4, 6):
         raise walls_error(
             f"{len(lines)} walls picked: this roof frames a rectangle (4 walls) or "

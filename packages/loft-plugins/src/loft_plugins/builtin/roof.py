@@ -379,15 +379,48 @@ def layout_slots(count: int) -> list[str]:
 GABLE_RIDGE = "back/front"
 
 
+@dataclass(frozen=True)
+class GablePlace:
+    """Where a gable stands (BUILDING-OUTLINE): its bearing walls' outer faces
+    from ``(x0, y0)``, the ridge along world X (the walls at ``y0`` and ``y0 +
+    span``) or along Y (the walls at ``x0`` and ``x0 + span``). The default
+    is 1.0.0's frame: X 0..length, Y 0..span."""
+
+    x0: float = 0.0
+    y0: float = 0.0
+    along_x: bool = True
+
+
 def gable(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
-    """The gable. *named* (1.3.0, ROOF-MEMBER-RENUMBER) gives every member a
-    stable name: a rafter by its side and layout slot (``front/slot/3``), its
-    section after it, a plane by its X (``yz/71.25``), the ridge by the planes
-    it divides. Same members, order and geometry as unnamed."""
-    span = inches("span_mm", inputs)
-    length = inches("length_mm", inputs)
-    plate_height = inches("plate_height_mm", inputs)
-    plate_width = inches("plate_width_mm", inputs)
+    """The gable on its typed bearing. *named* (1.3.0, ROOF-MEMBER-RENUMBER)
+    gives every member a stable name: a rafter by its side and layout slot
+    (``front/slot/3``), its section after it, a plane by its X (``yz/71.25``),
+    the ridge by the planes it divides. Same members, order and geometry as
+    unnamed."""
+    return gable_on(
+        inputs,
+        named,
+        inches("span_mm", inputs),
+        inches("length_mm", inputs),
+        inches("plate_height_mm", inputs),
+        inches("plate_width_mm", inputs),
+        GablePlace(),
+    )
+
+
+def gable_on(
+    inputs: ExpandInputs,
+    named: bool,
+    span: float,
+    length: float,
+    plate_height: float,
+    plate_width: float,
+    place: GablePlace,
+) -> Iterator[Member]:
+    """The gable on a bearing given in inches, at *place*. At the default
+    place it is :func:`gable`'s every member, byte for byte. Along Y the
+    rafters stand on ``XZ`` planes (normal -Y) extruded toward +Y, the sides
+    are ``left`` and ``right`` and the planes ``xz/<y>``."""
     pitch = inputs.choice("pitch")
     rises = {pitch_value(r): r for r in PITCHES}
     if pitch not in rises:
@@ -411,6 +444,22 @@ def gable(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
             "ridge_profile",
         )
 
+    # Along the ridge from `start`, across it from `across` (world, in).
+    start, across = (place.x0, place.y0) if place.along_x else (place.y0, place.x0)
+    base, axis = ("YZ", "yz") if place.along_x else ("XZ", "xz")
+    sides = ("front", "back") if place.along_x else ("left", "right")
+    ridge_key = GABLE_RIDGE if place.along_x else "left/right"
+    direction: Literal["normal", "reverse"] = "normal" if place.along_x else "reverse"
+
+    def shifted(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+        if across == 0.0:
+            return points
+        return [(across + y, z) for y, z in points]
+
+    def offset(at: float) -> float:
+        # YZ's normal is +X; XZ's is -Y, so a plane at Y y is offset -y.
+        return _mm(at) if place.along_x else -_mm(at) + 0.0
+
     front = r.profile()
     back = [(span - y, z) for y, z in reversed(front)]
     t = rafter_p.thickness_in
@@ -419,28 +468,32 @@ def gable(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
     planes = 0
     sections = 0
     rafters = 0
+    first_plane: DatumPlaneRef | FeatureRef | None = None
     centres = joist_centres(length, spacing, t)
     slots = layout_slots(len(centres)) if named else [None] * len(centres)
     for centre, slot in zip(centres, slots, strict=True):
         x0 = centre - t / 2
+        at = x0 if start == 0.0 else start + x0
         plane: DatumPlaneRef | FeatureRef
-        if x0 == 0.0:
-            plane = DatumPlaneRef(kind="datum_plane", plane="YZ")
+        if at == 0.0:
+            plane = DatumPlaneRef(kind="datum_plane", plane=base)
         else:
-            plane_name = None if slot is None else f"yz/{number_name(x0)}"
+            plane_name = None if slot is None else f"{axis}/{number_name(at)}"
             yield Member(
                 "plane",
                 planes,
                 DatumFeature(
                     type="datum",
                     version=1,
-                    params=DatumOffsetParams(base="YZ", offset_mm=_mm(x0)),
+                    params=DatumOffsetParams(base=base, offset_mm=offset(at)),
                 ),
                 name=plane_name,
             )
             plane = inputs.ref("plane", planes, plane_name)
             planes += 1
-        for side, outline in (("front", front), ("back", back)):
+        if first_plane is None:
+            first_plane = plane
+        for side, outline in ((sides[0], front), (sides[1], back)):
             rafter_name = None if slot is None else f"{side}/{slot}"
             section_name = None if slot is None else f"rafter/{rafter_name}"
             yield Member(
@@ -450,7 +503,9 @@ def gable(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
                     type="sketch",
                     version=1,
                     params=SketchParamsV1(
-                        plane=plane, entities=list(_polygon(outline)), constraints=[]
+                        plane=plane,
+                        entities=list(_polygon(shifted(outline))),
+                        constraints=[],
                     ),
                 ),
                 name=section_name,
@@ -466,6 +521,7 @@ def gable(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
                         distance_mm=_mm(t),
                         operation="add",
                         merge=False,
+                        direction=direction,
                     ),
                 ),
                 rafter_meta,
@@ -474,13 +530,19 @@ def gable(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
             sections += 1
             rafters += 1
 
-    # The ridge board: its section on the YZ plane, run the roof's length.
+    # The ridge board: its section on the first rafters' plane (the YZ
+    # plane in 1.0.0's frame), run the roof's length.
     half = ridge_p.thickness_in / 2
     top = r.top_at_ridge
     bottom = top - ridge_p.width_in
     centre_y = span / 2
-    ridge_name = GABLE_RIDGE if named else None
-    ridge_section = f"ridge/{GABLE_RIDGE}" if named else None
+    ridge_name = ridge_key if named else None
+    ridge_section = f"ridge/{ridge_key}" if named else None
+    ridge_plane = (
+        DatumPlaneRef(kind="datum_plane", plane=base)
+        if first_plane is None
+        else first_plane
+    )
     yield Member(
         "section",
         sections,
@@ -488,15 +550,17 @@ def gable(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
             type="sketch",
             version=1,
             params=SketchParamsV1(
-                plane=DatumPlaneRef(kind="datum_plane", plane="YZ"),
+                plane=ridge_plane,
                 entities=list(
                     _polygon(
-                        [
-                            (centre_y - half, bottom),
-                            (centre_y + half, bottom),
-                            (centre_y + half, top),
-                            (centre_y - half, top),
-                        ]
+                        shifted(
+                            [
+                                (centre_y - half, bottom),
+                                (centre_y + half, bottom),
+                                (centre_y + half, top),
+                                (centre_y - half, top),
+                            ]
+                        )
                     )
                 ),
                 constraints=[],
@@ -515,6 +579,7 @@ def gable(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
                 distance_mm=_mm(length),
                 operation="add",
                 merge=False,
+                direction=direction,
             ),
         ),
         MemberMetadata(profile=ridge_p.name, material=ridge_mat),

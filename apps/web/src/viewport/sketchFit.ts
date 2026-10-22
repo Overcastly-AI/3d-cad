@@ -75,3 +75,28 @@ export function sketchWorldBox(
   }
   return into;
 }
+
+/** One saved sketch as the part scene draws it (`SolvedSketchLayer`'s shape). */
+export interface SketchFitLayer {
+  readonly entities: readonly SketchEntity[];
+  readonly basis: PlaneBasis;
+}
+
+/**
+ * THE SAVED SKETCHES A PART FIT FRAMES: the union of each drawn sketch's
+ * world box, or null when none draws anything. Fusion's Fit frames every
+ * visible object, sketches included, so a part that holds only a sketch (a
+ * house's outline before its walls) opens on that sketch instead of on an
+ * empty origin, and Fit brings it back.
+ */
+export function sketchLayersBox(
+  layers: readonly SketchFitLayer[],
+): Box3 | null {
+  const out = new Box3();
+  const one = new Box3();
+  for (const layer of layers) {
+    const box = sketchWorldBox(layer.entities, layer.basis, one);
+    if (box !== null) out.union(box);
+  }
+  return out.isEmpty() ? null : out;
+}

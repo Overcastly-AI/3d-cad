@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./tokens": "./src/tokens.ts",
     "./gauge": "./src/gauge.ts",
+    "./units": "./src/units.ts",
     "./tailwind-preset": "./src/tailwind-preset.ts",
     "./fonts": "./src/fonts.ts"
   },

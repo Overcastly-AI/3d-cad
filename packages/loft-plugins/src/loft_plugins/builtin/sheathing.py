@@ -78,12 +78,14 @@ from loft_wire.plugins import (
     MemberMetadata,
     PluginManifest,
     PluginMemberRole,
+    semver_key,
 )
 from loft_wire.sheet_goods import SHEET_GOODS_BY_KEY, SheetGood, SheetGoodKey
 from loft_wire.sketch import Point2D, SketchLine
 
 from loft_plugins.api import ExpandInputs, Member, Plugin, PluginError
 from loft_plugins.builtin import floor as floor_v1
+from loft_plugins.builtin import house
 from loft_plugins.builtin import wall as wall_v1
 
 #: A wall sheathing panel's width and a subfloor panel's (in): a sheet's.
@@ -353,13 +355,26 @@ def placed_wall_panels(
     <row>``, the column the 48 in strip from the wall's start and the row
     the piece of it counted from the bottom (1 only where an opening cuts a
     strip in two)."""
+    return placed_wall_panels_between(wall, openings, 0.0, wall.length)
+
+
+def placed_wall_panels_between(
+    wall: wall_v1.WallSpec,
+    openings: Sequence[wall_v1.Opening],
+    first: float,
+    last: float,
+) -> list[tuple[str, Region]]:
+    """:func:`placed_wall_panels` on the part ``first..last`` of the wall
+    (``u``, inches): 48 in strips from *first*. An outline wall's face is
+    sheathed short of an inside corner (BUILDING-OUTLINE); a whole face is
+    ``0..length``, which is :func:`placed_wall_panels` exactly."""
     cuts = [
         (o.centre - o.width / 2, o.centre + o.width / 2, o.sill, o.head)
         for o in openings
     ]
     out: list[tuple[str, Region]] = []
-    for col, (u0, u1) in enumerate(strips(wall.length, PANEL_WIDTH)):
-        pieces = rect_minus_rects((u0, u1, 0.0, wall.height), cuts)
+    for col, (u0, u1) in enumerate(strips(last - first, PANEL_WIDTH)):
+        pieces = rect_minus_rects((first + u0, first + u1, 0.0, wall.height), cuts)
         pieces.sort(
             key=lambda r: (min(y for _, y in r.outer), min(x for x, _ in r.outer))
         )
@@ -495,15 +510,19 @@ def earlier_walls(inputs: ExpandInputs) -> list[EarlierWall]:
             continue
         values = ExpandInputs(feature_id, envelope.params.inputs)
         try:
-            spec = wall_v1.WallSpec.from_inputs(values)
+            # A 1.3.0 wall may stand on a floor or be an outline's walls
+            # (BUILDING-OUTLINE); earlier releases are one typed line.
+            specs = house.wall_specs_of(
+                feature_id, envelope, inputs.earlier, inputs.parameters
+            )
         except PluginError:
             continue
         good = None
-        if envelope.params.plugin_version.startswith("1.2.") and (
+        if semver_key(envelope.params.plugin_version) >= (1, 2, 0) and (
             "sheathing" in envelope.params.inputs
         ):
             good = _good(values, "sheathing")
-        out.append(EarlierWall(spec, good))
+        out += [EarlierWall(spec, good) for _, spec in specs]
     return out
 
 
@@ -625,6 +644,13 @@ def _expand_wall(inputs: ExpandInputs) -> Iterator[Member]:
     # member; then the panels.
     yield from wall_v1.expand_v1_1(inputs)
     yield from wall_sheathing(inputs)
+
+
+#: 1.2.0's wall and 1.1.0's floor, and their parts, for the releases built on
+#: them (BUILDING-OUTLINE).
+expand_wall_v1_2 = _expand_wall
+panel_members = _panel_members
+sheet_good = _good
 
 
 def _option(key: SheetGoodKey) -> ChoiceOption:
@@ -770,3 +796,5 @@ FLOOR_MANIFEST_V1_1 = PluginManifest(
 )
 
 FLOOR_V1_1 = Plugin(FLOOR_MANIFEST_V1_1, _expand_floor)
+
+expand_floor_v1_1 = _expand_floor

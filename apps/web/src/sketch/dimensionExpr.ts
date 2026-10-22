@@ -9,12 +9,21 @@
  * source of truth (uniqueness / a bad expression come back as `sketch_invalid`).
  */
 
-import { isCarpenterLength, parseLength } from "@loft/design";
+// The units core alone: the package root pulls the Tailwind preset, which
+// Node cannot load when an e2e spec imports the sketch modules.
+import {
+  isCarpenterLength,
+  type LengthUnit,
+  parseLength,
+} from "@loft/design/units";
 
 import { typedFormulaError } from "../units/length";
 
 /** A bare literal: optional sign, digits, optional decimal. Nothing else. */
 const LITERAL_RE = /^[+-]?\d+(\.\d+)?$/;
+
+/** A decimal with a unit suffix: `28 ft`, `20mm`. */
+const SUFFIXED_RE = /^[+-]?(?:\d+\.?\d*|\.\d+)\s*(?:mm|cm|m|in|ft)$/i;
 
 /** The server's dimension-name identifier rule (`^[A-Za-z_][A-Za-z0-9_]*$`). */
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -31,19 +40,28 @@ export type DimensionValue =
  */
 export function classifyDimensionValue(
   text: string,
-  { length = false, stored = null }: ClassifyOptions = {},
+  { length = false, stored = null, unit = "mm" }: ClassifyOptions = {},
 ): DimensionValue {
   const trimmed = text.trim();
   if (trimmed === "") return { kind: "empty" };
   if (LITERAL_RE.test(trimmed)) {
-    return { kind: "literal", valueMm: Number.parseFloat(trimmed) };
+    // A length box reads a bare number in the PART's unit, as every length
+    // field does (`288` in an inch part is 7315.2 mm); an angle in degrees.
+    const valueMm = length
+      ? parseLength(trimmed, unit)
+      : Number.parseFloat(trimmed);
+    if (valueMm !== null) return { kind: "literal", valueMm };
   }
-  // Carpenter notation in a length box is a literal, read as the box reads a
-  // bare number (mm) unless it carries its own marks: `11 15/32`, `5' 6"`
-  // (RESEARCH §29). The stored expression, re-committed untouched, keeps the
-  // meaning the server gave it.
-  if (length && trimmed !== stored && isCarpenterLength(trimmed, "mm")) {
-    const valueMm = parseLength(trimmed, "mm");
+  // A length with its own unit (`28 ft`, `20 mm`) and carpenter notation
+  // (`11 15/32`, `5' 6"`, RESEARCH §29) are literals in a length box, read in
+  // the part's unit unless they carry their own marks. The stored expression,
+  // re-committed untouched, keeps the meaning the server gave it.
+  if (
+    length &&
+    trimmed !== stored &&
+    (SUFFIXED_RE.test(trimmed) || isCarpenterLength(trimmed, unit))
+  ) {
+    const valueMm = parseLength(trimmed, unit);
     if (valueMm !== null) return { kind: "literal", valueMm };
   }
   return { kind: "expression", expression: trimmed };
@@ -54,6 +72,8 @@ export interface ClassifyOptions {
   length?: boolean;
   /** The dimension's stored expression, which keeps its meaning. */
   stored?: string | null;
+  /** The part's length unit, which a bare number in a length box is in. */
+  unit?: LengthUnit;
 }
 
 /**
@@ -62,11 +82,11 @@ export interface ClassifyOptions {
  */
 export function dimensionAmbiguity(
   parsed: DimensionValue,
-  { length = false, stored = null }: ClassifyOptions = {},
+  { length = false, stored = null, unit = "mm" }: ClassifyOptions = {},
 ): string | null {
   if (!length || parsed.kind !== "expression") return null;
   if (parsed.expression === stored) return null;
-  return typedFormulaError(parsed.expression, "length", "mm");
+  return typedFormulaError(parsed.expression, "length", unit);
 }
 
 /**

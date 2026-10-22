@@ -11,6 +11,7 @@ import { DocumentUnitProvider } from "../units/documentUnit";
 import { ChromeRailProvider } from "../components/ChromeRail";
 import { FeatureDeleteConfirm } from "../components/FeatureDeleteConfirm";
 import { defaultCombineForm } from "../features/boolean";
+import { pickFromTree } from "../features/outlinePickStore";
 import { SketchDro } from "../components/SketchDro";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
 import { TimelineStrip } from "../components/TimelineStrip";
@@ -516,6 +517,10 @@ export function PartPage() {
 
   const selectFeature = useCallback(
     (feature: FeatureResponse) => {
+      // An open custom feature's dialog takes a browser pick its Outline,
+      // Floor or Walls field accepts, as Fusion's selection fields do
+      // (BUILDING-OUTLINE); any other row opens as before.
+      if (pickFromTree(feature)) return;
       useMeasureStore.getState().deactivate();
       setSelectedFeatureId(feature.id);
       setEditorError(null);
@@ -1047,6 +1052,7 @@ export function PartPage() {
           <ChromeRailProvider>
             <Viewport
               glb={body.data}
+              sketchLayers={solved}
               onContextMenu={openViewportMenu}
               rotateEnabled={mode !== "draw"}
               groundGrid={mode !== "draw"}

@@ -12,7 +12,8 @@ and ``loft-script`` read one definition:
   rendered into a form by the web, so no form is hand-written per plugin.
 * the input kinds (:data:`PluginInput`): length, angle, count, choice,
   profile, feature reference, feature list (several picks, as a roof's
-  walls) and material. Every numeric input accepts a §20
+  walls), segments (lines of an outline sketch, as a roof's slope walls) and
+  material. Every numeric input accepts a §20
   expression, through the envelope's ``expressions`` pointer
   (``/inputs/<name>``), so the input's NAME carries its unit exactly as a base
   feature's field name does: a length input ends ``_mm``, an angle ``_deg``,
@@ -65,6 +66,8 @@ MAX_CHOICE_OPTIONS: Final = 32
 MAX_PLUGIN_TEXT: Final = 200
 #: Most features one feature-list input may name (a roof's picked walls).
 MAX_FEATURE_LIST: Final = 32
+#: Most outline segments one segments input may name (a roof's slope walls).
+MAX_SEGMENTS: Final = 32
 
 #: The namespace of every generated member id (:func:`member_id`). A fixed
 #: constant: changing it would rename every member of every stored part.
@@ -127,14 +130,22 @@ MemberNameField = Annotated[
         "ordinal (loft.wall and loft.deck 1.1.0); absent on members named by index.",
     ),
 ]
+#: A sketch line's id as a segments input stores it (``e3``): the sketch-local
+#: entity id of one line of an outline (BUILDING-OUTLINE).
+SegmentId = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$"),
+]
 #: One input value: a number (mm, degrees or a count, by the input's kind), an
-#: option or material key, or one or more earlier features. Strict: no ``true``.
+#: option or material key, one or more earlier features, or one or more lines
+#: of an outline (their sketch ids). Strict: no ``true``.
 CustomInputValue = (
     StrictInt
     | StrictFloat
     | Annotated[str, StringConstraints(max_length=MAX_PLUGIN_TEXT)]
     | FeatureRef
     | Annotated[list[FeatureRef], Field(min_length=1, max_length=MAX_FEATURE_LIST)]
+    | Annotated[list[SegmentId], Field(min_length=1, max_length=MAX_SEGMENTS)]
 )
 Label = Annotated[str, StringConstraints(min_length=1, max_length=80)]
 Description = Annotated[str, StringConstraints(max_length=500)]
@@ -185,6 +196,14 @@ class _InputBase(BaseModel):
     label: Label = Field(description="Form label, e.g. 'Twist angle'.")
     description: Description | None = Field(
         default=None, description="Help text under the field."
+    )
+    superseded_by: InputName | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="Another input of this manifest (a feature pick) that, once "
+        "set, makes this one unused: a wall's start, direction and length when "
+        "an outline is picked (BUILDING-OUTLINE). The form hides this input "
+        "while that one is set; its stored value is kept. Absent: always used.",
     )
 
 
@@ -374,6 +393,50 @@ class FeatureListInput(_InputBase):
         return self
 
 
+class SegmentsInput(_InputBase):
+    """Lines of an OUTLINE, by their sketch ids, in pick order (BUILDING-OUTLINE):
+    the wall of an outline a window sits in, the walls of an outline that
+    define a roof's slope (Revit's "Defines Slope"). Stored as a list of line
+    ids (``["e1", "e3"]``); an empty pick is stored as no value, allowed only
+    when ``min_items`` is 0.
+
+    The outline is the sketch that ``outline_input`` (another input of this
+    manifest, a feature or feature-list pick) leads to: the picked sketch
+    itself, or the ``outline`` input of the picked custom feature (a
+    ``loft.wall`` in outline mode); for a feature list, its first pick. The
+    form offers that sketch's non-construction lines, each named by the way
+    the wall on it faces in the world, as the roof names its planes: the
+    outward normal of the line (the side away from the loop's inside) is
+    ``front`` when it points most nearly to -Y, ``back`` +Y, ``left`` -X and
+    ``right`` +X (a tie goes to front/back); two lines facing one way are
+    numbered along the loop clockwise from the sketch's first line
+    (``front``, ``front 2``). The plugin checks every id against the
+    outline."""
+
+    kind: Literal["segments"]
+    outline_input: InputName = Field(
+        description="The input of this manifest whose pick carries the outline."
+    )
+    min_items: int = Field(
+        default=0,
+        ge=0,
+        le=MAX_SEGMENTS,
+        description="Fewest lines to pick; 0 makes the input optional.",
+    )
+    max_items: int = Field(
+        default=MAX_SEGMENTS,
+        ge=1,
+        le=MAX_SEGMENTS,
+        description="Most lines to pick.",
+    )
+
+    @model_validator(mode="after")
+    def _bounded(self) -> Self:
+        if self.min_items > self.max_items:
+            raise ValueError(f"input {self.name!r}: min_items is above max_items")
+        return self
+
+
 class MaterialInput(_InputBase):
     """A library material for the generated members (their mass and cut list)."""
 
@@ -390,6 +453,7 @@ PluginInput = Annotated[
     | ProfileInput
     | FeatureReferenceInput
     | FeatureListInput
+    | SegmentsInput
     | MaterialInput,
     Field(discriminator="kind"),
 ]
@@ -482,6 +546,23 @@ class PluginManifest(BaseModel):
         ]
         if len(hosts) > 1:
             raise ValueError(f"plugin {self.id!r} names more than one host input")
+        picks = {
+            item.name
+            for item in self.inputs
+            if isinstance(item, FeatureReferenceInput | FeatureListInput)
+        }
+        for item in self.inputs:
+            if isinstance(item, SegmentsInput) and item.outline_input not in picks:
+                raise ValueError(
+                    f"segments input {item.name!r} must name a feature input as "
+                    "its outline_input"
+                )
+            if item.superseded_by is not None and (
+                item.superseded_by not in picks or item.superseded_by == item.name
+            ):
+                raise ValueError(
+                    f"input {item.name!r} must be superseded by another feature input"
+                )
         return self
 
     def host_input(self) -> FeatureReferenceInput | None:

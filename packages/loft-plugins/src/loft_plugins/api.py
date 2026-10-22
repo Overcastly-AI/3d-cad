@@ -16,6 +16,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast, get_args
 
+from loft_wire.expr import Quantity
 from loft_wire.features import AuthoredEnvelope, FeatureEnvelope, FeatureRef
 from loft_wire.lumber import (
     LUMBER_PROFILES,
@@ -34,9 +35,9 @@ from loft_wire.plugins import (
 
 #: A canonical input value: float for a length or angle, int for a count, str
 #: for a choice or material, a ``FeatureRef`` for a profile or feature, a list
-#: of them for a feature list, and ``None`` for an optional feature, feature
-#: list or material left empty.
-InputValue = float | int | str | FeatureRef | list[FeatureRef] | None
+#: of them for a feature list, line ids for a segments input, and ``None`` for
+#: an optional feature, feature list, segments or material left empty.
+InputValue = float | int | str | FeatureRef | list[FeatureRef] | list[str] | None
 
 
 class PluginError(Exception):
@@ -90,6 +91,13 @@ class ExpandInputs:
         default_factory=dict[uuid.UUID, AuthoredEnvelope]
     )
     hosted: Sequence[Hosted] = ()
+    #: Prepended (``<prefix>/``) to every member name :meth:`ref` derives, so
+    #: one wall of an outline names its members under its sketch line
+    #: (``e3/slot/2``, BUILDING-OUTLINE). ``None``: names as given.
+    name_prefix: str | None = None
+    #: The part's parameter table, by name: what a sketch dimension's formula
+    #: reads when a plugin resolves a picked sketch (BUILDING-OUTLINE).
+    parameters: Mapping[str, Quantity] = field(default_factory=dict[str, Quantity])
 
     def _get(self, name: str) -> InputValue:
         if name not in self.values:
@@ -147,11 +155,31 @@ class ExpandInputs:
         value = self._get(name)
         if value is None:
             return []
-        if not isinstance(value, list):
+        if not isinstance(value, list) or not all(
+            isinstance(v, FeatureRef) for v in value
+        ):
             raise PluginError(
                 PLUGIN_INPUT_INVALID, f"{name!r} names no features", input=name
             )
-        return list(value)
+        return [v for v in value if isinstance(v, FeatureRef)]
+
+    def segments(self, name: str) -> list[str]:
+        """A segments input's line ids, in order (empty when left empty)."""
+        value = self._get(name)
+        if value is None:
+            return []
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise PluginError(
+                PLUGIN_INPUT_INVALID, f"{name!r} names no lines", input=name
+            )
+        return [v for v in value if isinstance(v, str)]
+
+    def optional_feature(self, name: str) -> FeatureRef | None:
+        """An optional feature input's pick, or ``None`` when left empty."""
+        value = self._get(name)
+        if value is None:
+            return None
+        return self.feature(name)
 
     def resolve(self, ref: FeatureRef) -> AuthoredEnvelope | None:
         """The earlier feature *ref* names, or ``None``."""
@@ -159,7 +187,9 @@ class ExpandInputs:
 
     def ref(self, role: str, index: int = 0, name: str | None = None) -> FeatureRef:
         """A reference to this expansion's member ``(role, index)``, or
-        ``(role, name)`` for a named member."""
+        ``(role, name)`` for a named member (under :attr:`name_prefix`)."""
+        if name is not None and self.name_prefix is not None:
+            name = f"{self.name_prefix}/{name}"
         return FeatureRef(
             kind="feature", feature_id=member_id(self.feature_id, role, index, name)
         )
