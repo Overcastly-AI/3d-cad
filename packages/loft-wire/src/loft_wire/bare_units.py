@@ -167,12 +167,14 @@ def write_units[E: AuthoredEnvelope](
             # The unit moves the value: store what the new text gives, for the
             # rewritten dimension and every formula reading it. A sketch that
             # reads no parameter is not re-resolved later, so this is where
-            # its value_mm stops being the client's mm reading. One that does
-            # not evaluate keeps its values; its own resolution reports it.
+            # its value_mm stops being the client's mm reading. A sketch whose
+            # dimensions do not evaluate (a division by zero, a cycle) is
+            # refused, as a parameter-reading one is: storing the text with
+            # the client's mm values would build what the text does not say.
             try:
                 values = evaluate_driving_dimensions(constraints, parameters)
-            except ExpressionError:
-                values = {}
+            except ExpressionError as exc:
+                raise FeatureExpressionError(str(exc), code=exc.code) from exc
             for index, dim in dims:
                 if index in values and constraints[index].expression is not None:
                     field = "value_deg" if dim.kind == "angle" else "value_mm"

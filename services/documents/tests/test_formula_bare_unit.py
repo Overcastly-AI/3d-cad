@@ -242,6 +242,45 @@ def test_a_parameter_and_a_sketch_dimension_follow_the_same_rule(
     assert stored[0]["value_mm"] == 40
 
 
+def _dim(entity: str, name: str | None, expression: str | None) -> dict[str, Any]:
+    dim: dict[str, Any] = {"kind": "distance", "entity": entity, "value_mm": 41}
+    if name is not None:
+        dim["name"] = name
+    if expression is not None:
+        dim["expression"] = expression
+    return dim
+
+
+@pytest.mark.parametrize(
+    ("constraints", "code"),
+    [
+        (
+            [
+                _dim("e1", "d1", None),
+                _dim("e2", None, "d1 + 1"),
+                _dim("e1", None, "d1/0"),
+            ],
+            "expression_domain",
+        ),
+        ([_dim("e1", "d1", "d2 + 1"), _dim("e2", "d2", "d1 + 1")], "expression_cycle"),
+    ],
+)
+def test_a_rewritten_sketch_that_does_not_evaluate_is_a_422(
+    client: TestClient, constraints: list[dict[str, Any]], code: str
+) -> None:
+    part, _ = _walled(client, "in")
+    before = part.tree()
+    sketch = {**SKETCH, "params": {**SKETCH["params"], "constraints": constraints}}
+    response = client.post(
+        f"/api/v1/parts/{part.id}/features",
+        json={"name": "S", "feature": sketch, "expected_tree_version": part.version},
+        headers=HEADERS,
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == code
+    assert part.tree() == before
+
+
 def _seeded(client: TestClient) -> tuple[Part, str, dict[str, Any]]:
     """An inch part with a stored ``wall + 1/2`` (written while it was mm)."""
     part, sketch_id = _walled(client, "mm")
