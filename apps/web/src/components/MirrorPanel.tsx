@@ -23,6 +23,7 @@ import {
   PLANE_LABEL,
   type PlaneChoice,
 } from "../assembly/mirrors";
+import { lengthEntryExpression } from "../features/expr";
 import { EditorCard } from "./EditorCard";
 import { ExprField, PickButton, Section } from "./PatternPanel";
 
@@ -211,6 +212,7 @@ export function MirrorPanel({
               label="Offset"
               value={form.offset}
               testId="mirror-offset"
+              expression={(offset) => lengthEntryExpression(offset, "mm")}
               onChange={(offset) => set({ offset })}
             />
           )}

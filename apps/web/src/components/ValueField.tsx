@@ -243,7 +243,9 @@ export function ValueField({
   const textFormula =
     pointer === undefined
       ? (() => {
-          if (kind === "length" && isCarpenterLength(display)) return null;
+          if (kind === "length" && isCarpenterLength(display, bareUnit)) {
+            return null;
+          }
           const entry = parseFieldEntry(display, "unitless", unit);
           return entry.kind === "formula" ? entry.expression : null;
         })()

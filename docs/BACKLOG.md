@@ -199,9 +199,11 @@ PRICE-BOOK-VERSION) and ROOF-MEMBER-RENUMBER.
    _Notes:_ entry-time only, the server grammar is unchanged, so stored
    expressions (including any old `a-b/c`) keep their meaning; typed
    parameters and assembly spacing are sent spelled out (`11 in + 15 in/32`).
-   A stored `a-b/c` assembly spacing/offset is refused on re-save (visible,
-   not silent). Open: inside a formula a bare number is mm even in an inch
-   part (`wall + 1/2` adds 0.5 mm); Fusion reads it in the document unit.
+   Review fixes: a reopened stored pattern spacing is re-sent verbatim
+   (no-op save tests for pattern, mirror, parameters, plugin forms, sketch);
+   in a metric reading `100-10/2` is refused as ambiguous, never 105.
+   Follow-up FORMULA-BARE-UNIT: inside a formula a bare number is mm even in
+   an inch part (`wall + 1/2` adds 0.5 mm).
 
 ## Next
 

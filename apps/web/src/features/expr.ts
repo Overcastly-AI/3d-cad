@@ -529,7 +529,7 @@ export function mixedNumberAmbiguity(
  */
 export function lengthEntryExpression(text: string, unit: LengthUnit): string {
   const trimmed = text.trim();
-  if (isCarpenterLength(trimmed)) {
+  if (isCarpenterLength(trimmed, unit)) {
     const spelled = lengthExpression(trimmed, unit);
     if (spelled !== null) return spelled;
   }

@@ -25,6 +25,7 @@ import {
   type PatternForm,
   type PatternKind,
   samePartInstances,
+  spacingExpression,
 } from "../assembly/patterns";
 import type { PatternPickTarget } from "../assembly/patternStore";
 import { evaluateExpression } from "../features/expr";
@@ -72,9 +73,12 @@ export function Section({
 }
 
 /** "= 45°" under a typed expression, or nothing while it does not read. */
-function reading(text: string): string | null {
+function reading(
+  text: string,
+  expression: (text: string) => string,
+): string | null {
   try {
-    const q = evaluateExpression(text, new Map());
+    const q = evaluateExpression(expression(text), new Map());
     const unit = q.kind === "length" ? " mm" : q.kind === "angle" ? "°" : "";
     return `= ${Number(q.value.toFixed(6))}${unit}`;
   } catch {
@@ -87,13 +91,19 @@ export function ExprField({
   value,
   onChange,
   testId,
+  expression = (text) => text,
 }: {
   label: string;
   value: string;
   onChange: (text: string) => void;
   testId: string;
+  /**
+   * The text as the save will evaluate it (a length field spells carpenter
+   * notation out, and keeps a stored expression), so the reading agrees.
+   */
+  expression?: (text: string) => string;
 }) {
-  const hint = reading(value);
+  const hint = reading(value, expression);
   return (
     <label className="flex items-center gap-2 py-0.5">
       <span className="w-[4rem] shrink-0 font-body text-xs text-mist">
@@ -380,6 +390,9 @@ export function PatternPanel({
                   label="Spacing"
                   value={form.spacing}
                   testId="pattern-spacing"
+                  expression={(spacing) =>
+                    spacingExpression({ ...form, spacing })
+                  }
                   onChange={(spacing) => set({ spacing })}
                 />
               ) : (

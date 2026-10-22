@@ -11,6 +11,7 @@ import {
   fromMmVolume,
   isCarpenterLength,
   isPartialLength,
+  lengthEntryText,
   lengthExpression,
   LENGTH_UNITS,
   type LengthUnit,
@@ -324,7 +325,25 @@ describe("carpenter notation (B7-MIXED-FRACTION, RESEARCH §29)", () => {
     expect(inches('11 15/32"')).toBeCloseTo(11.46875, 12);
     expect(inches('11 15/32"', "mm")).toBeCloseTo(11.46875, 12);
     expect(inches("11 15/32 in", "mm")).toBeCloseTo(11.46875, 12);
-    expect(parseLength("11-15/32", "mm")).toBeCloseTo(11.46875, 12);
+    expect(inches("11-15/32 in", "mm")).toBeCloseTo(11.46875, 12);
+    expect(inches('11-15/32"', "mm")).toBeCloseTo(11.46875, 12);
+    expect(inches("1-1/2", "ft")).toBeCloseTo(18, 12);
+    expect(inches("0-1/2")).toBeCloseTo(0.5, 12);
+  });
+
+  it("reads a hyphen as a mixed number only in inches or feet", () => {
+    // In a metric reading `100-10/2` is far likelier 95 than 105: it is not
+    // a length, so the field refuses it as ambiguous (apps/web expr.ts).
+    for (const unit of ["mm", "cm", "m"] as const) {
+      expect(parseLength("100-10/2", unit)).toBeNull();
+      expect(parseLength("0-1/2", unit)).toBeNull();
+      expect(parseLength("11-15/32 mm", "in")).toBeNull();
+    }
+    // The spaced mixed number has no minus to confuse: it reads in any unit.
+    expect(parseLength("11 15/32", "mm")).toBeCloseTo(11.46875, 12);
+    // A decimal whole is never a mixed number, in any unit.
+    expect(parseLength("11.5-1/2", "in")).toBeNull();
+    expect(parseLength("11.5-1/2", "mm")).toBeNull();
   });
 
   it("reads feet and inches, in inches whatever the document unit", () => {
@@ -361,11 +380,25 @@ describe("carpenter notation (B7-MIXED-FRACTION, RESEARCH §29)", () => {
   });
 
   it("flags only fraction/mark entries as carpenter notation", () => {
-    expect(isCarpenterLength("11-15/32")).toBe(true);
-    expect(isCarpenterLength(`5'6"`)).toBe(true);
-    expect(isCarpenterLength("11.5")).toBe(false);
-    expect(isCarpenterLength("2 in")).toBe(false);
-    expect(isCarpenterLength("11 - 15/32")).toBe(false);
+    expect(isCarpenterLength("11-15/32", "in")).toBe(true);
+    expect(isCarpenterLength("11-15/32", "mm")).toBe(false);
+    expect(isCarpenterLength(`5'6"`, "mm")).toBe(true);
+    expect(isCarpenterLength("11.5", "in")).toBe(false);
+    expect(isCarpenterLength("2 in", "in")).toBe(false);
+    expect(isCarpenterLength("11 - 15/32", "in")).toBe(false);
+  });
+
+  it("reads a spelled-out entry back as the text it came from", () => {
+    expect(lengthEntryText("11 in + 15 in/32")).toBe('11 15/32"');
+    expect(lengthEntryText("11 mm + 15 mm/32")).toBe("11 15/32 mm");
+    expect(lengthEntryText("5 ft + 6 in + 1 in/2")).toBe(`5' 6 1/2"`);
+    expect(lengthEntryText("5 ft")).toBe("5'");
+    expect(lengthEntryText("-3 in/4")).toBe('-3/4"');
+    expect(lengthEntryText("-(5 ft + 6 in)")).toBe(`-5' 6"`);
+    expect(lengthEntryText("25 mm")).toBe("25 mm");
+    for (const formula of ["20-5/2", "H/2", "11 in + 15 mm/32", "2 * 3 mm"]) {
+      expect(lengthEntryText(formula)).toBeNull();
+    }
   });
 
   it("spells an entry as an explicit-unit expression of the same value", () => {

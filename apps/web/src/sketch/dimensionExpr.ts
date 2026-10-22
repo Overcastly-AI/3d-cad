@@ -42,7 +42,7 @@ export function classifyDimensionValue(
   // bare number (mm) unless it carries its own marks: `11 15/32`, `5' 6"`
   // (RESEARCH §29). The stored expression, re-committed untouched, keeps the
   // meaning the server gave it.
-  if (length && trimmed !== stored && isCarpenterLength(trimmed)) {
+  if (length && trimmed !== stored && isCarpenterLength(trimmed, "mm")) {
     const valueMm = parseLength(trimmed, "mm");
     if (valueMm !== null) return { kind: "literal", valueMm };
   }

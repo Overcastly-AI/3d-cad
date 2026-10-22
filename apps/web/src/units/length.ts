@@ -154,7 +154,7 @@ export function formatFieldHint(
  * Six fraction digits carry every 1/64 exactly.
  */
 export function carpenterHint(text: string, unit: LengthUnit): string | null {
-  if (!isCarpenterLength(text)) return null;
+  if (!isCarpenterLength(text, unit)) return null;
   const mm = parseLength(text, unit);
   if (mm === null) return null;
   return `= ${formatLength(mm, unit, { maxFractionDigits: 6 })}`;

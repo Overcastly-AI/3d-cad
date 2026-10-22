@@ -121,6 +121,7 @@ const LENGTH_RE = new RegExp(
 
 const MIXED_RE = /^(\d+)(?:[ \t]+|-)(\d+)\/(\d+)$/;
 const FRACTION_RE = /^(\d+)\/(\d+)$/;
+const HYPHEN_MIXED_RE = /^\d+-\d+\/\d+$/;
 
 /** A magnitude's value, or null for a zero denominator. */
 function magnitudeValue(text: string): number | null {
@@ -181,6 +182,12 @@ function lengthParts(input: string, unit: LengthUnit): LengthParts | null {
     if (value !== null && suffix !== "" && unitFor !== "in") return null;
     unitFor = "in";
   }
+  // The hyphenated mixed number is imperial notation. In a metric reading
+  // (`100-10/2` in an mm field) a hyphen is far more likely a minus, so it is
+  // not a length here; the field then refuses it as ambiguous (RESEARCH §29).
+  if (value !== null && HYPHEN_MIXED_RE.test(value)) {
+    if (unitFor !== "in" && unitFor !== "ft") return null;
+  }
   return { negative: match[1] === "-", feet, value, unit: unitFor };
 }
 
@@ -190,12 +197,14 @@ function lengthParts(input: string, unit: LengthUnit): LengthParts | null {
  * (`50` → the doc unit); an explicit suffix overrides it (`2in`, `2 in`,
  * `50mm`, `3.5 cm`). Signed values are valid — a gap/offset can be negative.
  *
- * Carpenter notation is a length too (RESEARCH §29): `11 15/32` and
- * `11-15/32` are eleven and fifteen thirty-seconds in the document unit,
- * `11 15/32"` the same in inches, `5' 6-1/2"` is 66.5 in and `-3/4` is minus
- * three quarters. A hyphen between a whole number and a fraction is a mixed
- * number only with no spaces round it; `11 - 15/32` is not a length at all,
- * so it reaches the expression language as the subtraction it reads as.
+ * Carpenter notation is a length too (RESEARCH §29): `11 15/32` is eleven
+ * and fifteen thirty-seconds in the document unit, `11 15/32"` the same in
+ * inches, `5' 6-1/2"` is 66.5 in and `-3/4` is minus three quarters. The
+ * hyphenated `11-15/32` (no spaces round the hyphen) is a mixed number only
+ * when it reads in inches or feet (the unit, a `"`/`in`/`ft` suffix, or a
+ * feet part): in a metric reading it is not a length, and the field refuses
+ * it as ambiguous. `11 - 15/32` is never a length, so it reaches the
+ * expression language as the subtraction it reads as.
  *
  * This deliberately does NOT evaluate expressions (`width/2`): an ExpressionField
  * resolves its expression to a number FIRST, then the resolved value is
@@ -221,8 +230,60 @@ export function parseLength(input: string, unit: LengthUnit): number | null {
  * (`11 15/32`, `3/4`, `5' 6"`) rather than a plain decimal: the entries a
  * field echoes back (`= 11.46875 in`) so a typo shows before it is committed.
  */
-export function isCarpenterLength(input: string): boolean {
-  return /[/'"′″]/.test(input) && parseLength(input, "mm") !== null;
+export function isCarpenterLength(input: string, unit: LengthUnit): boolean {
+  return /[/'"′″]/.test(input) && parseLength(input, unit) !== null;
+}
+
+/**
+ * The entry text an expression {@link lengthExpression} wrote reads back as
+ * (`11 in + 15 in/32` → `11 15/32"`, `11 mm + 15 mm/32` → `11 15/32 mm`), so a
+ * stored spelled-out length reopens looking like what was typed; null when
+ * `expression` is not one (a formula, or anything else).
+ */
+export function lengthEntryText(expression: string): string | null {
+  let body = expression.trim();
+  let sign = "";
+  const wrapped = /^-\((.*)\)$/.exec(body);
+  if (wrapped !== null) {
+    sign = "-";
+    body = wrapped[1] as string;
+  } else if (body.startsWith("-")) {
+    sign = "-";
+    body = body.slice(1);
+  }
+  const terms = body.split(" + ");
+  const parts: string[] = [];
+  let unit: string | null = null;
+  for (let i = 0; i < terms.length; i += 1) {
+    const whole = /^(\d+(?:\.\d*)?|\.\d+) ([a-z]+)$/.exec(terms[i] as string);
+    const frac = /^(\d+) ([a-z]+)\/(\d+)$/.exec(terms[i] as string);
+    const next = /^(\d+) ([a-z]+)\/(\d+)$/.exec(terms[i + 1] ?? "");
+    let magnitude: string;
+    if (whole !== null && next !== null && next[2] === whole[2]) {
+      magnitude = `${whole[1]} ${next[1]}/${next[3]}`;
+      unit = whole[2] as string;
+      i += 1;
+    } else if (whole !== null) {
+      magnitude = whole[1] as string;
+      unit = whole[2] as string;
+    } else if (frac !== null) {
+      magnitude = `${frac[1]}/${frac[3]}`;
+      unit = frac[2] as string;
+    } else {
+      return null;
+    }
+    parts.push(
+      unit === "ft" && parts.length === 0 ? `${magnitude}'` : magnitude,
+    );
+  }
+  if (parts.length === 0 || unit === null) return null;
+  const last = parts.length - 1;
+  if (unit !== "ft") {
+    parts[last] = unit === "in" ? `${parts[last]}"` : `${parts[last]} ${unit}`;
+  }
+  const text = `${sign}${parts.join(" ")}`;
+  // Only a faithful round trip is shown; anything else stays as stored.
+  return lengthExpression(text, "mm") === expression.trim() ? text : null;
 }
 
 /**
@@ -279,7 +340,8 @@ export function isPartialLength(input: string): boolean {
     /\d[ \t]+\d+$/.test(trimmed);
   if (
     unfinished &&
-    ["1", "/1", "1/1"].some((end) => parseLength(trimmed + end, "mm") !== null)
+    // Shape only: read as inches, where every carpenter form is a length.
+    ["1", "/1", "1/1"].some((end) => parseLength(trimmed + end, "in") !== null)
   ) {
     return true;
   }

@@ -15,6 +15,13 @@ import {
   evaluateExpression,
   type Quantity,
 } from "../features/expr";
+import { buildMirror, formFromMirror } from "../assembly/mirrors";
+import {
+  buildPattern,
+  formFromPattern,
+  newPatternForm,
+  spacingExpression,
+} from "../assembly/patterns";
 import { blankRow, tableToWire, wireExpression } from "../features/parameters";
 import { resolveDrawEntry } from "../sketch/drawEntry";
 import {
@@ -161,9 +168,126 @@ describe("stored expressions keep their meaning", () => {
     );
   });
 
-  it("spells assembly spacing the same way, in the assembly's mm", () => {
-    expect(lengthEntryExpression("11-15/32", "mm")).toBe("11 mm + 15 mm/32");
+  it("spells assembly spacing out in the assembly's mm", () => {
+    expect(lengthEntryExpression("11 15/32", "mm")).toBe("11 mm + 15 mm/32");
+    expect(lengthEntryExpression('11-15/32"', "mm")).toBe("11 in + 15 in/32");
     expect(lengthEntryExpression(" 3 mm ", "mm")).toBe("3 mm");
+    // A metric hyphen reads two ways: refused, in or out of a formula.
+    expect(() => lengthEntryExpression("11-15/32", "mm")).toThrow(/could be/);
     expect(() => lengthEntryExpression("2*11-15/32", "mm")).toThrow(/could be/);
+  });
+
+  it("saves a reopened STORED pattern spacing untouched, byte for byte", () => {
+    for (const stored of ["20-5/2", "11 mm + 15 mm/32", "1 in", "H*2"]) {
+      const pattern = {
+        type: "linear" as const,
+        seed_instance_ids: ["s1"],
+        direction: { kind: "origin_axis" as const, axis: "x" as const },
+        count: 3,
+        flip: false,
+        spacing_mm: 1,
+        spacing_expr: stored,
+      };
+      const form = formFromPattern(pattern);
+      if (stored === "H*2") continue; // no names in an assembly: not built
+      const built = buildPattern(form);
+      if (!("pattern" in built)) throw new Error(built.error);
+      expect(built.pattern).toMatchObject({ spacing_expr: stored });
+      expect(spacingExpression(form)).toBe(stored);
+    }
+    // `20-5/2` was stored as 17.5 mm and stays 17.5 mm.
+    const legacy = formFromPattern({
+      type: "linear",
+      seed_instance_ids: ["s1"],
+      direction: { kind: "origin_axis", axis: "x" },
+      count: 3,
+      flip: false,
+      spacing_mm: 17.5,
+      spacing_expr: "20-5/2",
+    });
+    expect(legacy.spacing).toBe("20-5/2");
+    const built = buildPattern(legacy);
+    expect("pattern" in built && built.pattern).toMatchObject({
+      spacing_mm: 17.5,
+      spacing_expr: "20-5/2",
+    });
+    // Any new text is a fresh entry, and a metric hyphen is refused.
+    expect(buildPattern({ ...legacy, spacing: "30-5/2" })).toEqual({
+      error: expect.stringMatching(/^Spacing: .*could be/) as unknown as string,
+    });
+  });
+
+  it("reopens a spelled-out pattern spacing as the user wrote it", () => {
+    const typed = { ...newPatternForm(["s1"]), spacing: "11 15/32" };
+    const built = buildPattern(typed);
+    if (!("pattern" in built)) throw new Error(built.error);
+    expect(built.pattern).toMatchObject({ spacing_expr: "11 mm + 15 mm/32" });
+    const reopened = formFromPattern(built.pattern);
+    expect(reopened.spacing).toBe("11 15/32 mm");
+    const again = buildPattern(reopened);
+    expect("pattern" in again && again.pattern).toMatchObject({
+      spacing_expr: "11 mm + 15 mm/32",
+      spacing_mm: 11.46875,
+    });
+  });
+
+  it("saves a reopened mirror offset untouched", () => {
+    for (const offset of [-12.5, 0, 11.46875, 0.1 + 0.2]) {
+      const mirror = {
+        seed_instance_ids: ["s1"],
+        plane: {
+          kind: "origin_plane" as const,
+          plane: "yz" as const,
+          offset_mm: offset,
+        },
+        opposite_hand_instance_ids: [],
+      };
+      const built = buildMirror(formFromMirror(mirror));
+      expect("mirror" in built && built.mirror.plane).toMatchObject({
+        offset_mm: offset,
+      });
+    }
+  });
+});
+
+describe("a metric field reads a hyphen as minus, never as a mixed number", () => {
+  /** What a length field typed `text` comes to, in mm, in an mm part. */
+  function fieldMm(text: string): number | string {
+    const entry = parseFieldEntry(text, "length", "mm");
+    if (entry.kind === "number") return parseLength(text, "mm") ?? "nan";
+    if (entry.kind === "empty") return "empty";
+    const refused = typedFormulaError(entry.expression, "length", "mm");
+    if (refused !== null) return refused;
+    const result = resolveFieldFormula(entry.expression, "length", names);
+    return result.ok ? result.value : result.message;
+  }
+
+  it("refuses 100-10/2 in an mm field (95 or 105?), naming both readings", () => {
+    // Refused, not read as subtraction: before this fix the same text was a
+    // mixed number in an inch part, and a metric field silently reading it
+    // the other way would be the B7 defect with the sign flipped.
+    expect(fieldMm("100-10/2")).toMatch(
+      /could be 100 10\/2 or 100 minus 10\/2: type 100 - 10\/2 to subtract, or 100 mm \+ 10 mm\/2/,
+    );
+    expect(fieldMm("100 - 10/2")).toBe(95);
+    expect(fieldMm("100 10/2")).toBe(105);
+    expect(resolveDrawEntry("100-10/2", "mm", names).kind).toBe("error");
+    const box = { length: true, stored: null };
+    const literal = classifyDimensionValue("100-10/2", box);
+    expect(literal.kind).toBe("expression");
+    expect(dimensionAmbiguity(literal, box)).toMatch(/could be/);
+  });
+
+  it("0-1/2: a half inch in inches, refused in mm", () => {
+    expect(fieldInches("0-1/2")).toBeCloseTo(0.5, 12);
+    expect(String(fieldMm("0-1/2"))).toMatch(/could be 0 1\/2 or 0 minus 1\/2/);
+  });
+
+  it("11.5-1/2: a decimal whole is never a mixed number, so it subtracts", () => {
+    // Unambiguous subtraction in both. Inside a formula a bare number is mm
+    // even in an inch part (FORMULA-BARE-UNIT, scheduled separately).
+    expect(parseFieldEntry("11.5-1/2", "length", "in").kind).toBe("formula");
+    expect(fieldInches("11.5-1/2")).toBeCloseTo(11 / IN, 12);
+    expect(fieldMm("11.5-1/2")).toBeCloseTo(11, 12);
   });
 });

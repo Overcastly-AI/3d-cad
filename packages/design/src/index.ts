@@ -11,6 +11,7 @@ export {
   fromMmVolume,
   isCarpenterLength,
   isPartialLength,
+  lengthEntryText,
   lengthExpression,
   LENGTH_UNITS,
   type FormatLengthOptions,

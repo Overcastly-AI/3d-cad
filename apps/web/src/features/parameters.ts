@@ -154,7 +154,7 @@ export function wireExpression(row: DraftRow): string {
   // spelled out with explicit units (`11 in + 15 in/32`): the grammar has no
   // marks and reads a hyphen as minus (RESEARCH §29).
   if (row.unit === "length" && row.bareUnit !== null) {
-    const spelled = isCarpenterLength(text)
+    const spelled = isCarpenterLength(text, row.bareUnit)
       ? lengthExpression(text, row.bareUnit)
       : null;
     if (spelled !== null) return spelled;
@@ -357,7 +357,7 @@ export function commitCell(
     if (expression === row.expression) return row;
     // A foot or inch mark says length outright (`5' 6"`).
     const inferred =
-      /['"′″]/.test(expression) && isCarpenterLength(expression)
+      /['"′″]/.test(expression) && isCarpenterLength(expression, documentUnit)
         ? "length"
         : inferKind(expression, kindsByName(rows, id));
     return {

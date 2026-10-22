@@ -2950,6 +2950,13 @@ document unit; with no mark a magnitude is in the document unit, as a bare
 number already was. So `11-15/32`, `11 15/32` and `11 15/32"` are 11.46875
 in, `5' 6-1/2"` is 66.5 in and `-3/4` is −0.75 in.
 
+- The hyphenated `w-a/b` is a mixed number only in an imperial reading: an
+  inch or foot document, or an entry that says so (`11-15/32"`, `11-15/32
+  in`, `5' 6-1/2"`). In a metric reading (mm/cm/m documents, the sketch
+  dimension box, assembly spacing and offset) `100-10/2` is far likelier
+  meant as 95 than 105, so it is not a length and is refused as ambiguous
+  with both readings. `100 10/2` (space) and `100 - 10/2` stay unambiguous.
+  A decimal whole (`11.5-1/2`) is never a mixed number: it subtracts.
 - `11 - 15/32` (spaces both sides) and `(11-15)/32` are formulas: real
   subtraction is untouched.
 - A hyphenated mixed number inside a larger formula (`2*11-15/32`,
@@ -2970,4 +2977,8 @@ number (mm) as before (the sketch dimension box makes it a literal, in its
 own mm). Where text is stored (part parameters, assembly pattern spacing), a
 carpenter entry is sent spelled out with explicit units (`11 in + 15 in/32`,
 `5 ft + 6 in + 1 in/2`), which the unchanged grammar reads to the same value.
-No wire change.
+A form that reopens stored text sends it back verbatim while the field still
+reads what it opened with (ValueField's session seed, the dimension box's
+stored expression, the parameter row's stored text, the pattern's
+`spacingSeed`); a pattern spacing written out reopens looking as typed
+(`11 15/32 mm`), and is still sent as stored. No wire change.
