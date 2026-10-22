@@ -16,8 +16,10 @@ Discovers every golden under ``services/geometry/goldens/`` and, for each:
   that does not name a material is an instance of that honesty gate;
 * asserts topology counts (faces/edges/shells) and mesh counts
   (vertices/triangles) **exactly**;
-* rebuilds twice in-process and once in a fresh interpreter and requires
-  byte-identical GLB plus identical metadata (determinism gate). This is the
+* rebuilds twice in-process and requires byte-identical GLB plus identical
+  metadata (determinism gate); the fresh-interpreter leg of the same gate runs
+  in ``test_goldens_restart_{a,b}.py`` over interleaved halves of the goldens
+  (it is ~80% of this gate's time, and a shard packs whole files). This is the
   canonical determinism home; it strictly subsumes the former
   ``test_kernel.py::test_tessellation_is_deterministic`` (same request, same
   byte-strength assertion, plus the cross-process leg), which was removed.
@@ -36,10 +38,6 @@ next to it. Expectations must be hand-derived or independently cross-checked
 (geometry-gates skill rule).
 """
 
-import hashlib
-import json
-import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -402,48 +400,3 @@ def test_rebuild_is_deterministic_in_process(case: GoldenCase) -> None:
 
     assert meta_a == meta_b, f"{case.name}: metadata differs between rebuilds"
     assert glb_a == glb_b, f"{case.name}: GLB bytes differ between rebuilds"
-
-
-#: Rebuilds a request (JSON on stdin) in a pristine interpreter and reports
-#: the GLB digest + metadata, emulating a worker-process restart.
-_RESTART_PROBE = """\
-import hashlib
-import json
-import sys
-
-from geometry.harness import evaluate_model, load_model_request
-
-glb, metadata = evaluate_model(
-    load_model_request(sys.stdin.read()), json.loads(sys.argv[1])
-)
-print(hashlib.sha256(glb).hexdigest())
-print(metadata.model_dump_json())
-"""
-
-
-@each_golden
-def test_rebuild_is_deterministic_across_interpreter_restart(
-    case: GoldenCase,
-) -> None:
-    """Fresh-interpreter rebuild (worker-restart emulation, RESEARCH §9)
-    must produce the same GLB bytes and metadata as this process."""
-    glb, metadata = case.build()
-
-    result = subprocess.run(
-        [sys.executable, "-c", _RESTART_PROBE, json.dumps(case.refusals)],
-        input=case.request.model_dump_json(),
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert result.returncode == 0, (
-        f"{case.name}: restart probe failed:\n{result.stderr}"
-    )
-
-    remote_digest, remote_metadata = result.stdout.splitlines()
-    assert remote_digest == hashlib.sha256(glb).hexdigest(), (
-        f"{case.name}: GLB bytes differ across interpreter restart"
-    )
-    assert remote_metadata == metadata.model_dump_json(), (
-        f"{case.name}: metadata differs across interpreter restart"
-    )

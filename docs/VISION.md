@@ -166,7 +166,7 @@ built from Build-group plugins with no member drawn by hand:
 - **B4 L-shaped house:** six walls under a hip roof with a valley and valley jacks; a narrowed wing adds a hip-valley cripple.
 - **B5 shed on a floor:** B2's walls on a framed 2x8 floor, with OSB wall sheathing and a plywood subfloor, priced per sheet.
 - **B6 timber frame:** two 8x8 bents with tie beams and girts, every joint a pegged mortise and tenon.
-- **B7 small house:** 24 x 16 ft, 2x6 walls on a 2x10 floor, a door, four windows, a 6/12 gable, sheathed and priced to the last line: a gap-finding round.
+- **B7 small house:** 24 x 16 ft, 2x6 walls on a 2x10 floor, a door, four windows, a 6/12 gable, sheathed and priced to the last line: a gap-finding round. Round of 2026-10-22 (caf0aa8, e2e `house-b7.spec.ts`): it builds from 12 Build features. That took 87 gestures, with 37 values typed and 8 of them worked out by hand. The 217 members are exactly the independent script's, and the STEP's 217 solids measure 264 895.4795 in³ as the script gives. All three edits regenerate as the script says, with the volume 267 494.1504 in³ at 8/12. At caf0aa8 it failed "priced to the last line", because the 5 lines over 20 ft had no stock. Since CUT-LIST-LONG-STOCK (30ac7b7) they are spliced (16 ft + 8 ft, 2 x 12 ft), and B7 prices to the last line at $2,868.87. Lengthening the house takes 8 feature edits (B7-HOUSE-STRETCH).
 
 ## Daily-driver scorecard
 
@@ -178,8 +178,8 @@ main `01e49e2` on 2026-10-09 and updated from shipped commits on
 
 | Area | Grade | Why |
 | --- | --- | --- |
-| Sketching and constraints | ➖ | Solid solver. Lines chain, points dimension to points and lines, and body edges project into a sketch (not splines). Trig expressions and named part parameters drive dimensions. Missing: 3D sketch, typed line angle. |
-| Part modelling | ➖ | Core features compose on real parts, twist is on Sweep, and Extrude is one-sided or symmetric. Plane at an angle, closed-path sweep and Pipe shipped. Shell fails on a round-to-square loft; no Through All extrude. Cuts reach only the active body (CUT-OBJECTS-TO-CUT). |
+| Sketching and constraints | ➖ | Solid solver. Lines chain, points dimension to points and lines, and body edges project into a sketch (not splines). Trig expressions and named part parameters drive dimensions; a typed line angle and a 3D sketch (points and lines) shipped 2026-10-21. A bare number in a formula is mm even in an inch part (FORMULA-BARE-UNIT). Missing: 3D arcs and splines. |
+| Part modelling | ➖ | Core features compose on real parts, twist is on Sweep, and Extrude is one-sided or symmetric. Plane at an angle, closed-path sweep and Pipe shipped. Shell fails on a round-to-square loft; no Through All extrude. Cuts reach every body they meet (Objects To Cut, 2026-10-21). |
 | Selection and picking | ❌ | Overlapping edge marks fixed (2026-10-01 rerun) and one pick rounds its tangent chain. No face or loop selection, and a fillet edit could not re-pick (2026-09-30 run, not rechecked). |
 | Assemblies | ➖ | Joints with drag and limits, Move, sub-assemblies, component patterns and in-context edits shipped (to 2026-10-16). No mirror component or flexible sub-assembly; re-grade from A1-A3. |
 | Interop (import and export) | ➖ | STEP round-trips on foreign parts. No IGES, and no recovery for a zero-solid import. |
@@ -293,8 +293,6 @@ goal and answer them"); the product-manager decided them. Each is in
   replaces MinIO as the bundled S3 store. MinIO is AGPL-3.0, which the
   licence rule forbids, and unmaintained upstream; any external S3 still
   works by config (RESEARCH §4, OBJECT-STORE).
-- **Object store:** decided by the founder on 2026-10-21: SeaweedFS
-  (Apache-2.0) replaces MinIO.
 - **Now after SHEATHING and ROOF-MEMBER-RENUMBER (2026-10-21, fourth
   pass):** CUT-OBJECTS-TO-CUT, then ROOF-L-DOUBLED-COMMON, then
   QA-B7-HOUSE. Under Severity both fixes are wrong geometry: a cut across
@@ -315,3 +313,31 @@ goal and answer them"); the product-manager decided them. Each is in
   gaps):** B7, a priced small house that composes B2, B5 and sheathing at
   house size and in 2x6, rather than a new plugin target. It starts once
   SHEATHING and CUT-OBJECTS-TO-CUT are on main, so it measures the fixes.
+- **Now after B7 (2026-10-22, fifth pass):** FORMULA-BARE-UNIT, then
+  BUILDING-OUTLINE, OPENING-FROM-END and CUT-LIST-PANEL. The formula fix is
+  silent wrong geometry, so it goes first. B7 builds and prices, so what
+  stops a builder is changing a house: 4 ft longer is 8 edits with
+  openings that jump. The bike gaps stay first in Next.
+- **Bare numbers in formulas:** read in the part's length unit, as in
+  Fusion, but only where a number is added to or subtracted from a
+  length, or is a length field's whole value. Factors stay plain. The unit
+  is written into the stored text at save (`wall + 1 in/2`), not given to
+  a grammar version or a per-part switch. Stored text keeps one meaning
+  under the unchanged grammar, a later unit change moves nothing, and
+  loft-script gets the rule for free. Stored formulas are flagged with a
+  one-click fix and never rewritten silently, as stored cuts kept the
+  active body (FORMULA-BARE-UNIT).
+- **House outline:** one closed sketch drives the walls and floor, and the
+  roof picks the walls with Defines Slope per wall. This is Chief
+  Architect's floors and roofs from the wall loop and Revit's walls on
+  picked lines with a footprint roof. A sketch keeps the plan's dimensions
+  where a Loft user edits them. Walls stand on a picked floor, and
+  ROOF-GABLE-WALLS and SHEATHING-WALL-BASE merge in (BUILDING-OUTLINE).
+- **Opening placement:** measured from a chosen wall end (Start, End or
+  Centre), by default the end nearer the part origin, so openings stay put
+  in plan when the far end of the wall moves, as in Revit and Chief
+  Architect; stored openings keep their start (OPENING-FROM-END).
+- **Cut-list layout:** a full-height view grouped by system (Floor, Walls,
+  Roof, Sheathing), then member, profile and length, as Chief Architect's
+  Materials List (CUT-LIST-PANEL). Window and door units, header plies and
+  body names follow in Next; steel studs move to Later.

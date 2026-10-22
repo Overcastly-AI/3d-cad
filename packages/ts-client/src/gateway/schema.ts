@@ -7197,8 +7197,7 @@ export interface components {
         };
         /**
          * FeatureMutationResponse
-         * @description Result of a single-feature mutation: the affected feature + the new
-         *     tree version (the client's next ``expected_tree_version``).
+         * @description One feature mutated, and the new tree version (the next expected one).
          */
         FeatureMutationResponse: {
             feature: components["schemas"]["FeatureResponse"];
@@ -7287,8 +7286,7 @@ export interface components {
         };
         /**
          * FeatureResponse
-         * @description A feature as stored, with the envelope reassembled (design §1.3) and
-         *     params already upcast to the current version (design §1.4).
+         * @description A feature as stored: envelope reassembled (§1.3), params upcast (§1.4).
          */
         FeatureResponse: {
             /**
@@ -7298,6 +7296,11 @@ export interface components {
             created_at: string;
             /** Feature */
             feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["Sketch3DFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"];
+            /**
+             * Formula Warnings
+             * @description Stored formulas whose bare numbers read as mm in this non-mm part (`expression_bare_mm`), each with its fix. Omitted when there are none.
+             */
+            formula_warnings?: components["schemas"]["FormulaWarning"][] | null;
             /**
              * Id
              * Format: uuid
@@ -7694,6 +7697,58 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * FormulaWarning
+         * @description One stored formula whose bare numbers read as mm in a non-mm part.
+         */
+        FormulaWarning: {
+            /**
+             * Code
+             * @description 'expression_bare_mm': a bare number added to a length reads as mm, not in the part's unit
+             * @constant
+             */
+            code: "expression_bare_mm";
+            /**
+             * Expression
+             * @description The formula as stored
+             */
+            expression: string;
+            /**
+             * Fixed Expression
+             * @description The formula with the part's unit written in (`wall + 1 in/2`): what the 'Read as' action saves
+             */
+            fixed_expression: string;
+            /**
+             * Fixed Value
+             * @description What `fixed_expression` would give, in the same unit; null when it does not resolve
+             */
+            fixed_value: number | null;
+            /**
+             * Literals
+             * @description Each bare term as written, e.g. `1/2` in `wall + 1/2`
+             */
+            literals: string[];
+            /**
+             * Message
+             * @description Names the bare terms and both readings
+             */
+            message: string;
+            /**
+             * Parameter Id
+             * @description The parameter row the formula is in; null for a feature
+             */
+            parameter_id: string | null;
+            /**
+             * Pointer
+             * @description The feature field the formula drives (`/distance_mm`), or `/constraints/<i>/expression` for a sketch dimension; null for a parameter row
+             */
+            pointer: string | null;
+            /**
+             * Value
+             * @description What the stored formula gives now, in the field's unit (mm, degrees or a plain number); null when it does not resolve
+             */
+            value: number | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -10256,6 +10311,11 @@ export interface components {
          * @description A part's parameter table, in its stored order, with the tree version.
          */
         PartParametersResponse: {
+            /**
+             * Formula Warnings
+             * @description Stored formulas whose bare numbers read as mm in this non-mm part (`expression_bare_mm`), each with its fix. Omitted when there are none.
+             */
+            formula_warnings?: components["schemas"]["FormulaWarning"][] | null;
             /** Parameters */
             parameters: components["schemas"]["PartParameter"][];
             /** Tree Version */

@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  bareLengths,
   coerceToField,
   evaluateExpression,
   ExprError,
@@ -139,5 +140,62 @@ describe("coerceToField", () => {
     expect(() =>
       coerceToField({ value: 4.5, kind: "unitless" }, "int"),
     ).toThrow("this field needs a whole number");
+  });
+});
+
+describe("bareLengths (FORMULA-BARE-UNIT, the server's bare_lengths)", () => {
+  const KINDS = new Map([
+    ["wall", "length"],
+    ["W", "length"],
+    ["n", "unitless"],
+    ["a", "angle"],
+  ] as const);
+  const fixed = (
+    text: string,
+    field: "length" | "angle" | "unitless" = "length",
+    unit = "in",
+  ) => bareLengths(text, unit, field, KINDS)?.text ?? null;
+
+  it.each([
+    ["wall + 1/2", "wall + 1 in/2"],
+    ["W/2 + 3", "W/2 + 3 in"],
+    ["3 + W/2", "3 in + W/2"],
+    ["1/2", "1 in/2"],
+    ["2*(W + 1)", "2*(W + 1 in)"],
+    ["-(1+2)", "-(1 in+2 in)"],
+    ["max(wall, 3)", "max(wall, 3 in)"],
+    ["round(wall + 1)", "round(wall + 1 in)"],
+    ["wall + n", "wall + n*1 in"],
+    ["wall + pi", "wall + pi*1 in"],
+    ["(wall+1)/W", "(wall+1 in)/W*1 in"],
+    ["n*2", "n*1 in*2"],
+  ])("writes the unit into %s", (text, want) => {
+    expect(fixed(text)).toBe(want);
+  });
+
+  it.each([
+    ["W*2", "length"],
+    ["W/2", "length"],
+    ["wall + 1 in", "length"],
+    ["W/wall", "unitless"],
+    ["a + 3", "angle"],
+    ["W*sin(30)", "length"],
+    ["wall +", "length"],
+    ["Q + 1", "length"],
+  ] as const)("leaves %s as written", (text, field) => {
+    expect(fixed(text, field)).toBeNull();
+  });
+
+  it("reads in the part unit and does nothing in mm", () => {
+    expect(fixed("wall + 1/2", "length", "mm")).toBeNull();
+    expect(fixed("(wall+1)/W", "unitless")).toBe("(wall+1 in)/W");
+    const names = new Map<string, Quantity>([
+      ["wall", { value: 5.5 * 25.4, kind: "length" }],
+    ]);
+    const text = fixed("wall + 1/2") ?? "";
+    expect(evaluateExpression(text, names).value).toBeCloseTo(6 * 25.4, 9);
+    expect(
+      bareLengths("wall + 1/2 - (3)", "in", "length", KINDS)?.literals,
+    ).toEqual(["1/2", "(3)"]);
   });
 });

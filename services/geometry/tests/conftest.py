@@ -23,6 +23,7 @@ from ezdxf.document import Drawing
 from fastapi.testclient import TestClient
 from geometry.drawings import evaluate_drawing_views, place_sheet
 from geometry.features.evaluate import reset_rebuild_cache
+from geometry.harness import evaluate_model, load_model_request
 from geometry.main import app
 from geometry.schemas import ShapeProperties
 from loft_wire.drawings import (
@@ -457,19 +458,32 @@ _TREE_GOLDENS = [
 ]
 
 
+#: Every golden, the inventory test_goldens_restart_{a,b}.py halve for the
+#: fresh-interpreter rebuild gate (same discovery as test_goldens.py).
+_ALL_GOLDENS = sorted(
+    (Path(__file__).resolve().parent.parent / "goldens").glob("*/model.json")
+)
+
+#: Parametrized fixture name -> the inventory a module's half is taken from.
+_HALVED_INVENTORIES = {
+    "restart_tree_model": _TREE_GOLDENS,
+    "restart_golden_model": _ALL_GOLDENS,
+}
+
+
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
-    """Parametrize ``restart_tree_model`` over the module's half of the goldens.
+    """Parametrize ``restart_tree_model`` / ``restart_golden_model`` over the
+    module's half of the goldens.
 
     The module's name ends in ``_a`` or ``_b`` to pick its half; the halves interleave
     by sorted index, so a new golden lands in one of them and both stay even.
     """
-    if "restart_tree_model" not in metafunc.fixturenames:
-        return
-    half = "ab".index(metafunc.definition.path.stem[-1])
-    models = _TREE_GOLDENS[half::2]
-    metafunc.parametrize(
-        "restart_tree_model", models, ids=[path.parent.name for path in models]
-    )
+    for name, inventory in _HALVED_INVENTORIES.items():
+        if name not in metafunc.fixturenames:
+            continue
+        half = "ab".index(metafunc.definition.path.stem[-1])
+        models = inventory[half::2]
+        metafunc.parametrize(name, models, ids=[path.parent.name for path in models])
 
 
 #: Re-evaluates a feature-tree golden (EvaluateTreeRequest JSON on stdin) in a
@@ -549,5 +563,61 @@ def assert_tree_export_restart_stable() -> Callable[[Path], None]:
                 f"{name}: {fmt} tree-export bytes differ across interpreter restart "
                 f"(base-order compound assembly is not hash-independent)"
             )
+
+    return check
+
+
+# --- Fresh-interpreter golden rebuild (split across test_goldens_restart_*) -------
+
+#: Rebuilds a request (JSON on stdin) in a pristine interpreter and reports
+#: the GLB digest + metadata, emulating a worker-process restart.
+_GOLDEN_RESTART_PROBE = """\
+import hashlib
+import json
+import sys
+
+from geometry.harness import evaluate_model, load_model_request
+
+glb, metadata = evaluate_model(
+    load_model_request(sys.stdin.read()), json.loads(sys.argv[1])
+)
+print(hashlib.sha256(glb).hexdigest())
+print(metadata.model_dump_json())
+"""
+
+
+@pytest.fixture(scope="session")
+def assert_golden_rebuild_restart_stable() -> Callable[[Path], None]:
+    """Fresh-interpreter rebuild (worker-restart emulation, RESEARCH §9) of a
+    golden's ``model.json`` must produce the same GLB bytes and metadata as
+    this process. Moved out of test_goldens.py, which owns the expectations
+    schema; the refusals are read raw here because that module validates them.
+    """
+
+    def check(model_path: Path) -> None:
+        name = model_path.parent.name
+        request = load_model_request(model_path.read_text(encoding="utf-8"))
+        expected = json.loads(
+            (model_path.parent / "expected.json").read_text(encoding="utf-8")
+        )
+        refusals = {r["feature_id"]: r["code"] for r in expected.get("refusals", [])}
+        glb, metadata = evaluate_model(request, refusals)
+
+        result = subprocess.run(
+            [sys.executable, "-c", _GOLDEN_RESTART_PROBE, json.dumps(refusals)],
+            input=request.model_dump_json(),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert result.returncode == 0, f"{name}: restart probe failed:\n{result.stderr}"
+
+        remote_digest, remote_metadata = result.stdout.splitlines()
+        assert remote_digest == hashlib.sha256(glb).hexdigest(), (
+            f"{name}: GLB bytes differ across interpreter restart"
+        )
+        assert remote_metadata == metadata.model_dump_json(), (
+            f"{name}: metadata differs across interpreter restart"
+        )
 
     return check
