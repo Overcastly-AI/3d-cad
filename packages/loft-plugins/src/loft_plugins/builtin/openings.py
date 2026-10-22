@@ -30,12 +30,14 @@ from loft_wire.features import CustomFeature
 from loft_wire.lumber import MM_PER_INCH, LumberProfileKey
 from loft_wire.plugins import (
     PLUGIN_INPUT_INVALID,
+    PLUGIN_INPUT_UNSUPPORTED,
     ChoiceInput,
     FeatureReferenceInput,
     LengthInput,
     PluginInput,
     PluginManifest,
     PluginMemberRole,
+    SegmentsInput,
 )
 
 from loft_plugins.api import (
@@ -46,6 +48,7 @@ from loft_plugins.api import (
     PluginError,
     lumber_options,
 )
+from loft_plugins.builtin.house import is_outline_wall, wall_specs_of
 from loft_plugins.builtin.wall import Opening, WallSpec, frame_opening
 
 _HEADERS: list[LumberProfileKey] = ["us_2x6", "us_2x8", "us_2x10", "us_2x12"]
@@ -165,22 +168,53 @@ DOOR_MANIFEST_V1 = PluginManifest(
 )
 
 
-def _host(inputs: ExpandInputs) -> tuple[WallSpec, bool]:
+def _host(inputs: ExpandInputs, segments: bool) -> tuple[WallSpec, bool]:
     """The host wall's spec, from its stored inputs (the registry has checked
-    it is an earlier ``loft.wall``), and whether it frames as 1.1.0 does."""
+    it is an earlier ``loft.wall``), and whether it frames as 1.1.0 does.
+    *segments* (1.1.0) reads ``wall_segment``: which wall of an outline wall
+    (BUILDING-OUTLINE) the opening sits in."""
     ref = inputs.feature("host_wall")
     host = inputs.resolve(ref)
     if not isinstance(host, CustomFeature):
         raise PluginError(
             PLUGIN_INPUT_INVALID, "Host wall: pick an earlier Wall.", input="host_wall"
         )
-    spec = WallSpec.from_inputs(ExpandInputs(ref.feature_id, host.params.inputs))
-    return spec, host.params.plugin_version != "1.0.0"
+    named = host.params.plugin_version != "1.0.0"
+    if not segments:
+        if is_outline_wall(host):
+            # Outline walls are new: no stored 1.0.0 opening names one.
+            raise PluginError(
+                PLUGIN_INPUT_UNSUPPORTED,
+                "Host wall: this release cannot pick one wall of an outline; "
+                "update the opening to pick its wall.",
+                input="host_wall",
+            )
+        spec = WallSpec.from_inputs(ExpandInputs(ref.feature_id, host.params.inputs))
+        return spec, named
+    specs = dict(wall_specs_of(ref.feature_id, host, inputs.earlier))
+    picked = inputs.segments("wall_segment")
+    if None in specs:
+        if picked:
+            raise PluginError(
+                PLUGIN_INPUT_INVALID,
+                "Wall: the host is one wall, not an outline; leave Wall empty.",
+                input="wall_segment",
+            )
+        return specs[None], named
+    if len(picked) != 1 or picked[0] not in specs:
+        raise PluginError(
+            PLUGIN_INPUT_INVALID,
+            "Wall: pick the wall of the outline this opening sits in.",
+            input="wall_segment",
+        )
+    return specs[picked[0]], named
 
 
-def _expander(kind: Literal["door", "window"], title: str) -> Expander:
+def _expander(
+    kind: Literal["door", "window"], title: str, segments: bool = False
+) -> Expander:
     def expand(inputs: ExpandInputs) -> Iterator[Member]:
-        wall, named = _host(inputs)
+        wall, named = _host(inputs, segments)
         frame_opening(wall, Opening.from_inputs(kind, f"This {title}", inputs), named)
         return iter(())
 
@@ -189,3 +223,39 @@ def _expander(kind: Literal["door", "window"], title: str) -> Expander:
 
 WINDOW_V1 = Plugin(WINDOW_MANIFEST_V1, _expander("window", "window"))
 DOOR_V1 = Plugin(DOOR_MANIFEST_V1, _expander("door", "door"))
+
+
+# --- 1.1.0: a wall of an outline (BUILDING-OUTLINE) -------------------------------
+
+
+def _with_segment(manifest: PluginManifest) -> PluginManifest:
+    """*manifest* at 1.1.0: a Wall pick after the host, for an outline wall."""
+    inputs = list(manifest.inputs)
+    inputs.insert(
+        1,
+        SegmentsInput(
+            kind="segments",
+            name="wall_segment",
+            label="Wall",
+            description="When the host is an outline wall: which of its walls "
+            "(a line of the outline) this sits in. Empty for a single wall.",
+            outline_input="host_wall",
+            min_items=0,
+            max_items=1,
+        ),
+    )
+    return manifest.model_copy(
+        update={
+            "version": "1.1.0",
+            "inputs": inputs,
+            "description": manifest.description
+            + " It may sit in one wall of an outline wall.",
+        }
+    )
+
+
+WINDOW_MANIFEST_V1_1 = _with_segment(WINDOW_MANIFEST_V1)
+DOOR_MANIFEST_V1_1 = _with_segment(DOOR_MANIFEST_V1)
+
+WINDOW_V1_1 = Plugin(WINDOW_MANIFEST_V1_1, _expander("window", "window", True))
+DOOR_V1_1 = Plugin(DOOR_MANIFEST_V1_1, _expander("door", "door", True))
