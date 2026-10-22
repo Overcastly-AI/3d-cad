@@ -95,11 +95,94 @@ const SUFFIX_UNIT: ReadonlyArray<readonly [string, LengthUnit]> = [
 ];
 
 /**
- * A number, optionally followed by a unit suffix. The number is a plain decimal
- * (signed, no scientific notation — CAD dimensions aren't typed as `5e3`). The
- * suffix, when present, OVERRIDES the document unit.
+ * One magnitude, as a framer types it: a mixed number (`11 15/32`, or the
+ * hyphenated `11-15/32` with NO spaces round the hyphen), a simple fraction
+ * (`15/32`) or a plain decimal (`11.5`; no scientific notation, CAD dimensions
+ * aren't typed as `5e3`).
  */
-const LENGTH_RE = /^([+-]?(?:\d+\.?\d*|\.\d+))\s*([a-zA-Z]*)$/;
+const MAGNITUDE = String.raw`(?:\d+(?:[ \t]+|-)\d+\/\d+|\d+\/\d+|\d+\.?\d*|\.\d+)`;
+
+/** The foot mark and the inch mark, ASCII and typographic (prime, double prime). */
+const FOOT_MARK = String.raw`['′]`;
+const INCH_MARK = String.raw`(?:"|″|'')`;
+
+/**
+ * A whole length entry (RESEARCH §29, carpenter notation): an optional sign,
+ * an optional feet part (`5'`, then the inches straight on, after a space, or
+ * after a hyphen with no spaces: `5'6"`, `5' 6"`, `5'-6"`), then a magnitude
+ * with an optional inch mark or unit suffix. The suffix, when present,
+ * OVERRIDES the document unit. After a feet part the inches are inches
+ * whatever the document unit, as in SketchUp and Chief Architect.
+ */
+const LENGTH_RE = new RegExp(
+  String.raw`^([+-]?)(?:(${MAGNITUDE})[ \t]*${FOOT_MARK}(?:-|[ \t]*))?` +
+    String.raw`(?:(${MAGNITUDE})[ \t]*(${INCH_MARK}|[a-zA-Z]*))?$`,
+);
+
+const MIXED_RE = /^(\d+)(?:[ \t]+|-)(\d+)\/(\d+)$/;
+const FRACTION_RE = /^(\d+)\/(\d+)$/;
+
+/** A magnitude's value, or null for a zero denominator. */
+function magnitudeValue(text: string): number | null {
+  const mixed = MIXED_RE.exec(text);
+  if (mixed !== null) {
+    const den = Number(mixed[3]);
+    return den === 0 ? null : Number(mixed[1]) + Number(mixed[2]) / den;
+  }
+  const fraction = FRACTION_RE.exec(text);
+  if (fraction !== null) {
+    const den = Number(fraction[2]);
+    return den === 0 ? null : Number(fraction[1]) / den;
+  }
+  return Number(text);
+}
+
+/** A magnitude as the expression grammar spells it, carrying `unit`. */
+function magnitudeExpression(text: string, unit: LengthUnit): string {
+  const mixed = MIXED_RE.exec(text);
+  if (mixed !== null) {
+    return `${mixed[1]} ${unit} + ${mixed[2]} ${unit}/${mixed[3]}`;
+  }
+  const fraction = FRACTION_RE.exec(text);
+  if (fraction !== null) return `${fraction[1]} ${unit}/${fraction[2]}`;
+  return `${text} ${unit}`;
+}
+
+interface LengthParts {
+  negative: boolean;
+  /** The feet magnitude's text, when there is a feet part. */
+  feet: string | null;
+  /** The main magnitude's text, when there is one. */
+  value: string | null;
+  /** The unit the main magnitude is in. */
+  unit: LengthUnit;
+}
+
+/** Split an entry into its parts, or null when it is not a length. */
+function lengthParts(input: string, unit: LengthUnit): LengthParts | null {
+  const trimmed = input.trim();
+  if (trimmed === "") return null;
+  const match = LENGTH_RE.exec(trimmed);
+  if (match === null) return null;
+  const feet = match[2] ?? null;
+  const value = match[3] ?? null;
+  if (feet === null && value === null) return null;
+  const mark = match[4] ?? "";
+  const suffix = mark.toLowerCase();
+  let unitFor: LengthUnit = unit;
+  if (mark === '"' || mark === "″" || mark === "''") unitFor = "in";
+  else if (suffix !== "") {
+    const found = SUFFIX_UNIT.find(([s]) => s === suffix);
+    if (found === undefined) return null; // an unknown suffix is not a length
+    unitFor = found[1];
+  }
+  // After feet, only inches may follow (`5' 6"`, `5' 6`, `5' 6 in`).
+  if (feet !== null) {
+    if (value !== null && suffix !== "" && unitFor !== "in") return null;
+    unitFor = "in";
+  }
+  return { negative: match[1] === "-", feet, value, unit: unitFor };
+}
 
 /**
  * Parse a length the user typed → canonical millimetres, or `null` when it is
@@ -107,32 +190,70 @@ const LENGTH_RE = /^([+-]?(?:\d+\.?\d*|\.\d+))\s*([a-zA-Z]*)$/;
  * (`50` → the doc unit); an explicit suffix overrides it (`2in`, `2 in`,
  * `50mm`, `3.5 cm`). Signed values are valid — a gap/offset can be negative.
  *
+ * Carpenter notation is a length too (RESEARCH §29): `11 15/32` and
+ * `11-15/32` are eleven and fifteen thirty-seconds in the document unit,
+ * `11 15/32"` the same in inches, `5' 6-1/2"` is 66.5 in and `-3/4` is minus
+ * three quarters. A hyphen between a whole number and a fraction is a mixed
+ * number only with no spaces round it; `11 - 15/32` is not a length at all,
+ * so it reaches the expression language as the subtraction it reads as.
+ *
  * This deliberately does NOT evaluate expressions (`width/2`): an ExpressionField
  * resolves its expression to a number FIRST, then the resolved value is
  * converted via {@link toMm}. `parseLength` is the number→mm boundary only.
  */
 export function parseLength(input: string, unit: LengthUnit): number | null {
-  const trimmed = input.trim();
-  if (trimmed === "") return null;
-  const match = LENGTH_RE.exec(trimmed);
-  if (match === null) return null;
-  const value = Number(match[1]);
-  if (!Number.isFinite(value)) return null;
-  const suffix = match[2]?.toLowerCase() ?? "";
-  let unitFor: LengthUnit = unit;
-  if (suffix !== "") {
-    const found = SUFFIX_UNIT.find(([s]) => s === suffix);
-    if (found === undefined) return null; // an unknown suffix is not a length
-    unitFor = found[1];
+  const parts = lengthParts(input, unit);
+  if (parts === null) return null;
+  const feet = parts.feet === null ? 0 : magnitudeValue(parts.feet);
+  const value = parts.value === null ? 0 : magnitudeValue(parts.value);
+  if (feet === null || value === null) return null;
+  // Feet and inches sum in inches first: 5' 6-1/2" is exactly 66.5 in.
+  const magnitude =
+    parts.feet === null
+      ? toMm(value, parts.unit)
+      : toMm(feet * 12 + value, "in");
+  if (!Number.isFinite(magnitude)) return null;
+  return parts.negative ? -magnitude : magnitude;
+}
+
+/**
+ * True when `input` is a length written with a fraction or a foot/inch mark
+ * (`11 15/32`, `3/4`, `5' 6"`) rather than a plain decimal: the entries a
+ * field echoes back (`= 11.46875 in`) so a typo shows before it is committed.
+ */
+export function isCarpenterLength(input: string): boolean {
+  return /[/'"′″]/.test(input) && parseLength(input, "mm") !== null;
+}
+
+/**
+ * A length entry as the expression language spells it, every unit explicit,
+ * so the server (which knows no marks and no mixed numbers) reads exactly the
+ * value {@link parseLength} does: `11-15/32` in an inch document is
+ * `11 in + 15 in/32`, `5' 6"` is `5 ft + 6 in`. Null when `input` is not a
+ * length.
+ */
+export function lengthExpression(
+  input: string,
+  unit: LengthUnit,
+): string | null {
+  const parts = lengthParts(input, unit);
+  if (parts === null || parseLength(input, unit) === null) return null;
+  const terms: string[] = [];
+  if (parts.feet !== null) terms.push(magnitudeExpression(parts.feet, "ft"));
+  if (parts.value !== null) {
+    terms.push(magnitudeExpression(parts.value, parts.unit));
   }
-  return toMm(value, unitFor);
+  const body = terms.join(" + ");
+  if (!parts.negative) return body;
+  return body.includes(" + ") ? `-(${body})` : `-${body}`;
 }
 
 /**
  * True when `input` is not a length YET, but typing more could make it one —
  * the transient states every unit field passes through under the keyboard: the
  * empty cell, a lone sign (`-`), a bare decimal point (`.`, `-.`), and a number
- * trailing the first letters of a suffix (`12 i` on the way to `12 in`).
+ * trailing the first letters of a suffix (`12 i` on the way to `12 in`), and
+ * a mixed number or feet-and-inches on its way (`11 1`, `11-15/`, `5' 6-`).
  *
  * It lives beside {@link parseLength} because only this module knows the
  * accepted grammar, suffix table included. Callers ask it only when
@@ -149,6 +270,19 @@ export function isPartialLength(input: string): boolean {
   if (parseLength(trimmed, "mm") !== null) return false;
   // A signed/decimal fragment: "-", "+", ".", "-.", "+."
   if (/^[+-]?\.?$/.test(trimmed)) return true;
+  // A mixed number or feet-and-inches on its way (`11 1`, `11-15/`, `5' 6-`):
+  // some ending completes it, and it is not already a whole formula (`20-5`
+  // still reads as the subtraction it is until a `/` makes it a mixed number).
+  const unfinished =
+    /[/'′-]$/.test(trimmed) ||
+    /['′]/.test(trimmed) ||
+    /\d[ \t]+\d+$/.test(trimmed);
+  if (
+    unfinished &&
+    ["1", "/1", "1/1"].some((end) => parseLength(trimmed + end, "mm") !== null)
+  ) {
+    return true;
+  }
   // A number trailing a suffix fragment: "12 i" (→ "in"), "3c" (→ "cm").
   const match = /^[+-]?(?:\d+\.?\d*|\.\d+)\s*([a-zA-Z]+)$/.exec(trimmed);
   if (match === null) return false;
