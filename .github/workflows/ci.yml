@@ -644,20 +644,10 @@ jobs:
         run: uv sync --locked
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
-      - name: Resolve the pinned Playwright version
-        id: pw
-        run: |
-          version=$(node -p "require('./apps/web/node_modules/@playwright/test/package.json').version")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Playwright $version"
-      # The SAME cache key the full lane's shards use.
-      - name: Cache the browser binaries
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
-      - name: Install Chromium
-        run: pnpm --filter @loft/web exec playwright install --with-deps chromium
+      # Cached binary + apt deps, each in bounded, retried attempts; the
+      # action's header has the 2026-10-22 stall it answers.
+      - name: Chromium (cached, bounded install)
+        uses: ./.github/actions/playwright-chromium
       # Same flags as a full-lane shard: --forbid-only, and NO retries
       # (GATE-1a). A smoke people learn to re-run is worse than no smoke.
       - name: Smoke specs (sketch -> extrude -> save -> reload)
