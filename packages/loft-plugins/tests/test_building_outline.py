@@ -39,6 +39,7 @@ from loft_plugins import expand as run
 from loft_plugins.builtin.house import outline_walls, wall_outline
 from loft_plugins.builtin.outline import read_outline
 from loft_wire.cut_list import CutListMember
+from loft_wire.expr import Quantity
 from loft_wire.features import (
     AuthoredEnvelope,
     CustomFeature,
@@ -540,6 +541,39 @@ def test_point_distances_midpoints_and_equal_sides_define_it_too() -> None:
         extra=[{"kind": "equal", "a": "e1", "b": "e2"}],
     )
     assert read_outline(square).segments[1].end == (0.0, 50.0)
+
+
+def _with_length(expression: str) -> SketchFeature:
+    """B7's outline, its 288 dimension now driven by *expression* (its
+    stored value still 288, as a client saving the formula leaves it)."""
+    raw = rectangle(288, 192).model_dump(mode="json")
+    for c in raw["params"]["constraints"]:
+        if c.get("name") == "length":
+            c["expression"] = expression
+    return SketchFeature.model_validate(raw)
+
+
+def test_dimension_formulas_are_read_as_the_solver_sizes_them() -> None:
+    """``336 in`` and a part parameter ``L`` both move the far side; the
+    stored 288 beside the formula is not read."""
+    for expression, table in (
+        ("336 in", {}),
+        ("L", {"L": Quantity(336 * IN, "length")}),
+    ):
+        segments = read_outline(_with_length(expression), "outline", table).segments
+        assert segments[0].start == (336.0, 0.0)
+
+
+@pytest.mark.parametrize("expression", ["1 in / 0", "10 kg", "L"])
+def test_a_dimension_formula_that_does_not_evaluate_is_the_walls_error(
+    expression: str,
+) -> None:
+    """Fusion flags a sick feature rather than keep a stale size: walls on an
+    outline whose dimension does not evaluate are refused, naming it."""
+    walls = {"outline": ref(SKETCH_ID)}
+    with pytest.raises(PluginError, match="dimension 'length'") as refused:
+        expand(WALL, WALLS_ID, walls, {SKETCH_ID: _with_length(expression)})
+    assert refused.value.input == "outline"
 
 
 def test_an_l_reads_its_inside_corner() -> None:

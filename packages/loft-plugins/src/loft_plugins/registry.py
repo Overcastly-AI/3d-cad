@@ -27,6 +27,7 @@ import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from typing import get_args
 
+from loft_wire.expr import Quantity
 from loft_wire.features import (
     AuthoredEnvelope,
     CustomFeature,
@@ -372,6 +373,7 @@ def expand(
     *,
     hosted: Sequence[Hosted] = (),
     time_limit_s: float = PLUGIN_EXPAND_TIME_LIMIT_S,
+    parameters: Mapping[str, Quantity] | None = None,
 ) -> list[ExpandedMember]:
     """The members of custom feature *feature_id*, from canonical *inputs*.
 
@@ -400,7 +402,10 @@ def expand(
         )
 
     try:
-        for member in plugin.expand(ExpandInputs(feature_id, values, earlier, hosted)):
+        context = ExpandInputs(
+            feature_id, values, earlier, hosted, parameters=parameters or {}
+        )
+        for member in plugin.expand(context):
             if len(members) >= MAX_PLUGIN_EXPANSION:
                 raise PluginError(
                     PLUGIN_EXPANSION_TOO_LARGE,

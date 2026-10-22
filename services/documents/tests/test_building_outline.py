@@ -321,6 +321,23 @@ def test_the_outline_follows_a_dimension_typed_with_its_unit(
     _is_house(part, 336.0, 22, 30)
 
 
+def test_a_dimension_that_does_not_evaluate_flags_the_walls(
+    client: TestClient,
+) -> None:
+    """``1 in / 0`` on the outline's length: the walls, floor and roof are
+    sent with an error naming the dimension, never built at the old 288."""
+    part, sketch = _house(client)
+    part.edit(sketch, _driven("1 in / 0"))
+    request = part.request()
+    flagged = {
+        str(e.input_error.message)
+        for e in request.features
+        if e.input_error is not None and e.feature.type != "sketch"
+    }
+    assert flagged
+    assert all("dimension 'length'" in message for message in flagged)
+
+
 def test_the_outline_follows_a_part_parameter_and_its_edit(
     client: TestClient,
 ) -> None:

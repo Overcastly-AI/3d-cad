@@ -512,7 +512,9 @@ def earlier_walls(inputs: ExpandInputs) -> list[EarlierWall]:
         try:
             # A 1.3.0 wall may stand on a floor or be an outline's walls
             # (BUILDING-OUTLINE); earlier releases are one typed line.
-            specs = house.wall_specs_of(feature_id, envelope, inputs.earlier)
+            specs = house.wall_specs_of(
+                feature_id, envelope, inputs.earlier, inputs.parameters
+            )
         except PluginError:
             continue
         good = None

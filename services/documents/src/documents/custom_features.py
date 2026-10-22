@@ -294,7 +294,9 @@ def _expanded(
     )
     resolved = resolve_feature(typed, parameters)
     inputs = _canonical(manifest, resolved.params.inputs)
-    members = _expand(plugin, feature_id, inputs, earlier, hosted=hosted)
+    members = _expand(
+        plugin, feature_id, inputs, earlier, hosted=hosted, parameters=parameters
+    )
     return _with(resolved, inputs, members)
 
 

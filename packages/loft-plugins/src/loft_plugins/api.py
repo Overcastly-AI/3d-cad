@@ -16,6 +16,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast, get_args
 
+from loft_wire.expr import Quantity
 from loft_wire.features import AuthoredEnvelope, FeatureEnvelope, FeatureRef
 from loft_wire.lumber import (
     LUMBER_PROFILES,
@@ -94,6 +95,9 @@ class ExpandInputs:
     #: one wall of an outline names its members under its sketch line
     #: (``e3/slot/2``, BUILDING-OUTLINE). ``None``: names as given.
     name_prefix: str | None = None
+    #: The part's parameter table, by name: what a sketch dimension's formula
+    #: reads when a plugin resolves a picked sketch (BUILDING-OUTLINE).
+    parameters: Mapping[str, Quantity] = field(default_factory=dict[str, Quantity])
 
     def _get(self, name: str) -> InputValue:
         if name not in self.values:

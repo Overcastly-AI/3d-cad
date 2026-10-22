@@ -191,7 +191,7 @@ def _host(inputs: ExpandInputs, segments: bool) -> tuple[WallSpec, bool]:
             )
         spec = WallSpec.from_inputs(ExpandInputs(ref.feature_id, host.params.inputs))
         return spec, named
-    specs = dict(wall_specs_of(ref.feature_id, host, inputs.earlier))
+    specs = dict(wall_specs_of(ref.feature_id, host, inputs.earlier, inputs.parameters))
     picked = inputs.segments("wall_segment")
     if None in specs:
         if picked:

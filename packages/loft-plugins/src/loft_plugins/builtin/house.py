@@ -23,6 +23,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
+from loft_wire.expr import Quantity
 from loft_wire.features import AuthoredEnvelope, CustomFeature, FeatureRef
 from loft_wire.lumber import MM_PER_INCH
 from loft_wire.plugins import PLUGIN_INPUT_INVALID, semver_key
@@ -57,9 +58,13 @@ def stored_inputs(
     feature_id: uuid.UUID,
     envelope: CustomFeature,
     earlier: Mapping[uuid.UUID, AuthoredEnvelope],
+    parameters: Mapping[str, Quantity] | None = None,
 ) -> ExpandInputs:
-    """A stored custom feature's inputs, with the features before it."""
-    return ExpandInputs(feature_id, dict(envelope.params.inputs), earlier)
+    """A stored custom feature's inputs, with the features before it and
+    the part's parameters."""
+    return ExpandInputs(
+        feature_id, dict(envelope.params.inputs), earlier, parameters=parameters or {}
+    )
 
 
 # --- Floors ------------------------------------------------------------------------
@@ -72,7 +77,9 @@ def floor_outline(inputs: ExpandInputs) -> Outline | None:
     ref = inputs.optional_feature("outline")
     if ref is None:
         return None
-    outline = read_outline(outline_sketch(ref, inputs.earlier, "outline"))
+    outline = read_outline(
+        outline_sketch(ref, inputs.earlier, "outline"), "outline", inputs.parameters
+    )
     if not outline.is_rectangle:
         raise unsupported(
             "Outline: a floor fills a rectangle (four lines, four outside "
@@ -133,7 +140,7 @@ def floor_of(
         raise PluginError(
             PLUGIN_INPUT_INVALID, "On floor: pick an earlier Floor.", input=input_name
         )
-    values = stored_inputs(ref.feature_id, envelope, inputs.earlier)
+    values = stored_inputs(ref.feature_id, envelope, inputs.earlier, inputs.parameters)
     version = envelope.params.plugin_version
     if _at_least(version, FLOOR_OUTLINE_VERSION):
         values = floor_values(values)
@@ -169,7 +176,9 @@ def wall_outline(inputs: ExpandInputs) -> Outline | None:
     ref = inputs.optional_feature("outline")
     if ref is None:
         return None
-    outline = read_outline(outline_sketch(ref, inputs.earlier, "outline"))
+    outline = read_outline(
+        outline_sketch(ref, inputs.earlier, "outline"), "outline", inputs.parameters
+    )
     check_nameable(outline, "outline")
     return outline
 
@@ -234,11 +243,12 @@ def wall_specs_of(
     feature_id: uuid.UUID,
     envelope: CustomFeature,
     earlier: Mapping[uuid.UUID, AuthoredEnvelope],
+    parameters: Mapping[str, Quantity] | None = None,
 ) -> list[tuple[str | None, wall_v1.WallSpec]]:
     """The walls a stored ``loft.wall`` of any release stands for, as a roof,
     an opening or another wall reads them: one line wall (``None``), or one
     per outline line (its sketch id)."""
-    inputs = stored_inputs(feature_id, envelope, earlier)
+    inputs = stored_inputs(feature_id, envelope, earlier, parameters)
     if not _at_least(envelope.params.plugin_version, WALL_OUTLINE_VERSION):
         return [(None, wall_v1.WallSpec.from_inputs(inputs))]
     outline = wall_outline(inputs)

@@ -145,7 +145,9 @@ def expand_v1_4(inputs: ExpandInputs) -> Iterable[Member]:
     ref = picks[0]
     envelope = inputs.resolve(ref)
     assert isinstance(envelope, CustomFeature)
-    wall_inputs = stored_inputs(ref.feature_id, envelope, inputs.earlier)
+    wall_inputs = stored_inputs(
+        ref.feature_id, envelope, inputs.earlier, inputs.parameters
+    )
     outline = wall_outline(wall_inputs)
     assert outline is not None
     walls = outline_walls(wall_inputs, outline)

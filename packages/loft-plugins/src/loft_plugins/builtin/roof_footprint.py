@@ -147,7 +147,9 @@ def footprint_from_walls(inputs: ExpandInputs) -> Footprint | None:
             )
         # A 1.3.0 wall may stand on a floor, or be an outline's walls, one per
         # line (BUILDING-OUTLINE); earlier releases are one typed line each.
-        for _, spec in wall_specs_of(ref.feature_id, wall, inputs.earlier):
+        for _, spec in wall_specs_of(
+            ref.feature_id, wall, inputs.earlier, inputs.parameters
+        ):
             lines.append(_wall_line(f"Wall {len(lines) + 1}", spec))
     if len(lines) not in (4, 6):
         raise walls_error(

@@ -47,6 +47,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from typing import Literal
 
+from loft_wire.expr import ExpressionError, Quantity, evaluate_driving_dimensions
 from loft_wire.features import (
     AuthoredEnvelope,
     DatumFeature,
@@ -58,6 +59,7 @@ from loft_wire.features import (
 from loft_wire.lumber import MM_PER_INCH
 from loft_wire.plugins import PLUGIN_INPUT_INVALID, PLUGIN_INPUT_UNSUPPORTED
 from loft_wire.sketch import (
+    AngleConstraint,
     CoincidentConstraint,
     CollinearConstraint,
     DimensionConstraint,
@@ -77,6 +79,7 @@ from loft_wire.sketch import (
     SymmetricConstraint,
     VerticalConstraint,
 )
+from loft_wire.sketch import SketchConstraint as SketchConstraintAny
 
 from loft_plugins.api import PluginError
 
@@ -318,12 +321,101 @@ def _sign(value: float) -> int:
     return 1 if value > 0 else -1 if value < 0 else 0
 
 
-def read_outline(sketch: SketchFeature, input_name: str = "outline") -> Outline:
+def resolved(
+    sketch: SketchFeature,
+    parameters: Mapping[str, Quantity],
+    input_name: str = "outline",
+) -> SketchFeature:
+    """*sketch* with every driving dimension's formula evaluated against the
+    part's *parameters*, as the solver will size it (``336 in``, ``L``,
+    ``width/2``). A formula that does not evaluate (``1 in / 0``, ``10 kg``)
+    is a :class:`PluginError` naming the dimension: walls left at the last
+    size, with no error, would not stand on the sketch the user sees."""
+    constraints = list(sketch.params.constraints)
+    driven = [
+        i
+        for i, c in enumerate(constraints)
+        if isinstance(c, DimensionConstraint) and c.expression is not None
+    ]
+    if not driven:
+        return sketch
+    try:
+        values = evaluate_driving_dimensions(constraints, parameters)
+    except ExpressionError as exc:
+        raise _bad_dimension(constraints, driven, parameters, exc, input_name) from exc
+    for i in driven:
+        if i not in values:
+            continue
+        dim = constraints[i]
+        angle = isinstance(dim, AngleConstraint)
+        value = values[i]
+        # The fields' own bounds: a length above 0, an angle in (0, 180).
+        if not math.isfinite(value) or value <= 0 or (angle and value >= 180):
+            raise unsupported(
+                f"Outline: dimension {_dimension_label(dim)} = "
+                f"{getattr(dim, 'expression', None)!r} "
+                f"is {value:g}, which a dimension cannot be.",
+                input_name,
+            )
+        field = "value_deg" if angle else "value_mm"
+        constraints[i] = dim.model_copy(update={field: value})
+    params = sketch.params.model_copy(update={"constraints": constraints})
+    return sketch.model_copy(update={"params": params})
+
+
+def _dimension_label(dim: object) -> str:
+    name = getattr(dim, "name", None)
+    entity = getattr(dim, "entity", None)
+    if name is not None:
+        return repr(name)
+    return f"on {entity}" if entity is not None else f"({getattr(dim, 'kind', '?')})"
+
+
+def _bad_dimension(
+    constraints: list[SketchConstraintAny],
+    driven: list[int],
+    parameters: Mapping[str, Quantity],
+    exc: ExpressionError,
+    input_name: str,
+) -> PluginError:
+    """The refusal for a formula that does not evaluate, naming the first
+    dimension whose formula fails: each in turn keeps its formula while
+    the later ones read their stored numbers."""
+    culprit = driven[-1]
+    for k in range(len(driven)):
+        trial = [
+            c.model_copy(update={"expression": None})
+            if i in driven[k + 1 :] and isinstance(c, DimensionConstraint)
+            else c
+            for i, c in enumerate(constraints)
+        ]
+        try:
+            evaluate_driving_dimensions(trial, parameters)
+        except ExpressionError:
+            culprit = driven[k]
+            break
+    dim = constraints[culprit]
+    text = getattr(dim, "expression", None)
+    return unsupported(
+        f"Outline: dimension {_dimension_label(dim)} = {text!r} does not "
+        f"evaluate ({exc}); fix it, and the walls follow.",
+        input_name,
+    )
+
+
+def read_outline(
+    sketch: SketchFeature,
+    input_name: str = "outline",
+    parameters: Mapping[str, Quantity] | None = None,
+) -> Outline:
     """The loop of *sketch*'s lines, clockwise (module docstring), or a
-    :class:`PluginError` on *input_name* saying what to add or change."""
+    :class:`PluginError` on *input_name* saying what to add or change. Its
+    dimensions' formulas are evaluated first (:func:`resolved`)."""
 
     def refuse(message: str) -> PluginError:
         return unsupported(f"Outline: {message}", input_name)
+
+    sketch = resolved(sketch, parameters or {}, input_name)
 
     entities = sketch.params.entities
     lines = {e.id: e for e in entities if isinstance(e, SketchLine)}
