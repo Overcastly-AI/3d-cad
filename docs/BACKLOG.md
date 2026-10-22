@@ -274,6 +274,7 @@ None open. The B7 decisions are in VISION's delegated log.
 
 One line each. The founder triages weekly; most are closed without work.
 
+- SPLICE-FEWEST-PIECES: splice tiers rank feet bought before pieces, so a book pricing 10 ft SPF buys 28 ft as 10 + 10 + 8 (3 pieces, 2 joints) before 2 x 16; a yard may prefer fewer joints over 4 ft of offcut. Founder call.
 - PLUGIN-BUDGET-WALLCLOCK: the 2 s plugin expansion budget is wall-clock, so roof/wall/deck tests (test_roof_l_doubled_common, test_roof_feature b4 valley, test_deck metric guard post) failed under a load-11 local gate and pass alone; measure CPU time or give tests a slack budget before CI hits it.
 - BARE-UNIT-SURFACES: `expression_bare_mm` rides on `FeatureResponse.formula_warnings` and `PartParametersResponse.formula_warnings`, but the web shows it (with "Read as in") only on a feature editor's field; the parameters table, sketch dimensions and the feature tree do not show it yet, and the sketcher's echo still reads a bare term as mm until the save writes the unit.
 - BARE-UNIT-COMPARE: `min`/`max`/`atan2` arguments compared with a length also take the part unit (`max(wall, 3)` is stored as `max(wall, 3 in)`), one step past the spec's added/subtracted rule, because a bare 3 there is the same silent mm.

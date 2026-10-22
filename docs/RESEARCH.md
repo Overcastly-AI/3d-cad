@@ -2696,7 +2696,11 @@ property feeds a BOM column; Loft's price book feeds the cut list.
   Ties are common (24 ft is 12 + 12, 14 + 10 or 16 + 8; 26 ft is 14 + 12 or
   16 + 10) and list most even first; for pricing, the cheapest tie whose every
   piece has an Each price wins, so the stock shown can follow the book, at
-  the same waste and piece count. Waste comes first, so 37 ft is 14 + 12 + 12
+  the same waste and piece count. When no least-waste splice is priced whole,
+  the next tier up is tried (CUT-LIST-SPLICE-TIES, a yard's quote): 28 ft with
+  no 14 ft in the book buys 2 x 16 (4 ft over) rather than staying unpriced,
+  and only when no tier prices does the least-waste stock show unpriced.
+  Waste comes first, so 37 ft is 14 + 12 + 12
   (1 ft over), not 2 x 20 (3 ft over). The line's `stock_pieces_ft` carries
   the pieces (`[12, 12]`; `[16]` unspliced), `stock_length_ft` is null for a
   splice and `waste_mm` sums the splice's offcut. Each prices only a splice
