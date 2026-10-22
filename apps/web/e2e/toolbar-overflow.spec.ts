@@ -308,10 +308,13 @@ test.describe("nothing is unreachable at the 1280 floor", () => {
     await page.getByTestId("pipe-cancel").click();
     await expect(page.getByTestId("pipe-editor")).toBeHidden();
 
-    // Keyboard: focus the trigger, Enter opens on the first row, ArrowDown
-    // walks to Plane along path, Enter opens the datum editor on that kind.
+    // Keyboard: focus the trigger, Enter opens on the first row (3D sketch,
+    // SKETCH-3D), ArrowDown walks through Pipe to Plane along path, Enter
+    // opens the datum editor on that kind.
     await more.focus();
     await page.keyboard.press("Enter");
+    await expect(page.getByTestId("new-sketch-3d")).toBeFocused();
+    await page.keyboard.press("ArrowDown");
     await expect(page.getByTestId("new-pipe")).toBeFocused();
     await page.keyboard.press("ArrowDown");
     await expect(page.getByTestId("tool-plane-along-path")).toBeFocused();
