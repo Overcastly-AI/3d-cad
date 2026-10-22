@@ -37,7 +37,7 @@ from geometry.features import owner as owner_module
 from geometry.features.tree import TreeEvaluation
 from geometry.kernel import face_match_tier
 from geometry.kernel.tessellate import tessellate_glb
-from loft_wire.features import EvaluateTreeRequest, ExtrudeParamsV1
+from loft_wire.features import EvaluateTreeRequest, ExtrudeParamsV1, SolvedSketchData
 from pydantic import ValidationError
 
 GOLDENS = Path(__file__).resolve().parent.parent / "goldens"
@@ -724,7 +724,7 @@ def test_a_projected_edge_of_an_earlier_body_projects_from_that_body() -> None:
     )
     evaluation = _run([*_blocks(), _datum(_fid(20), "XY", HEIGHT), sketch])
     data = evaluation.result.features[-1].data
-    assert data is not None
+    assert isinstance(data, SolvedSketchData)
     (status,) = data.projections
     assert (status.state, status.tier) == ("ok", "exact")
     (line,) = data.entities
