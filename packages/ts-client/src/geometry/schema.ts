@@ -1294,7 +1294,7 @@ export interface components {
              * Material
              * @description The material RESOLVED for this body (its own override, else the document default); null = none assigned, so no mass.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete") | null;
         };
         /**
          * BodyMaterialAssignment
@@ -1319,7 +1319,7 @@ export interface components {
              * @description Material for THIS body only
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete";
         };
         /**
          * BooleanFeature
@@ -4476,6 +4476,11 @@ export interface components {
          */
         ExtrudeParamsV1: {
             /**
+             * Cut Bodies
+             * @description CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). "all" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.
+             */
+            cut_bodies?: "all" | components["schemas"]["FeatureRef"][] | null;
+            /**
              * Direction
              * @default normal
              * @enum {string}
@@ -4592,6 +4597,11 @@ export interface components {
          *     tree UI can show it dimmed rather than red.
          */
         FeatureResult: {
+            /**
+             * Cut Bodies
+             * @description For every ok extrude, revolve, sweep, loft or pipe CUT, whatever its cut_bodies (absent included, so a stored cut reports its active body, and a plugin member's cut reports too): the bodies (by base feature id, tree order) it removed material from on this rebuild, which the dialog's Objects To Cut list shows. Absent for every other feature.
+             */
+            cut_bodies?: string[] | null;
             /**
              * Data
              * @description Typed per-feature payload for ok features that produce one (§7.10): solved sketch geometry today; future feature types add kind-tagged variants additively.
@@ -4882,7 +4892,8 @@ export interface components {
          * @description A face-placed cylindrical hole — through-all or blind, plain or recessed.
          *
          *     The dedicated Hole feature (BACKLOG P2): drill a straight cylinder of
-         *     ``diameter_mm`` into the current body at ``position`` on the planar ``face``,
+         *     ``diameter_mm`` into the body that OWNS the planar ``face`` (in a multi-body
+         *     part, the body whose face was picked — not the last one built), at ``position``,
          *     cutting INTO the material (opposite the face's outward normal — the correct
          *     direction, chosen automatically, no direction knob to get wrong). Like a
          *     fillet/shell/draft it modifies the implicit single body chain (design §7.6),
@@ -4941,6 +4952,11 @@ export interface components {
             face_y_mm?: number | null;
             /** @description World-space placement point, projected onto the face plane to fix the drill axis (mm) */
             position: components["schemas"]["Vec3"];
+            /**
+             * Scope Bodies
+             * @description Feature Scope (SolidWorks): further bodies a THROUGH-ALL bore also cuts, each named by its base (body-creating) feature. `null`/omitted cuts only the body that owns `face` (the Fusion 360 / SolidWorks default). The bore cuts each listed body coaxially; a counterbore / countersink recess seats in the owner only. A listed body the bore cannot reach is `hole_off_body`. A BLIND hole keeps its scope (so switching back to through-all restores it) but cuts only its owner: the scope is not read while the depth is blind
+             */
+            scope_bodies?: components["schemas"]["FeatureRef"][] | null;
             /** @description Optional COSMETIC thread callout making this a TAPPED hole (`null`/omitted = untapped). Carries the designation for drawing/BOM callouts; adds no geometry — `diameter_mm` is the tap-drill bore (:class:`IsoMetricThread`) */
             thread?: components["schemas"]["IsoMetricThread"] | null;
             /**
@@ -5797,6 +5813,11 @@ export interface components {
          */
         LoftParamsV1: {
             /**
+             * Cut Bodies
+             * @description CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). "all" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.
+             */
+            cut_bodies?: "all" | components["schemas"]["FeatureRef"][] | null;
+            /**
              * Merge
              * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
              * @default true
@@ -5909,7 +5930,7 @@ export interface components {
              * Default Material
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
-            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "steel_a992" | "concrete") | null;
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete") | null;
         };
         /**
          * MeasureRequest
@@ -6907,7 +6928,8 @@ export interface components {
          *     See the module docstring. ``operation`` and ``merge`` are the other
          *     sketch solids' fields: ``add`` with ``merge`` joins the tube to the active
          *     body (Fusion's *Join*), ``add`` without it starts a new body (*New Body*),
-         *     and ``cut`` removes it from the active body (*Cut*). Failures are typed
+         *     and ``cut`` removes it from the bodies ``cut_bodies`` names (*Cut*;
+         *     Objects To Cut, :mod:`loft_wire.cut_bodies`). Failures are typed
          *     rebuild errors on the pipe: ``reference_unresolved`` (a missing sketch or
          *     curve), ``subshape_unresolved`` / ``subshape_ambiguous`` (an edge),
          *     ``sweep_path_not_connected`` (branched or disjoint picks, or a curve
@@ -6915,6 +6937,11 @@ export interface components {
          *     ``sweep_self_intersecting`` (the path comes back through the tube).
          */
         PipeParamsV1: {
+            /**
+             * Cut Bodies
+             * @description CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). "all" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.
+             */
+            cut_bodies?: "all" | components["schemas"]["FeatureRef"][] | null;
             /**
              * Merge
              * @description ADD only: True joins the tube to the active body (or starts the first body); False starts a NEW body. Ignored for a cut.
@@ -7471,6 +7498,11 @@ export interface components {
              * @description Axis of revolution — a line entity of the profile's sketch or a world origin axis; it must lie in the profile's sketch plane
              */
             axis: components["schemas"]["SketchLineAxis"] | components["schemas"]["OriginAxis"];
+            /**
+             * Cut Bodies
+             * @description CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). "all" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.
+             */
+            cut_bodies?: "all" | components["schemas"]["FeatureRef"][] | null;
             /**
              * Direction
              * @description Sweep sense about the axis for a partial revolution (irrelevant at a full 360°): 'reverse' sweeps the opposite way
@@ -9459,6 +9491,11 @@ export interface components {
          *     bump).
          */
         SweepParamsV1: {
+            /**
+             * Cut Bodies
+             * @description CUT only: the bodies the cut removes material from (Fusion 360's Objects To Cut, SolidWorks' Feature Scope). "all" cuts every body the tool meets, found on each rebuild (what a new cut stores); a list of bodies, each by its base feature, cuts exactly those, and one the tool misses is `cut_removed_nothing` pinned to it. Absent (every cut saved before Objects To Cut) cuts the ACTIVE body only, as it always did. Must be absent on an add.
+             */
+            cut_bodies?: "all" | components["schemas"]["FeatureRef"][] | null;
             /**
              * Merge
              * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
