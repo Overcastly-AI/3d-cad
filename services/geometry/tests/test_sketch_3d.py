@@ -19,17 +19,23 @@ import importlib.util
 import itertools
 import json
 import math
+import random
+import time
 import uuid
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import pytest
 from build123d import Plane, Solid, Vector
 from geometry.features import evaluate_tree
 from geometry.kernel import measure_shape
 from geometry.overlay import evaluate_overlay
-from geometry.sketch.solver3d import Sketch3DConflictError, solve_sketch_3d
+from geometry.sketch.solver3d import (
+    Sketch3DConflictError,
+    Sketch3DTooLargeError,
+    solve_sketch_3d,
+)
 from loft_wire.features import EvaluateTreeRequest
 from loft_wire.overlay import OverlayRequest
 from loft_wire.sketch_3d import (
@@ -471,6 +477,189 @@ def test_rebuilds_are_deterministic() -> None:
     first, second = _ok(tree), _ok(tree)
     assert _points(first, 1) == _points(second, 1)
     assert measure_shape(first.body) == measure_shape(second.body)
+
+
+def test_the_bike_sketch_rebuilds_byte_identical() -> None:
+    """Two rebuilds of the 3D skeleton give the same payload, byte for byte
+    (BLAS is pinned to one thread for the solve)."""
+    tree = [sb.skeleton_3d(1)]
+    payloads = [
+        next(r.data for r in _ok(tree).result.features).model_dump_json()
+        for _ in range(2)
+    ]
+    assert payloads[0] == payloads[1]
+    assert "-142.00767235196136" in payloads[0]
+
+
+# --- redundancy, size and the work budget ------------------------------------------
+
+
+def _reference_redundancy(
+    positions: dict[str, P],
+    fixed: dict[str, P],
+    lines: dict[str, tuple[str, str]],
+    constraints: list[Any],
+) -> tuple[int, list[int]]:
+    """The first solver's diagnosis, kept as the oracle: one SVD rank per
+    constraint prefix, in constraint order, at the solved positions."""
+    import numpy as np
+
+    solved = solve_sketch_3d(positions, fixed, lines, constraints).points
+    free = [k for k in positions if k not in fixed]
+    col = {k: 3 * i for i, k in enumerate(free)}
+    n = 3 * len(free)
+    rows: list[tuple[int, Any]] = []
+    for index, c in enumerate(constraints):
+
+        def row(entries: list[tuple[str, Any]]) -> Any:
+            out = np.zeros(n)
+            for key, grad in entries:
+                if key in col:
+                    out[col[key] : col[key] + 3] += grad
+            return out
+
+        eye = np.eye(3)
+        if c.kind == "coincident":
+            rows += [(index, row([(c.a, eye[k]), (c.b, -eye[k])])) for k in range(3)]
+        elif c.kind == "along":
+            a, b = lines[c.line]
+            axis = "xyz".index(c.axis)
+            rows += [
+                (index, row([(b, eye[k]), (a, -eye[k])])) for k in range(3) if k != axis
+            ]
+        elif c.kind in ("length", "distance"):
+            a, b = lines[c.line] if c.kind == "length" else (c.a, c.b)
+            d = np.subtract(solved[b], solved[a])
+            u = d / np.linalg.norm(d)
+            rows.append((index, row([(b, u), (a, -u)])))
+
+    def rank(matrix: Any) -> int:
+        if len(matrix) == 0:
+            return 0
+        sv = np.linalg.svd(np.array(matrix), compute_uv=False)
+        return int(np.count_nonzero(sv > sv[0] * 1e-9)) if sv[0] > 0 else 0
+
+    redundant: list[int] = []
+    kept: list[Any] = []
+    for index in dict.fromkeys(i for i, _ in rows):
+        mine = [r for i, r in rows if i == index]
+        if rank(kept + mine) < rank(kept) + len(mine):
+            redundant.append(index)
+        kept += mine
+    return n - rank(kept), redundant
+
+
+def _random_sketch(seed: int) -> tuple[Any, ...]:
+    """A small consistent sketch: random relations measured off random points,
+    some repeated or implied, so redundancy actually occurs."""
+    rng = random.Random(seed)
+    count = rng.randint(3, 7)
+    truth = {
+        f"p{i}": (rng.uniform(-50, 50), rng.uniform(-50, 50), rng.uniform(-50, 50))
+        for i in range(count)
+    }
+    keys = list(truth)
+    lines = {f"l{i}": (keys[i], keys[i + 1]) for i in range(count - 1)}
+    constraints: list[Any] = []
+    aligned: set[str] = set()
+    for _ in range(rng.randint(2, 9)):
+        kind = rng.choice(["length", "distance", "along", "length"])
+        line = rng.choice(list(lines))
+        a, b = lines[line]
+        if kind == "along" and line not in aligned:
+            aligned.add(line)
+            axis: Literal["x", "y", "z"] = rng.choice(("x", "y", "z"))
+            k = "xyz".index(axis)
+            # Make it hold: give b a's other two coordinates.
+            pa, pb = truth[a], list(truth[b])
+            for j in range(3):
+                if j != k:
+                    pb[j] = pa[j]
+            truth[b] = (pb[0], pb[1], pb[2])
+            constraints.append(Sketch3DAlong(kind="along", line=line, axis=axis))
+        elif kind != "along":
+            constraints.append(("measure", kind, line, a, b))
+    measured: list[Any] = []
+    for c in constraints:
+        if isinstance(c, tuple):
+            _, kind, line, a, b = cast(tuple[str, str, str, str, str], c)
+            value = math.dist(truth[a], truth[b])
+            measured.append(
+                Sketch3DLength(kind="length", line=line, value_mm=value)
+                if kind == "length"
+                else Sketch3DDistance(kind="distance", a=a, b=b, value_mm=value)
+            )
+        else:
+            measured.append(c)
+    fixed = {keys[0]: truth[keys[0]]}
+    return dict(truth), fixed, lines, measured
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_redundancy_and_dof_match_the_per_prefix_svd_oracle(seed: int) -> None:
+    sketch = _random_sketch(seed)
+    solved = solve_sketch_3d(*sketch)
+    assert (solved.dof, solved.redundant) == _reference_redundancy(*sketch)
+
+
+def test_the_existing_redundant_case_still_names_the_same_constraint() -> None:
+    lines = {"l": ("a", "b")}
+    start: dict[str, P] = {"a": (0.0, 0.0, 0.0), "b": (0.0, 0.0, 9.0)}
+    fixed: dict[str, P] = {"a": (0.0, 0.0, 0.0)}
+    constraints: list[Any] = [
+        Sketch3DAlong(kind="along", line="l", axis="z"),
+        Sketch3DLength(kind="length", line="l", value_mm=10.0),
+        Sketch3DDistance(kind="distance", a="a", b="b", value_mm=10.0),
+        Sketch3DCoincident(kind="coincident", a="b", b="b2"),
+    ]
+    start["b2"] = (0.0, 0.0, 10.0)
+    solved = solve_sketch_3d(start, fixed, lines, constraints)
+    assert solved.redundant == [2]
+    assert (solved.dof, solved.redundant) == _reference_redundancy(
+        start, fixed, lines, constraints
+    )
+
+
+def _chain(count: int) -> tuple[Any, ...]:
+    """The review's case: a chain with a length on every line and Along X on
+    every other one."""
+    positions = {
+        f"p{i}": (10.0 * i + 0.3 * (i % 3), 2.0 * (i % 5), 1.0 * (i % 7))
+        for i in range(count)
+    }
+    lines = {f"l{i}": (f"p{i}", f"p{i + 1}") for i in range(count - 1)}
+    constraints: list[Any] = []
+    for i in range(count - 1):
+        constraints.append(Sketch3DLength(kind="length", line=f"l{i}", value_mm=11.0))
+        if i % 2 == 0:
+            constraints.append(Sketch3DAlong(kind="along", line=f"l{i}", axis="x"))
+    return positions, {"p0": positions["p0"]}, lines, constraints
+
+
+def test_a_200_point_skeleton_solves_in_under_two_seconds() -> None:
+    """Measured 0.22 s (the first solver took 118 s: one SVD per constraint)."""
+    start = time.perf_counter()
+    solved = solve_sketch_3d(*_chain(200))
+    assert time.perf_counter() - start < 2.0
+    # 199 free points x 3 - (199 lengths + 100 Along X's 2 rows) = 198.
+    assert solved.dof == 198
+    assert solved.redundant == []
+
+
+def test_a_1000_entity_sketch_is_refused_by_the_budget_not_left_running() -> None:
+    """500 points + 499 lines: past the work budget, refused at once with a
+    typed error (the budget counts flops from the sketch's size, never a
+    clock, so the same sketch is refused on every machine)."""
+    start = time.perf_counter()
+    with pytest.raises(Sketch3DTooLargeError, match="too large"):
+        solve_sketch_3d(*_chain(500))
+    assert time.perf_counter() - start < 5.0
+    positions, _, lines, constraints = _chain(500)
+    feature = _sketch_3d(1, positions, lines)
+    feature["feature"]["params"]["constraints"] = [
+        c.model_dump() for c in constraints
+    ] + [{"kind": "fixed", "point": "p0"}]
+    assert _error([feature], 1) == "sketch_too_large"
 
 
 def test_the_golden_is_this_tree() -> None:

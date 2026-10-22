@@ -10,19 +10,34 @@ coordinates with MINIMUM-NORM steps (``numpy.linalg.lstsq``):
 * ``coincident`` is three equations ``a - b = 0``; ``along`` is the two
   components of the line's direction across its axis; ``length`` and
   ``distance`` are ``|b - a| - value = 0``;
-* the solve starts at the stored positions and each step is the smallest move
-  that zeroes the linearised residual, so a free point moves only as far as
-  the relations force it. A length dimension's gradient is the line's own
-  direction, so it slides the free end ALONG the line (a lone length is met
-  exactly in one step; the line keeps its direction).
+* the solve starts at the stored positions and each step is the smallest
+  move that zeroes the LINEARISED residual. The converged answer is therefore
+  near the stored positions but not, in general, the nearest solution (a
+  Gauss-Newton path is not a projection). One case is exact: a length
+  dimension's gradient is the line's own direction, so a lone length on a
+  line from a held point slides the free end ALONG the line and is met in one
+  step (the line keeps its direction).
 
 Outcomes: converged (with the remaining degrees of freedom, the Jacobian's
 null space, and the constraints that are redundant), or
 :class:`Sketch3DConflictError` when the residual cannot be driven to zero
-(contradictory relations) or a dimensioned line collapses to a point.
+(contradictory relations) or a dimensioned line collapses to a point, or
+:class:`Sketch3DTooLargeError` when the sketch would cost more than
+:data:`WORK_BUDGET`.
+
+Cost. The Jacobian is assembled vectorised (one numpy pass per relation
+kind), each Newton step is one dense least-squares solve, and the redundancy
+diagnosis is ONE incremental Gram-Schmidt pass over the rows in constraint
+order (a constraint is redundant when its rows add no rank to the rows before
+it, the greedy rule). The work is counted in flops from the sketch's size
+alone and capped by :data:`WORK_BUDGET`, so a sketch that would take too long
+is refused with a typed error, never left running, and the answer never
+depends on how busy the machine is.
 
 Determinism (RESEARCH §9): a fixed iteration rule on fixed inputs in entity
-and constraint order; LAPACK's least-squares is deterministic for one input.
+and constraint order, float64 throughout, and BLAS pinned to one thread for
+the whole solve (:func:`threadpoolctl.threadpool_limits`, the assembly
+solver's pin), which fixes LAPACK's reduction order.
 """
 
 from collections.abc import Mapping, Sequence
@@ -39,8 +54,12 @@ from loft_wire.sketch_3d import (
 )
 from numpy.typing import NDArray
 
+# threadpoolctl ships no py.typed (single-module BSD dep) → stub-less import.
+from threadpoolctl import threadpool_limits  # pyright: ignore[reportMissingTypeStubs]
+
 Point = tuple[float, float, float]
 _Array = NDArray[np.float64]
+_Index = NDArray[np.intp]
 
 #: Newton iteration ceiling; a well-posed skeleton converges in a handful.
 _MAX_ITERATIONS = 100
@@ -49,9 +68,19 @@ _MAX_ITERATIONS = 100
 _RESIDUAL_RELATIVE = 1e-13
 #: A residual above this times the size after the iterations is a conflict.
 _CONFLICT_RELATIVE = 1e-9
-#: Singular values below this times the largest count as rank-deficient.
+#: A row adds rank when the part of it outside the rows before it is longer
+#: than this times the row (every row is a unit-scale gradient).
 _RANK_RELATIVE = 1e-9
 _AXIS = {"x": 0, "y": 1, "z": 2}
+
+#: Most flops one solve may spend, counted from the sketch's size alone
+#: (``m n min(m, n)`` per least-squares step, ``2 m n r`` for the diagnosis,
+#: with ``m`` rows, ``n`` unknowns and ``r`` the rank), never from a clock,
+#: so the same sketch is accepted or refused on every machine. Measured
+#: 2026-10-22 single-threaded on the dev container: a 200-point skeleton
+#: (n 597, m 497) solves in 0.3 s spending 0.9e9; 6e9 caps a solve at a
+#: couple of seconds. Raising it is a reviewed decision with a measurement.
+WORK_BUDGET = 6_000_000_000
 
 
 class Sketch3DConflictError(ValueError):
@@ -60,6 +89,10 @@ class Sketch3DConflictError(ValueError):
     def __init__(self, message: str, constraints: Sequence[int] = ()) -> None:
         super().__init__(message)
         self.constraints = list(constraints)
+
+
+class Sketch3DTooLargeError(ValueError):
+    """The solve would cost more than :data:`WORK_BUDGET`."""
 
 
 @dataclass(frozen=True)
@@ -71,6 +104,35 @@ class Solved3D:
     redundant: list[int]
 
 
+class _Degenerate(Exception):
+    """A length or distance whose two points coincide (no direction)."""
+
+
+class _Budget:
+    def __init__(self) -> None:
+        self.spent = 0
+
+    def spend(self, flops: int) -> None:
+        self.spent += flops
+        if self.spent > WORK_BUDGET:
+            raise Sketch3DTooLargeError(
+                "The 3D sketch is too large to solve here (it would take more "
+                f"than {WORK_BUDGET:.0e} operations). Split it into smaller "
+                "sketches or fix more of its points."
+            )
+
+
+@dataclass(frozen=True)
+class _Group:
+    """One relation kind, vectorised: row offsets and point slots."""
+
+    first_row: _Index  # the first row of each constraint
+    a: _Index  # point slot of each constraint's first point
+    b: _Index  # point slot of each constraint's second point
+    axes: _Index  # per constraint, the coordinate axes its rows read (k, rows)
+    value: _Array  # dimension value (length / distance), else empty
+
+
 class _System:
     def __init__(
         self,
@@ -79,94 +141,140 @@ class _System:
         lines: Mapping[str, tuple[str, str]],
         constraints: Sequence[Sketch3DConstraint],
     ) -> None:
-        self.fixed = {key: np.array(value, dtype=float) for key, value in fixed.items()}
-        self.index: dict[str, int] = {}
-        start: list[float] = []
-        for key, value in positions.items():
-            if key in self.fixed:
-                continue
-            self.index[key] = len(start)
-            start.extend(value)
-        self.x0: _Array = np.array(start, dtype=float)
-        self.lines = lines
-        self.constraints = [c for c in constraints if not isinstance(c, Sketch3DFixed)]
-        self.owners = [
-            i for i, c in enumerate(constraints) if not isinstance(c, Sketch3DFixed)
-        ]
+        free = [key for key in positions if key not in fixed]
+        held = [key for key in positions if key in fixed]
+        self.slot = {key: i for i, key in enumerate(free + held)}
+        self.n_free = len(free)
+        self.n = 3 * self.n_free
+        self.x0: _Array = np.array(
+            [v for key in free for v in positions[key]], dtype=float
+        )
+        self.held: _Array = np.array([fixed[key] for key in held], dtype=float).reshape(
+            -1, 3
+        )
+        self.keys = list(positions)
 
-    def _at(self, x: _Array, key: str) -> _Array:
-        if key in self.fixed:
-            return self.fixed[key]
-        i = self.index[key]
-        return x[i : i + 3]
-
-    def _rows(
-        self, x: _Array, constraint: Sketch3DConstraint
-    ) -> tuple[list[float], list[_Array]]:
-        """Residuals and Jacobian rows (dense, len(x)) of one constraint."""
-        n = x.size
-
-        def row(entries: Sequence[tuple[str, _Array]]) -> _Array:
-            out: _Array = np.zeros(n)
-            for key, grad in entries:
-                if key in self.index:
-                    i = self.index[key]
-                    out[i : i + 3] += grad
-            return out
-
-        unit = np.eye(3)
-        match constraint:
-            case Sketch3DCoincident(a=a, b=b):
-                d = self._at(x, a) - self._at(x, b)
-                return [float(v) for v in d], [
-                    row([(a, unit[k]), (b, -unit[k])]) for k in range(3)
-                ]
-            case Sketch3DAlong(line=line, axis=axis):
-                a, b = self.lines[line]
-                d = self._at(x, b) - self._at(x, a)
-                across = [k for k in range(3) if k != _AXIS[axis]]
-                return [float(d[k]) for k in across], [
-                    row([(b, unit[k]), (a, -unit[k])]) for k in across
-                ]
-            case Sketch3DLength() | Sketch3DDistance():
-                if isinstance(constraint, Sketch3DLength):
-                    a, b = self.lines[constraint.line]
-                else:
-                    a, b = constraint.a, constraint.b
-                d = self._at(x, b) - self._at(x, a)
-                length = float(np.linalg.norm(d))
-                if length <= 1e-12:
-                    raise _Degenerate
-                u = d / length
-                return [length - constraint.value_mm], [row([(b, u), (a, -u)])]
-            case Sketch3DFixed():  # pragma: no cover - filtered in __init__
-                return [], []
-
-    def evaluate(self, x: _Array) -> tuple[_Array, _Array, list[int]]:
-        """Residual vector, Jacobian, and the owning constraint of each row."""
-        residuals: list[float] = []
-        rows: list[_Array] = []
+        diffs: list[tuple[int, int, int, tuple[int, ...]]] = []
+        dists: list[tuple[int, int, int, float]] = []
         owner: list[int] = []
-        for index, constraint in zip(self.owners, self.constraints, strict=True):
-            values, grads = self._rows(x, constraint)
-            residuals.extend(values)
-            rows.extend(grads)
-            owner.extend([index] * len(values))
-        jacobian = np.array(rows, dtype=float).reshape(len(rows), x.size)
-        return np.array(residuals, dtype=float), jacobian, owner
+        for index, c in enumerate(constraints):
+            row = len(owner)
+            if isinstance(c, Sketch3DCoincident):
+                diffs.append((row, self.slot[c.b], self.slot[c.a], (0, 1, 2)))
+                owner.extend([index] * 3)
+            elif isinstance(c, Sketch3DAlong):
+                a, b = lines[c.line]
+                across = tuple(k for k in range(3) if k != _AXIS[c.axis])
+                diffs.append((row, self.slot[a], self.slot[b], across))
+                owner.extend([index] * 2)
+            elif isinstance(c, Sketch3DLength | Sketch3DDistance):
+                a, b = lines[c.line] if isinstance(c, Sketch3DLength) else (c.a, c.b)
+                dists.append((row, self.slot[a], self.slot[b], c.value_mm))
+                owner.append(index)
+        self.owner = owner
+        self.m = len(owner)
+        self.groups: list[tuple[int, _Group]] = []
+        for width in (3, 2):
+            chosen = [d for d in diffs if len(d[3]) == width]
+            if chosen:
+                self.groups.append(
+                    (
+                        width,
+                        _Group(
+                            np.array([d[0] for d in chosen], dtype=np.intp),
+                            np.array([d[1] for d in chosen], dtype=np.intp),
+                            np.array([d[2] for d in chosen], dtype=np.intp),
+                            np.array([d[3] for d in chosen], dtype=np.intp),
+                            np.empty(0),
+                        ),
+                    )
+                )
+        if dists:
+            self.groups.append(
+                (
+                    1,
+                    _Group(
+                        np.array([d[0] for d in dists], dtype=np.intp),
+                        np.array([d[1] for d in dists], dtype=np.intp),
+                        np.array([d[2] for d in dists], dtype=np.intp),
+                        np.empty((0, 0), dtype=np.intp),
+                        np.array([d[3] for d in dists], dtype=float),
+                    ),
+                )
+            )
+
+    def points(self, x: _Array) -> _Array:
+        return np.vstack([x.reshape(-1, 3), self.held])
+
+    def _scatter(
+        self, jac: _Array, rows: _Index, slots: _Index, axes: _Index, sign: float
+    ) -> None:
+        """``jac[rows, 3 slot + axis] += sign`` (or the per-row gradient) for
+        the rows whose point is free."""
+        free = slots < self.n_free
+        jac[rows[free], 3 * slots[free] + axes[free]] += sign
+
+    def evaluate(self, x: _Array, *, jacobian: bool) -> tuple[_Array, _Array | None]:
+        """Residual vector and (optionally) the dense Jacobian, rows in
+        constraint order."""
+        p = self.points(x)
+        residual: _Array = np.zeros(self.m)
+        jac: _Array | None = np.zeros((self.m, self.n)) if jacobian else None
+        for width, g in self.groups:
+            if width == 1:
+                d = p[g.b] - p[g.a]
+                length = np.linalg.norm(d, axis=1)
+                if np.any(length <= 1e-12):
+                    raise _Degenerate
+                residual[g.first_row] = length - g.value
+                if jac is not None:
+                    u = d / length[:, None]
+                    for k in range(3):
+                        for slots, sign in ((g.b, 1.0), (g.a, -1.0)):
+                            free = slots < self.n_free
+                            jac[g.first_row[free], 3 * slots[free] + k] += (
+                                sign * u[free, k]
+                            )
+                continue
+            d = p[g.b] - p[g.a]
+            for j in range(width):
+                rows = g.first_row + j
+                axis = g.axes[:, j]
+                residual[rows] = d[np.arange(len(rows)), axis]
+                if jac is not None:
+                    self._scatter(jac, rows, g.b, axis, 1.0)
+                    self._scatter(jac, rows, g.a, axis, -1.0)
+        return residual, jac
 
 
-class _Degenerate(Exception):
-    """A length or distance whose two points coincide (no direction)."""
-
-
-def _rank(matrix: _Array) -> int:
-    if matrix.size == 0:
-        return 0
-    singular = np.linalg.svd(matrix, compute_uv=False)
-    if singular.size == 0 or singular[0] == 0.0:
-        return 0
-    return int(np.count_nonzero(singular > singular[0] * _RANK_RELATIVE))
+def _greedy_rank(
+    jac: _Array, owner: Sequence[int], budget: _Budget
+) -> tuple[int, list[int]]:
+    """Rank of the rows, and the constraints whose rows add no rank to the
+    rows before them, in ONE incremental (twice-orthogonalised) Gram-Schmidt
+    pass in row order."""
+    m, n = jac.shape
+    basis: _Array = np.zeros((min(m, n), n))
+    rank = 0
+    redundant: list[int] = []
+    budget.spend(4 * m * n * min(m, n))
+    for row_index in range(m):
+        row: _Array = jac[row_index]
+        scale = float(np.linalg.norm(row))
+        added = False
+        if scale > 0.0 and rank < n:
+            v: _Array = row.copy()
+            q = basis[:rank]
+            for _ in range(2):
+                v -= q.T @ (q @ v)
+            norm = float(np.linalg.norm(v))
+            if norm > _RANK_RELATIVE * scale:
+                basis[rank] = v / norm
+                rank += 1
+                added = True
+        if not added and (not redundant or redundant[-1] != owner[row_index]):
+            redundant.append(owner[row_index])
+    return rank, redundant
 
 
 def solve_sketch_3d(
@@ -182,8 +290,28 @@ def solve_sketch_3d(
     Raises:
         Sketch3DConflictError: the relations cannot all hold, or a dimensioned
             line or distance has collapsed to zero length.
+        Sketch3DTooLargeError: the solve would exceed :data:`WORK_BUDGET`.
     """
-    system = _System(positions, fixed, lines, constraints)
+    with threadpool_limits(limits=1, user_api="blas"):
+        return _solve(positions, fixed, lines, constraints)
+
+
+def _solve(
+    positions: Mapping[str, Point],
+    fixed: Mapping[str, Point],
+    lines: Mapping[str, tuple[str, str]],
+    constraints: Sequence[Sketch3DConstraint],
+) -> Solved3D:
+    effective = [c for c in constraints if not isinstance(c, Sketch3DFixed)]
+    order = [i for i, c in enumerate(constraints) if not isinstance(c, Sketch3DFixed)]
+    system = _System(positions, fixed, lines, effective)
+    owner = [order[i] for i in system.owner]
+    m, n = system.m, system.n
+    step_cost = m * n * min(m, n)
+    budget = _Budget()
+    # Refuse up front what cannot afford one step and the diagnosis.
+    if step_cost + 4 * m * n * min(m, n) > WORK_BUDGET:
+        budget.spend(step_cost + 4 * m * n * min(m, n))
     scale = max(
         [1.0]
         + [abs(v) for p in positions.values() for v in p]
@@ -196,51 +324,43 @@ def solve_sketch_3d(
     )
     x = system.x0.copy()
     try:
-        residual, jacobian, owner = system.evaluate(x)
+        residual, jacobian = system.evaluate(x, jacobian=True)
+        assert jacobian is not None
         for _ in range(_MAX_ITERATIONS):
-            if residual.size == 0 or np.max(np.abs(residual)) <= (
-                _RESIDUAL_RELATIVE * scale
-            ):
+            if m == 0 or np.max(np.abs(residual)) <= _RESIDUAL_RELATIVE * scale:
                 break
+            budget.spend(step_cost)
             step = np.linalg.lstsq(jacobian, -residual, rcond=None)[0]
             norm = float(np.linalg.norm(residual))
             alpha = 1.0
+            trial = x
             for _ in range(40):
                 trial = x + alpha * step
-                trial_residual, trial_jacobian, _ = system.evaluate(trial)
+                trial_residual, _ = system.evaluate(trial, jacobian=False)
                 if float(np.linalg.norm(trial_residual)) < norm:
                     break
                 alpha /= 2
             else:
                 break  # no descent: a local minimum with a residual left
             x = trial
-            residual, jacobian = trial_residual, trial_jacobian
+            residual, jacobian = system.evaluate(x, jacobian=True)
+            assert jacobian is not None
     except _Degenerate:
         raise Sketch3DConflictError(
             "A dimensioned line or distance in the 3D sketch has zero length; "
             "move one of its points first."
         ) from None
-    if residual.size and np.max(np.abs(residual)) > _CONFLICT_RELATIVE * scale:
+    if m and np.max(np.abs(residual)) > _CONFLICT_RELATIVE * scale:
         worst = owner[int(np.argmax(np.abs(residual)))]
         raise Sketch3DConflictError(
             "The 3D sketch's relations cannot all hold (they contradict each "
             f"other; constraint {worst + 1} is furthest off). Delete or change one.",
             [worst],
         )
-    # Redundancy: a constraint whose rows add no rank to the ones before it.
-    redundant: list[int] = []
-    kept: list[_Array] = []
-    rank = 0
-    for index in dict.fromkeys(owner):
-        rows = [jacobian[r] for r in range(len(owner)) if owner[r] == index]
-        grown = _rank(np.array(kept + rows)) if kept or rows else 0
-        if grown < rank + len(rows):
-            redundant.append(index)
-        kept.extend(rows)
-        rank = _rank(np.array(kept))
-    dof = x.size - _rank(jacobian) if residual.size else x.size
+    rank, redundant = _greedy_rank(jacobian, owner, budget)
+    p = system.points(x)
     solved: dict[str, Point] = {}
     for key in positions:
-        p = system._at(x, key)  # pyright: ignore[reportPrivateUsage]
-        solved[key] = (float(p[0]), float(p[1]), float(p[2]))
-    return Solved3D(solved, dof, redundant)
+        at = p[system.slot[key]]
+        solved[key] = (float(at[0]), float(at[1]), float(at[2]))
+    return Solved3D(solved, n - rank, redundant)

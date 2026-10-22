@@ -2876,9 +2876,11 @@ frame plane, so no 2D sketch can hold them). Decisions:
 - **Solver: our own, not planegcs.** planegcs is 2D through and through (its
   primitives are planar points, lines and arcs); extending it to 3D would be
   a fork of a C++ library for five equations. `geometry.sketch.solver3d` is a
-  ~200-line damped Gauss-Newton over the free points' coordinates with
+  small damped Gauss-Newton over the free points' coordinates with
   minimum-norm steps (`numpy.linalg.lstsq`), starting at the stored
-  positions. Consequences, stated as the behaviour users see:
+  positions. Each step is the smallest move that zeroes the LINEARISED
+  residual, so the answer stays near what was typed but is not, in general,
+  the nearest solution. Consequences, stated as the behaviour users see:
   - a length dimension on a line from a held point slides the free end ALONG
     the line (the residual's gradient is the line's direction), met exactly
     in one step, so a typed point plus a length lands on the reference to
@@ -2891,8 +2893,17 @@ frame plane, so no 2D sketch can hold them). Decisions:
     above 1e-9 x the sketch size after the iterations is
     `sketch_conflicting` naming the worst relation; a dimensioned line of
     zero length is refused, never divided by.
-  - Limits: a local solver, so an under-defined sketch keeps the nearest
-    solution to what was typed (Fusion's behaviour too), and a far edit can
+  - Cost (review 2026-10-22): the Jacobian is assembled vectorised, the
+    redundancy diagnosis is ONE incremental Gram-Schmidt pass in constraint
+    order (the same greedy answer as one SVD per constraint prefix, which an
+    oracle test checks on 40 random sketches; the first version took 118 s
+    at 200 points this way), and BLAS is pinned to one thread for the solve
+    (bit-stable). A work budget of 6e9 flops, counted from the sketch's size
+    and never a clock, refuses a larger sketch as `sketch_too_large`. A
+    200-point skeleton solves in 0.22 s; 300 points 0.76 s; a 400-point
+    chain or a 1000-entity sketch is refused (in 1.5 s at most).
+  - Limits: a local solver, so an under-defined sketch keeps a solution near
+    what was typed (Fusion's behaviour too), and a far edit can
     flip to another branch only where the relations allow two (none of the
     five relations has a fold except a length through zero, which is
     refused).

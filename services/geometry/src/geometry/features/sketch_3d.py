@@ -30,7 +30,12 @@ from geometry.features.state import EvaluationState, Solved3DSketch
 from geometry.kernel.edges import resolve_edge_durable
 from geometry.kernel.extrude import plane_point_to_world
 from geometry.kernel.faces import SubshapeAmbiguousError, SubshapeUnresolvedError
-from geometry.sketch.solver3d import Point, Sketch3DConflictError, solve_sketch_3d
+from geometry.sketch.solver3d import (
+    Point,
+    Sketch3DConflictError,
+    Sketch3DTooLargeError,
+    solve_sketch_3d,
+)
 
 
 def _sketch_point(
@@ -147,6 +152,8 @@ def _evaluate_sketch_3d(
         solved = solve_sketch_3d(positions, fixed, lines, params.constraints)
     except Sketch3DConflictError as exc:
         return FeatureError(code="sketch_conflicting", message=str(exc))
+    except Sketch3DTooLargeError as exc:
+        return FeatureError(code="sketch_too_large", message=str(exc))
     for line, (a, b) in lines.items():
         pa, pb = Vector(*solved.points[a]), Vector(*solved.points[b])
         if (pb - pa).length <= 1e-9:
