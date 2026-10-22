@@ -2924,3 +2924,50 @@ frame plane, so no 2D sketch can hold them). Decisions:
   re-approximation), past the golden gates' 1e-7 centroid bound. Piping the
   seat stays too closes three internal voids in the seat cluster (a correct
   union of ring tubes; a real frame copes the stays).
+
+## 29. Carpenter notation in length fields (B7-MIXED-FRACTION)
+
+**Problem.** A framer typed `11-15/32` (an 11 15/32 in sheathing-plus-joist
+drop) and got 11 − 15/32: the expression language (§20) has a minus and no
+mixed numbers, so the wall sat in the subfloor with no warning. `11 15/32`
+was refused outright.
+
+**What the tools do** (from their documented entry behaviour; not re-checked
+in this sandbox). Chief Architect and SketchUp read a length the way it is
+written on a tape or a plan: `11 15/32`, `5' 6 1/2"`, and the architectural
+hyphen `5'-6"` / `6-1/2"`. SketchUp's Measurements box has no arithmetic, so
+a hyphen there can only be a mixed number. Chief Architect does accept
+arithmetic in its numeric fields, and still reads `6-1/2` as six and a half;
+subtraction is written with spaces. Fusion in inch mode accepts fractions
+and feet-inches and echoes what a field resolves to.
+
+**Rule.** A whole length entry is a number when it is (optional sign)
+(optional feet: a magnitude and `'`, then the inches straight on, after a
+space, or after a hyphen with no spaces) then a magnitude with an optional
+`"` or unit suffix. A magnitude is a decimal, `a/b`, `w a/b` or `w-a/b` with
+no spaces round the hyphen. After feet, inches are inches whatever the
+document unit; with no mark a magnitude is in the document unit, as a bare
+number already was. So `11-15/32`, `11 15/32` and `11 15/32"` are 11.46875
+in, `5' 6-1/2"` is 66.5 in and `-3/4` is −0.75 in.
+
+- `11 - 15/32` (spaces both sides) and `(11-15)/32` are formulas: real
+  subtraction is untouched.
+- A hyphenated mixed number inside a larger formula (`2*11-15/32`,
+  `w + 11-15/32`) or with a space on one side only (`11 -15/32`) is
+  genuinely ambiguous and is refused, naming both readings and how to write
+  each (`11 - 15/32`, `11 in + 15 in/32`). Angle and count fields are
+  unchanged.
+- The field echoes a carpenter entry (`= 11.46875 in`, six fraction digits,
+  exact to 1/64) so a typo shows before commit.
+
+**Stored data.** The rule is entry-time only and lives in the web
+(`packages/design/src/units.ts`, `apps/web/src/features/expr.ts`). The
+server grammar (`loft_wire/expr.py`) is unchanged, so every stored
+expression, including any old `a-b/c` that meant subtraction, evaluates
+exactly as before, and the field re-opens it with the server's value; only
+text typed since the field opened is checked. A number entry is stored as a
+number (mm) as before (the sketch dimension box makes it a literal, in its
+own mm). Where text is stored (part parameters, assembly pattern spacing), a
+carpenter entry is sent spelled out with explicit units (`11 in + 15 in/32`,
+`5 ft + 6 in + 1 in/2`), which the unchanged grammar reads to the same value.
+No wire change.

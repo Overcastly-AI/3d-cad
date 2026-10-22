@@ -190,6 +190,18 @@ PRICE-BOOK-VERSION) and ROOF-MEMBER-RENUMBER.
    _Accept:_ VISION gets a B7 row (pass or fail, time, gestures, STEP
    volume against the script); every blocker is a BACKLOG line ranked under
    "Plugins and buildings", wrong geometry in Now; the three edits are run.
+7. [x] **B7-MIXED-FRACTION** (fix now: silent wrong geometry; frontend,
+   found in QA-B7-HOUSE): `11-15/32` in a length field was 11 − 15/32 and
+   `11 15/32` was refused. `parseLength` now reads carpenter notation
+   (`11-15/32`, `11 15/32`, `11 15/32"`, `5' 6-1/2"`, `5'-6"`, `-3/4`) with a
+   live `= 11.46875 in` echo; a hyphenated mixed number inside a formula is
+   refused with both readings. RESEARCH §29.
+   _Notes:_ entry-time only, the server grammar is unchanged, so stored
+   expressions (including any old `a-b/c`) keep their meaning; typed
+   parameters and assembly spacing are sent spelled out (`11 in + 15 in/32`).
+   A stored `a-b/c` assembly spacing/offset is refused on re-save (visible,
+   not silent). Open: inside a formula a bare number is mm even in an inch
+   part (`wall + 1/2` adds 0.5 mm); Fusion reads it in the document unit.
 
 ## Next
 
