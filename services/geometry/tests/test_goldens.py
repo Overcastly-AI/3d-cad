@@ -277,6 +277,10 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # 1.5e-7 and 7e-7 mm^3 on the volume.
         "cut-objects-to-cut-b2-front-notch-studs-16-32-48",
         "framing-hole-d1-fillet-r0.25-first-stud-b2",
+        # B7 from one outline sketch (BUILDING-OUTLINE): b2-roof's STEP
+        # rounding over 26 sloped rafters and the notched OSB (3.6e-4 at worst,
+        # the build123d twin's).
+        "b7-outline",
     }
 )
 
