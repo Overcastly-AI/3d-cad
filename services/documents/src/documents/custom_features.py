@@ -213,11 +213,16 @@ def custom_references(envelope: CustomFeature) -> list[FeatureReference]:
 
 def _picks(name: str, value: CustomInputValue | None) -> list[tuple[str, FeatureRef]]:
     """The references one stored input holds, by slot: ``inputs/<name>``, or
-    ``inputs/<name>/<i>`` for each pick of a feature list."""
+    ``inputs/<name>/<i>`` for each pick of a feature list. A segments input's
+    line ids (BUILDING-OUTLINE) are sketch-local names, not references."""
     if isinstance(value, FeatureRef):
         return [(f"inputs/{name}", value)]
     if isinstance(value, list):
-        return [(f"inputs/{name}/{i}", ref) for i, ref in enumerate(value)]
+        return [
+            (f"inputs/{name}/{i}", ref)
+            for i, ref in enumerate(value)
+            if isinstance(ref, FeatureRef)
+        ]
     return []
 
 
@@ -696,12 +701,24 @@ def reexpand_pickers(
     pin moves, a member a later feature references, as an edit of the picker
     itself would be. A picker that no longer expands is left to report that
     at rebuild (a wall drawn in steps passes through outlines no roof
-    frames), keeping its stored members."""
+    frames), keeping its stored members.
+
+    Pickers of pickers follow, in tree order (BUILDING-OUTLINE): an outline
+    sketch's walls are picked by a roof, and a floor by its walls, so one
+    dimension edit re-lays the walls, the floor and the roof together."""
     by_id = {row.id: row for row in rows}
     index = Hosts(rows)
     parameters = parameter_values(part.parameters)
-    for picker in pickers_of(rows, written):
-        _reexpand(by_id[picker], rows, index, parameters, strict=False)
+    done: set[uuid.UUID] = set()
+    pending = [written]
+    while pending:
+        source = pending.pop(0)
+        for picker in pickers_of(rows, source):
+            if picker in done:
+                continue
+            done.add(picker)
+            _reexpand(by_id[picker], rows, index, parameters, strict=False)
+            pending.append(picker)
 
 
 def reexpand_reordered(part: db.Part, rows: Sequence[db.Feature]) -> None:

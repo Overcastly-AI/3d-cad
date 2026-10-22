@@ -164,6 +164,7 @@ export function defaultPluginForm(
           : lastOption(referenceOptions(input, features, null));
         break;
       case "features":
+      case "segments":
         values[input.name] = "";
         break;
     }
@@ -190,7 +191,10 @@ export function formFromCustomParams(
     } else if (typeof stored === "string") {
       values[input.name] = stored;
     } else if (Array.isArray(stored)) {
-      values[input.name] = stored.map((ref) => ref.feature_id).join(",");
+      // Feature picks by id; a segments input's sketch line ids as they are.
+      values[input.name] = stored
+        .map((item) => (typeof item === "string" ? item : item.feature_id))
+        .join(",");
     } else {
       values[input.name] = stored.feature_id;
     }
@@ -327,6 +331,15 @@ export function validatePluginForm(
       } else if (ids.length > input.max_items) {
         error = `Pick at most ${input.max_items}.`;
       }
+    } else if (input.kind === "segments") {
+      // Lines of an outline by sketch id (BUILDING-OUTLINE); the plugin
+      // checks each is a line of the outline.
+      const ids = pickedIds(text);
+      if (ids.length < input.min_items) {
+        error = `Pick at least ${input.min_items}.`;
+      } else if (ids.length > input.max_items) {
+        error = `Pick at most ${input.max_items}.`;
+      }
     }
     if (error !== null) errors[input.name] = error;
   }
@@ -364,6 +377,9 @@ export function pluginInputsFromForm(
           kind: "feature" as const,
           feature_id: id,
         }));
+    } else if (input.kind === "segments") {
+      const ids = pickedIds(text);
+      if (ids.length > 0) inputs[input.name] = ids;
     } else if (text !== "") {
       inputs[input.name] = text;
     }

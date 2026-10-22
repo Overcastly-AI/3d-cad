@@ -22,6 +22,7 @@ import {
   SegmentedControl,
   SelectField,
   Stamp,
+  TextField,
 } from "@loft/design";
 import { useQuery } from "@tanstack/react-query";
 import { type KeyboardEvent, useCallback, useState } from "react";
@@ -273,6 +274,21 @@ function GeneratedForm({
                   ) : null}
                 </fieldset>
               );
+            } else if (input.kind === "segments") {
+              // Lines of an outline by sketch id, comma-separated (the
+              // picks by side are the Outline UI's, BUILDING-OUTLINE).
+              field = (
+                <TextField
+                  label={input.label}
+                  data-testid={testId}
+                  value={value}
+                  error={fieldError}
+                  placeholder="e1,e3"
+                  onChange={(e) =>
+                    setValue(input.name, e.target.value.replace(/\s+/g, ""))
+                  }
+                />
+              );
             } else if (input.kind === "choice" && segmented(input)) {
               field = (
                 <SegmentedControl
@@ -353,7 +369,11 @@ function ReadOnlyCard({
   const rows = Object.entries(stored?.inputs ?? {}).map(([key, value]) => [
     key,
     Array.isArray(value)
-      ? value.map((ref) => name(ref.feature_id)).join(", ")
+      ? value
+          .map((item) =>
+            typeof item === "string" ? item : name(item.feature_id),
+          )
+          .join(", ")
       : typeof value === "object"
         ? name(value.feature_id)
         : String(value),

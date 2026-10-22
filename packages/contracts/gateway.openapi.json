@@ -161,6 +161,21 @@
             "title": "Name",
             "type": "string"
           },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "title": "Superseded By"
+          },
           "unit": {
             "const": "deg",
             "default": "deg",
@@ -1386,6 +1401,21 @@
             "minItems": 1,
             "title": "Options",
             "type": "array"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "title": "Superseded By"
           }
         },
         "required": [
@@ -2840,6 +2870,21 @@
             "pattern": "^[a-z][a-z0-9_]*$",
             "title": "Name",
             "type": "string"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "title": "Superseded By"
           }
         },
         "required": [
@@ -2945,6 +2990,17 @@
                   {
                     "items": {
                       "$ref": "#/components/schemas/FeatureRef"
+                    },
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  {
+                    "items": {
+                      "maxLength": 64,
+                      "minLength": 1,
+                      "pattern": "^[A-Za-z0-9_.-]+$",
+                      "type": "string"
                     },
                     "maxItems": 32,
                     "minItems": 1,
@@ -7097,6 +7153,21 @@
             ],
             "description": "When a picked feature is a custom feature: the plugins it may be (a roof's walls are `loft.wall`). Unset: any.",
             "title": "Plugin Ids"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "title": "Superseded By"
           }
         },
         "required": [
@@ -7224,6 +7295,21 @@
             ],
             "description": "When the picked feature is a custom feature: the plugins it may be (a window's host is a `loft.wall`). Unset: any.",
             "title": "Plugin Ids"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "title": "Superseded By"
           }
         },
         "required": [
@@ -9707,6 +9793,21 @@
             "title": "Name",
             "type": "string"
           },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "title": "Superseded By"
+          },
           "unit": {
             "const": "mm",
             "default": "mm",
@@ -10661,6 +10762,21 @@
             "pattern": "^[a-z][a-z0-9_]*$",
             "title": "Name",
             "type": "string"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "title": "Superseded By"
           }
         },
         "required": [
@@ -13115,7 +13231,8 @@
                   "features": "#/components/schemas/FeatureListInput",
                   "length": "#/components/schemas/LengthInput",
                   "material": "#/components/schemas/MaterialInput",
-                  "profile": "#/components/schemas/ProfileInput"
+                  "profile": "#/components/schemas/ProfileInput",
+                  "segments": "#/components/schemas/SegmentsInput"
                 },
                 "propertyName": "kind"
               },
@@ -13140,6 +13257,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/FeatureListInput"
+                },
+                {
+                  "$ref": "#/components/schemas/SegmentsInput"
                 },
                 {
                   "$ref": "#/components/schemas/MaterialInput"
@@ -13780,6 +13900,21 @@
             "pattern": "^[a-z][a-z0-9_]*$",
             "title": "Name",
             "type": "string"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "title": "Superseded By"
           }
         },
         "required": [
@@ -14302,6 +14437,91 @@
           "plane"
         ],
         "title": "SectionViewParams",
+        "type": "object"
+      },
+      "SegmentsInput": {
+        "description": "Lines of an OUTLINE, by their sketch ids, in pick order (BUILDING-OUTLINE):\nthe wall of an outline a window sits in, the walls of an outline that\ndefine a roof's slope (Revit's \"Defines Slope\"). Stored as a list of line\nids (``[\"e1\", \"e3\"]``); an empty pick is stored as no value, allowed only\nwhen ``min_items`` is 0.\n\nThe outline is the sketch that ``outline_input`` (another input of this\nmanifest, a feature or feature-list pick) leads to: the picked sketch\nitself, or the ``outline`` input of the picked custom feature (a\n``loft.wall`` in outline mode); for a feature list, its first pick. The\nform offers that sketch's non-construction lines, each named by the way\nthe wall on it faces in the world, as the roof names its planes: the\noutward normal of the line (the side away from the loop's inside) is\n``front`` when it points most nearly to -Y, ``back`` +Y, ``left`` -X and\n``right`` +X (a tie goes to front/back); two lines facing one way are\nnumbered along the loop clockwise from the sketch's first line\n(``front``, ``front 2``). The plugin checks every id against the\noutline.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Help text under the field.",
+            "title": "Description"
+          },
+          "kind": {
+            "const": "segments",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "Form label, e.g. 'Twist angle'.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "max_items": {
+            "default": 32,
+            "description": "Most lines to pick.",
+            "maximum": 32.0,
+            "minimum": 1.0,
+            "title": "Max Items",
+            "type": "integer"
+          },
+          "min_items": {
+            "default": 0,
+            "description": "Fewest lines to pick; 0 makes the input optional.",
+            "maximum": 32.0,
+            "minimum": 0.0,
+            "title": "Min Items",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.",
+            "maxLength": 48,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "outline_input": {
+            "description": "The input of this manifest whose pick carries the outline.",
+            "maxLength": 48,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Outline Input",
+            "type": "string"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "title": "Superseded By"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "kind",
+          "outline_input"
+        ],
+        "title": "SegmentsInput",
         "type": "object"
       },
       "SelectorV1": {
