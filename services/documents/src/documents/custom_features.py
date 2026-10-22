@@ -46,6 +46,7 @@ from loft_wire.feature_resolve import (
     FeatureExpressionError,
     evaluation_input,
     parameter_values,
+    resolve_dimensions,
     resolve_feature,
 )
 from loft_wire.features import (
@@ -169,17 +170,30 @@ def is_body_affecting(row: db.Feature) -> bool:
 def _earlier_from_rows(
     rows: Sequence[db.Feature],
     overrides: Mapping[uuid.UUID, AuthoredEnvelope] | None = None,
+    parameters: Mapping[str, Quantity] | None = None,
 ) -> dict[uuid.UUID, AuthoredEnvelope]:
     """Every row's envelope by id, and every stored member's by member id.
-    *overrides* replaces a row's stored envelope (a write not yet stored)."""
+    *overrides* replaces a row's stored envelope (a write not yet stored).
+    A sketch is handed over with its dimension formulas resolved against
+    *parameters* (:func:`_as_plugins_see`)."""
     earlier: dict[uuid.UUID, AuthoredEnvelope] = {}
     for row in rows:
         envelope = (overrides or {}).get(row.id) or load_feature(row)[0]
-        earlier[row.id] = envelope
+        earlier[row.id] = _as_plugins_see(envelope, parameters or {})
         if isinstance(envelope, CustomFeature):
             for member in envelope.params.expansion or []:
                 earlier[member.id] = member.feature
     return earlier
+
+
+def _as_plugins_see(
+    envelope: AuthoredEnvelope, parameters: Mapping[str, Quantity]
+) -> AuthoredEnvelope:
+    """What a later custom feature reads of *envelope*: a sketch with every
+    driving dimension's formula evaluated (``336 in``, a parameter ``L``),
+    as geometry solves it, so an outline's walls, floor and roof follow the
+    sketch the user sees (BUILDING-OUTLINE). Everything else as stored."""
+    return resolve_dimensions(envelope, parameters)
 
 
 # --- references ------------------------------------------------------------------
@@ -531,7 +545,7 @@ def prepare_custom_write(
             feature_id,
             envelope,
             parameters,
-            _earlier_from_rows(earlier_rows),
+            _earlier_from_rows(earlier_rows, parameters=parameters),
             Hosts(rows).of(feature_id, parameters),
         )
     except PluginError as exc:
@@ -758,7 +772,7 @@ def _reexpand(
             row.id,
             envelope,
             parameters,
-            _earlier_from_rows(earlier_rows),
+            _earlier_from_rows(earlier_rows, parameters=parameters),
             index.of(row.id, parameters),
         )
     except PluginError as exc:
@@ -882,7 +896,7 @@ def evaluation_entries(
     hosts = Hosts(rows)
     for row in rows:
         envelope, error = load_feature(row)
-        earlier[row.id] = envelope
+        earlier[row.id] = _as_plugins_see(envelope, values)
         if not isinstance(envelope, CustomFeature):
             budget.base()
             feature, resolve_error = evaluation_input(envelope, values)
@@ -930,7 +944,7 @@ def refresh_expansions(
     hosts = Hosts(rows)
     for row in rows:
         envelope = load_feature(row)[0]
-        earlier[row.id] = envelope
+        earlier[row.id] = _as_plugins_see(envelope, values)
         params = row.params
         if not isinstance(envelope, CustomFeature):
             budget.base()
@@ -970,7 +984,9 @@ def retabled(
     try:
         plugin = PLUGINS.get(envelope.params.plugin_id, envelope.params.plugin_version)
         earlier = _earlier_from_rows(
-            [r for r in rows if r.order_index < row.order_index], earlier_writes
+            [r for r in rows if r.order_index < row.order_index],
+            earlier_writes,
+            parameters,
         )
         hosted = (hosts or Hosts(rows)).of(row.id, parameters)
         return _expanded(plugin, row.id, envelope, parameters, earlier, hosted)

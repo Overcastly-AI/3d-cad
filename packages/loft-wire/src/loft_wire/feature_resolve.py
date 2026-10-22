@@ -197,6 +197,41 @@ def resolve_feature[E: AuthoredEnvelope](
         raise _refused(exc) from exc
 
 
+def resolve_dimensions[E: AuthoredEnvelope](
+    envelope: E, parameters: Mapping[str, Quantity]
+) -> E:
+    """A sketch as it solves: every driving dimension that carries a formula
+    holds its value, whether the formula reads the part's parameters
+    (``L``), another dimension or only a literal with a unit (``336 in``).
+
+    What a plugin reading a sketch's dimensions is handed (BUILDING-OUTLINE):
+    :func:`resolve_feature` writes values only for a sketch that reads the
+    table, and geometry evaluates the rest at each solve, so a stored
+    ``value_mm`` beside a formula may be stale. Any other feature, a sketch
+    without formulas, and one whose formulas do not resolve (the sketch
+    reports that itself) are returned unchanged.
+    """
+    if envelope.type != "sketch":
+        return envelope
+    dims = [(i, d) for i, d in _dimensions(envelope) if d.expression is not None]
+    if not dims:
+        return envelope
+    constraints = cast(list[object], getattr(envelope.params, "constraints"))  # noqa: B009
+    try:
+        values = evaluate_driving_dimensions(constraints, parameters)
+    except ExpressionError:
+        return envelope
+    params = _params(envelope)
+    for index, dim in dims:
+        if index in values:
+            field = "value_deg" if dim.kind == "angle" else "value_mm"
+            params["constraints"][index][field] = values[index]
+    try:
+        return _rebuild(envelope, params)
+    except ValidationError:
+        return envelope
+
+
 def for_geometry(envelope: FeatureEnvelope) -> FeatureEnvelope:
     """What geometry receives (:func:`~loft_wire.feature_expressions.
     strip_for_geometry`, the rule every ``EvaluatedFeatureInput`` applies)."""
@@ -278,6 +313,7 @@ __all__ = [
     "parameter_references",
     "parameter_values",
     "rename_parameters",
+    "resolve_dimensions",
     "resolve_feature",
     "uses_parameters",
 ]

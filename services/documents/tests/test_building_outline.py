@@ -277,3 +277,75 @@ def test_an_outline_that_is_not_fully_defined_is_a_typed_refusal(
     assert error["code"] == "plugin_input_unsupported"
     assert error["details"]["input"] == "outline"
     assert "not fully defined" in error["message"]
+
+
+# --- Dimensions driven by formulas (the walls follow the sketch as it solves) ------
+
+
+def _driven(expression: str) -> dict[str, Any]:
+    """The outline with its length dimension driven by *expression*; its
+    stored value still 288, as a client that saves the formula leaves it."""
+    sketch = _outline(288)
+    for c in sketch["params"]["constraints"]:
+        if c.get("name") == "length":
+            c["expression"] = expression
+    return sketch
+
+
+def _extrude_lengths(part: _Part) -> list[float]:
+    request = part.request()
+    assert all(e.input_error is None for e in request.features)
+    return [
+        float(e.feature.params.model_dump()["distance_mm"])
+        for e in request.features
+        if e.feature.type == "extrude"
+    ]
+
+
+def _is_house(part: _Part, length: float, joists: int, rafters: int) -> None:
+    """The walls, floor and roof, stored and sent, are the *length* house."""
+    stored = part.stored()
+    assert _roles(stored, "Floor")["joist"] == joists
+    assert _roles(stored, "Roof")["rafter"] == rafters
+    lengths = _extrude_lengths(part)
+    other = 336.0 if length == 288.0 else 288.0
+    assert any(d == pytest.approx(length * IN) for d in lengths)  # the ridge
+    assert not any(d == pytest.approx(other * IN) for d in lengths)
+
+
+def test_the_outline_follows_a_dimension_typed_with_its_unit(
+    client: TestClient,
+) -> None:
+    part, sketch = _house(client)
+    part.edit(sketch, _driven("336 in"))
+    _is_house(part, 336.0, 22, 30)
+
+
+def test_the_outline_follows_a_part_parameter_and_its_edit(
+    client: TestClient,
+) -> None:
+    """Length driven by ``L``: the house follows L = 336 in, and a parameter
+    edit to 288 in re-expands the walls, floor and roof in the same PUT."""
+    part, sketch = _house(client)
+    row = {"id": str(uuid.uuid4()), "name": "L", "unit": "length"}
+
+    def put(expression: str) -> None:
+        response = client.put(
+            f"/api/v1/parts/{part.id}/parameters",
+            json={
+                "expected_tree_version": part.version,
+                "parameters": [{**row, "expression": expression}],
+            },
+            headers=HEADERS,
+        )
+        assert response.status_code == 200, response.text
+        part.version = int(response.json()["tree_version"])
+
+    put("336 in")
+    part.edit(sketch, _driven("L"))
+    _is_house(part, 336.0, 22, 30)
+    before = part.stored()["Walls"]["params"]["expansion"]
+    put("288 in")
+    _is_house(part, 288.0, 19, 26)
+    after = part.stored()["Walls"]["params"]["expansion"]
+    assert len(after) < len(before)  # the walls were re-laid by the PUT
