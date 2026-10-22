@@ -13,6 +13,7 @@ import {
   formatAngle,
   formatLength,
   fromMm,
+  isCarpenterLength,
   isPartialLength,
   type LengthUnit,
   parseLength,
@@ -20,10 +21,14 @@ import {
 } from "@loft/design";
 
 import {
+  type BareLengths,
+  bareLengths,
   coerceToField,
   evaluateExpression,
+  type ExprKind,
   ExprError,
   type FieldKind,
+  mixedNumberAmbiguity,
   type Quantity,
 } from "../features/expr";
 
@@ -143,6 +148,59 @@ export function formatFieldHint(
   if (field === "length") return `= ${formatLength(value, unit)}`;
   if (field === "angle") return `= ${formatAngle(value)}`;
   return `= ${formatAngle(value, { unitSuffix: false })}`;
+}
+
+/**
+ * The echo a length NUMBER written in carpenter notation gets (`11-15/32` →
+ * `= 11.46875 in`), as Fusion echoes a formula, so a mis-typed fraction shows
+ * before it is committed; null for a plain decimal, which echoes itself.
+ * Six fraction digits carry every 1/64 exactly.
+ */
+export function carpenterHint(text: string, unit: LengthUnit): string | null {
+  if (!isCarpenterLength(text, unit)) return null;
+  const mm = parseLength(text, unit);
+  if (mm === null) return null;
+  return `= ${formatLength(mm, unit, { maxFractionDigits: 6 })}`;
+}
+
+/**
+ * Why a length formula TYPED NOW cannot be taken as written, or null: a
+ * hyphenated mixed number inside it (`2*11-15/32`) reads two ways, and the
+ * field refuses rather than guess (RESEARCH §29). Stored formulas never come
+ * through here, so their meaning is the server's, unchanged.
+ */
+export function typedFormulaError(
+  expression: string,
+  field: FieldKind,
+  unit: LengthUnit,
+): string | null {
+  if (field !== "length") return null;
+  const why = mixedNumberAmbiguity(expression, unit);
+  return why === null ? null : `${why.charAt(0).toUpperCase()}${why.slice(1)}.`;
+}
+
+/**
+ * The bare terms a part in `unit` reads as mm in `expression`, and the text
+ * that reads them in `unit` (FORMULA-BARE-UNIT, `bare_lengths` on the
+ * server). Null in an mm part, while the names are unread, or when nothing
+ * is bare. A formula a save ENTERS is stored as that text; one already stored
+ * keeps its own and is flagged with it as the fix.
+ */
+export function bareFieldFormula(
+  expression: string,
+  field: FieldKind,
+  names: ReadonlyMap<string, Quantity> | null,
+  unit: LengthUnit,
+): BareLengths | null {
+  if (names === null) return null;
+  const kinds = new Map<string, ExprKind>();
+  for (const [name, q] of names) kinds.set(name, q.kind);
+  return bareLengths(
+    expression,
+    unit,
+    field === "int" ? "unitless" : field,
+    kinds,
+  );
 }
 
 /** A formula's outcome for one field. */

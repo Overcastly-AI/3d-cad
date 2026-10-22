@@ -64,7 +64,8 @@
 #
 # Notes:
 # - The geometry golden suite runs inside the `pytest` shards
-#   (services/geometry/tests/test_goldens.py), so goldens ARE per-commit.
+#   (services/geometry/tests/test_goldens.py, with its fresh-interpreter leg
+#   in test_goldens_restart_{a,b}.py), so goldens ARE per-commit.
 # - The uv cache is keyed on uv.lock on purpose: when OCP lands in the Python
 #   env its wheels are ~700MB, and that cache is what keeps the python and
 #   contracts jobs from re-downloading them on every run (CLAUDE.md recipe).
@@ -175,9 +176,23 @@ jobs:
     # ~0.3 min: test_export.py ALONE is 869 s here (~10 CI min), the floor for
     # any N. Past N=5, split that file rather than add shards.
     #
+    # N=6 since 2026-10-22. At 7479bde (8919 tests) the Pytest steps ran
+    # 18m16s / 16m58s / 17m18s / >17m14s / 10m01s: shard 4 was cancelled when
+    # its job hit 20 min behind a 2m20s planegcs setup, and shard 5's 10 min
+    # showed the manifest (partly refreshed from local ledgers under heavy
+    # load) was unbalanced. Two causes, two fixes. (1) test_goldens.py was the
+    # new single-file floor (~16 CI min, ~82% of it the fresh-interpreter
+    # restart leg), so that leg moved to test_goldens_restart_{a,b}.py, as
+    # test_export.py's did. (2) The manifest is now in CI seconds: each file
+    # was scaled by its own shard's CI/planned ratio from that run (0.70 /
+    # 0.65 / 0.67 / 0.70 / 0.39; shard 4 assumed as slow as shard 1), so it
+    # totals the ~81 CI min those shards ran. It packs to 13.5 min per shard
+    # at N=6 (16.2 at N=5, 11.5 at N=7); the largest file is now 6.6 min. The
+    # next `pytest_shards.py durations` from CI ledgers replaces this estimate.
+    #
     # NB a timed-out job is reported `cancelled`, the SAME word GitHub uses for
     # a concurrency eviction — see CLAUDE.md for telling them apart.
-    name: pytest (shard ${{ matrix.shard }}/5)
+    name: pytest (shard ${{ matrix.shard }}/6)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -187,7 +202,7 @@ jobs:
         # Must be 1..N for the `/N` in the Pytest step and `--expect-shards N`
         # in `pytest complete`; `pytest_shards.py --self-test` (in `just lint`)
         # refuses any drift between the three.
-        shard: [1, 2, 3, 4, 5]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -256,7 +271,7 @@ jobs:
           LOFT_REQUIRE_PG: "1"
         run: >-
           uv run python scripts/pytest_shards.py run
-          --shard "${{ matrix.shard }}/5"
+          --shard "${{ matrix.shard }}/6"
           --ledger "$RUNNER_TEMP/pytest-ledger/shard-${{ matrix.shard }}.json"
       # The ledger is written at session finish whatever the test outcome, so a
       # red shard still hands one in. A shard killed mid-run hands in none, and
@@ -277,7 +292,7 @@ jobs:
 
   pytest-complete:
     # The check the packing cannot make about itself. It refuses unless every
-    # shard 1..5 handed in a ledger, all of them collected the same suite
+    # shard 1..6 handed in a ledger, all of them collected the same suite
     # (otherwise they packed different partitions), no test ran twice, and what
     # ran is exactly what was collected. That is the defect class sharding
     # introduces: a dropped matrix entry, or a shard that died after collection,
@@ -300,7 +315,7 @@ jobs:
         run: >-
           python3 scripts/pytest_shards.py check
           --ledgers "$RUNNER_TEMP/pytest-ledgers"
-          --expect-shards 5
+          --expect-shards 6
           --workflow .github/workflows/ci.yml
       # A red shard fails its own job. This makes the aggregate say so too, so
       # `pytest complete` alone is enough as a required check.

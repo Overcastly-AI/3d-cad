@@ -4539,7 +4539,7 @@
         "type": "object"
       },
       "FeatureMutationResponse": {
-        "description": "Result of a single-feature mutation: the affected feature + the new\ntree version (the client's next ``expected_tree_version``).",
+        "description": "One feature mutated, and the new tree version (the next expected one).",
         "properties": {
           "feature": {
             "$ref": "#/components/schemas/FeatureResponse"
@@ -4706,7 +4706,7 @@
         "type": "object"
       },
       "FeatureResponse": {
-        "description": "A feature as stored, with the envelope reassembled (design \u00a71.3) and\nparams already upcast to the current version (design \u00a71.4).",
+        "description": "A feature as stored: envelope reassembled (\u00a71.3), params upcast (\u00a71.4).",
         "properties": {
           "created_at": {
             "format": "date-time",
@@ -4810,6 +4810,21 @@
               }
             ],
             "title": "Feature"
+          },
+          "formula_warnings": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FormulaWarning"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stored formulas whose bare numbers read as mm in this non-mm part (`expression_bare_mm`), each with its fix. Omitted when there are none.",
+            "title": "Formula Warnings"
           },
           "id": {
             "format": "uuid",
@@ -5348,6 +5363,102 @@
           "updated_at"
         ],
         "title": "FolderResponse",
+        "type": "object"
+      },
+      "FormulaWarning": {
+        "description": "One stored formula whose bare numbers read as mm in a non-mm part.",
+        "properties": {
+          "code": {
+            "const": "expression_bare_mm",
+            "description": "'expression_bare_mm': a bare number added to a length reads as mm, not in the part's unit",
+            "title": "Code",
+            "type": "string"
+          },
+          "expression": {
+            "description": "The formula as stored",
+            "title": "Expression",
+            "type": "string"
+          },
+          "fixed_expression": {
+            "description": "The formula with the part's unit written in (`wall + 1 in/2`): what the 'Read as' action saves",
+            "title": "Fixed Expression",
+            "type": "string"
+          },
+          "fixed_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What `fixed_expression` would give, in the same unit; null when it does not resolve",
+            "title": "Fixed Value"
+          },
+          "literals": {
+            "description": "Each bare term as written, e.g. `1/2` in `wall + 1/2`",
+            "items": {
+              "type": "string"
+            },
+            "title": "Literals",
+            "type": "array"
+          },
+          "message": {
+            "description": "Names the bare terms and both readings",
+            "title": "Message",
+            "type": "string"
+          },
+          "parameter_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The parameter row the formula is in; null for a feature",
+            "title": "Parameter Id"
+          },
+          "pointer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The feature field the formula drives (`/distance_mm`), or `/constraints/<i>/expression` for a sketch dimension; null for a parameter row",
+            "title": "Pointer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the stored formula gives now, in the field's unit (mm, degrees or a plain number); null when it does not resolve",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "pointer",
+          "parameter_id",
+          "expression",
+          "literals",
+          "fixed_expression",
+          "value",
+          "fixed_value"
+        ],
+        "title": "FormulaWarning",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -8710,6 +8821,21 @@
       "PartParametersResponse": {
         "description": "A part's parameter table, in its stored order, with the tree version.",
         "properties": {
+          "formula_warnings": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FormulaWarning"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stored formulas whose bare numbers read as mm in this non-mm part (`expression_bare_mm`), each with its fix. Omitted when there are none.",
+            "title": "Formula Warnings"
+          },
           "parameters": {
             "items": {
               "$ref": "#/components/schemas/PartParameter"

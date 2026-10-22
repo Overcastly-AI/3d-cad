@@ -35,6 +35,7 @@ from loft_wire.expr import (
     parse,
     validate_name,
 )
+from loft_wire.formula_warning import FORMULA_WARNINGS_FIELD, FormulaWarnings
 
 #: Longest parameter name (the identifier rule in :data:`loft_wire.expr.NAME_PATTERN`).
 PARAMETER_NAME_MAX_LENGTH = 64
@@ -105,6 +106,7 @@ class PartParametersResponse(BaseModel):
 
     tree_version: int = Field(ge=0)
     parameters: list[PartParameter]
+    formula_warnings: FormulaWarnings = FORMULA_WARNINGS_FIELD
 
 
 class ParameterTableError(ValueError):

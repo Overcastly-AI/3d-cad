@@ -51,6 +51,7 @@ from loft_wire.feature_expressions import (
     check_expressions,
 )
 from loft_wire.feature_input import INPUT_ERROR_CHECK, INPUT_ERROR_FIELD
+from loft_wire.formula_warning import FORMULA_WARNINGS_FIELD, FormulaWarnings
 from loft_wire.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
@@ -2932,8 +2933,7 @@ class FeatureSuppressRequest(BaseModel):
 
 
 class FeatureResponse(BaseModel):
-    """A feature as stored, with the envelope reassembled (design §1.3) and
-    params already upcast to the current version (design §1.4)."""
+    """A feature as stored: envelope reassembled (§1.3), params upcast (§1.4)."""
 
     id: uuid.UUID
     part_id: uuid.UUID
@@ -2948,6 +2948,7 @@ class FeatureResponse(BaseModel):
     )
     created_at: datetime
     updated_at: datetime
+    formula_warnings: FormulaWarnings = FORMULA_WARNINGS_FIELD
 
 
 class FeatureTreeResponse(BaseModel):
@@ -2971,8 +2972,7 @@ class FeatureTreeResponse(BaseModel):
 
 
 class FeatureMutationResponse(BaseModel):
-    """Result of a single-feature mutation: the affected feature + the new
-    tree version (the client's next ``expected_tree_version``)."""
+    """One feature mutated, and the new tree version (the next expected one)."""
 
     feature: FeatureResponse
     tree_version: int

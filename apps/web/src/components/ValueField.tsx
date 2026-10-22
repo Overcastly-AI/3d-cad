@@ -27,6 +27,9 @@
  */
 import {
   DimensionTagCell,
+  isCarpenterLength,
+  type LengthUnit,
+  Notice,
   NumberField,
   type NumberFieldProps,
   SuggestionList,
@@ -69,13 +72,18 @@ import {
   useParameterScopeStore,
 } from "../features/fieldFormulas";
 import { formatParameterValue } from "../features/parameters";
+import { storedLengthInput } from "../features/storedNumber";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import {
+  bareFieldFormula,
+  carpenterHint,
   type FieldKind,
   formatFieldHint,
   formatFieldValue,
+  type FormulaResult,
   parseFieldEntry,
   resolveFieldFormula,
+  typedFormulaError,
 } from "../units/length";
 
 /** The open feature editor, for the fields inside it (FeatureEditorSeat). */
@@ -120,6 +128,11 @@ export interface ValueFieldProps extends Omit<
    * (a line's length and angle, SKETCH-LINE-ANGLE). Tag cells only.
    */
   tagUnit?: string;
+  /**
+   * The unit a carpenter-notation number in this field reads in, when it is
+   * not the document's: the sketcher's dimension box, whose literals are mm.
+   */
+  lengthUnit?: LengthUnit;
 }
 
 /**
@@ -171,9 +184,13 @@ export function ValueField({
   "data-testid": testId,
   tagWidth,
   tagUnit,
+  lengthUnit,
   ...rest
 }: ValueFieldProps) {
   const unit = useDocumentLengthUnit();
+  // What a carpenter-notation number reads in (its echo, and the mixed-number
+  // spelling a refusal suggests); everything else keeps the document's unit.
+  const bareUnit = lengthUnit ?? unit;
   const session = useContext(FormulaSessionContext);
   const listId = useId();
   const input = useRef<HTMLInputElement | null>(null);
@@ -224,26 +241,70 @@ export function ValueField({
   const display = pointer === undefined ? value : (formula ?? value);
   // The sketcher sends anything but a plain number as the dimension's
   // formula (`20mm` included), so that is what wears the mark there.
+  // A length in carpenter notation (`11-15/32`, `5' 6"`) is a number there
+  // too: the box reads it as one (RESEARCH §29), so it is never a formula.
   const textFormula =
     pointer === undefined
       ? (() => {
+          if (kind === "length" && isCarpenterLength(display, bareUnit)) {
+            return null;
+          }
           const entry = parseFieldEntry(display, "unitless", unit);
           return entry.kind === "formula" ? entry.expression : null;
         })()
       : formula;
-  const result =
-    textFormula === null ? null : resolveFieldFormula(textFormula, kind, names);
+  // The formula this field opened with: stored, so the server's reading of
+  // it stands. Only a formula typed since is checked for a hyphenated mixed
+  // number that reads two ways (`2*11-15/32`), and refused rather than guessed.
+  const openedWith = useRef(display);
+  const seedFormula = inSession
+    ? (session.seed[pointer] ?? null)
+    : pointer === undefined
+      ? openedWith.current.trim()
+      : null;
+  const stored = textFormula !== null && textFormula === seedFormula;
+  const ambiguity = stored
+    ? null
+    : textFormula === null
+      ? null
+      : typedFormulaError(textFormula, kind, bareUnit);
+  // FORMULA-BARE-UNIT: a feature field's stored formula is read as stored
+  // (and flagged below when a bare term in it reads as mm); one typed here is
+  // read as the save will store it, with the part's unit written into its
+  // bare terms (`wall + 1/2` is `wall + 1 in/2`). The sketcher's text is the
+  // dimension itself, read as the solver reads it.
+  const entered =
+    pointer === undefined || textFormula === null || stored
+      ? null
+      : bareFieldFormula(textFormula, kind, names, unit);
+  const result: FormulaResult | null =
+    textFormula === null
+      ? null
+      : ambiguity !== null
+        ? { ok: false, message: ambiguity, code: "expression_syntax" }
+        : resolveFieldFormula(entered?.text ?? textFormula, kind, names);
+  const stale =
+    pointer !== undefined && stored && textFormula !== null
+      ? bareFieldFormula(textFormula, kind, names, unit)
+      : null;
+  const staleFixed =
+    stale === null ? null : resolveFieldFormula(stale.text, kind, names);
 
   // The editor's form follows the formula: its resolved number, or the
   // formula's text while it does not resolve (the editor's own check then
   // refuses it, so Save stays shut). A number written by anyone else (a gauge
-  // drag, a re-seed) replaces the formula.
+  // drag, a re-seed) replaces the formula. A length is written as the
+  // editor's own seed writes the same millimetres (`storedLengthInput`), so
+  // re-seeding the stored number after a save or a refetch is no write at all:
+  // `wall + 1 in/2` is 152.39999999999998 mm, which seeds as `6`.
   const pushed = useRef(value);
   const want =
     formula === null || result === null
       ? null
       : result.ok
-        ? formatFieldValue(result.value, kind, unit)
+        ? kind === "length"
+          ? storedLengthInput(result.value, unit)
+          : formatFieldValue(result.value, kind, unit)
         : formula;
   useEffect(() => {
     if (pointer === undefined) return;
@@ -403,16 +464,19 @@ export function ValueField({
       ? session.inputError.message
       : null;
   const formulaError =
-    pointer !== undefined &&
+    ambiguity ??
+    (pointer !== undefined &&
     result !== null &&
     !result.ok &&
     result.code !== "pending"
       ? result.message
-      : null;
+      : null);
   const shownError = formulaError ?? fieldError ?? inputError ?? error ?? null;
   const hint =
     result === null
-      ? null
+      ? kind === "length"
+        ? carpenterHint(display, bareUnit)
+        : null
       : result.ok
         ? formatFieldHint(result.value, kind, unit)
         : result.code === "pending"
@@ -471,9 +535,33 @@ export function ValueField({
       />
     );
   }
+  const reading = (r: typeof result): string =>
+    r?.ok === true ? formatFieldHint(r.value, kind, unit).slice(2) : "no value";
+  const staleNotice =
+    stale === null ? null : (
+      <Notice
+        role="status"
+        label="Read as mm"
+        tone="flag"
+        layout="stacked"
+        data-testid={testId === undefined ? undefined : `${testId}-bare-unit`}
+        action={{
+          label: `Read as ${unit}`,
+          onClick: () => setFormula(stale.text),
+          ...(testId !== undefined
+            ? { testId: `${testId}-bare-unit-fix` }
+            : {}),
+        }}
+      >
+        {`${stale.literals.join(", ")} in this formula is read as mm, so it ` +
+          `gives ${reading(result)}. Read as ${unit} (${stale.text}), it ` +
+          `gives ${reading(staleFixed)}.`}
+      </Notice>
+    );
   return (
     <>
       {cell}
+      {staleNotice}
       {open && completion !== null
         ? createPortal(
             <SuggestionList

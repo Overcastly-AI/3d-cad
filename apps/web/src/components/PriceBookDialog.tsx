@@ -51,6 +51,11 @@ export interface PriceBookSeed {
   profile: string;
   /** A lumber line's stock length (ft); null for a sheet line. */
   stockLengthFt: number | null;
+  /**
+   * A spliced line's pieces (ft, e.g. [16, 8]): a row is added for each
+   * length the book does not price yet, so every piece can be priced.
+   */
+  stockLengthsFt?: readonly number[];
   /** A sheet line's sheet ("4x9"); null or absent for lumber. */
   sheet?: SheetSizeKey | null;
 }
@@ -204,18 +209,28 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
         : (library.data.profiles.find((p) => p.name === seed.profile)?.key ??
           library.data.sheet_goods.find((g) => g.name === seed.profile)?.key);
     if (seed !== null && seedProfile !== undefined) {
-      const row: DraftRow = {
-        id: nextId.current++,
-        material: seed.material,
-        profile: seedProfile,
-        unit: "each",
-        stockLengthFt: seed.stockLengthFt ?? DEFAULT_STOCK_FT,
-        sheet: seed.sheet ?? DEFAULT_SHEET,
-        price: "",
-      };
-      const existing = draft.find((r) => rowKey(r) === rowKey(row));
-      if (existing === undefined) draft.push(row);
-      setFocusRow(existing?.id ?? row.id);
+      const lengths = [...new Set(seed.stockLengthsFt ?? [seed.stockLengthFt])];
+      let focus: number | null = null;
+      let firstExisting: number | null = null;
+      for (const feet of lengths) {
+        const row: DraftRow = {
+          id: nextId.current++,
+          material: seed.material,
+          profile: seedProfile,
+          unit: "each",
+          stockLengthFt: feet ?? DEFAULT_STOCK_FT,
+          sheet: seed.sheet ?? DEFAULT_SHEET,
+          price: "",
+        };
+        const existing = draft.find((r) => rowKey(r) === rowKey(row));
+        if (existing === undefined) {
+          draft.push(row);
+          focus ??= row.id;
+        } else {
+          firstExisting ??= existing.id;
+        }
+      }
+      setFocusRow(focus ?? firstExisting);
     }
     setSeedNotice(
       seed !== null && seedProfile === undefined

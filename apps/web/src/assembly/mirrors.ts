@@ -13,7 +13,12 @@ import type {
   MirrorResponse,
   MirrorState,
 } from "../api/mirrors";
-import { coerceToField, ExprError, evaluateExpression } from "../features/expr";
+import {
+  coerceToField,
+  ExprError,
+  evaluateExpression,
+  lengthEntryExpression,
+} from "../features/expr";
 import type { PickedFace } from "./patternStore";
 
 /** An origin plane of the assembly, or the face picked in the viewport. */
@@ -88,7 +93,7 @@ export function buildMirror(
   let offset: number;
   try {
     offset = coerceToField(
-      evaluateExpression(form.offset, new Map()),
+      evaluateExpression(lengthEntryExpression(form.offset, "mm"), new Map()),
       "length",
     );
   } catch (error) {

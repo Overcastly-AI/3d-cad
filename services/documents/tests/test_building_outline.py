@@ -321,6 +321,19 @@ def test_the_outline_follows_a_dimension_typed_with_its_unit(
     _is_house(part, 336.0, 22, 30)
 
 
+def test_a_bare_number_in_an_inch_part_is_inches_and_the_walls_follow(
+    client: TestClient,
+) -> None:
+    """FORMULA-BARE-UNIT: the length typed as a bare ``336`` in this inch
+    part is stored as ``336 in``, and the house is 28 ft, not 336 mm."""
+    part, sketch = _house(client)
+    part.edit(sketch, _driven("336"))
+    stored = part.stored()["Outline"]["params"]["constraints"]
+    length = next(c for c in stored if c.get("name") == "length")
+    assert length["expression"] == "336 in"
+    _is_house(part, 336.0, 22, 30)
+
+
 def test_a_dimension_that_does_not_evaluate_flags_the_walls(
     client: TestClient,
 ) -> None:

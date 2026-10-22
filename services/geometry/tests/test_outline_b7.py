@@ -19,8 +19,8 @@ with the plugins):
 2. interference none: the round's build shared that 43.1 in^3 between the
    tails and the OSB, and the outline roof notches the OSB round them;
 3. the cut list is the round's 23 lines (the eave OSB's net area less the
-   notches, the same 17 sheets) and its price, through the round's eight
-   blanks, $2,608.83 with the five lines over 20 ft unpriced;
+   notches, the same 17 sheets) and its price to the last line, $2,868.87,
+   the members over 20 ft spliced (CUT-LIST-LONG-STOCK);
 4. edit 1 (the 288 dimension set to 336) is the round's 28 ft house: 234
    solids, the script's at 336, with no interference.
 
@@ -552,13 +552,15 @@ def test_nothing_interferes(step_solids: list[Solid]) -> None:
 
 # --- 3. The cut list and its price -------------------------------------------------
 
-#: The round's 23 lines (house-b7.spec.ts HOUSE): member, quantity, length (in)
-#: or net area (in^2), stock. The eave walls' OSB is the round's 83 175.71875
-#: in^2 less the notches (43.1005859375 / (7/16) = 98.515625 in^2).
+#: The round's 23 lines (house-b7.spec.ts HOUSE_PRICED): member, quantity,
+#: length (in) or net area (in^2), stock; the members over 20 ft spliced from
+#: the cheapest pieces the book prices (CUT-LIST-LONG-STOCK). The eave walls'
+#: OSB is the round's 83 175.71875 in^2 less the notches (43.1005859375 /
+#: (7/16) = 98.515625 in^2).
 HOUSE: list[tuple[str, int, float, str]] = [
     ("Joist", 19, 189, "16 ft"),
-    ("Rim", 2, 288, "-"),
-    ("Sill", 2, 288, "-"),
+    ("Rim", 2, 288, "16 ft + 8 ft"),
+    ("Sill", 2, 288, "2 x 12 ft"),
     ("Sill", 2, 181, "16 ft"),
     ("Subfloor", 14, 55296, "12 x 4x8"),
     ("Stud", 60, 92.625, "8 ft"),
@@ -568,7 +570,7 @@ HOUSE: list[tuple[str, int, float, str]] = [
     ("Cripple", 14, 6.125, "8 ft"),
     ("Sill", 3, 36.5, "8 ft"),
     ("Cripple", 7, 31, "8 ft"),
-    ("Top plate", 4, 288, "-"),
+    ("Top plate", 4, 288, "16 ft + 8 ft"),
     ("Bottom plate", 2, 125, "12 ft"),
     ("Sheathing", 24, 83175.71875 - 98.515625, "17 x 4x9"),
     ("Header", 4, 27.5, "8 ft"),
@@ -576,12 +578,13 @@ HOUSE: list[tuple[str, int, float, str]] = [
     ("Cripple", 4, 43, "8 ft"),
     ("Top plate", 4, 181, "16 ft"),
     ("Bottom plate", 2, 181, "16 ft"),
-    ("Bottom plate", 1, 288, "-"),
+    ("Bottom plate", 1, 288, "2 x 12 ft"),
     ("Rafter", 26, 123.5341, "12 ft"),
-    ("Ridge", 1, 288, "-"),
+    ("Ridge", 1, 288, "16 ft + 8 ft"),
 ]
 
-#: The round's eight blanks: (material, profile, stock ft or sheet, cents).
+#: The round's eight blanks and an 8 ft SPF 2x10 (loft-wire's
+#: test_price_book.py B7 book): (material, profile, stock ft or sheet, cents).
 BOOK = PriceBookResponse.model_validate(
     {
         "currency": "USD",
@@ -596,6 +599,7 @@ BOOK = PriceBookResponse.model_validate(
                 (OSB_M, "osb_7_16", {"sheet": "4x9"}, 2498),
                 (SPF, "us_2x6", {"stock_length_ft": 16}, 1398),
                 (SPF, "us_2x8", {"stock_length_ft": 12}, 1347),
+                (SPF, "us_2x10", {"stock_length_ft": 8}, 1147),
             ]
         ],
     }
@@ -614,6 +618,18 @@ def _cut_list() -> Any:
     )
 
 
+def _stock(line: Any) -> str:
+    """The stock cell as house-b7.spec.ts reads it."""
+    if line.sheet:
+        return f"{line.stock_quantity} x {line.sheet}"
+    pieces = list(line.stock_pieces_ft or [])
+    if len(pieces) > 1 and len(set(pieces)) == 1:
+        return f"{len(pieces)} x {pieces[0]} ft"
+    if pieces:
+        return " + ".join(f"{p} ft" for p in pieces)
+    return "-"
+
+
 def test_the_cut_list_is_the_rounds_and_prices_to_the_same_total() -> None:
     cut_list = _cut_list()
     rows = [
@@ -623,11 +639,7 @@ def test_the_cut_list_is_the_rounds_and_prices_to_the_same_total() -> None:
             round((line.area_mm2 or 0) / IN**2, 6)
             if line.sheet
             else round(line.length_mm / IN, 4),
-            "-"
-            if line.stock_quantity is None
-            else f"{line.stock_quantity} x {line.sheet}"
-            if line.sheet
-            else f"{line.stock_length_ft} ft",
+            _stock(line),
         )
         for line in cut_list.lines
     ]
@@ -639,11 +651,12 @@ def test_the_cut_list_is_the_rounds_and_prices_to_the_same_total() -> None:
         sum(line.quantity for line in cut_list.lines if line.sheet is None)
         == 217 - 14 - 24
     )
-    # 19 x 22.97 + 4 x 16.98 + 12 x 42.50 + 114 x 6.48 + 2 x 12.48 + 17 x
-    # 24.98 + 4 x 13.98 + 26 x 13.47, the round's $2,608.83; the five lines
-    # over 20 ft (rims, sills, top and bottom plates and the ridge at 288)
-    # have no stock until CUT-LIST-LONG-STOCK.
-    assert (
+    # The 18 short lines: 19 x 22.97 + 4 x 16.98 + 12 x 42.50 + 114 x 6.48 +
+    # 2 x 12.48 + 17 x 24.98 + 4 x 13.98 + 26 x 13.47 = 2 608.83; the splices:
+    # rims 2 x (22.97 + 11.47), sills 2 x 2 x 12.48, top plates 4 x (13.98 +
+    # 6.48), bottom plate 2 x 12.48, ridge 22.97 + 11.47 = 260.04. The
+    # round's $2,868.87 to the last line (house-b7.spec.ts PRICE).
+    short = (
         19 * 2297
         + 4 * 1698
         + 12 * 4250
@@ -652,13 +665,14 @@ def test_the_cut_list_is_the_rounds_and_prices_to_the_same_total() -> None:
         + 17 * 2498
         + 4 * 1398
         + 26 * 1347
-        == 260883
     )
-    assert cut_list.total_price_cents == 260883
-    assert cut_list.unpriced_lines == 5
+    splices = 2 * 3444 + 2 * 2496 + 4 * 2046 + 2496 + 3444
+    assert (short, splices) == (260883, 26004)
+    assert cut_list.total_price_cents == short + splices == 286887
+    assert cut_list.unpriced_lines == 0
     assert cut_list.unclassified == 0
     total = cut_list_csv(cut_list).split("\r\n")
-    assert ',"Total of priced lines, 5 unpriced",,,,,,,,,,,,,2608.83' in total
+    assert ",Total,,,,,,,,,,,,,2868.87" in total
 
 
 # --- Mass ---------------------------------------------------------------------------

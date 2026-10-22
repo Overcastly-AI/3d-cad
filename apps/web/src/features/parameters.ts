@@ -29,7 +29,15 @@
  *    ({@link inferKind}). Unitless joins either kind, so a ratio or a count is
  *    chosen from the row's Unit cell.
  */
-import { formatAngle, formatLength, type LengthUnit } from "@loft/design";
+import {
+  formatAngle,
+  formatLength,
+  isCarpenterLength,
+  lengthExpression,
+  type LengthUnit,
+} from "@loft/design";
+
+import { mixedNumberAmbiguity } from "./expr";
 
 import type {
   ParameterTableError,
@@ -142,6 +150,15 @@ export function isBareNumber(text: string): boolean {
  */
 export function wireExpression(row: DraftRow): string {
   const text = row.expression.trim();
+  // Carpenter notation typed this session (`11-15/32`, `5' 6"`) is sent
+  // spelled out with explicit units (`11 in + 15 in/32`): the grammar has no
+  // marks and reads a hyphen as minus (RESEARCH §29).
+  if (row.unit === "length" && row.bareUnit !== null) {
+    const spelled = isCarpenterLength(text, row.bareUnit)
+      ? lengthExpression(text, row.bareUnit)
+      : null;
+    if (spelled !== null) return spelled;
+  }
   if (
     row.unit === "length" &&
     row.bareUnit !== null &&
@@ -338,7 +355,11 @@ export function commitCell(
     // Unchanged text keeps how it was read: re-committing a stored `40` in an
     // inch document must not start reading it as inches.
     if (expression === row.expression) return row;
-    const inferred = inferKind(expression, kindsByName(rows, id));
+    // A foot or inch mark says length outright (`5' 6"`).
+    const inferred =
+      /['"′″]/.test(expression) && isCarpenterLength(expression, documentUnit)
+        ? "length"
+        : inferKind(expression, kindsByName(rows, id));
     return {
       ...row,
       expression,
@@ -422,6 +443,20 @@ export function tableToWire(
           field: "expression",
           message: "Enter a value or a formula.",
           code: "local_expression_empty",
+        },
+      };
+    }
+    const ambiguous =
+      row.unit === "length" && row.bareUnit !== null
+        ? mixedNumberAmbiguity(wireExpression(row), row.bareUnit)
+        : null;
+    if (ambiguous !== null) {
+      return {
+        error: {
+          rowId: row.id,
+          field: "expression",
+          message: `${ambiguous.charAt(0).toUpperCase()}${ambiguous.slice(1)}.`,
+          code: "local_expression_ambiguous",
         },
       };
     }

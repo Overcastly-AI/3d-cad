@@ -3074,7 +3074,7 @@
                 "type": "null"
               }
             ],
-            "description": "stock_quantity x unit_price_cents; null when unpriced.",
+            "description": "unit_price_cents x stock_quantity, on every line, so a row multiplies out; null when unpriced.",
             "title": "Extended Price Cents"
           },
           "length_mm": {
@@ -3196,8 +3196,24 @@
                 "type": "null"
               }
             ],
-            "description": "Shortest standard stock that covers the piece (ft); null for a piece that is not lumber or is longer than the longest stock.",
+            "description": "Shortest standard stock that covers the piece (ft); null for a piece that is not lumber, or is spliced (stock_pieces_ft), or is longer than any splice covers.",
             "title": "Stock Length Ft"
+          },
+          "stock_pieces_ft": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "maxItems": 5,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stock pieces ONE piece of the line is cut from (ft), longest first: [16] for one stock length, [12, 12] for a member spliced from two 12 ft pieces (longer than the longest stock); null with no stock.",
+            "title": "Stock Pieces Ft"
           },
           "stock_quantity": {
             "anyOf": [
@@ -3209,7 +3225,7 @@
                 "type": "null"
               }
             ],
-            "description": "Stock pieces bought for the line: one per piece (until pieces are nested); for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.",
+            "description": "Stock units bought for the line (the CSV's Stock qty): one per piece (until pieces are nested), a spliced piece's stock_pieces_ft counting as ONE set; for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.",
             "title": "Stock Quantity"
           },
           "total_length_mm": {
@@ -3228,7 +3244,7 @@
                 "type": "null"
               }
             ],
-            "description": "Price of ONE stock piece (or sheet) in the book's currency's cents, rounded once per piece; null (blank, never 0) when the book has no price for the line or the line has no stock.",
+            "description": "Price of ONE stock unit (see stock_quantity) in the book's currency's cents: one stock piece, one splice set (its pieces summed, each rounded once) or one sheet. Null (blank, never 0) when the book has no price for the line or the line has no stock.",
             "title": "Unit Price Cents"
           },
           "waste_mm": {
@@ -3240,7 +3256,7 @@
                 "type": "null"
               }
             ],
-            "description": "Offcut of each piece from its stock (mm); null with no stock.",
+            "description": "Offcut of each piece from its stock (mm), a splice's pieces summed; null with no stock.",
             "title": "Waste Mm"
           }
         },
@@ -7180,7 +7196,7 @@
         "type": "object"
       },
       "FeatureMutationResponse": {
-        "description": "Result of a single-feature mutation: the affected feature + the new\ntree version (the client's next ``expected_tree_version``).",
+        "description": "One feature mutated, and the new tree version (the next expected one).",
         "properties": {
           "feature": {
             "$ref": "#/components/schemas/FeatureResponse"
@@ -7347,7 +7363,7 @@
         "type": "object"
       },
       "FeatureResponse": {
-        "description": "A feature as stored, with the envelope reassembled (design \u00a71.3) and\nparams already upcast to the current version (design \u00a71.4).",
+        "description": "A feature as stored: envelope reassembled (\u00a71.3), params upcast (\u00a71.4).",
         "properties": {
           "created_at": {
             "format": "date-time",
@@ -7451,6 +7467,21 @@
               }
             ],
             "title": "Feature"
+          },
+          "formula_warnings": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FormulaWarning"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stored formulas whose bare numbers read as mm in this non-mm part (`expression_bare_mm`), each with its fix. Omitted when there are none.",
+            "title": "Formula Warnings"
           },
           "id": {
             "format": "uuid",
@@ -8179,6 +8210,102 @@
           "updated_at"
         ],
         "title": "FolderResponse",
+        "type": "object"
+      },
+      "FormulaWarning": {
+        "description": "One stored formula whose bare numbers read as mm in a non-mm part.",
+        "properties": {
+          "code": {
+            "const": "expression_bare_mm",
+            "description": "'expression_bare_mm': a bare number added to a length reads as mm, not in the part's unit",
+            "title": "Code",
+            "type": "string"
+          },
+          "expression": {
+            "description": "The formula as stored",
+            "title": "Expression",
+            "type": "string"
+          },
+          "fixed_expression": {
+            "description": "The formula with the part's unit written in (`wall + 1 in/2`): what the 'Read as' action saves",
+            "title": "Fixed Expression",
+            "type": "string"
+          },
+          "fixed_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What `fixed_expression` would give, in the same unit; null when it does not resolve",
+            "title": "Fixed Value"
+          },
+          "literals": {
+            "description": "Each bare term as written, e.g. `1/2` in `wall + 1/2`",
+            "items": {
+              "type": "string"
+            },
+            "title": "Literals",
+            "type": "array"
+          },
+          "message": {
+            "description": "Names the bare terms and both readings",
+            "title": "Message",
+            "type": "string"
+          },
+          "parameter_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The parameter row the formula is in; null for a feature",
+            "title": "Parameter Id"
+          },
+          "pointer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The feature field the formula drives (`/distance_mm`), or `/constraints/<i>/expression` for a sketch dimension; null for a parameter row",
+            "title": "Pointer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the stored formula gives now, in the field's unit (mm, degrees or a plain number); null when it does not resolve",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "pointer",
+          "parameter_id",
+          "expression",
+          "literals",
+          "fixed_expression",
+          "value",
+          "fixed_value"
+        ],
+        "title": "FormulaWarning",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -12078,6 +12205,21 @@
       "PartParametersResponse": {
         "description": "A part's parameter table, in its stored order, with the tree version.",
         "properties": {
+          "formula_warnings": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FormulaWarning"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stored formulas whose bare numbers read as mm in this non-mm part (`expression_bare_mm`), each with its fix. Omitted when there are none.",
+            "title": "Formula Warnings"
+          },
           "parameters": {
             "items": {
               "$ref": "#/components/schemas/PartParameter"

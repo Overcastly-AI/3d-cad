@@ -122,6 +122,34 @@ CUT-LIST-LONG-STOCK (members over 20 ft spliced and priced).
    system, member, profile and length. The total is unchanged to the cent.
    E2e: `house-b7.spec.ts` reads the Total and the last line at 1280x800
    without a sideways scroll.
+5. [x] **B7-MIXED-FRACTION** (fix now: silent wrong geometry; frontend,
+   found in QA-B7-HOUSE): `11-15/32` in a length field was 11 − 15/32 and
+   `11 15/32` was refused. `parseLength` now reads carpenter notation
+   (`11-15/32`, `11 15/32`, `11 15/32"`, `5' 6-1/2"`, `5'-6"`, `-3/4`) with a
+   live `= 11.46875 in` echo; a hyphenated mixed number inside a formula is
+   refused with both readings. RESEARCH §29.
+   _Notes:_ entry-time only, the server grammar is unchanged, so stored
+   expressions (including any old `a-b/c`) keep their meaning; typed
+   parameters and assembly spacing are sent spelled out (`11 in + 15 in/32`).
+   Review fixes: a reopened stored pattern spacing is re-sent verbatim
+   (no-op save tests for pattern, mirror, parameters, plugin forms, sketch);
+   in a metric reading `100-10/2` is refused as ambiguous, never 105.
+   Follow-up FORMULA-BARE-UNIT: inside a formula a bare number is mm even in
+   an inch part (`wall + 1/2` adds 0.5 mm).
+6. [x] **CUT-LIST-LONG-STOCK** (QA-B7; backend): a member over 20 ft had no
+   stock, so nothing priced it and B7 stayed "5 lines unpriced". It is now
+   spliced as a framer buys it (least waste, then fewest joints, ties most
+   even first, so 24 ft = 2 x 12; at most 5 pieces), `stock_pieces_ft` on
+   the wire, Each priced on the cheapest tied splice the book prices whole,
+   per foot and board foot on the feet bought. RESEARCH §27.
+   _Accept:_ B7's 21 lumber and 2 sheet lines price to $2,868.87 with the
+   QA round's book plus an 8 ft SPF 2x10 ($2,608.83 + $260.04,
+   `test_price_book.py`); B1, B2, B5 unchanged (no member over 20 ft).
+   _Notes:_ `house-b7.spec.ts` (QA branch, not merged here) expects "—" and
+   "5 lines unpriced" for the long lines and must be re-pinned when merged;
+   a splice row's Stock qty counts sets per member, so every row multiplies
+   out; the B7 check is still the e2e's typed table, not a measured
+   geometry golden.
 
 ## Next
 
@@ -245,6 +273,14 @@ None open. The B7 decisions are in VISION's delegated log.
 ## Notes
 
 One line each. The founder triages weekly; most are closed without work.
+
+- PLUGIN-BUDGET-WALLCLOCK: the 2 s plugin expansion budget is wall-clock, so roof/wall/deck tests (test_roof_l_doubled_common, test_roof_feature b4 valley, test_deck metric guard post) failed under a load-11 local gate and pass alone; measure CPU time or give tests a slack budget before CI hits it.
+- BARE-UNIT-SURFACES: `expression_bare_mm` rides on `FeatureResponse.formula_warnings` and `PartParametersResponse.formula_warnings`, but the web shows it (with "Read as in") only on a feature editor's field; the parameters table, sketch dimensions and the feature tree do not show it yet, and the sketcher's echo still reads a bare term as mm until the save writes the unit.
+- BARE-UNIT-COMPARE: `min`/`max`/`atan2` arguments compared with a length also take the part unit (`max(wall, 3)` is stored as `max(wall, 3 in)`), one step past the spec's added/subtracted rule, because a bare 3 there is the same silent mm.
+- BARE-UNIT-SAME-TEXT: a sketch dimension typed with exactly the text of an older unfixed dimension in the same sketch is kept as typed (a dimension has no id, so "left as stored" matches by text) and carries the warning.
+- BARE-UNIT-SAME-EDIT: one edit that changes a legacy dimension and adds a new one with the same text leaves the new one reading mm; the text match also ignores length vs angle.
+- BARE-UNIT-LIST-POINTERS: list params are matched by pointer position, so a reorder counts the moved formulas as entered and writes the unit into them.
+- BARE-UNIT-DISPLAY-NOISE: `storedLengthInput` can show a formula's value as 6.000000000000001 in the editor's form.
 
 - SKETCH-LINE-ANGLE-WHEN: the L / ∠ cells arm after the end click (type 450 Tab 73 Enter then); keys typed BEFORE the end click stay the X / Y point cells (G2, sketch-line-length-tab), whereas Fusion's box takes length and angle mid-drag. Founder to decide whether the mid-drag keys should become L / ∠.
 - SKETCH-LINE-ANGLE-ZERO: the angle cell takes (0, 180) as `AngleConstraint` does; 0 or 180 is refused with a message rather than becoming Horizontal (or Collinear to the previous segment), which Fusion does.
@@ -676,3 +712,14 @@ One line each. The founder triages weekly; most are closed without work.
 - FLOOR-OUTLINE-SHAPES: floor 1.2.0 fills a rectangular outline only; an L floor needs its joists laid out per arm (Chief frames each room's floor).
 - OUTLINE-OPENING-VERSION: window and door 1.1.0 are the wall-of-an-outline pick (`wall_segment`), so OPENING-FROM-END's Measured from ships as 1.2.0.
 - OUTLINE-HOST-STANDALONE: an outline wall laps its own corners only; a later single wall butting an outline wall's end gets its corner rip, but the outline wall never emits a return for an earlier single wall.
+- B7-HOUSE-STRETCH (QA-B7): lengthening B7 24 -> 28 ft takes 8 feature edits (floor, three walls, roof and the front wall's three openings). Nothing is linked: walls do not join, floor and roof do not read the walls (ROOF-GABLE-WALLS), and openings sit at an offset from a clockwise wall's start. The front wall's door and windows therefore jump 48 in unless each offset is retyped, in an order that avoids a transient framing overlap (the door's new place is refused until the window beside it moves). In Chief Architect you drag one wall.
+- B7-OFFSET-FROM-START (QA-B7): on a front wall drawn clockwise (X 288 -> 0), the window "at X 60" needs offset 228, so every front-wall offset is mirrored by hand. Revit and Chief show temporary dimensions from the nearest wall end (see OPENING-DRAG).
+- B7-MIXED-FRACTION (QA-B7): "11 15/32" is refused ("Unexpected '15'") and "11-15/32" is accepted as 11 - 15/32 = 10.53125, so a framer's usual notation silently drops a wall 15/16 in into the subfloor (no interference check: B2-E2E-INTERFERENCE). Chief Architect reads both as 11 15/32; Fusion's expressions subtract, as Loft does.
+- B7-CUT-LIST-PANEL (QA-B7): once priced, the cut list panel overflows sideways. At 1600x1000 the Ext. price column and the Total read "$2,60" until you scroll; at 1280x800 it shows 5 of 23 lines, and member names truncate ("Top pl…", "Botto…"). Chief's Materials List opens as a full window.
+- B7-CUT-LIST-GROUPING (QA-B7): lines are in tree order, so one profile and member is split across walls (B7 has three Header rows, three Cripple rows and three Bottom plate rows, none adjacent). "Sill" names both the PT floor sills and the SPF window sills. Chief's list groups by category, then size.
+- B7-OPENING-UNITS-PRICE (QA-B7): the door and the four windows are not cut-list or price-book lines, so a house's price leaves out its doors and windows. Chief's materials list prices them.
+- B7-HEADER-2X6-WALL (QA-B7): in a 2x6 wall the header is still two 1.5 in plies (3 in in a 5.5 in wall) with no third ply or spacer; framers use three plies, or two plus a spacer or rigid insulation.
+- B7-OPENING-SIZES (QA-B7): Window defaults to 24 x 36 and has no size list, so each of B7's three 36 x 48 windows has two fields retyped. Chief and Revit pick from a catalogue (3048, 2436).
+- B7-TREE-STATUS-DASH (QA-B7, seen once): after editing Wall 1's start and length on a solved B7, the tree showed "—" instead of OK for Wall 4 and Window 5 until the next edit.
+- B7-BODY-NAMES (QA-B7): the Bodies panel lists B7's 217 members as "Body 1..217" and the Material panel names every row by its feature ("Floor 1"). Only the cut list and the unfolded tree say Joist, Stud or Rafter; Fusion shows body names.
+- CUT-LIST-SPLICE-TIES (QA-B7): the splice is chosen only from the least-waste ties, so B7 lengthened to 28 ft, with SPF 2x10 and 2x6 priced at 16 and 8 ft, leaves its rims, top plates and ridge unpriced ("2 × 14 ft", 3 lines). 16 + 16 or 16 + 8 + 8 would price them. A framer buys the lengths the yard stocks, so the cheapest priced cover could win over the least waste.

@@ -4536,7 +4536,7 @@ export interface components {
             classification: "member" | "matched" | "unclassified";
             /**
              * Extended Price Cents
-             * @description stock_quantity x unit_price_cents; null when unpriced.
+             * @description unit_price_cents x stock_quantity, on every line, so a row multiplies out; null when unpriced.
              */
             extended_price_cents: number | null;
             /**
@@ -4578,12 +4578,17 @@ export interface components {
             sheet?: ("4x8" | "4x9" | "4x10") | null;
             /**
              * Stock Length Ft
-             * @description Shortest standard stock that covers the piece (ft); null for a piece that is not lumber or is longer than the longest stock.
+             * @description Shortest standard stock that covers the piece (ft); null for a piece that is not lumber, or is spliced (stock_pieces_ft), or is longer than any splice covers.
              */
             stock_length_ft: number | null;
             /**
+             * Stock Pieces Ft
+             * @description The stock pieces ONE piece of the line is cut from (ft), longest first: [16] for one stock length, [12, 12] for a member spliced from two 12 ft pieces (longer than the longest stock); null with no stock.
+             */
+            stock_pieces_ft?: number[] | null;
+            /**
              * Stock Quantity
-             * @description Stock pieces bought for the line: one per piece (until pieces are nested); for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.
+             * @description Stock units bought for the line (the CSV's Stock qty): one per piece (until pieces are nested), a spliced piece's stock_pieces_ft counting as ONE set; for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.
              */
             stock_quantity: number | null;
             /**
@@ -4593,12 +4598,12 @@ export interface components {
             total_length_mm: number;
             /**
              * Unit Price Cents
-             * @description Price of ONE stock piece (or sheet) in the book's currency's cents, rounded once per piece; null (blank, never 0) when the book has no price for the line or the line has no stock.
+             * @description Price of ONE stock unit (see stock_quantity) in the book's currency's cents: one stock piece, one splice set (its pieces summed, each rounded once) or one sheet. Null (blank, never 0) when the book has no price for the line or the line has no stock.
              */
             unit_price_cents: number | null;
             /**
              * Waste Mm
-             * @description Offcut of each piece from its stock (mm); null with no stock.
+             * @description Offcut of each piece from its stock (mm), a splice's pieces summed; null with no stock.
              */
             waste_mm: number | null;
         };
@@ -7212,8 +7217,7 @@ export interface components {
         };
         /**
          * FeatureMutationResponse
-         * @description Result of a single-feature mutation: the affected feature + the new
-         *     tree version (the client's next ``expected_tree_version``).
+         * @description One feature mutated, and the new tree version (the next expected one).
          */
         FeatureMutationResponse: {
             feature: components["schemas"]["FeatureResponse"];
@@ -7307,8 +7311,7 @@ export interface components {
         };
         /**
          * FeatureResponse
-         * @description A feature as stored, with the envelope reassembled (design §1.3) and
-         *     params already upcast to the current version (design §1.4).
+         * @description A feature as stored: envelope reassembled (§1.3), params upcast (§1.4).
          */
         FeatureResponse: {
             /**
@@ -7318,6 +7321,11 @@ export interface components {
             created_at: string;
             /** Feature */
             feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["Sketch3DFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["PipeFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"] | components["schemas"]["CustomFeature"];
+            /**
+             * Formula Warnings
+             * @description Stored formulas whose bare numbers read as mm in this non-mm part (`expression_bare_mm`), each with its fix. Omitted when there are none.
+             */
+            formula_warnings?: components["schemas"]["FormulaWarning"][] | null;
             /**
              * Id
              * Format: uuid
@@ -7714,6 +7722,58 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * FormulaWarning
+         * @description One stored formula whose bare numbers read as mm in a non-mm part.
+         */
+        FormulaWarning: {
+            /**
+             * Code
+             * @description 'expression_bare_mm': a bare number added to a length reads as mm, not in the part's unit
+             * @constant
+             */
+            code: "expression_bare_mm";
+            /**
+             * Expression
+             * @description The formula as stored
+             */
+            expression: string;
+            /**
+             * Fixed Expression
+             * @description The formula with the part's unit written in (`wall + 1 in/2`): what the 'Read as' action saves
+             */
+            fixed_expression: string;
+            /**
+             * Fixed Value
+             * @description What `fixed_expression` would give, in the same unit; null when it does not resolve
+             */
+            fixed_value: number | null;
+            /**
+             * Literals
+             * @description Each bare term as written, e.g. `1/2` in `wall + 1/2`
+             */
+            literals: string[];
+            /**
+             * Message
+             * @description Names the bare terms and both readings
+             */
+            message: string;
+            /**
+             * Parameter Id
+             * @description The parameter row the formula is in; null for a feature
+             */
+            parameter_id: string | null;
+            /**
+             * Pointer
+             * @description The feature field the formula drives (`/distance_mm`), or `/constraints/<i>/expression` for a sketch dimension; null for a parameter row
+             */
+            pointer: string | null;
+            /**
+             * Value
+             * @description What the stored formula gives now, in the field's unit (mm, degrees or a plain number); null when it does not resolve
+             */
+            value: number | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -10286,6 +10346,11 @@ export interface components {
          * @description A part's parameter table, in its stored order, with the tree version.
          */
         PartParametersResponse: {
+            /**
+             * Formula Warnings
+             * @description Stored formulas whose bare numbers read as mm in this non-mm part (`expression_bare_mm`), each with its fix. Omitted when there are none.
+             */
+            formula_warnings?: components["schemas"]["FormulaWarning"][] | null;
             /** Parameters */
             parameters: components["schemas"]["PartParameter"][];
             /** Tree Version */

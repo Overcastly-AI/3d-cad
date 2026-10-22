@@ -128,6 +128,44 @@ describe("ValueField", () => {
     expect(screen.getByTestId("field-hint").textContent).toBe("= 1 in");
   });
 
+  it("reads 11-15/32 as a mixed number and echoes it (B7-MIXED-FRACTION)", () => {
+    const f = mount({ unit: "in", initial: "1" });
+    f.type("11-15/32");
+    // A number: the editor reads it (parseLength), no fx mark.
+    expect(f.form()).toBe("11-15/32");
+    expect(mark(f.input)).toBeNull();
+    expect(screen.getByTestId("field-hint").textContent).toBe("= 11.46875 in");
+    f.type(`5' 6-1/2"`);
+    expect(screen.getByTestId("field-hint").textContent).toBe("= 66.5 in");
+    f.type("12");
+    expect(screen.queryByTestId("field-hint")).toBeNull();
+  });
+
+  it("keeps spaced subtraction a formula, and refuses a mixed number inside one", () => {
+    const f = mount();
+    f.type("H - 15/32");
+    expect(mark(f.input)).not.toBeNull();
+    expect(Number(f.form())).toBeCloseTo(20 - 15 / 32, 12);
+    f.type("2*11-15/32");
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /could be 11 15\/32 or 11 minus 15\/32/,
+    );
+    expect(f.form()).toBe("2*11-15/32");
+  });
+
+  it("leaves a STORED 11-15/32 formula reading as the server stored it", () => {
+    const session: FormulaSession = {
+      key: "extrude:stored",
+      seed: { "/distance_mm": "11-15/32" },
+      inputError: null,
+    };
+    const f = mount({ session, initial: "10.53125" });
+    expect(f.input.value).toBe("11-15/32");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByTestId("field-hint").textContent).toBe("= 10.5313 mm");
+    expect(Number(f.form())).toBeCloseTo(10.53125, 12);
+  });
+
   it("says on the field why a formula does not resolve, and keeps Save shut", () => {
     const f = mount();
     f.type("Q/2");
@@ -388,5 +426,71 @@ describe("ValueField in the sketcher (no pointer)", () => {
     // Someone else's text still lands.
     act(() => echo("7"));
     expect(input.value).toBe("7");
+  });
+});
+
+describe("ValueField in an inch part (FORMULA-BARE-UNIT)", () => {
+  const session: FormulaSession = {
+    key: "extrude:bare",
+    seed: { "/distance_mm": "wall + 1/2" },
+    inputError: null,
+  };
+  beforeEach(() => {
+    useParameterScopeStore
+      .getState()
+      .setParameters([{ name: "wall", value: 5.5 * 25.4, unit: "length" }]);
+  });
+
+  it("keeps carpenter numbers as numbers beside the bare-unit rule", () => {
+    const f = mount({ unit: "in", initial: "1" });
+    for (const typed of ["11-15/32", "11 15/32"]) {
+      f.type(typed);
+      expect(mark(f.input)).toBeNull();
+      expect(f.form()).toBe(typed);
+      expect(screen.getByTestId("field-hint").textContent).toBe(
+        "= 11.46875 in",
+      );
+    }
+    f.type("wall + 1/2");
+    expect(screen.getByTestId("field-hint").textContent).toBe("= 6 in");
+    // A hyphenated mixed number inside a formula is still refused first.
+    f.type("wall + 11-15/32");
+    expect(screen.getByRole("alert").textContent).toMatch(/could be 11 15\/32/);
+  });
+
+  it("reads a typed bare term in inches, as the save will store it", () => {
+    const f = mount({ unit: "in", initial: "1" });
+    f.type("wall + 1/2");
+    expect(screen.getByTestId("field-hint").textContent).toBe("= 6 in");
+    expect(Number(f.form())).toBeCloseTo(6, 9);
+    expect(screen.queryByTestId("field-bare-unit")).toBeNull();
+  });
+
+  it("reads a stored formula as stored, flags it, and fixes it on a click", () => {
+    const f = mount({ unit: "in", initial: "5.52", session });
+    expect(f.input.value).toBe("wall + 1/2");
+    expect(Number(f.form())).toBeCloseTo(5.5 + 0.5 / 25.4, 6);
+    const notice = screen.getByTestId("field-bare-unit");
+    expect(notice.textContent).toContain("1/2 in this formula is read as mm");
+    expect(notice.textContent).toContain(
+      "Read as in (wall + 1 in/2), it gives 6 in",
+    );
+    fireEvent.click(screen.getByTestId("field-bare-unit-fix"));
+    expect(f.input.value).toBe("wall + 1 in/2");
+    expect(screen.getByTestId("field-hint").textContent).toBe("= 6 in");
+    expect(screen.queryByTestId("field-bare-unit")).toBeNull();
+    expect(
+      sessionFormulas(
+        useFormulaSessionStore.getState(),
+        session.key,
+        session.seed,
+      ),
+    ).toEqual({ "/distance_mm": "wall + 1 in/2" });
+  });
+
+  it("flags nothing in an mm part", () => {
+    mount({ unit: "mm", initial: "140.2", session });
+    expect(screen.queryByTestId("field-bare-unit")).toBeNull();
+    expect(screen.getByTestId("field-hint").textContent).toBe("= 140.2 mm");
   });
 });

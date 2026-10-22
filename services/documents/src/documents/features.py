@@ -70,7 +70,9 @@ from documents.custom_features import (
     stored_host_id,
 )
 from documents.feature_expressions import (
+    enter_units,
     evaluation_features,
+    formula_warnings,
     load_feature,
     resolve_for_write,
 )
@@ -309,17 +311,22 @@ def _bar_index(part: db.Part, features: list[db.Feature]) -> int | None:
     )
 
 
-def _to_response(feature: db.Feature, bar_index: int | None) -> FeatureResponse:
-    """Row → DTO: envelope reassembled, params upcast on read (design §1.4)."""
+def _to_response(
+    feature: db.Feature, bar_index: int | None, part: db.Part
+) -> FeatureResponse:
+    """Row → DTO: envelope reassembled, params upcast on read (design §1.4),
+    and its stored formulas' bare-number warnings (FORMULA-BARE-UNIT)."""
+    envelope = load_feature(feature)[0]
     return FeatureResponse(
         id=feature.id,
         part_id=feature.part_id,
         order_index=feature.order_index,
         name=feature.name,
-        feature=load_feature(feature)[0],
+        feature=envelope,
         rolled_back=bar_index is not None and feature.order_index > bar_index,
         created_at=feature.created_at,
         updated_at=feature.updated_at,
+        formula_warnings=formula_warnings(part, envelope),
     )
 
 
@@ -331,7 +338,7 @@ async def tree_response(session: AsyncSession, part: db.Part) -> FeatureTreeResp
         part_id=part.id,
         tree_version=part.tree_version,
         rollback_feature_id=part.rollback_feature_id,
-        features=[_to_response(feature, bar_index) for feature in features],
+        features=[_to_response(feature, bar_index, part) for feature in features],
         can_undo=can_undo,
         can_redo=can_redo,
     )
@@ -464,7 +471,7 @@ async def get_feature(
     part = await get_owned_part(session, owner_id, part_id)
     feature = await _get_feature(session, part, feature_id)
     features = await _ordered_features(session, part.id)
-    return _to_response(feature, _bar_index(part, features))
+    return _to_response(feature, _bar_index(part, features), part)
 
 
 @router.post("/{part_id}/features", status_code=status.HTTP_201_CREATED)
@@ -493,7 +500,7 @@ async def create_feature(
     position = len(features) if bar_index is None else bar_index + 1
 
     feature_id = uuid.uuid4()
-    envelope: AuthoredEnvelope = request.feature
+    envelope: AuthoredEnvelope = enter_units(part, request.feature)
     if isinstance(envelope, CustomFeature):
         # Inputs name real, earlier features before the plugin reads them.
         validate_references(envelope, position, features_by_id)
@@ -539,7 +546,7 @@ async def create_feature(
     )
     new_bar = _bar_index(part, await _ordered_features(session, part.id))
     return FeatureMutationResponse(
-        feature=_to_response(feature, new_bar), tree_version=part.tree_version
+        feature=_to_response(feature, new_bar, part), tree_version=part.tree_version
     )
 
 
@@ -569,7 +576,7 @@ async def update_feature(
         features = await _ordered_features(session, part.id)
         features_by_id = {row.id: row for row in features}
         hosts_before = stored_host_id(feature)
-        envelope: AuthoredEnvelope = request.feature
+        envelope: AuthoredEnvelope = enter_units(part, request.feature, feature)
         if isinstance(envelope, CustomFeature):
             validate_references(envelope, feature.order_index, features_by_id)
             envelope = prepare_custom_write(
@@ -620,7 +627,8 @@ async def update_feature(
     )
     bar_index = _bar_index(part, await _ordered_features(session, part.id))
     return FeatureMutationResponse(
-        feature=_to_response(feature, bar_index), tree_version=part.tree_version
+        feature=_to_response(feature, bar_index, part),
+        tree_version=part.tree_version,
     )
 
 
@@ -663,7 +671,8 @@ async def suppress_feature(
     )
     bar_index = _bar_index(part, await _ordered_features(session, part.id))
     return FeatureMutationResponse(
-        feature=_to_response(feature, bar_index), tree_version=part.tree_version
+        feature=_to_response(feature, bar_index, part),
+        tree_version=part.tree_version,
     )
 
 
