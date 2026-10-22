@@ -177,9 +177,10 @@ const PRICE = "$2,868.87";
  * 2x6 x 8, 30 rafters, ...) come to 2 884.98, and the PT sills and bottom
  * plate splice 16 + 12 (3 x 29.46 = 88.38). The SPF rims, top plates and
  * ridge have no priced least-waste splice (2 x 14, 16 + 12, 20 + 8: the book
- * has no 14, 12 or 20 ft SPF 2x10 or 2x6), so they buy the least-waste one
- * it prices whole, 2 x 16: rims 2 x 45.94, top plates 4 x 27.96, ridge
- * 45.94 = 249.66 more.
+ * has the 16 and 8 ft SPF 2x10 and 2x6 but no 14, 12 or 20 ft), nor any
+ * priced 28 or 30 ft cover, so they buy the least-waste one it prices whole,
+ * 2 x 16 (32 ft, before 16 + 8 + 8's three pieces): rims 2 x 45.94, top
+ * plates 4 x 27.96, ridge 45.94 = 249.66 more.
  */
 const PRICE_28 = "$3,223.02";
 
@@ -373,19 +374,34 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
       await expect(dialog).toBeHidden({ timeout: 15_000 });
     }
     // The PT sills and plates splice from priced 12s, the SPF top plates
-    // from 16 + 8; the 2x10 rims and ridge still lack a piece.
-    await expectPrice(page, "$2,765.55", "2 lines unpriced");
-    // The rim's blank seeds its missing piece; a framer buys 16s and 8s.
+    // from 16 + 8. The 2x10 rims and ridge have no priced least-waste splice
+    // (2 x 12, 14 + 10, 16 + 8: only 16 ft is in the book), so they buy the
+    // least-waste one the book prices whole, 2 x 16 (CUT-LIST-SPLICE-TIES):
+    // 2 608.83 + 81.84 + 74.88 = 2 765.55, plus 3 x 45.94 = 2 903.37.
+    await expectPrice(page, "$2,903.37");
     const rim = panel.locator(
       '[data-testid="cut-list-row"][data-member="Rim"]',
     );
-    await rim.getByTestId("cut-list-price-blank").click();
+    await expect(line(panel, "Rim", "2 × 16 ft")).toHaveCount(1);
+    await expect(line(panel, "Ridge", "2 × 16 ft")).toHaveCount(1);
+    // A framer buys 16s and 8s: add the 8 ft SPF 2x10 in the price book.
+    await panel.getByTestId("cut-list-price-book").click();
     await expect(dialog).toBeVisible();
-    const seeded = dialog.getByTestId("price-book-row").last();
-    await expect(seeded).toHaveAttribute("data-profile", "us_2x10");
-    await expect(seeded).toHaveAttribute("data-material", "spf_lumber");
-    await seeded.getByTestId("price-book-stock").selectOption("8");
-    await seeded.getByTestId("price-book-price").fill("11.47");
+    await expect(dialog.getByTestId("price-book-row")).toHaveCount(
+      PRICES.length,
+    );
+    await dialog.getByTestId("price-book-add").click();
+    const added = dialog.getByTestId("price-book-row").last();
+    await expect(dialog.getByTestId("price-book-row")).toHaveCount(
+      PRICES.length + 1,
+    );
+    await added.getByTestId("price-book-material").selectOption("spf_lumber");
+    await added.getByTestId("price-book-profile").selectOption("us_2x10");
+    await added.getByTestId("price-book-unit").selectOption("each");
+    await added.getByTestId("price-book-stock").selectOption("8");
+    await expect(added).toHaveAttribute("data-profile", "us_2x10");
+    await expect(added).toHaveAttribute("data-material", "spf_lumber");
+    await added.getByTestId("price-book-price").fill("11.47");
     await dialog.getByTestId("price-book-save").click();
     await expect(dialog).toBeHidden({ timeout: 15_000 });
     await expectPrice(page, PRICE);
