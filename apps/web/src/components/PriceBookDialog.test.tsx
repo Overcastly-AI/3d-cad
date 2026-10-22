@@ -127,6 +127,41 @@ describe("PriceBookDialog", () => {
     }
   });
 
+  it("adds a row for each piece of a splice the book does not price yet", async () => {
+    // CUT-LIST-LONG-STOCK: a 28 ft 2x10 spliced 16 + 12; 12 ft is priced.
+    renderDialog({
+      material: "southern_pine_pt",
+      profile: "2x10",
+      stockLengthFt: 16,
+      stockLengthsFt: [16, 12],
+    });
+    const rows = await screen.findAllByTestId("price-book-row");
+    expect(rows).toHaveLength(2);
+    const seeded = within(rows[1]!);
+    expect(seeded.getByLabelText("Stock length, price 2")).toHaveValue("16");
+    await waitFor(() =>
+      expect(seeded.getByLabelText("Price in dollars, price 2")).toHaveFocus(),
+    );
+  });
+
+  it("adds every missing piece of a mixed splice", async () => {
+    api.fetchPriceBook.mockResolvedValue({ ...BOOK, entries: [] });
+    renderDialog({
+      material: "southern_pine_pt",
+      profile: "2x10",
+      stockLengthFt: 16,
+      stockLengthsFt: [16, 8],
+    });
+    const rows = await screen.findAllByTestId("price-book-row");
+    expect(rows).toHaveLength(2);
+    expect(
+      within(rows[0]!).getByLabelText("Stock length, price 1"),
+    ).toHaveValue("16");
+    expect(
+      within(rows[1]!).getByLabelText("Stock length, price 2"),
+    ).toHaveValue("8");
+  });
+
   it("adds a row pre-filled from the seed, its price focused, and saves cents", async () => {
     const { onClose, invalidate } = renderDialog({
       material: "southern_pine_pt",

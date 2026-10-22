@@ -215,9 +215,9 @@ PRICE-BOOK-VERSION) and ROOF-MEMBER-RENUMBER.
    `test_price_book.py`); B1, B2, B5 unchanged (no member over 20 ft).
    _Notes:_ `house-b7.spec.ts` (QA branch, not merged here) expects "—" and
    "5 lines unpriced" for the long lines and must be re-pinned when merged;
-   a blank on a mixed splice (14 + 12) seeds only its longest piece, so
-   pricing it may take two blanks; the B7 golden is still the e2e's typed
-   table, not a measured geometry golden.
+   a splice row's Stock qty counts sets per member, so every row multiplies
+   out; the B7 check is still the e2e's typed table, not a measured
+   geometry golden.
 
 ## Next
 

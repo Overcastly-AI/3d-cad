@@ -24,8 +24,9 @@
  *
  * A member longer than the longest stock (CUT-LIST-LONG-STOCK) is SPLICED from
  * stock pieces, as a framer buys a long plate: Stock reads "2 × 12 ft" or
- * "16 ft + 8 ft" (the gateway's choice), and its unit price is that splice's
- * pieces summed, one member's stock.
+ * "16 ft + 8 ft" per member (the gateway's choice): its stock quantity counts
+ * one splice set per member and its unit price is that set's pieces summed,
+ * so stock qty × unit price is the extended price on every row.
  */
 import { Button, lengthUnitLabel, Panel, PanelSection } from "@loft/design";
 import { useQuery } from "@tanstack/react-query";
@@ -99,6 +100,9 @@ function seedFor(line: CutListLine): PriceBookSeed | null {
     material: line.material,
     profile: line.profile,
     stockLengthFt: feet,
+    // A splice needs every piece priced: the book adds a row for each length
+    // it does not price yet (16 + 8 with only 16 priced opens on 8).
+    stockLengthsFt: splice(line) ?? undefined,
   };
 }
 
@@ -406,7 +410,7 @@ export function CutListPanel({
                               data-testid="cut-list-price-blank"
                               aria-label={
                                 sheet === null
-                                  ? `Price ${name}, ${line.profile} at ${seed.stockLengthFt} ft`
+                                  ? `Price ${name}, ${line.profile} at ${stockLabel(line)}`
                                   : `Price ${name}, ${line.profile} ${sheet} sheet`
                               }
                               aria-haspopup="dialog"
@@ -426,7 +430,7 @@ export function CutListPanel({
                             line.unit_price_cents === null
                               ? undefined
                               : splice(line) !== null
-                                ? `${formatCount(line.quantity)} spliced × ${formatMoney(line.unit_price_cents, data.currency)}`
+                                ? `${formatCount(line.stock_quantity ?? 0)} × (${spliceLabel(splice(line) ?? [])}) × ${formatMoney(line.unit_price_cents, data.currency)}`
                                 : `${formatCount(line.stock_quantity ?? 0)} stock × ${formatMoney(line.unit_price_cents, data.currency)}`
                           }
                         >

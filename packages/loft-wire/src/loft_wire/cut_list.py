@@ -240,18 +240,17 @@ class CutListLine(BaseModel):
     )
     stock_quantity: int | None = Field(
         ge=0,
-        description="Stock pieces bought for the line: quantity x the pieces "
-        "each is cut or spliced from (until pieces are nested); for a sheet "
-        "line, ceil(area / sheet area) sheets; null with no stock length or "
-        "sheet.",
+        description="Stock units bought for the line (the CSV's Stock qty): "
+        "one per piece (until pieces are nested), a spliced piece's "
+        "stock_pieces_ft counting as ONE set; for a sheet line, ceil(area / "
+        "sheet area) sheets; null with no stock length or sheet.",
     )
     unit_price_cents: int | None = Field(
         ge=0,
-        description="Price of the stock ONE piece of the line is cut from, in "
-        "the book's currency's cents: one stock piece, or a spliced piece's "
-        "stock pieces summed, each rounded once; for a sheet line, one sheet. "
-        "Null (blank, never 0) when the book has no price for the line or the "
-        "line has no stock.",
+        description="Price of ONE stock unit (see stock_quantity) in the "
+        "book's currency's cents: one stock piece, one splice set (its pieces "
+        "summed, each rounded once) or one sheet. Null (blank, never 0) when "
+        "the book has no price for the line or the line has no stock.",
     )
     price_unit: PriceUnit | None = Field(
         description="Which entry priced the line: 'each' for its stock "
@@ -259,9 +258,8 @@ class CutListLine(BaseModel):
     )
     extended_price_cents: int | None = Field(
         ge=0,
-        description="unit_price_cents x quantity for lumber (x "
-        "stock_quantity for a sheet line): every stock piece bought; null "
-        "when unpriced.",
+        description="unit_price_cents x stock_quantity, on every line, so a "
+        "row multiplies out; null when unpriced.",
     )
 
 
@@ -624,7 +622,7 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
                 ),
                 stock_pieces_ft=None if stock is None else list(stock),
                 waste_mm=waste,
-                stock_quantity=None if stock is None else quantity * len(stock),
+                stock_quantity=None if stock is None else quantity,
                 unit_price_cents=None,
                 price_unit=None,
                 extended_price_cents=None,
@@ -709,9 +707,10 @@ def price_lines(
     unit price is an 'each' entry for its stock length (for a spliced line,
     for every piece of a splice, :func:`_price_stock`), else a per-foot entry
     on the feet bought, else a per-board-foot entry (for its material and
-    profile), and its extended price is that times its quantity, so the
-    offcut is paid for. A sheet line is priced by the 'each' entry for its
-    product and sheet, times its sheets. A line with no stock or no entry
+    profile), and its extended price is that times its stock quantity (one
+    per piece, a splice set counting once), so the offcut is paid for. A
+    sheet line is priced by the 'each' entry for its product and sheet,
+    times its sheets. A line with no stock or no entry
     stays unpriced (null)."""
     entries = {entry.key: entry for entry in book.entries}
     priced: list[CutListLine] = []
@@ -722,7 +721,6 @@ def price_lines(
         quantity = line.stock_quantity
         unit_price: int | None = None
         unit: PriceUnit | None = None
-        multiple = quantity
         update: dict[str, object] = {}
         if (
             good is not None
@@ -739,7 +737,6 @@ def price_lines(
             and stock
             and quantity is not None
         ):
-            multiple = line.quantity
             splices = stock_splices(line.length_mm) if len(stock) > 1 else ()
             options = splices if tuple(stock) in splices else (tuple(stock),)
             found = _price_stock(entries, line.material, lumber, options)
@@ -754,8 +751,8 @@ def price_lines(
                     "price_unit": unit,
                     "extended_price_cents": (
                         None
-                        if unit_price is None or multiple is None
-                        else unit_price * multiple
+                        if unit_price is None or quantity is None
+                        else unit_price * quantity
                     ),
                 }
             )

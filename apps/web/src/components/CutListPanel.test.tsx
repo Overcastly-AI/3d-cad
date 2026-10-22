@@ -320,7 +320,7 @@ describe("CutListPanel", () => {
       stock_length_ft: null,
       stock_pieces_ft: [16, 8],
       waste_mm: 0,
-      stock_quantity: 8,
+      stock_quantity: 4,
       unit_price_cents: 2046,
       price_unit: "each",
       extended_price_cents: 8184,
@@ -340,7 +340,7 @@ describe("CutListPanel", () => {
           quantity: 2,
           total_length_mm: 576 * IN,
           stock_pieces_ft: [12, 12],
-          stock_quantity: 4,
+          stock_quantity: 2,
           unit_price_cents: null,
           price_unit: null,
           extended_price_cents: null,
@@ -356,20 +356,74 @@ describe("CutListPanel", () => {
       "title",
       "Each: 16 ft + 8 ft: one member's spliced stock",
     );
+    // Stock qty x unit price is the extended price: 4 sets x $20.46.
     expect(within(top!).getByTestId("cut-list-ext-price")).toHaveTextContent(
       "$81.84",
+    );
+    expect(within(top!).getByTestId("cut-list-ext-price")).toHaveAttribute(
+      "title",
+      "4 × (16 ft + 8 ft) × $20.46",
     );
     expect(within(sill!).getByTestId("cut-list-stock")).toHaveTextContent(
       "2 × 12 ft",
     );
     // Its blank opens the book on the splice's stock length.
     fireEvent.click(
-      within(sill!).getByRole("button", { name: "Price Sill, 2x6 at 12 ft" }),
+      within(sill!).getByRole("button", {
+        name: "Price Sill, 2x6 at 2 × 12 ft",
+      }),
     );
     const seeded = await screen.findByTestId("price-book-row");
     expect(within(seeded).getByLabelText("Stock length, price 1")).toHaveValue(
       "12",
     );
+  });
+
+  it("opens the book on every piece of an unpriced mixed splice", async () => {
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      total_quantity: 2,
+      unclassified: 0,
+      missing: [],
+      total_price_cents: null,
+      unpriced_lines: 1,
+      lines: [
+        {
+          member: "Rim",
+          profile: "2x6",
+          material: "southern_pine_pt",
+          classification: "member",
+          quantity: 2,
+          length_mm: 288 * IN,
+          total_length_mm: 576 * IN,
+          section_mm: [1.5 * IN, 5.5 * IN],
+          stock_length_ft: null,
+          stock_pieces_ft: [16, 8],
+          waste_mm: 0,
+          stock_quantity: 2,
+          unit_price_cents: null,
+          price_unit: null,
+          extended_price_cents: null,
+        },
+      ],
+    });
+    renderPanel();
+    const [rim] = await screen.findAllByTestId("cut-list-row");
+    fireEvent.click(
+      within(rim!).getByRole("button", {
+        name: "Price Rim, 2x6 at 16 ft + 8 ft",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getAllByTestId("price-book-row")).toHaveLength(2),
+    );
+    const rows = screen.getAllByTestId("price-book-row");
+    expect(
+      within(rows[0]!).getByLabelText("Stock length, price 1"),
+    ).toHaveValue("16");
+    expect(
+      within(rows[1]!).getByLabelText("Stock length, price 2"),
+    ).toHaveValue("8");
   });
 
   it("writes a splice as a framer does", () => {

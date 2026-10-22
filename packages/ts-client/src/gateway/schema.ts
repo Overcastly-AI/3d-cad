@@ -4521,7 +4521,7 @@ export interface components {
             classification: "member" | "matched" | "unclassified";
             /**
              * Extended Price Cents
-             * @description unit_price_cents x quantity for lumber (x stock_quantity for a sheet line): every stock piece bought; null when unpriced.
+             * @description unit_price_cents x stock_quantity, on every line, so a row multiplies out; null when unpriced.
              */
             extended_price_cents: number | null;
             /**
@@ -4573,7 +4573,7 @@ export interface components {
             stock_pieces_ft?: number[] | null;
             /**
              * Stock Quantity
-             * @description Stock pieces bought for the line: quantity x the pieces each is cut or spliced from (until pieces are nested); for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.
+             * @description Stock units bought for the line (the CSV's Stock qty): one per piece (until pieces are nested), a spliced piece's stock_pieces_ft counting as ONE set; for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.
              */
             stock_quantity: number | null;
             /**
@@ -4583,7 +4583,7 @@ export interface components {
             total_length_mm: number;
             /**
              * Unit Price Cents
-             * @description Price of the stock ONE piece of the line is cut from, in the book's currency's cents: one stock piece, or a spliced piece's stock pieces summed, each rounded once; for a sheet line, one sheet. Null (blank, never 0) when the book has no price for the line or the line has no stock.
+             * @description Price of ONE stock unit (see stock_quantity) in the book's currency's cents: one stock piece, one splice set (its pieces summed, each rounded once) or one sheet. Null (blank, never 0) when the book has no price for the line or the line has no stock.
              */
             unit_price_cents: number | null;
             /**

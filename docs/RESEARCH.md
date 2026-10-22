@@ -2699,16 +2699,21 @@ property feeds a BOM column; Loft's price book feeds the cut list.
   the same waste and piece count. Waste comes first, so 37 ft is 14 + 12 + 12
   (1 ft over), not 2 x 20 (3 ft over). The line's `stock_pieces_ft` carries
   the pieces (`[12, 12]`; `[16]` unspliced), `stock_length_ft` is null for a
-  splice, `stock_quantity` counts every piece and `waste_mm` sums the
-  splice's offcut. Each prices only a splice the book prices whole (one unit
-  per line, never Each and per foot mixed); else per foot prices the feet
-  bought and per board foot each piece, rounded once per piece. The unit
-  price of a spliced line is one member's pieces summed, and its extended
-  price is that times the quantity. Past 5 x 20 ft (100 ft, more often a
+  splice and `waste_mm` sums the splice's offcut. Each prices only a splice
+  the book prices whole (one unit per line, never Each and per foot mixed);
+  else per foot prices the feet bought and per board foot each piece,
+  rounded once per piece. **Every row multiplies out:** a splice row's Stock
+  is per member ("16 ft + 8 ft"), its `stock_quantity` (the CSV's Stock qty)
+  counts one splice SET per member, its unit price is one set's pieces
+  summed, and `extended_price_cents` is unit x `stock_quantity` on every
+  line, lumber and sheets alike (B7's rims: 2 x $34.44 = $68.88). A Pieces
+  column was the other option; it was not added, because the buyer reads
+  the pieces from the Stock cell and one more column would not fit the
+  panel. Past 5 x 20 ft (100 ft, more often a
   modelling slip than a plate) a member has no stock and stays unpriced. The
   panel and CSV write the splice as a framer does (`2 × 12 ft`,
-  `16 ft + 8 ft`; the CSV with an ASCII x), and a blank opens the book on the
-  splice's longest piece. B7 with the QA round's book plus an 8 ft SPF 2x10
+  `16 ft + 8 ft`; the CSV with an ASCII x), and a blank opens the book with a
+  row for each piece length it does not price yet. B7 with the QA round's book plus an 8 ft SPF 2x10
   at $11.47 prices to the last line: $2,608.83 + $260.04 = $2,868.87
   (`packages/loft-wire/tests/test_price_book.py`). B1, B2 and B5 have no
   member over 20 ft, so their totals are unchanged.

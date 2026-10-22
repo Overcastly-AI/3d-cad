@@ -6,6 +6,8 @@ Here they are priced from the buildings.md tables as pieces; the geometry
 suite prices the same buildings from their measured goldens.
 """
 
+import csv
+import io
 import uuid
 from typing import Any
 
@@ -381,14 +383,14 @@ def test_stock_for_a_long_member_is_the_least_waste_then_fewest_joints() -> None
     assert splice_label((14, 12)) == "14 ft + 12 ft"
 
 
-def test_a_long_line_lists_its_splice_and_counts_its_pieces() -> None:
+def test_a_long_line_lists_its_splice_and_buys_one_set_per_member() -> None:
     (line,) = _priced(_pieces([("Top plate", "2x6", SPF, 4, 288.0)]), []).lines
     assert (line.stock_length_ft, line.stock_pieces_ft, line.waste_mm) == (
         None,
         [12, 12],
         0,
     )
-    assert line.stock_quantity == 8 and line.unit_price_cents is None
+    assert line.stock_quantity == 4 and line.unit_price_cents is None
     (short,) = _priced(_pieces([("Stud", "2x6", SPF, 3, 92.625)]), []).lines
     assert (short.stock_length_ft, short.stock_pieces_ft) == (8, [8])
 
@@ -403,7 +405,7 @@ def test_a_splice_is_priced_on_its_pieces_each_per_foot_or_board_foot() -> None:
         2046,
         "each",
     )
-    assert (line.stock_quantity, line.extended_price_cents) == (8, 8184)
+    assert (line.stock_quantity, line.extended_price_cents) == (4, 8184)
     # With 12 ft priced too, 2 x 12 at 12.00 beats 16 + 8 at 20.46.
     (line,) = _priced(plate, [*each, _each(SPF, "us_2x6", 12, 600)]).lines
     assert (line.stock_pieces_ft, line.unit_price_cents) == ([12, 12], 1200)
@@ -464,9 +466,41 @@ def test_b7_is_priced_to_the_last_line_2868_87() -> None:
     )
     assert short == 260883  # the QA round's total, unchanged
     rows = cut_list_csv(cut_list).split("\r\n")
-    assert rows[2].endswith(",16 ft + 8 ft,0,4,34.44,Each,68.88")
-    assert rows[3].endswith(",2 x 12 ft,0,4,24.96,Each,49.92")
+    assert rows[2].endswith(",16 ft + 8 ft,0,2,34.44,Each,68.88")
+    assert rows[3].endswith(",2 x 12 ft,0,2,24.96,Each,49.92")
     assert rows[-2] == ",Total,,,,,,,,,,,,,2868.87"
+
+
+def _cents(cell: str) -> int:
+    whole, part = cell.split(".")
+    return int(whole) * 100 + int(part)
+
+
+@pytest.mark.parametrize("building", ["b1", "b2", "b7"])
+def test_every_csv_row_multiplies_out(building: str) -> None:
+    """Stock qty x Unit price = Extended on every priced row (lumber, splices
+    and sheets), so a row copied onto a purchase order is what it costs."""
+    if building == "b7":
+        pieces = _pieces(B7)
+        pieces.insert(4, _sheets("Subfloor", "plywood_23_32", 55296))
+        pieces.insert(15, _sheets("Sheathing", "osb_7_16", 83175.71875))
+        cut_list = _priced(pieces, B7_BOOK)
+    else:
+        cut_list = _priced(_pieces(B1 if building == "b1" else B2))
+    rows = list(csv.reader(io.StringIO(cut_list_csv(cut_list))))
+    header = rows[0]
+    qty, unit, extended = (
+        header.index("Stock qty"),
+        header.index("Unit price (USD)"),
+        header.index("Extended (USD)"),
+    )
+    priced = [row for row in rows[1:-1] if row[extended]]
+    assert len(priced) == len(cut_list.lines)
+    for row in priced:
+        assert int(row[qty]) * _cents(row[unit]) == _cents(row[extended]), row
+    for line in cut_list.lines:
+        assert line.unit_price_cents is not None and line.stock_quantity is not None
+        assert line.extended_price_cents == line.unit_price_cents * line.stock_quantity
 
 
 # --- the wire rules -------------------------------------------------------------
