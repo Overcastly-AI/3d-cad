@@ -123,6 +123,9 @@ def test_create_part_returns_full_dto(client: TestClient) -> None:
         # What the part is made of (docs/design/materials.md) — always present,
         # empty until assigned, because mass is derived from it.
         "materials",
+        # The user's body renames (BODY-NAMES) — always a list, empty until
+        # a body is renamed.
+        "body_names",
         "tree_version",
         "eval_state",
         # ...and HOW MUCH of the tree that state speaks for (audit J3): a
@@ -138,6 +141,7 @@ def test_create_part_returns_full_dto(client: TestClient) -> None:
     assert body["name"] == "Bracket"
     assert body["owner_id"] == OWNER
     assert body["folder_id"] is None
+    assert body["body_names"] == []
     # A part with no tree yet sits at version 0 (feature-tree.md §1.2).
     assert body["tree_version"] == 0
     # Never evaluated: the record is all-null and the derived state says so
