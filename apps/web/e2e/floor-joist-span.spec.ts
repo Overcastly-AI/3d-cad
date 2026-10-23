@@ -73,18 +73,18 @@ const OUTLINE = {
 /** Long walls: the joists span the 16 ft way. */
 const LONG_WALLS: CutRow[] = [
   ["Joist", "19", "189", "16 ft"],
-  ["Rim", "2", "288", "2 × 12 ft"],
+  ["Rim", "2", "288", "24 ft"],
   ["Sill", "2", "181", "16 ft"],
-  ["Sill", "2", "288", "2 × 12 ft"],
+  ["Sill", "2", "288", "24 ft"],
   ["Subfloor", "14", "55,296 in²", "12 × 4x8"],
 ];
 
 /** Front and back: the joists span the 24 ft way. */
 const FRONT_AND_BACK: CutRow[] = [
-  ["Joist", "13", "285", "2 × 12 ft"],
+  ["Joist", "13", "285", "24 ft"],
   ["Rim", "2", "192", "16 ft"],
   ["Sill", "2", "192", "16 ft"],
-  ["Sill", "2", "277", "2 × 12 ft"],
+  ["Sill", "2", "277", "24 ft"],
   ["Subfloor", "15", "55,296 in²", "12 × 4x8"],
 ];
 
