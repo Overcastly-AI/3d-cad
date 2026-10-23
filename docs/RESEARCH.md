@@ -2736,6 +2736,26 @@ and reframe it, a material per member, and a cut list that is always current.
     with its 3068 door and 2030 window at 1.4.0: 66 bodies, all 2x6, 5479 in
     of lumber, 45 201.75 in³ by hand, the headers 3 x 41 and 3 x 27.5, and
     no interference. Golden `b2-2x6-walls-header-plies`.
+- **Decided while naming member bodies** (BODY-NAMES, 2026-10-23; Fusion's
+  browser and its STEP export, SolidWorks' multibody import):
+  - *The name.* A member's body is `<feature> · <member>`, the member as the
+    unfolded tree labels it: the role's title and its place in the role
+    (`Front wall · Stud 3`), no number when the role has one member
+    (`Roof 1 · Ridge`). The place is `index + 1`, which the stable member
+    names keep for the same inputs. Other bodies keep "Body n".
+  - *Renames.* A rename is stored on the part (`parts.body_names`, migration
+    0026), keyed like a per-body material by the id that created the body,
+    and wins over the member's name; a blank name, or the member's own,
+    clears it. It is display metadata: the last evaluate stays current. A
+    duplicate and a `.loft` file carry it (an optional `tree.json` field,
+    absent when empty, so stored files and version digests are unchanged).
+  - *STEP.* Fusion writes a component's bodies as named solids of one
+    product, and SolidWorks reads them back as named bodies of one part. So
+    the name goes on each body's `MANIFOLD_SOLID_BREP`, and the part stays
+    one `PRODUCT` named after the part; a product per body would turn every
+    multi-body part into an assembly in the receiving CAD. Only geometry's
+    export names the solids (`write.stepcaf.subshapes.name`); a part with no
+    named body writes the bytes it did before, and no shape moves.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
