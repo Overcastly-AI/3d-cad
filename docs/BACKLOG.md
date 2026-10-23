@@ -248,6 +248,13 @@ seventh pass) are in VISION's delegated log; reverse any there.
 
 One line each. The founder triages weekly; most are closed without work.
 
+- SLAB-MULTI-POUR: group_pieces sums pours of one product, material and allowance and rounds the total up to 1/4 yd³, not each pour (two pours are two truck orders on site).
+- SLAB-BOLT-SHORT-PIECE: a plate piece under 24 in gets its 2 anchor bolts with no check of the 12 in end distance (foundation.anchor_bolt_count).
+- SLAB-PRICE-DOWNGRADE: migration 0027's downgrade deletes the foundation prices without bumping price_books.version, so an open draft's If-Match still matches (0025's downgrade does the same).
+- INTERIOR-WALLS-ENDS: a partition's ends are read from the stored drawn midpoint of its line, not the solved one (interior_wall.py:263).
+- INTERIOR-WALLS-READ-PLAN: outline.read_plan now drops dangling lines for wall, roof and floor 1.1-1.3 too, so an outline sketch with a stray line reads where it used to be refused.
+- INTERIOR-WALLS-GYPSUM-COUNT: gypsum is counted by area, not by sheets_to_cut, and a 4x12 choice beside 4x8 walls gives mixed sheet lines.
+- INTERIOR-WALLS-INSIDE-GYPSUM-GOLDEN: loft.wall 1.4.0's inside gypsum (finish) has no geometry golden.
 - OPENING-NEARER-LOFT-IMPORT: a hand-made .loft storing measure_from "nearer" keeps it on import (refresh_expansions does not settle), so the opening floats with the wall until the next edit settles it (loft_file.py:131).
 - OPENING-REFUSAL-FRAME: the end-stud refusal message gives positions from the wall start even when the opening is measured from the end or centre (wall.py:601).
 - OPENING-MEASURE-SWITCH: changing Measured from in the dialog moves the opening; Revit converts the distance so it stays put. Frontend follow-up with the both-ends readout.

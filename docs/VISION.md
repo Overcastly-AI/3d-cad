@@ -393,8 +393,9 @@ goal and answer them"); the product-manager decided them. Each is in
   crawl height with a warning below 18 in. The 18 in is IRC R317.1 (treated
   or durable joists below it); R408.4 is the access opening. Vents by
   R408.1 and a 24 x 16 in access are cut from the stem.
-- **Concrete, rebar and bolts:** concrete listed in yd³ and bought in
-  1/4 yd³ steps, no waste factor; rebar and anchor bolts listed, not drawn
+- **Concrete, rebar and bolts:** concrete listed in yd³ and ordered with a
+  5% waste allowance (editable on the pour), rounded up to 1/4 yd³ (the
+  2026-10-23 decision above); rebar and anchor bolts listed, not drawn
   (they would sit inside the concrete); #4 in 20 ft sticks with 24 in laps;
   bolts by R403.1.6. The price book gains a cubic-yard unit and Each
   products for bolts and hardware.
