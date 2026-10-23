@@ -41,6 +41,7 @@ from loft_plugins import (
 )
 from loft_plugins import canonical_inputs as _canonical
 from loft_plugins import expand as _expand
+from loft_plugins.builtin.roof_sheathing import MIN_OVERLAP_IN3, through_sheathing
 from loft_wire.expr import Quantity
 from loft_wire.feature_input import PARAMETER_VALUE_INVALID
 from loft_wire.feature_resolve import (
@@ -71,6 +72,7 @@ from loft_wire.legacy_twist import (
     EXTRUDE_TWIST_DEPRECATED_MESSAGE,
     authors_extrude_twist,
 )
+from loft_wire.plugin_warning import ROOF_THROUGH_SHEATHING, PluginWarning
 from loft_wire.plugins import (
     PLUGIN_EXPANSION_TOO_LARGE,
     PLUGIN_READ_ONLY,
@@ -79,6 +81,7 @@ from loft_wire.plugins import (
     PluginCatalog,
     ProfileInput,
     member_id,
+    semver_key,
 )
 from py_kit import ConflictError, ValidationApiError, get_logger
 from pydantic import ValidationError
@@ -1055,6 +1058,68 @@ def check_stored_custom(
     check_members_authorable(_stored(envelope), rows)
 
 
+# --- warnings ---------------------------------------------------------------------
+
+
+def plugin_warnings(
+    part: db.Part, row: db.Feature, rows: Sequence[db.Feature]
+) -> list[PluginWarning] | None:
+    """A stored roof's ``roof_through_sheathing`` warning (ROOF-THROUGH-
+    SHEATHING-UPDATE), or None: its stored members' exact overlap with the
+    sheathing of every earlier wall (:func:`through_sheathing`), less what
+    its own cuts notch. A suppressed roof, or a suppressed wall, builds
+    nothing and shares nothing. The pin is never moved here: the warning
+    names the release that notches it when the roof picks its walls, and
+    updating is the user's edit, undone like any other."""
+    if row.type != "custom" or row.suppressed:
+        return None
+    envelope = load_feature(row)[0]
+    if (
+        not isinstance(envelope, CustomFeature)
+        or envelope.params.plugin_id != "loft.roof"
+        or not envelope.params.expansion
+    ):
+        return None
+    values = parameter_values(part.parameters)
+    earlier = _earlier_from_rows(
+        [r for r in rows if r.order_index < row.order_index and not r.suppressed],
+        parameters=values,
+    )
+    found = through_sheathing(envelope.params.expansion, earlier, values)
+    if found.volume <= MIN_OVERLAP_IN3:
+        return None
+    pinned = envelope.params.plugin_version
+    latest = PLUGINS.latest("loft.roof").manifest.version
+    picks = envelope.params.inputs.get("walls")
+    newer = semver_key(latest) > semver_key(pinned)
+    update = latest if newer and isinstance(picks, list) and picks else None
+    about = "about " if found.approximate else ""
+    shared = (
+        f"This roof's rafter tails pass through the wall sheathing: {found.pairs} "
+        f"member and panel pairs share {about}{found.volume:.4f} in³, counted "
+        "twice in the volume, the mass and the STEP."
+    )
+    if update is not None:
+        fix = (
+            f" Update to {update} to notch the sheathing round them, as framers "
+            "do; Undo restores this roof."
+        )
+    else:
+        fix = (
+            " A roof on its typed bearing picks no walls, so it cannot notch "
+            "them: a roof on an outline wall, or a hip on the walls it picks, does."
+        )
+    return [
+        PluginWarning(
+            code=ROOF_THROUGH_SHEATHING,
+            message=shared + fix,
+            overlap_in3=found.volume,
+            pairs=found.pairs,
+            update_to=update,
+        )
+    ]
+
+
 __all__ = [
     "AUTHORED_FEATURES",
     "PLUGINS",
@@ -1072,6 +1137,7 @@ __all__ = [
     "member_targets",
     "picked_ids",
     "pickers_of",
+    "plugin_warnings",
     "prepare_custom_write",
     "reexpand_hosts",
     "reexpand_pickers",

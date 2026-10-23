@@ -169,3 +169,75 @@ describe("PluginFeatureEditor — a missing plugin", () => {
     expect(screen.queryByTestId("plugin-submit")).toBeNull();
   });
 });
+
+describe("PluginFeatureEditor — a release that builds wrong geometry", () => {
+  const STORED: CustomParams = {
+    plugin_id: "loft.twisted_prism",
+    plugin_version: "1.0.0",
+    inputs: {
+      profile: { kind: "feature", feature_id: "s1" },
+      distance_mm: 25,
+      twist_angle_deg: 90,
+      operation: "add",
+    },
+  };
+
+  function renderWarned(updateTo: string | null) {
+    const custom = {
+      ...SKETCH,
+      id: "c1",
+      order_index: 1,
+      name: "Roof",
+      feature: { type: "custom", version: 1, params: STORED },
+      plugin_warnings: [
+        {
+          code: "roof_through_sheathing",
+          message: "This roof's rafter tails pass through the wall sheathing.",
+          overlap_in3: 33.2551,
+          pairs: 30,
+          update_to: updateTo,
+        },
+      ],
+    } as unknown as FeatureResponse;
+    const onSubmit = vi.fn<(write: CustomFeatureWrite) => void>();
+    wrap(
+      <PluginFeatureEditor
+        mode="edit"
+        pluginId="loft.twisted_prism"
+        pluginVersion="1.0.0"
+        featureId="c1"
+        stored={STORED}
+        catalog={[TWISTED_PRISM]}
+        features={[SKETCH, custom]}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+        saving={false}
+        error={null}
+      />,
+    );
+    return { onSubmit };
+  }
+
+  it("shows the warning, and Update re-pins with the same inputs", () => {
+    const { onSubmit } = renderWarned("1.5.0");
+    expect(screen.getByTestId("plugin-warning")).toHaveTextContent(
+      "pass through the wall sheathing",
+    );
+    const update = screen.getByTestId("plugin-update");
+    expect(update).toHaveTextContent("Update to 1.5.0");
+    // Nothing is re-pinned until the user asks.
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.click(update);
+    expect(onSubmit).toHaveBeenCalledWith({
+      pluginId: "loft.twisted_prism",
+      pluginVersion: "1.5.0",
+      inputs: STORED.inputs,
+    });
+  });
+
+  it("warns with no Update when no release fixes it", () => {
+    renderWarned(null);
+    expect(screen.getByTestId("plugin-warning")).toBeInTheDocument();
+    expect(screen.queryByTestId("plugin-update")).toBeNull();
+  });
+});

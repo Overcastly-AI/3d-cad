@@ -227,16 +227,35 @@ function GeneratedForm({
   const blocker = saving ? null : firstPluginBlocker(manifest, errors);
   const canSubmit = blocker === null && !saving;
 
-  const submit = useCallback(() => {
-    const inputs = pluginInputsFromForm(manifest, form, unit, features, selfId);
-    if (inputs === null) return;
-    onSubmit({
-      pluginId: manifest.id,
-      pluginVersion: manifest.version,
-      inputs,
-    });
-  }, [manifest, form, unit, features, selfId, onSubmit]);
+  // Save under a pin: this release (Save), or a newer one that fixes what
+  // this one builds wrong (ROOF-THROUGH-SHEATHING-UPDATE). Either is one
+  // ordinary edit of the feature, so Undo restores it.
+  const saveAs = useCallback(
+    (pluginVersion: string) => {
+      const inputs = pluginInputsFromForm(
+        manifest,
+        form,
+        unit,
+        features,
+        selfId,
+      );
+      if (inputs === null) return;
+      onSubmit({ pluginId: manifest.id, pluginVersion, inputs });
+    },
+    [manifest, form, unit, features, selfId, onSubmit],
+  );
+  const submit = useCallback(
+    () => saveAs(manifest.version),
+    [saveAs, manifest.version],
+  );
   useCommandBridge(submit, canSubmit);
+
+  // What the stored feature's release builds wrong, read from the live tree
+  // so an update clears it (a roof's tails through the wall sheathing).
+  const warnings =
+    mode === "edit"
+      ? (features.find((f) => f.id === featureId)?.plugin_warnings ?? [])
+      : [];
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -308,6 +327,31 @@ function GeneratedForm({
             v{manifest.version}
           </span>
         </div>
+        {warnings.map((warning) => {
+          const target = warning.update_to;
+          return (
+            <Notice
+              key={warning.code}
+              role="status"
+              label="Through sheathing"
+              layout="stacked"
+              data-testid="plugin-warning"
+              action={
+                target === null || target === undefined
+                  ? undefined
+                  : {
+                      label: `Update to ${target}`,
+                      testId: "plugin-update",
+                      onClick: () => {
+                        if (canSubmit) saveAs(target);
+                      },
+                    }
+              }
+            >
+              {warning.message}
+            </Notice>
+          );
+        })}
         <p className="px-3 pb-1 font-body text-xs text-gauge">
           {manifest.description}
         </p>
