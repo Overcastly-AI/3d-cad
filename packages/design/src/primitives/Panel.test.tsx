@@ -13,7 +13,8 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { PanelActionCell } from "./Panel";
+import { Button } from "./Button";
+import { PanelActionCell, PanelSection } from "./Panel";
 
 afterEach(cleanup);
 
@@ -90,5 +91,57 @@ describe("PanelActionCell — a gated action can explain itself", () => {
     ).split(" ");
     expect(ids).toContain("outside");
     expect(ids).toHaveLength(2);
+  });
+});
+
+describe("PanelSection — a caption bar with actions", () => {
+  it("keeps the plain caption when it has no actions", () => {
+    render(<PanelSection eyebrow="Mass properties">body</PanelSection>);
+    const heading = screen.getByRole("heading", { name: "Mass properties" });
+    expect(heading.closest("[data-caption-bar]")).toBeNull();
+  });
+
+  it("sticks its bar and clears the collapse tab's corner", () => {
+    render(
+      <PanelSection
+        eyebrow="Cut list · 23"
+        stickyCaption
+        actions={
+          <Button size="dense" data-testid="expand">
+            Expand
+          </Button>
+        }
+      >
+        body
+      </PanelSection>,
+    );
+    const bar = screen
+      .getByRole("heading", { name: "Cut list · 23" })
+      .closest("[data-caption-bar]");
+    expect(bar).not.toBeNull();
+    expect(bar!.className).toContain("sticky");
+    expect(bar!.className).toContain("top-0");
+    // 32 px on the right: the panel's 24 px collapse tab never covers it.
+    expect(bar!.className).toContain("pr-8");
+    expect(bar).toContainElement(screen.getByTestId("expand"));
+    // The group keeps its accessible name.
+    expect(
+      screen.getByRole("group", { name: "Cut list · 23" }),
+    ).toBeInTheDocument();
+  });
+
+  it("sizes a dense button to the 24 px caption row", () => {
+    render(
+      <>
+        <Button data-testid="regular">CSV</Button>
+        <Button size="dense" data-testid="dense">
+          Expand
+        </Button>
+      </>,
+    );
+    expect(screen.getByTestId("regular").className).toContain("px-3");
+    const dense = screen.getByTestId("dense").className;
+    expect(dense).toContain("min-h-target-dense");
+    expect(dense).not.toContain("px-3");
   });
 });

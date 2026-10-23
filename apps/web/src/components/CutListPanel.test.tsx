@@ -509,6 +509,82 @@ describe("CutListPanel", () => {
     expect(unpricedLabel(6)).toBe("6 lines unpriced");
   });
 
+  it("opens full width and closes with Esc, focus back on Expand", async () => {
+    renderPanel();
+    await screen.findAllByTestId("cut-list-row");
+    const expand = screen.getByRole("button", { name: "Expand the cut list" });
+    fireEvent.click(expand);
+    const view = screen.getByRole("dialog", { name: "Cut list" });
+    expect(view).toHaveAttribute("aria-modal", "true");
+    // The same table: every line, its prices, the Total and the actions.
+    const inView = within(view);
+    expect(inView.getAllByTestId("cut-list-row")).toHaveLength(3);
+    expect(inView.getByTestId("cut-list-price-total")).toHaveTextContent(
+      "$259.74",
+    );
+    expect(inView.getByText("B1 deck")).toBeInTheDocument();
+    expect(inView.getByText("3 lines · 15 pieces")).toBeInTheDocument();
+    expect(inView.getByTestId("cut-list-price-book")).toBeInTheDocument();
+    expect(inView.getByTestId("cut-list-csv")).toBeEnabled();
+    // Its head stays put while the rows scroll.
+    expect(view.querySelector("thead")).toHaveClass("sticky", "top-0");
+    fireEvent.keyDown(view, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(expand).toHaveFocus();
+    // The side panel is as it was.
+    expect(screen.getAllByTestId("cut-list-row")).toHaveLength(3);
+  });
+
+  it("closes with its Close button", async () => {
+    renderPanel();
+    await screen.findAllByTestId("cut-list-row");
+    fireEvent.click(screen.getByTestId("cut-list-expand"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close the full cut list" }),
+    );
+    expect(screen.queryByTestId("cut-list-expanded")).toBeNull();
+  });
+
+  it("gives Esc to a Price book opened from the full view first", async () => {
+    renderPanel();
+    await screen.findAllByTestId("cut-list-row");
+    fireEvent.click(screen.getByTestId("cut-list-expand"));
+    const view = screen.getByTestId("cut-list-expanded");
+    fireEvent.click(
+      within(view).getByRole("button", { name: "Price 6x6, 6x6 at 8 ft" }),
+    );
+    const book = screen.getByRole("dialog", { name: "Price book" });
+    fireEvent.keyDown(book, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Price book" })).toBeNull();
+    expect(screen.getByTestId("cut-list-expanded")).toBeInTheDocument();
+  });
+
+  it("downloads the CSV from the full view", async () => {
+    const blob = new Blob(["Item"], { type: "text/csv" });
+    csv.exportCutListCsv.mockResolvedValue({ blob, filename: "B1.csv" });
+    renderPanel();
+    await screen.findAllByTestId("cut-list-row");
+    fireEvent.click(screen.getByTestId("cut-list-expand"));
+    fireEvent.click(
+      within(screen.getByTestId("cut-list-expanded")).getByTestId(
+        "cut-list-csv",
+      ),
+    );
+    await waitFor(() =>
+      expect(csv.downloadBlob).toHaveBeenCalledWith(blob, "B1.csv"),
+    );
+  });
+
+  it("offers no Expand for an empty list", async () => {
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      lines: [],
+    });
+    renderPanel();
+    await screen.findByTestId("cut-list-empty");
+    expect(screen.queryByTestId("cut-list-expand")).toBeNull();
+  });
+
   it("downloads the server's CSV", async () => {
     const blob = new Blob(["Item"], { type: "text/csv" });
     csv.exportCutListCsv.mockResolvedValue({
