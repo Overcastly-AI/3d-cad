@@ -42,9 +42,11 @@ from geometry.main import app
 from loft_wire.cut_list import (
     BodyExtentsResult,
     CutListMember,
-    cut_list_csv,
     cut_list_response,
     part_pieces,
+)
+from loft_wire.cut_list_csv import (
+    cut_list_csv,
 )
 from loft_wire.features import EvaluateTreeRequest, ExportTreeRequest
 from loft_wire.price_book import PriceBookResponse

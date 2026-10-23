@@ -17,9 +17,11 @@ from loft_wire.cut_list import (
     BodyExtent,
     BodyExtentsResult,
     CutListMember,
-    cut_list_csv,
     cut_list_response,
     part_pieces,
+)
+from loft_wire.cut_list_csv import (
+    cut_list_csv,
 )
 from loft_wire.foundation import (
     FOUNDATION_ITEMS,

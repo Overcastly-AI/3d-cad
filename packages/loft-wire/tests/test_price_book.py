@@ -16,16 +16,18 @@ import pytest
 from loft_wire.cut_list import (
     CutListPiece,
     CutListResponse,
-    csv_text,
-    cut_list_csv,
     cut_list_response,
-    format_cents,
     lumber_for,
     nominal_size_in,
     splice_label,
     stock_piece_price,
     stock_pieces_ft,
     stock_splices,
+)
+from loft_wire.cut_list_csv import (
+    csv_text,
+    cut_list_csv,
+    format_cents,
 )
 from loft_wire.lumber import LUMBER_PROFILES, MM_PER_INCH
 from loft_wire.price_book import (

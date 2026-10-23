@@ -23,9 +23,11 @@ from loft_wire.cut_list import (
     CutListMember,
     CutListPiece,
     CutListResponse,
-    cut_list_csv,
     cut_list_response,
     part_pieces,
+)
+from loft_wire.cut_list_csv import (
+    cut_list_csv,
 )
 from loft_wire.features import EvaluateTreeRequest
 from loft_wire.price_book import PriceBookResponse, PriceBookUpdate

@@ -39,9 +39,11 @@ from build123d import Pos, Solid
 from geometry.kernel import measure_shape
 from loft_wire.cut_list import (
     CutListMember,
-    cut_list_csv,
     cut_list_response,
     part_pieces,
+)
+from loft_wire.cut_list_csv import (
+    cut_list_csv,
 )
 from loft_wire.price_book import PriceBookResponse
 

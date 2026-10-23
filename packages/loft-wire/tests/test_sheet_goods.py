@@ -17,9 +17,11 @@ from loft_wire.cut_list import (
     BodyExtentsResult,
     CutListMember,
     classify_body,
-    cut_list_csv,
     cut_list_response,
     part_pieces,
+)
+from loft_wire.cut_list_csv import (
+    cut_list_csv,
 )
 from loft_wire.materials import MATERIALS_BY_KEY, MaterialKey
 from loft_wire.plugins import MemberMetadata
