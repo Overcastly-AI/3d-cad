@@ -203,6 +203,7 @@ main `01e49e2` on 2026-10-09 and updated from shipped commits on
 - Cloud SaaS billing. Self-hosting comes first.
 
 ## Delegated decisions
+- 2026-10-23 (orchestrator): concrete is ordered with a 5% waste allowance by default, editable on the slab and foundation (crews order over: spillage, sub-grade variance), then rounded up to 1/4 yd³; cabinets live in the house part under a Casework system for now, a separate casework part later if shops ask.
 - 2026-10-21 (founder): do not build or fork OCCT; stay on the published, pinned OCP wheels, work around OCCT faults and report them upstream with minimal repros.
 
 The founder delegated these on 2026-10-16 ("launch an agent to understand the
