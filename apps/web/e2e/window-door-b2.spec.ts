@@ -124,8 +124,12 @@ test.describe("Window and Door — hosted openings framed by B2's walls", () => 
     await expect(host.locator("option")).toHaveText(WALLS.map((w) => w[0]));
     await host.selectOption({ label: "Front wall" });
     await expect(page.getByTestId("plugin-input-offset_mm")).toHaveValue("72");
-    await expect(page.getByTestId("plugin-input-width_mm")).toHaveValue("36");
-    await expect(page.getByTestId("plugin-input-height_mm")).toHaveValue("80");
+    // OPENING-UNITS: B2's 36 x 80 door is the default 3068; its unit is
+    // left out, so the list is the framing's.
+    await expect(page.getByTestId("plugin-input-size")).toHaveValue(
+      "door_3068",
+    );
+    await page.getByTestId("plugin-input-draw_unit").selectOption("none");
     await page.getByTestId("plugin-submit").click();
     await expect(editor).toBeHidden({ timeout: 30_000 });
     await expect(rows).toHaveCount(5);
@@ -140,6 +144,9 @@ test.describe("Window and Door — hosted openings framed by B2's walls", () => 
     await expect(page.getByTestId("plugin-input-head_height_mm")).toHaveValue(
       "82.5",
     );
+    // B2's 24 x 36 window is a 2030, its unit left out.
+    await page.getByTestId("plugin-input-size").selectOption("window_2030");
+    await page.getByTestId("plugin-input-draw_unit").selectOption("none");
     await page.getByTestId("plugin-submit").click();
     await expect(editor).toBeHidden({ timeout: 30_000 });
     await expect(rows).toHaveCount(6);

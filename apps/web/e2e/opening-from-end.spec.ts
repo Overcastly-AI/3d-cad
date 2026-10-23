@@ -176,8 +176,10 @@ test.describe("Openings measured from the wall end nearer the origin", () => {
       "Nearer the origin",
     );
     await page.getByTestId("plugin-input-offset_mm").fill("60");
-    await page.getByTestId("plugin-input-width_mm").fill("36");
-    await page.getByTestId("plugin-input-height_mm").fill("48");
+    // A 36 x 48 window is the default 3040 (OPENING-UNITS).
+    await expect(page.getByTestId("plugin-input-size")).toHaveValue(
+      "window_3040",
+    );
     await submit(page);
     await expect(rows).toHaveCount(3);
     await expectSolved(page);
