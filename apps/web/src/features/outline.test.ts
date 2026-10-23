@@ -9,10 +9,15 @@ import type { FeatureResponse } from "../api/parts";
 import type { PluginManifest } from "../api/plugins";
 import type { SketchEntity } from "../sketch/tools";
 import {
+  INTERIOR_WALL,
   facingOf,
   outlineSides,
+  partitionSides,
+  segmentSides,
   segmentsOutlineSketch,
+  segmentsPickPartitions,
   sideName,
+  splitLines,
   supersededInputs,
 } from "./outline";
 
@@ -278,5 +283,112 @@ describe("supersededInputs", () => {
       "width_mm",
     ]);
     expect([...supersededInputs(window, { size: "custom" })]).toEqual([]);
+  });
+});
+
+/** B10 (INTERIOR-WALLS): B7 plus P1 (X 180, drawn from the back) and P2
+ * (Y 132, from the right wall to P1), each ending on another line's middle. */
+const PARTITIONS = [
+  {
+    id: "e5",
+    kind: "line",
+    construction: false,
+    start: { x: 180, y: 192 },
+    end: { x: 180, y: 0 },
+  },
+  {
+    id: "e6",
+    kind: "line",
+    construction: false,
+    start: { x: 288, y: 132 },
+    end: { x: 180, y: 132 },
+  },
+] as SketchEntity[];
+const B10 = [...B7, ...PARTITIONS];
+
+describe("splitLines and partitionSides", () => {
+  it("keeps B7's sides when partitions are drawn on its outline", () => {
+    expect(names(B10)).toEqual(names(B7));
+    const { loop: sides, off } = splitLines(B10);
+    expect(sides.map((l) => l.id)).toEqual(["e1", "e2", "e3", "e4"]);
+    expect(off.map((l) => l.id)).toEqual(["e5", "e6"]);
+  });
+  it("names the lines off the loop as partitions, in sketch order", () => {
+    expect(partitionSides(B10).map((s) => [s.lineId, s.name])).toEqual([
+      ["e5", "Partition 1"],
+      ["e6", "Partition 2"],
+    ]);
+    expect(partitionSides(B7)).toEqual([]);
+    // A separate sketch of partitions alone: every line is one.
+    expect(
+      partitionSides([ORIGIN, ...PARTITIONS]).map((s) => s.lineId),
+    ).toEqual(["e5", "e6"]);
+  });
+});
+
+describe("a door in a partition", () => {
+  const PLAN = row("s1", {
+    type: "sketch",
+    version: 1,
+    params: { entities: B10, constraints: [], plane: {} },
+  });
+  const INTERIOR = row("i1", {
+    type: "custom",
+    version: 1,
+    params: {
+      plugin_id: INTERIOR_WALL,
+      plugin_version: "1.0.0",
+      inputs: { host_wall: { kind: "feature", feature_id: "w1" } },
+    },
+  });
+  const DOOR = {
+    id: "loft.door",
+    version: "1.4.0",
+    title: "Door",
+    description: "",
+    members: [],
+    inputs: [
+      {
+        kind: "feature",
+        name: "host_wall",
+        label: "Host wall",
+        feature_types: ["custom"],
+        plugin_ids: ["loft.wall", INTERIOR_WALL],
+        host: true,
+      },
+      {
+        kind: "segments",
+        name: "wall_segment",
+        label: "Wall",
+        outline_input: "host_wall",
+        min_items: 0,
+        max_items: 1,
+      },
+    ],
+  } as unknown as PluginManifest;
+  const WALL = DOOR.inputs[1] as Extract<
+    PluginManifest["inputs"][number],
+    { kind: "segments" }
+  >;
+  const tree = [PLAN, OUTLINE_WALL, INTERIOR];
+
+  it("picks a partition of the Interior wall's plan, through its walls", () => {
+    const values = { host_wall: "i1" };
+    expect(segmentsOutlineSketch(DOOR, WALL, values, tree)?.id).toBe("s1");
+    expect(segmentsPickPartitions(DOOR, WALL, values, tree)).toBe(true);
+    expect(segmentSides(true, B10)?.map((s) => s.name)).toEqual([
+      "Partition 1",
+      "Partition 2",
+    ]);
+  });
+  it("picks a side of an outline wall as before", () => {
+    const values = { host_wall: "w1" };
+    expect(segmentsPickPartitions(DOOR, WALL, values, tree)).toBe(false);
+    expect(segmentSides(false, B10)?.map((s) => s.name)).toEqual([
+      "Front",
+      "Left",
+      "Back",
+      "Right",
+    ]);
   });
 });

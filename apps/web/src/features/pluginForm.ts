@@ -36,8 +36,9 @@ import type {
 import type { FeatureResponse } from "../api/parts";
 import type { FieldKind } from "../units/length";
 import {
-  outlineSides,
+  segmentSides,
   segmentsOutlineSketch,
+  segmentsPickPartitions,
   sideName,
   supersededInputs,
 } from "./outline";
@@ -349,9 +350,15 @@ export function validatePluginForm(
         form.values,
         features,
       );
+      const partitions = segmentsPickPartitions(
+        manifest,
+        input,
+        form.values,
+        features,
+      );
       const sides =
         sketch?.feature.type === "sketch"
-          ? outlineSides(sketch.feature.params.entities)
+          ? segmentSides(partitions, sketch.feature.params.entities)
           : null;
       const stray =
         sides === null
@@ -360,7 +367,9 @@ export function validatePluginForm(
       if (ids.length > 0 && sketch === null) {
         error = "Pick an outline first.";
       } else if (stray !== undefined) {
-        error = `${sideName(sides, stray)} is not a line of the outline.`;
+        error = partitions
+          ? `${sideName(sides, stray)} is not a partition.`
+          : `${sideName(sides, stray)} is not a line of the outline.`;
       } else if (ids.length < input.min_items) {
         error = `Pick at least ${input.min_items}.`;
       } else if (ids.length > input.max_items) {

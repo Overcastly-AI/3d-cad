@@ -27,7 +27,11 @@ import { buildTools } from "../features/customFeature";
 export const BUILD_LABEL_PRIORITY = 35;
 
 /** The plugins on the Build row, in order; the rest are in BUILD ▾. */
-export const BUILD_ROW: readonly string[] = ["loft.wall", "loft.deck"];
+export const BUILD_ROW: readonly string[] = [
+  "loft.wall",
+  "loft.interior_wall",
+  "loft.deck",
+];
 
 export interface BuildToolGroupProps {
   catalog: readonly PluginManifest[] | undefined;

@@ -78,14 +78,62 @@ export function facingOf(start: XY, end: XY): Facing {
 }
 
 /**
+ * The sketch's non-construction lines split into the loop's and the rest
+ * (INTERIOR-WALLS): a line with an end that meets no other line's end is off
+ * the loop (a partition), as is every line meeting only such lines, as
+ * `loft_plugins.builtin.outline.read_plan` reads it.
+ */
+export function splitLines(entities: readonly SketchEntity[]): {
+  loop: Line[];
+  off: Line[];
+} {
+  const all = entities.filter(isLoopLine);
+  let alive = all;
+  for (;;) {
+    const meets = (at: XY, self: Line) =>
+      alive.some(
+        (other) =>
+          other !== self && (same(other.start, at) || same(other.end, at)),
+      );
+    const next = alive.filter(
+      (line) => meets(line.start, line) && meets(line.end, line),
+    );
+    if (next.length === alive.length) break;
+    alive = next;
+  }
+  return { loop: alive, off: all.filter((line) => !alive.includes(line)) };
+}
+
+/**
+ * The lines off a plan sketch's loop, each a partition's location line
+ * (INTERIOR-WALLS), named "Partition 1", "Partition 2" in sketch order; every
+ * line of a sketch with no loop (a separate partition sketch). A door in an
+ * Interior wall picks its partition from these.
+ */
+export function partitionSides(
+  entities: readonly SketchEntity[],
+): OutlineSide[] {
+  const { loop, off } = splitLines(entities);
+  const lines = loop.length > 0 ? off : entities.filter(isLoopLine);
+  return lines.map((line, k) => ({
+    lineId: line.id,
+    facing: facingOf(line.start, line.end),
+    name: `Partition ${k + 1}`,
+    start: line.start,
+    end: line.end,
+  }));
+}
+
+/**
  * The sketch's non-construction lines as one clockwise loop from its first
  * line, each named by side; null when they do not close exactly one loop
- * (the plugin then refuses the outline with the reason).
+ * (the plugin then refuses the outline with the reason). Lines off the loop
+ * (partitions, {@link splitLines}) are not the outline's.
  */
 export function outlineSides(
   entities: readonly SketchEntity[],
 ): OutlineSide[] | null {
-  const lines = entities.filter(isLoopLine);
+  const lines = splitLines(entities).loop;
   if (lines.length < 3) return null;
   // Chain from the first line, joining each end to the one line that meets it.
   const first = lines[0] as Line;
@@ -186,6 +234,9 @@ export function segmentsOutlineSketch(
   if (row === undefined) return null;
   if (row.feature.type === "sketch") return row;
   if (row.feature.type !== "custom") return null;
+  if (row.feature.params.plugin_id === INTERIOR_WALL) {
+    return partitionSketch(row, features);
+  }
   const outline = row.feature.params.inputs.outline;
   if (
     outline === undefined ||
@@ -196,6 +247,73 @@ export function segmentsOutlineSketch(
   }
   const sketch = features.find((f) => f.id === outline.feature_id);
   return sketch?.feature.type === "sketch" ? sketch : null;
+}
+
+/** The plugin a door's host is when it stands in a partition. */
+export const INTERIOR_WALL = "loft.interior_wall";
+
+function pickedRef(value: unknown): string | null {
+  if (
+    value === undefined ||
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return null;
+  }
+  const id = (value as { feature_id?: unknown }).feature_id;
+  return typeof id === "string" ? id : null;
+}
+
+/**
+ * The plan sketch an Interior wall's partitions are drawn on: its own
+ * Sketch pick, else its exterior walls' Outline.
+ */
+function partitionSketch(
+  row: FeatureResponse,
+  features: readonly FeatureResponse[],
+): FeatureResponse | null {
+  if (row.feature.type !== "custom") return null;
+  const inputs = row.feature.params.inputs;
+  let id = pickedRef(inputs.sketch);
+  if (id === null) {
+    const host = features.find((f) => f.id === pickedRef(inputs.host_wall));
+    if (host?.feature.type !== "custom") return null;
+    id = pickedRef(host.feature.params.inputs.outline);
+  }
+  const sketch = features.find((f) => f.id === id);
+  return sketch?.feature.type === "sketch" ? sketch : null;
+}
+
+/**
+ * Whether a `segments` input picks partitions (its outline input names an
+ * Interior wall: a door in a partition) rather than sides of an outline.
+ */
+export function segmentsPickPartitions(
+  manifest: PluginManifest,
+  input: Extract<PluginInput, { kind: "segments" }>,
+  values: Readonly<Record<string, string>>,
+  features: readonly FeatureResponse[],
+): boolean {
+  const pick = manifest.inputs.find((i) => i.name === input.outline_input);
+  if (pick === undefined) return false;
+  const id = firstPicked(values[pick.name]);
+  const row = features.find((f) => f.id === id);
+  return (
+    row?.feature.type === "custom" &&
+    row.feature.params.plugin_id === INTERIOR_WALL
+  );
+}
+
+/**
+ * The lines a `segments` input offers, named: an outline's sides, or an
+ * Interior wall's partitions ({@link segmentsPickPartitions}).
+ */
+export function segmentSides(
+  partitions: boolean,
+  entities: readonly SketchEntity[],
+): OutlineSide[] | null {
+  return partitions ? partitionSides(entities) : outlineSides(entities);
 }
 
 /**
