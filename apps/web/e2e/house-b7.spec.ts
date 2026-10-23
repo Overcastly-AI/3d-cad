@@ -82,32 +82,40 @@ const FRONT_LEFT = 6;
 const FRONT_RIGHT = 7;
 const ROOF = 11;
 
-/** The base house's cut list, in tree order. */
+/**
+ * The base house's cut list (CUT-LIST-PANEL): grouped Floor, Walls, Roof,
+ * Sheathing; within each, by member as it first appears in the tree, then
+ * length, shortest first, so each member's lines are together.
+ */
 const HOUSE: CutRow[] = [
+  // Floor
   ["Joist", "19", "189", "16 ft"],
   ["Rim", "2", "288", "2 × 12 ft"],
-  ["Sill", "2", "288", "2 × 12 ft"],
   ["Sill", "2", "181", "16 ft"],
-  ["Subfloor", "14", "55,296 in²", "12 × 4x8"],
+  ["Sill", "2", "288", "2 × 12 ft"],
+  // Walls, with their door and windows
   ["Stud", "60", "92.625", "8 ft"],
   ["Jack", "12", "81", "8 ft"],
+  ["Header", "4", "27.5", "8 ft"],
   ["Header", "6", "39.5", "8 ft"],
   ["Header", "2", "41", "8 ft"],
   ["Cripple", "14", "6.125", "8 ft"],
-  ["Sill", "3", "36.5", "8 ft"],
   ["Cripple", "7", "31", "8 ft"],
+  ["Cripple", "4", "43", "8 ft"],
+  ["Sill", "2", "24.5", "8 ft"],
+  ["Sill", "3", "36.5", "8 ft"],
+  ["Top plate", "4", "181", "16 ft"],
   ["Top plate", "4", "288", "2 × 12 ft"],
   ["Bottom plate", "2", "125", "12 ft"],
-  // 80 869 in² of walls less openings + four 5.9375 x 97.125 corner rips.
-  ["Sheathing", "24", "83,175.7188 in²", "17 × 4x9"],
-  ["Header", "4", "27.5", "8 ft"],
-  ["Sill", "2", "24.5", "8 ft"],
-  ["Cripple", "4", "43", "8 ft"],
-  ["Top plate", "4", "181", "16 ft"],
   ["Bottom plate", "2", "181", "16 ft"],
   ["Bottom plate", "1", "288", "2 × 12 ft"],
+  // Roof
   ["Rafter", "26", "123.5341", "12 ft"],
   ["Ridge", "1", "288", "2 × 12 ft"],
+  // Sheathing: 80 869 in² of walls less openings + four 5.9375 x 97.125
+  // corner rips.
+  ["Subfloor", "14", "55,296 in²", "12 × 4x8"],
+  ["Sheathing", "24", "83,175.7188 in²", "17 × 4x9"],
 ];
 
 /** Priced, each long line is cut from the cheapest splice the book prices. */
@@ -134,28 +142,28 @@ const PITCH_8_12: CutRow[] = HOUSE_PRICED.map((row) =>
 const HOUSE_28: CutRow[] = [
   ["Joist", "22", "189", "16 ft"],
   ["Rim", "2", "336", "2 × 16 ft"],
-  ["Sill", "2", "336", "16 ft + 12 ft"],
   ["Sill", "2", "181", "16 ft"],
-  ["Subfloor", "16", "64,512 in²", "14 × 4x8"],
+  ["Sill", "2", "336", "16 ft + 12 ft"],
   ["Stud", "66", "92.625", "8 ft"],
   ["Jack", "12", "81", "8 ft"],
+  ["Header", "4", "27.5", "8 ft"],
   ["Header", "6", "39.5", "8 ft"],
   ["Header", "2", "41", "8 ft"],
   ["Cripple", "14", "6.125", "8 ft"],
-  ["Sill", "3", "36.5", "8 ft"],
   ["Cripple", "7", "31", "8 ft"],
-  ["Top plate", "4", "336", "2 × 16 ft"],
-  ["Bottom plate", "1", "173", "16 ft"],
-  ["Bottom plate", "1", "125", "12 ft"],
-  ["Sheathing", "26", "92,499.7188 in²", "18 × 4x9"],
-  ["Header", "4", "27.5", "8 ft"],
-  ["Sill", "2", "24.5", "8 ft"],
   ["Cripple", "4", "43", "8 ft"],
+  ["Sill", "2", "24.5", "8 ft"],
+  ["Sill", "3", "36.5", "8 ft"],
   ["Top plate", "4", "181", "16 ft"],
+  ["Top plate", "4", "336", "2 × 16 ft"],
+  ["Bottom plate", "1", "125", "12 ft"],
+  ["Bottom plate", "1", "173", "16 ft"],
   ["Bottom plate", "2", "181", "16 ft"],
   ["Bottom plate", "1", "336", "16 ft + 12 ft"],
   ["Rafter", "30", "123.5341", "12 ft"],
   ["Ridge", "1", "336", "2 × 16 ft"],
+  ["Subfloor", "16", "64,512 in²", "14 × 4x8"],
+  ["Sheathing", "26", "92,499.7188 in²", "18 × 4x9"],
 ];
 
 /** The line whose blank is clicked (member, stock cell) and its price. */
@@ -413,11 +421,27 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await expectTable(page, HOUSE_PRICED, "217");
     await expect(rim.getByTestId("cut-list-unit-price")).toHaveText("$34.44");
     await expect(rim.getByTestId("cut-list-ext-price")).toHaveText("$68.88");
-    await panel
-      .locator("thead")
-      .evaluate((head) => head.scrollIntoView({ block: "start" }));
+    await panel.evaluate((aside) => aside.scrollIntoView({ block: "start" }));
     await page.mouse.move(800, 990);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/b7-cut-list-priced.png` });
+
+    // CUT-LIST-PANEL: at 1280x800 the Total and the last line read with no
+    // sideways scroll (the panel's horizontal scroller has nothing to hide).
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const scroller = panel.getByTestId("cut-list-scroll");
+    await expect
+      .poll(() => scroller.evaluate((el) => el.scrollWidth - el.clientWidth))
+      .toBeLessThanOrEqual(0);
+    const total = panel.getByTestId("cut-list-price-total");
+    await total.scrollIntoViewIfNeeded();
+    await expect(total).toHaveText(PRICE);
+    await expect(total).toBeInViewport({ ratio: 1 });
+    const last = panel.getByTestId("cut-list-row").last();
+    await expect(last.getByTestId("cut-list-member")).toHaveText("Sheathing");
+    await expect(last.getByTestId("cut-list-ext-price")).toBeInViewport({
+      ratio: 1,
+    });
+    await page.setViewportSize({ width: 1600, height: 1000 });
 
     // The CSV's Total row is the same sum.
     const downloading = page.waitForEvent("download");

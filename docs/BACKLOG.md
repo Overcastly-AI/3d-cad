@@ -179,7 +179,7 @@ that run whichever way the first line was drawn.
    both ends, typing either one making that end the reference (and
    re-basing the distance when the reference changes, so the opening stays
    put).
-4. [ ] **CUT-LIST-PANEL** (B7-CUT-LIST-PANEL, B7-CUT-LIST-GROUPING,
+4. [x] **CUT-LIST-PANEL** (B7-CUT-LIST-PANEL, B7-CUT-LIST-GROUPING,
    WALL-CUT-LIST-ORDER; frontend-builder, backend-builder for the order):
    once priced, the cut list cuts off its Ext. price column and Total at
    1600 px, shows 5 of 23 lines at 1280, and truncates member names. Lines
@@ -197,6 +197,16 @@ that run whichever way the first line was drawn.
    system, member, profile and length. The total is unchanged to the cent.
    E2e: `house-b7.spec.ts` reads the Total and the last line at 1280x800
    without a sideways scroll.
+   _Notes:_ loft-wire `CutListLine.system` from the member's plugin
+   (`CutListMember.plugin_id`), every sheet good under Sheathing, doors and
+   windows under Walls; lengths shortest first within a member. The part
+   workspace's panel is a 640 px full-height view (`layout.cutListPanelWidth`)
+   whose left edge drags wider; the inspector yields to its floor beneath
+   it. E2e `cut-list-panel.spec.ts` checks every scroller at 1280 and 1600.
+   Follow-ups: at 1280x800 the view still shows about five rows at a time
+   (the rail stops above the reference cube and keeps the inspector's
+   120 px floor); the CSV has no System column; the drawing's 320 px seat
+   is unchanged.
 5. [x] **B7-MIXED-FRACTION** (fix now: silent wrong geometry; frontend,
    found in QA-B7-HOUSE): `11-15/32` in a length field was 11 − 15/32 and
    `11 15/32` was refused. `parseLength` now reads carpenter notation
@@ -789,4 +799,10 @@ One line each. The founder triages weekly; most are closed without work.
 - FLOOR-OUTLINE-SHAPES: floor 1.2.0 fills a rectangular outline only; an L floor needs its joists laid out per arm (Chief frames each room's floor).
 - OUTLINE-OPENING-VERSION: window and door 1.1.0 are the wall-of-an-outline pick (`wall_segment`), so OPENING-FROM-END's Measured from ships as 1.2.0.
 - OUTLINE-HOST-STANDALONE: an outline wall laps its own corners only; a later single wall butting an outline wall's end gets its corner rip, but the outline wall never emits a return for an earlier single wall.
+- B7-HOUSE-STRETCH (QA-B7): lengthening B7 24 -> 28 ft takes 8 feature edits (floor, three walls, roof and the front wall's three openings). Nothing is linked: walls do not join, floor and roof do not read the walls (ROOF-GABLE-WALLS), and openings sit at an offset from a clockwise wall's start. The front wall's door and windows therefore jump 48 in unless each offset is retyped, in an order that avoids a transient framing overlap (the door's new place is refused until the window beside it moves). In Chief Architect you drag one wall.
+- B7-OFFSET-FROM-START (QA-B7): on a front wall drawn clockwise (X 288 -> 0), the window "at X 60" needs offset 228, so every front-wall offset is mirrored by hand. Revit and Chief show temporary dimensions from the nearest wall end (see OPENING-DRAG).
+- B7-MIXED-FRACTION (QA-B7): "11 15/32" is refused ("Unexpected '15'") and "11-15/32" is accepted as 11 - 15/32 = 10.53125, so a framer's usual notation silently drops a wall 15/16 in into the subfloor (no interference check: B2-E2E-INTERFERENCE). Chief Architect reads both as 11 15/32; Fusion's expressions subtract, as Loft does.
+- B7-OPENING-UNITS-PRICE (QA-B7): the door and the four windows are not cut-list or price-book lines, so a house's price leaves out its doors and windows. Chief's materials list prices them.
+- B7-HEADER-2X6-WALL (QA-B7): in a 2x6 wall the header is still two 1.5 in plies (3 in in a 5.5 in wall) with no third ply or spacer; framers use three plies, or two plus a spacer or rigid insulation.
+- B7-OPENING-SIZES (QA-B7): Window defaults to 24 x 36 and has no size list, so each of B7's three 36 x 48 windows has two fields retyped. Chief and Revit pick from a catalogue (3048, 2436).
 - B7-TREE-STATUS-DASH (QA-B7, seen once): after editing Wall 1's start and length on a solved B7, the tree showed "—" instead of OK for Wall 4 and Window 5 until the next edit.

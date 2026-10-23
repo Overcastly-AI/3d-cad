@@ -6,6 +6,13 @@
  * length it is cut from. One component for the part workspace, the assembly
  * inspector and the drawing sheet's side panel, so the three never disagree.
  *
+ * Grouped as a takeoff (CUT-LIST-PANEL): the gateway orders the lines by
+ * system, Floor, Walls, Roof, Sheathing (Chief Architect's Materials List
+ * categories), then by member, profile and length, with one member's pieces
+ * from every wall merged; each system is a headed row group here. Member names
+ * wrap, never truncate, and every figure stays on one line. In the part
+ * workspace the panel is a full-height view whose left edge drags wider.
+ *
  * Every number is the gateway's: geometry measured the lengths and the grouping
  * is server-side, so this only formats them in the document's unit. A body that
  * matched no profile is listed as Unclassified with its measured section, never
@@ -62,7 +69,36 @@ const HEAD_BASE =
 const NARROW_GUTTER = "[@container(max-width:439px)]:px-1";
 const HEAD = `${HEAD_BASE} px-1.5 text-right ${NARROW_GUTTER}`;
 
-const CELL = `px-1.5 py-1.5 text-right align-baseline font-data tabular-nums ${NARROW_GUTTER}`;
+const CELL = `whitespace-nowrap px-1.5 py-1.5 text-right align-baseline font-data tabular-nums ${NARROW_GUTTER}`;
+
+/** How each system's group is headed (Chief Architect's categories). */
+export const SYSTEM_LABEL: Record<CutListLine["system"], string> = {
+  floor: "Floor",
+  walls: "Walls",
+  roof: "Roof",
+  sheathing: "Sheathing",
+  deck: "Deck",
+  frame: "Frame",
+  other: "Other",
+};
+
+/** The gateway's lines (already in system order) as runs of one system,
+ * each line keeping its index in the list. */
+export function groupBySystem(lines: readonly CutListLine[]): {
+  system: CutListLine["system"];
+  lines: (CutListLine & { index: number })[];
+}[] {
+  const groups: ReturnType<typeof groupBySystem> = [];
+  lines.forEach((line, index) => {
+    const last = groups[groups.length - 1];
+    if (last !== undefined && last.system === line.system) {
+      last.lines.push({ ...line, index });
+    } else {
+      groups.push({ system: line.system, lines: [{ ...line, index }] });
+    }
+  });
+  return groups;
+}
 /**
  * The run (qty x length) column gives way in a narrow seat (the drawing's
  * 320 px side panel): with the two price columns the table would otherwise
@@ -213,6 +249,8 @@ export function CutListPanel({
   }
 
   const lines = data?.lines ?? [];
+  // The gateway orders the lines by system; each run is one group.
+  const groups = groupBySystem(lines);
   // Deleted parts an assembly still places: listed, never silently dropped.
   const missingPieces = (data?.missing ?? []).reduce(
     (sum, part) => sum + part.quantity,
@@ -254,7 +292,10 @@ export function CutListPanel({
               along its length.
             </p>
           ) : (
-            <div className="overflow-x-auto [container-type:inline-size]">
+            <div
+              data-testid="cut-list-scroll"
+              className="overflow-x-auto [container-type:inline-size]"
+            >
               <table
                 data-testid="cut-list-table"
                 aria-label={`Cut list, ${lines.length} lines, ${data.total_quantity} pieces`}
@@ -308,8 +349,8 @@ export function CutListPanel({
                     </th>
                   </tr>
                 </thead>
-                <tbody>
-                  {lines.map((line, index) => {
+                {(() => {
+                  const row = (line: CutListLine, index: number) => {
                     const unclassified = line.classification === "unclassified";
                     const caption = unclassified
                       ? `Unclassified · ${line.section_mm
@@ -328,12 +369,16 @@ export function CutListPanel({
                         data-profile={line.profile ?? ""}
                         data-classification={line.classification}
                         data-sheet={sheet ?? undefined}
+                        data-system={line.system}
                         className="border-b border-hairline/60 last:border-b-0"
                       >
-                        <td className="w-full max-w-0 py-1.5 pl-3 pr-1 align-baseline">
+                        {/* The member column takes what the figures leave
+                            (max-w-0: its text never widens the table) and
+                            WRAPS: a member's name is never cut off. */}
+                        <td className="w-full max-w-0 py-1.5 pl-3 pr-1 align-baseline [overflow-wrap:anywhere]">
                           <span
                             data-testid="cut-list-member"
-                            className={`block truncate ${
+                            className={`block ${
                               unclassified ? "italic text-gauge" : "text-mist"
                             }`}
                           >
@@ -342,6 +387,9 @@ export function CutListPanel({
                           {caption ? (
                             <span
                               data-testid="cut-list-caption"
+                              // The profile and material are one line, so
+                              // a row is two: the material's long name gives
+                              // way (in full on hover), the member's never.
                               className="block truncate text-2xs text-gauge"
                               title={caption}
                             >
@@ -424,7 +472,7 @@ export function CutListPanel({
                         </td>
                         <td
                           data-testid="cut-list-ext-price"
-                          className="py-1.5 pl-1.5 pr-3 text-right align-baseline font-data tabular-nums text-mist"
+                          className="whitespace-nowrap py-1.5 pl-1.5 pr-3 text-right align-baseline font-data tabular-nums text-mist"
                           title={
                             line.extended_price_cents === null ||
                             line.unit_price_cents === null
@@ -443,8 +491,32 @@ export function CutListPanel({
                         </td>
                       </tr>
                     );
-                  })}
-                </tbody>
+                  };
+                  return groups.map((group, at) => (
+                    <tbody
+                      key={`${group.system}-${at}`}
+                      data-testid="cut-list-group"
+                      data-system={group.system}
+                    >
+                      {groups.length > 1 ? (
+                        <tr className="border-b border-hairline">
+                          <th
+                            scope="rowgroup"
+                            colSpan={7}
+                            data-testid="cut-list-group-label"
+                            className="bg-carbide/40 pb-1 pl-3 pr-3 pt-2.5 text-left font-display text-2xs font-normal uppercase tracking-[0.16em] text-gauge"
+                          >
+                            {SYSTEM_LABEL[group.system]}
+                            <span className="ml-2 font-data normal-case tracking-normal text-gauge/70">
+                              {formatCount(group.lines.length)}
+                            </span>
+                          </th>
+                        </tr>
+                      ) : null}
+                      {group.lines.map((line) => row(line, line.index))}
+                    </tbody>
+                  ));
+                })()}
                 <tfoot>
                   <tr className="border-t border-hairline">
                     <td className="py-1.5 pl-3 font-display text-2xs uppercase tracking-[0.16em] text-gauge">
@@ -452,7 +524,7 @@ export function CutListPanel({
                     </td>
                     <td
                       data-testid="cut-list-total"
-                      className="px-1.5 py-1.5 text-right font-data tabular-nums text-brass"
+                      className="whitespace-nowrap px-1.5 py-1.5 text-right font-data tabular-nums text-brass"
                     >
                       {formatCount(data.total_quantity)}
                     </td>
@@ -487,7 +559,7 @@ export function CutListPanel({
                     <td colSpan={2} />
                     <td
                       data-testid="cut-list-price-total"
-                      className="py-1.5 pl-1.5 pr-3 text-right align-baseline font-data tabular-nums text-brass"
+                      className="whitespace-nowrap py-1.5 pl-1.5 pr-3 text-right align-baseline font-data tabular-nums text-brass"
                     >
                       {data.total_price_cents === null
                         ? null

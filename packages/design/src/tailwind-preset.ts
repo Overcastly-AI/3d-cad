@@ -83,6 +83,8 @@ export const loftPreset = {
         inspector: px(layout.inspectorWidth),
         /** The Parameters panel's table — see `layout.parametersPanelWidth`. */
         parameters: px(layout.parametersPanelWidth),
+        /** The Cut list view's floor — see `layout.cutListPanelWidth`. */
+        "cut-list": px(layout.cutListPanelWidth),
         editor: px(layout.editorCardWidth),
         /** Caption column of a dense `FieldRow` — see `layout.fieldLabelWidth`. */
         "field-label": px(layout.fieldLabelWidth),

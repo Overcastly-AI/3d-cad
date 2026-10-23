@@ -1075,6 +1075,16 @@ export const layout = {
    */
   parametersPanelWidth: 480,
   /**
+   * The Cut list view (CUT-LIST-PANEL): a takeoff table, Member + Qty, Length,
+   * Run, Stock, Unit price and Ext. price, docked full-height in the right
+   * rail (Chief Architect's Materials List, Fusion's Manufacture BOM). 480
+   * clipped the Ext. price column and the Total; 640 holds B7's widest row
+   * (`83,175.7188 in²`, `$1,234.56`) with the member column still wrapping
+   * names instead of cutting them. It is the FLOOR: the panel's left edge
+   * drags wider.
+   */
+  cutListPanelWidth: 640,
+  /**
    * THE BOUNDED SHEET — the widest a page-level "sheet" composition may grow
    * (`max-w-sheet`), shared by the sign-in plate and the document registers.
    *
