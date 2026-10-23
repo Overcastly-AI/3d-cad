@@ -171,6 +171,9 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # B8 on its slab (SLAB): b7-outline's class, measured 2.9e-4 mm^3; the
     # slab itself round-trips exactly.
     "b8-slab-house": 1e-3,
+    # B10, B7 with two partitions (INTERIOR-WALLS): b7-outline's class,
+    # measured 3.3e-4 mm^3.
+    "b10-partitions": 1e-3,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

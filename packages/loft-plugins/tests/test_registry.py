@@ -105,6 +105,7 @@ def test_the_catalog_lists_every_version_newest_first() -> None:
         ("loft.floor", "1.2.0", False),
         ("loft.floor", "1.1.0", False),
         ("loft.floor", "1.0.0", False),
+        ("loft.interior_wall", "1.0.0", True),
         ("loft.roof", "1.5.0", True),
         ("loft.roof", "1.4.0", False),
         ("loft.roof", "1.3.0", False),

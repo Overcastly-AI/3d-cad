@@ -410,9 +410,14 @@ class FacePlane:
         return Point2D(x=height, y=_mm(px) * self.y_dir[0] + _mm(py) * self.y_dir[1])
 
     def members(
-        self, inputs: ExpandInputs, prefix: str = "", first: int = 0
+        self,
+        inputs: ExpandInputs,
+        prefix: str = "",
+        first: int = 0,
+        role: str = "sheathing_plane",
     ) -> tuple[list[Member], DatumPlaneRef | FeatureRef]:
-        """The datum members that make the plane, and the plane's reference."""
+        """The datum members that make the plane, and the plane's reference,
+        in *role* (a wall's gypsum planes are ``finish_plane``)."""
         if self.axis != "angle":
             base = "XZ" if self.axis == "x" else "YZ"
             if self.offset_mm == 0.0:
@@ -423,12 +428,12 @@ class FacePlane:
                 params=DatumOffsetParams(base=base, offset_mm=self.offset_mm),
             )
             face = f"{prefix}face"
-            return [Member("sheathing_plane", first, datum, name=face)], inputs.ref(
-                "sheathing_plane", first, face
+            return [Member(role, first, datum, name=face)], inputs.ref(
+                role, first, face
             )
         face, turn = f"{prefix}face", f"{prefix}turned"
         turned = Member(
-            "sheathing_plane",
+            role,
             first,
             DatumFeature(
                 type="datum",
@@ -443,22 +448,22 @@ class FacePlane:
             name=turn,
         )
         if self.offset_mm == 0.0:
-            return [turned], inputs.ref("sheathing_plane", first, turn)
+            return [turned], inputs.ref(role, first, turn)
         slid = Member(
-            "sheathing_plane",
+            role,
             first + 1,
             DatumFeature(
                 type="datum",
                 version=1,
                 params=DatumOffsetFromParams(
                     kind="offset_from",
-                    base=inputs.ref("sheathing_plane", first, turn),
+                    base=inputs.ref(role, first, turn),
                     offset_mm=self.offset_mm,
                 ),
             ),
             name=face,
         )
-        return [turned, slid], inputs.ref("sheathing_plane", first + 1, face)
+        return [turned, slid], inputs.ref(role, first + 1, face)
 
 
 def face_plane(wall: wall_v1.WallSpec) -> FacePlane:

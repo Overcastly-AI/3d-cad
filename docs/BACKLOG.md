@@ -108,6 +108,13 @@ kitchen and baths (casework). Each item names its builder types.
    sketch plus two lines: 2 partitions, a 2868 door, 4 ladder backings (12
    blocks), no interference, studs and gypsum sheets as the script gives;
    24 -> 28 ft leaves the partitions at X 180 and Y 132.
+   _Kernel done (2026-10-23, RESEARCH §23):_ `loft.interior_wall` 1.0.0
+   hosted on `loft.wall` 1.4.0 (backing, optional inside gypsum), a door
+   1.4.0 may stand in a partition, gypsum 1/2 and 5/8 in 4x8 and 4x12 under
+   Walls; the web picks a door's partition and lists the tool on the Build
+   row. Golden `b10-partitions` (67 bodies, 45 623.25 in³ on b7-outline,
+   20 panels, 11 sheets). _Open:_ L and crossing partitions, free ends,
+   one partition feature meeting another's, and gypsum on a partition's end.
 8. [ ] **CASEWORK** (founder 2026-10-23; kernel-architect for
    `loft.cabinets` 1.0.0 and goldens; backend-builder for sheet products,
    edge banding and hardware in the price book and a list input in the

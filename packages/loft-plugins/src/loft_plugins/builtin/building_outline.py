@@ -12,7 +12,8 @@ inputs are left empty:
   wall, member for member, at the floor's top when one is picked.
 * ``loft.floor`` 1.2.0 adds **Outline** (a rectangle): the floor fills it,
   the width along the outline's first line. With no outline it is 1.1.0's.
-* ``loft.wall`` 1.4.0 (SLAB): **On floor** accepts a ``loft.slab`` too: the
+* ``loft.wall`` 1.4.0 (SLAB; released in ``interior_wall`` with its
+  partitions' backing): **On floor** accepts a ``loft.slab`` too: the
   walls stand on the slab's top, and each bottom-plate piece bearing on it
   lists its anchor bolts (IRC R403.1.6, counted from the piece's measured
   length by the cut list), as Chief Architect lists them from the
@@ -327,9 +328,9 @@ FLOOR_V1_2 = Plugin(FLOOR_MANIFEST_V1_2, expand_floor_v1_2)
 FLOOR_V1_3 = Plugin(FLOOR_MANIFEST_V1_3, expand_floor_v1_3)
 
 
-# --- Wall 1.4.0 --------------------------------------------------------------------
+# --- Wall 1.4.0's slab (the release is interior_wall.WALL_V1_4) ----------------
 
-_FLOOR_OR_SLAB_PICK = _FLOOR_PICK.model_copy(
+FLOOR_OR_SLAB_PICK = _FLOOR_PICK.model_copy(
     update={
         "description": "The floor or slab the walls stand on: their base is "
         "its top (a floor's subfloor when it has one); on a slab each bottom "
@@ -338,23 +339,8 @@ _FLOOR_OR_SLAB_PICK = _FLOOR_PICK.model_copy(
     }
 )
 
-WALL_MANIFEST_V1_4 = PluginManifest(
-    id="loft.wall",
-    version="1.4.0",
-    title=WALL_MANIFEST_V1_3.title,
-    description="Framed stud walls on a line, or one per line of an outline "
-    "sketch joined at the corners, on a floor or slab if picked: plates, "
-    "studs, openings, optional exterior sheathing and, on a slab, anchor "
-    "bolts, with a cut list (Chief Architect, Revit, Medeek Wall).",
-    inputs=[
-        _FLOOR_OR_SLAB_PICK if item.name == "floor" else item
-        for item in WALL_MANIFEST_V1_3.inputs
-    ],
-    members=WALL_MANIFEST_V1_3.members,
-)
 
-
-def _bolted(member: Member) -> Member:
+def bolted(member: Member) -> Member:
     """A bottom plate bearing on concrete, listing its anchor bolts."""
     if member.role != "bottom_plate" or member.metadata is None:
         return member
@@ -364,13 +350,10 @@ def _bolted(member: Member) -> Member:
     )
 
 
-def expand_wall_v1_4(inputs: ExpandInputs) -> Iterator[Member]:
-    """1.3.0's wall; on a slab, its bottom plates list their anchor bolts."""
-    members = expand_wall_v1_3(inputs)
+def on_slab(inputs: ExpandInputs, members: Iterator[Member]) -> Iterator[Member]:
+    """*members* of a 1.4.0 wall; on a picked slab its bottom plates list
+    their anchor bolts (SLAB)."""
     if picked_slab(inputs) is None:
         yield from members
         return
-    yield from (_bolted(member) for member in members)
-
-
-WALL_V1_4 = Plugin(WALL_MANIFEST_V1_4, expand_wall_v1_4)
+    yield from (bolted(member) for member in members)

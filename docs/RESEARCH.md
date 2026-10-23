@@ -2802,6 +2802,71 @@ and reframe it, a material per member, and a cut list that is always current.
     10 sticks; 19 bolts (3 + 3 + 5 + 4 + 4). B2's plain slab 69 120 in³,
     1.48 yd³, 1.75 ordered. Goldens `b8-slab-house` (179 bodies, the slab's
     11 faces) and `b2-slab-plain`.
+- **Decided while framing partitions** (INTERIOR-WALLS, 2026-10-23; Chief
+  Architect's Interior Wall tool, Revit's interior wall type and "Wall
+  Centerline" location line, IRC R702.3.5 and GA-216 for the board):
+  - *Two releases.* `loft.interior_wall` 1.0.0 frames one partition per
+    plan line; `loft.wall` 1.4.0 is 1.3.0 member for member plus the
+    backing of every partition that meets it (as it frames the openings it
+    hosts) and an optional inside gypsum (None by default). A partition
+    feature names the exterior walls as its HOST, so the walls receive its
+    inputs and re-expand when it is written, and the hosting rule (inputs
+    only, never expansions) keeps the pair acyclic. It refuses walls before
+    1.4.0 rather than leave their backing out. `loft.door` 1.4.0's host may
+    also be an Interior wall, its Wall then the partition's line; widening
+    the host's plugins changes no stored door.
+  - *Which lines.* The outline reader prunes every line with an end that
+    joins no other line, and every line joined only to such lines; what is
+    left is the loop, read exactly as before (`outline.read_plan`). Every
+    stored outline reads the same; a sketch with stray lines, refused
+    before, now reads its loop. A separate partition sketch (all its lines
+    are partitions) must come before the walls, since the walls frame the
+    backing from it and see only the features before them.
+  - *Where a partition runs.* Its line's axis is a constraint and its
+    across position is solved from the dimensions, as the outline's
+    corners, and must be fully defined. Loft's sketcher has no point-on-line
+    constraint, so a line's ends say nothing a solve keeps; the partition
+    runs from the middle of its drawn line to the first framing each way
+    (an exterior wall's inside face, a partition's near face), as Revit's
+    joined walls follow each other. So 24 -> 28 ft grows P2 to the moved
+    right wall with no constraint tying them. A partition stops another's
+    run only where its drawn line spans the other's whole thickness, so a
+    T's stem never stops the partition it meets. Studs lay out from the end
+    the line was drawn from. Refused: an L or a cross between partitions
+    (later rungs), a run that meets no wall, a T at a wall's end or corner,
+    and backing that would land in an opening's framing.
+  - *Backing.* Ladder blocking by default (flat blocks of the partition's
+    stud size across the bay between the studs either side, centred every
+    24 in above the bottom plate's top while they fit under the top plates:
+    3 on a 92-5/8 in stud), flush with the face the partition meets; it adds
+    no studs to an insulated wall, the energy-code reason framers prefer it.
+    A layout stud under the partition splits the ladder. The three-stud
+    choice adds two full-height studs of the wall's size flanking the
+    partition and drops the layout studs they displace (never an end stud).
+  - *Gypsum.* 1/2 in by default (5/8 Type X a choice), hung horizontally:
+    48 in courses down from the top of the top plate, a remainder at the
+    floor of 3 in or less left for the base, more a ripped course stopped
+    1/2 in above the base; each face laid out from its wall's start in
+    sheet lengths (4x8, 4x12 a choice), the rough openings and the
+    partitions meeting it cut out. Where boards meet, the met face's board
+    runs to the meeting framing and the meeting wall's stops at the met
+    board, so none overlaps: a partition's stops at the wall it meets; at
+    an outside corner the through wall's inside board runs to the fitted
+    wall's framing; at an inside corner the through wall's runs past its end
+    by the board's thickness and the fitted wall's past its own by the
+    wall's depth. Gypsum is a sheet good sold in 4x8 and 4x12 only
+    (`sheet_goods.SHEET_SIZES_FOR`), 846 kg/m³ (ASCE 7's 0.55 psf per
+    1/8 in), listed under Walls (Chief's materials list keeps wallboard with
+    the walls) and bought by area per sheet as every sheet good is.
+  - *Inheritance.* A partition is as tall as its walls and on their base
+    (the subfloor), with its own studs, spacing, top plate and materials
+    (SPF bottom plate: it stands on a subfloor, not concrete).
+  - *Numbers.* B10: B7 with P1 (X 180, Y 186.5 -> 5.5, 181 long, 13 studs)
+    and P2 (Y 132, X 282.5 -> 181.75, 100.75 long) and a 2868 in P2 centred
+    on X 232: 4 ladders of 3 blocks 14.5 long, 20 gypsum panels of
+    48 130.5 in² (11 sheets of 4x8), 67 bodies of 45 623.25 in³ by hand on
+    b7-outline's 217; no interference; 28 ft leaves P1 at X 180 and P2 at
+    Y 132, 148.75 long. Golden `b10-partitions`.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

@@ -284,6 +284,22 @@ def test_only_the_bottom_plates_list_bolts() -> None:
     assert lengths == [125.0, 125.0, 181.0, 181.0, 288.0]
 
 
+def test_on_a_slab_inside_gypsum_bolts_only_the_bottom_plates() -> None:
+    """1.4.0's INTERIOR-WALLS finish and SLAB's bolts on one wall: the
+    gypsum is hung as off a slab as off a floor, and only plates bolt."""
+    sketch = rectangle(288, 192)
+    slab = envelope(SLAB, {"outline": ref(SKETCH_ID)})
+    earlier: dict[uuid.UUID, AuthoredEnvelope] = {SKETCH_ID: sketch, SLAB_ID: slab}
+    raw = {"outline": ref(SKETCH_ID), "floor": ref(SLAB_ID), **B7_STUDS}
+    finished = expand(WALL_1_4, WALLS_ID, {**raw, "finish": "gypsum_1_2"}, earlier)
+    bolted = {m.role for m in finished if m.metadata and m.metadata.anchor_bolts}
+    assert bolted == {"bottom_plate"}
+    assert any(m.metadata and m.metadata.material == "gypsum" for m in finished)
+    # Gypsum's courses start from the same base: Z 0, the slab's top.
+    plain = expand(WALL_1_4, WALLS_ID, raw, earlier)
+    assert min(b[4] for b in boxes(finished)) == min(b[4] for b in boxes(plain))
+
+
 def test_with_no_slab_1_4_0_is_1_3_0() -> None:
     sketch = rectangle(288, 192)
     raw = {"outline": ref(SKETCH_ID), **B7_STUDS}
@@ -298,8 +314,11 @@ def test_1_3_0_cannot_pick_a_slab() -> None:
     assert pick.plugin_ids == ["loft.floor"]  # type: ignore[union-attr]
     pick = next(i for i in WALL_1_4.manifest.inputs if i.name == "floor")
     assert pick.plugin_ids == ["loft.floor", "loft.slab"]  # type: ignore[union-attr]
+    # 1.4.0 adds INTERIOR-WALLS' inside gypsum after 1.3.0's inputs, in order.
     assert [i.name for i in WALL_1_4.manifest.inputs] == [
-        i.name for i in WALL_1_3.manifest.inputs
+        *(i.name for i in WALL_1_3.manifest.inputs),
+        "finish",
+        "finish_sheet",
     ]
 
 
