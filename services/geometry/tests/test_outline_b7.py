@@ -19,10 +19,11 @@ with the plugins):
 2. interference none: the round's build shared that 43.1 in^3 between the
    tails and the OSB, and the outline roof notches the OSB round them;
 3. the cut list is the round's 23 lines (the eave OSB's net area less the
-   notches) and its price to the last line, $2,968.79: the round's
+   notches) and its price to the last line, $3,053.79: the round's
    $2,868.87 with the members over 20 ft spliced (CUT-LIST-LONG-STOCK) and
    the OSB counted by the sheets the panels are cut from, 21, not 17 by
-   area (SHEET-COUNT-PIECES);
+   area (SHEET-COUNT-PIECES), the subfloor 14, not 12, with a 1/8 in kerf
+   at each cut (SHEET-KERF);
 4. edit 1 (the 288 dimension set to 336) is the round's 28 ft house: 234
    solids, the script's at 336, with no interference;
 5. ``b7-front-wall-from-end`` (OPENING-FROM-END) and ``b7-units``
@@ -660,11 +661,12 @@ def test_nothing_interferes(step_solids: list[Solid]) -> None:
 #: length. The app's list, with its plugins, is grouped Floor, Walls, Roof,
 #: Sheathing (house-b7.spec.ts). The sheets are those the panels are cut
 #: from (SHEET-COUNT-PIECES): the subfloor's ten 96 x 48 and four 48 x 48
-#: (two to a sheet) 12; the walls' 18 panels 48 wide, two 37 in fillers
+#: (one to a sheet: the kerf leaves a 47.875 in end, SHEET-KERF) 14; the
+#: walls' 18 panels 48 wide, two 37 in fillers
 #: (each 11 in rip holds one 5.9375 in corner rip) and the other two corner
 #: rips 21, where the area gave 17.
 HOUSE: list[tuple[str, int, float, str]] = [
-    ("Subfloor", 14, 55296, "12 x 4x8"),
+    ("Subfloor", 14, 55296, "14 x 4x8"),
     ("Sheathing", 24, 83175.71875 - 98.515625, "21 x 4x9"),
     ("Joist", 19, 189, "16 ft"),
     ("Rim", 2, 288, "16 ft + 8 ft"),
@@ -757,16 +759,16 @@ def test_the_cut_list_is_the_rounds_and_prices_to_the_same_total() -> None:
         sum(line.quantity for line in cut_list.lines if line.sheet is None)
         == 217 - 14 - 24
     )
-    # The 18 short lines: 19 x 22.97 + 4 x 16.98 + 12 x 42.50 + 114 x 6.48 +
-    # 2 x 12.48 + 21 x 24.98 + 4 x 13.98 + 26 x 13.47 = 2 708.75; the splices:
+    # The 18 short lines: 19 x 22.97 + 4 x 16.98 + 14 x 42.50 + 114 x 6.48 +
+    # 2 x 12.48 + 21 x 24.98 + 4 x 13.98 + 26 x 13.47 = 2 793.75; the splices:
     # rims 2 x (22.97 + 11.47), sills 2 x 2 x 12.48, top plates 4 x (13.98 +
     # 6.48), bottom plate 2 x 12.48, ridge 22.97 + 11.47 = 260.04. The
-    # round's $2,868.87 and 4 more OSB sheets, $2,968.79, to the last line
-    # (house-b7.spec.ts PRICE).
+    # round's $2,868.87, 4 more OSB sheets and 2 more plywood (SHEET-KERF),
+    # $3,053.79, to the last line (house-b7.spec.ts PRICE).
     short = (
         19 * 2297
         + 4 * 1698
-        + 12 * 4250
+        + 14 * 4250
         + 114 * 648
         + 2 * 1248
         + 21 * 2498
@@ -774,12 +776,12 @@ def test_the_cut_list_is_the_rounds_and_prices_to_the_same_total() -> None:
         + 26 * 1347
     )
     splices = 2 * 3444 + 2 * 2496 + 4 * 2046 + 2496 + 3444
-    assert (short, splices) == (260883 + 4 * 2498, 26004) == (270875, 26004)
-    assert cut_list.total_price_cents == short + splices == 296879
+    assert (short, splices) == (260883 + 4 * 2498 + 2 * 4250, 26004)
+    assert cut_list.total_price_cents == short + splices == 305379
     assert cut_list.unpriced_lines == 0
     assert cut_list.unclassified == 0
     total = cut_list_csv(cut_list).split("\r\n")
-    assert ",Total,,,,,,,,,,,,,,2968.79" in total
+    assert ",Total,,,,,,,,,,,,,,3053.79" in total
 
 
 # --- Mass ---------------------------------------------------------------------------
@@ -922,10 +924,10 @@ def test_each_unit_is_one_priced_line_and_the_lumber_is_unchanged() -> None:
     assert [(line.member, line.quantity) for line in lumber] == [
         (m, q) for m, q, _, _ in HOUSE
     ]
-    # B7's $2,968.79 plus the units: 449 + 3 x 289 + 2 x 189.
-    assert cut_list.total_price_cents == 296879 + 44900 + 86700 + 37800 == 466279
+    # B7's $3,053.79 plus the units: 449 + 3 x 289 + 2 x 189.
+    assert cut_list.total_price_cents == 305379 + 44900 + 86700 + 37800 == 474779
     assert cut_list.unpriced_lines == 0
-    assert ",Total,,,,,,,,,,,,,,4662.79" in cut_list_csv(cut_list).split("\r\n")
+    assert ",Total,,,,,,,,,,,,,,4747.79" in cut_list_csv(cut_list).split("\r\n")
 
 
 def test_with_its_units_every_body_weighs_by_its_material() -> None:

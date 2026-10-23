@@ -3106,7 +3106,8 @@ SolidWorks cut the body the picked face belongs to.
   and no stock length. A sheet line (one per product, material and sheet) is
   priced by that entry times its sheets: B2's OSB 10 x $24.98 = $249.80, B5's
   plywood 4 x $42.50 = $170.00 (by area; since SHEET-COUNT-PIECES, below,
-  B5's walls are 12 x $24.98 = $299.76).
+  B5's walls are 12 x $24.98 = $299.76, and since SHEET-KERF its plywood
+  6 x $42.50 = $255.00).
 - **Sheets are counted by the panels cut from them** (SHEET-COUNT-PIECES,
   2026-10-23, reversing the area count). A yard sells whole sheets, and
   `ceil(net area / sheet area)` under-buys the rips and fillers that cannot
@@ -3118,7 +3119,7 @@ SolidWorks cut the body the picked face belongs to.
   from a corner, long side along the sheet's, leaving a full-length rip
   beside it and an end across it as offcuts. Openings are not credited
   (framers sheathe over them and cut them out), so a panel is its whole
-  face, and no kerf is allowed for. The line carries `offcut_area_mm2`, its
+  face (a kerf is allowed for since SHEET-KERF, below). The line carries `offcut_area_mm2`, its
   sheets' area less its net area, shown in the Stock cell's tooltip beside
   the net area. B7's OSB is 21 sheets, not 17 (18 panels 48 wide; each 37 in
   filler a sheet, whose 11 in rip holds one 5.9375 corner rip; one sheet
@@ -3126,6 +3127,28 @@ SolidWorks cut the body the picked face belongs to.
   house $3,347.92; its subfloor stays 12, B5's 4. The CHECKs became "each has a stock length
   or a sheet" and "never both". The CSV gains `Area (sq <unit>)`; a sheet
   line has its area there, `4x9 sheet` as its stock and no lengths.
+- **A kerf is lost at every cut** (SHEET-KERF, 2026-10-23). `sheets_to_cut`
+  takes 1/8 in (`SHEET_KERF_MM`, a circular or panel saw's blade) from each
+  rip and end it leaves, so two 24 in rips no longer come from one 48 in
+  sheet, nor two 48 in squares from one 96 in sheet. The walls hold (B5's
+  12 and B7's 21 OSB: the 17 in fillers' rips still take their corner
+  rips), but the subfloors' exact 48 in squares now take a sheet each: B5's
+  plywood 6 sheets, not 4 ($255.00), B7's 14, not 12, so B7 prices to
+  $3,053.79 and the 28 ft house to $3,432.92 (16 sheets, not 14). A
+  framer would cut the halves 47 15/16 and close the 1/16 in in the 1/8 in
+  gap APA asks for between panels; the model lays its panels on an exact
+  48 in module with no gap, so the count cannot tell, and buys the sheet.
+- **Floor panels keep the strength axis across the joists**
+  (SUBFLOOR-GRAIN, 2026-10-23). APA lays floor sheathing with its strength
+  axis (the sheet's 8 ft length) across the supports, so a subfloor panel
+  (role `subfloor`, `GRAIN_LOCKED_ROLES`) is cut with its long side along
+  the sheet's length and is never turned to fit an offcut: its offcuts
+  keep the sheet's frame. Wall sheathing (role `sheathing`) may run either
+  way, so its panels turn to fit. Subfloor and wall panels of one product
+  are separate lines. The count assumes a floor panel's longer side is its
+  across-the-joists side, true of every panel the floor plugin lays (rows
+  48 in along the joists, panels 96 across) except a last column under
+  48 in across, whose orientation the measured extents do not carry.
 - **Saves are versioned** (PRICE-BOOK-VERSION, migration 0023). The book has
   a `version`, 0 until the first save and one more per save, served in the
   body and as the `ETag`. A `PUT` sends the version its draft was read at in

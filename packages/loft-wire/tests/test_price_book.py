@@ -559,7 +559,7 @@ def test_a_37_ft_member_buys_two_20s_when_20_ft_is_priced() -> None:
     assert line.waste_mm == pytest.approx(3 * 12 * MM_PER_INCH)
 
 
-def test_b7_is_priced_to_the_last_line_2968_79() -> None:
+def test_b7_is_priced_to_the_last_line_3053_79() -> None:
     """B7's 5 lines over 20 ft (the 288 in rims, sills, top and bottom plates
     and the ridge) were blank; spliced, they price.
 
@@ -570,7 +570,9 @@ def test_b7_is_priced_to_the_last_line_2968_79() -> None:
     then buys the OSB the walls are cut from, 21 sheets, not 17 by area: 18
     at 48 in, one per 37 in filler (its 11 in rip holds one 5.9375 corner
     rip) and one for the other two rips, 4 x 24.98 = 99.92 more, $2,968.79.
-    The subfloor's 14 panels stay 12 sheets (10 whole, 4 squares in 2).
+    SHEET-KERF loses 1/8 in at each cut, so a 48 in square's end is 47.875
+    in and the subfloor's 4 squares take a sheet each: 14 sheets, not 12,
+    2 x 42.50 = 85.00 more, $3,053.79.
     """
     cut_list = _priced(_b7_pieces(), B7_BOOK)
     assert len(cut_list.lines) == 23 and cut_list.unpriced_lines == 0
@@ -600,20 +602,21 @@ def test_b7_is_priced_to_the_last_line_2968_79() -> None:
         for line in cut_list.lines
     ] == B7_ORDER
     sheets = [(line.member, line.stock_quantity) for line in cut_list.lines[-2:]]
-    assert sheets == [("Subfloor", 12), ("Sheathing", 21)]
-    assert cut_list.total_price_cents == 286887 + 4 * 2498 == 296879
+    assert sheets == [("Subfloor", 14), ("Sheathing", 21)]
+    assert cut_list.total_price_cents == 286887 + 4 * 2498 + 2 * 4250 == 305379
     short = sum(
         line.extended_price_cents or 0
         for line in cut_list.lines
         if line.length_mm <= 20 * 12 * MM_PER_INCH
     )
-    assert short == 260883 + 4 * 2498  # the QA round's, and 4 more sheets
+    # The QA round's, 4 more OSB sheets and 2 more plywood.
+    assert short == 260883 + 4 * 2498 + 2 * 4250
     rows = cut_list_csv(cut_list).split("\r\n")
     assert rows[2].startswith("2,Floor,Rim,")
     assert rows[2].endswith(",16 ft + 8 ft,0,2,34.44,Each,68.88")
     assert rows[4].startswith("4,Floor,Sill,")
     assert rows[4].endswith(",2 x 12 ft,0,2,24.96,Each,49.92")
-    assert rows[-2] == ",Total,,,,,,,,,,,,,,2968.79"
+    assert rows[-2] == ",Total,,,,,,,,,,,,,,3053.79"
 
 
 def _cents(cell: str) -> int:

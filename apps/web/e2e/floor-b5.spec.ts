@@ -16,7 +16,8 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * 16 in o.c. along the depth, PT 2x6 sill plates) builds 16 member bodies:
  * 10 joists, 2 rims and 4 sills, whose cut list is the spec's floor list.
  * Since loft.floor 1.1.0 (SHEATHING) the default floor also has its 23/32
- * plywood subfloor: 6 panels cut from 4 sheets of 4x8 (SHEET-COUNT-PIECES).
+ * plywood subfloor: 6 panels cut from 6 sheets of 4x8 (SHEET-COUNT-PIECES;
+ * 4 before a 1/8 in kerf was lost at each cut, SHEET-KERF).
  * Then the spec's edit, joist spacing 16 -> 12: 13 joists. A reload keeps it.
  */
 
@@ -28,7 +29,7 @@ const FLOOR_16OC: CutRow[] = [
   ["Rim", "2", "144", "12 ft"],
   ["Sill", "2", "109", "10 ft"],
   ["Sill", "2", "144", "12 ft"],
-  ["Subfloor", "6", "17,280 in²", "4 × 4x8"],
+  ["Subfloor", "6", "17,280 in²", "6 × 4x8"],
 ];
 
 /** "Joist spacing 16 -> 12. That gives 13 joists". */

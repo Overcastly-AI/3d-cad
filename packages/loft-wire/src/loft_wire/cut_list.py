@@ -40,8 +40,11 @@ two extents. Panels group by product, material and sheet (not by member or
 size), and a line buys the sheets its panels are CUT from, as a yard sells
 whole sheets (:func:`sheets_to_cut`, SHEET-COUNT-PIECES): each panel takes a
 sheet unless an earlier offcut of the line covers it whole, largest panels
-first. Openings are not credited (framers sheathe over them and cut them
-out), so a line's offcut area is its sheets' area less its net area.
+first, a saw kerf (:data:`SHEET_KERF_MM`) lost at every cut (SHEET-KERF). A
+floor panel keeps the sheet's strength axis across the joists, so it is never
+turned to fit an offcut (SUBFLOOR-GRAIN); a wall panel may be. Openings are
+not credited (framers sheathe over them and cut them out), so a line's
+offcut area is its sheets' area less its net area.
 
 **Order** (CUT-LIST-PANEL): lines are grouped by SYSTEM, as Chief
 Architect's Materials List groups by category: Floor, Walls (with their doors
@@ -136,6 +139,17 @@ LENGTH_DECIMALS: Final = 3
 #: A longer member (a modelling slip more often than a real plate) has no
 #: stock, so it is listed and left unpriced, never guessed at.
 MAX_SPLICE_PIECES: Final = 5
+
+#: Sheet-good roles whose panels keep the sheet's strength axis (its length)
+#: across their supports, so the count never turns one to fit an offcut
+#: (SUBFLOOR-GRAIN: APA lays floor panels strength axis across the joists).
+#: Wall sheathing may run either way, so its panels may turn.
+GRAIN_LOCKED_ROLES: Final[frozenset[str]] = frozenset({"subfloor"})
+
+#: The saw kerf lost at every cut of a sheet (mm): 1/8 in, a circular saw's
+#: or panel saw's blade (SHEET-KERF). Two 24 in rips do not come from one
+#: 48 in sheet, nor two 48 in halves from one 96 in sheet.
+SHEET_KERF_MM: Final = 0.125 * MM_PER_INCH
 
 
 #: How a piece was identified: from a plugin member's metadata, by matching
@@ -544,6 +558,8 @@ class CutListPiece:
     system: CutListSystem = "other"
     #: A window or door unit's body (OPENING-UNITS); ``None`` otherwise.
     unit: OpeningUnitPart | None = None
+    #: A panel that keeps the sheet's strength axis (:data:`GRAIN_LOCKED_ROLES`).
+    keep_grain: bool = False
 
     @property
     def panel(self) -> bool:
@@ -607,6 +623,7 @@ def classify_body(
                 sheet=covering_sheet(extents[0], extents[1]),
                 area_mm2=body.volume_mm3 / thickness if thickness > 0 else 0.0,
                 system="sheathing",
+                keep_grain=member.role in GRAIN_LOCKED_ROLES,
             )
         lumber = lumber_for(member.metadata.profile)
         split = None if lumber is None else _split(extents, lumber)
@@ -673,18 +690,25 @@ def _fits(panel: Rect, rect: Rect) -> bool:
     )
 
 
-def _leftovers(rect: Rect, panel: Rect) -> list[Rect]:
+def _leftovers(rect: Rect, panel: Rect, *, turn: bool) -> list[Rect]:
     """What is left of *rect* once *panel* is cut from its corner, long side
-    along long side: the RIP the full length beside it, then the END across
-    the panel's width, each as ``(long, short)``; slivers dropped."""
+    along *rect*'s first side, a kerf (:data:`SHEET_KERF_MM`) lost at each
+    cut: the RIP the full length beside it, then the END across the panel's
+    width; slivers dropped. With *turn*, each is ``(long, short)``, so a
+    later panel may lie either way in it; without, each keeps the sheet's
+    frame, ``(along its length, along its width)``, so no panel turns."""
     out: list[Rect] = []
-    for a, b in ((rect[0], rect[1] - panel[1]), (rect[0] - panel[0], panel[1])):
+    rip = (rect[0], rect[1] - panel[1] - SHEET_KERF_MM)
+    end = (rect[0] - panel[0] - SHEET_KERF_MM, panel[1])
+    for a, b in (rip, end):
         if min(a, b) > SHEET_FIT_TOLERANCE_MM:
-            out.append((max(a, b), min(a, b)))
+            out.append((max(a, b), min(a, b)) if turn else (a, b))
     return out
 
 
-def sheets_to_cut(panels: Iterable[Rect], sheet: SheetSize) -> int:
+def sheets_to_cut(
+    panels: Iterable[Rect], sheet: SheetSize, *, turn: bool = True
+) -> int:
     """How many sheets of *sheet* the ``(length, width)`` *panels* are cut from
     (SHEET-COUNT-PIECES): the yard sells whole sheets, so count what the
     modelled panels are actually cut from, not their area.
@@ -693,9 +717,14 @@ def sheets_to_cut(panels: Iterable[Rect], sheet: SheetSize) -> int:
     widest). Each is cut from the smallest offcut that covers it whole (the
     earliest of equal ones), else from a new sheet. A panel is cut from a
     corner, long side along the sheet's, leaving a rip the full length
-    beside it and an end across it, both offcuts for later panels. No kerf
-    is allowed for, and openings are not credited: a panel is its whole
-    face, as framers sheathe over an opening and cut it out."""
+    beside it and an end across it, both offcuts for later panels, less a
+    1/8 in kerf at each cut (SHEET-KERF): two 24 in rips take two 48 in
+    sheets. With *turn* false (a floor's panels, SUBFLOOR-GRAIN) a panel's
+    long side stays along the sheet's length, its strength axis, so an
+    offcut narrower along the sheet than the panel is long never takes it;
+    with *turn* (wall sheathing) a panel may lie either way in an offcut.
+    Openings are not credited: a panel is its whole face, as framers
+    sheathe over an opening and cut it out."""
     rects = sorted(
         ((max(a, b), min(a, b)) for a, b in panels),
         key=lambda r: (
@@ -724,7 +753,9 @@ def sheets_to_cut(panels: Iterable[Rect], sheet: SheetSize) -> int:
         else:
             source = offcuts.pop(best)
         # An offcut no panel could fit is dropped, keeping the scan short.
-        offcuts.extend(r for r in _leftovers(source, panel) if _fits(smallest, r))
+        offcuts.extend(
+            r for r in _leftovers(source, panel, turn=turn) if _fits(smallest, r)
+        )
     return sheets
 
 
@@ -749,6 +780,7 @@ def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
         sheets = sheets_to_cut(
             ((p.length_mm, p.section_mm[1]) for p in pieces for _ in range(p.count)),
             sheet,
+            turn=not any(p.keep_grain for p in pieces),
         )
         offcut = round(max(sheets * sheet.area_mm2 - area, 0.0), 6)
     return CutListLine(
@@ -852,6 +884,7 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
                 piece.profile,
                 piece.material,
                 None if piece.sheet is None else piece.sheet.key,
+                piece.keep_grain,
             )
             panels.setdefault(panel_key, []).append(piece)
             first, count = groups.get(panel_key, (piece, 0))
