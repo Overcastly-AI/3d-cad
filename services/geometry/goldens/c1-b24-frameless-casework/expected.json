@@ -1,0 +1,50 @@
+{
+  "description": "CASEWORK C1 (casework.md; loft.cabinets 1.0.0): one frameless B24 in 3/4 plywood, one drawer over one door, one adjustable shelf, on a 4.5 in toe kick set back 3: 15 panels, 3 526.66796875 in^3, 282.4375 in (23.54 ft) of banding, 2 hinges and a pair of 22 in slides. model.json is the plugin's expansion with the member materials documents applies; members.json each body's member metadata (packages/loft-plugins/tests/test_cabinets.py pins both).",
+  "derivation": [
+    "Every expectation is ANALYTIC, from services/geometry/tests/test_casework.py's independent script of casework.md's conventions (spec(), C1 typed from its table), never from the plugin: each panel a box, a notched side its box less its 3 x 4.5 toe notch; summed in exact rational arithmetic (x 25.4 = mm exactly).",
+    "",
+    "volume = 3/4 x 4 317.890625 in^2 + 1/2 x 340 + 1/4 x 473 = 3 526.66796875 in^3 (casework.md C1's areas; the sides 24 x 34.5 less the 3 x 4.5 notch).",
+    "",
+    "surface_area = each panel's box area, a notched side's less twice its notch's face; bodies are separate.",
+    "",
+    "topology: a box 6 faces, 12 edges, 1 shell; a notched side 8 faces, 18 edges. MESH: a box 24 vertices and 12 triangles, a notched side 36 and 20 (two hexagons of 4 triangles, six quads of 2)."
+  ],
+  "tolerance": 1e-7,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), 2026-10-23: the kernel's volume is 2.2e-8 mm^3 off the exact 5.78e7 mm^3 sum over 15 separate bodies (its summation round-off), centroid 1.1e-13 mm, mass 7.3e-12 g. 1e-7 is 4.5x the worst; a panel 0.001 in out of place moves the volume by >= 0.3 mm^3.",
+  "properties": {
+    "volume": 57791733.71065625,
+    "surface_area": 7103655.1475,
+    "centroid": {
+      "x": 304.8,
+      "y": 316.242082785517,
+      "z": 455.99075083044704
+    },
+    "mass_g": 33345.83035104866,
+    "center_of_mass": {
+      "x": 304.8,
+      "y": 316.242082785517,
+      "z": 455.99075083044704
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 609.5999999999999,
+        "y": 628.65,
+        "z": 876.3
+      }
+    }
+  },
+  "topology": {
+    "faces": 94,
+    "edges": 192,
+    "shells": 15
+  },
+  "mesh": {
+    "vertices": 384,
+    "triangles": 196
+  }
+}

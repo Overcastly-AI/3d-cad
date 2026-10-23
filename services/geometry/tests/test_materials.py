@@ -206,7 +206,9 @@ class TestResolution:
         # Gypsum board, ASCE 7's 0.55 psf per 1/8 in: 52.8 pcf = 845.8 kg/m^3
         # (INTERIOR-WALLS).
         assert MATERIALS_BY_KEY["gypsum"].density_kg_m3 == 846.0
-        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 22
+        # Melamine-faced particleboard, 45 pcf = 720.8 kg/m^3 (CASEWORK).
+        assert MATERIALS_BY_KEY["melamine"].density_kg_m3 == 721.0
+        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 23
 
     def test_a_2x10_x_12ft_spf_member_weighs_the_hand_calculation(self) -> None:
         """LUMBER-MATERIALS: the kernel measures the member, the library weighs it.

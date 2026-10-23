@@ -1,0 +1,52 @@
+{
+  "description": "CASEWORK C2 (casework.md) on B7's left wall (B10's partitions are not built, INTERIOR-WALLS; the inside gypsum is the 1/2 in Back gap, the backs at X 6): the base run from the back wall's face at Y 186.5 to Y 54 (filler 3.5, T1884 with stacked doors, DB24 with 3 drawers, B27, SB36 with a false front and 2 doors, B24) and the wall run W2430 + W2730 at Y 165..114, bottom 54 above the subfloor (Z 11.46875). 91 panels. test_casework.py checks no solid touches B7's (b7-units). model.json is the plugin's expansion with the member materials documents applies; members.json each body's member metadata (packages/loft-plugins/tests/test_cabinets.py pins both).",
+  "derivation": [
+    "Every expectation is ANALYTIC, from services/geometry/tests/test_casework.py's independent script of casework.md's conventions (spec(), C1 typed from its table), never from the plugin: each panel a box, a notched side its box less its 3 x 4.5 toe notch; summed in exact rational arithmetic (x 25.4 = mm exactly).",
+    "",
+    "volume and the rest summed over the 75 base-run and 16 wall-run panels the script places in each run's frame (x along it, y out from the wall), mapped to the world as X = 6 + y, Y = 186.5 - x, Z = 11.46875 + z.",
+    "",
+    "surface_area = each panel's box area, a notched side's less twice its notch's face; bodies are separate.",
+    "",
+    "topology: a box 6 faces, 12 edges, 1 shell; a notched side 8 faces, 18 edges. MESH: a box 24 vertices and 12 triangles, a notched side 36 and 20 (two hexagons of 4 triangles, six quads of 2)."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), 2026-10-23: volume 2.4e-7 mm^3 and area 1.5e-8 mm^2 off the exact sums over 91 bodies (4.3e8 mm^3, 5.5e-16 relative), centroid 2.3e-12 mm; 1e-6 is 4.2x the worst, as b2-2x6-walls-header-plies.",
+  "roundtrip_tolerance": 1.5e-6,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-23: the STEP round trip re-sums the 91 solids and moves the VOLUME by 3.6e-7 mm^3 (8e-16 relative); 1.5e-6 is 4.2x; volume and area only.",
+  "properties": {
+    "volume": 430912954.704625,
+    "surface_area": 51879513.17625,
+    "centroid": {
+      "x": 442.7629686815743,
+      "y": 3355.560029626742,
+      "z": 1128.3047634840746
+    },
+    "mass_g": 248636.77486456864,
+    "center_of_mass": {
+      "x": 442.7629686815743,
+      "y": 3355.560029626742,
+      "z": 1128.3047634840746
+    },
+    "bounding_box": {
+      "min": {
+        "x": 152.39999999999998,
+        "y": 1371.6,
+        "z": 291.30625
+      },
+      "max": {
+        "x": 781.05,
+        "y": 4737.099999999999,
+        "z": 2424.90625
+      }
+    }
+  },
+  "topology": {
+    "faces": 566,
+    "edges": 1152,
+    "shells": 91
+  },
+  "mesh": {
+    "vertices": 2304,
+    "triangles": 1172
+  }
+}
