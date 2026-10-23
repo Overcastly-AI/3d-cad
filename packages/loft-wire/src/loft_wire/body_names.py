@@ -19,6 +19,7 @@ A name is display metadata, never an input to geometry: renaming a body
 changes no shape and leaves the part's last evaluate current.
 """
 
+import unicodedata
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from typing import Annotated
@@ -38,11 +39,21 @@ MAX_BODY_NAMES = 1000
 #: rest of the interface join two names.
 BODY_NAME_SEPARATOR = " · "
 
+
+def _no_control_characters(name: str) -> str:
+    """Refuse a control character (a tab, a newline, NUL...): a body name is
+    one line, and it is written into a STEP file."""
+    if any(unicodedata.category(c) == "Cc" for c in name):
+        raise ValueError("a body name may not hold a control character")
+    return name
+
+
 BodyNameText = Annotated[
     str,
     StringConstraints(
         strip_whitespace=True, min_length=1, max_length=BODY_NAME_MAX_LENGTH
     ),
+    AfterValidator(_no_control_characters),
 ]
 
 

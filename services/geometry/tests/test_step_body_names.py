@@ -10,12 +10,14 @@ substrings (the ``test_step_names_part`` standard).
 
 import re
 
+import pytest
 from build123d import Compound, Location, Solid
 from geometry.kernel.export import (
     AssemblyComponent,
     export_step_assembly_bytes,
     export_step_bytes,
 )
+from geometry.kernel.imports import import_step_solid
 from geometry.kernel.types import BodyShape
 
 
@@ -25,9 +27,21 @@ def _two_bodies() -> BodyShape:
     )
 
 
+def _decode(text: str) -> str:
+    """A part-21 string's text: ``''`` and the ``\\X2\\hhhh\\X0\\`` escape."""
+    text = re.sub(
+        r"\\X2\\((?:[0-9A-F]{4})+)\\X0\\",
+        lambda m: "".join(
+            chr(int(m.group(1)[i : i + 4], 16)) for i in range(0, len(m.group(1)), 4)
+        ),
+        text,
+    )
+    return text.replace("''", "'")
+
+
 def _solid_names(step: bytes) -> list[str]:
     return [
-        name.decode("utf-8").replace("''", "'")
+        _decode(name.decode("utf-8"))
         for name in re.findall(rb"MANIFOLD_SOLID_BREP\('((?:[^']|'')*)'", step)
     ]
 
@@ -87,3 +101,31 @@ def test_the_assembly_writer_is_unchanged_by_the_subshape_static() -> None:
     first = export_step_assembly_bytes("Rig", parts)
     assert first == export_step_assembly_bytes("Rig", parts)
     assert "MANIFOLD_SOLID_BREP('" in first.decode("latin-1")
+
+
+def _three_bodies() -> BodyShape:
+    return Compound(
+        [
+            Solid.make_box(2, 2, 2),
+            Solid.make_box(8, 8, 8).moved(Location((20, 0, 0))),
+            Solid.make_box(4, 4, 4).moved(Location((40, 0, 0))),
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    "first",
+    ["Header (6')", "x', 'y", "Wall (8') · Stud 1", "C:\\a\\X2\\b", "x\\X2\\"],
+)
+def test_an_apostrophe_or_backslash_name_round_trips_every_solid(first: str) -> None:
+    """BODY-NAMES review: OCCT's reader dropped a solid whose name held ``''``
+    before ``)`` or ``,`` (three solids at 584 mm³ came back as two at 576).
+    Written with the ``\\X2\\`` escape, every solid comes back, and the names
+    decode to exactly what was given."""
+    names = [first, "b", "c"]
+    step = export_step_bytes(_three_bodies(), name="Part", solid_names=names)
+    assert _solid_names(step) == names
+    body = import_step_solid(step.decode("utf-8"))
+    solids = body.solids()
+    assert len(solids) == 3
+    assert sum(solid.volume for solid in solids) == pytest.approx(584.0, abs=1e-6)

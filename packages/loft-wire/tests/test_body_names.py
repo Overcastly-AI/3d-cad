@@ -75,6 +75,10 @@ def test_a_rename_list_is_bounded_and_one_per_body() -> None:
         )
     with pytest.raises(ValidationError):
         BodyName(base_feature_id=A, name="   ")
+    for control in ("a\tb", "a\nb", "a\x00b", "a\x1bb", "a\x7fb"):
+        with pytest.raises(ValidationError, match="control character"):
+            BodyName(base_feature_id=A, name=control)
+    assert BodyName(base_feature_id=A, name="Header (6') \\ 2\u2019").name
     assert BodyName(base_feature_id=A, name="  King stud ").name == "King stud"
 
 

@@ -176,8 +176,9 @@ def test_a_rename_of_a_body_the_tree_no_longer_makes_is_inert(
             {"base_feature_id": str(uuid.UUID(int=n)), "name": "a"}
             for n in range(MAX_BODY_NAMES + 1)
         ],
+        [{"base_feature_id": "6f3f6b64-0000-4000-8000-0000000000e1", "name": "a\nb"}],
     ],
-    ids=["duplicate", "blank", "too-long", "too-many"],
+    ids=["duplicate", "blank", "too-long", "too-many", "control"],
 )
 def test_a_bad_rename_is_refused(
     client: TestClient, registry: list[PluginRegistry], names: list[dict[str, str]]

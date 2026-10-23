@@ -930,6 +930,19 @@ def _single_body_xde_document(
     return doc
 
 
+def _solid_name_text(name: str) -> str:
+    """*name* as a solid's name may be written (BODY-NAMES review).
+
+    OCCT writes a solid name's apostrophe as the standard ``''``, but its
+    READER then drops a solid whose name has ``''`` right before ``)`` or
+    ``,`` ("Header (6')": three solids came back as two). The ISO 10303-21
+    ``\\X2\\0027\\X0\\`` escape reads back as the apostrophe, so it is used
+    instead. A backslash is escaped the same way (``\\X2\\005C\\X0\\``),
+    first, so a name holding ``\\X2\\`` cannot open an unclosed encoding.
+    PRODUCT names read back fine and keep the writer's own escaping."""
+    return name.replace("\\", "\\X2\\005C\\X0\\").replace("'", "\\X2\\0027\\X0\\")
+
+
 def _name_solids(
     shape_tool: XCAFDoc_ShapeTool,
     label: TDF_Label,
@@ -952,7 +965,7 @@ def _name_solids(
             continue
         sub = shape_tool.AddSubShape(label, solid.wrapped)
         if not sub.IsNull():
-            TDataStd_Name.Set_s(sub, _xcaf_name(solid_name))
+            TDataStd_Name.Set_s(sub, _xcaf_name(_solid_name_text(solid_name)))
 
 
 def _compose(
