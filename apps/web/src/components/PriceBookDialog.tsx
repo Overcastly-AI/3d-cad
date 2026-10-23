@@ -3,12 +3,15 @@
  * prices itself from (RESEARCH §27). Chief Architect's Master List and
  * SolidWorks' Cost property, reduced to the one table a builder keeps: a
  * material and a profile, priced Each at a stock length, per linear foot or
- * per board foot; or a sheet product (SHEATHING), priced Each per sheet.
+ * per board foot; a sheet product (SHEATHING), priced Each per sheet; or a
+ * window or door unit (OPENING-UNITS), priced Each by its call size
+ * ('window_3040') and frame material. The profile list files each kind under
+ * its own heading.
  *
  * The book is saved whole (`PUT` replaces it), so the dialog edits a draft and
  * Save sends every row; Cancel or Escape drops the draft. Opened from a blank
  * price in the cut list it adds a row pre-filled with that line's material,
- * profile and stock length (or sheet), its price field focused, so pricing a
+ * profile and stock length (or sheet, or unit), its price field focused, so pricing a
  * line is typing a number and pressing Enter. A save refetches every cut
  * list, so the panel re-prices without a reload.
  *
@@ -24,7 +27,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import type { MaterialKey } from "../api/materials";
+import type { MaterialKey, MaterialLibrary } from "../api/materials";
 import { fetchMaterialLibrary } from "../api/materials";
 import {
   BOOK_CHANGED,
@@ -58,6 +61,11 @@ export interface PriceBookSeed {
   stockLengthsFt?: readonly number[];
   /** A sheet line's sheet ("4x9"); null or absent for lumber. */
   sheet?: SheetSizeKey | null;
+  /**
+   * A window or door unit line's price-book key ('window_3040'): the row is
+   * that unit, priced Each. Null or absent for lumber and sheets.
+   */
+  unitKey?: string | null;
 }
 
 export interface PriceBookDialogProps {
@@ -66,8 +74,12 @@ export interface PriceBookDialogProps {
   onClose: () => void;
 }
 
+/** What a row prices: lumber, a sheet product, or a window or door unit. */
+type RowKind = "lumber" | "sheet" | "unit";
+
 interface DraftRow {
   id: number;
+  kind: RowKind;
   material: MaterialKey;
   profile: PriceProfileKey;
   unit: PriceUnit;
@@ -94,18 +106,36 @@ const DEFAULT_SHEET: SheetSizeKey = "4x8";
 const HEAD =
   "py-1 pr-2 text-left font-display text-2xs font-normal uppercase tracking-[0.14em] text-gauge";
 
-/** Sheet products are keyed like `osb_7_16`; lumber like `us_2x4`. */
-function isSheetProfile(profile: PriceProfileKey): boolean {
-  return !profile.startsWith("us_");
+/**
+ * What a profile key prices, by the library's lists. A stored key the library
+ * no longer lists is read from its entry's shape: a sheet names a sheet, a
+ * stock length or a per-foot price is lumber, and a bare Each is a unit.
+ */
+function kindOf(
+  profile: PriceProfileKey,
+  library: MaterialLibrary | undefined,
+  entry?: PriceBookEntry,
+): RowKind {
+  if (library?.opening_units?.some((u) => u.key === profile)) return "unit";
+  if (library?.sheet_goods.some((g) => g.key === profile)) return "sheet";
+  if (library?.profiles.some((p) => p.key === profile)) return "lumber";
+  if (entry === undefined)
+    return profile.startsWith("us_") ? "lumber" : "sheet";
+  if (entry.sheet !== null && entry.sheet !== undefined) return "sheet";
+  if (entry.unit !== "each" || entry.stock_length_ft != null) return "lumber";
+  return "unit";
 }
 
 function rowKey(row: DraftRow): string {
-  const sheet = isSheetProfile(row.profile);
   return [
     row.material,
     row.profile,
-    row.unit,
-    row.unit !== "each" ? "" : sheet ? row.sheet : row.stockLengthFt,
+    row.kind === "lumber" ? row.unit : "each",
+    row.kind === "sheet"
+      ? row.sheet
+      : row.kind === "unit" || row.unit !== "each"
+        ? ""
+        : row.stockLengthFt,
   ].join("|");
 }
 
@@ -196,6 +226,7 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
     base.current = book.data;
     const draft: DraftRow[] = (book.data.entries ?? []).map((entry) => ({
       id: nextId.current++,
+      kind: kindOf(entry.profile, library.data, entry),
       material: entry.material,
       profile: entry.profile,
       unit: entry.unit,
@@ -203,11 +234,14 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
       sheet: entry.sheet ?? DEFAULT_SHEET,
       price: centsToDecimal(entry.price_cents),
     }));
+    const unitKey = seed?.unitKey ?? null;
     const seedProfile: PriceProfileKey | undefined =
       seed === null
         ? undefined
-        : (library.data.profiles.find((p) => p.name === seed.profile)?.key ??
-          library.data.sheet_goods.find((g) => g.name === seed.profile)?.key);
+        : unitKey !== null
+          ? library.data.opening_units?.find((u) => u.key === unitKey)?.key
+          : (library.data.profiles.find((p) => p.name === seed.profile)?.key ??
+            library.data.sheet_goods.find((g) => g.name === seed.profile)?.key);
     if (seed !== null && seedProfile !== undefined) {
       const lengths = [...new Set(seed.stockLengthsFt ?? [seed.stockLengthFt])];
       let focus: number | null = null;
@@ -215,6 +249,7 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
       for (const feet of lengths) {
         const row: DraftRow = {
           id: nextId.current++,
+          kind: kindOf(seedProfile, library.data),
           material: seed.material,
           profile: seedProfile,
           unit: "each",
@@ -303,6 +338,7 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
     const last = rows?.[rows.length - 1];
     const row: DraftRow = {
       id: nextId.current++,
+      kind: last?.kind ?? "lumber",
       material: last?.material ?? DEFAULT_MATERIAL,
       profile: last?.profile ?? DEFAULT_PROFILE,
       unit: last?.unit ?? "each",
@@ -334,14 +370,15 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
     }
     save.mutate(
       rows.map((row) => {
-        const sheet = isSheetProfile(row.profile);
+        const lumber = row.kind === "lumber";
         return {
           material: row.material,
           profile: row.profile,
-          unit: sheet ? "each" : row.unit,
+          // A sheet is priced Each per sheet, a unit Each per unit.
+          unit: lumber ? row.unit : "each",
           stock_length_ft:
-            !sheet && row.unit === "each" ? row.stockLengthFt : null,
-          sheet: sheet ? row.sheet : null,
+            lumber && row.unit === "each" ? row.stockLengthFt : null,
+          sheet: row.kind === "sheet" ? row.sheet : null,
           // validate() proved every price parses.
           price_cents: parseMoney(row.price) ?? 0,
         };
@@ -353,14 +390,26 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
     value: m.key,
     label: m.name,
   }));
-  const profileOptions: { value: PriceProfileKey; label: string }[] = [
+  // Each kind under its own heading, as a builder's price list is laid out.
+  const profileOptions: {
+    value: PriceProfileKey;
+    label: string;
+    group: string;
+  }[] = [
     ...(library.data?.profiles ?? []).map((p) => ({
       value: p.key,
       label: p.name,
+      group: "Lumber",
     })),
     ...(library.data?.sheet_goods ?? []).map((g) => ({
       value: g.key,
       label: g.name,
+      group: "Sheet goods",
+    })),
+    ...(library.data?.opening_units ?? []).map((u) => ({
+      value: u.key,
+      label: u.name,
+      group: u.kind === "door" ? "Doors" : "Windows",
     })),
   ];
   const sheetOptions = (library.data?.sheet_sizes ?? []).map((size) => ({
@@ -369,12 +418,30 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
   }));
   const profileName = (key: PriceProfileKey) =>
     profileOptions.find((p) => p.value === key)?.label ?? key;
-  /** A new profile: a sheet product is priced Each in its own material. */
+  /**
+   * A new profile: a sheet product is priced Each in its own material, and a
+   * unit Each in its frame's.
+   */
   const profilePatch = (key: PriceProfileKey): Partial<DraftRow> => {
     const good = library.data?.sheet_goods.find((g) => g.key === key);
-    return good === undefined
-      ? { profile: key }
-      : { profile: key, unit: "each", material: good.material };
+    if (good !== undefined) {
+      return {
+        profile: key,
+        kind: "sheet",
+        unit: "each",
+        material: good.material,
+      };
+    }
+    const unit = library.data?.opening_units?.find((u) => u.key === key);
+    if (unit !== undefined) {
+      return {
+        profile: key,
+        kind: "unit",
+        unit: "each",
+        material: unit.material,
+      };
+    }
+    return { profile: key, kind: "lumber" };
   };
   const materialName = (key: MaterialKey) =>
     library.data?.materials.find((m) => m.key === key)?.name ?? key;
@@ -419,7 +486,8 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
           What you pay for each material and profile. The cut list prices every
           line on the stock pieces it buys: Each at that stock length first,
           then per linear foot, then per board foot (nominal size). Sheet goods
-          are priced Each per sheet, on the sheets their area needs.
+          are priced Each per sheet, on the sheets their area needs; windows and
+          doors Each per unit, by call size.
         </p>
         <div className="min-h-0 overflow-y-auto px-4 pt-2">
           {loadError ? (
@@ -481,7 +549,8 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
                 ) : null}
                 {rows.map((row, index) => {
                   const n = index + 1;
-                  const sheet = isSheetProfile(row.profile);
+                  const sheet = row.kind === "sheet";
+                  const unitRow = row.kind === "unit";
                   const what = `${profileName(row.profile)} ${materialName(row.material)}`;
                   return (
                     <tr
@@ -491,6 +560,7 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
                       data-material={row.material}
                       data-profile={row.profile}
                       data-unit={row.unit}
+                      data-kind={row.kind}
                       className="border-b border-hairline/60 align-middle"
                     >
                       <td className="py-1.5 pr-2">
@@ -527,11 +597,19 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
                         />
                       </td>
                       <td className="py-1.5 pr-2">
-                        {sheet ? (
+                        {sheet || unitRow ? (
                           <span
                             className="block px-2 font-data text-xs text-mist"
-                            title="A sheet is priced Each, per sheet"
-                            data-testid="price-book-unit-sheet"
+                            title={
+                              sheet
+                                ? "A sheet is priced Each, per sheet"
+                                : "A window or door is priced Each, per unit"
+                            }
+                            data-testid={
+                              sheet
+                                ? "price-book-unit-sheet"
+                                : "price-book-unit-each"
+                            }
                           >
                             Each
                           </span>
@@ -566,6 +644,14 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
                               })
                             }
                           />
+                        ) : unitRow ? (
+                          <span
+                            className="block px-2 font-data text-xs text-gauge"
+                            title="One price per unit: its frame and its glazing or slab"
+                            data-testid="price-book-stock-unit"
+                          >
+                            Unit
+                          </span>
                         ) : row.unit === "each" ? (
                           <SelectField
                             hideLabel

@@ -52,7 +52,7 @@ B1_TABLE = [
 
 _PT = '"Southern pine, pressure-treated"'
 _HEADER = (
-    "Item,Member,Profile,Section (in),Material,Qty,Length (in),"
+    "Item,System,Member,Profile,Section (in),Material,Qty,Length (in),"
     "Total length (in),Area (sq in),Stock,Waste each (in),"
     "Stock qty,Unit price (USD),"
     "Price unit,Extended (USD)\r\n"
@@ -60,13 +60,13 @@ _HEADER = (
 
 #: With no price book: every line's stock quantity, no price (blank, not 0).
 B1_CSV = (
-    _HEADER + f"1,Ledger,2x10,1.5 x 9.25,{_PT},1,192,192,,16 ft,0,1,,,\r\n"
-    f"2,Rim,2x10,1.5 x 9.25,{_PT},1,192,192,,16 ft,0,1,,,\r\n"
-    f"3,Beam,2x10,1.5 x 9.25,{_PT},2,192,384,,16 ft,0,2,,,\r\n"
-    f"4,Joist,2x10,1.5 x 9.25,{_PT},13,141,1833,,12 ft,3,13,,,\r\n"
-    f"5,Post,6x6,5.5 x 5.5,{_PT},3,10.5,31.5,,8 ft,85.5,3,,,\r\n"
-    f"6,Deck,5/4x6,1 x 5.5,{_PT},26,192,4992,,16 ft,0,26,,,\r\n"
-    ',"Total of priced lines, 6 unpriced",,,,,,,,,,,,,\r\n'
+    _HEADER + f"1,Other,Ledger,2x10,1.5 x 9.25,{_PT},1,192,192,,16 ft,0,1,,,\r\n"
+    f"2,Other,Rim,2x10,1.5 x 9.25,{_PT},1,192,192,,16 ft,0,1,,,\r\n"
+    f"3,Other,Beam,2x10,1.5 x 9.25,{_PT},2,192,384,,16 ft,0,2,,,\r\n"
+    f"4,Other,Joist,2x10,1.5 x 9.25,{_PT},13,141,1833,,12 ft,3,13,,,\r\n"
+    f"5,Other,Post,6x6,5.5 x 5.5,{_PT},3,10.5,31.5,,8 ft,85.5,3,,,\r\n"
+    f"6,Other,Deck,5/4x6,1 x 5.5,{_PT},26,192,4992,,16 ft,0,26,,,\r\n"
+    ',"Total of priced lines, 6 unpriced",,,,,,,,,,,,,,\r\n'
 )
 
 #: BACKLOG item 6's sample book, its PT entries (all B1 needs).
@@ -85,13 +85,13 @@ SAMPLE_PT: list[dict[str, Any]] = [
 #: B1 priced by hand from the sample book (BACKLOG item 6): $943.94.
 B1_PRICED_CSV = (
     _HEADER
-    + f"1,Ledger,2x10,1.5 x 9.25,{_PT},1,192,192,,16 ft,0,1,28.47,Each,28.47\r\n"
-    f"2,Rim,2x10,1.5 x 9.25,{_PT},1,192,192,,16 ft,0,1,28.47,Each,28.47\r\n"
-    f"3,Beam,2x10,1.5 x 9.25,{_PT},2,192,384,,16 ft,0,2,28.47,Each,56.94\r\n"
-    f"4,Joist,2x10,1.5 x 9.25,{_PT},13,141,1833,,12 ft,3,13,19.98,Each,259.74\r\n"
-    f"5,Post,6x6,5.5 x 5.5,{_PT},3,10.5,31.5,,8 ft,85.5,3,34.80,Per BF,104.40\r\n"
-    f"6,Deck,5/4x6,1 x 5.5,{_PT},26,192,4992,,16 ft,0,26,17.92,Per ft,465.92\r\n"
-    ",Total,,,,,,,,,,,,,943.94\r\n"
+    + f"1,Other,Ledger,2x10,1.5 x 9.25,{_PT},1,192,192,,16 ft,0,1,28.47,Each,28.47\r\n"
+    f"2,Other,Rim,2x10,1.5 x 9.25,{_PT},1,192,192,,16 ft,0,1,28.47,Each,28.47\r\n"
+    f"3,Other,Beam,2x10,1.5 x 9.25,{_PT},2,192,384,,16 ft,0,2,28.47,Each,56.94\r\n"
+    f"4,Other,Joist,2x10,1.5 x 9.25,{_PT},13,141,1833,,12 ft,3,13,19.98,Each,259.74\r\n"
+    f"5,Other,Post,6x6,5.5 x 5.5,{_PT},3,10.5,31.5,,8 ft,85.5,3,34.80,Per BF,104.40\r\n"
+    f"6,Other,Deck,5/4x6,1 x 5.5,{_PT},26,192,4992,,16 ft,0,26,17.92,Per ft,465.92\r\n"
+    ",Total,,,,,,,,,,,,,,943.94\r\n"
 )
 
 
@@ -272,7 +272,7 @@ def test_the_b1_cut_list_through_the_gateway(tmp_path: Path) -> None:
             assert (
                 csv.content.decode()
                 .splitlines()[4]
-                .startswith("4,Joist,2x10,1.5 x 9.25,")
+                .startswith("4,Other,Joist,2x10,1.5 x 9.25,")
             )
             assert ",26,141,3666,,12 ft,3" in csv.content.decode()
 
@@ -431,7 +431,7 @@ def test_the_price_book_prices_b1_and_is_the_callers_alone(tmp_path: Path) -> No
             csv_text = (await client.get(f"{cut_list_url}/csv", headers=owner)).text
             assert ",,8 ft,85.5,3,,,\r\n" in csv_text
             assert csv_text.endswith(
-                ',"Total of priced lines, 1 unpriced",' + "," * 12 + "839.54\r\n"
+                ',"Total of priced lines, 1 unpriced",' + "," * 13 + "839.54\r\n"
             )
 
             # Bad books are refused at the gateway and change nothing.

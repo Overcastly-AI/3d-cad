@@ -1007,6 +1007,16 @@ export const CheckIcon = (p: IconProps) => (
   </Icon>
 );
 
+/** Expand to a full view: two corners drawn outward (Fusion's maximise). */
+export const ExpandIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M14 4 H20 V10" />
+    <path d="M20 4 L13 11" />
+    <path d="M10 20 H4 V14" />
+    <path d="M4 20 L11 13" />
+  </Icon>
+);
+
 export const CloseIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M6 6 L18 18" />

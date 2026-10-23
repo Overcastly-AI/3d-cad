@@ -200,8 +200,10 @@ export function segmentsOutlineSketch(
 
 /**
  * The inputs hidden by a pick (`superseded_by`): a wall's typed start and
- * length once an Outline is picked, its base elevation once a Floor is. Their
- * stored values are kept; the form neither shows nor checks them.
+ * length once an Outline is picked, its base elevation once a Floor is; a
+ * window's typed size while Size is a call size rather than its
+ * `superseded_unless` option (Custom). Their stored values are kept; the form
+ * neither shows nor checks them.
  */
 export function supersededInputs(
   manifest: PluginManifest,
@@ -210,7 +212,10 @@ export function supersededInputs(
   const hidden = new Set<string>();
   for (const input of manifest.inputs) {
     const by = input.superseded_by ?? null;
-    if (by !== null && (values[by] ?? "") !== "") hidden.add(input.name);
+    if (by === null) continue;
+    const value = values[by] ?? "";
+    const unless = input.superseded_unless ?? null;
+    if (value !== "" && value !== unless) hidden.add(input.name);
   }
   return hidden;
 }

@@ -178,5 +178,138 @@ for (const [width, height] of [
       "aria-valuenow",
       String(Math.round(box.width) + 32),
     );
+    // The sash names its range: the frame less the tree is its ceiling.
+    await expect(sash).toHaveAttribute("aria-valuemax", /^\d+$/);
+    const max = Number(await sash.getAttribute("aria-valuemax"));
+    expect(max).toBeGreaterThan(box.width);
+    expect(max).toBeLessThanOrEqual(width - 24 - 320);
   });
 }
+
+/** The rows whose whole box shows: inside the window and every clipping
+ * ancestor (the panel's or the view's scroller). */
+async function visibleRows(rows: Locator): Promise<number> {
+  return rows.evaluateAll((all) => {
+    let count = 0;
+    for (const row of all) {
+      const box = row.getBoundingClientRect();
+      let top = 0;
+      let bottom = window.innerHeight;
+      for (let node = row.parentElement; node; node = node.parentElement) {
+        if (getComputedStyle(node).overflowY === "visible") continue;
+        const clip = node.getBoundingClientRect();
+        top = Math.max(top, clip.top);
+        bottom = Math.min(bottom, clip.bottom);
+      }
+      if (
+        box.height > 0 &&
+        box.top >= top - 0.5 &&
+        box.bottom <= bottom + 0.5
+      ) {
+        count += 1;
+      }
+    }
+    return count;
+  });
+}
+
+test("B7's cut list expands full width at 1280x800 and closes with Esc", async ({
+  page,
+}) => {
+  const [width, height] = [1280, 800];
+  await page.setViewportSize({ width, height });
+  const account = await seedSession(page);
+  const partId = await importDeck(page, account.token);
+  await page.route(`**/api/v1/parts/${partId}/cut-list`, (route) =>
+    route.fulfill({ json: B7_CUT_LIST }),
+  );
+  await page.goto(`/parts/${partId}`);
+  const tool = page.getByTestId("cut-list-tool");
+  await expect(tool).toBeEnabled({ timeout: 60_000 });
+  await tool.click();
+  const panel = page.getByTestId("cut-list-panel");
+  await expect(panel.getByTestId("cut-list-row")).toHaveCount(23, {
+    timeout: 30_000,
+  });
+  const inPanel = await visibleRows(panel.getByTestId("cut-list-row"));
+
+  // Scrolled, the panel's rows slide under its caption bar, never under the
+  // collapse tab: the tab sits on the bar, and the table (its Ext. price
+  // head, then rows) passes beneath the bar, not between it and the tab.
+  const side = page.locator('[data-viewport-chrome="panel-cut-list"]');
+  await side.evaluate((root) => {
+    const scroller = [...root.querySelectorAll<HTMLElement>("*")].find(
+      (node) => getComputedStyle(node).overflowY === "auto",
+    );
+    scroller!.scrollTop = 40;
+  });
+  const covered = await page
+    .getByTestId("panel-collapse-cut-list")
+    .evaluate((tab) => {
+      const box = tab.getBoundingClientRect();
+      const under = document
+        .elementsFromPoint(box.x + box.width / 2, box.y + box.height / 2)
+        .filter((node) => node !== tab && !tab.contains(node));
+      // Topmost first: the bar, then (painted under it) the scrolled table.
+      return {
+        bar: under.findIndex((n) => n.closest("[data-caption-bar]") !== null),
+        table: under.findIndex((n) => n.closest("table") !== null),
+      };
+    });
+  expect(covered.bar).toBe(0);
+  expect(covered.table).toBeGreaterThan(0);
+
+  // Expand: the same grouped, priced list, full width.
+  await panel.getByRole("button", { name: "Expand the cut list" }).click();
+  const view = page.getByRole("dialog", { name: "Cut list" });
+  await expect(view).toBeVisible();
+  const rows = view.getByTestId("cut-list-row");
+  await expect(rows).toHaveCount(23);
+  await expect(view.getByTestId("cut-list-group-label")).toHaveText([
+    /^Floor/,
+    /^Walls/,
+    /^Roof/,
+    /^Sheathing/,
+  ]);
+  const box = (await view.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(width);
+  expect(box.width).toBeGreaterThanOrEqual(width - 40);
+  expect(await sidewaysOverflow(view)).toEqual([]);
+  const inView = await visibleRows(rows);
+  expect(inView).toBeGreaterThanOrEqual(Math.max(12, 2 * inPanel));
+  // Prices, the price-book link and CSV come along.
+  await expect(view.getByTestId("cut-list-price-book")).toBeVisible();
+  await expect(view.getByTestId("cut-list-csv")).toBeEnabled();
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/cut-list-expanded-1280.png`,
+  });
+
+  // The Total reads in full once scrolled to; the head stays put.
+  const total = view.getByTestId("cut-list-price-total");
+  await total.scrollIntoViewIfNeeded();
+  await expect(total).toHaveText("$2,868.87");
+  await expect(total).toBeInViewport({ ratio: 1 });
+  await expect(
+    view.getByRole("columnheader", { name: "Ext. price" }),
+  ).toBeInViewport({ ratio: 1 });
+  await expect(rows.last().getByTestId("cut-list-ext-price")).toHaveText(
+    "$424.66",
+  );
+  expect(await sidewaysOverflow(view)).toEqual([]);
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/cut-list-expanded-1280-total.png`,
+  });
+
+  // Esc closes it; the panel and the inspector beside it are as they were.
+  await page.keyboard.press("Escape");
+  await expect(view).toBeHidden();
+  await expect(
+    panel.getByRole("button", { name: "Expand the cut list" }),
+  ).toBeFocused();
+  await expect(panel.getByTestId("cut-list-row")).toHaveCount(23);
+  // And its Close button does too.
+  await panel.getByRole("button", { name: "Expand the cut list" }).click();
+  await page.getByRole("button", { name: "Close the full cut list" }).click();
+  await expect(view).toBeHidden();
+});

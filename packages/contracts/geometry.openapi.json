@@ -411,7 +411,9 @@
                   "osb",
                   "plywood",
                   "steel_a992",
-                  "concrete"
+                  "concrete",
+                  "pvc",
+                  "glass"
                 ],
                 "type": "string"
               },
@@ -458,7 +460,9 @@
               "osb",
               "plywood",
               "steel_a992",
-              "concrete"
+              "concrete",
+              "pvc",
+              "glass"
             ],
             "title": "Material",
             "type": "string"
@@ -6999,7 +7003,9 @@
                   "osb",
                   "plywood",
                   "steel_a992",
-                  "concrete"
+                  "concrete",
+                  "pvc",
+                  "glass"
                 ],
                 "type": "string"
               },

@@ -47,6 +47,30 @@ vi.mock("../api/materials", () => ({
         { key: "spf_lumber", name: "SPF", density_kg_m3: 420, source: "" },
         { key: "osb", name: "OSB", density_kg_m3: 641, source: "" },
         { key: "plywood", name: "Plywood", density_kg_m3: 577, source: "" },
+        { key: "pvc", name: "PVC", density_kg_m3: 1400, source: "" },
+      ],
+      opening_units: [
+        {
+          key: "window_3040",
+          code: "3040",
+          kind: "window",
+          name: "Window 3040",
+          material: "pvc",
+        },
+        {
+          key: "window_2030",
+          code: "2030",
+          kind: "window",
+          name: "Window 2030",
+          material: "pvc",
+        },
+        {
+          key: "door_3068",
+          code: "3068",
+          kind: "door",
+          name: "Door 3068",
+          material: "spf_lumber",
+        },
       ],
       profiles: [
         { key: "us_2x10", name: "2x10" },
@@ -388,6 +412,137 @@ describe("PriceBookDialog", () => {
     expect(row.getByLabelText("Material, price 1")).toHaveValue("plywood");
     expect(row.getByLabelText("Sheet, price 1")).toHaveValue("4x8");
     expect(row.getByTestId("price-book-unit-sheet")).toHaveTextContent("Each");
+  });
+
+  it("lists window and door units under their own headings", async () => {
+    renderDialog();
+    const [row] = await screen.findAllByTestId("price-book-row");
+    const profile = within(row!).getByLabelText("Profile, price 1");
+    const groups = Array.from(profile.querySelectorAll("optgroup"));
+    expect(groups.map((g) => g.label)).toEqual([
+      "Lumber",
+      "Sheet goods",
+      "Windows",
+      "Doors",
+    ]);
+    expect(
+      Array.from(groups[2]!.querySelectorAll("option")).map((o) => o.value),
+    ).toEqual(["window_3040", "window_2030"]);
+  });
+
+  it("prices a unit Each by its key, seeded from a unit line, and edits a stored one", async () => {
+    api.fetchPriceBook.mockResolvedValue({
+      ...BOOK,
+      entries: [
+        ...BOOK.entries!,
+        {
+          material: "spf_lumber",
+          profile: "door_3068",
+          unit: "each",
+          stock_length_ft: null,
+          sheet: null,
+          price_cents: 32900,
+        },
+      ],
+    });
+    const { onClose } = renderDialog({
+      material: "pvc",
+      profile: "3040",
+      stockLengthFt: null,
+      unitKey: "window_3040",
+    });
+    const rows = await screen.findAllByTestId("price-book-row");
+    expect(rows).toHaveLength(3);
+    const stored = within(rows[1]!);
+    expect(rows[1]).toHaveAttribute("data-kind", "unit");
+    expect(stored.getByLabelText("Profile, price 2")).toHaveValue("door_3068");
+    expect(stored.getByLabelText("Price in dollars, price 2")).toHaveValue(
+      "329.00",
+    );
+    const seeded = within(rows[2]!);
+    expect(seeded.getByLabelText("Profile, price 3")).toHaveValue(
+      "window_3040",
+    );
+    expect(seeded.getByLabelText("Material, price 3")).toHaveValue("pvc");
+    // A unit has no unit to choose and no stock length: Each, per unit.
+    expect(seeded.queryByLabelText("Priced, price 3")).toBeNull();
+    expect(seeded.getByTestId("price-book-unit-each")).toHaveTextContent(
+      "Each",
+    );
+    expect(seeded.queryByLabelText("Stock length, price 3")).toBeNull();
+    expect(seeded.getByTestId("price-book-stock-unit")).toHaveTextContent(
+      "Unit",
+    );
+    const price = seeded.getByLabelText("Price in dollars, price 3");
+    await waitFor(() => expect(price).toHaveFocus());
+    fireEvent.change(price, { target: { value: "189" } });
+    fireEvent.change(stored.getByLabelText("Price in dollars, price 2"), {
+      target: { value: "349.50" },
+    });
+    fireEvent.submit(screen.getByTestId("price-book-dialog"));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(api.savePriceBook).toHaveBeenCalledWith(
+      [
+        BOOK.entries![0],
+        {
+          material: "spf_lumber",
+          profile: "door_3068",
+          unit: "each",
+          stock_length_ft: null,
+          sheet: null,
+          price_cents: 34950,
+        },
+        {
+          material: "pvc",
+          profile: "window_3040",
+          unit: "each",
+          stock_length_ft: null,
+          sheet: null,
+          price_cents: 18900,
+        },
+      ],
+      3,
+    );
+  });
+
+  it("choosing a unit prices it Each in its frame's material", async () => {
+    renderDialog();
+    const rows = await screen.findAllByTestId("price-book-row");
+    const row = within(rows[0]!);
+    fireEvent.change(row.getByLabelText("Profile, price 1"), {
+      target: { value: "door_3068" },
+    });
+    expect(rows[0]).toHaveAttribute("data-kind", "unit");
+    expect(row.getByLabelText("Material, price 1")).toHaveValue("spf_lumber");
+    expect(row.getByTestId("price-book-unit-each")).toHaveTextContent("Each");
+    // Back to lumber: its unit and stock length return.
+    fireEvent.change(row.getByLabelText("Profile, price 1"), {
+      target: { value: "us_2x10" },
+    });
+    expect(row.getByLabelText("Stock length, price 1")).toHaveValue("12");
+  });
+
+  it("refuses a second price for the same unit and material", async () => {
+    api.fetchPriceBook.mockResolvedValue({ ...BOOK, entries: [] });
+    renderDialog();
+    await screen.findByTestId("price-book-empty");
+    for (const n of [1, 2]) {
+      fireEvent.click(screen.getByTestId("price-book-add"));
+      const row = within(screen.getAllByTestId("price-book-row")[n - 1]!);
+      fireEvent.change(row.getByLabelText(`Profile, price ${n}`), {
+        target: { value: "window_3040" },
+      });
+      fireEvent.change(row.getByLabelText(`Price in dollars, price ${n}`), {
+        target: { value: "189" },
+      });
+    }
+    fireEvent.submit(screen.getByTestId("price-book-dialog"));
+    expect(
+      await screen.findByText(
+        "This material, profile and unit is already priced.",
+      ),
+    ).toBeInTheDocument();
+    expect(api.savePriceBook).not.toHaveBeenCalled();
   });
 
   it("holds Cancel and Escape while a save is in flight", async () => {

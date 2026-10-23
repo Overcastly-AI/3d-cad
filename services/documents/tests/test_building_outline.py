@@ -478,3 +478,68 @@ def test_older_windows_keep_measuring_from_the_start(client: TestClient) -> None
     part, _, walls = _walls_only(client)
     part.add("Window", _window("1.1.0", walls, offset_mm=228 * IN))
     assert "measure_from" not in part.stored()["Window"]["params"]["inputs"]
+
+
+# --- Window and door units picked by size (OPENING-UNITS) --------------------------
+
+
+def _unit(version: str, walls: str, **inputs: Any) -> dict[str, Any]:
+    return _custom(
+        "loft.window", version, host_wall=_ref(walls), wall_segment=["e1"], **inputs
+    )
+
+
+def test_a_picked_size_frames_its_rough_opening_and_draws_the_unit(
+    client: TestClient,
+) -> None:
+    """A 1.3.0 window left at its default size (3040) frames what a 1.2.0
+    window typed 36 x 48 frames; its expansion is a frame and a pane, each
+    carrying the unit; the cut-list request lists both with the unit, and
+    the evaluation weighs them as PVC and glass. Rough opening only keeps
+    the framing and drops the unit."""
+    part, _, walls = _walls_only(client)
+    window = part.add("Window", _unit("1.3.0", walls, offset_mm=60 * IN))
+    stored = part.stored()["Window"]["params"]
+    assert stored["inputs"]["size"] == "window_3040"
+    assert stored["inputs"]["draw_unit"] == "draw"
+    typed, _, typed_walls = _walls_only(client)
+    typed.add("Window", _window("1.2.0", typed_walls, offset_mm=60 * IN))
+    assert _framing(part) == _framing(typed)
+
+    roles = Counter(m["role"] for m in stored["expansion"])
+    assert (roles["frame"], roles["glazing"]) == (1, 1)
+    units = {
+        m["role"]: m["metadata"]
+        for m in stored["expansion"]
+        if m["role"] in ("frame", "glazing")
+    }
+    assert units["frame"]["unit"] == {
+        "kind": "window",
+        "key": "window_3040",
+        "counted": True,
+    }
+    assert units["glazing"]["unit"]["counted"] is False
+
+    response = client.get(f"/api/v1/parts/{part.id}/cut-list-request", headers=HEADERS)
+    assert response.status_code == 200, response.text
+    listed = {
+        m["role"]: m for m in response.json()["members"] if m["metadata"].get("unit")
+    }
+    frame = listed["frame"]
+    assert (frame["title"], frame["metadata"]["profile"]) == ("Frame", "3040")
+    assert listed["glazing"]["metadata"]["material"] == "glass"
+    materials = part.request().materials
+    assert materials is not None
+    assert {b.material for b in materials.bodies} >= {"pvc", "glass"}
+
+    part.edit(window, _unit("1.3.0", walls, offset_mm=60 * IN, draw_unit="none"))
+    assert part.stored()["Window"]["params"]["expansion"] == []
+    assert _framing(part) == _framing(typed)
+
+
+def test_older_windows_draw_no_unit(client: TestClient) -> None:
+    part, _, walls = _walls_only(client)
+    part.add("Window", _window("1.2.0", walls, offset_mm=60 * IN))
+    stored = part.stored()["Window"]["params"]
+    assert "size" not in stored["inputs"]
+    assert stored["expansion"] == []

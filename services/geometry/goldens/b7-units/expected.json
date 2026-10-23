@@ -1,0 +1,54 @@
+{
+  "description": "B7 WITH ITS WINDOW AND DOOR UNITS (OPENING-UNITS; docs/BACKLOG.md Now #5, RESEARCH section 23). b7-outline's house at 288 x 192 with the door and five windows at loft.door / loft.window 1.3.0, each picked by call size with no size field typed: the door and the three big windows take the defaults (3068, 3040) and the two side windows pick 2030; each measured from the wall end nearer the origin (front door 144, front windows 60 and 228, back window 144, sides 90.5). The sizes frame the rough openings b7-outline typed (38 x 82.5, 36.5 x 48.5, 24.5 x 36.5), so the 217 framing, panel and roof bodies are b7-outline's exactly, and each opening adds its unit: a window's PVC frame and glass pane, the door's frame and slab (SPF). model.json and members.json are pinned to the plugins by packages/loft-plugins/tests/test_b7_units.py (test_the_units_golden_is_the_plugins_expansion); services/geometry/tests/test_outline_b7.py checks the STEP solid for solid against its independent script, no interference, the cut list (Window 3040 x 3, Window 2030 x 2, Door 3068 x 1, each one priced Each line) and the mass.",
+  "derivation": [
+    "INDEPENDENT of the plugins: test_outline_b7.py's script(288, units=True) is b7-outline's script plus unit_members(), typed from RESEARCH section 23's drawing convention: a window 1/2 in under its rough opening each way and centred in it, its frame 2 in wide and 3.25 in deep from the framing's exterior face, a 1/4 in pane centred in that depth; the door 37.5 x 82 (its 38 x 82.5 rough opening less 1/2 in) on the subfloor, 3/4 in jambs and head, a 1.25 in threshold, the wall's 5.5 in depth, round a 36 x 80 x 1.75 slab at the face. The STEP's 229 solids match it solid for solid.",
+    "",
+    "volume by hand: b7-outline's 264 852.3788656 in^3 plus the units. 3040 frame (36 x 48 - 32 x 44) x 3.25 = 320 x 3.25 = 1040, pane 32 x 44 x 1/4 = 352; 2030 frame (24 x 36 - 20 x 32) x 3.25 = 224 x 3.25 = 728, pane 20 x 32 x 1/4 = 160; door frame (37.5 x 82 - 36 x 80) x 5.5 = 195 x 5.5 = 1072.5, slab 36 x 80 x 1.75 = 5040. 3 x 1392 + 2 x 888 + 6112.5 = 12 064.5 in^3 (units_volume, exact). Total 276 916.8788656 in^3 = 4537854616.65035 mm^3.",
+    "",
+    "mass by hand: b7-outline's 2 182 343.631176 g plus PVC (3 x 1040 + 2 x 728 = 4576 in^3) x 1400 = 104 982.0868 g, glass (3 x 352 + 2 x 160 = 1376 in^3) x 2500 = 56 371.5002 g, SPF (6112.5 in^3) x 450 = 45 074.6679 g: 2 388 771.886060 g. surface_area, centroid and center_of_mass are the script's solids summed (expected_numbers(288, 60, units=True)); X stays symmetric about 144 in (3657.6 mm).",
+    "",
+    "bounding_box: b7-outline's (every unit lies inside its wall's rough opening).",
+    "",
+    "topology and MESH: b7-outline's 1520 faces, 3258 edges, 217 shells, 6516 vertices and 3476 triangles plus the units by hand. A frame is a box through a rectangular hole: 10 planar faces (two caps on one hole each, 8 sides), 24 edges, its caps 8 vertices and 8 + 2 - 2 = 8 triangles each, its sides 4 and 2: 48 vertices and 32 triangles. A pane or slab is a box: 6 faces, 12 edges, 24 vertices, 12 triangles. Six units: +96 faces, +216 edges, +12 shells, +432 vertices, +264 triangles: 1616, 3474, 229, 6948 and 3740."
+  ],
+  "tolerance": 1e-5,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): ~4.5e9 mm^3 and ~4.0e8 mm^2 summed over 229 bodies, so the double-precision sums carry round-off near their ULPs. The kernel differs from the script by 0.0 mm^3 on the volume, -4.4e-06 mm^2 on the area (the 12 unit bodies' faces summed in another order than b7-outline's 217, ~1.1e-14 relative) and <= 8.2e-12 mm on the centroid. 1e-5 is 2.3x the worst. A unit drawn 1/4 in off its place moves the centroid by ~1e-1 mm and a missing pane changes the volume by 5.8e6 mm^3, so either fails by orders.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-23, b7-outline's class: OCCT's STEP writer rounds the 26 sloped rafters' and the notched panels' irrational coordinates (the units are boxes and rings on exact binary-fraction inches). Round-trip drift: volume -3.30e-4 mm^3 and area -2.64e-5 mm^2 (plugin); the independent build123d twin (test_outline_b7.script(units=True), exported with build123d's export_step) drifts -3.77e-4 / -2.63e-5, so it is OCCT's STEP, not Loft's export. 1e-3 is 2.7x the worst and b7-outline's bound; it applies to volume and area only.",
+  "properties": {
+    "volume": 4537854616.65035,
+    "surface_area": 401240167.11177444,
+    "centroid": {
+      "x": 3657.6,
+      "y": 2367.1793130434294,
+      "z": 1304.3297978661499
+    },
+    "mass_g": 2388771.8860603757,
+    "center_of_mass": {
+      "x": 3657.600000000011,
+      "y": 2356.948453560203,
+      "z": 1287.927202257169
+    },
+    "bounding_box": {
+      "min": {
+        "x": -11.112499999999999,
+        "y": -304.79999999999995,
+        "z": 0.0
+      },
+      "max": {
+        "x": 7326.3125,
+        "y": 5181.599999999999,
+        "z": 4112.45887569496
+      }
+    }
+  },
+  "topology": {
+    "faces": 1616,
+    "edges": 3474,
+    "shells": 229
+  },
+  "mesh": {
+    "vertices": 6948,
+    "triangles": 3740
+  }
+}

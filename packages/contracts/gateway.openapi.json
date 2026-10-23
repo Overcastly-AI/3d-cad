@@ -173,8 +173,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           },
           "unit": {
             "const": "deg",
@@ -970,7 +985,9 @@
                   "osb",
                   "plywood",
                   "steel_a992",
-                  "concrete"
+                  "concrete",
+                  "pvc",
+                  "glass"
                 ],
                 "type": "string"
               },
@@ -1017,7 +1034,9 @@
               "osb",
               "plywood",
               "steel_a992",
-              "concrete"
+              "concrete",
+              "pvc",
+              "glass"
             ],
             "title": "Material",
             "type": "string"
@@ -1414,8 +1433,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           }
         },
         "required": [
@@ -2883,8 +2917,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           }
         },
         "required": [
@@ -3040,7 +3089,7 @@
         "type": "object"
       },
       "CutListLine": {
-        "description": "One line: pieces with the same system, member, profile, material and\nlength.",
+        "description": "One line: pieces with the same system, member, profile, material and\nlength; or window or door units of one size and material.",
         "properties": {
           "area_mm2": {
             "anyOf": [
@@ -3103,7 +3152,9 @@
                   "osb",
                   "plywood",
                   "steel_a992",
-                  "concrete"
+                  "concrete",
+                  "pvc",
+                  "glass"
                 ],
                 "type": "string"
               },
@@ -3247,6 +3298,34 @@
             "minimum": 0.0,
             "title": "Total Length Mm",
             "type": "number"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "window",
+                  "door"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A window or door unit line (OPENING-UNITS): 'window' or 'door', its profile the call size ('3040'), one stock unit per piece, priced Each; null for lumber and sheets.",
+            "title": "Unit"
+          },
+          "unit_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A unit line's price-book key ('window_3040'); null for a custom size, or a line that is not a unit.",
+            "title": "Unit Key"
           },
           "unit_price_cents": {
             "anyOf": [
@@ -7197,8 +7276,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           }
         },
         "required": [
@@ -7339,8 +7433,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           }
         },
         "required": [
@@ -9962,8 +10071,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           },
           "unit": {
             "const": "mm",
@@ -10783,7 +10907,9 @@
               "osb",
               "plywood",
               "steel_a992",
-              "concrete"
+              "concrete",
+              "pvc",
+              "glass"
             ],
             "title": "Key",
             "type": "string"
@@ -10839,7 +10965,9 @@
                   "osb",
                   "plywood",
                   "steel_a992",
-                  "concrete"
+                  "concrete",
+                  "pvc",
+                  "glass"
                 ],
                 "type": "string"
               },
@@ -10877,7 +11005,9 @@
                   "osb",
                   "plywood",
                   "steel_a992",
-                  "concrete"
+                  "concrete",
+                  "pvc",
+                  "glass"
                 ],
                 "type": "string"
               },
@@ -10932,8 +11062,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           }
         },
         "required": [
@@ -10952,6 +11097,14 @@
               "$ref": "#/components/schemas/Material"
             },
             "title": "Materials",
+            "type": "array"
+          },
+          "opening_units": {
+            "description": "Window and door units by call size (OPENING-UNITS): what a unit price is keyed by ('window_3040') and its frame material.",
+            "items": {
+              "$ref": "#/components/schemas/OpeningUnitSize"
+            },
+            "title": "Opening Units",
             "type": "array"
           },
           "profiles": {
@@ -11228,7 +11381,9 @@
                   "osb",
                   "plywood",
                   "steel_a992",
-                  "concrete"
+                  "concrete",
+                  "pvc",
+                  "glass"
                 ],
                 "type": "string"
               },
@@ -11264,6 +11419,17 @@
             ],
             "description": "Section the member is cut from, e.g. '2x8'.",
             "title": "Profile"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OpeningUnitPart"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set on the bodies of a bought window or door unit (OPENING-UNITS): the cut list lists the unit once, Each, on its counted body. Absent on every other member."
           }
         },
         "title": "MemberMetadata",
@@ -11843,6 +12009,125 @@
           "occurrences"
         ],
         "title": "OmittedPart",
+        "type": "object"
+      },
+      "OpeningUnitPart": {
+        "description": "A member that is part of a bought unit (``MemberMetadata.unit``): the\ncut list lists the unit once, as an Each line, on its ``counted`` body\n(the frame), and skips its other bodies (glazing, a door's slab).",
+        "properties": {
+          "counted": {
+            "description": "True on the one body the unit is listed and priced on.",
+            "title": "Counted",
+            "type": "boolean"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "pattern": "^(window|door)_[0-9]{4}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Price-book key ('window_3040'); null for a custom size, which no catalogue prices.",
+            "title": "Key"
+          },
+          "kind": {
+            "enum": [
+              "window",
+              "door"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "counted"
+        ],
+        "title": "OpeningUnitPart",
+        "type": "object"
+      },
+      "OpeningUnitSize": {
+        "description": "One catalogue size: its code, the unit (or slab) it names, and the\nrough opening it is framed in.",
+        "properties": {
+          "code": {
+            "description": "Call size, e.g. '3040'.",
+            "pattern": "^[0-9]{4}$",
+            "title": "Code",
+            "type": "string"
+          },
+          "height_in": {
+            "description": "The unit's height (in); a door's, its slab's.",
+            "exclusiveMinimum": 0.0,
+            "title": "Height In",
+            "type": "number"
+          },
+          "key": {
+            "description": "Price-book key, e.g. 'window_3040'.",
+            "pattern": "^(window|door)_[0-9]{4}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "window",
+              "door"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "Its size as written, e.g. 3'0\" x 4'0\".",
+            "title": "Label",
+            "type": "string"
+          },
+          "material": {
+            "description": "The frame's library material: what the unit is priced and weighed as.",
+            "enum": [
+              "pvc",
+              "spf_lumber"
+            ],
+            "title": "Material",
+            "type": "string"
+          },
+          "name": {
+            "description": "As listed, e.g. 'Window 3040'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "ro_height_in": {
+            "description": "Rough opening height (in).",
+            "exclusiveMinimum": 0.0,
+            "title": "Ro Height In",
+            "type": "number"
+          },
+          "ro_width_in": {
+            "description": "Rough opening width (in).",
+            "exclusiveMinimum": 0.0,
+            "title": "Ro Width In",
+            "type": "number"
+          },
+          "width_in": {
+            "description": "The unit's width (in); a door's, its slab's.",
+            "exclusiveMinimum": 0.0,
+            "title": "Width In",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "code",
+          "name",
+          "label",
+          "width_in",
+          "height_in",
+          "ro_width_in",
+          "ro_height_in",
+          "material"
+        ],
+        "title": "OpeningUnitSize",
         "type": "object"
       },
       "OriginAxis": {
@@ -13849,7 +14134,9 @@
               "osb",
               "plywood",
               "steel_a992",
-              "concrete"
+              "concrete",
+              "pvc",
+              "glass"
             ],
             "title": "Material",
             "type": "string"
@@ -13895,9 +14182,13 @@
                   "plywood_23_32"
                 ],
                 "type": "string"
+              },
+              {
+                "pattern": "^(window|door)_[0-9]{4}$",
+                "type": "string"
               }
             ],
-            "description": "Lumber profile, e.g. 'us_2x4', or sheet product, e.g. 'osb_7_16'.",
+            "description": "Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', or window or door unit, e.g. 'window_3040'.",
             "title": "Profile"
           },
           "sheet": {
@@ -14134,8 +14425,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           }
         },
         "required": [
@@ -14732,8 +15038,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           }
         },
         "required": [

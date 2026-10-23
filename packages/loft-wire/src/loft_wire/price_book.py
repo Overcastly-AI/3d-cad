@@ -17,6 +17,11 @@ Sheet goods (SHEATHING) are priced ``each`` per SHEET: a product such as
 ``osb_7_16`` keyed by its ``sheet`` size ("7/16 OSB 4x9 = $24.98"), with no
 stock length, as Chief Architect prices a sheet in its materials list.
 
+Window and door units (OPENING-UNITS) are priced ``each`` per UNIT: a unit
+key ``<kind>_<code>`` ("window_3040") and its frame's material ("Vinyl window
+3040 = $289.00"), with no stock length or sheet, as Chief Architect prices a
+window or door item in its materials list.
+
 The book has a ``version`` (PRICE-BOOK-VERSION): 0 until the first save, then
 one more on every save. ``GET`` serves it in the body and as the ``ETag``;
 a ``PUT`` names the version it was drafted from in ``If-Match`` and is refused
@@ -36,6 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from loft_wire.lumber import STOCK_LENGTHS_FT, LumberProfileKey
 from loft_wire.materials import MaterialKey
+from loft_wire.opening_units import OpeningUnitKey
 from loft_wire.sheet_goods import (
     SHEET_GOODS_BY_KEY,
     SheetGoodKey,
@@ -84,14 +90,21 @@ def parse_if_match(value: str) -> int | None:
     return int(text)
 
 
+def _is_unit_key(profile: str) -> bool:
+    """A unit key (``window_3040``): any call size, so a maker's line is
+    priced as the built-in catalogue's is."""
+    return profile.startswith(("window_", "door_"))
+
+
 class PriceBookEntry(BaseModel):
     """One price: a material and profile, per stock piece, foot or board foot."""
 
     model_config = ConfigDict(extra="forbid")
 
     material: MaterialKey = Field(description="Library material, e.g. 'spf_lumber'.")
-    profile: LumberProfileKey | SheetGoodKey = Field(
-        description="Lumber profile, e.g. 'us_2x4', or sheet product, e.g. 'osb_7_16'."
+    profile: LumberProfileKey | SheetGoodKey | OpeningUnitKey = Field(
+        description="Lumber profile, e.g. 'us_2x4', sheet product, e.g. "
+        "'osb_7_16', or window or door unit, e.g. 'window_3040'."
     )
     unit: PriceUnit = Field(
         description="'each' (one stock piece of `stock_length_ft`, or one "
@@ -118,6 +131,17 @@ class PriceBookEntry(BaseModel):
 
     @model_validator(mode="after")
     def _stock_length_matches_unit(self) -> "PriceBookEntry":
+        if _is_unit_key(self.profile):
+            if (
+                self.unit != "each"
+                or self.stock_length_ft is not None
+                or self.sheet is not None
+            ):
+                raise ValueError(
+                    "A window or door unit is priced 'each' per unit, with no "
+                    "stock length or sheet."
+                )
+            return self
         if self.profile in SHEET_GOODS_BY_KEY:
             if self.unit != "each" or self.sheet is None:
                 raise ValueError(

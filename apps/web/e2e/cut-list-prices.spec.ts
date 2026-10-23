@@ -260,11 +260,13 @@ test.describe("Cut list prices — the B1 deck", () => {
     expect(csv[0]).toMatch(
       /,Stock qty,Unit price \(USD\),Price unit,Extended \(USD\)$/,
     );
-    expect(csv[4]).toMatch(/^4,Joist,.*,12 ft,3,13,19\.98,Each,259\.74$/);
-    expect(csv[5]).toMatch(/^5,Post,.*,8 ft,85\.5,3,,,$/);
-    expect(csv[6]).toMatch(/^6,Deck,.*,16 ft,0,26,17\.92,Per ft,465\.92$/);
+    expect(csv[4]).toMatch(/^4,Other,Joist,.*,12 ft,3,13,19\.98,Each,259\.74$/);
+    expect(csv[5]).toMatch(/^5,Other,Post,.*,8 ft,85\.5,3,,,$/);
+    expect(csv[6]).toMatch(
+      /^6,Other,Deck,.*,16 ft,0,26,17\.92,Per ft,465\.92$/,
+    );
     expect(csv[7]).toBe(
-      ',"Total of priced lines, 1 unpriced",,,,,,,,,,,,,839.54',
+      ',"Total of priced lines, 1 unpriced",,,,,,,,,,,,,,839.54',
     );
 
     // PRICE-BOOK-VERSION: the dialog drafts version N; another tab saves.

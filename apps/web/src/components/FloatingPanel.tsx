@@ -63,7 +63,8 @@ export interface FloatingPanelProps {
   yields?: boolean;
   /**
    * The panel's inner edge drags wider (a palette's sash, as in Fusion): the
-   * width token is the floor, the frame less a tree's column the ceiling.
+   * width token is the floor, the frame less a tree's column the ceiling
+   * (see `resizeBounds`: a frame too narrow for both shrinks the floor).
    * Keyboard: the sash is a focusable separator; the arrow keys move it,
    * Home resets it.
    */
@@ -96,6 +97,24 @@ const SASH_STEP = 32;
 
 /** The two frame insets (`left-3`, `right-3`) a resized panel keeps clear. */
 const FRAME_INSETS = 24;
+
+/**
+ * A resizable panel's width bounds (px) in a frame `frameWidth` px wide. The
+ * room is the frame less its insets and the other side's tree (320): it is
+ * the ceiling and, in a frame narrower than the token plus the tree (about
+ * 984 px for the Cut list's 640), the floor too, so the panel never runs over
+ * the tree or out of the frame. Never below the inspector's 320, nor wider
+ * than the frame less its insets.
+ */
+export function resizeBounds(
+  token: number,
+  frameWidth: number,
+): { floor: number; ceiling: number } {
+  const room = frameWidth - FRAME_INSETS - layout.inspectorWidth;
+  const least = Math.min(layout.inspectorWidth, frameWidth - FRAME_INSETS);
+  const floor = Math.max(0, Math.min(token, Math.max(least, room)));
+  return { floor, ceiling: Math.max(floor, room) };
+}
 
 /** A railed panel's edge: the frame edge its rail is anchored to. */
 const RAIL_EDGE = { left: "self-start", right: "self-end" } as const;
@@ -145,25 +164,40 @@ export function FloatingPanel({
     announceChromeChange();
   }, [collapsed, railed]);
 
-  /** The widest the panel may grow: the frame less the other side's tree. */
-  function ceiling(): number {
+  /** A resizable panel's frame width (px), observed: its bounds follow it. */
+  const [frameWidth, setFrameWidth] = useState<number>(() =>
+    typeof window === "undefined" ? Infinity : window.innerWidth,
+  );
+  useEffect(() => {
+    if (!resizable || collapsed) return;
     const node = panelRef.current;
     // Railed, the rail is the absolutely placed box; floating, the panel is.
     const frame = railed
       ? node?.parentElement?.offsetParent
       : node?.offsetParent;
-    const frameWidth =
-      frame instanceof HTMLElement ? frame.clientWidth : window.innerWidth;
-    return Math.max(
-      WIDTH_PX[width],
-      frameWidth - FRAME_INSETS - layout.inspectorWidth,
-    );
-  }
+    const measure = () =>
+      setFrameWidth(
+        frame instanceof HTMLElement ? frame.clientWidth : window.innerWidth,
+      );
+    measure();
+    if (frame instanceof HTMLElement && typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(measure);
+      observer.observe(frame);
+      return () => observer.disconnect();
+    }
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [resizable, collapsed, railed]);
+  const { floor, ceiling } = resizeBounds(WIDTH_PX[width], frameWidth);
   function resizeTo(next: number) {
-    const clamped = Math.min(ceiling(), Math.max(WIDTH_PX[width], next));
-    setDragged(clamped === WIDTH_PX[width] ? null : Math.round(clamped));
+    const clamped = Math.min(ceiling, Math.max(floor, next));
+    setDragged(clamped === floor ? null : Math.round(clamped));
   }
-  const current = dragged ?? WIDTH_PX[width];
+  // A drag outlives a frame that shrank under it: clamp it again.
+  const current = resizable
+    ? Math.round(Math.min(ceiling, Math.max(floor, dragged ?? floor)))
+    : WIDTH_PX[width];
+  const sized = resizable && current !== WIDTH_PX[width];
   // A right panel widens leftwards: its sash is its left edge.
   const outward = side === "right" ? -1 : 1;
   function onSashDown(event: PointerEvent<HTMLDivElement>) {
@@ -189,8 +223,8 @@ export function FloatingPanel({
     let next: number | null = null;
     if (event.key === "ArrowLeft") next = current - outward * step;
     else if (event.key === "ArrowRight") next = current + outward * step;
-    else if (event.key === "Home") next = WIDTH_PX[width];
-    else if (event.key === "End") next = ceiling();
+    else if (event.key === "Home") next = floor;
+    else if (event.key === "End") next = ceiling;
     if (next === null) return;
     event.preventDefault();
     resizeTo(next);
@@ -226,7 +260,7 @@ export function FloatingPanel({
     <div
       ref={panelRef}
       data-viewport-chrome={`panel-${id}`}
-      style={dragged === null ? undefined : { width: dragged }}
+      style={sized ? { width: current } : undefined}
       className={cx(
         "pointer-events-auto flex flex-col",
         WIDTH[width],
@@ -266,7 +300,8 @@ export function FloatingPanel({
           role="separator"
           aria-orientation="vertical"
           aria-label={`Resize ${title}`}
-          aria-valuemin={WIDTH_PX[width]}
+          aria-valuemin={Math.round(floor)}
+          aria-valuemax={Math.round(ceiling)}
           aria-valuenow={current}
           tabIndex={0}
           data-testid={`panel-resize-${id}`}
@@ -275,7 +310,7 @@ export function FloatingPanel({
           onPointerUp={onSashUp}
           onPointerCancel={onSashUp}
           onKeyDown={onSashKey}
-          onDoubleClick={() => resizeTo(WIDTH_PX[width])}
+          onDoubleClick={() => resizeTo(floor)}
           title="Drag to widen; double-click to reset"
           className={cx(
             "absolute inset-y-0 z-10 w-1.5 cursor-col-resize touch-none",

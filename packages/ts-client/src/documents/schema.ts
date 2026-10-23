@@ -884,7 +884,8 @@ export interface paths {
         };
         /**
          * List Materials
-         * @description The built-in materials, lumber profiles and sheet goods, in display order.
+         * @description The built-in materials, lumber profiles, sheet goods and window and door
+         *     units, in display order.
          *
          *     v1 is a closed library (docs/design/materials.md §1/§5): a fixed
          *     ``MaterialKey`` literal means an unknown material is a parse error at the
@@ -1799,9 +1800,14 @@ export interface components {
             name: string;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
             /**
              * Unit
              * @default deg
@@ -2185,7 +2191,7 @@ export interface components {
              * @description Material for THIS body only
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass";
         };
         /**
          * BomLine
@@ -2464,9 +2470,14 @@ export interface components {
             options: components["schemas"]["ChoiceOption"][];
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
         };
         /**
          * ChoiceOption
@@ -2747,9 +2758,14 @@ export interface components {
             name: string;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
         };
         /**
          * CustomFeature
@@ -4694,9 +4710,14 @@ export interface components {
             plugin_ids?: string[] | null;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
         };
         /**
          * FeatureMutationResponse
@@ -4773,9 +4794,14 @@ export interface components {
             plugin_ids?: string[] | null;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
         };
         /**
          * FeatureReorderRequest
@@ -6194,9 +6220,14 @@ export interface components {
             name: string;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
             /**
              * Unit
              * @default mm
@@ -6753,7 +6784,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete";
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass";
             /**
              * Name
              * @description Display name, e.g. 'Aluminium 6061'
@@ -6788,7 +6819,7 @@ export interface components {
              * Default Material
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
-            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete") | null;
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass") | null;
         };
         /**
          * MaterialInput
@@ -6796,7 +6827,7 @@ export interface components {
          */
         MaterialInput: {
             /** Default */
-            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete") | null;
+            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass") | null;
             /**
              * Description
              * @description Help text under the field.
@@ -6819,9 +6850,14 @@ export interface components {
             name: string;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
         };
         /**
          * MaterialLibraryResponse
@@ -6838,6 +6874,11 @@ export interface components {
         MaterialLibraryResponse: {
             /** Materials */
             materials: components["schemas"]["Material"][];
+            /**
+             * Opening Units
+             * @description Window and door units by call size (OPENING-UNITS): what a unit price is keyed by ('window_3040') and its frame material.
+             */
+            opening_units?: components["schemas"]["OpeningUnitSize"][];
             /**
              * Profiles
              * @description Lumber sections: nominal name and actual dressed size.
@@ -6865,7 +6906,7 @@ export interface components {
              * Material
              * @description Library material of the member.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass") | null;
             /**
              * Nominal Size
              * @description Nominal size as sold, e.g. '2x8x12'.
@@ -6876,6 +6917,8 @@ export interface components {
              * @description Section the member is cut from, e.g. '2x8'.
              */
             profile?: string | null;
+            /** @description Set on the bodies of a bought window or door unit (OPENING-UNITS): the cut list lists the unit once, Each, on its counted body. Absent on every other member. */
+            unit?: components["schemas"]["OpeningUnitPart"] | null;
         };
         /**
          * MidpointConstraint
@@ -7169,6 +7212,87 @@ export interface components {
              * @constant
              */
             type: "note";
+        };
+        /**
+         * OpeningUnitPart
+         * @description A member that is part of a bought unit (``MemberMetadata.unit``): the
+         *     cut list lists the unit once, as an Each line, on its ``counted`` body
+         *     (the frame), and skips its other bodies (glazing, a door's slab).
+         */
+        OpeningUnitPart: {
+            /**
+             * Counted
+             * @description True on the one body the unit is listed and priced on.
+             */
+            counted: boolean;
+            /**
+             * Key
+             * @description Price-book key ('window_3040'); null for a custom size, which no catalogue prices.
+             */
+            key?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "window" | "door";
+        };
+        /**
+         * OpeningUnitSize
+         * @description One catalogue size: its code, the unit (or slab) it names, and the
+         *     rough opening it is framed in.
+         */
+        OpeningUnitSize: {
+            /**
+             * Code
+             * @description Call size, e.g. '3040'.
+             */
+            code: string;
+            /**
+             * Height In
+             * @description The unit's height (in); a door's, its slab's.
+             */
+            height_in: number;
+            /**
+             * Key
+             * @description Price-book key, e.g. 'window_3040'.
+             */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "window" | "door";
+            /**
+             * Label
+             * @description Its size as written, e.g. 3'0" x 4'0".
+             */
+            label: string;
+            /**
+             * Material
+             * @description The frame's library material: what the unit is priced and weighed as.
+             * @enum {string}
+             */
+            material: "pvc" | "spf_lumber";
+            /**
+             * Name
+             * @description As listed, e.g. 'Window 3040'.
+             */
+            name: string;
+            /**
+             * Ro Height In
+             * @description Rough opening height (in).
+             */
+            ro_height_in: number;
+            /**
+             * Ro Width In
+             * @description Rough opening width (in).
+             */
+            ro_width_in: number;
+            /**
+             * Width In
+             * @description The unit's width (in); a door's, its slab's.
+             */
+            width_in: number;
         };
         /**
          * OriginAxis
@@ -8265,7 +8389,7 @@ export interface components {
              * @description Library material, e.g. 'spf_lumber'.
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass";
             /**
              * Price Cents
              * @description Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.
@@ -8273,9 +8397,9 @@ export interface components {
             price_cents: number;
             /**
              * Profile
-             * @description Lumber profile, e.g. 'us_2x4', or sheet product, e.g. 'osb_7_16'.
+             * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', or window or door unit, e.g. 'window_3040'.
              */
-            profile: ("us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32");
+            profile: ("us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32") | string;
             /**
              * Sheet
              * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10'); null for lumber.
@@ -8364,9 +8488,14 @@ export interface components {
             name: string;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
         };
         /**
          * Quat
@@ -8858,9 +8987,14 @@ export interface components {
             outline_input: string;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
         };
         /**
          * SelectorV1

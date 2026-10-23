@@ -156,12 +156,12 @@ def test_csv_writes_unclassified_pieces_with_their_measured_section() -> None:
     )
     assert response.unclassified == 1
     assert cut_list_csv(response) == (
-        "Item,Member,Profile,Section (mm),Material,Qty,Length (mm),"
+        "Item,System,Member,Profile,Section (mm),Material,Qty,Length (mm),"
         "Total length (mm),Area (sq mm),Stock,Waste each (mm),"
         "Stock qty,Unit price (USD),"
         "Price unit,Extended (USD)\r\n"
-        "1,,Unclassified,10 x 20,,1,30,30,,,,,,,\r\n"
-        ',"Total of priced lines, 1 unpriced",,,,,,,,,,,,,\r\n'
+        "1,Other,,Unclassified,10 x 20,,1,30,30,,,,,,,\r\n"
+        ',"Total of priced lines, 1 unpriced",,,,,,,,,,,,,,\r\n'
     )
 
 
@@ -210,7 +210,9 @@ def test_csv_escapes_member_and_profile_cells() -> None:
         pieces=[classify_body(bar, member, None)],
     )
     row = cut_list_csv(response).split("\r\n")[1]
-    assert row.startswith('1,\'=cmd|\'/c calc\'!A1,"\'=HYPERLINK(""http://x"",""y"")",')
+    assert row.startswith(
+        '1,Other,\'=cmd|\'/c calc\'!A1,"\'=HYPERLINK(""http://x"",""y"")",'
+    )
 
 
 @pytest.mark.parametrize(
@@ -240,7 +242,7 @@ def test_a_deleted_part_is_listed_not_dropped() -> None:
     )
     assert response.missing[0].quantity == 3
     assert cut_list_csv(response).endswith(
-        ",Deleted part,Not listed,,,3,,,,,,,,,\r\n,Total,,,,,,,,,,,,,\r\n"
+        ",,Deleted part,Not listed,,,3,,,,,,,,,\r\n,Total,,,,,,,,,,,,,,\r\n"
     )
 
 

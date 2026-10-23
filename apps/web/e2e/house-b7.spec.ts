@@ -331,10 +331,14 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
         .getByTestId("plugin-input-host_wall")
         .selectOption({ label: host });
       await page.getByTestId("plugin-input-offset_mm").fill(offset);
-      if (large) {
-        await page.getByTestId("plugin-input-width_mm").fill("36");
-        await page.getByTestId("plugin-input-height_mm").fill("48");
+      // OPENING-UNITS: each picks its call size (the door's 3068 is the
+      // default) and leaves its unit out, so the list is the framing's.
+      if (plugin === "loft.window") {
+        await page
+          .getByTestId("plugin-input-size")
+          .selectOption(large ? "window_3040" : "window_2030");
       }
+      await page.getByTestId("plugin-input-draw_unit").selectOption("none");
       await submit(page);
     }
     await expect(rows).toHaveCount(11);
@@ -449,7 +453,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     const csv = (
       await readFile(await (await downloading).path(), "utf-8")
     ).split("\r\n");
-    expect(csv).toContain(",Total,,,,,,,,,,,,,2868.87");
+    expect(csv).toContain(",Total,,,,,,,,,,,,,,2868.87");
 
     // Edit 1: the front left window (X 60) moved 24 in, to X 84: one field,
     // its distance from the X 0 end. The wall re-frames it with the same

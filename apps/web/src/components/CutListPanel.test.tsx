@@ -141,6 +141,20 @@ vi.mock("../api/materials", () => ({
         { key: "us_2x6", name: "2x6" },
       ],
       sheet_goods: [{ key: "osb_7_16", name: "7/16 OSB", material: "osb" }],
+      opening_units: [
+        {
+          key: "window_3040",
+          code: "3040",
+          kind: "window",
+          name: "Window 3040",
+          label: `3'0" x 4'0"`,
+          material: "pvc",
+          width_in: 36,
+          height_in: 48,
+          ro_width_in: 36.5,
+          ro_height_in: 48.5,
+        },
+      ],
       sheet_sizes: [
         { key: "4x8", width_in: 48, length_in: 96 },
         { key: "4x9", width_in: 48, length_in: 108 },
@@ -314,6 +328,81 @@ describe("CutListPanel", () => {
     const seeded = await screen.findByTestId("price-book-row");
     expect(seeded).toHaveAttribute("data-profile", "osb_7_16");
     expect(within(seeded).getByLabelText("Sheet, price 1")).toHaveValue("4x9");
+  });
+
+  it("lists a window unit by its size and kind, and prices it from its blank", async () => {
+    // OPENING-UNITS: B7's three 3040s, one Each line, not in the book yet.
+    const unit: CutListLine = {
+      member: "Window",
+      profile: "3040",
+      material: "pvc",
+      classification: "member",
+      quantity: 3,
+      length_mm: 48 * IN,
+      total_length_mm: 144 * IN,
+      section_mm: [3.5 * IN, 36 * IN],
+      system: "walls",
+      unit: "window",
+      unit_key: "window_3040",
+      stock_length_ft: null,
+      stock_pieces_ft: null,
+      waste_mm: null,
+      stock_quantity: 3,
+      unit_price_cents: null,
+      price_unit: null,
+      extended_price_cents: null,
+    };
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      total_quantity: 4,
+      unclassified: 0,
+      missing: [],
+      total_price_cents: null,
+      unpriced_lines: 2,
+      // A custom size has no key: listed, but no catalogue entry prices it.
+      lines: [
+        unit,
+        {
+          ...unit,
+          profile: "30 x 40 in",
+          quantity: 1,
+          stock_quantity: 1,
+          unit_key: null,
+        },
+      ],
+    });
+    renderPanel();
+    const [row, custom] = await screen.findAllByTestId("cut-list-row");
+    const line = within(row!);
+    expect(line.getByTestId("cut-list-stock")).toHaveTextContent("3040 window");
+    expect(within(custom!).getByTestId("cut-list-stock")).toHaveTextContent(
+      "30 x 40 in window",
+    );
+    expect(within(custom!).queryByTestId("cut-list-price-blank")).toBeNull();
+    // The full view lists the unit the same way, and prices it from there.
+    fireEvent.click(screen.getByTestId("cut-list-expand"));
+    const view = within(screen.getByTestId("cut-list-expanded"));
+    const [wide] = view.getAllByTestId("cut-list-row");
+    expect(within(wide!).getByTestId("cut-list-stock")).toHaveTextContent(
+      "3040 window",
+    );
+    fireEvent.click(
+      within(wide!).getByRole("button", {
+        name: "Price Window, 3040 window unit",
+      }),
+    );
+    const seeded = await screen.findByTestId("price-book-row");
+    expect(seeded).toHaveAttribute("data-profile", "window_3040");
+    expect(seeded).toHaveAttribute("data-kind", "unit");
+    expect(seeded).toHaveAttribute("data-material", "pvc");
+    expect(
+      within(seeded).getByTestId("price-book-stock-unit"),
+    ).toHaveTextContent("Unit");
+    await waitFor(() =>
+      expect(
+        within(seeded).getByLabelText("Price in dollars, price 1"),
+      ).toHaveFocus(),
+    );
   });
 
   it("shows a long member's splice and prices it per member", async () => {
@@ -507,6 +596,82 @@ describe("CutListPanel", () => {
   it("counts the unpriced lines", () => {
     expect(unpricedLabel(1)).toBe("1 line unpriced");
     expect(unpricedLabel(6)).toBe("6 lines unpriced");
+  });
+
+  it("opens full width and closes with Esc, focus back on Expand", async () => {
+    renderPanel();
+    await screen.findAllByTestId("cut-list-row");
+    const expand = screen.getByRole("button", { name: "Expand the cut list" });
+    fireEvent.click(expand);
+    const view = screen.getByRole("dialog", { name: "Cut list" });
+    expect(view).toHaveAttribute("aria-modal", "true");
+    // The same table: every line, its prices, the Total and the actions.
+    const inView = within(view);
+    expect(inView.getAllByTestId("cut-list-row")).toHaveLength(3);
+    expect(inView.getByTestId("cut-list-price-total")).toHaveTextContent(
+      "$259.74",
+    );
+    expect(inView.getByText("B1 deck")).toBeInTheDocument();
+    expect(inView.getByText("3 lines · 15 pieces")).toBeInTheDocument();
+    expect(inView.getByTestId("cut-list-price-book")).toBeInTheDocument();
+    expect(inView.getByTestId("cut-list-csv")).toBeEnabled();
+    // Its head stays put while the rows scroll.
+    expect(view.querySelector("thead")).toHaveClass("sticky", "top-0");
+    fireEvent.keyDown(view, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(expand).toHaveFocus();
+    // The side panel is as it was.
+    expect(screen.getAllByTestId("cut-list-row")).toHaveLength(3);
+  });
+
+  it("closes with its Close button", async () => {
+    renderPanel();
+    await screen.findAllByTestId("cut-list-row");
+    fireEvent.click(screen.getByTestId("cut-list-expand"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close the full cut list" }),
+    );
+    expect(screen.queryByTestId("cut-list-expanded")).toBeNull();
+  });
+
+  it("gives Esc to a Price book opened from the full view first", async () => {
+    renderPanel();
+    await screen.findAllByTestId("cut-list-row");
+    fireEvent.click(screen.getByTestId("cut-list-expand"));
+    const view = screen.getByTestId("cut-list-expanded");
+    fireEvent.click(
+      within(view).getByRole("button", { name: "Price 6x6, 6x6 at 8 ft" }),
+    );
+    const book = screen.getByRole("dialog", { name: "Price book" });
+    fireEvent.keyDown(book, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Price book" })).toBeNull();
+    expect(screen.getByTestId("cut-list-expanded")).toBeInTheDocument();
+  });
+
+  it("downloads the CSV from the full view", async () => {
+    const blob = new Blob(["Item"], { type: "text/csv" });
+    csv.exportCutListCsv.mockResolvedValue({ blob, filename: "B1.csv" });
+    renderPanel();
+    await screen.findAllByTestId("cut-list-row");
+    fireEvent.click(screen.getByTestId("cut-list-expand"));
+    fireEvent.click(
+      within(screen.getByTestId("cut-list-expanded")).getByTestId(
+        "cut-list-csv",
+      ),
+    );
+    await waitFor(() =>
+      expect(csv.downloadBlob).toHaveBeenCalledWith(blob, "B1.csv"),
+    );
+  });
+
+  it("offers no Expand for an empty list", async () => {
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      lines: [],
+    });
+    renderPanel();
+    await screen.findByTestId("cut-list-empty");
+    expect(screen.queryByTestId("cut-list-expand")).toBeNull();
   });
 
   it("downloads the server's CSV", async () => {

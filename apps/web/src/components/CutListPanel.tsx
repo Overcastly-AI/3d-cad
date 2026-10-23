@@ -12,6 +12,8 @@
  * from every wall merged; each system is a headed row group here. Member names
  * wrap, never truncate, and every figure stays on one line. In the part
  * workspace the panel is a full-height view whose left edge drags wider.
+ * Expand opens the same list full width (`CutListView`), as Fusion opens its
+ * BOM in a view of its own; its caption bar sticks while the panel scrolls.
  *
  * Every number is the gateway's: geometry measured the lengths and the grouping
  * is server-side, so this only formats them in the document's unit. A body that
@@ -34,10 +36,29 @@
  * "16 ft + 8 ft" per member (the gateway's choice): its stock quantity counts
  * one splice set per member and its unit price is that set's pieces summed,
  * so stock qty × unit price is the extended price on every row.
+ *
+ * A window or door unit (OPENING-UNITS) is one line per call size, bought
+ * whole: Stock reads its size and kind ("3040 window"), and its blank price
+ * opens the book on that unit's key ('window_3040'), priced Each.
  */
-import { Button, lengthUnitLabel, Panel, PanelSection } from "@loft/design";
+import {
+  Button,
+  CloseIcon,
+  ExpandIcon,
+  lengthUnitLabel,
+  Panel,
+  PanelSection,
+} from "@loft/design";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 
 import {
   type CutListLine,
@@ -49,7 +70,9 @@ import { downloadBlob } from "../api/exportPart";
 import { fetchMaterials } from "../api/materials";
 import { PRICE_UNIT_LABEL } from "../api/priceBook";
 import { formatArea, formatCount, formatLength } from "../lib/format";
+import { useModalLayer } from "../lib/modalGate";
 import { formatMoney } from "../lib/money";
+import { containFocus } from "./dialogKeys";
 import { PriceBookDialog, type PriceBookSeed } from "./PriceBookDialog";
 
 export interface CutListPanelProps {
@@ -121,6 +144,18 @@ function seedFor(line: CutListLine): PriceBookSeed | null {
   ) {
     return null;
   }
+  if (line.unit !== null && line.unit !== undefined) {
+    // A custom-size unit has no key: no catalogue entry prices it.
+    const key = line.unit_key ?? null;
+    return key === null
+      ? null
+      : {
+          material: line.material,
+          profile: line.profile,
+          stockLengthFt: null,
+          unitKey: key,
+        };
+  }
   const sheet = line.sheet ?? null;
   if (sheet !== null) {
     return {
@@ -158,8 +193,12 @@ function splice(line: CutListLine): readonly number[] | null {
   return pieces !== null && pieces.length > 1 ? pieces : null;
 }
 
-/** What the line buys: "12 ft" of lumber, "9 × 4x9" sheets, or a dash. */
+/** What the line buys: "12 ft" of lumber, "9 × 4x9" sheets, a "3040
+ * window", or a dash. */
 function stockLabel(line: CutListLine): string {
+  if (line.unit !== null && line.unit !== undefined) {
+    return line.profile === null ? line.unit : `${line.profile} ${line.unit}`;
+  }
   if (line.area_mm2 !== null && line.area_mm2 !== undefined) {
     return line.sheet === null || line.sheet === undefined
       ? "—"
@@ -173,6 +212,7 @@ function stockLabel(line: CutListLine): string {
 /** How the line's unit price was reached, for its tooltip. */
 function priceBasis(line: CutListLine): string | undefined {
   if (line.price_unit === null) return undefined;
+  if (line.unit !== null && line.unit !== undefined) return "Each, per unit";
   if (line.sheet !== null && line.sheet !== undefined) {
     return `Each per ${line.sheet} sheet`;
   }
@@ -200,6 +240,84 @@ function describe(line: CutListLine, materialName: (key: string) => string) {
   return parts.join(" · ");
 }
 
+/**
+ * The cut list at full width (CUT-LIST-PANEL), as Fusion opens the BOM in its
+ * own large view: the same grouped, priced table, its head held while the
+ * rows scroll, with the Price book and CSV below. A modal layer: Esc or Close
+ * shuts it (an open Price book takes Esc first), and it keeps nothing.
+ */
+function CutListView({
+  name,
+  summary,
+  onClose,
+  children,
+}: {
+  name: string;
+  summary: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const titleId = useId();
+  const onKeyDown = useCallback(
+    (event: KeyboardEvent, insidePanel: boolean) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      containFocus(panelRef.current, event, insidePanel);
+    },
+    [onClose],
+  );
+  useModalLayer("cut list", panelRef, onKeyDown);
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
+  return createPortal(
+    <div
+      data-testid="cut-list-expanded-backdrop"
+      className="fixed inset-0 z-menu flex justify-center bg-carbide/85 p-4"
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        data-testid="cut-list-expanded"
+        className="flex min-h-0 w-full max-w-7xl flex-col border border-etch bg-anvil text-mist shadow-float outline-none"
+      >
+        <header className="flex shrink-0 items-center gap-x-4 border-b border-hairline bg-carbide py-1.5 pl-4 pr-2">
+          <h2
+            id={titleId}
+            className="font-display text-2xs uppercase tracking-[0.2em] text-gauge"
+          >
+            Cut list
+          </h2>
+          <span className="min-w-0 truncate font-body text-sm text-mist">
+            {name}
+          </span>
+          <span className="font-data text-xs text-gauge">{summary}</span>
+          <span className="grow" />
+          <Button
+            size="dense"
+            data-testid="cut-list-expanded-close"
+            aria-label="Close the full cut list"
+            title="Close (Esc)"
+            onClick={onClose}
+          >
+            <CloseIcon size={12} />
+            Close
+          </Button>
+        </header>
+        {children}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export function CutListPanel({
   kind,
   documentId,
@@ -224,6 +342,16 @@ export function CutListPanel({
     seed: PriceBookSeed | null;
   } | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  /** The full-width view is open (view state only: nothing is saved). */
+  const [expanded, setExpanded] = useState(false);
+  const asideRef = useRef<HTMLElement | null>(null);
+  const closeExpanded = useCallback(() => {
+    setExpanded(false);
+    // Focus goes back to the Expand button it was opened from.
+    asideRef.current
+      ?.querySelector<HTMLElement>('[data-testid="cut-list-expand"]')
+      ?.focus();
+  }, []);
 
   const data = cutList.data;
   const unit = data?.length_unit ?? "mm";
@@ -256,8 +384,368 @@ export function CutListPanel({
     (sum, part) => sum + part.quantity,
     0,
   );
+  /** The table (or its state), in the panel or in the full-width view. */
+  const table = (seat: "panel" | "expanded") => {
+    const expandedSeat = seat === "expanded";
+    return cutList.error ? (
+      <p
+        role="alert"
+        data-testid="cut-list-error"
+        className="px-3 py-3 font-body text-xs text-flag"
+      >
+        {cutList.error.message}
+      </p>
+    ) : data === undefined ? (
+      <p
+        data-testid="cut-list-loading"
+        aria-live="polite"
+        className="px-3 py-3 font-body text-xs text-gauge"
+      >
+        Measuring the members…
+      </p>
+    ) : lines.length === 0 ? (
+      <p
+        data-testid="cut-list-empty"
+        className="px-3 py-3 font-body text-xs text-gauge"
+      >
+        No bodies to cut yet. Each body becomes a line here, measured along its
+        length.
+      </p>
+    ) : (
+      <div
+        data-testid="cut-list-scroll"
+        className={
+          expandedSeat
+            ? // The view scrolls both ways itself; its head stays put.
+              "min-h-0 flex-1 overflow-auto [container-type:inline-size]"
+            : "overflow-x-auto [container-type:inline-size]"
+        }
+      >
+        <table
+          data-testid="cut-list-table"
+          aria-label={`Cut list, ${lines.length} lines, ${data.total_quantity} pieces`}
+          className="w-full border-collapse font-body text-sm"
+        >
+          <thead
+            className={
+              expandedSeat
+                ? "sticky top-0 z-[1] bg-anvil [&_th]:whitespace-nowrap"
+                : undefined
+            }
+          >
+            <tr className="border-b border-hairline text-gauge">
+              <th scope="col" className={`${HEAD_BASE} pl-3 pr-1 text-left`}>
+                Member
+              </th>
+              <th scope="col" className={HEAD}>
+                Qty
+              </th>
+              <th scope="col" className={HEAD} title={`Each (${unitLabel})`}>
+                Length
+              </th>
+              <th
+                scope="col"
+                className={`${HEAD} ${RUN_COLUMN}`}
+                title={`Qty × length (${unitLabel})`}
+              >
+                Run
+              </th>
+              <th
+                scope="col"
+                className={HEAD}
+                title="Shortest standard stock that covers each piece, or the pieces a longer one is spliced from"
+              >
+                Stock
+              </th>
+              <th
+                scope="col"
+                className={HEAD}
+                title={`Unit price: one piece's stock (${data.currency})`}
+              >
+                Unit price
+              </th>
+              <th
+                scope="col"
+                className={`${HEAD_BASE} pl-1.5 pr-3 text-right`}
+                title={`Extended price: stock qty × unit price (${data.currency})`}
+              >
+                Ext. price
+              </th>
+            </tr>
+          </thead>
+          {(() => {
+            const row = (line: CutListLine, index: number) => {
+              const unclassified = line.classification === "unclassified";
+              const caption = unclassified
+                ? `Unclassified · ${line.section_mm
+                    .map((v) => formatLength(v, unit))
+                    .join(" × ")} ${unitLabel}`
+                : describe(line, materialName);
+              const seed = seedFor(line);
+              const name = line.member ?? line.profile ?? "Body";
+              const area = line.area_mm2 ?? null;
+              const sheet = line.sheet ?? null;
+              return (
+                <tr
+                  key={index}
+                  data-testid="cut-list-row"
+                  data-member={line.member ?? ""}
+                  data-profile={line.profile ?? ""}
+                  data-classification={line.classification}
+                  data-sheet={sheet ?? undefined}
+                  data-system={line.system}
+                  className="border-b border-hairline/60 last:border-b-0"
+                >
+                  {/* The member column takes what the figures leave
+                            (max-w-0: its text never widens the table) and
+                            WRAPS: a member's name is never cut off. */}
+                  <td className="w-full max-w-0 py-1.5 pl-3 pr-1 align-baseline [overflow-wrap:anywhere]">
+                    <span
+                      data-testid="cut-list-member"
+                      className={`block ${
+                        unclassified ? "italic text-gauge" : "text-mist"
+                      }`}
+                    >
+                      {line.member ?? line.profile ?? "Body"}
+                    </span>
+                    {caption ? (
+                      <span
+                        data-testid="cut-list-caption"
+                        // The profile and material are one line, so
+                        // a row is two: the material's long name gives
+                        // way (in full on hover), the member's never.
+                        className="block truncate text-2xs text-gauge"
+                        title={caption}
+                      >
+                        {caption}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td
+                    data-testid="cut-list-qty"
+                    className={`${CELL} text-mist`}
+                  >
+                    {formatCount(line.quantity)}
+                  </td>
+                  <td
+                    data-testid="cut-list-length"
+                    className={`${CELL} text-mist`}
+                    title={
+                      area === null ? undefined : "Net area, openings cut out"
+                    }
+                  >
+                    {area === null ? (
+                      formatLength(line.length_mm, unit)
+                    ) : (
+                      <span
+                        data-testid="cut-list-area"
+                        className="whitespace-nowrap"
+                      >
+                        {formatArea(area, unit)} {unitLabel}²
+                      </span>
+                    )}
+                  </td>
+                  <td
+                    data-testid="cut-list-total-length"
+                    className={`${CELL} text-gauge ${RUN_COLUMN}`}
+                  >
+                    {area === null
+                      ? formatLength(line.total_length_mm, unit)
+                      : null}
+                  </td>
+                  <td
+                    data-testid="cut-list-stock"
+                    className={`${CELL} whitespace-nowrap text-mist`}
+                    title={
+                      sheet !== null
+                        ? `${formatCount(line.stock_quantity ?? 0)} sheets of ${sheet}, by area`
+                        : line.waste_mm === null
+                          ? undefined
+                          : `${formatLength(line.waste_mm, unit)} ${unitLabel} offcut each`
+                    }
+                  >
+                    {stockLabel(line)}
+                  </td>
+                  <td
+                    data-testid="cut-list-unit-price"
+                    className={`${CELL} text-mist`}
+                    title={priceBasis(line)}
+                  >
+                    {line.unit_price_cents !== null ? (
+                      formatMoney(line.unit_price_cents, data.currency)
+                    ) : seed !== null ? (
+                      // Blank, never $0: the cell is the way to price it.
+                      <button
+                        type="button"
+                        data-testid="cut-list-price-blank"
+                        aria-label={
+                          line.unit !== null && line.unit !== undefined
+                            ? `Price ${name}, ${stockLabel(line)} unit`
+                            : sheet === null
+                              ? `Price ${name}, ${line.profile} at ${stockLabel(line)}`
+                              : `Price ${name}, ${line.profile} ${sheet} sheet`
+                        }
+                        aria-haspopup="dialog"
+                        title="Not in your price book. Click to price it."
+                        onClick={() => setPriceBook({ seed })}
+                        className="-my-1 inline-flex min-h-target-dense w-full min-w-10 items-center justify-end rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-transparent outline-none transition-colors duration-fast hover:bg-carbide hover:text-brass focus-visible:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass"
+                      >
+                        Price
+                      </button>
+                    ) : null}
+                  </td>
+                  <td
+                    data-testid="cut-list-ext-price"
+                    className="whitespace-nowrap py-1.5 pl-1.5 pr-3 text-right align-baseline font-data tabular-nums text-mist"
+                    title={
+                      line.extended_price_cents === null ||
+                      line.unit_price_cents === null
+                        ? undefined
+                        : splice(line) !== null
+                          ? `${formatCount(line.stock_quantity ?? 0)} × (${spliceLabel(splice(line) ?? [])}) × ${formatMoney(line.unit_price_cents, data.currency)}`
+                          : `${formatCount(line.stock_quantity ?? 0)} stock × ${formatMoney(line.unit_price_cents, data.currency)}`
+                    }
+                  >
+                    {line.extended_price_cents === null
+                      ? null
+                      : formatMoney(line.extended_price_cents, data.currency)}
+                  </td>
+                </tr>
+              );
+            };
+            return groups.map((group, at) => (
+              <tbody
+                key={`${group.system}-${at}`}
+                data-testid="cut-list-group"
+                data-system={group.system}
+              >
+                {groups.length > 1 ? (
+                  <tr className="border-b border-hairline">
+                    <th
+                      scope="rowgroup"
+                      colSpan={7}
+                      data-testid="cut-list-group-label"
+                      className="bg-carbide/40 pb-1 pl-3 pr-3 pt-2.5 text-left font-display text-2xs font-normal uppercase tracking-[0.16em] text-gauge"
+                    >
+                      {SYSTEM_LABEL[group.system]}
+                      <span className="ml-2 font-data normal-case tracking-normal text-gauge/70">
+                        {formatCount(group.lines.length)}
+                      </span>
+                    </th>
+                  </tr>
+                ) : null}
+                {group.lines.map((line) => row(line, line.index))}
+              </tbody>
+            ));
+          })()}
+          <tfoot>
+            <tr className="border-t border-hairline">
+              <td className="py-1.5 pl-3 font-display text-2xs uppercase tracking-[0.16em] text-gauge">
+                Pieces
+              </td>
+              <td
+                data-testid="cut-list-total"
+                className="whitespace-nowrap px-1.5 py-1.5 text-right font-data tabular-nums text-brass"
+              >
+                {formatCount(data.total_quantity)}
+              </td>
+              <td />
+              <td className={RUN_COLUMN} />
+              <td
+                colSpan={3}
+                className="py-1.5 pr-3 text-right font-body text-2xs text-gauge"
+              >
+                Lengths in {unitLabel}
+              </td>
+            </tr>
+            <tr data-testid="cut-list-price-row">
+              <th
+                scope="row"
+                colSpan={3}
+                className="py-1.5 pl-3 text-left align-baseline font-normal"
+              >
+                <span className="font-display text-2xs uppercase tracking-[0.16em] text-gauge">
+                  Total
+                </span>
+                {data.unpriced_lines > 0 ? (
+                  <span
+                    data-testid="cut-list-unpriced"
+                    className="ml-2 font-body text-2xs text-flag"
+                  >
+                    {unpricedLabel(data.unpriced_lines)}
+                  </span>
+                ) : null}
+              </th>
+              <td className={RUN_COLUMN} />
+              <td colSpan={2} />
+              <td
+                data-testid="cut-list-price-total"
+                className="whitespace-nowrap py-1.5 pl-1.5 pr-3 text-right align-baseline font-data tabular-nums text-brass"
+              >
+                {data.total_price_cents === null
+                  ? null
+                  : formatMoney(data.total_price_cents, data.currency)}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    );
+  };
+  /** What follows the table: deleted parts, Price book and CSV. */
+  const footer = () => (
+    <>
+      {missingPieces > 0 ? (
+        <p
+          role="note"
+          data-testid="cut-list-missing"
+          className="border-t border-hairline px-3 py-2 font-body text-2xs text-flag"
+        >
+          {missingPieces === 1
+            ? "1 placement of a deleted part is not listed."
+            : `${missingPieces} placements of deleted parts are not listed.`}
+        </p>
+      ) : null}
+      <div className="flex items-center gap-2 border-t border-hairline px-3 py-2">
+        {data !== undefined && data.unclassified > 0 ? (
+          <span
+            data-testid="cut-list-unclassified"
+            className="font-body text-2xs text-gauge"
+          >
+            {data.unclassified} unclassified
+          </span>
+        ) : null}
+        <span className="grow" />
+        <Button
+          data-testid="cut-list-price-book"
+          aria-haspopup="dialog"
+          onClick={() => setPriceBook({ seed: null })}
+        >
+          Price book
+        </Button>
+        <Button
+          data-testid="cut-list-csv"
+          disabled={lines.length === 0 || exporting}
+          onClick={() => void downloadCsv()}
+          aria-label="Download the cut list as CSV"
+        >
+          {exporting ? "Writing…" : "CSV"}
+        </Button>
+      </div>
+      {exportError !== null ? (
+        <p
+          role="alert"
+          data-testid="cut-list-csv-error"
+          className="px-3 pb-2 font-body text-2xs text-flag"
+        >
+          {exportError}
+        </p>
+      ) : null}
+    </>
+  );
   return (
     <aside
+      ref={asideRef}
       className="flex w-full flex-col gap-3"
       aria-label="Cut list"
       data-testid="cut-list-panel"
@@ -266,358 +754,37 @@ export function CutListPanel({
       <Panel>
         <PanelSection
           eyebrow={lines.length > 0 ? `Cut list · ${lines.length}` : "Cut list"}
-        >
-          {cutList.error ? (
-            <p
-              role="alert"
-              data-testid="cut-list-error"
-              className="px-3 py-3 font-body text-xs text-flag"
-            >
-              {cutList.error.message}
-            </p>
-          ) : data === undefined ? (
-            <p
-              data-testid="cut-list-loading"
-              aria-live="polite"
-              className="px-3 py-3 font-body text-xs text-gauge"
-            >
-              Measuring the members…
-            </p>
-          ) : lines.length === 0 ? (
-            <p
-              data-testid="cut-list-empty"
-              className="px-3 py-3 font-body text-xs text-gauge"
-            >
-              No bodies to cut yet. Each body becomes a line here, measured
-              along its length.
-            </p>
-          ) : (
-            <div
-              data-testid="cut-list-scroll"
-              className="overflow-x-auto [container-type:inline-size]"
-            >
-              <table
-                data-testid="cut-list-table"
-                aria-label={`Cut list, ${lines.length} lines, ${data.total_quantity} pieces`}
-                className="w-full border-collapse font-body text-sm"
+          stickyCaption
+          actions={
+            lines.length > 0 ? (
+              <Button
+                size="dense"
+                data-testid="cut-list-expand"
+                aria-label="Expand the cut list"
+                aria-haspopup="dialog"
+                title="Open the cut list full width (Esc closes)"
+                onClick={() => setExpanded(true)}
               >
-                <thead>
-                  <tr className="border-b border-hairline text-gauge">
-                    <th
-                      scope="col"
-                      className={`${HEAD_BASE} pl-3 pr-1 text-left`}
-                    >
-                      Member
-                    </th>
-                    <th scope="col" className={HEAD}>
-                      Qty
-                    </th>
-                    <th
-                      scope="col"
-                      className={HEAD}
-                      title={`Each (${unitLabel})`}
-                    >
-                      Length
-                    </th>
-                    <th
-                      scope="col"
-                      className={`${HEAD} ${RUN_COLUMN}`}
-                      title={`Qty × length (${unitLabel})`}
-                    >
-                      Run
-                    </th>
-                    <th
-                      scope="col"
-                      className={HEAD}
-                      title="Shortest standard stock that covers each piece, or the pieces a longer one is spliced from"
-                    >
-                      Stock
-                    </th>
-                    <th
-                      scope="col"
-                      className={HEAD}
-                      title={`Unit price: one piece's stock (${data.currency})`}
-                    >
-                      Unit price
-                    </th>
-                    <th
-                      scope="col"
-                      className={`${HEAD_BASE} pl-1.5 pr-3 text-right`}
-                      title={`Extended price: stock qty × unit price (${data.currency})`}
-                    >
-                      Ext. price
-                    </th>
-                  </tr>
-                </thead>
-                {(() => {
-                  const row = (line: CutListLine, index: number) => {
-                    const unclassified = line.classification === "unclassified";
-                    const caption = unclassified
-                      ? `Unclassified · ${line.section_mm
-                          .map((v) => formatLength(v, unit))
-                          .join(" × ")} ${unitLabel}`
-                      : describe(line, materialName);
-                    const seed = seedFor(line);
-                    const name = line.member ?? line.profile ?? "Body";
-                    const area = line.area_mm2 ?? null;
-                    const sheet = line.sheet ?? null;
-                    return (
-                      <tr
-                        key={index}
-                        data-testid="cut-list-row"
-                        data-member={line.member ?? ""}
-                        data-profile={line.profile ?? ""}
-                        data-classification={line.classification}
-                        data-sheet={sheet ?? undefined}
-                        data-system={line.system}
-                        className="border-b border-hairline/60 last:border-b-0"
-                      >
-                        {/* The member column takes what the figures leave
-                            (max-w-0: its text never widens the table) and
-                            WRAPS: a member's name is never cut off. */}
-                        <td className="w-full max-w-0 py-1.5 pl-3 pr-1 align-baseline [overflow-wrap:anywhere]">
-                          <span
-                            data-testid="cut-list-member"
-                            className={`block ${
-                              unclassified ? "italic text-gauge" : "text-mist"
-                            }`}
-                          >
-                            {line.member ?? line.profile ?? "Body"}
-                          </span>
-                          {caption ? (
-                            <span
-                              data-testid="cut-list-caption"
-                              // The profile and material are one line, so
-                              // a row is two: the material's long name gives
-                              // way (in full on hover), the member's never.
-                              className="block truncate text-2xs text-gauge"
-                              title={caption}
-                            >
-                              {caption}
-                            </span>
-                          ) : null}
-                        </td>
-                        <td
-                          data-testid="cut-list-qty"
-                          className={`${CELL} text-mist`}
-                        >
-                          {formatCount(line.quantity)}
-                        </td>
-                        <td
-                          data-testid="cut-list-length"
-                          className={`${CELL} text-mist`}
-                          title={
-                            area === null
-                              ? undefined
-                              : "Net area, openings cut out"
-                          }
-                        >
-                          {area === null ? (
-                            formatLength(line.length_mm, unit)
-                          ) : (
-                            <span
-                              data-testid="cut-list-area"
-                              className="whitespace-nowrap"
-                            >
-                              {formatArea(area, unit)} {unitLabel}²
-                            </span>
-                          )}
-                        </td>
-                        <td
-                          data-testid="cut-list-total-length"
-                          className={`${CELL} text-gauge ${RUN_COLUMN}`}
-                        >
-                          {area === null
-                            ? formatLength(line.total_length_mm, unit)
-                            : null}
-                        </td>
-                        <td
-                          data-testid="cut-list-stock"
-                          className={`${CELL} whitespace-nowrap text-mist`}
-                          title={
-                            sheet !== null
-                              ? `${formatCount(line.stock_quantity ?? 0)} sheets of ${sheet}, by area`
-                              : line.waste_mm === null
-                                ? undefined
-                                : `${formatLength(line.waste_mm, unit)} ${unitLabel} offcut each`
-                          }
-                        >
-                          {stockLabel(line)}
-                        </td>
-                        <td
-                          data-testid="cut-list-unit-price"
-                          className={`${CELL} text-mist`}
-                          title={priceBasis(line)}
-                        >
-                          {line.unit_price_cents !== null ? (
-                            formatMoney(line.unit_price_cents, data.currency)
-                          ) : seed !== null ? (
-                            // Blank, never $0: the cell is the way to price it.
-                            <button
-                              type="button"
-                              data-testid="cut-list-price-blank"
-                              aria-label={
-                                sheet === null
-                                  ? `Price ${name}, ${line.profile} at ${stockLabel(line)}`
-                                  : `Price ${name}, ${line.profile} ${sheet} sheet`
-                              }
-                              aria-haspopup="dialog"
-                              title="Not in your price book. Click to price it."
-                              onClick={() => setPriceBook({ seed })}
-                              className="-my-1 inline-flex min-h-target-dense w-full min-w-10 items-center justify-end rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-transparent outline-none transition-colors duration-fast hover:bg-carbide hover:text-brass focus-visible:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass"
-                            >
-                              Price
-                            </button>
-                          ) : null}
-                        </td>
-                        <td
-                          data-testid="cut-list-ext-price"
-                          className="whitespace-nowrap py-1.5 pl-1.5 pr-3 text-right align-baseline font-data tabular-nums text-mist"
-                          title={
-                            line.extended_price_cents === null ||
-                            line.unit_price_cents === null
-                              ? undefined
-                              : splice(line) !== null
-                                ? `${formatCount(line.stock_quantity ?? 0)} × (${spliceLabel(splice(line) ?? [])}) × ${formatMoney(line.unit_price_cents, data.currency)}`
-                                : `${formatCount(line.stock_quantity ?? 0)} stock × ${formatMoney(line.unit_price_cents, data.currency)}`
-                          }
-                        >
-                          {line.extended_price_cents === null
-                            ? null
-                            : formatMoney(
-                                line.extended_price_cents,
-                                data.currency,
-                              )}
-                        </td>
-                      </tr>
-                    );
-                  };
-                  return groups.map((group, at) => (
-                    <tbody
-                      key={`${group.system}-${at}`}
-                      data-testid="cut-list-group"
-                      data-system={group.system}
-                    >
-                      {groups.length > 1 ? (
-                        <tr className="border-b border-hairline">
-                          <th
-                            scope="rowgroup"
-                            colSpan={7}
-                            data-testid="cut-list-group-label"
-                            className="bg-carbide/40 pb-1 pl-3 pr-3 pt-2.5 text-left font-display text-2xs font-normal uppercase tracking-[0.16em] text-gauge"
-                          >
-                            {SYSTEM_LABEL[group.system]}
-                            <span className="ml-2 font-data normal-case tracking-normal text-gauge/70">
-                              {formatCount(group.lines.length)}
-                            </span>
-                          </th>
-                        </tr>
-                      ) : null}
-                      {group.lines.map((line) => row(line, line.index))}
-                    </tbody>
-                  ));
-                })()}
-                <tfoot>
-                  <tr className="border-t border-hairline">
-                    <td className="py-1.5 pl-3 font-display text-2xs uppercase tracking-[0.16em] text-gauge">
-                      Pieces
-                    </td>
-                    <td
-                      data-testid="cut-list-total"
-                      className="whitespace-nowrap px-1.5 py-1.5 text-right font-data tabular-nums text-brass"
-                    >
-                      {formatCount(data.total_quantity)}
-                    </td>
-                    <td />
-                    <td className={RUN_COLUMN} />
-                    <td
-                      colSpan={3}
-                      className="py-1.5 pr-3 text-right font-body text-2xs text-gauge"
-                    >
-                      Lengths in {unitLabel}
-                    </td>
-                  </tr>
-                  <tr data-testid="cut-list-price-row">
-                    <th
-                      scope="row"
-                      colSpan={3}
-                      className="py-1.5 pl-3 text-left align-baseline font-normal"
-                    >
-                      <span className="font-display text-2xs uppercase tracking-[0.16em] text-gauge">
-                        Total
-                      </span>
-                      {data.unpriced_lines > 0 ? (
-                        <span
-                          data-testid="cut-list-unpriced"
-                          className="ml-2 font-body text-2xs text-flag"
-                        >
-                          {unpricedLabel(data.unpriced_lines)}
-                        </span>
-                      ) : null}
-                    </th>
-                    <td className={RUN_COLUMN} />
-                    <td colSpan={2} />
-                    <td
-                      data-testid="cut-list-price-total"
-                      className="whitespace-nowrap py-1.5 pl-1.5 pr-3 text-right align-baseline font-data tabular-nums text-brass"
-                    >
-                      {data.total_price_cents === null
-                        ? null
-                        : formatMoney(data.total_price_cents, data.currency)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
+                <ExpandIcon size={12} />
+                Expand
+              </Button>
+            ) : undefined
+          }
+        >
+          {table("panel")}
         </PanelSection>
-        {missingPieces > 0 ? (
-          <p
-            role="note"
-            data-testid="cut-list-missing"
-            className="border-t border-hairline px-3 py-2 font-body text-2xs text-flag"
-          >
-            {missingPieces === 1
-              ? "1 placement of a deleted part is not listed."
-              : `${missingPieces} placements of deleted parts are not listed.`}
-          </p>
-        ) : null}
-        <div className="flex items-center gap-2 border-t border-hairline px-3 py-2">
-          {data !== undefined && data.unclassified > 0 ? (
-            <span
-              data-testid="cut-list-unclassified"
-              className="font-body text-2xs text-gauge"
-            >
-              {data.unclassified} unclassified
-            </span>
-          ) : null}
-          <span className="grow" />
-          <Button
-            data-testid="cut-list-price-book"
-            aria-haspopup="dialog"
-            onClick={() => setPriceBook({ seed: null })}
-          >
-            Price book
-          </Button>
-          <Button
-            data-testid="cut-list-csv"
-            disabled={lines.length === 0 || exporting}
-            onClick={() => void downloadCsv()}
-            aria-label="Download the cut list as CSV"
-          >
-            {exporting ? "Writing…" : "CSV"}
-          </Button>
-        </div>
-        {exportError !== null ? (
-          <p
-            role="alert"
-            data-testid="cut-list-csv-error"
-            className="px-3 pb-2 font-body text-2xs text-flag"
-          >
-            {exportError}
-          </p>
-        ) : null}
+        {footer()}
       </Panel>
+      {expanded && data !== undefined ? (
+        <CutListView
+          name={data.name}
+          summary={`${formatCount(lines.length)} lines · ${formatCount(data.total_quantity)} pieces`}
+          onClose={closeExpanded}
+        >
+          {table("expanded")}
+          <div className="shrink-0">{footer()}</div>
+        </CutListView>
+      ) : null}
       {priceBook !== null ? (
         <PriceBookDialog
           seed={priceBook.seed}

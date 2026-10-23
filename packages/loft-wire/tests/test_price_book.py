@@ -551,11 +551,11 @@ def test_b7_is_priced_to_the_last_line_2868_87() -> None:
     )
     assert short == 260883  # the QA round's total, unchanged
     rows = cut_list_csv(cut_list).split("\r\n")
-    assert rows[2].startswith("2,Rim,")
+    assert rows[2].startswith("2,Floor,Rim,")
     assert rows[2].endswith(",16 ft + 8 ft,0,2,34.44,Each,68.88")
-    assert rows[4].startswith("4,Sill,")
+    assert rows[4].startswith("4,Floor,Sill,")
     assert rows[4].endswith(",2 x 12 ft,0,2,24.96,Each,49.92")
-    assert rows[-2] == ",Total,,,,,,,,,,,,,2868.87"
+    assert rows[-2] == ",Total,,,,,,,,,,,,,,2868.87"
 
 
 def _cents(cell: str) -> int:
@@ -672,9 +672,9 @@ def test_the_csv_carries_the_prices_and_a_total_row() -> None:
     assert rows[4].endswith(",,12 ft,3,13,19.98,Each,259.74")
     assert rows[5].endswith(",,8 ft,85.5,3,,,")  # the post: blank, not 0
     assert rows[6].endswith(",,16 ft,0,26,17.92,Per ft,465.92")
-    assert rows[7] == ',"Total of priced lines, 1 unpriced",,,,,,,,,,,,,839.54'
+    assert rows[7] == ',"Total of priced lines, 1 unpriced",,,,,,,,,,,,,,839.54'
     full = cut_list_csv(_priced(_pieces(B1))).split("\r\n")
-    assert full[7] == ",Total,,,,,,,,,,,,,943.94"
+    assert full[7] == ",Total,,,,,,,,,,,,,,943.94"
     assert format_cents(173608) == "1736.08" and format_cents(5) == "0.05"
 
 

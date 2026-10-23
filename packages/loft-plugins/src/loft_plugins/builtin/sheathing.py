@@ -650,6 +650,7 @@ def _expand_wall(inputs: ExpandInputs) -> Iterator[Member]:
 #: them (BUILDING-OUTLINE).
 expand_wall_v1_2 = _expand_wall
 panel_members = _panel_members
+loops_entities = _loops_entities
 sheet_good = _good
 
 

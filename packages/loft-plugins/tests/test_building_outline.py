@@ -345,9 +345,12 @@ def members_of(
 Body = tuple[str | None, str | None, tuple[tuple[float, float, float], ...]]
 
 
-def bodies(members: list[ExpandedMember]) -> Counter[Body]:
+def bodies(
+    members: list[ExpandedMember], roles: tuple[str, ...] | None = None
+) -> Counter[Body]:
     """Each extrude member as (profile, material, its prism's corners in the
-    world, rounded to 1e-6 in): what the kernel builds, without its ids."""
+    world, rounded to 1e-6 in): what the kernel builds, without its ids.
+    *roles*: only the members of these roles."""
     by_id: dict[uuid.UUID, Feature] = {m.id: m.feature for m in members}
 
     def frame(plane: Any) -> tuple[str, float]:
@@ -363,6 +366,8 @@ def bodies(members: list[ExpandedMember]) -> Counter[Body]:
         if not isinstance(m.feature, ExtrudeFeature):
             continue
         if m.feature.params.operation == "cut":  # a notch: no body of its own
+            continue
+        if roles is not None and m.role not in roles:
             continue
         sketch = by_id[m.feature.params.profile.feature_id]
         assert isinstance(sketch, SketchFeature)
@@ -393,10 +398,12 @@ def bodies(members: list[ExpandedMember]) -> Counter[Body]:
     return out
 
 
-def boxes(members: list[ExpandedMember]) -> list[tuple[float, ...]]:
+def boxes(
+    members: list[ExpandedMember], roles: tuple[str, ...] | None = None
+) -> list[tuple[float, ...]]:
     """Each body's bounding box (in): x0, x1, y0, y1, z0, z1."""
     out: list[tuple[float, ...]] = []
-    for _, _, pts in bodies(members).elements():
+    for _, _, pts in bodies(members, roles).elements():
         xs, ys, zs = zip(*pts, strict=True)
         out.append((min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)))
     return out
@@ -1306,7 +1313,7 @@ def golden() -> tuple[EvaluateTreeRequest, list[CutListMember]]:
     return request_of(rows), metadata
 
 
-def _members_json(items: list[CutListMember]) -> str:
+def members_json(items: list[CutListMember]) -> str:
     return json.dumps([m.model_dump(mode="json") for m in items], indent=2) + "\n"
 
 
@@ -1349,7 +1356,7 @@ def test_the_golden_is_the_plugins_expansion() -> None:
     assert (GOLDENS / GOLDEN / "model.json").read_text() == request.model_dump_json(
         indent=2
     ) + "\n"
-    assert (GOLDENS / GOLDEN / "members.json").read_text() == _members_json(metadata)
+    assert (GOLDENS / GOLDEN / "members.json").read_text() == members_json(metadata)
 
 
 def test_the_from_end_golden_is_the_plugins_expansion() -> None:
@@ -1358,7 +1365,7 @@ def test_the_from_end_golden_is_the_plugins_expansion() -> None:
     assert (folder / "model.json").read_text() == request.model_dump_json(
         indent=2
     ) + "\n"
-    assert (folder / "members.json").read_text() == _members_json(metadata)
+    assert (folder / "members.json").read_text() == members_json(metadata)
 
 
 def test_the_kernel_cases_are_the_plugins_expansion() -> None:
@@ -1371,14 +1378,14 @@ if __name__ == "__main__":
     (GOLDENS / GOLDEN / "model.json").write_text(
         request.model_dump_json(indent=2) + "\n"
     )
-    (GOLDENS / GOLDEN / "members.json").write_text(_members_json(metadata))
+    (GOLDENS / GOLDEN / "members.json").write_text(members_json(metadata))
     sys.stdout.write(f"{GOLDEN}: {len(request.features)} features\n")
     request, metadata = from_end_golden()
     (GOLDENS / FROM_END_GOLDEN).mkdir(parents=True, exist_ok=True)
     (GOLDENS / FROM_END_GOLDEN / "model.json").write_text(
         request.model_dump_json(indent=2) + "\n"
     )
-    (GOLDENS / FROM_END_GOLDEN / "members.json").write_text(_members_json(metadata))
+    (GOLDENS / FROM_END_GOLDEN / "members.json").write_text(members_json(metadata))
     sys.stdout.write(f"{FROM_END_GOLDEN}: {len(request.features)} features\n")
     CASES.write_bytes(gzip.compress(cases().encode(), mtime=0))
     sys.stdout.write(f"{CASES.name}\n")

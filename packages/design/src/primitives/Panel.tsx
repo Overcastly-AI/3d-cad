@@ -30,10 +30,24 @@ export function Panel({ className, ...rest }: HTMLAttributes<HTMLElement>) {
 export interface PanelSectionProps extends HTMLAttributes<HTMLDivElement> {
   /** Tracked-caps eyebrow, e.g. "MASS PROPERTIES". */
   eyebrow: string;
+  /**
+   * Controls at the caption bar's right end (an Expand button). The bar
+   * keeps a 24 px corner clear on the right for a floating panel's collapse
+   * tab, so the two never overlap.
+   */
+  actions?: ReactNode;
+  /**
+   * The caption bar sticks to the top of the scrolling panel while its
+   * section scrolls under it: a long table keeps its title and actions, and
+   * no row slides under the panel's collapse tab in that corner.
+   */
+  stickyCaption?: boolean;
 }
 
 export function PanelSection({
   eyebrow,
+  actions,
+  stickyCaption = false,
   className,
   children,
   ...rest
@@ -65,9 +79,24 @@ export function PanelSection({
         The accessible name is untouched (`aria-label={eyebrow}`) — several suites
         address these groups by name, and a density pass may not rename anything.
       */}
-      <h2 className="flex min-h-target-dense items-center border-b border-hairline px-3 py-1 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-        {eyebrow}
-      </h2>
+      {actions === undefined && !stickyCaption ? (
+        <h2 className="flex min-h-target-dense items-center border-b border-hairline px-3 py-1 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+          {eyebrow}
+        </h2>
+      ) : (
+        <div
+          data-caption-bar=""
+          className={cx(
+            "flex min-h-target-dense items-center gap-2 border-b border-hairline bg-anvil pl-3 pr-8",
+            stickyCaption && "sticky top-0 z-[1]",
+          )}
+        >
+          <h2 className="grow py-1 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+            {eyebrow}
+          </h2>
+          {actions}
+        </div>
+      )}
       <div className="py-0.5">{children}</div>
     </div>
   );
