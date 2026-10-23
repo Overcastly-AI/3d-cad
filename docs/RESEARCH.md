@@ -3177,7 +3177,10 @@ SolidWorks cut the body the picked face belongs to.
   with the gap the counts are SHEET-COUNT-PIECES' again: B5's plywood 4
   ($170.00), its OSB 12, B7's subfloor 12 and OSB 21 ($2,968.79), the 28 ft
   house's subfloor 14 ($3,347.92). The rule applies to every sheet line,
-  floor and wall alike.
+  floor and wall alike. Those are the two-ply house of `test_price_book.py`;
+  built in the app with HEADER-PLIES' three-ply 2x6 headers (six more 8 ft
+  2x6 at $6.48, $38.88), B7 prices to $3,007.67 and the 28 ft house to
+  $3,386.80 (`house-b7.spec.ts`).
 - **Floor panels keep the strength axis across the joists**
   (SUBFLOOR-GRAIN, 2026-10-23). APA lays floor sheathing with its strength
   axis (the sheet's 8 ft length) across the supports, so a subfloor panel

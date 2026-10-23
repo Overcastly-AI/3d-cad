@@ -48,6 +48,12 @@ kitchen and baths (casework). Each item names its builder types.
    4x9 and its subfloor 4 of 4x8; B7's re-pinned total is in
    `test_price_book.py`; C1's 3/4 in panels (casework.md) are counted with
    kerf and grain as the script lays them out.
+   _Built (2026-10-23, RESEARCH §27):_ sheets by the panels cut from
+   them; spanning members and columns (`ONE_PIECE_ROLES`) one piece, with
+   a `stock_note` past 24 ft; dimension stock to 24 ft; a 1/8 in kerf per
+   cut, absorbed by APA's 1/8 in panel gap; subfloor panels never turned.
+   B5 walls 12 / subfloor 4 sheets; B7 in the app $3,007.67, the 28 ft
+   house $3,386.80. _Open:_ C1's casework panels (no plugin yet).
 4. [ ] **BODY-NAMES** (in flight; frontend-builder; merges B7-BODY-NAMES
    and DECK-BODY-NAMES): the Bodies and Material panels name member bodies
    as the cut list does ("Front wall · Stud 12"), as Fusion shows body
