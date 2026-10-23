@@ -9,147 +9,86 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
-Ranked 2026-10-22 (fifth pass) by the product-manager (delegated by the
-founder) from the B7 round. B7 builds from the UI and, with
-CUT-LIST-LONG-STOCK, prices to the last line ($2,868.87). What stops a
-builder now is changing the house: making it 4 ft longer takes 8 edits and
-the openings jump. A formula fix of the silent wrong-geometry class goes
-first (Severity). Then one outline for the walls, floor and roof, openings
-that stay put, and a cut list that fits the screen. Done 2026-10-16..22 and
-dropped (`git log --grep=<ID>`): WALL-MEMBER-RENUMBER, HOLE-ACTIVE-BODY,
-ROOF-MEMBER-RENUMBER, FLOOR-FRAME, SHEATHING, TIMBER-FRAME,
-CUT-OBJECTS-TO-CUT, ROOF-L-DOUBLED-COMMON, OBJECT-STORE, SKETCH-3D,
-SKETCH-LINE-ANGLE, DRAWING-PARTS-LIST-LEVEL. Integrating: QA-B7-HOUSE,
-B7-MIXED-FRACTION (carpenter notation, RESEARCH §29) and
-CUT-LIST-LONG-STOCK (members over 20 ft spliced and priced).
+Ranked 2026-10-23 (sixth pass) by the product-manager, under the founder's
+standing delegation ("It's all needed. I don't care what comes first. You
+are leading this project"). B7 now builds from one outline and grows 4 ft
+by one sketch dimension. Done and dropped (`git log --grep=<ID>`):
+FORMULA-BARE-UNIT, BUILDING-OUTLINE, B7-MIXED-FRACTION, CUT-LIST-LONG-STOCK,
+CUT-LIST-SPLICE-TIES and the CI hardening. Items 1-3 are in flight. Item 4 is
+wrong geometry in released roofs (Severity), so it goes next. What a builder
+still cannot do after that is price the whole house and frame it the way a
+crew would: no window or door units, two-ply headers in 2x6 walls, and joists
+that run whichever way the first line was drawn.
 
-1. [ ] **FORMULA-BARE-UNIT** (fix now: silent wrong geometry;
-   backend-builder, then frontend-builder for the echo and the fix action):
-   a bare number in a formula is mm whatever the part's unit (RESEARCH §20:
-   a unitless value joins a length as mm), so in an inch part
-   `wall + 1/2` adds 0.5 mm. Fusion reads a bare number in the document
-   unit. The fix has no grammar version and no per-part switch: documents
-   writes the unit into the text at save, as §29 spells carpenter entries
-   out. A whole unitless sub-expression that is added to or subtracted
-   from a length, or is a length field's whole value, gets the part's
-   length unit (`wall + 1/2` is stored as `wall + 1 in/2`). Factors,
-   divisors, counts, angles and trig arguments stay plain. A sketch
-   dimension named in a formula counts as a length in mm (its §20 number).
-   The server grammar is unchanged, so every stored formula evaluates as
-   before, and a later unit change moves nothing. A stored formula in a
-   non-mm part that has such a literal gets the warning
-   `expression_bare_mm`, which names the literal and both readings, and a
-   "Read as in" action. That action is an ordinary edit you can undo:
-   nothing is rewritten silently. loft-script saves through the same path
-   (closes SCRIPT-PARAM-DOC-UNIT and UNIT-BARE-LITERALS).
-   _Accept:_ in an inch part with `wall` = 5.5 in, `wall + 1/2` gives 6 in
-   and reads back as `wall + 1 in/2`; `W/2 + 3` adds 3 in; `W*2` and `W/2`
-   are unchanged; a mm part stores exactly what was typed. Every golden and
-   stored test tree rebuilds byte-identical. An inch part seeded with a
-   stored `wall + 1/2` builds as before and shows the warning; "Read as in"
-   makes it 6 in, and Ctrl+Z restores it. A dev-database scan reports how
-   many stored formulas carry the warning. E2e
-   `formula-bare-unit.spec.ts`: in an inch part, an Extrude distance of
-   `wall + 1/2` echoes `= 6 in` and the body is 6 in deep.
-2. [ ] **BUILDING-OUTLINE** (house goal; B7-HOUSE-STRETCH, merges
-   ROOF-GABLE-WALLS and SHEATHING-WALL-BASE; kernel-architect for the
-   plugins and goldens, frontend-builder for the Outline and Defines Slope
-   picks): one closed sketch drives a house's walls and floor, and the
-   roof follows the walls. Chief Architect builds floors and roofs from the
-   exterior wall loop. Revit draws walls on picked lines and builds a
-   footprint roof from walls, each marked "Defines Slope". The outline is
-   a closed loop of sketch lines on the framing's outside face, dimensioned
-   like any sketch.
-   - `loft.wall` 1.2.0 gets Outline mode: one wall per segment, joined at
-     the corners. Walls along the first segment's direction run through and
-     the others fit between them (the B2 and B7 corners), with the
-     sheathing lapped. Walls are named by world facing (front, back, left,
-     right, as roof 1.3.0 names planes), so the host list reads by side
-     (closes B2-E2E-HOSTS). Members are named by their segment's sketch-line
-     id, so they keep their ids when another wall changes. "On floor" picks
-     a floor and stands the walls on its top, subfloor included.
-   - `loft.floor` 1.1.0 takes the same outline (rectangles first).
-   - `loft.roof` 1.4.0 picks the outline walls (the 1.2.0 `walls` input),
-     each with Defines Slope. Gable is two opposite walls that define the
-     slope, and hip is all four.
-   - Stored walls, floors and roofs stay pinned, and single-wall mode stays.
-
-   _Accept:_ golden `b7-outline` builds B7 from one 288 x 192 sketch, a
-   Floor, Walls on the floor, a Roof and the five openings. It matches the
-   round's script member for member (217 bodies) and to 1e-4
-   (264 895.4795 in³), with no interference. Edit 1 is one action: the
-   288 dimension set to 336 gives the round's 28 ft cut list (234 bodies)
-   and volume, with the openings still at X 60, 144 and 228 (with
-   OPENING-FROM-END). B2 on an outline equals `b2-roof-6-12` member for
-   member. E2e `house-b7.spec.ts` builds on an outline with no value worked
-   out by hand (the round had 8) and runs edit 1 as one sketch-dimension
-   edit.
-3. [ ] **OPENING-FROM-END** (house goal; B7-HOUSE-STRETCH and
-   B7-OFFSET-FROM-START; kernel-architect for `loft.window` and `loft.door`
-   1.1.0, frontend-builder for the dialog): an opening's offset runs from
-   its wall's start, so on a wall drawn right to left every offset has to
-   be mirrored by hand, and lengthening the wall at its start moves every
-   opening. In Revit and Chief Architect an opening stays put in plan when
-   the far end of its wall moves, and its temporary dimensions read from
-   the wall ends. In 1.1.0 an opening stores Measured from (the wall's
-   Start, End or Centre) and the distance to its centre. The dialog shows
-   the distance from both ends; typing either one makes that end the
-   reference. A new opening measures from the wall end nearer the part
-   origin, so a house dimensioned from its origin corner keeps its openings
-   when it grows. 1.0.0 openings keep measuring from the start.
-   _Accept:_ on B7's front wall (drawn X 288 -> 0), the left window reads
-   60 from the left end and 228 from the right. Moving it 24 in is one
-   field (60 -> 84). Lengthening the wall at its far end keeps the door and
-   both windows at X 60, 144 and 228. Golden `b7-front-wall-from-end`
-   matches the script, and the 1.0.0 goldens are byte-identical. E2e
-   `opening-from-end.spec.ts` types 84 as the distance from the left end
-   and sees the window centre at X 84.
-4. [ ] **CUT-LIST-PANEL** (B7-CUT-LIST-PANEL, B7-CUT-LIST-GROUPING,
-   WALL-CUT-LIST-ORDER; frontend-builder, backend-builder for the order):
-   once priced, the cut list cuts off its Ext. price column and Total at
-   1600 px, shows 5 of 23 lines at 1280, and truncates member names. Lines
-   follow the tree, so one member is split across walls (three Header rows,
-   none adjacent), and "Sill" names both the floor's PT sills and the
-   windows' sills. Chief Architect's Materials List opens as a full window
-   and groups by category, then size. The panel opens as a full-height
-   Cut list view that can be widened, and member names are never cut off.
-   Lines are grouped by system (Floor, Walls, Roof, Sheathing; Doors and
-   windows later), then by member, profile and length. Rows with the same
-   key from different features merge (Qty summed). The CSV uses the same
-   order.
-   _Accept:_ at 1280x800 and 1600x1000, B7's priced list needs no
-   sideways scroll to show every column and the Total. No two rows share
-   system, member, profile and length. The total is unchanged to the cent.
-   E2e: `house-b7.spec.ts` reads the Total and the last line at 1280x800
-   without a sideways scroll.
-5. [x] **B7-MIXED-FRACTION** (fix now: silent wrong geometry; frontend,
-   found in QA-B7-HOUSE): `11-15/32` in a length field was 11 − 15/32 and
-   `11 15/32` was refused. `parseLength` now reads carpenter notation
-   (`11-15/32`, `11 15/32`, `11 15/32"`, `5' 6-1/2"`, `5'-6"`, `-3/4`) with a
-   live `= 11.46875 in` echo; a hyphenated mixed number inside a formula is
-   refused with both readings. RESEARCH §29.
-   _Notes:_ entry-time only, the server grammar is unchanged, so stored
-   expressions (including any old `a-b/c`) keep their meaning; typed
-   parameters and assembly spacing are sent spelled out (`11 in + 15 in/32`).
-   Review fixes: a reopened stored pattern spacing is re-sent verbatim
-   (no-op save tests for pattern, mirror, parameters, plugin forms, sketch);
-   in a metric reading `100-10/2` is refused as ambiguous, never 105.
-   Follow-up FORMULA-BARE-UNIT: inside a formula a bare number is mm even in
-   an inch part (`wall + 1/2` adds 0.5 mm).
-6. [x] **CUT-LIST-LONG-STOCK** (QA-B7; backend): a member over 20 ft had no
-   stock, so nothing priced it and B7 stayed "5 lines unpriced". It is now
-   spliced as a framer buys it (least waste, then fewest joints, ties most
-   even first, so 24 ft = 2 x 12; at most 5 pieces), `stock_pieces_ft` on
-   the wire, Each priced on the cheapest tied splice the book prices whole,
-   per foot and board foot on the feet bought. RESEARCH §27.
-   _Accept:_ B7's 21 lumber and 2 sheet lines price to $2,868.87 with the
-   QA round's book plus an 8 ft SPF 2x10 ($2,608.83 + $260.04,
-   `test_price_book.py`); B1, B2, B5 unchanged (no member over 20 ft).
-   _Notes:_ `house-b7.spec.ts` (QA branch, not merged here) expects "—" and
-   "5 lines unpriced" for the long lines and must be re-pinned when merged;
-   a splice row's Stock qty counts sets per member, so every row multiplies
-   out; the B7 check is still the e2e's typed table, not a measured
-   geometry golden.
+1. [ ] **OPENING-FROM-END** (in flight; kernel-architect, frontend-builder;
+   ships as window and door 1.2.0, see OUTLINE-OPENING-VERSION): an
+   opening stores Measured from (Start, End or Centre of its wall) and the
+   distance to its centre. The dialog shows both end distances, and typing
+   either one makes that end the reference. A new opening measures from the
+   end nearer the part origin, as Revit's and Chief's temporary dimensions
+   read from the wall ends. Stored openings keep measuring from the start.
+   _Accept:_ on B7's front wall (drawn X 288 -> 0) the left window reads 60
+   from the left end; 60 -> 84 moves it 24 in; lengthening the far end keeps
+   the openings at X 60, 144 and 228; older goldens are byte-identical; e2e
+   `opening-from-end.spec.ts`.
+2. [ ] **CUT-LIST-PANEL** (in flight; frontend-builder, backend-builder for
+   the order): a full-height Cut list view that can be widened, with lines
+   grouped by system (Floor, Walls, Roof, Sheathing, then Doors and
+   windows), then member, profile and length, with same-key rows merged, as
+   in Chief's Materials List. The CSV uses the same order.
+   _Accept:_ at 1280x800 and 1600x1000, B7's priced list shows every column
+   and the Total with no sideways scroll, no two rows share a key, and the
+   total is unchanged to the cent.
+3. [ ] **ROOF-HIP-SHEATHING-NOTCH** (in flight; kernel-architect): roof
+   1.4.0 refuses Hip on sheathed outline walls, because its hips and hip
+   jacks would pass through the OSB. They now notch it, as the gable's tails
+   do. _Accept:_ B3's hip on sheathed outline walls builds with no
+   interference and matches a script to 1e-4; the gable goldens are
+   byte-identical.
+4. [ ] **ROOF-THROUGH-SHEATHING-UPDATE** (fix: wrong geometry in released
+   roofs, B7-TAILS-THROUGH-OSB; kernel-architect after item 3,
+   frontend-builder for the action): a stored roof 1.2.0-1.3.0 on sheathed
+   walls runs its tails through the OSB, and the overlap is counted twice
+   in volume and STEP. The roof gets the warning `roof_through_sheathing`,
+   which names the overlap, and an "Update to 1.4" action. The action
+   re-pins the roof to 1.4.0 with the same inputs and the notch extended to
+   picked single walls. It is an ordinary edit that Ctrl+Z undoes, and it
+   is never applied silently. A typed 1.0/1.1 roof picks no walls, so it
+   gets the warning only. _Accept:_ the QA round's typed B7 warns about
+   43.1006 in³ over 36 pairs. Update gives 264 852.3789 in³ with no
+   interference and the same members, and Ctrl+Z restores 264 895.4795 in³.
+   Stored goldens are byte-identical until updated.
+5. [ ] **OPENING-UNITS** (merges WINDOW-DOOR-UNIT, B7-OPENING-UNITS-PRICE
+   and B7-OPENING-SIZES; kernel-architect for the unit bodies and
+   catalogue, backend-builder for the price-book key, frontend-builder for
+   the size pick): Window and Door pick a call size from a catalogue (3040,
+   2030, 3068), as Chief's and Revit's window and door families do. The
+   catalogue is data in the plugin, so a maker's line can ship as a plugin.
+   The unit is drawn by default as two bodies, frame and glazing (a door:
+   frame and slab), 1/2 in inside the rough opening and kept out of the
+   framing. The lumber lines skip it, and it is listed as an Each line keyed
+   by unit and size. _Accept:_ B7's five openings are picked with no size
+   field retyped and with rough openings equal to the typed ones. The cut
+   list gains Window 3040 x 3, Window 2030 x 2 and Door 3068 x 1, priced in
+   the total, and no unit body touches a framing member.
+6. [ ] **HEADER-PLIES** (was B7-HEADER-2X6-WALL; kernel-architect, a new
+   wall version with stored walls pinned): a 2x6 wall's header is two 1.5 in
+   plies in a 5.5 in wall. Framers use three plies, or two with a spacer or
+   rigid foam. Header build becomes a wall option: 3-ply by default in 2x6,
+   2-ply in 2x4, or 2-ply with foam. _Accept:_ B7's headers list three
+   plies per opening with no interference, and the price includes them; the
+   2x4 goldens are byte-identical.
+7. [ ] **FLOOR-JOIST-SPAN** (review note on BUILDING-OUTLINE;
+   kernel-architect for `loft.floor` 1.3.0, frontend-builder): on an
+   outline, "Along the depth" is read from the first-drawn line, so the
+   same house drawn from another corner frames 24 ft joists. Chief frames a
+   floor across its shorter span with a joist-direction arrow you can turn,
+   and Revit's floor has a picked span direction. Joists bear on: Long
+   walls (default, the shorter span), Front and back, or Left and right,
+   using the world sides the walls are named by. _Accept:_ B7's outline,
+   drawn from any corner in either direction, frames the same 2x10 joists
+   across the 16 ft span. Left and right gives 24 ft joists. Stored 1.2.0
+   floors are byte-identical.
 
 ## Next
 
@@ -212,44 +151,46 @@ Bike gaps first (rounds 2 and 3), then the hard-parts blockers, then speed.
 
 Founder, 2026-10-15: decks, sheds, rafters, windows and doors without drawing
 every member. A plugin registers a custom feature that expands into base
-features (RESEARCH §23). First-party plugins ship preinstalled; no install
-step. B1-B6 pass. B7 builds and prices, Now has its editing gaps, and these
-are the rest of what it found.
+features (RESEARCH §23). First-party plugins ship preinstalled, with no
+install step. B1-B7 build and price. Now has the house's remaining gaps, and
+what follows makes the price a yard would quote.
 
-- [ ] **OPENING-UNITS** (merges WINDOW-DOOR-UNIT, B7-OPENING-UNITS-PRICE
-      and B7-OPENING-SIZES): Window and Door pick a size from a catalogue
-      (Chief Architect's and Revit's call sizes: 3040, 2030, 3068), draw an
-      optional unit body kept out of the framing, and list each unit as a
-      priced Each line (a price-book key by unit and size). _Accept:_ B7's
-      five openings are picked with no size field retyped, and its cut list
-      gains Window 3040 x 3, Window 2030 x 2 and Door 3068 x 1, priced in
-      the total.
-- [ ] **HEADER-PLIES** (was B7-HEADER-2X6-WALL): a 2x6 wall's header is two
-      1.5 in plies in a 5.5 in wall. Framers use three plies, or two with a
-      spacer or rigid foam. Header build becomes a wall option (3-ply
-      default in 2x6, 2-ply in 2x4). _Accept:_ B7's headers list three
-      plies per opening with no interference; the 2x4 goldens are unchanged.
-- [ ] **BODY-NAMES** (merges B7-BODY-NAMES and DECK-BODY-NAMES): the Bodies
-      and Material panels name member bodies as the cut list does
-      ("Front wall · Stud 12"), as Fusion shows body names. _Accept:_ B7's
-      Bodies panel has no "Body n" row.
+- [ ] **SHEET-COUNT-PIECES** (backend-builder, loft-wire cut list; closes
+      CUT-LIST-SHEET-WASTE): sheets are counted by net area, so rips and
+      fillers that cannot share a sheet are under-bought (B5's walls: 10
+      sheets by area, 12 to cut). Count the sheets the modelled panels are
+      cut from. Each panel takes a sheet unless an earlier offcut of the same
+      product covers it whole (largest panels first). Openings are not
+      credited, because framers sheathe over them and cut them out. Show the
+      net and offcut area. _Accept:_ B5's walls buy 12 sheets of 4x9 and
+      its subfloor 4 of 4x8. B7's sheet lines are recounted and the new
+      total is pinned in `test_price_book.py`.
+- [ ] **SPLICE-FEWEST-PIECES** (backend-builder; RESEARCH §27): splices
+      rank fewest pieces (joints) first, then least waste, then most even,
+      then the cheapest priced. _Accept:_ with an 8, 10 and 16 ft book, 28 ft
+      buys 2 x 16 (4 ft over), not 10 + 10 + 8. 37 ft buys 2 x 20 when 20 ft
+      is priced. B7's total is unchanged at $2,868.87.
+- [ ] **BODY-NAMES** (merges B7-BODY-NAMES and DECK-BODY-NAMES;
+      frontend-builder): the Bodies and Material panels name member bodies
+      as the cut list does ("Front wall · Stud 12"), as Fusion shows body
+      names. _Accept:_ B7's Bodies panel has no "Body n" row.
 - [ ] **SLAB** (was the note B2-SLAB): a slab-on-grade Build tool in
       concrete, with an optional thickened edge, listed in the cut list in
       cubic yards and priced per cubic yard. _Accept:_ B2's 144 x 120 x 4
       slab is 69 120 in³ and lists 1.48 yd³.
 - [ ] **STAIRS** (was the note DECK-STAIRS): a straight stair of cut
       stringers and treads from the total rise, as Chief Architect's stair
-      tool, with risers of at most 7.75 and treads of at least 10 (IRC
-      R311.7). _Accept:_ B1's 30 in rise gives 4 risers of 7.5, 3 treads and
-      3 stringers, matching a script to 1e-4.
+      tool, with risers of at most 7.75 in and treads of at least 10 in (IRC
+      R311.7). _Accept:_ B1's 30 in rise gives 4 risers of 7.5 in, 3 treads
+      and 3 stringers, matching a script to 1e-4.
+- [ ] **STEEL-STUDS** (moved up from Later: the founder's homes in
+      different materials): a light-gauge steel choice on `loft.wall` with
+      C studs and tracks (362S162-33 and 362T125-33), as Chief Architect's
+      metal-stud wall types offer. _Accept:_ B2's walls in steel give the same
+      layout counts, with Stud and Track lines in the cut list.
 
 ## Later
 
-- [ ] **STEEL-STUDS** (moved from Next; no reference building uses it): a
-      light-gauge steel choice on `loft.wall` with C studs and tracks
-      (362S162-33 and 362T125-33), as in Chief Architect's metal-stud wall
-      types. _Accept:_ B2's walls in steel give the same layout counts, with
-      Stud and Track lines in the cut list.
 - [ ] **HOUSE**: composes walls, floor platform and roof into an assembly of
       sub-assemblies (needs ASM-A3), with one cut list. _Accept:_ B2 built as
       wall, floor and roof sub-assemblies gives the same cut list as the
@@ -268,13 +209,13 @@ are the rest of what it found.
 
 ## Founder decisions
 
-None open. The B7 decisions are in VISION's delegated log.
+None open. The B7 and outline decisions (to 2026-10-23) are in VISION's
+delegated log.
 
 ## Notes
 
 One line each. The founder triages weekly; most are closed without work.
 
-- SPLICE-FEWEST-PIECES: splice tiers rank feet bought before pieces, so a book pricing 10 ft SPF buys 28 ft as 10 + 10 + 8 (3 pieces, 2 joints) before 2 x 16; a yard may prefer fewer joints over 4 ft of offcut. Founder call.
 - BARE-UNIT-SURFACES: `expression_bare_mm` rides on `FeatureResponse.formula_warnings` and `PartParametersResponse.formula_warnings`, but the web shows it (with "Read as in") only on a feature editor's field; the parameters table, sketch dimensions and the feature tree do not show it yet, and the sketcher's echo still reads a bare term as mm until the save writes the unit.
 - BARE-UNIT-COMPARE: `min`/`max`/`atan2` arguments compared with a length also take the part unit (`max(wall, 3)` is stored as `max(wall, 3 in)`), one step past the spec's added/subtracted rule, because a bare 3 there is the same silent mm.
 - BARE-UNIT-SAME-TEXT: a sketch dimension typed with exactly the text of an older unfixed dimension in the same sketch is kept as typed (a dimension has no id, so "left as stored" matches by text) and carries the warning.
@@ -704,21 +645,9 @@ One line each. The founder triages weekly; most are closed without work.
 - SHEATHING-OVER-RIM: wall sheathing stops at the wall's base; on a platform floor real OSB laps the rim joist down to the sill (Chief's sheathing extension), which would also tie the walls to the floor.
 - SUBFLOOR-OPTIONS: the subfloor offers 23/32 plywood only; 23/32 T&G OSB (AdvanTech) is the common alternative, and the panels are not glued or T&G in the model.
 - SHEATHING-TREE-SIZE: each panel is a sketch and an extrude, so an 80 x 80 ft floor at 8 in o.c. with its subfloor is 676 features of the 1,000-feature tree (PLUGIN-CAP).
-- CUT-LIST-SHEET-WASTE: a sheet line shows its net area and sheets but not the offcut area (sheets x sheet area - net area), which Chief's materials list also omits.
 - PRICE-BOOK-428: a client that PUTs the price book without If-Match now gets 428 (OPERATIONS upgrade notes); loft-script has no price-book helper, so only raw API callers are affected.
-- B7-TAILS-THROUGH-OSB (BUILDING-OUTLINE, wrong geometry in released versions): a gable's heel sits on the framing's outside face, so on sheathed walls each 12 in tail passes through the eave wall's OSB below the plate's top. The round's typed B7 (roof 1.3.0 on walls 1.2.0) shares 43.1006 in^3 over 36 pairs, so its 264 895.4795 in^3 counts that twice. Roof 1.4.0 on an outline notches the OSB round the tails (264 852.3789 in^3, no interference); stored 1.0-1.3 roofs keep the overlap.
-- ROOF-HIP-SHEATHING-NOTCH: roof 1.4.0 refuses Hip on sheathed outline walls, because its hips and jacks would pass through the OSB as the gable's tails did. The gable notches its tails; the hip's corner hips need the same.
 - OUTLINE-ANGLES: an outline's lines must run along the sketch axes (horizontal or vertical, read without a solver), so a house turned 30 deg or with a 45 deg bay is refused. Angle dimensions are nonlinear and need the solver's answer in documents.
 - FLOOR-OUTLINE-SHAPES: floor 1.2.0 fills a rectangular outline only; an L floor needs its joists laid out per arm (Chief frames each room's floor).
 - OUTLINE-OPENING-VERSION: window and door 1.1.0 are the wall-of-an-outline pick (`wall_segment`), so OPENING-FROM-END's Measured from ships as 1.2.0.
 - OUTLINE-HOST-STANDALONE: an outline wall laps its own corners only; a later single wall butting an outline wall's end gets its corner rip, but the outline wall never emits a return for an earlier single wall.
-- B7-HOUSE-STRETCH (QA-B7): lengthening B7 24 -> 28 ft takes 8 feature edits (floor, three walls, roof and the front wall's three openings). Nothing is linked: walls do not join, floor and roof do not read the walls (ROOF-GABLE-WALLS), and openings sit at an offset from a clockwise wall's start. The front wall's door and windows therefore jump 48 in unless each offset is retyped, in an order that avoids a transient framing overlap (the door's new place is refused until the window beside it moves). In Chief Architect you drag one wall.
-- B7-OFFSET-FROM-START (QA-B7): on a front wall drawn clockwise (X 288 -> 0), the window "at X 60" needs offset 228, so every front-wall offset is mirrored by hand. Revit and Chief show temporary dimensions from the nearest wall end (see OPENING-DRAG).
-- B7-MIXED-FRACTION (QA-B7): "11 15/32" is refused ("Unexpected '15'") and "11-15/32" is accepted as 11 - 15/32 = 10.53125, so a framer's usual notation silently drops a wall 15/16 in into the subfloor (no interference check: B2-E2E-INTERFERENCE). Chief Architect reads both as 11 15/32; Fusion's expressions subtract, as Loft does.
-- B7-CUT-LIST-PANEL (QA-B7): once priced, the cut list panel overflows sideways. At 1600x1000 the Ext. price column and the Total read "$2,60" until you scroll; at 1280x800 it shows 5 of 23 lines, and member names truncate ("Top pl…", "Botto…"). Chief's Materials List opens as a full window.
-- B7-CUT-LIST-GROUPING (QA-B7): lines are in tree order, so one profile and member is split across walls (B7 has three Header rows, three Cripple rows and three Bottom plate rows, none adjacent). "Sill" names both the PT floor sills and the SPF window sills. Chief's list groups by category, then size.
-- B7-OPENING-UNITS-PRICE (QA-B7): the door and the four windows are not cut-list or price-book lines, so a house's price leaves out its doors and windows. Chief's materials list prices them.
-- B7-HEADER-2X6-WALL (QA-B7): in a 2x6 wall the header is still two 1.5 in plies (3 in in a 5.5 in wall) with no third ply or spacer; framers use three plies, or two plus a spacer or rigid insulation.
-- B7-OPENING-SIZES (QA-B7): Window defaults to 24 x 36 and has no size list, so each of B7's three 36 x 48 windows has two fields retyped. Chief and Revit pick from a catalogue (3048, 2436).
 - B7-TREE-STATUS-DASH (QA-B7, seen once): after editing Wall 1's start and length on a solved B7, the tree showed "—" instead of OK for Wall 4 and Window 5 until the next edit.
-- B7-BODY-NAMES (QA-B7): the Bodies panel lists B7's 217 members as "Body 1..217" and the Material panel names every row by its feature ("Floor 1"). Only the cut list and the unfolded tree say Joist, Stud or Rafter; Fusion shows body names.

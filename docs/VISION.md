@@ -166,7 +166,7 @@ built from Build-group plugins with no member drawn by hand:
 - **B4 L-shaped house:** six walls under a hip roof with a valley and valley jacks; a narrowed wing adds a hip-valley cripple.
 - **B5 shed on a floor:** B2's walls on a framed 2x8 floor, with OSB wall sheathing and a plywood subfloor, priced per sheet.
 - **B6 timber frame:** two 8x8 bents with tie beams and girts, every joint a pegged mortise and tenon.
-- **B7 small house:** 24 x 16 ft, 2x6 walls on a 2x10 floor, a door, four windows, a 6/12 gable, sheathed and priced to the last line: a gap-finding round. Round of 2026-10-22 (caf0aa8, e2e `house-b7.spec.ts`): it builds from 12 Build features. That took 87 gestures, with 37 values typed and 8 of them worked out by hand. The 217 members are exactly the independent script's, and the STEP's 217 solids measure 264 895.4795 in³ as the script gives. All three edits regenerate as the script says, with the volume 267 494.1504 in³ at 8/12. At caf0aa8 it failed "priced to the last line", because the 5 lines over 20 ft had no stock. Since CUT-LIST-LONG-STOCK (30ac7b7) they are spliced (16 ft + 8 ft, 2 x 12 ft), and B7 prices to the last line at $2,868.87. Lengthening the house takes 8 feature edits (B7-HOUSE-STRETCH).
+- **B7 small house:** 24 x 16 ft, 2x6 walls on a 2x10 floor, a door, four windows, a 6/12 gable, sheathed and priced to the last line: a gap-finding round. Round of 2026-10-22 (caf0aa8, e2e `house-b7.spec.ts`): it builds from 12 Build features. That took 87 gestures, with 37 values typed and 8 of them worked out by hand. The 217 members are exactly the independent script's, and the STEP's 217 solids measure 264 895.4795 in³ as the script gives. All three edits regenerate as the script says, with the volume 267 494.1504 in³ at 8/12. Since CUT-LIST-LONG-STOCK (30ac7b7) the members over 20 ft are spliced, and B7 prices to the last line at $2,868.87. Since BUILDING-OUTLINE (on main at fe9d2b5) B7 builds from one outline sketch, and 24 -> 28 ft is one dimension edit, down from 8 feature edits (e2e `house-b7.spec.ts`; not yet a qa-tester re-run). Doors and windows are not priced yet (OPENING-UNITS).
 
 ## Daily-driver scorecard
 
@@ -178,7 +178,7 @@ main `01e49e2` on 2026-10-09 and updated from shipped commits on
 
 | Area | Grade | Why |
 | --- | --- | --- |
-| Sketching and constraints | ➖ | Solid solver. Lines chain, points dimension to points and lines, and body edges project into a sketch (not splines). Trig expressions and named part parameters drive dimensions; a typed line angle and a 3D sketch (points and lines) shipped 2026-10-21. A bare number in a formula is mm even in an inch part (FORMULA-BARE-UNIT). Missing: 3D arcs and splines. |
+| Sketching and constraints | ➖ | Solid solver. Lines chain, points dimension to points and lines, and body edges project into a sketch (not splines). Trig expressions and named part parameters drive dimensions; a typed line angle and a 3D sketch (points and lines) shipped 2026-10-21. A bare number in a formula reads in the part's unit (FORMULA-BARE-UNIT, 2026-10-22). Missing: 3D arcs and splines. |
 | Part modelling | ➖ | Core features compose on real parts, twist is on Sweep, and Extrude is one-sided or symmetric. Plane at an angle, closed-path sweep and Pipe shipped. Shell fails on a round-to-square loft; no Through All extrude. Cuts reach every body they meet (Objects To Cut, 2026-10-21). |
 | Selection and picking | ❌ | Overlapping edge marks fixed (2026-10-01 rerun) and one pick rounds its tangent chain. No face or loop selection, and a fillet edit could not re-pick (2026-09-30 run, not rechecked). |
 | Assemblies | ➖ | Joints with drag and limits, Move, sub-assemblies, component patterns and in-context edits shipped (to 2026-10-16). No mirror component or flexible sub-assembly; re-grade from A1-A3. |
@@ -282,7 +282,8 @@ goal and answer them"); the product-manager decided them. Each is in
 - **Sheathing conventions:** sheathing is a layer option on Wall and Floor
   (Chief Architect's structure layers, Medeek's options), not a tool of its
   own. Sheets are counted by net area, ceil(area / sheet), as Chief
-  Architect's materials list counts them. Each panel's sheet is the shortest
+  Architect's materials list counts them (superseded 2026-10-23: the
+  sheets cut, SHEET-COUNT-PIECES). Each panel's sheet is the shortest
   of 4x8, 4x9 and 4x10 that covers it. Corners are butted, and roofs come
   later (ROOF-SHEATHING).
 - **Timber frame conventions:** S4S sections (8x8 is 7.5 x 7.5). One joint
@@ -341,3 +342,39 @@ goal and answer them"); the product-manager decided them. Each is in
   Roof, Sheathing), then member, profile and length, as Chief Architect's
   Materials List (CUT-LIST-PANEL). Window and door units, header plies and
   body names follow in Next; steel studs move to Later.
+- **Now after the outline (2026-10-23, sixth pass; founder: "It's all
+  needed... You are leading this project"):** first the in-flight
+  OPENING-FROM-END, CUT-LIST-PANEL and ROOF-HIP-SHEATHING-NOTCH. Then
+  ROOF-THROUGH-SHEATHING-UPDATE (Severity: wrong geometry in released
+  roofs), then OPENING-UNITS, HEADER-PLIES and FLOOR-JOIST-SPAN. A house
+  that leaves out its windows and doors, and frames 2x6 headers short a
+  ply, is not one a crew would build or a yard would quote. BODY-NAMES
+  follows SHEET-COUNT-PIECES and SPLICE-FEWEST-PIECES in Next, and
+  STEEL-STUDS moves from Later to Next for homes in other materials.
+- **Splice choice:** fewest pieces first, then least waste, so 28 ft
+  with 8, 10 and 16 ft stock buys 2 x 16, not 10 + 10 + 8. Each joint must
+  land over a stud or joist, and double top-plate joints must be offset
+  24 in (IRC R602.3.2), so framers order plates and rims in the longest
+  lengths and use the offcut for blocking (SPLICE-FEWEST-PIECES).
+- **Window and door units:** drawn by default as frame and glazing (a
+  door: frame and slab) inside the rough opening, as Revit's and Chief's
+  window and door families draw the unit. They are picked by call size from
+  a catalogue that a plugin can supply, and priced Each (OPENING-UNITS).
+- **Sheet goods:** counted by the sheets the modelled panels are actually
+  cut from, with an offcut reused only where it covers a whole panel. The
+  yard ships whole sheets. A count by area under-buys rips and fillers
+  (B5's walls: 10 by area, 12 to cut), and the model already lays out every
+  panel. This reverses the 2026-10-17 area count (SHEET-COUNT-PIECES).
+- **Stored roofs through the sheathing:** an opt-in "Update to 1.4" with a
+  warning, which is undoable and never silent. Fusion marks out-of-date
+  linked content for the user to update, and Revit reloads a family only on
+  request. Unlike the doubled common, which was fixed in place, the fix
+  changes another feature's sheathing (ROOF-THROUGH-SHEATHING-UPDATE).
+- **Floor joist span on an outline:** an input, Joists bear on Long walls
+  (default, the shorter span), Front and back, or Left and right. Chief
+  frames a floor across its shorter span with a joist-direction arrow you
+  can turn, and Revit's floor has a span direction. Draw order must not
+  change the framing (FLOOR-JOIST-SPAN).
+- **Hip roof on sheathed outline walls:** the hips and hip jacks notch the
+  OSB, as the gable's tails already do, rather than being refused. This is
+  being built in roof 1.4.0 (ROOF-HIP-SHEATHING-NOTCH).
