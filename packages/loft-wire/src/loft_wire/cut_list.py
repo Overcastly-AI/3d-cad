@@ -26,9 +26,9 @@ the member's metadata, then the document default. Stock lengths are the US
 lumber lengths :data:`STOCK_LENGTHS_FT`; the shortest that covers the member
 is suggested, with the offcut it leaves. A member longer than the longest
 stock is SPLICED from stock pieces, as a framer buys a long plate
-(:func:`stock_splices`, RESEARCH §27): the pieces covering it with the least
-waste, then the fewest joints; when pricing, the least-waste splice whose
-every piece the book prices, as a yard quotes it. A member no
+(:func:`stock_splices`, RESEARCH §27): the pieces covering it in the fewest
+pieces (joints), then with the least waste; when pricing, the first such
+splice whose every piece the book prices, as a yard quotes it. A member no
 :data:`MAX_SPLICE_PIECES`-piece splice covers, or one that is not lumber,
 has no stock suggestion.
 
@@ -462,12 +462,16 @@ def stock_splice_tiers(length_mm: float) -> tuple[tuple[tuple[int, ...], ...], .
     joints over studs or joists (Chief Architect's materials list buys it the
     same way). A splice is a combination of at most :data:`MAX_SPLICE_PIECES`
     stock pieces covering *length_mm*, each longest piece first; tiers are
-    ordered by LEAST WASTE (the fewest feet bought), then FEWEST PIECES
-    (joints), and within a tier most even first (:func:`_evenness`). The
-    first tier is the least-waste choice (:func:`stock_splices`); the later
-    ones let :func:`price_lines` buy what the book prices, as a yard quotes
-    28 ft as 16 + 16 when it stocks no 14 ft. Empty for a member that one
-    stock length covers, or that no splice covers."""
+    ordered by FEWEST PIECES (joints), then LEAST WASTE (the fewest feet
+    bought), and within a tier most even first (:func:`_evenness`). Joints
+    must land over a stud or joist and double top-plate joints be offset 24
+    in (IRC R602.3.2), so a framer orders plates and rims in the longest
+    lengths and cuts blocking from the offcut: 28 ft with 8, 10 and 16 ft
+    stock is 2 x 16, not 10 + 10 + 8 (SPLICE-FEWEST-PIECES). The first tier
+    is the choice (:func:`stock_splices`); the later ones let
+    :func:`price_lines` buy what the book prices, as a yard quotes 28 ft as
+    16 + 16 when it stocks no 14 ft. Empty for a member that one stock
+    length covers, or that no splice covers."""
     if stock_length_ft(length_mm) is not None:
         return ()
     tiers: dict[tuple[int, int], list[tuple[int, ...]]] = {}
@@ -477,14 +481,15 @@ def stock_splice_tiers(length_mm: float) -> tuple[tuple[tuple[int, ...], ...], .
         ):
             feet = sum(splice)
             if _covers(length_mm, feet):
-                tiers.setdefault((feet, pieces), []).append(splice)
+                tiers.setdefault((pieces, feet), []).append(splice)
     return tuple(tuple(sorted(tiers[key], key=_evenness)) for key in sorted(tiers))
 
 
 def stock_splices(length_mm: float) -> tuple[tuple[int, ...], ...]:
-    """The equally good least-waste splices for a member longer than the
-    longest stock, best first: the first tier of :func:`stock_splice_tiers`
-    (24 ft is 12 + 12, 14 + 10 or 16 + 8). Empty for a member that one stock
+    """The equally good fewest-piece, least-waste splices for a member longer
+    than the longest stock, best first: the first tier of
+    :func:`stock_splice_tiers` (24 ft is 12 + 12, 14 + 10 or 16 + 8; 37 ft is
+    2 x 20). Empty for a member that one stock
     length covers, or that no splice covers."""
     tiers = stock_splice_tiers(length_mm)
     return tiers[0] if tiers else ()
@@ -894,8 +899,9 @@ def price_lines(
 ) -> list[CutListLine]:
     """*lines* priced from *book*, on the stock pieces bought: each line's
     unit price is an 'each' entry for its stock length (for a spliced line,
-    for every piece of a splice, :func:`_price_stock`, from the least-waste
-    tier of :func:`stock_splice_tiers` the book prices whole, its offcut
+    for every piece of a splice, :func:`_price_stock`, from the first (fewest
+    pieces, then least waste) tier of :func:`stock_splice_tiers` the book
+    prices whole, its offcut
     recomputed), else a per-foot entry
     on the feet bought, else a per-board-foot entry (for its material and
     profile), and its extended price is that times its stock quantity (one

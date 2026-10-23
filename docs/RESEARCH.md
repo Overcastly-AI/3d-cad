@@ -2998,17 +2998,22 @@ property feeds a BOM column; Loft's price book feeds the cut list.
   splices a long plate or rim from stock pieces, joints over studs or
   joists, and Chief Architect's materials list buys it that way. The rule
   (`stock_splices`): only a member longer than the longest stock (20 ft) is
-  spliced; its stock is the combination of at most 5 pieces covering it with
-  the LEAST WASTE (fewest feet bought), then the FEWEST PIECES (joints).
+  spliced; its stock is the combination of at most 5 pieces covering it in
+  the FEWEST PIECES (joints), then with the LEAST WASTE (fewest feet bought)
+  (SPLICE-FEWEST-PIECES, 2026-10-23; until then waste came first). Each
+  joint must land over a stud or joist and double top-plate joints must be
+  offset 24 in (IRC R602.3.2), so framers order plates and rims in the
+  longest lengths and cut blocking from the offcut: 28 ft with 8, 10 and
+  16 ft stock is 2 x 16 (4 ft over), not 10 + 10 + 8, and 37 ft is 2 x 20
+  (3 ft over), not 14 + 12 + 12 (1 ft over).
   Ties are common (24 ft is 12 + 12, 14 + 10 or 16 + 8; 26 ft is 14 + 12 or
   16 + 10) and list most even first; for pricing, the cheapest tie whose every
   piece has an Each price wins, so the stock shown can follow the book, at
-  the same waste and piece count. When no least-waste splice is priced whole,
-  the next tier up is tried (CUT-LIST-SPLICE-TIES, a yard's quote): 28 ft with
-  no 14 ft in the book buys 2 x 16 (4 ft over) rather than staying unpriced,
-  and only when no tier prices does the least-waste stock show unpriced.
-  Waste comes first, so 37 ft is 14 + 12 + 12
-  (1 ft over), not 2 x 20 (3 ft over). The line's `stock_pieces_ft` carries
+  the same piece count and waste. When no splice of the first tier is priced
+  whole, the next tier is tried (CUT-LIST-SPLICE-TIES, a yard's quote): 28 ft
+  with no 14 ft in the book buys 2 x 16 rather than staying unpriced, and
+  only when no tier prices does the first tier's stock show unpriced.
+  The line's `stock_pieces_ft` carries
   the pieces (`[12, 12]`; `[16]` unspliced), `stock_length_ft` is null for a
   splice and `waste_mm` sums the splice's offcut. Each prices only a splice
   the book prices whole (one unit per line, never Each and per foot mixed);

@@ -397,7 +397,7 @@ def _sheets(member: str, key: str, area_in2: float) -> CutListPiece:
     )
 
 
-def test_stock_for_a_long_member_is_the_least_waste_then_fewest_joints() -> None:
+def test_stock_for_a_long_member_is_the_fewest_joints_then_least_waste() -> None:
     ft = 12 * MM_PER_INCH
     assert stock_pieces_ft(20 * ft) == (20,)  # one stock length: no splice
     assert stock_splices(20 * ft) == ()
@@ -405,8 +405,10 @@ def test_stock_for_a_long_member_is_the_least_waste_then_fewest_joints() -> None
     assert stock_splices(24 * ft) == ((12, 12), (14, 10), (16, 8))
     assert stock_pieces_ft(26 * ft) == (14, 12)
     assert stock_pieces_ft(36 * ft) == (20, 16)
-    # 37 ft: 20 + 20 wastes 3 ft; three pieces waste 1, so waste wins.
-    assert stock_pieces_ft(37 * ft) == (14, 12, 12)
+    # 37 ft: 20 + 20 wastes 3 ft and 14 + 12 + 12 wastes 1, but has one more
+    # joint, so 2 x 20 (SPLICE-FEWEST-PIECES, IRC R602.3.2).
+    assert stock_splices(37 * ft) == ((20, 20),)
+    assert stock_pieces_ft(41 * ft) == (14, 14, 14)  # 3 pieces, 1 ft over
     assert stock_pieces_ft(100 * ft) == (20, 20, 20, 20, 20)
     assert stock_pieces_ft(100 * ft + 0.01) is None
     assert splice_label((12, 12)) == "2 x 12 ft"
@@ -464,12 +466,12 @@ def test_a_splice_is_priced_on_its_pieces_each_per_foot_or_board_foot() -> None:
     assert line.unit_price_cents is None and line.stock_pieces_ft == [12, 12]
 
 
-def test_a_28_ft_member_buys_the_least_waste_splice_the_book_prices() -> None:
-    """B7 stretched to 28 ft (CUT-LIST-SPLICE-TIES): the least-waste ties,
-    2 x 14, 16 + 12 and 20 + 8, have no SPF price, and neither has any 28 or
-    30 ft cover, so the yard quotes 2 x 16 (32 ft, 4 ft = 1219.2 mm over;
-    two pieces before 16 + 8 + 8's three). The PT sill's 16 + 12 tie is
-    priced and kept."""
+def test_a_28_ft_member_buys_the_first_splice_the_book_prices() -> None:
+    """B7 stretched to 28 ft (CUT-LIST-SPLICE-TIES): the two-piece 28 ft
+    ties, 2 x 14, 16 + 12, 18 + 10 and 20 + 8, have no SPF price, and nor
+    has any two-piece 30 ft cover, so the yard quotes 2 x 16 (32 ft, 4 ft =
+    1219.2 mm over; two pieces before 16 + 8 + 8's three). The PT sill's
+    16 + 12 tie is priced and kept."""
     pieces = _pieces(
         [
             ("Rim", "2x10", SPF, 2, 336.0),
@@ -495,13 +497,45 @@ def test_a_28_ft_member_buys_the_least_waste_splice_the_book_prices() -> None:
         ("Top plate", "2 x 16 ft", 2 * 1398, 4 * 2796, 1219.2),
         ("Ridge", "2 x 16 ft", 2 * 2297, 4594, 1219.2),
     ]
-    # Unpriced, the least-waste choice stands.
+    # Unpriced, the first choice stands.
     assert [line.stock_pieces_ft for line in _priced(pieces, []).lines] == [
         [14, 14],
         [14, 14],
         [14, 14],
         [14, 14],
     ]
+
+
+def test_a_28_ft_member_buys_two_16s_not_three_pieces_when_10_ft_is_priced() -> None:
+    """SPLICE-FEWEST-PIECES: with an 8, 10 and 16 ft book, 10 + 10 + 8 covers
+    28 ft with no waste, but its three pieces are one more joint to land over
+    a stud, so the yard sells 2 x 16 (4 ft over, kept for blocking)."""
+    book = [
+        _each(SPF, "us_2x6", 8, 648),
+        _each(SPF, "us_2x6", 10, 798),
+        _each(SPF, "us_2x6", 16, 1398),
+    ]
+    (line,) = _priced(_pieces([("Top plate", "2x6", SPF, 4, 336.0)]), book).lines
+    assert (line.stock_pieces_ft, line.unit_price_cents, line.price_unit) == (
+        [16, 16],
+        2 * 1398,
+        "each",
+    )
+    assert line.waste_mm == pytest.approx(4 * 12 * MM_PER_INCH)
+    assert line.extended_price_cents == 4 * 2 * 1398
+
+
+def test_a_37_ft_member_buys_two_20s_when_20_ft_is_priced() -> None:
+    """37 ft: 2 x 20 (3 ft over) before 14 + 12 + 12 (1 ft over), though
+    the book prices both and the three pieces cost less."""
+    book = [
+        _each(SPF, "us_2x10", 20, 2998),
+        _each(SPF, "us_2x10", 14, 1947),
+        _each(SPF, "us_2x10", 12, 1747),
+    ]
+    (line,) = _priced(_pieces([("Rim", "2x10", SPF, 2, 444.0)]), book).lines
+    assert (line.stock_pieces_ft, line.unit_price_cents) == ([20, 20], 2 * 2998)
+    assert line.waste_mm == pytest.approx(3 * 12 * MM_PER_INCH)
 
 
 def test_b7_is_priced_to_the_last_line_2868_87() -> None:

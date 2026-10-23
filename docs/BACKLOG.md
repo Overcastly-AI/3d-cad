@@ -179,11 +179,14 @@ every member; 2026-10-23: foundations, interior walls and casework. A plugin
 registers a custom feature that expands into base features (RESEARCH §23),
 preinstalled. B1-B7 build and price; Now carries B8-B10 and C1-C3.
 
-- [ ] **SPLICE-FEWEST-PIECES** (backend-builder; RESEARCH §27): splices
+- [x] **SPLICE-FEWEST-PIECES** (backend-builder; RESEARCH §27): splices
       rank fewest pieces (joints) first, then least waste, then most even,
       then the cheapest priced. _Accept:_ with an 8, 10 and 16 ft book, 28 ft
       buys 2 x 16 (4 ft over), not 10 + 10 + 8. 37 ft buys 2 x 20 when 20 ft
       is priced. B7's lumber lines price as before.
+      _Done:_ `stock_splice_tiers` keys on (pieces, feet); the priced-tier
+      fallback is unchanged. B7's total and the 28 ft house's are unchanged
+      (`test_price_book.py`, `house-b7.spec.ts`).
 - [ ] **DECK-FOOTINGS** (moved from the founder's foundations ask to Next by
       "Slab and crawl space"; kernel-architect for a `loft.deck` version):
       a round pier footing under each deck post, as Chief's deck tool and

@@ -194,9 +194,10 @@ const PRICE = "$2,907.75";
  * 28 ft: the short lines (22 joists, 14 plywood and 18 OSB sheets, 126
  * 2x6 x 8, 30 rafters, ...) come to 2 923.86, and the PT sills and bottom
  * plate splice 16 + 12 (3 x 29.46 = 88.38). The SPF rims, top plates and
- * ridge have no priced least-waste splice (2 x 14, 16 + 12, 20 + 8: the book
- * has the 16 and 8 ft SPF 2x10 and 2x6 but no 14, 12 or 20 ft), nor any
- * priced 28 or 30 ft cover, so they buy the least-waste one it prices whole,
+ * ridge have no priced two-piece 28 ft splice (2 x 14, 16 + 12, 18 + 10,
+ * 20 + 8: the book has the 16 and 8 ft SPF 2x10 and 2x6 but no 10, 12, 14,
+ * 18 or 20 ft), nor any priced two-piece 30 ft cover, so they buy the first one it
+ * prices whole, fewest pieces then least waste (SPLICE-FEWEST-PIECES),
  * 2 x 16 (32 ft, before 16 + 8 + 8's three pieces): rims 2 x 45.94, top
  * plates 4 x 27.96, ridge 45.94 = 249.66 more.
  */
@@ -420,9 +421,10 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
       await expect(dialog).toBeHidden({ timeout: 15_000 });
     }
     // The PT sills and plates splice from priced 12s, the SPF top plates
-    // from 16 + 8. The 2x10 rims and ridge have no priced least-waste splice
-    // (2 x 12, 14 + 10, 16 + 8: only 16 ft is in the book), so they buy the
-    // least-waste one the book prices whole, 2 x 16 (CUT-LIST-SPLICE-TIES):
+    // from 16 + 8. The 2x10 rims and ridge have no priced two-piece 24 ft
+    // splice (2 x 12, 14 + 10, 16 + 8: only 16 ft is in the book), so they
+    // buy the first one the book prices whole, fewest pieces then least
+    // waste, 2 x 16 (CUT-LIST-SPLICE-TIES, SPLICE-FEWEST-PIECES):
     // 2 647.71 + 81.84 + 74.88 = 2 804.43, plus 3 x 45.94 = 2 942.25.
     await expectPrice(page, "$2,942.25");
     const rim = panel.locator(
