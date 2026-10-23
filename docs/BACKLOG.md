@@ -131,6 +131,14 @@ kitchen and baths (casework). Each item names its builder types.
    banding, 2 hinges, one pair of 22 in slides), and 24 -> 27 in gives
    3 820.105 in³; C2's run stands on B10's partition with no interference;
    C3 prices to the last line.
+   _Built (2026-10-23, RESEARCH §23):_ `loft.cabinets` 1.0.0 with a generic
+   list input in the manifest (the form's add and remove list), placement on
+   a wall line from either end or typed, frameless and face frame, plywood or
+   melamine; casework sheets, banding and hardware priced (migration 0028).
+   C1 to the panel, C2 on B7's left wall, C3 priced; goldens `c1-*`, `c2-*`,
+   `c3-*`. _Open:_ C2 on B10 waits for INTERIOR-WALLS (its gypsum is the
+   1/2 in Back gap); the wall pick is the form's select, not a viewport
+   click; list rows take plain numbers in the form, formulas by API only.
 
 ## Next
 
@@ -251,6 +259,11 @@ One line each. The founder triages weekly; most are closed without work.
 - SLAB-MULTI-POUR: group_pieces sums pours of one product, material and allowance and rounds the total up to 1/4 yd³, not each pour (two pours are two truck orders on site).
 - SLAB-BOLT-SHORT-PIECE: a plate piece under 24 in gets its 2 anchor bolts with no check of the 12 in end distance (foundation.anchor_bolt_count).
 - SLAB-PRICE-DOWNGRADE: migration 0027's downgrade deletes the foundation prices without bumping price_books.version, so an open draft's If-Match still matches (0025's downgrade does the same).
+- CASEWORK-PIECES-TOTAL: the cut list's Pieces total counts banding (its banded panels) and hardware quantities with the bodies (cut_list.py total_quantity).
+- CASEWORK-HARDWARE-MATERIAL: hinges and slides are keyed to steel_1018 in the price book, so a book cannot price a nickel or zinc hinge apart.
+- CASEWORK-FRONT-GRAIN: a drawer front's plywood grain is fixed vertical, like a door's; many shops run it across.
+- CASEWORK-C2-B10: C2 sits on B7's left wall with a 1/2 in Back gap for gypsum; now that INTERIOR-WALLS has landed it moves to B10's partitions.
+- CASEWORK-C3-NO-DRAWER: C3's V3021 has no drawer box, so it lists no plywood sheet line though casework.md says "melamine and plywood sheets".
 - INTERIOR-WALLS-ENDS: a partition's ends are read from the stored drawn midpoint of its line, not the solved one (interior_wall.py:263).
 - INTERIOR-WALLS-READ-PLAN: outline.read_plan now drops dangling lines for wall, roof and floor 1.1-1.3 too, so an outline sketch with a stray line reads where it used to be refused.
 - INTERIOR-WALLS-GYPSUM-COUNT: gypsum is counted by area, not by sheets_to_cut (kept so for B10's 11 sheets; nesting gives 12), and a 4x12 choice beside 4x8 walls gives mixed sheet lines.

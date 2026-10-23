@@ -2867,6 +2867,72 @@ and reframe it, a material per member, and a cut list that is always current.
     48 130.5 in² (11 sheets of 4x8), 67 bodies of 45 623.25 in³ by hand on
     b7-outline's 217; no interference; 28 ft leaves P1 at X 180 and P2 at
     Y 132, 148.75 long. Golden `b10-partitions`.
+- **Decided while building casework** (CASEWORK, 2026-10-23; Mozaik's and
+  Cabinet Vision's runs and material lists, the 32 mm frameless box, Blum's
+  hinge table, `docs/reference-parts/casework.md`):
+  - *One feature, a list input.* A run is one `loft.cabinets` feature with
+    an ordered list of boxes, as Mozaik places a run; a cabinet is a run of
+    one. The manifest gains a generic `list` input: rows of length, angle,
+    count and choice fields (never a pick, never superseded), stored as
+    `[{field: value}]` with each row's fields canonical and defaulted, an
+    empty optional list stored as no value, a refusal naming the row
+    ("Box 2: ..."). A formula drives one row's field by pointer
+    (`/inputs/boxes/0/width_mm`), resolved by documents like any input; the
+    form offers plain numbers on rows, since adding or removing a row would
+    move a formula to another row. The stored-value union is tried left to
+    right, so a list of picks is never read as rows.
+  - *Placement.* On a `loft.wall` (a line wall or one line of an outline,
+    as an opening picks it), the backs on the framing's inside face plus a
+    typed Back gap (1/2 in for gypsum until INTERIOR-WALLS gives walls an
+    inside finish), from the wall's start or end, standing on the wall's
+    base; a run that does not fit the wall is refused on Distance. Or at a
+    typed X, Y, floor Z and direction, the boxes facing left of it. Panels
+    are plan rectangles on shared level datums extruded up, as walls and
+    decks are; a notched side is its L profile on a datum across the run
+    (an offset `YZ`/`XZ` datum on the axes, an offset of one plane turned
+    about Z otherwise), extruded along it. Plan points are not rounded on a
+    turned run: a 1e-9 in rounding moved its volume 8.7e-4 mm^3.
+  - *The box* (frameless, full overlay; casework.md's conventions): sides
+    full height, notched 3 x 4.5 for the toe kick; bottom and back between
+    them, the bottom in front of the back, the back from the toe to the top;
+    a base or vanity has a front and a back 4 in stretcher, a wall or tall
+    box a full top; fronts 1/16 from the box's edges and 1/8 apart. A
+    drawer box is 1/2 plywood on a 1/4 bottom under its sides, 1 in
+    narrower than the inside, its sides 2 in shorter than the front, its
+    top 3/4 under its opening's (the gap's midline, or the stretchers'
+    underside), on the longest slide of 12-24 in that fits the inside
+    depth. Shelves are 1/16 narrower than the inside, 1 in back from the
+    front, at equal clear gaps from the bottom's top to the stretchers'
+    underside, or under a drawer to the box's top less the top fronts'
+    heights: C1's 16.5 in, casework.md's table. Auto doors: one to 27 in
+    (C1 widened to 27 keeps one door), two above. Face frame: 1x2 white oak
+    stiles over the box's height and rails at the top, between the fronts
+    and at the bottom; fronts overlay 1/2 in; a drawer box 1 in inside its
+    frame opening, centred; the frame covers the carcass's edges, so only
+    shelves and fronts are banded. Fillers are 3/4 panels in the plane of
+    their neighbour's fronts (frameless) or frame, over its front zone.
+  - *What a member says.* Its sheet product, material, plywood grain as a
+    world direction (along a side's, back's or front's height, along the
+    run for bottoms, stretchers, shelves and toe kicks; melamine has none),
+    its edge banding's length and material, and its hardware. Banding is
+    the plugin's statement, not measured: the cut list cannot tell a front
+    edge from a back one, and a notched side's front edge (30 in) is not an
+    extent of it (34.5).
+  - *Cut list.* Cabinet panels are sheet goods listed under Casework, cut
+    to size: `sheets_to_cut` with no panel gap (sheathing's 1/8 in APA gap
+    is not a cabinet joint), a grained panel laid with its grain along the
+    sheet and never turned. C1's 3/4 plywood takes 2 sheets, its 1/2 and
+    1/4 one each. Banding is one line per material, by its summed length,
+    bought in whole feet; hinges and slide pairs one line per key, Each;
+    all priced from the book (`edge_banding` per foot, `hinge` and
+    `slide_<n>` Each, migration 0028).
+  - *Numbers.* C1 3 526.66796875 in^3, 282.4375 in (23.54 ft, 24 bought)
+    of banding, 2 hinges, a pair of 22 in slides; at 27 in 3 820.10546875
+    in^3 and 303.4375 in; in face frame 3 561.58203125 in^3. C2 on B7's
+    left wall (B10 is not built) touches nothing of B7, and B24 -> B21 ends
+    the run at Y 57 moving nothing else. C3's melamine V3021 is 3 072.140625
+    in^3, 343.25 in of PVC banding, 4 hinges, priced to the last line.
+    Goldens `c1-*`, `c2-kitchen-b7-left-wall`, `c3-*`.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
