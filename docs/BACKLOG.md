@@ -352,6 +352,9 @@ delegated log.
 
 One line each. The founder triages weekly; most are closed without work.
 
+- OPENING-NEARER-LOFT-IMPORT: a hand-made .loft storing measure_from "nearer" keeps it on import (refresh_expansions does not settle), so the opening floats with the wall until the next edit settles it (loft_file.py:131).
+- OPENING-REFUSAL-FRAME: the end-stud refusal message gives positions from the wall start even when the opening is measured from the end or centre (wall.py:601).
+- OPENING-MEASURE-SWITCH: changing Measured from in the dialog moves the opening; Revit converts the distance so it stays put. Frontend follow-up with the both-ends readout.
 - BARE-UNIT-SURFACES: `expression_bare_mm` rides on `FeatureResponse.formula_warnings` and `PartParametersResponse.formula_warnings`, but the web shows it (with "Read as in") only on a feature editor's field; the parameters table, sketch dimensions and the feature tree do not show it yet, and the sketcher's echo still reads a bare term as mm until the save writes the unit.
 - BARE-UNIT-COMPARE: `min`/`max`/`atan2` arguments compared with a length also take the part unit (`max(wall, 3)` is stored as `max(wall, 3 in)`), one step past the spec's added/subtracted rule, because a bare 3 there is the same silent mm.
 - BARE-UNIT-SAME-TEXT: a sketch dimension typed with exactly the text of an older unfixed dimension in the same sketch is kept as typed (a dimension has no id, so "left as stored" matches by text) and carries the warning.
