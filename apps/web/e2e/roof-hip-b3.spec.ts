@@ -193,7 +193,7 @@ test.describe("Roof — B3's hip roof from one feature", () => {
     await page.mouse.move(800, 990);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/roof-hip-b3-8-12.png` });
 
-    // A reload keeps the edit, pinned to 1.4.0 (the latest Roof).
+    // A reload keeps the edit, pinned to 1.5.0 (the latest Roof).
     await page.reload();
     await expect(rows).toHaveCount(5);
     await expectSolved(page);
@@ -211,7 +211,7 @@ test.describe("Roof — B3's hip roof from one feature", () => {
         }[];
       }
     ).features[4]?.feature.params;
-    expect(roof?.plugin_version).toBe("1.4.0");
+    expect(roof?.plugin_version).toBe("1.5.0");
     expect(roof?.inputs.style).toBe("hip");
     expect(roof?.inputs.pitch).toBe("rise_8");
   });

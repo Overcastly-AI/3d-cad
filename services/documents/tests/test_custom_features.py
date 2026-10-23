@@ -381,6 +381,7 @@ def test_the_catalog_needs_a_principal(client: TestClient) -> None:
         ("loft.floor", "1.2.0"),
         ("loft.floor", "1.1.0"),
         ("loft.floor", "1.0.0"),
+        ("loft.roof", "1.5.0"),
         ("loft.roof", "1.4.0"),
         ("loft.roof", "1.3.0"),
         ("loft.roof", "1.2.0"),

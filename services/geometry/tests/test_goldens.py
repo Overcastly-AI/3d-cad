@@ -283,6 +283,9 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # from the X 0 end (OPENING-FROM-END): b7-outline's class, 4.2e-4 at
         # worst (the twin's).
         "b7-front-wall-from-end",
+        # B3's hip on B2's sheathed outline, its tails and hips notched out of
+        # the OSB (ROOF-HIP-SHEATHING-NOTCH): b3-hip's STEP rounding, 2.5e-4.
+        "b3-outline-hip-sheathed",
     }
 )
 
