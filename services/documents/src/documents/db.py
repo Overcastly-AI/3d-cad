@@ -1351,16 +1351,22 @@ class PriceBook(Base):
         return f"PriceBook(id={self.id!r}, owner_id={self.owner_id!r})"
 
 
+#: A window or door unit's price-book profile (``window_3040``, OPENING-UNITS),
+#: as SQL both Postgres and SQLite read alike (migration 0025).
+_UNIT_PROFILE = "(substr(profile, 1, 7) = 'window_' OR substr(profile, 1, 5) = 'door_')"
+
+
 class PriceBookEntryRow(Base):
     """One price of a book: a material and profile per stock piece (with its
-    stock length) or per sheet (with its ``sheet``, SHEATHING), per linear
-    foot or per board foot, in integer cents.
+    stock length), per sheet (with its ``sheet``, SHEATHING) or per window or
+    door unit (with neither, OPENING-UNITS), per linear foot or per board
+    foot, in integer cents.
 
     Rows are the output of :class:`loft_wire.price_book.PriceBookUpdate`'s
     validation (one per key, at most 500); the CHECKs below are the database's
     backstop for the rules a bad write would corrupt silently: no negative
-    price, a stock length or a sheet exactly when the unit is ``each``, and
-    never both.
+    price, a stock length or a sheet exactly when the unit is ``each`` (a
+    unit's ``each`` has neither), and never both.
     """
 
     __tablename__ = "price_book_entries"
@@ -1387,12 +1393,17 @@ class PriceBookEntryRow(Base):
         ),
         sa.CheckConstraint("price_cents >= 0", name="ck_price_book_entries_price"),
         sa.CheckConstraint(
-            "(unit = 'each') = (stock_length_ft IS NOT NULL OR sheet IS NOT NULL)",
+            "(unit = 'each') = "
+            f"(stock_length_ft IS NOT NULL OR sheet IS NOT NULL OR {_UNIT_PROFILE})",
             name="ck_price_book_entries_each_stock",
         ),
         sa.CheckConstraint(
             "stock_length_ft IS NULL OR sheet IS NULL",
             name="ck_price_book_entries_one_stock",
+        ),
+        sa.CheckConstraint(
+            f"NOT {_UNIT_PROFILE} OR (stock_length_ft IS NULL AND sheet IS NULL)",
+            name="ck_price_book_entries_unit_each",
         ),
     )
 

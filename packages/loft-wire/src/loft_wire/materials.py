@@ -26,6 +26,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from loft_wire.lumber import LumberProfile
+from loft_wire.opening_units import OpeningUnitSize
 from loft_wire.sheet_goods import SheetGood, SheetSize
 
 #: The built-in material library keys (v1). A closed literal, so an unknown
@@ -51,6 +52,8 @@ MaterialKey = Literal[
     "plywood",
     "steel_a992",
     "concrete",
+    "pvc",
+    "glass",
 ]
 
 
@@ -200,6 +203,21 @@ _LIBRARY: tuple[Material, ...] = (
         density_kg_m3=2400.0,
         source=f"ASCE 7-16 Table C3.1-2, reinforced stone concrete, 150 {_PCF}",
     ),
+    # Window and door units (OPENING-UNITS, RESEARCH §23): a vinyl window's
+    # frame and its glazing. The frame body is the frame's envelope, so it
+    # weighs as solid PVC (an upper bound on a hollow extrusion).
+    Material(
+        key="pvc",
+        name="Rigid PVC (vinyl)",
+        density_kg_m3=1400.0,
+        source="Rigid (unplasticised) PVC datasheet, typical (ISO 1183)",
+    ),
+    Material(
+        key="glass",
+        name="Glass (soda-lime)",
+        density_kg_m3=2500.0,
+        source="ASTM C1036 float glass, typical 2500 kg/m^3",
+    ),
 )
 
 #: The library in display order (metals, polymers, wood, then structural steel
@@ -233,6 +251,11 @@ class MaterialLibraryResponse(BaseModel):
     )
     sheet_sizes: list[SheetSize] = Field(
         description="The sheets they are sold in, shortest first: 4x8, 4x9, 4x10."
+    )
+    opening_units: list[OpeningUnitSize] = Field(
+        default_factory=list[OpeningUnitSize],
+        description="Window and door units by call size (OPENING-UNITS): "
+        "what a unit price is keyed by ('window_3040') and its frame material.",
     )
 
 

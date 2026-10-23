@@ -159,6 +159,9 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # B3's hip on B2's sheathed outline, tails and hips notched out of the OSB
     # (ROOF-HIP-SHEATHING-NOTCH): b3-hip's STEP rounding, 2.5e-4 measured.
     "b3-outline-hip-sheathed": 1e-3,
+    # B7 with its window and door units (OPENING-UNITS): b7-outline's class,
+    # measured 3.3e-4 mm^3 (the twin 3.8e-4).
+    "b7-units": 1e-3,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

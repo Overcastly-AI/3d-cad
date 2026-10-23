@@ -50,6 +50,13 @@ member's lines sit together whichever walls they came from. Pieces with the
 same system, member, profile, material and length are one line, summed across
 features. The CSV writes the same order, each row naming its System.
 
+**Window and door units** (OPENING-UNITS): a unit is bought whole, so its
+bodies (a frame and its glazing, or a frame and a door's slab) are ONE piece,
+listed on the body its metadata marks ``counted`` (the frame), the others
+skipped. Units group by system (Walls, their plugin's), kind, size and
+material, one Each line ("Window 3040 x 3"), priced by the book's entry for
+their key (``window_3040``) and frame material. A custom size has no key and stays unpriced.
+
 Prices (PRICE-BOOK, RESEARCH §27) come from the user's
 :mod:`loft_wire.price_book`: each line is priced on the stock pieces bought
 (:func:`price_lines`), in integer cents, and a line the book does not price
@@ -86,6 +93,7 @@ from loft_wire.materials import (
     MaterialAssignment,
     MaterialKey,
 )
+from loft_wire.opening_units import OpeningKind, OpeningUnitPart
 from loft_wire.plugins import MemberMetadata, PluginId
 from loft_wire.price_book import (
     EMPTY_PRICE_BOOK,
@@ -247,7 +255,7 @@ class CutListPartRequest(BaseModel):
 
 class CutListLine(BaseModel):
     """One line: pieces with the same system, member, profile, material and
-    length."""
+    length; or window or door units of one size and material."""
 
     system: CutListSystem = Field(
         description="The group the line is listed under (Floor, Walls, Roof, "
@@ -332,6 +340,17 @@ class CutListLine(BaseModel):
         ge=0,
         description="unit_price_cents x stock_quantity, on every line, so a "
         "row multiplies out; null when unpriced.",
+    )
+    unit: OpeningKind | None = Field(
+        default=None,
+        description="A window or door unit line (OPENING-UNITS): 'window' or "
+        "'door', its profile the call size ('3040'), one stock unit per "
+        "piece, priced Each; null for lumber and sheets.",
+    )
+    unit_key: str | None = Field(
+        default=None,
+        description="A unit line's price-book key ('window_3040'); null for a "
+        "custom size, or a line that is not a unit.",
     )
 
 
@@ -508,6 +527,8 @@ class CutListPiece:
     sheet: SheetSize | None = None
     area_mm2: float | None = None
     system: CutListSystem = "other"
+    #: A window or door unit's body (OPENING-UNITS); ``None`` otherwise.
+    unit: OpeningUnitPart | None = None
 
     @property
     def panel(self) -> bool:
@@ -539,6 +560,21 @@ def classify_body(
     metadata = member.metadata if member is not None else None
     material = _material(body.base_feature_id, metadata, materials)
     default_section = (min(extents[1], extents[2]), max(extents[1], extents[2]))
+    if member is not None and member.metadata.unit is not None:
+        # A bought unit: listed by its kind and call size, measured as it is.
+        unit = member.metadata.unit
+        return CutListPiece(
+            member=unit.kind.capitalize(),
+            profile=member.metadata.profile,
+            lumber=False,
+            material=material,
+            classification="member",
+            length_mm=extents[0],
+            section_mm=default_section,
+            count=count,
+            unit=unit,
+            system=system_for_plugin(member.plugin_id),
+        )
     if member is not None:
         good = sheet_good_for(member.metadata.profile)
         if good is not None:
@@ -672,6 +708,33 @@ def order_lines(lines: Sequence[CutListLine]) -> list[CutListLine]:
         keys.append((SYSTEM_ORDER.index(system), member, profile, material, length))
     return [lines[i] for i in sorted(range(len(lines)), key=keys.__getitem__)]
 
+def _unit_line(
+    piece: CutListPiece, unit: OpeningUnitPart, quantity: int
+) -> CutListLine:
+    """Units of one kind, size and material as one Each line: one stock unit
+    per unit, its measured extents as its size."""
+    length = round(piece.length_mm, 6)
+    thickness, width = (round(v, 6) for v in piece.section_mm)
+    return CutListLine(
+        system=piece.system,
+        member=piece.member,
+        profile=piece.profile,
+        material=piece.material,
+        classification=piece.classification,
+        quantity=quantity,
+        length_mm=length,
+        total_length_mm=round(length * quantity, 6),
+        section_mm=[thickness, width],
+        stock_length_ft=None,
+        waste_mm=None,
+        stock_quantity=quantity,
+        unit_price_cents=None,
+        price_unit=None,
+        extended_price_cents=None,
+        unit=unit.kind,
+        unit_key=unit.key,
+    )
+
 
 def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
     """Pieces grouped by system, member, profile, material and length; sheet
@@ -681,6 +744,20 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
     groups: dict[tuple[object, ...], tuple[CutListPiece, int]] = {}
     panels: dict[tuple[object, ...], list[CutListPiece]] = {}
     for piece in pieces:
+        if piece.unit is not None:
+            if not piece.unit.counted:
+                continue  # the unit is listed on its counted body
+            unit_key: tuple[object, ...] = (
+                "unit",
+                piece.system,
+                piece.unit.kind,
+                piece.unit.key,
+                piece.profile,
+                piece.material,
+            )
+            first, count = groups.get(unit_key, (piece, 0))
+            groups[unit_key] = (first, count + piece.count)
+            continue
         if piece.panel:
             panel_key: tuple[object, ...] = (
                 "sheet",
@@ -708,6 +785,9 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
     for group_key, (piece, quantity) in groups.items():
         if piece.panel:
             lines.append(_sheet_line(panels[group_key], quantity))
+            continue
+        if piece.unit is not None:
+            lines.append(_unit_line(piece, piece.unit, quantity))
             continue
         length = round(piece.length_mm, 6)
         stock = stock_pieces_ft(length) if piece.lumber else None
@@ -819,7 +899,8 @@ def price_lines(
     profile), and its extended price is that times its stock quantity (one
     per piece, a splice set counting once), so the offcut is paid for. A
     sheet line is priced by the 'each' entry for its product and sheet,
-    times its sheets. A line with no stock or no entry
+    times its sheets, and a unit line by the 'each' entry for its unit key
+    and material, times its units. A line with no stock or no entry
     stays unpriced (null)."""
     entries = {entry.key: entry for entry in book.entries}
     priced: list[CutListLine] = []
@@ -831,7 +912,12 @@ def price_lines(
         unit_price: int | None = None
         unit: PriceUnit | None = None
         update: dict[str, object] = {}
-        if (
+        if line.unit is not None:
+            if line.unit_key is not None and line.material is not None:
+                entry = entries.get((line.material, line.unit_key, "each", None, None))
+                if entry is not None:
+                    unit_price, unit = entry.price_cents, "each"
+        elif (
             good is not None
             and line.sheet is not None
             and line.material is not None
@@ -1021,6 +1107,8 @@ def csv_text(value: str) -> str:
 
 
 def _stock(line: CutListLine) -> str:
+    if line.unit is not None:
+        return "Unit"
     if line.sheet is not None:
         return f"{line.sheet} sheet"
     if line.stock_pieces_ft:

@@ -44,6 +44,7 @@ from pydantic import (
 )
 
 from loft_wire.materials import MaterialKey
+from loft_wire.opening_units import OpeningUnitPart
 from loft_wire.refs import FeatureRef
 from loft_wire.twist import is_none
 
@@ -492,6 +493,13 @@ class MemberMetadata(BaseModel):
     )
     nominal_size: Annotated[str, StringConstraints(max_length=80)] | None = Field(
         default=None, description="Nominal size as sold, e.g. '2x8x12'."
+    )
+    unit: OpeningUnitPart | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="Set on the bodies of a bought window or door unit "
+        "(OPENING-UNITS): the cut list lists the unit once, Each, on its "
+        "counted body. Absent on every other member.",
     )
 
     @field_validator("profile", "nominal_size")

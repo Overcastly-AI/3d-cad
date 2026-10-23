@@ -22,7 +22,10 @@ with the plugins):
    notches, the same 17 sheets) and its price to the last line, $2,868.87,
    the members over 20 ft spliced (CUT-LIST-LONG-STOCK);
 4. edit 1 (the 288 dimension set to 336) is the round's 28 ft house: 234
-   solids, the script's at 336, with no interference.
+   solids, the script's at 336, with no interference;
+5. ``b7-front-wall-from-end`` (OPENING-FROM-END) and ``b7-units``
+   (OPENING-UNITS: every opening picked by call size and its unit drawn, 229
+   solids, each unit one priced cut-list line).
 
 Regenerate expected.json's derivation numbers with
 ``uv run python services/geometry/tests/test_outline_b7.py``.
@@ -88,7 +91,15 @@ PLATE = BASE + H  # 108.59375
 SIDE = W - 2 * D  # 181: the side walls fit between the front and back
 
 SPF, PT, OSB_M, PLY_M = "spf_lumber", "southern_pine_pt", "osb", "plywood"
-DENSITY = {SPF: 450.0, PT: 582.0, OSB_M: 641.0, PLY_M: 577.0}  # kg/m^3
+PVC, GLASS = "pvc", "glass"
+DENSITY = {
+    SPF: 450.0,
+    PT: 582.0,
+    OSB_M: 641.0,
+    PLY_M: 577.0,
+    PVC: 1400.0,
+    GLASS: 2500.0,
+}  # kg/m^3
 
 Bounds = tuple[float, float, float, float, float, float]
 
@@ -359,10 +370,84 @@ def ridge(length: float) -> Bounds:
     return (0, length, W / 2 - T / 2, W / 2 + T / 2, top - RIDGE_D, top)
 
 
-def script(length: float = 288.0, left: float = 60.0) -> list[Member]:
+# --- Window and door units (OPENING-UNITS) ------------------------------------------
+
+#: How a unit is drawn (in), typed from RESEARCH §23's OPENING-UNITS entry: a
+#: window's frame 2 in wide and 3.25 deep from the framing's face round a
+#: 1/4 in pane centred in it, the unit 1/2 in under its rough opening each
+#: way and centred in it; a door's frame 3/4 in jambs and head and a 1.25 in
+#: threshold, the wall's depth deep, round a 1.75 in slab at the face, the
+#: unit 1/2 in under the opening, centred across it and on the subfloor.
+WIN_FACE, WIN_DEPTH, PANE = 2.0, 3.25, 0.25
+JAMB, THRESHOLD, SLAB = 0.75, 1.25, 1.75
+
+
+def ring(wall: Wall, outer: Bounds, hole: Bounds) -> Solid:
+    solid = box(wall.box(*outer))
+    return solid.cut(box(wall.box(*hole))).solids()[0]  # pyright: ignore[reportUnknownMemberType]
+
+
+def unit_members(length: float = 288.0, left: float = 60.0) -> list[Member]:
+    """Every opening's unit: a window's frame (PVC) and pane (glass), a
+    door's frame and slab (SPF)."""
+    out: list[Member] = []
+    for wall in walls(length, left):
+        for o in wall.openings:
+            u0, u1 = o.centre - o.width / 2 + 0.25, o.centre + o.width / 2 - 0.25
+            if o.door:
+                z1 = o.head - 0.5
+                slab = (u0 + JAMB, u1 - JAMB, 0.0, SLAB, THRESHOLD, z1 - JAMB)
+                outer = (u0, u1, 0.0, D, 0.0, z1)
+                hole = (slab[0], slab[1], -1.0, D + 1, slab[4], slab[5])
+                out.append(Member("Door", SPF, ring(wall, outer, hole)))
+                out.append(Member("Slab", SPF, box(wall.box(*slab))))
+                continue
+            z0, z1 = o.sill + 0.25, o.head - 0.25
+            g = (u0 + WIN_FACE, u1 - WIN_FACE, z0 + WIN_FACE, z1 - WIN_FACE)
+            mid = (WIN_DEPTH - PANE) / 2
+            outer = (u0, u1, 0.0, WIN_DEPTH, z0, z1)
+            hole = (g[0], g[1], -1.0, WIN_DEPTH + 1, g[2], g[3])
+            out.append(Member("Window", PVC, ring(wall, outer, hole)))
+            out.append(
+                Member(
+                    "Glazing",
+                    GLASS,
+                    box(wall.box(g[0], g[1], mid, mid + PANE, g[2], g[3])),
+                )
+            )
+    return out
+
+
+def units_volume(length: float = 288.0, left: float = 60.0) -> Fraction:
+    """The units' volume (in^3), exactly: a ring is its outer box less its
+    hole, times its depth."""
+    exact = Fraction(0)
+    for wall in walls(length, left):
+        for o in wall.openings:
+            w, h = (
+                Fraction(o.width) - Fraction(1, 2),
+                Fraction(o.head - o.sill) - Fraction(1, 2),
+            )
+            if o.door:
+                sw, sh = (
+                    w - 2 * Fraction(JAMB),
+                    h - Fraction(JAMB) - Fraction(THRESHOLD),
+                )
+                exact += (w * h - sw * sh) * Fraction(D) + sw * sh * Fraction(SLAB)
+            else:
+                gw, gh = w - 2 * Fraction(WIN_FACE), h - 2 * Fraction(WIN_FACE)
+                exact += (w * h - gw * gh) * Fraction(WIN_DEPTH) + gw * gh * Fraction(
+                    PANE
+                )
+    return exact
+
+
+def script(
+    length: float = 288.0, left: float = 60.0, units: bool = False
+) -> list[Member]:
     """B7 at *length*, its left front window at X *left*: every member a
     build123d solid, each panel a box less its openings and the rafter tails
-    that pass through it."""
+    that pass through it; with *units*, each opening's unit drawn."""
     out = [
         Member(m, mat, box(b))
         for m, mat, b in floor_boxes(length) + framing_boxes(length, left)
@@ -378,6 +463,8 @@ def script(length: float = 288.0, left: float = 60.0) -> list[Member]:
         out.append(Member("Sheathing", OSB_M, solid))
     out += [Member("Rafter", SPF, s) for s in tails]
     out.append(Member("Ridge", SPF, box(ridge(length))))
+    if units:
+        out += unit_members(length, left)
     return out
 
 
@@ -404,9 +491,11 @@ def notch_per_rafter() -> Fraction:
     return Fraction(3, 2) * Fraction(1, 2) * (seat * s + s * s / 2)
 
 
-def analytic_volume(length: float, notched: bool = True, left: float = 60.0) -> float:
+def analytic_volume(
+    length: float, notched: bool = True, left: float = 60.0, units: bool = False
+) -> float:
     """Boxes and panels in exact rationals, the rafters by the shoelace."""
-    exact = Fraction(0)
+    exact = units_volume(length, left) if units else Fraction(0)
     boxes = floor_boxes(length) + framing_boxes(length, left)
     for _, _, (x0, x1, y0, y1, z0, z1) in boxes:
         exact += (
@@ -753,16 +842,108 @@ def test_from_the_end_the_grown_house_with_the_window_moved_is_the_scripts(
     assert _overlapping(from_end_solids) == []
 
 
+# --- 6. Window and door units (OPENING-UNITS) -------------------------------------
+
+UNITS = "b7-units"
+
+
+@pytest.fixture(scope="module")
+def units_solids(tmp_path_factory: pytest.TempPathFactory) -> list[Solid]:
+    return _step_solids(tmp_path_factory, UNITS)
+
+
+def test_with_its_units_the_house_is_the_scripts_and_nothing_interferes(
+    units_solids: list[Solid],
+) -> None:
+    """``b7-units``: every opening picked by size and its unit drawn. The
+    STEP's 229 solids are the script's (b7-outline's 217 and 12 unit
+    bodies), the volume b7-outline's plus 12 064.5 in^3, and no unit body
+    touches a framing member, panel or rafter."""
+    mine = script(units=True)
+    assert len(units_solids) == len(mine) == 229
+    assert _unmatched(units_solids, [m.solid for m in mine]) == []
+    assert units_volume() == Fraction(24129, 2)
+    volume = sum(float(measure_shape(s).volume) for s in units_solids) / IN**3
+    assert volume == pytest.approx(analytic_volume(288, units=True), abs=1e-4)
+    assert _overlapping(units_solids) == []
+
+
+#: B7's book and its units: a vinyl 3040 $289.00, a vinyl 2030 $189.00 and a
+#: 3068 prehung door $449.00 (wood frame).
+UNIT_BOOK = PriceBookResponse.model_validate(
+    {
+        "currency": "USD",
+        "entries": [
+            *(e.model_dump(mode="json") for e in BOOK.entries),
+            *(
+                {"material": m, "profile": k, "unit": "each", "price_cents": c}
+                for m, k, c in [
+                    (PVC, "window_3040", 28900),
+                    (PVC, "window_2030", 18900),
+                    (SPF, "door_3068", 44900),
+                ]
+            ),
+        ],
+    }
+)
+
+
+def test_each_unit_is_one_priced_line_and_the_lumber_is_unchanged() -> None:
+    request = _request(UNITS)
+    raw: list[dict[str, Any]] = json.loads(
+        (GOLDENS / UNITS / "members.json").read_text()
+    )
+    members = [CutListMember.model_validate(item) for item in raw]
+    cut_list = cut_list_response(
+        document_id=request.part_id,
+        document_kind="part",
+        name="B7",
+        length_unit="in",
+        pieces=part_pieces(_extents(request), members, request.materials),
+        price_book=UNIT_BOOK,
+    )
+    units = [line for line in cut_list.lines if line.unit is not None]
+    assert [
+        (u.member, u.profile, u.quantity, u.unit_key, u.extended_price_cents)
+        for u in units
+    ] == [
+        ("Door", "3068", 1, "door_3068", 44900),
+        ("Window", "3040", 3, "window_3040", 3 * 28900),
+        ("Window", "2030", 2, "window_2030", 2 * 18900),
+    ]
+    lumber = [line for line in cut_list.lines if line.unit is None]
+    assert [(line.member, line.quantity) for line in lumber] == [
+        (m, q) for m, q, _, _ in HOUSE
+    ]
+    # The round's $2,868.87 plus the units: 449 + 3 x 289 + 2 x 189.
+    assert cut_list.total_price_cents == 286887 + 44900 + 86700 + 37800 == 456287
+    assert cut_list.unpriced_lines == 0
+    assert ",Total,,,,,,,,,,,,,4562.87" in cut_list_csv(cut_list).split("\r\n")
+
+
+def test_with_its_units_every_body_weighs_by_its_material() -> None:
+    request = _request(UNITS)
+    response = client.post("/api/v1/evaluate", json=request.model_dump(mode="json"))
+    assert response.status_code == 200, response.text
+    want = sum(
+        float(measure_shape(m.solid).volume) * DENSITY[m.material] * 1e-6
+        for m in script(units=True)
+    )
+    assert response.json()["properties"]["mass_g"] == pytest.approx(want, rel=1e-12)
+
+
 # --- expected.json's numbers ---------------------------------------------------------
 
 
-def expected_numbers(length: float = 288.0, left: float = 60.0) -> dict[str, Any]:
+def expected_numbers(
+    length: float = 288.0, left: float = 60.0, units: bool = False
+) -> dict[str, Any]:
     """A golden's mass properties, topology and mesh counts from the script
     (B7 at *length*, the left front window at X *left*): volume analytic,
     the rest measured on the script's solids; a planar face of n vertices on
     h holes meshes as n + 2h - 2 triangles."""
-    mine = script(length, left)
-    volume = analytic_volume(length, left=left) * IN**3
+    mine = script(length, left, units)
+    volume = analytic_volume(length, left=left, units=units) * IN**3
     area = sum(float(measure_shape(m.solid).surface_area) for m in mine)
     moments = [0.0, 0.0, 0.0]
     mass = 0.0
@@ -805,7 +986,9 @@ def expected_numbers(length: float = 288.0, left: float = 60.0) -> dict[str, Any
 
 
 if __name__ == "__main__":
-    # ``b7-outline``: no arguments; ``b7-front-wall-from-end``: ``336 84``.
+    # ``b7-outline``: no arguments; ``b7-front-wall-from-end``: ``336 84``;
+    # ``b7-units``: ``288 60 units``.
     args = [float(a) for a in sys.argv[1:3]]
-    json.dump(expected_numbers(*args), sys.stdout, indent=2)
+    with_units = sys.argv[3:4] == ["units"]
+    json.dump(expected_numbers(*args, units=with_units), sys.stdout, indent=2)
     sys.stdout.write("\n")

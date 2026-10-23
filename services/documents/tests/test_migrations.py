@@ -1387,3 +1387,87 @@ def test_0024_up_down_up_on_a_stored_sheet(
     alembic_runner(pg_url, "head")
     assert run(_scalar_rows(pg_url, structure)) == [("top_level",)]
     assert run(_scalar_rows(pg_url, read)) == before
+
+
+def test_0025_offline_sql_lets_a_unit_be_priced_each(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0024:0025")
+    unit = "(substr(profile, 1, 7) = 'window_' OR substr(profile, 1, 5) = 'door_')"
+    assert (
+        "ALTER TABLE price_book_entries DROP CONSTRAINT "
+        "ck_price_book_entries_each_stock" in sql
+    )
+    assert (
+        "ADD CONSTRAINT ck_price_book_entries_each_stock CHECK ((unit = 'each') = "
+        f"(stock_length_ft IS NOT NULL OR sheet IS NOT NULL OR {unit}))" in sql
+    )
+    assert (
+        "ADD CONSTRAINT ck_price_book_entries_unit_each CHECK "
+        f"(NOT {unit} OR (stock_length_ft IS NULL AND sheet IS NULL))" in sql
+    )
+    # No row is rewritten on the way up.
+    assert "UPDATE " not in sql.replace("UPDATE alembic_version", "")
+    assert "DELETE " not in sql
+
+
+_UNIT_BOOK = "6f3f6b64-0000-4000-8000-0000000250bb"
+
+
+def test_0025_up_down_up_on_a_populated_database(
+    pg_url: str, alembic_runner: Callable[..., None]
+) -> None:
+    """OPENING-UNITS: 0025 against a stored book. Its lumber and sheet prices
+    come through unchanged; a unit price stores 'each' with no stock and the
+    CHECKs refuse a unit by the foot, with a stock length or with a sheet,
+    and a lumber 'each' with no stock still; the downgrade drops the unit
+    prices (an older Loft cannot hold them) and keeps the rest; the upgrade
+    applies again."""
+    alembic_runner(pg_url, "0024", downgrade=True)
+    run = asyncio.run
+    run(
+        _scalar_rows(
+            pg_url,
+            "INSERT INTO price_books (id, owner_id, currency, version) "
+            f"VALUES ('{_UNIT_BOOK}', '{_OWNER}', 'USD', 3)",
+        )
+    )
+    run(
+        _scalar_rows(
+            pg_url,
+            "INSERT INTO price_book_entries (price_book_id, order_index, material, "
+            "profile, unit, stock_length_ft, sheet, price_cents) VALUES "
+            f"('{_UNIT_BOOK}', 0, 'spf_lumber', 'us_2x6', 'each', 8, NULL, 648), "
+            f"('{_UNIT_BOOK}', 1, 'osb', 'osb_7_16', 'each', NULL, '4x9', 2498)",
+        )
+    )
+    every = (
+        "SELECT order_index, material, profile, unit, stock_length_ft, sheet, "
+        "price_cents FROM price_book_entries ORDER BY order_index"
+    )
+    before = run(_scalar_rows(pg_url, every))
+    unit_row = f"('{_UNIT_BOOK}', 2, 'pvc', 'window_3040', 'each', NULL, NULL, 28900)"
+    insert = (
+        "INSERT INTO price_book_entries (price_book_id, order_index, material, "
+        "profile, unit, stock_length_ft, sheet, price_cents) VALUES "
+    )
+    with pytest.raises(IntegrityError):  # 0024 cannot hold a unit price
+        run(_scalar_rows(pg_url, insert + unit_row))
+
+    alembic_runner(pg_url, "0025")
+    assert run(_scalar_rows(pg_url, every)) == before
+    run(_scalar_rows(pg_url, insert + unit_row))
+    for bad in (
+        "3, 'pvc', 'window_2030', 'linear_foot', NULL, NULL, 1",  # only each
+        "3, 'pvc', 'window_2030', 'each', 8, NULL, 1",  # no stock length
+        "3, 'spf_lumber', 'door_3068', 'each', NULL, '4x8', 1",  # no sheet
+        "3, 'spf_lumber', 'us_2x4', 'each', NULL, NULL, 1",  # lumber needs one
+    ):
+        with pytest.raises(IntegrityError):
+            run(_scalar_rows(pg_url, f"{insert}('{_UNIT_BOOK}', {bad})"))
+
+    alembic_runner(pg_url, "0024", downgrade=True)
+    assert run(_scalar_rows(pg_url, every)) == before
+    alembic_runner(pg_url, "head")
+    assert run(_scalar_rows(pg_url, every)) == before
+    run(_scalar_rows(pg_url, f"DELETE FROM price_books WHERE id = '{_UNIT_BOOK}'"))

@@ -14,9 +14,11 @@ from loft_plugins.builtin.openings import (
     DOOR_V1,
     DOOR_V1_1,
     DOOR_V1_2,
+    DOOR_V1_3,
     WINDOW_V1,
     WINDOW_V1_1,
     WINDOW_V1_2,
+    WINDOW_V1_3,
 )
 from loft_plugins.builtin.roof import ROOF_V1, ROOF_V1_1
 from loft_plugins.builtin.roof_outline import ROOF_V1_4, ROOF_V1_5
@@ -50,4 +52,6 @@ BUILTIN_PLUGINS: tuple[Plugin, ...] = (
     WINDOW_V1_2,
     DOOR_V1_2,
     ROOF_V1_5,
+    WINDOW_V1_3,
+    DOOR_V1_3,
 )

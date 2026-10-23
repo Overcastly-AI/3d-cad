@@ -188,6 +188,36 @@ def test_sheet_prices_round_trip(client: TestClient) -> None:
     assert _entries(client) == [*BOOK, *SHEETS]
 
 
+UNITS: list[dict[str, Any]] = [
+    {
+        "material": "pvc",
+        "profile": "window_3040",
+        "unit": "each",
+        "stock_length_ft": None,
+        "sheet": None,
+        "price_cents": 28900,
+    },
+    {
+        "material": "spf_lumber",
+        "profile": "door_3068",
+        "unit": "each",
+        "stock_length_ft": None,
+        "sheet": None,
+        "price_cents": 44900,
+    },
+]
+
+
+def test_unit_prices_round_trip(client: TestClient) -> None:
+    """OPENING-UNITS: a window or door unit is priced Each per unit, with no
+    stock length or sheet."""
+    assert _put(client, [*BOOK, *SHEETS, *UNITS]).status_code == 200
+    assert _entries(client) == [*BOOK, *SHEETS, *UNITS]
+    refused = _put(client, [{**UNITS[0], "stock_length_ft": 8}])
+    assert refused.status_code == 422
+    assert _entries(client) == [*BOOK, *SHEETS, *UNITS]
+
+
 def _stale_save_loses_nothing(client: TestClient) -> None:
     """Two saves drafted from one version: the first is kept, the second is
     412 ``price_book_stale`` and changes nothing; reloading and saving
@@ -277,8 +307,8 @@ def test_the_full_500_entry_book_saves(client: TestClient) -> None:
 def test_the_book_on_postgres_with_the_migrated_schema(pg_url: str) -> None:
     with TestClient(build_app(DocumentsSettings(postgres_url=pg_url))) as client:
         _round_trip(client)
-        assert _put(client, [*BOOK, *SHEETS]).status_code == 200
-        assert _entries(client) == [*BOOK, *SHEETS]
+        assert _put(client, [*BOOK, *SHEETS, *UNITS]).status_code == 200
+        assert _entries(client) == [*BOOK, *SHEETS, *UNITS]
 
     async def bypass(statement: str) -> None:
         engine = create_async_engine(async_dsn(pg_url))
@@ -296,6 +326,9 @@ def test_the_book_on_postgres_with_the_migrated_schema(pg_url: str) -> None:
         "'spf_lumber', 'us_2x4', 'linear_foot', 8, NULL, 1",
         "'osb', 'osb_7_16', 'linear_foot', NULL, '4x9', 1",
         "'osb', 'osb_7_16', 'each', 8, '4x9', 1",
+        "'pvc', 'window_3040', 'linear_foot', NULL, NULL, 1",
+        "'pvc', 'window_3040', 'each', 8, NULL, 1",
+        "'spf_lumber', 'door_3068', 'each', NULL, '4x8', 1",
     ):
         with pytest.raises(IntegrityError):
             asyncio.run(

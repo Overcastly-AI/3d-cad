@@ -72,6 +72,7 @@ from loft_wire.features import (
 )
 from loft_wire.lumber import MM_PER_INCH, LumberProfile, LumberProfileKey
 from loft_wire.materials import MaterialKey
+from loft_wire.opening_units import OpeningUnitSize, catalogue
 from loft_wire.plugins import (
     PLUGIN_INPUT_INVALID,
     PLUGIN_INPUT_UNSUPPORTED,
@@ -446,6 +447,53 @@ def opening_centre(inputs: ExpandInputs, wall: WallSpec | None) -> float:
     return _rounded(wall.length / 2 + offset)
 
 
+#: ``loft.window``/``loft.door`` 1.3.0's ``size`` for a typed unit size.
+CUSTOM_SIZE = "custom"
+
+
+@dataclass(frozen=True)
+class UnitSize:
+    """An opening's unit (a door's slab) and its rough opening (in), and the
+    catalogue size it is (``None`` for a typed, custom size)."""
+
+    width: float
+    height: float
+    ro_width: float
+    ro_height: float
+    size: OpeningUnitSize | None = None
+
+
+def unit_size(kind: Literal["door", "window"], inputs: ExpandInputs) -> UnitSize:
+    """The unit and rough opening an opening's inputs give: from its picked
+    call size (1.3.0's ``size``, OPENING-UNITS), whose rough opening the
+    catalogue sets; else the typed unit width and height plus their
+    allowances, as 1.0.0-1.2.0 frame them."""
+    picked = inputs.values.get("size")
+    if isinstance(picked, str) and picked != CUSTOM_SIZE:
+        found = next((u for u in catalogue(kind).values() if u.key == picked), None)
+        if found is None:
+            raise PluginError(
+                PLUGIN_INPUT_INVALID,
+                f"Size: {picked!r} is not a {kind} size in the catalogue.",
+                input="size",
+            )
+        return UnitSize(
+            found.width_in,
+            found.height_in,
+            found.ro_width_in,
+            found.ro_height_in,
+            found,
+        )
+    width = _inches("width_mm", inputs)
+    height = _inches("height_mm", inputs)
+    return UnitSize(
+        width,
+        height,
+        _rounded(width + _inches("ro_width_allowance_mm", inputs)),
+        _rounded(height + _inches("ro_height_allowance_mm", inputs)),
+    )
+
+
 @dataclass(frozen=True)
 class Opening:
     """A hosted rough opening (RO) in its wall's frame, inches: ``centre``
@@ -471,15 +519,12 @@ class Opening:
         wall: WallSpec | None = None,
     ) -> "Opening":
         """An opening from a ``loft.door`` / ``loft.window`` 1.x's inputs: the
-        RO is the unit plus its allowance; a window's head height is the RO's
-        top, and a door's RO stands on the wall's base. Its centre is
-        measured on *wall*, its host (:func:`opening_centre`)."""
-        width = _rounded(
-            _inches("width_mm", inputs) + _inches("ro_width_allowance_mm", inputs)
-        )
-        height = _rounded(
-            _inches("height_mm", inputs) + _inches("ro_height_allowance_mm", inputs)
-        )
+        RO is the unit plus its allowance, or its picked size's
+        (:func:`unit_size`); a window's head height is the RO's top, and a
+        door's RO stands on the wall's base. Its centre is measured on
+        *wall*, its host (:func:`opening_centre`)."""
+        size = unit_size(kind, inputs)
+        width, height = size.ro_width, size.ro_height
         if kind == "door":
             sill, head = 0.0, height
         else:
