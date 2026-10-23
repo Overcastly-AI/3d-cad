@@ -58,14 +58,16 @@ export interface MaterialSectionProps extends MaterialControls {
 const NONE = "";
 
 /**
- * A body row is a fixed-width instrument (name · picker · mass), so a long
- * user-given name is clipped with an ellipsis rather than allowed to push the
- * mass out of the panel. The full name stays reachable — `title` on hover, and
- * the select's accessible name — and the unassigned notice always spells it
- * out in full.
+ * A body row is a fixed-width instrument (name · picker · mass). Its caption
+ * column has a fixed width, so a body's name WRAPS there rather than pushing
+ * the mass out of the panel: a member body reads in full ("Floor 1 · Joist
+ * 12", BODY-NAMES), as the Bodies panel names it. Only a name too long to
+ * read in a few caption lines is clipped with an ellipsis; the full name stays
+ * reachable (`title` on hover, the select's accessible name), and the
+ * unassigned notice always spells it out.
  */
 function shortName(name: string): string {
-  return name.length > 16 ? `${name.slice(0, 15)}…` : name;
+  return name.length > 48 ? `${name.slice(0, 47)}…` : name;
 }
 
 /** Section body only — the caller wraps it in the panel's ruled section. */
