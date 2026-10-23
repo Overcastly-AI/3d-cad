@@ -23,9 +23,17 @@ import {
   SelectField,
   SelectionField,
   Stamp,
+  formatLength,
 } from "@loft/design";
 import { useQuery } from "@tanstack/react-query";
-import { type KeyboardEvent, useCallback, useState } from "react";
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { fetchMaterials } from "../api/materials";
 import type { FeatureResponse } from "../api/parts";
@@ -58,6 +66,17 @@ import {
   validatePluginForm,
   withPluginValue,
 } from "../features/pluginForm";
+import {
+  DISTANCE,
+  distanceMm,
+  endDistances,
+  hasMeasureFrom,
+  hostWallLine,
+  MEASURE_FROM,
+  nearerEnd,
+  type WallEnd,
+  withReference,
+} from "../features/openingMeasure";
 import { isOutlinePick, sideName } from "../features/outline";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { SolvedSketchLayer } from "../viewport/solvedSketchLayer";
@@ -140,16 +159,60 @@ function GeneratedForm({
       : formFromCustomParams(manifest, stored, unit),
   );
 
+  // An opening measured from a wall end (OPENING-MEASURE-SWITCH): the host
+  // wall's line, read from its stored members, so changing the reference
+  // converts the distance and the opening stays put.
+  const measured = hasMeasureFrom(manifest.inputs);
+  const hostOf = useCallback(
+    (values: Readonly<Record<string, string>>) =>
+      measured
+        ? hostWallLine(
+            features,
+            values.host_wall ?? "",
+            values.wall_segment ?? "",
+          )
+        : null,
+    [measured, features],
+  );
+  const host = useMemo(() => hostOf(form.values), [hostOf, form.values]);
+
   // A new outline drops the side picks made on the old one.
   const setValue = useCallback(
     (name: string, value: string) => {
       setForm((f) => ({
         ...f,
-        values: withPluginValue(manifest, f.values, name, value, features),
+        values:
+          measured && name === MEASURE_FROM
+            ? withReference(
+                f.values,
+                value,
+                hostOf(f.values),
+                unit,
+                f.stored?.[DISTANCE],
+              )
+            : withPluginValue(manifest, f.values, name, value, features),
       }));
     },
-    [manifest, features],
+    [manifest, features, measured, hostOf, unit],
   );
+
+  // A click on one end's read-out makes that end the reference and puts the
+  // caret in the distance, as a Revit temporary dimension takes a click.
+  const distanceInput = useRef<HTMLInputElement | null>(null);
+  const focusDistance = useRef(false);
+  const measureFromEnd = useCallback(
+    (end: WallEnd) => {
+      focusDistance.current = true;
+      setValue(MEASURE_FROM, end);
+    },
+    [setValue],
+  );
+  useEffect(() => {
+    if (!focusDistance.current) return;
+    focusDistance.current = false;
+    distanceInput.current?.focus();
+    distanceInput.current?.select();
+  }, [form]);
 
   const outlinePick = useOutlinePick({
     manifest,
@@ -271,6 +334,11 @@ function GeneratedForm({
                   error={fieldError}
                   title={bounds === null ? undefined : `Allowed: ${bounds}`}
                   autoFocus={index === 0}
+                  inputRef={
+                    measured && input.name === DISTANCE
+                      ? distanceInput
+                      : undefined
+                  }
                   onValueChange={(text) => setValue(input.name, text)}
                   onFocus={(e) => e.currentTarget.select()}
                 />
@@ -399,9 +467,29 @@ function GeneratedForm({
               isOutlinePick(input) && outlinePick.live === input.name
                 ? "Click a closed sketch in the viewport or the browser."
                 : null;
+            const ends =
+              measured && input.name === DISTANCE ? (
+                <EndsReadout
+                  ends={endDistances(
+                    distanceMm(value, unit, form.stored?.[DISTANCE]),
+                    form.values[MEASURE_FROM] ?? "",
+                    host,
+                  )}
+                  reference={
+                    host === null
+                      ? null
+                      : form.values[MEASURE_FROM] === "nearer"
+                        ? nearerEnd(host)
+                        : (form.values[MEASURE_FROM] ?? null)
+                  }
+                  format={(mm) => formatLength(mm, unit)}
+                  onPick={measureFromEnd}
+                />
+              ) : null;
             return (
               <div key={input.name} className="flex flex-col gap-0.5">
                 {field}
+                {ends}
                 {hint !== null ? (
                   <p
                     className="font-body text-2xs text-brass"
@@ -421,6 +509,49 @@ function GeneratedForm({
         </div>
       </Panel>
     </EditorCard>
+  );
+}
+
+/**
+ * The opening's distance from both wall ends ("48 in from start · 192 in
+ * from end"), as Revit's temporary dimensions read it: a click on either
+ * makes that end the reference.
+ */
+function EndsReadout({
+  ends,
+  reference,
+  format,
+  onPick,
+}: {
+  ends: { start: number; end: number } | null;
+  reference: string | null;
+  format: (mm: number) => string;
+  onPick: (end: WallEnd) => void;
+}) {
+  if (ends === null) return null;
+  const cell = (end: WallEnd, mm: number) => (
+    <button
+      type="button"
+      data-testid={`opening-ends-${end}`}
+      aria-pressed={reference === end}
+      title={`Measure from the wall ${end}`}
+      onClick={() => onPick(end)}
+      className={
+        "rounded-sm px-0.5 font-data underline decoration-dotted underline-offset-2 " +
+        "transition-colors duration-fast hover:text-brass " +
+        "focus-visible:outline focus-visible:outline-1 focus-visible:outline-brass " +
+        (reference === end ? "text-mist" : "text-gauge")
+      }
+    >
+      {format(mm)} from {end}
+    </button>
+  );
+  return (
+    <p data-testid="opening-ends" className="font-data text-2xs text-gauge">
+      {cell("start", ends.start)}
+      {" · "}
+      {cell("end", ends.end)}
+    </p>
   );
 }
 
