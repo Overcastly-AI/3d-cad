@@ -2670,6 +2670,7 @@ and reframe it, a material per member, and a cut list that is always current.
   - *A maker's line* is a catalogue (`OpeningUnitSize` rows) fed to the same
     Size choice; the built-in openings read the built-in catalogue. Wiring a
     maker plugin id into the wall's hosted-opening lookup is not built yet.
+<<<<<<< HEAD
 - **Decided while turning the floor's joists** (FLOOR-JOIST-SPAN,
   2026-10-23; Chief Architect frames a floor across its shorter span with a
   joist-direction arrow you can turn, Revit's floor has a picked span
@@ -2700,6 +2701,44 @@ and reframe it, a material per member, and a cut list that is always current.
     104 217.375 in³. Both by hand in exact rationals, matched by an
     independent build123d script on STEP, no interference. Goldens
     `b7-floor-long-walls` and `b7-floor-left-right`.
+=======
+- **Decided while filling a 2x6 wall's header** (HEADER-PLIES, 2026-10-23;
+  IRC R602.7 and Table R602.7(1), common platform framing, APA's Advanced
+  Framing guide for the insulated header):
+  - *Practice.* A built-up header is the wall's thickness, so both faces
+    of the wall are flush for sheathing and drywall. The IRC sizes headers
+    by span as plies of 2x lumber (Table R602.7(1)'s "2-2x8", "3-2x10"). In
+    a 2x4 wall, two plies with a 1/2 in plywood spacer make the 3-1/2 in
+    (1.5 + 0.5 + 1.5). In a 2x6 wall, framers use three plies with two
+    1/2 in spacers (1.5 + 0.5 + 1.5 + 0.5 + 1.5 = 5-1/2 in), or two plies
+    with rigid foam between (an insulated header, which trades a ply for
+    R-value). 1.0.0-1.3.0 framed two plies at the faces in every wall,
+    which is right in 2x4 and leaves a 2-1/2 in void in 2x6.
+  - *Where the choice lives.* On the opening, as a Header build next to the
+    header's size: Chief Architect's door and window specifications carry
+    an opening's header settings, and the header's depth was already
+    per opening (sized by the span). The wall still frames it, and stored
+    walls need no new version. The backlog item proposed a wall option;
+    an opening input pins every stored wall and opening as it is.
+  - *Release.* `loft.window`/`loft.door` 1.4.0 add Header build after
+    Header: "Fill the wall" (default) or "Two plies, foam between". Fill
+    is as many plies as fit with at least 1/2 in between each two, the outer
+    two flush with the faces and the rest evenly spaced
+    (`wall.header_plies`): two in 2x4, three in 2x6, three in 2x8 (1-3/8 in
+    gaps, as four need 7-1/2 in). Spacers and foam are not members. The
+    face plies emit first and the inner plies after them, so a face ply
+    keeps its member id when the build changes. 1.0.0-1.3.0 openings have
+    no `header_build` and frame two plies, so every stored expansion and
+    golden is byte-identical; in a 2x4 wall a 1.4.0 opening frames exactly
+    what 1.3.0 frames.
+  - *Cut list and price.* Each ply is a Header member of the header's
+    profile, so a 2x6 wall's header line reads 3 per opening and the book
+    prices the plies like any 2x stock.
+  - *Numbers.* B2 in 2x6 (sides 109 between 5-1/2 in front and back walls)
+    with its 3068 door and 2030 window at 1.4.0: 66 bodies, all 2x6, 5479 in
+    of lumber, 45 201.75 in³ by hand, the headers 3 x 41 and 3 x 27.5, and
+    no interference. Golden `b2-2x6-walls-header-plies`.
+>>>>>>> 6b04ed5 (docs: record HEADER-PLIES kernel decisions (RESEARCH 23))
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
