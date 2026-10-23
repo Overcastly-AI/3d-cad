@@ -71,6 +71,17 @@ that run whichever way the first line was drawn.
    field retyped and with rough openings equal to the typed ones. The cut
    list gains Window 3040 x 3, Window 2030 x 2 and Door 3068 x 1, priced in
    the total, and no unit body touches a framing member.
+   _Kernel, wire and pricing done (2026-10-23):_ `loft.window`/`loft.door`
+   1.3.0 add Size (the US catalogue, `loft_wire.opening_units`, served in
+   `GET /materials` as `opening_units`; Custom keeps the typed size) and
+   Unit (drawn, or rough opening only); materials `pvc` and `glass`; the
+   cut list lists a unit once on its frame (`CutListLine.unit`, `unit_key`)
+   and the book prices `window_3040` Each by frame material (RESEARCH §23);
+   golden `b7-units`; e2e `opening-units.spec.ts`. _Open (frontend-builder):_
+   the price book dialog has no unit rows (the e2e prices through the API),
+   and a unit line's blank price opens nothing (`seedFor` needs a stock
+   length); the cut list shows "—" as a unit's stock; the form still shows
+   the Custom size fields when a code is picked.
 6. [ ] **HEADER-PLIES** (was B7-HEADER-2X6-WALL; kernel-architect, a new
    wall version with stored walls pinned): a 2x6 wall's header is two 1.5 in
    plies in a 5.5 in wall. Framers use three plies, or two with a spacer or

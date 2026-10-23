@@ -2607,6 +2607,69 @@ and reframe it, a material per member, and a cut list that is always current.
     bodies, 61 685.4948 in³) matches an independent build123d script solid
     for solid, its panels being each OSB box less the roof members that meet
     it, with no interference.
+- **Decided while drawing window and door units** (OPENING-UNITS,
+  2026-10-23; Chief Architect's and Revit's window and door families are
+  picked by type, which for US units is the call size, and draw the unit in
+  the hosted opening):
+  - *Call size.* Four digits, feet and inches of the width then the height:
+    `3040` is 3'0" x 4'0", `3068` 3'0" x 6'8" (`loft_wire.opening_units`;
+    windows 2020-6040, doors 2068-3068 and 3080). For a window the code names
+    the UNIT (B2's and B7's typed 24 x 36 and 36 x 48 units); for a door the
+    SLAB a prehung unit hangs. Makers differ (some vinyl lines call a window
+    by its rough opening, and some makers use their own codes), so a maker's
+    catalogue states its own sizes and rough openings; Loft's built-in one
+    follows the B2/B7 references.
+  - *Rough openings, standard framing practice:* a window's is the unit plus
+    1/2 in each way (the shim space window makers' installation instructions
+    call for: 1/4 in a side), a door's the slab plus 2 in wide and 2-1/2 in
+    tall (two 3/4 in jambs, shims, the head jamb and the threshold), the
+    common framing rule of thumb. Sources: B2's spec (buildings.md, 24.5 x
+    36.5 and 38 x 82.5) and `loft.window`/`loft.door` 1.0.0's defaults, which
+    recorded the same rule (§23, WINDOW-DOOR). Because these are exactly
+    1.0.0-1.2.0's default allowances, a picked size frames byte-identically
+    to the same size typed.
+  - *Release.* `loft.window`/`loft.door` 1.3.0 add Size (the catalogue
+    codes, default 3040 and 3068, and Custom, which reads the 1.2.0 typed
+    size and allowances, now labelled Custom) and Unit ("Frame and glass" /
+    "Frame and slab", or "Rough opening only"). The wall reads a hosted
+    opening's rough opening through one function (`wall.unit_size`), so
+    every wall release frames a 1.3.0 opening, and 1.0.0-1.2.0 openings
+    have no `size` and frame as before.
+  - *Drawing convention* (not a maker's section, as a family's default
+    geometry is not): a window is a frame 2 in wide round the glass and
+    3-1/4 in deep (a vinyl new-construction frame), its outside face on the
+    framing's exterior face, and one 1/4 in pane (two 1/8 in lites of glass,
+    as mass) centred in that depth; the unit is centred in its rough opening.
+    A door is a frame of 3/4 in jambs and head and a 1-1/4 in threshold, the
+    framing's depth deep, round a 1-3/4 in slab at the exterior face, centred
+    across the opening and standing on the wall's base. The unit is inside
+    the rough opening with the shim gap all round (a door's at the sides and
+    head), so it never touches framing or sheathing. Each body is sketched on
+    a plane parallel to the wall face (the face plane offset into the wall:
+    the `XZ`/`YZ` datum on an axis wall, the face's turned plane on any other)
+    and extruded inward as a new body.
+  - *Materials and mass:* `pvc` (rigid PVC, 1400 kg/m³; the frame body is
+    the frame's envelope, so it weighs as solid PVC, an upper bound on a
+    hollow extrusion) and `glass` (soda-lime, 2500 kg/m³) join the library;
+    a door's frame and slab are SPF (a solid wood slab).
+  - *Cut list and price:* a unit is bought whole, so its bodies are one
+    piece: `MemberMetadata.unit` (`kind`, `key`, `counted`) marks every body,
+    the cut list lists the unit on its counted body (the frame) and skips the
+    rest, grouping by system (Walls, the opening plugin's, as CUT-LIST-PANEL
+    lists a hosted opening's members), kind, key, size and material into one
+    Each line (`Window 3040 x 3`). The price book keys it like lumber: material (the
+    frame's) and profile `window_3040`, unit Each, no stock length or sheet.
+    A custom size has no key and stays unpriced. The field is absent unless
+    set, so every stored expansion and golden members.json reads as before.
+  - *Numbers.* B7 with its six openings picked by size (3068, 3040 x 3,
+    2030 x 2) frames b7-outline's 217 bodies exactly and adds 12 unit bodies,
+    12 064.5 in³ by hand (3 x 1392 + 2 x 888 + 6112.5): 229 bodies,
+    276 916.8788656 in³, no interference; the cut list gains Door 3068 x 1,
+    Window 3040 x 3 and Window 2030 x 2, each one priced line. Golden
+    `b7-units`.
+  - *A maker's line* is a catalogue (`OpeningUnitSize` rows) fed to the same
+    Size choice; the built-in openings read the built-in catalogue. Wiring a
+    maker plugin id into the wall's hosted-opening lookup is not built yet.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
