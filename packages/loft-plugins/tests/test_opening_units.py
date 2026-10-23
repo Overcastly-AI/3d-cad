@@ -8,7 +8,7 @@ same typed size; the unit's two bodies sit where the drawing convention puts
 them, in the wall's frame, on an axis wall and on one at 30 degrees; Custom
 reads the typed size; "Rough opening only" draws nothing; and older
 releases are untouched. B7 with every unit is the ``b7-units`` golden
-(``test_building_outline.py``).
+(``test_b7_units.py``).
 """
 
 import math
