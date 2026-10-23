@@ -32,6 +32,7 @@ from loft_wire.plugins import (
     PLUGIN_INPUT_INVALID,
     PLUGIN_INPUT_UNSUPPORTED,
     ChoiceInput,
+    ChoiceOption,
     FeatureReferenceInput,
     LengthInput,
     PluginInput,
@@ -43,13 +44,19 @@ from loft_wire.plugins import (
 from loft_plugins.api import (
     Expander,
     ExpandInputs,
+    InputValue,
     Member,
     Plugin,
     PluginError,
     lumber_options,
 )
 from loft_plugins.builtin.house import is_outline_wall, wall_specs_of
-from loft_plugins.builtin.wall import Opening, WallSpec, frame_opening
+from loft_plugins.builtin.wall import (
+    Opening,
+    WallSpec,
+    frame_opening,
+    nearer_end,
+)
 
 _HEADERS: list[LumberProfileKey] = ["us_2x6", "us_2x8", "us_2x10", "us_2x12"]
 
@@ -215,7 +222,8 @@ def _expander(
 ) -> Expander:
     def expand(inputs: ExpandInputs) -> Iterator[Member]:
         wall, named = _host(inputs, segments)
-        frame_opening(wall, Opening.from_inputs(kind, f"This {title}", inputs), named)
+        opening = Opening.from_inputs(kind, f"This {title}", inputs, wall)
+        frame_opening(wall, opening, named)
         return iter(())
 
     return expand
@@ -259,3 +267,79 @@ DOOR_MANIFEST_V1_1 = _with_segment(DOOR_MANIFEST_V1)
 
 WINDOW_V1_1 = Plugin(WINDOW_MANIFEST_V1_1, _expander("window", "window", True))
 DOOR_V1_1 = Plugin(DOOR_MANIFEST_V1_1, _expander("door", "door", True))
+
+
+# --- 1.2.0: measured from either end or the centre (OPENING-FROM-END) --------------
+
+#: The distance's bounds at 1.2.0: signed, as from the centre it runs either
+#: way (positive towards the wall's end); a wall is at most 960 in long.
+_DISTANCE_IN = 960.0
+
+
+def _with_measure_from(manifest: PluginManifest) -> PluginManifest:
+    """*manifest* (1.1.0) at 1.2.0: Measured from after the Wall pick, and
+    the offset read from it, as Revit's and Chief Architect's temporary
+    dimensions read from either wall end."""
+    what = manifest.title.lower()
+    inputs: list[PluginInput] = []
+    for item in manifest.inputs:
+        if item.name == "offset_mm":
+            inputs.append(
+                ChoiceInput(
+                    kind="choice",
+                    name="measure_from",
+                    label="Measured from",
+                    description=f"The point of the wall the {what}'s distance "
+                    "runs from. Nearer the origin stores whichever end is "
+                    "nearer the part origin, so the opening stays put in plan "
+                    "when the far end moves.",
+                    options=[
+                        ChoiceOption(value="nearer", label="Nearer the origin"),
+                        ChoiceOption(value="start", label="Wall start"),
+                        ChoiceOption(value="end", label="Wall end"),
+                        ChoiceOption(value="centre", label="Wall centre"),
+                    ],
+                    default="nearer",
+                )
+            )
+            inputs.append(
+                _length(
+                    "offset_mm",
+                    "Distance",
+                    72.0,
+                    -_DISTANCE_IN,
+                    _DISTANCE_IN,
+                    f"From the Measured-from point to the {what}'s centre, "
+                    "along the wall (from the centre, positive towards the "
+                    "wall's end).",
+                )
+            )
+        else:
+            inputs.append(item)
+    return manifest.model_copy(
+        update={
+            "version": "1.2.0",
+            "inputs": inputs,
+            "description": manifest.description
+            + " Its distance runs from the wall's start, end or centre.",
+        }
+    )
+
+
+def _settle(inputs: ExpandInputs) -> dict[str, InputValue]:
+    """Nearer the origin is stored as the wall end it is (documents calls
+    this on every write), so a stored opening never changes reference."""
+    values = dict(inputs.values)
+    if inputs.choice("measure_from") == "nearer":
+        wall, _ = _host(inputs, True)
+        values["measure_from"] = nearer_end(wall)
+    return values
+
+
+WINDOW_MANIFEST_V1_2 = _with_measure_from(WINDOW_MANIFEST_V1_1)
+DOOR_MANIFEST_V1_2 = _with_measure_from(DOOR_MANIFEST_V1_1)
+
+WINDOW_V1_2 = Plugin(
+    WINDOW_MANIFEST_V1_2, _expander("window", "window", True), settle=_settle
+)
+DOOR_V1_2 = Plugin(DOOR_MANIFEST_V1_2, _expander("door", "door", True), settle=_settle)

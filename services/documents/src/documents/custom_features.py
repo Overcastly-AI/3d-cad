@@ -36,6 +36,7 @@ from loft_plugins import (
     PluginError,
     PluginRegistry,
     host_of,
+    settle_inputs,
     validate_members,
 )
 from loft_plugins import canonical_inputs as _canonical
@@ -285,15 +286,22 @@ def _expanded(
     earlier: Mapping[uuid.UUID, AuthoredEnvelope],
     hosted: Sequence[Hosted] = (),
 ) -> CustomFeature:
-    """Inputs typed, formulas resolved, bounds checked, expanded with the
-    features it *hosted*. Raises :class:`PluginError` or
-    :class:`FeatureExpressionError`."""
+    """Inputs typed, formulas resolved, bounds checked, write-time choices
+    settled (a window's "nearer the origin" stored as the end it is,
+    OPENING-FROM-END), expanded with the features it *hosted*. Raises
+    :class:`PluginError` or :class:`FeatureExpressionError`."""
     manifest = plugin.manifest
     typed = _with(
         envelope, _canonical(manifest, envelope.params.inputs, bounds=False), None
     )
     resolved = resolve_feature(typed, parameters)
-    inputs = _canonical(manifest, resolved.params.inputs)
+    inputs = settle_inputs(
+        plugin,
+        feature_id,
+        _canonical(manifest, resolved.params.inputs),
+        earlier,
+        parameters=parameters,
+    )
     members = _expand(
         plugin, feature_id, inputs, earlier, hosted=hosted, parameters=parameters
     )

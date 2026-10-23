@@ -34,7 +34,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from loft_plugins import REGISTRY, ExpandInputs, Hosted, PluginError, canonical_inputs
+from loft_plugins import (
+    REGISTRY,
+    ExpandInputs,
+    Hosted,
+    PluginError,
+    canonical_inputs,
+    settle_inputs,
+)
 from loft_plugins import expand as run
 from loft_plugins.builtin.house import outline_walls, wall_outline
 from loft_plugins.builtin.outline import read_outline
@@ -55,7 +62,7 @@ from loft_wire.features import (
     SketchFeature,
 )
 from loft_wire.materials import with_member_materials
-from loft_wire.plugins import SegmentsInput
+from loft_wire.plugins import ChoiceInput, LengthInput, SegmentsInput
 from loft_wire.sketch import SketchLine
 
 IN = 25.4
@@ -225,9 +232,13 @@ def opening(
     name: str,
     host: uuid.UUID,
     raw: dict[str, Any],
+    earlier: dict[uuid.UUID, AuthoredEnvelope] | None = None,
 ) -> Hosted:
+    """An opening as documents stores it: canonical, its write-time choices
+    settled against the features *earlier* (its host among them)."""
     feature_id = uuid.uuid5(host, name)
     inputs = canonical_inputs(plugin.manifest, {"host_wall": ref(host), **raw})
+    inputs = settle_inputs(plugin, feature_id, inputs, earlier or {})
     m = plugin.manifest
     return Hosted(feature_id, m.id, m.version, name, ExpandInputs(feature_id, inputs))
 
@@ -296,8 +307,9 @@ def house(
     if floor is not None:
         add(FLOOR_ID, FLOOR, {"outline": ref(SKETCH_ID), **floor})
         wall_raw["floor"] = ref(FLOOR_ID)
+    with_walls = {**earlier, WALLS_ID: envelope(WALL, wall_raw)}
     hosted = [
-        opening(p, name, WALLS_ID, {"wall_segment": [seg], **raw})
+        opening(p, name, WALLS_ID, {"wall_segment": [seg], **raw}, with_walls)
         for p, name, seg, raw in openings
     ]
     add(WALLS_ID, WALL, wall_raw, tuple(hosted))
@@ -991,6 +1003,208 @@ def test_the_segments_input_is_on_the_wire() -> None:
         )
 
 
+# --- Measured from either end (OPENING-FROM-END) ------------------------------------
+
+WINDOW_1_2 = REGISTRY.get("loft.window", "1.2.0")
+DOOR_1_2 = REGISTRY.get("loft.door", "1.2.0")
+FROM_END_GOLDEN = "b7-front-wall-from-end"
+
+
+def b7_from_end_openings(
+    left: float = 60.0,
+) -> list[tuple[Any, str, str, dict[str, Any]]]:
+    """B7's openings at 1.2.0 as a new opening is placed: each measured from
+    the end of its wall nearer the origin (the default), so the front ones
+    read their X (the front wall runs X *front* -> 0: its end is at X 0), the
+    back one its X and each side's 90.5. The left window at X *left*."""
+    return [
+        (DOOR_1_2, "Door", "e1", {"offset_mm": 144 * IN}),
+        (WINDOW_1_2, "Window 1", "e1", {"offset_mm": left * IN, **WIN_36_48}),
+        (WINDOW_1_2, "Window 2", "e1", {"offset_mm": 228 * IN, **WIN_36_48}),
+        (WINDOW_1_2, "Window 3", "e3", {"offset_mm": 144 * IN, **WIN_36_48}),
+        (WINDOW_1_2, "Window 4", "e4", {"offset_mm": 90.5 * IN}),
+        (WINDOW_1_2, "Window 5", "e2", {"offset_mm": 90.5 * IN}),
+    ]
+
+
+def b7_from_end(
+    length: float = 288.0, left: float = 60.0
+) -> list[tuple[uuid.UUID, AuthoredEnvelope, list[ExpandedMember]]]:
+    return house(
+        rectangle(length, 192),
+        b7_from_end_openings(left),
+        B7_STUDS,
+        B7_FLOOR,
+        {"slope_walls": ["e1", "e3"], **B7_ROOF},
+    )
+
+
+def b7_retyped(
+    length: float, left: float
+) -> list[tuple[uuid.UUID, AuthoredEnvelope, list[ExpandedMember]]]:
+    """B7 at 1.1.0 with each front offset worked out from the wall's start
+    by hand, as the round had to."""
+    openings = b7_openings(length)
+    tool, name, seg, raw = openings[1]
+    openings[1] = (tool, name, seg, {**raw, "offset_mm": (length - left) * IN})
+    return house(
+        rectangle(length, 192),
+        openings,
+        B7_STUDS,
+        B7_FLOOR,
+        {"slope_walls": ["e1", "e3"], **B7_ROOF},
+    )
+
+
+def stored_from(
+    rows: list[tuple[uuid.UUID, AuthoredEnvelope, list[ExpandedMember]]],
+) -> dict[str, str]:
+    """Each opening's stored Measured from, by the line it sits in."""
+    out: dict[str, str] = {}
+    for _, env, _ in rows:
+        if isinstance(env, CustomFeature) and "measure_from" in env.params.inputs:
+            segment = env.params.inputs["wall_segment"]
+            assert isinstance(segment, list)
+            line = segment[0]
+            assert isinstance(line, str)
+            value = env.params.inputs["measure_from"]
+            assert isinstance(value, str)
+            out.setdefault(line, value)
+            assert out[line] == value
+    return out
+
+
+def test_a_new_opening_measures_from_the_end_nearer_the_origin() -> None:
+    """Front (X 288 -> 0) and right (Y 186.5 -> 5.5) walls end nearer the
+    origin; back (X 0 -> 288) and left (Y 5.5 -> 186.5) start there. The
+    choice is stored as the end it is, never as 'nearer'."""
+    assert stored_from(b7_from_end()) == {
+        "e1": "end",
+        "e2": "end",
+        "e3": "start",
+        "e4": "start",
+    }
+
+
+def test_b7_measured_from_its_origin_ends_is_b7() -> None:
+    """The same 217 bodies as 1.1.0's offsets from each wall's start."""
+    assert bodies(members_of(b7_from_end())) == bodies(members_of(b7()))
+
+
+def test_moving_a_window_24_in_is_one_field() -> None:
+    """60 -> 84 from the left end is 1.1.0's 228 -> 204 from the start."""
+    moved = bodies(members_of(b7_from_end(left=84)))
+    assert moved == bodies(members_of(b7_retyped(288, 84)))
+    assert moved != bodies(members_of(b7_from_end()))
+
+
+def test_the_house_grows_and_the_openings_stay_at_x_60_144_228() -> None:
+    """288 -> 336 is the one dimension edit: measured from the X 0 end the
+    front openings keep X 60, 144 and 228 with no offset re-typed (1.1.0
+    needed all three re-typed, test_the_length_edit_is_one_dimension_...)."""
+    grown = members_of(b7_from_end(336))
+    assert bodies(grown) == bodies(members_of(b7_retyped(336, 60)))
+    assert sum(bodies(grown).values()) == 234
+    # Each front opening's header and sill are centred on its X.
+    front = [b for b in boxes(grown) if b[2] >= -1 and b[3] <= 5.5]
+    for x in (60, 144, 228):
+        assert any(
+            abs((b[0] + b[1]) / 2 - x) < 1e-6 and b[1] - b[0] >= 36.5 for b in front
+        )
+
+
+def test_measured_from_the_centre_runs_either_way() -> None:
+    """From the centre, 0 is the middle and a negative distance runs towards
+    the start: the right wall's window at 0 is its 90.5 from either end."""
+    sketch = rectangle(288, 192)
+    walls = envelope(WALL, {"outline": ref(SKETCH_ID), **B7_STUDS})
+    earlier: dict[uuid.UUID, AuthoredEnvelope] = {SKETCH_ID: sketch, WALLS_ID: walls}
+
+    def framed(plugin: Any, raw: dict[str, Any]) -> Counter[Body]:
+        hosted = opening(
+            plugin, "W", WALLS_ID, {"wall_segment": ["e1"], **raw}, earlier
+        )
+        return bodies(
+            expand(
+                WALL,
+                WALLS_ID,
+                {"outline": ref(SKETCH_ID), **B7_STUDS},
+                earlier,
+                (hosted,),
+            )
+        )
+
+    at = {"offset_mm": 100 * IN}
+    start = framed(WINDOW, at)  # 1.1.0: 100 from the start (X 188)
+    assert framed(WINDOW_1_2, {"measure_from": "start", **at}) == start
+    assert framed(WINDOW_1_2, {"measure_from": "end", "offset_mm": 188 * IN}) == start
+    assert (
+        framed(WINDOW_1_2, {"measure_from": "centre", "offset_mm": -44 * IN}) == start
+    )
+    assert (
+        framed(WINDOW_1_2, {"measure_from": "nearer", "offset_mm": 188 * IN}) == start
+    )
+
+
+def test_an_opening_measured_from_the_end_checks_its_fit_on_its_distance() -> None:
+    sketch = rectangle(288, 192)
+    walls = envelope(WALL, {"outline": ref(SKETCH_ID), **B7_STUDS})
+    earlier: dict[uuid.UUID, AuthoredEnvelope] = {SKETCH_ID: sketch, WALLS_ID: walls}
+    raw = {"host_wall": ref(WALLS_ID), "wall_segment": ["e4"], "measure_from": "end"}
+    assert (
+        expand(WINDOW_1_2, uuid.uuid4(), {**raw, "offset_mm": 90.5 * IN}, earlier) == []
+    )
+    with pytest.raises(PluginError, match="end studs") as refused:
+        expand(WINDOW_1_2, uuid.uuid4(), {**raw, "offset_mm": 5 * IN}, earlier)
+    assert refused.value.input == "offset_mm"
+
+
+def test_a_single_wall_measures_from_its_end_too() -> None:
+    """A typed (non-outline) wall: B2's 144 front wall from X 0, the door 30
+    from its end is 1.1.0's door 114 from its start; nearer the origin is the
+    start, at the origin."""
+    raw_wall = {"length_mm": 144 * IN}
+    wall = envelope(WALL, raw_wall)
+    earlier: dict[uuid.UUID, AuthoredEnvelope] = {WALLS_ID: wall}
+
+    def framed(plugin: Any, raw: dict[str, Any]) -> Counter[Body]:
+        hosted = opening(plugin, "Door", WALLS_ID, raw, earlier)
+        return bodies(expand(WALL, WALLS_ID, raw_wall, {}, (hosted,)))
+
+    old = framed(DOOR, {"offset_mm": 114 * IN})
+    assert framed(DOOR_1_2, {"measure_from": "end", "offset_mm": 30 * IN}) == old
+    assert framed(DOOR_1_2, {"offset_mm": 114 * IN}) == old
+    settled = opening(DOOR_1_2, "Door", WALLS_ID, {"offset_mm": 114 * IN}, earlier)
+    assert settled.inputs.values["measure_from"] == "start"
+
+
+def test_measured_from_is_on_the_wire_before_the_distance() -> None:
+    names = [i.name for i in WINDOW_1_2.manifest.inputs]
+    assert names[:4] == ["host_wall", "wall_segment", "measure_from", "offset_mm"]
+    old = [i.name for i in WINDOW.manifest.inputs]
+    assert [n for n in names if n != "measure_from"] == old
+    choice = WINDOW_1_2.manifest.inputs[2]
+    assert isinstance(choice, ChoiceInput) and choice.default == "nearer"
+    assert [o.value for o in choice.options] == ["nearer", "start", "end", "centre"]
+    distance = WINDOW_1_2.manifest.inputs[3]
+    assert isinstance(distance, LengthInput)
+    assert (distance.minimum, distance.maximum) == (-960 * IN, 960 * IN)
+
+
+def from_end_golden() -> tuple[EvaluateTreeRequest, list[CutListMember]]:
+    """B7 grown to 336 with the left window moved to 84: both edits of the
+    acceptance, each one field."""
+    rows = b7_from_end(336, left=84)
+    metadata = [
+        CutListMember(
+            feature_id=m.id, role=m.role, title=TITLES[m.role], metadata=m.metadata
+        )
+        for m in members_of(rows)
+        if m.metadata is not None
+    ]
+    return request_of(rows), metadata
+
+
 # --- No overlaps on any rectilinear outline -----------------------------------------
 
 
@@ -1138,6 +1352,15 @@ def test_the_golden_is_the_plugins_expansion() -> None:
     assert (GOLDENS / GOLDEN / "members.json").read_text() == _members_json(metadata)
 
 
+def test_the_from_end_golden_is_the_plugins_expansion() -> None:
+    request, metadata = from_end_golden()
+    folder = GOLDENS / FROM_END_GOLDEN
+    assert (folder / "model.json").read_text() == request.model_dump_json(
+        indent=2
+    ) + "\n"
+    assert (folder / "members.json").read_text() == _members_json(metadata)
+
+
 def test_the_kernel_cases_are_the_plugins_expansion() -> None:
     assert gzip.decompress(CASES.read_bytes()).decode() == cases()
 
@@ -1150,5 +1373,12 @@ if __name__ == "__main__":
     )
     (GOLDENS / GOLDEN / "members.json").write_text(_members_json(metadata))
     sys.stdout.write(f"{GOLDEN}: {len(request.features)} features\n")
+    request, metadata = from_end_golden()
+    (GOLDENS / FROM_END_GOLDEN).mkdir(parents=True, exist_ok=True)
+    (GOLDENS / FROM_END_GOLDEN / "model.json").write_text(
+        request.model_dump_json(indent=2) + "\n"
+    )
+    (GOLDENS / FROM_END_GOLDEN / "members.json").write_text(_members_json(metadata))
+    sys.stdout.write(f"{FROM_END_GOLDEN}: {len(request.features)} features\n")
     CASES.write_bytes(gzip.compress(cases().encode(), mtime=0))
     sys.stdout.write(f"{CASES.name}\n")

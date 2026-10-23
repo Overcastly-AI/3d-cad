@@ -379,3 +379,102 @@ def test_the_outline_follows_a_part_parameter_and_its_edit(
     _is_house(part, 288.0, 19, 26)
     after = part.stored()["Walls"]["params"]["expansion"]
     assert len(after) < len(before)  # the walls were re-laid by the PUT
+
+
+# --- Openings measured from the end nearer the origin (OPENING-FROM-END) ----------
+
+
+def _walls_only(client: TestClient) -> tuple[_Part, str, str]:
+    part = _Part(client)
+    sketch = part.add("Outline", _outline(288))
+    walls = part.add(
+        "Walls",
+        _custom("loft.wall", "1.3.0", outline=_ref(sketch), stud_profile="us_2x6"),
+    )
+    return part, sketch, walls
+
+
+def _window(version: str, walls: str, **inputs: Any) -> dict[str, Any]:
+    return _custom(
+        "loft.window",
+        version,
+        host_wall=_ref(walls),
+        wall_segment=["e1"],
+        width_mm=36 * IN,
+        height_mm=48 * IN,
+        **inputs,
+    )
+
+
+def _framing(part: _Part) -> list[tuple[float, ...]]:
+    """The walls' members as geometry alone: every sketch member's line ends
+    (mm, to 1e-6), sorted, so two parts compare without their feature ids."""
+    out: list[tuple[float, ...]] = []
+    for member in part.stored()["Walls"]["params"]["expansion"]:
+        feature = member["feature"]
+        if feature["type"] != "sketch":
+            continue
+        for e in feature["params"]["entities"]:
+            if e["kind"] == "line":
+                ends = (e["start"]["x"], e["start"]["y"], e["end"]["x"], e["end"]["y"])
+                out.append(tuple(round(v, 6) + 0.0 for v in ends))
+    return sorted(out)
+
+
+def test_a_new_window_measures_from_the_end_nearer_the_origin(
+    client: TestClient,
+) -> None:
+    """B7's front wall runs X 288 -> 0, so a new 1.2.0 window left at its
+    default stores Measured from = end, and 60 is X 60: 1.1.0's 228 from the
+    start. Moving it 24 in is one field (60 -> 84); the house growing to 336
+    leaves it at X 84, where 1.1.0 needs its offset re-typed (252)."""
+    part, sketch, walls = _walls_only(client)
+    window = part.add("Window", _window("1.2.0", walls, offset_mm=60 * IN))
+    stored = part.stored()["Window"]["params"]["inputs"]
+    assert stored["measure_from"] == "end"
+    assert stored["offset_mm"] == pytest.approx(60 * IN)
+
+    typed, _, typed_walls = _walls_only(client)
+    old = typed.add("Window", _window("1.1.0", typed_walls, offset_mm=228 * IN))
+    assert _framing(part) == _framing(typed)
+
+    part.edit(window, _window("1.2.0", walls, measure_from="end", offset_mm=84 * IN))
+    typed.edit(old, _window("1.1.0", typed_walls, offset_mm=204 * IN))
+    assert _framing(part) == _framing(typed)
+
+    part.edit(sketch, _outline(336))
+    typed.edit(_sketch_of(typed), _outline(336))
+    assert _framing(part) != _framing(typed)  # 1.1.0's window moved with the start
+    typed.edit(old, _window("1.1.0", typed_walls, offset_mm=252 * IN))
+    assert _framing(part) == _framing(typed)
+    assert part.stored()["Window"]["params"]["inputs"]["offset_mm"] == pytest.approx(
+        84 * IN
+    )
+
+
+def _sketch_of(part: _Part) -> str:
+    response = part.client.get(f"/api/v1/parts/{part.id}/features", headers=HEADERS)
+    return next(
+        str(f["id"]) for f in response.json()["features"] if f["name"] == "Outline"
+    )
+
+
+def test_an_explicit_reference_is_stored_as_typed(client: TestClient) -> None:
+    """Start, End and Centre are kept; Centre's distance is signed."""
+    part, _, walls = _walls_only(client)
+    window = part.add(
+        "Window", _window("1.2.0", walls, measure_from="start", offset_mm=100 * IN)
+    )
+    start = _framing(part)
+    assert part.stored()["Window"]["params"]["inputs"]["measure_from"] == "start"
+    part.edit(
+        window, _window("1.2.0", walls, measure_from="centre", offset_mm=-44 * IN)
+    )
+    assert part.stored()["Window"]["params"]["inputs"]["measure_from"] == "centre"
+    assert _framing(part) == start
+
+
+def test_older_windows_keep_measuring_from_the_start(client: TestClient) -> None:
+    part, _, walls = _walls_only(client)
+    part.add("Window", _window("1.1.0", walls, offset_mm=228 * IN))
+    assert "measure_from" not in part.stored()["Window"]["params"]["inputs"]

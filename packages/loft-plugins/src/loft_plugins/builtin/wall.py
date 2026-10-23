@@ -390,6 +390,62 @@ def _rounded(value: float) -> float:
     return round(value, _INCH_DIGITS)
 
 
+#: Where an opening's distance runs from (``loft.window``/``loft.door``
+#: 1.2.0's ``measure_from``, OPENING-FROM-END): the wall's start, its end or
+#: its centre. ``nearer`` is a write-time choice, the end nearer the part
+#: origin; documents stores the end it picks (``nearer_end``).
+MeasureFrom = Literal["start", "end", "centre"]
+
+
+def nearer_end(wall: WallSpec) -> Literal["start", "end"]:
+    """The end of *wall* nearer the part origin in plan; the start on a tie,
+    so a wall centred on the origin keeps 1.1.0's reading."""
+    frame = WallFrame.of(wall)
+    start = math.hypot(*frame.plan(0.0, 0.0))
+    end = math.hypot(*frame.plan(wall.length, 0.0))
+    return "end" if end < start - _EPS else "start"
+
+
+def measured_from(inputs: ExpandInputs, wall: WallSpec | None) -> MeasureFrom:
+    """An opening's reference: ``start`` before 1.2.0 (no ``measure_from``),
+    and ``nearer`` resolved on *wall*."""
+    if "measure_from" not in inputs.values:
+        return "start"
+    match inputs.choice("measure_from"):
+        case "start":
+            return "start"
+        case "end":
+            return "end"
+        case "centre":
+            return "centre"
+        case "nearer":
+            pass
+        case other:
+            raise PluginError(
+                PLUGIN_INPUT_INVALID,
+                f"Measured from: {other!r} is not a wall end.",
+                input="measure_from",
+            )
+    if wall is None:
+        raise RuntimeError("an opening measured from its nearer end needs its wall")
+    return nearer_end(wall)
+
+
+def opening_centre(inputs: ExpandInputs, wall: WallSpec | None) -> float:
+    """The opening's centre along its wall from the wall's start (in): the
+    offset itself from the start (1.0.0 and 1.1.0 exactly), the wall's
+    length less it from the end, half the length plus it from the centre."""
+    offset = _inches("offset_mm", inputs)
+    reference = measured_from(inputs, wall)
+    if reference == "start":
+        return offset
+    if wall is None:
+        raise RuntimeError("an opening measured from its end or centre needs its wall")
+    if reference == "end":
+        return _rounded(wall.length - offset)
+    return _rounded(wall.length / 2 + offset)
+
+
 @dataclass(frozen=True)
 class Opening:
     """A hosted rough opening (RO) in its wall's frame, inches: ``centre``
@@ -408,11 +464,16 @@ class Opening:
 
     @classmethod
     def from_inputs(
-        cls, kind: Literal["door", "window"], name: str, inputs: ExpandInputs
+        cls,
+        kind: Literal["door", "window"],
+        name: str,
+        inputs: ExpandInputs,
+        wall: WallSpec | None = None,
     ) -> "Opening":
         """An opening from a ``loft.door`` / ``loft.window`` 1.x's inputs: the
         RO is the unit plus its allowance; a window's head height is the RO's
-        top, and a door's RO stands on the wall's base."""
+        top, and a door's RO stands on the wall's base. Its centre is
+        measured on *wall*, its host (:func:`opening_centre`)."""
         width = _rounded(
             _inches("width_mm", inputs) + _inches("ro_width_allowance_mm", inputs)
         )
@@ -427,7 +488,7 @@ class Opening:
         return cls(
             kind=kind,
             name=name,
-            centre=_inches("offset_mm", inputs),
+            centre=opening_centre(inputs, wall),
             width=width,
             sill=sill,
             head=head,
@@ -436,7 +497,7 @@ class Opening:
         )
 
     @classmethod
-    def from_hosted(cls, hosted: Hosted) -> "Opening | None":
+    def from_hosted(cls, hosted: Hosted, wall: WallSpec) -> "Opening | None":
         """The opening a hosted feature frames; ``None`` for a hosted plugin
         a wall does not frame. A door or window release this wall does not
         know is refused rather than guessed at."""
@@ -449,7 +510,7 @@ class Opening:
                 f"{hosted.name}: Wall 1.0.0 cannot frame {hosted.plugin_id} "
                 f"{hosted.plugin_version}.",
             )
-        return cls.from_inputs(kind, hosted.name, hosted.inputs)
+        return cls.from_inputs(kind, hosted.name, hosted.inputs, wall)
 
 
 def _refuse(opening: Opening, why: str, field: str = "offset_mm") -> PluginError:
@@ -845,15 +906,16 @@ def _emit(
 emit_pieces = _emit
 
 
-def hosted_openings(inputs: ExpandInputs) -> list[Opening]:
-    """The openings hosted in this wall (the doors and windows naming it)."""
-    found = (Opening.from_hosted(hosted) for hosted in inputs.hosted)
+def hosted_openings(inputs: ExpandInputs, wall: WallSpec) -> list[Opening]:
+    """The openings hosted in this wall, *wall* (the doors and windows
+    naming it)."""
+    found = (Opening.from_hosted(hosted, wall) for hosted in inputs.hosted)
     return [opening for opening in found if opening is not None]
 
 
 def expand(inputs: ExpandInputs) -> Iterator[Member]:
     wall = WallSpec.from_inputs(inputs)
-    pieces = wall_pieces(wall, hosted_openings(inputs))
+    pieces = wall_pieces(wall, hosted_openings(inputs, wall))
     yield from _emit(inputs, WallFrame.of(wall), pieces)
 
 
@@ -862,7 +924,7 @@ def expand_v1_1(inputs: ExpandInputs) -> Iterator[Member]:
     (WALL-MEMBER-RENUMBER): a layout stud by its slot, an opening's members
     by the opening, a level by its height."""
     wall = WallSpec.from_inputs(inputs)
-    pieces = wall_pieces(wall, hosted_openings(inputs), named=True)
+    pieces = wall_pieces(wall, hosted_openings(inputs, wall), named=True)
     yield from _emit(inputs, WallFrame.of(wall), pieces)
 
 

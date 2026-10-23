@@ -212,6 +212,11 @@ def lumber_options(
 #: ``expand``: inputs in, members out. May return a list or yield.
 Expander = Callable[[ExpandInputs], Iterable[Member]]
 
+#: ``settle``: a write's canonical inputs in, the inputs to STORE out, with
+#: every write-time choice made (a window's "nearer the origin" stored as the
+#: wall end it picks, OPENING-FROM-END). Pure, as ``expand`` is.
+Settler = Callable[[ExpandInputs], Mapping[str, InputValue]]
+
 
 @dataclass(frozen=True)
 class Plugin:
@@ -222,8 +227,13 @@ class Plugin:
     after a door moves). Documents refuses an edit that moves a referenced
     member of one of these roles (WALL-MEMBER-RENUMBER), since the reference
     cannot tell a member that followed the edit from one that was renumbered.
-    A release that names its members by their place (``name``) has none."""
+    A release that names its members by their place (``name``) has none.
+
+    ``settle`` (optional) turns a write-time choice into the value stored, so
+    a stored feature's meaning never depends on where its context later
+    moves (:func:`loft_plugins.registry.settle_inputs`)."""
 
     manifest: PluginManifest
     expand: Expander
     renumbered_roles: frozenset[str] = frozenset()
+    settle: Settler | None = None
