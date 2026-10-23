@@ -972,11 +972,17 @@ def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
     area = sum((p.area_mm2 or 0.0) * p.count for p in pieces)
     sheet = first.sheet
     thickness = round(first.section_mm[0], 6)
+    good = sheet_good_for(first.profile)
     if sheet is None:
         length = round(max(p.length_mm for p in pieces), 6)
         width = round(max(p.section_mm[1] for p in pieces), 6)
         sheets = None
         offcut = None
+    elif good is not None and good.material == "gypsum":
+        # By area, less an ulp (BACKLOG INTERIOR-WALLS-GYPSUM-COUNT).
+        length, width = round(sheet.length_mm, 6), round(sheet.width_mm, 6)
+        sheets = math.ceil(area / sheet.area_mm2 - 1e-9)
+        offcut = round(max(sheets * sheet.area_mm2 - area, 0.0), 6)
     else:
         length, width = round(sheet.length_mm, 6), round(sheet.width_mm, 6)
         sheets = sheets_to_cut(
@@ -989,7 +995,6 @@ def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
             turn=not any(p.keep_grain for p in pieces),
         )
         offcut = round(max(sheets * sheet.area_mm2 - area, 0.0), 6)
-    good = sheet_good_for(first.profile)
     return CutListLine(
         system="sheathing" if good is None else sheet_system(good.material),
         member=", ".join(members) or None,
