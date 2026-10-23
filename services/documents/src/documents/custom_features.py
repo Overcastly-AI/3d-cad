@@ -41,6 +41,7 @@ from loft_plugins import (
 )
 from loft_plugins import canonical_inputs as _canonical
 from loft_plugins import expand as _expand
+from loft_plugins.builtin.crawl_space import MIN_UNTREATED_CRAWL_IN
 from loft_plugins.builtin.roof_sheathing import MIN_OVERLAP_IN3, through_sheathing
 from loft_wire.expr import Quantity
 from loft_wire.feature_input import PARAMETER_VALUE_INVALID
@@ -72,7 +73,12 @@ from loft_wire.legacy_twist import (
     EXTRUDE_TWIST_DEPRECATED_MESSAGE,
     authors_extrude_twist,
 )
-from loft_wire.plugin_warning import ROOF_THROUGH_SHEATHING, PluginWarning
+from loft_wire.lumber import MM_PER_INCH
+from loft_wire.plugin_warning import (
+    CRAWL_HEIGHT_LOW,
+    ROOF_THROUGH_SHEATHING,
+    PluginWarning,
+)
 from loft_wire.plugins import (
     PLUGIN_EXPANSION_TOO_LARGE,
     PLUGIN_READ_ONLY,
@@ -1074,6 +1080,10 @@ def plugin_warnings(
     if row.type != "custom" or row.suppressed:
         return None
     envelope = load_feature(row)[0]
+    if isinstance(envelope, CustomFeature) and envelope.params.plugin_id == (
+        "loft.foundation"
+    ):
+        return _crawl_height_warning(envelope)
     if (
         not isinstance(envelope, CustomFeature)
         or envelope.params.plugin_id != "loft.roof"
@@ -1116,6 +1126,34 @@ def plugin_warnings(
             overlap_in3=found.volume,
             pairs=found.pairs,
             update_to=update,
+        )
+    ]
+
+
+def _crawl_height_warning(envelope: CustomFeature) -> list[PluginWarning] | None:
+    """A foundation's ``crawl_height_low`` (CRAWL-SPACE), or None: its stored
+    crawl height (grade to the joists' underside) under IRC R317.1's 18 in,
+    below which the joists must be pressure-treated or naturally durable.
+    Advice on an input, never a refusal: the foundation builds."""
+    stored = envelope.params.inputs.get("crawl_height_mm")
+    if isinstance(stored, bool) or not isinstance(stored, int | float):
+        return None
+    crawl = stored / MM_PER_INCH
+    if crawl >= MIN_UNTREATED_CRAWL_IN - 1e-9:
+        return None
+    return [
+        PluginWarning(
+            code=CRAWL_HEIGHT_LOW,
+            message=(
+                f"The crawl height is {crawl:g} in, under the "
+                f"{MIN_UNTREATED_CRAWL_IN:g} in of IRC R317.1: joists this close "
+                "to the ground must be pressure-treated or naturally durable "
+                "wood. Raise the crawl height, or frame the floor in treated "
+                "joists."
+            ),
+            overlap_in3=0.0,
+            pairs=0,
+            update_to=None,
         )
     ]
 

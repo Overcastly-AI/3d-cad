@@ -17,13 +17,30 @@
         "type": "object"
       },
       "AnchorBolts": {
-        "description": "Set on a plate that bears on concrete: the cut list counts its bolts\nfrom the plate's measured length (:func:`anchor_bolt_count`).",
+        "description": "Set on a plate that bears on concrete: the cut list counts its bolts\nfrom the plate's measured length (:func:`anchor_bolt_count`). Set on a\nPOUR instead (CRAWL-SPACE: a stem wall under a floor framed by another\nfeature), it lists the bolts cast in for each plate piece *plates_mm*.",
         "properties": {
           "item": {
             "const": "anchor_bolt_1_2",
             "default": "anchor_bolt_1_2",
             "title": "Item",
             "type": "string"
+          },
+          "plates_mm": {
+            "anyOf": [
+              {
+                "items": {
+                  "exclusiveMinimum": 0.0,
+                  "type": "number"
+                },
+                "maxItems": 256,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On a pour: the length (mm) of each plate piece it bolts (the floor's sills on a stem wall), each counted by R403.1.6. Absent on a plate, whose bolts are counted from its measured length.",
+            "title": "Plates Mm"
           }
         },
         "title": "AnchorBolts",
@@ -5130,7 +5147,7 @@
                 "type": "null"
               }
             ],
-            "description": "Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it. Omitted when there are none.",
+            "description": "Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a code-advice warning on its inputs (`crawl_height_low`). Omitted when there are none.",
             "title": "Plugin Warnings"
           },
           "rolled_back": {
@@ -10923,24 +10940,27 @@
         "description": "One stored custom feature's geometry warning, with its fix if any.",
         "properties": {
           "code": {
-            "const": "roof_through_sheathing",
-            "description": "'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume",
+            "description": "'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1",
+            "enum": [
+              "roof_through_sheathing",
+              "crawl_height_low"
+            ],
             "title": "Code",
             "type": "string"
           },
           "message": {
-            "description": "Names the overlap and what fixes it",
+            "description": "Names the problem and what fixes it",
             "title": "Message",
             "type": "string"
           },
           "overlap_in3": {
-            "description": "The volume the roof shares with the sheathing (in^3)",
+            "description": "The volume the roof shares with the sheathing (in^3); 0 for a warning that is not an overlap",
             "minimum": 0.0,
             "title": "Overlap In3",
             "type": "number"
           },
           "pairs": {
-            "description": "How many (roof member, sheathing panel) pairs share it",
+            "description": "How many (roof member, sheathing panel) pairs share it; 0 for a warning that is not an overlap",
             "minimum": 0.0,
             "title": "Pairs",
             "type": "integer"

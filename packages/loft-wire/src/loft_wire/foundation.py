@@ -30,11 +30,12 @@ fractions); millimetres are derived at x 25.4 exactly. Pure: no I/O.
 import math
 from collections.abc import Mapping
 from fractions import Fraction
-from typing import Final, Literal
+from typing import Annotated, Final, Literal
 
 from pydantic import BaseModel, Field
 
 from loft_wire.lumber import MM_PER_INCH
+from loft_wire.twist import is_none
 
 #: Cubic inches per cubic yard, exactly (36^3).
 IN3_PER_YD3: Final = 46_656
@@ -160,11 +161,32 @@ class RebarRun(BaseModel):
     )
 
 
+#: The most plate pieces one pour lists bolts for.
+MAX_BOLTED_PLATES: Final = 256
+
+
 class AnchorBolts(BaseModel):
     """Set on a plate that bears on concrete: the cut list counts its bolts
-    from the plate's measured length (:func:`anchor_bolt_count`)."""
+    from the plate's measured length (:func:`anchor_bolt_count`). Set on a
+    POUR instead (CRAWL-SPACE: a stem wall under a floor framed by another
+    feature), it lists the bolts cast in for each plate piece *plates_mm*."""
 
     item: Literal["anchor_bolt_1_2"] = "anchor_bolt_1_2"
+    plates_mm: list[Annotated[float, Field(gt=0)]] | None = Field(
+        default=None,
+        exclude_if=is_none,
+        max_length=MAX_BOLTED_PLATES,
+        description="On a pour: the length (mm) of each plate piece it bolts "
+        "(the floor's sills on a stem wall), each counted by R403.1.6. Absent "
+        "on a plate, whose bolts are counted from its measured length.",
+    )
+
+    def count(self, measured_length_in: float) -> int:
+        """The bolts listed: for each of *plates_mm*, or for the plate
+        *measured_length_in* long that carries them."""
+        if self.plates_mm is None:
+            return anchor_bolt_count(measured_length_in)
+        return sum(anchor_bolt_count(mm / MM_PER_INCH) for mm in self.plates_mm)
 
 
 # --- The arithmetic -----------------------------------------------------------------

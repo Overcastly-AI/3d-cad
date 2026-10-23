@@ -299,6 +299,9 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # B8: B7's walls, openings and roof on its slab (SLAB): b7-outline's
         # class, 2.9e-4 at worst; the slab itself round-trips exactly.
         "b8-slab-house",
+        # B9: B7 as built on its crawl space (CRAWL-SPACE): b7-outline's
+        # class, 3.4e-4 at worst; the foundation alone drifts 1.1e-5.
+        "b9-crawl-space",
         # B10, B7 with two partitions (INTERIOR-WALLS): b7-outline's class,
         # 3.3e-4 at worst; the partitions and gypsum are boxes.
         "b10-partitions",

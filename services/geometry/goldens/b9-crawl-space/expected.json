@@ -1,0 +1,56 @@
+{
+  "description": "B9 SMALL HOUSE ON A CRAWL SPACE (CRAWL-SPACE; docs/reference-parts/buildings.md B9, docs/BACKLOG.md CRAWL-SPACE): B7 as built (b7-outline's 288 x 192 in outline sketch, loft.floor 1.2.0 on it, loft.wall 1.3.0 on the floor, B7's door and four windows, its 6/12 gable), then ONE loft.foundation 1.0.0 on the outline with Floor on it = B7's floor: a 16 x 8 in continuous footing and, on it, an 8 in poured stem wall centred over it (outside face on the outline, top at Z 0 under the floor's PT 2x6 sills), a 24 in crawl (grade Z -22.5, the footing's bottom 12 in below), five 16 x 8 in vents and a 24 x 16 in access cut from the stem's top, 5% concrete waste, two #4 loops and the sills' 18 anchor bolts listed. The footing and the stem are a pour and a body each (buildings.md's convention), the stem face to face on the footing; the openings' cuts are scoped to the stem. model.json is EXACTLY the sketch and the expansions with their member materials; members.json is each body's member metadata with its plugin (packages/loft-plugins/tests/test_crawl_space.py pins both); services/geometry/tests/test_crawl_space_b9.py checks the STEP solid for solid, interference, the cut list (2 pours, 6.59 yd^3 net, 7.00 ordered, 10 sticks of #4, 18 bolts), its price and mass.",
+  "derivation": [
+    "INDEPENDENT of the plugins: test_crawl_space_b9.script() takes B7's 217 members from test_outline_b7.script() (typed from the QA-B7-HOUSE round), unmoved, and types the foundation from buildings.md: the footing ring (X -4..292, Y -4..196 less X 12..276, Y 12..180, Z -34.5..-26.5) and the stem ring (X 0..288, Y 0..192 less X 8..280, Y 8..184, Z -26.5..0) less the vents X 16..32, 136..152, 256..272 at Y 0..8 and X 16..32, 256..272 at Y 184..192 (Z -8..0) and the access X 132..156, Y 184..192, Z -16..0. The STEP matches it solid for solid.",
+    "",
+    "volume (analytic): the footing 14 848 x 8 = 118 784 and the stem 7 424 x 26.5 - 5 x 1 024 - 3 072 = 188 544: 307 328 in^3 (6.59 yd^3), plus b7-outline's 264 852.3788656 in^3: 572 180.3788656 in^3 = 9 376 356 488.0143 mm^3.",
+    "",
+    "surface_area, centroid, mass_g and center_of_mass are the script's solids summed (test_crawl_space_b9.expected_numbers()): concrete 2400, spf_lumber 450, southern_pine_pt 582, osb 641, plywood 577 kg/m^3; X is symmetric about 144 in (3657.6 mm).",
+    "",
+    "bounding_box: X -4 .. 292 (the footing), Y -12 .. 204 (the rafter tails), Z -34.5 (the footing's bottom) .. the ridge's top 161.907829 in, b7-outline's.",
+    "",
+    "topology and MESH: b7-outline's 1 520 faces, 3 258 edges, 217 shells plus the footing's 10 faces and 24 edges and the stem's 33 and 96: 1 563, 3 378, 219. By hand: a ring prism is 10 faces (top and bottom with a hole each, 4 + 4 sides), 24 edges, 16 vertices (V - E + F - holes = 16 - 24 + 10 - 2 = 0, one handle), the footing as built; each of the stem's six openings through its top splits the top once more and adds a bottom and two jambs (+3 faces, +12 edges, +8 vertices): 33 faces, 96 edges, 64 vertices (64 - 96 + 33 - 1 = 0). Every face is planar, so a face of n edge-vertices on h holes meshes as n + 2h - 2 triangles on n vertices: the footing 48 vertices (2E) and 48 + 4 - 20 = 32 triangles, the stem 192 and 192 + 2 - 66 = 128; with b7-outline's 6 516 and 3 476: 6 756 and 3 636. The kernel's build of model.json meets every count exactly.",
+    "",
+    "Interference none (test_nothing_interferes probes every pair whose boxes overlap): the stem meets the footing face to face at Z -26.5 and the floor's sills meet the stem's top at Z 0; the vents and access sit under the sills."
+  ],
+  "tolerance": 5e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): the bounds are ABSOLUTE and the part is ~9.4e9 mm^3 summed over 219 bodies, so the double-precision sum carries round-off near the ULP of the sum (~1.9e-6): the kernel differs from the script by -1.9e-06 mm^3 on the volume, +1.0e-06 mm^2 on the area, <= 1.9e-11 mm on the centroid and centre of mass and 1.9e-09 g on the mass. 5e-6 is 2.6x the worst, b7-outline's bound; a vent 1/16 in wider changes the volume by 6.6e4 mm^3, so it fails by ten orders.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-23: OCCT's STEP writer rounds B7's 26 sloped rafters' and notched panels' irrational coordinates, b7-outline's class (3.3e-4 there). Round-trip drift: volume -3.40e-4 mm^3 and area -2.65e-5 mm^2; the centroid moves <= 1.1e-10 mm. The foundation alone (the script's two solids) drifts 1.1e-5 mm^3. 1e-3 is 2.9x the worst and b7-outline's bound; it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 9376356488.014349,
+    "surface_area": 452666838.4517744,
+    "centroid": {
+      "x": 3657.6000000000004,
+      "y": 2427.1214118029175,
+      "z": 323.69776127336326
+    },
+    "mass_g": 14269232.283156566,
+    "center_of_mass": {
+      "x": 3657.600000000002,
+      "y": 2425.6106406034355,
+      "z": -242.05728076866538
+    },
+    "bounding_box": {
+      "min": {
+        "x": -101.59999999999991,
+        "y": -304.79999999999995,
+        "z": -876.3
+      },
+      "max": {
+        "x": 7416.799999999999,
+        "y": 5181.599999999999,
+        "z": 4112.45887569496
+      }
+    }
+  },
+  "topology": {
+    "faces": 1563,
+    "edges": 3378,
+    "shells": 219
+  },
+  "mesh": {
+    "vertices": 6756,
+    "triangles": 3636
+  }
+}

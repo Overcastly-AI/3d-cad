@@ -181,6 +181,9 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     "c1-b24-turned-30-casework": 5e-4,
     "c2-kitchen-b7-left-wall": 1.5e-6,
     "c3-v3021-melamine-face-frame": 5e-7,
+    # B9 on its crawl space (CRAWL-SPACE): b7-outline's class, measured
+    # 3.4e-4 mm^3; the foundation alone drifts 1.1e-5.
+    "b9-crawl-space": 1e-3,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

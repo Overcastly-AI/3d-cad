@@ -1712,7 +1712,9 @@ export interface components {
         /**
          * AnchorBolts
          * @description Set on a plate that bears on concrete: the cut list counts its bolts
-         *     from the plate's measured length (:func:`anchor_bolt_count`).
+         *     from the plate's measured length (:func:`anchor_bolt_count`). Set on a
+         *     POUR instead (CRAWL-SPACE: a stem wall under a floor framed by another
+         *     feature), it lists the bolts cast in for each plate piece *plates_mm*.
          */
         AnchorBolts: {
             /**
@@ -1721,6 +1723,11 @@ export interface components {
              * @constant
              */
             item: "anchor_bolt_1_2";
+            /**
+             * Plates Mm
+             * @description On a pour: the length (mm) of each plate piece it bolts (the floor's sills on a stem wall), each counted by R403.1.6. Absent on a plate, whose bolts are counted from its measured length.
+             */
+            plates_mm?: number[] | null;
         };
         /**
          * AngleConstraint
@@ -4972,7 +4979,7 @@ export interface components {
             part_id: string;
             /**
              * Plugin Warnings
-             * @description Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it. Omitted when there are none.
+             * @description Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a code-advice warning on its inputs (`crawl_height_low`). Omitted when there are none.
              */
             plugin_warnings?: components["schemas"]["PluginWarning"][] | null;
             /**
@@ -8525,23 +8532,23 @@ export interface components {
         PluginWarning: {
             /**
              * Code
-             * @description 'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume
-             * @constant
+             * @description 'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1
+             * @enum {string}
              */
-            code: "roof_through_sheathing";
+            code: "roof_through_sheathing" | "crawl_height_low";
             /**
              * Message
-             * @description Names the overlap and what fixes it
+             * @description Names the problem and what fixes it
              */
             message: string;
             /**
              * Overlap In3
-             * @description The volume the roof shares with the sheathing (in^3)
+             * @description The volume the roof shares with the sheathing (in^3); 0 for a warning that is not an overlap
              */
             overlap_in3: number;
             /**
              * Pairs
-             * @description How many (roof member, sheathing panel) pairs share it
+             * @description How many (roof member, sheathing panel) pairs share it; 0 for a warning that is not an overlap
              */
             pairs: number;
             /**

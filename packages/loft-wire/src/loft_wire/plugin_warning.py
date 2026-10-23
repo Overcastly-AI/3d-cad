@@ -10,6 +10,10 @@ family only on request). The roof's response carries this warning, which
 names the overlap, and, where a newer release would notch it (the roof
 picks its walls), the version to update to. The update is an ordinary edit
 of the pin with the same inputs, so undo restores the old roof.
+
+``loft.foundation`` (CRAWL-SPACE) carries ``crawl_height_low`` when its
+crawl height is under IRC R317.1's 18 in: code advice on an input, with no
+release to update to, and the foundation builds.
 """
 
 from typing import Any, Final, Literal
@@ -18,23 +22,32 @@ from pydantic import BaseModel, Field
 
 from loft_wire.twist import is_none
 
-#: The code of the warning, as the client branches on it.
+#: The codes of the warnings, as the client branches on them.
 ROOF_THROUGH_SHEATHING: Final = "roof_through_sheathing"
+#: CRAWL-SPACE: a ``loft.foundation`` whose crawl height (grade to the
+#: joists' underside) is under IRC R317.1's 18 in, below which the joists
+#: must be pressure-treated or naturally durable. Advice, never a refusal.
+CRAWL_HEIGHT_LOW: Final = "crawl_height_low"
 
 
 class PluginWarning(BaseModel):
     """One stored custom feature's geometry warning, with its fix if any."""
 
-    code: Literal["roof_through_sheathing"] = Field(
+    code: Literal["roof_through_sheathing", "crawl_height_low"] = Field(
         description="'roof_through_sheathing': the roof's tails pass through "
-        "wall sheathing, so the two share volume"
+        "wall sheathing, so the two share volume; 'crawl_height_low': a "
+        "foundation's crawl height is under the 18 in of IRC R317.1"
     )
-    message: str = Field(description="Names the overlap and what fixes it")
+    message: str = Field(description="Names the problem and what fixes it")
     overlap_in3: float = Field(
-        ge=0, description="The volume the roof shares with the sheathing (in^3)"
+        ge=0,
+        description="The volume the roof shares with the sheathing (in^3); 0 "
+        "for a warning that is not an overlap",
     )
     pairs: int = Field(
-        ge=0, description="How many (roof member, sheathing panel) pairs share it"
+        ge=0,
+        description="How many (roof member, sheathing panel) pairs share it; "
+        "0 for a warning that is not an overlap",
     )
     update_to: str | None = Field(
         description="The release whose expansion notches it (the 'Update to' "
@@ -51,12 +64,14 @@ PLUGIN_WARNINGS_FIELD: Any = Field(
     default=None,
     exclude_if=is_none,
     description="Wrong geometry the feature's pinned plugin release builds "
-    "(`roof_through_sheathing`), each with the release that fixes it. Omitted "
-    "when there are none.",
+    "(`roof_through_sheathing`), each with the release that fixes it, or a "
+    "code-advice warning on its inputs (`crawl_height_low`). Omitted when "
+    "there are none.",
 )
 
 
 __all__ = [
+    "CRAWL_HEIGHT_LOW",
     "PLUGIN_WARNINGS_FIELD",
     "ROOF_THROUGH_SHEATHING",
     "PluginWarning",

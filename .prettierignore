@@ -13,6 +13,9 @@ packages/contracts/
 packages/ts-client/
 pnpm-lock.yaml
 uv.lock
+# Written by packages/loft-plugins/tests/test_crawl_space.py (json.dumps) and
+# pinned byte for byte; prettier would fold its sills' plates_mm list.
+services/geometry/goldens/b9-crawl-space/members.json
 
 # Local backups (scripts/backup.sh) — data, not source.
 backups/

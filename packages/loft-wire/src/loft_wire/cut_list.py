@@ -77,7 +77,9 @@ are; the line orders ``net x (1 + waste)`` rounded up to 1/4 yd³ and is
 priced per cubic yard ordered. Rebar and anchor bolts are listed, not drawn:
 a pour's ``rebar`` runs are lines by centreline length, each run bought in
 20 ft sticks lapped 24 in, and a plate with ``anchor_bolts`` adds its bolts,
-counted from the plate's measured length (IRC R403.1.6), into one Each line.
+counted from the plate's measured length (IRC R403.1.6), into one Each line;
+a pour with ``anchor_bolts`` (CRAWL-SPACE: a stem wall under a floor another
+feature frames) adds the bolts it lists for each of its plates' lengths.
 All three sit under Foundation, the list's first system.
 
 **Casework** (CASEWORK): a ``loft.cabinets`` panel is a sheet good under
@@ -115,7 +117,6 @@ from loft_wire.features import EvaluateTreeRequest
 from loft_wire.foundation import (
     FOUNDATION_ITEMS_BY_KEY,
     FoundationItemKind,
-    anchor_bolt_count,
     concrete_order_yd3,
     foundation_item_for,
     rebar_sticks,
@@ -271,6 +272,7 @@ SYSTEM_LABELS: Final[Mapping[CutListSystem, str]] = {
 #: windows group would take them). A plugin not listed is "other".
 PLUGIN_SYSTEMS: Final[Mapping[str, CutListSystem]] = {
     "loft.slab": "foundation",
+    "loft.foundation": "foundation",
     "loft.floor": "floor",
     "loft.wall": "walls",
     "loft.interior_wall": "walls",
@@ -850,7 +852,7 @@ def listed_pieces(
         )
     if metadata.anchor_bolts is not None:
         item = FOUNDATION_ITEMS_BY_KEY[metadata.anchor_bolts.item]
-        bolts = anchor_bolt_count(piece.length_mm / MM_PER_INCH)
+        bolts = metadata.anchor_bolts.count(piece.length_mm / MM_PER_INCH)
         out.append(
             CutListPiece(
                 member="Anchor bolt",

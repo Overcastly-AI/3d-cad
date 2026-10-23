@@ -333,3 +333,89 @@ def test_a_pours_waste_is_its_own_line() -> None:
     )
     pours = [line for line in cut_list.lines if line.item == "concrete"]
     assert [(p.waste_percent, p.order_yd3) for p in pours] == [(5, 7.0), (10, 7.5)]
+
+
+# --- A pour that bolts another feature's plates (CRAWL-SPACE) ------------------------
+
+
+def _b9() -> tuple[BodyExtentsResult, list[CutListMember]]:
+    """B9's footing (118 784 in^3, two loops of 968 and 888) and stem
+    (188 544 in^3 less its openings, the bolts for the floor's four sills),
+    a pour each."""
+    footing = BodyExtent(
+        base_feature_id=uuid.uuid4(),
+        extents_mm=(296 * IN, 200 * IN, 8 * IN),
+        volume_mm3=118784 * IN3,
+    )
+    stem = BodyExtent(
+        base_feature_id=uuid.uuid4(),
+        extents_mm=(288 * IN, 192 * IN, 26.5 * IN),
+        volume_mm3=188544 * IN3,
+    )
+    members = [
+        CutListMember(
+            feature_id=footing.base_feature_id,
+            role="footing",
+            title="Footing",
+            plugin_id="loft.foundation",
+            metadata=MemberMetadata(
+                profile="Ready-mix concrete",
+                material="concrete",
+                concrete=ConcretePour(),
+                rebar=[
+                    RebarRun(length_mm=968 * IN, closed=True),
+                    RebarRun(length_mm=888 * IN, closed=True),
+                ],
+            ),
+        ),
+        CutListMember(
+            feature_id=stem.base_feature_id,
+            role="stem",
+            title="Stem wall",
+            plugin_id="loft.foundation",
+            metadata=MemberMetadata(
+                profile="Ready-mix concrete",
+                material="concrete",
+                concrete=ConcretePour(),
+                anchor_bolts=AnchorBolts(
+                    plates_mm=[288 * IN, 288 * IN, 181 * IN, 181 * IN]
+                ),
+            ),
+        ),
+    ]
+    extents = BodyExtentsResult(
+        part_id=uuid.uuid4(), tree_version=1, bodies=[footing, stem]
+    )
+    return extents, members
+
+
+def test_b9s_pour_lists_the_bolts_of_the_sills_it_carries() -> None:
+    extents, members = _b9()
+    cut_list = cut_list_response(
+        document_id=uuid.uuid4(),
+        document_kind="part",
+        name="B9",
+        length_unit="in",
+        pieces=part_pieces(extents, members, None),
+        price_book=BOOK,
+    )
+    assert _foundation(cut_list) == [
+        # 2 pours, 307 328 in^3 = 6.59 yd^3; x 1.05 = 6.92: 7 at $165.00
+        ("Footing, Stem wall", "concrete", 2, 7.0, None, 115500),
+        # 888 (74 ft) and 968 (80.67 ft): 5 sticks each, x $14.98
+        ("Rebar", "rebar", 1, None, 5, 7490),
+        ("Rebar", "rebar", 1, None, 5, 7490),
+        # 5 + 5 + 4 + 4 for the sills, not the stem's 288 in length
+        ("Anchor bolt", "anchor_bolt", 18, None, 18, 4464),
+    ]
+    volume = cut_list.lines[0].volume_mm3
+    assert volume is not None and round(volume / IN3 / 46656, 2) == 6.59
+
+
+def test_bolts_on_a_plate_count_its_measured_length() -> None:
+    assert AnchorBolts().count(288) == 5
+    assert AnchorBolts(plates_mm=[288 * IN, 181 * IN]).count(1000) == 9
+    # Absent on a plate: the stored metadata keeps SLAB's bytes.
+    assert AnchorBolts().model_dump(mode="json") == {"item": "anchor_bolt_1_2"}
+    with pytest.raises(ValidationError):
+        AnchorBolts(plates_mm=[0.0])
