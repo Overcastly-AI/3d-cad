@@ -449,7 +449,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     const csv = (
       await readFile(await (await downloading).path(), "utf-8")
     ).split("\r\n");
-    expect(csv).toContain(",Total,,,,,,,,,,,,,2868.87");
+    expect(csv).toContain(",Total,,,,,,,,,,,,,,2868.87");
 
     // Edit 1: the front left window (X 60) moved 24 in, to X 84: one field,
     // its distance from the X 0 end. The wall re-frames it with the same

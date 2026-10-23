@@ -48,7 +48,7 @@ system, lines run by member (in the order each first appears in the tree),
 then profile and material (likewise), then length, shortest first, so one
 member's lines sit together whichever walls they came from. Pieces with the
 same system, member, profile, material and length are one line, summed across
-features. The CSV writes the same order.
+features. The CSV writes the same order, each row naming its System.
 
 Prices (PRICE-BOOK, RESEARCH §27) come from the user's
 :mod:`loft_wire.price_book`: each line is priced on the stock pieces bought
@@ -146,6 +146,17 @@ SYSTEM_ORDER: Final[tuple[CutListSystem, ...]] = (
     "frame",
     "other",
 )
+
+#: How a system is named in the CSV and the panel's group heads.
+SYSTEM_LABELS: Final[Mapping[CutListSystem, str]] = {
+    "floor": "Floor",
+    "walls": "Walls",
+    "roof": "Roof",
+    "sheathing": "Sheathing",
+    "deck": "Deck",
+    "frame": "Frame",
+    "other": "Other",
+}
 
 #: The system each built-in plugin's members belong to. Doors and windows
 #: frame into their wall, so their members are the walls' (a later Doors and
@@ -950,6 +961,7 @@ def format_area(value_mm2: float, unit: LengthUnit) -> str:
 def csv_header(unit: LengthUnit, currency: Currency = "USD") -> list[str]:
     return [
         "Item",
+        "System",
         "Member",
         "Profile",
         f"Section ({unit})",
@@ -1036,6 +1048,7 @@ def cut_list_csv(cut_list: CutListResponse) -> str:
         writer.writerow(
             [
                 item,
+                SYSTEM_LABELS[line.system],
                 csv_text(line.member or ""),
                 csv_text(line.profile or "Unclassified"),
                 " x ".join(format_length(v, unit) for v in line.section_mm),
@@ -1053,11 +1066,17 @@ def cut_list_csv(cut_list: CutListResponse) -> str:
             ]
         )
     blank: list[object] = [""] * len(header)
+    member, profile, qty = (header.index(h) for h in ("Member", "Profile", "Qty"))
     for missing in cut_list.missing:
         row = list(blank)
-        row[1], row[2], row[5] = "Deleted part", "Not listed", missing.quantity
+        row[member], row[profile], row[qty] = (
+            "Deleted part",
+            "Not listed",
+            missing.quantity,
+        )
         writer.writerow(row)
     total = list(blank)
+    # In the first text column (System), so a sort by Member keeps it apart.
     total[1] = total_label(cut_list.unpriced_lines)
     total[-1] = _money(cut_list.total_price_cents)
     writer.writerow(total)

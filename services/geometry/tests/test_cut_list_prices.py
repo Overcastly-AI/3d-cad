@@ -146,7 +146,7 @@ def test_b1_totals_943_94() -> None:
         "Deck": 46592,
     }
     assert (cut_list.total_price_cents, cut_list.unpriced_lines) == (94394, 0)
-    assert cut_list_csv(cut_list).endswith(",Total,,,,,,,,,,,,,943.94\r\n")
+    assert cut_list_csv(cut_list).endswith(",Total,,,,,,,,,,,,,,943.94\r\n")
 
 
 def test_b1_without_the_6x6_price_is_839_54_with_one_line_unpriced() -> None:
@@ -155,7 +155,7 @@ def test_b1_without_the_6x6_price_is_839_54_with_one_line_unpriced() -> None:
     assert _by_member(cut_list)["Post"] is None
     assert (cut_list.total_price_cents, cut_list.unpriced_lines) == (83954, 1)
     assert cut_list_csv(cut_list).endswith(
-        ',"Total of priced lines, 1 unpriced",,,,,,,,,,,,,839.54\r\n'
+        ',"Total of priced lines, 1 unpriced",,,,,,,,,,,,,,839.54\r\n'
     )
 
 
@@ -169,7 +169,7 @@ def test_b2_totals_396_07() -> None:
         1128,
     )
     assert (cut_list.total_price_cents, cut_list.unpriced_lines) == (39607, 0)
-    assert cut_list_csv(cut_list).endswith(",Total,,,,,,,,,,,,,396.07\r\n")
+    assert cut_list_csv(cut_list).endswith(",Total,,,,,,,,,,,,,,396.07\r\n")
 
 
 @pytest.mark.parametrize("order", ["b1-first", "b2-first"])
@@ -181,4 +181,4 @@ def test_an_assembly_of_b1_and_two_b2_totals_1736_08(order: str) -> None:
         pieces = [*_b2(count=2), *_b1()]
     cut_list = _priced(pieces, kind="assembly")
     assert (cut_list.total_price_cents, cut_list.unpriced_lines) == (173608, 0)
-    assert cut_list_csv(cut_list).endswith(",Total,,,,,,,,,,,,,1736.08\r\n")
+    assert cut_list_csv(cut_list).endswith(",Total,,,,,,,,,,,,,,1736.08\r\n")

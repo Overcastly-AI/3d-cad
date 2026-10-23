@@ -203,11 +203,11 @@ def test_the_csv_shows_area_and_sheet() -> None:
     book = _sheet_book(("osb", "osb_7_16", "4x9", 2498))
     rows = cut_list_csv(_response(_b2_osb(), book)).split("\r\n")
     assert rows[0].startswith(
-        "Item,Member,Profile,Section (in),Material,Qty,Length (in),"
+        "Item,System,Member,Profile,Section (in),Material,Qty,Length (in),"
         "Total length (in),Area (sq in),Stock,"
     )
     assert rows[1] == (
-        "1,Sheathing,7/16 OSB,0.4375 x 48,OSB (oriented strand board),12,,,"
+        "1,Sheathing,Sheathing,7/16 OSB,0.4375 x 48,OSB (oriented strand board),12,,,"
         "45893,4x9 sheet,,9,24.98,Each,224.82"
     )
 

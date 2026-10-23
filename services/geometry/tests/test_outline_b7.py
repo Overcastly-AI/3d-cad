@@ -683,7 +683,7 @@ def test_the_cut_list_is_the_rounds_and_prices_to_the_same_total() -> None:
     assert cut_list.unpriced_lines == 0
     assert cut_list.unclassified == 0
     total = cut_list_csv(cut_list).split("\r\n")
-    assert ",Total,,,,,,,,,,,,,2868.87" in total
+    assert ",Total,,,,,,,,,,,,,,2868.87" in total
 
 
 # --- Mass ---------------------------------------------------------------------------
