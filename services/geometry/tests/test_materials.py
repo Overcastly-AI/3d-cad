@@ -197,7 +197,10 @@ class TestResolution:
         # APA panel weights: 40 pcf = 640.7 and 36 pcf = 576.7 kg/m^3 (SHEATHING).
         assert MATERIALS_BY_KEY["osb"].density_kg_m3 == 641.0
         assert MATERIALS_BY_KEY["plywood"].density_kg_m3 == 577.0
-        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 17
+        # Rigid PVC and soda-lime glass (OPENING-UNITS, RESEARCH §23).
+        assert MATERIALS_BY_KEY["pvc"].density_kg_m3 == 1400.0
+        assert MATERIALS_BY_KEY["glass"].density_kg_m3 == 2500.0
+        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 19
 
     def test_a_2x10_x_12ft_spf_member_weighs_the_hand_calculation(self) -> None:
         """LUMBER-MATERIALS: the kernel measures the member, the library weighs it.
