@@ -168,6 +168,9 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # B7's floor both ways (FLOOR-JOIST-SPAN): summation drift, 9.5e-7 at worst.
     "b7-floor-left-right": 3e-6,
     "b7-floor-long-walls": 3e-6,
+    # B8 on its slab (SLAB): b7-outline's class, measured 2.9e-4 mm^3; the
+    # slab itself round-trips exactly.
+    "b8-slab-house": 1e-3,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's
