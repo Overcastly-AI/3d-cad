@@ -5,9 +5,10 @@
  * material and a profile, priced Each at a stock length, per linear foot or
  * per board foot; a sheet product (SHEATHING), priced Each per sheet; or a
  * window or door unit (OPENING-UNITS), priced Each by its call size
- * ('window_3040') and frame material; or a foundation item (SLAB): ready-mix
- * per cubic yard, #4 rebar Each per 20 ft stick, an anchor bolt Each, each
- * its one way. The profile list files each kind under its own heading.
+ * ('window_3040') and frame material; or an item priced its one way: a
+ * foundation item (SLAB), ready-mix per cubic yard, #4 rebar Each per 20 ft
+ * stick, an anchor bolt Each, or a casework item (CASEWORK), edge banding per
+ * foot and hinges and slide pairs Each. The profile list files each kind under its own heading.
  *
  * The book is saved whole (`PUT` replaces it), so the dialog edits a draft and
  * Save sends every row; Cancel or Escape drops the draft. Opened from a blank
@@ -119,7 +120,7 @@ function kindOf(
   entry?: PriceBookEntry,
 ): RowKind {
   if (library?.opening_units?.some((u) => u.key === profile)) return "unit";
-  if (library?.foundation_items?.some((i) => i.key === profile)) return "item";
+  if (pricedItems(library).some((i) => i.key === profile)) return "item";
   if (library?.sheet_goods.some((g) => g.key === profile)) return "sheet";
   if (library?.profiles.some((p) => p.key === profile)) return "lumber";
   if (entry === undefined)
@@ -128,6 +129,36 @@ function kindOf(
   if (entry.unit === "cubic_yard") return "item";
   if (entry.unit !== "each" || entry.stock_length_ft != null) return "lumber";
   return "unit";
+}
+
+/** The items the book prices one way, with their unit and stock: the
+ * foundation items (SLAB) and casework banding and hardware (CASEWORK). */
+function pricedItems(library: MaterialLibrary | undefined): {
+  key: PriceProfileKey;
+  name: string;
+  material: MaterialKey;
+  price_unit: PriceUnit;
+  stock_length_ft: number | null;
+  group: string;
+}[] {
+  return [
+    ...(library?.foundation_items ?? []).map((i) => ({
+      key: i.key as PriceProfileKey,
+      name: i.name,
+      material: i.material as MaterialKey,
+      price_unit: i.price_unit as PriceUnit,
+      stock_length_ft: i.stock_length_ft ?? null,
+      group: "Foundation",
+    })),
+    ...(library?.casework_items ?? []).map((i) => ({
+      key: i.key as PriceProfileKey,
+      name: i.name,
+      material: (i.materials[0] ?? "steel_1018") as MaterialKey,
+      price_unit: i.unit as PriceUnit,
+      stock_length_ft: null,
+      group: "Casework",
+    })),
+  ];
 }
 
 function rowKey(row: DraftRow): string {
@@ -255,9 +286,9 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
           : (library.data.profiles.find((p) => p.name === seed.profile)?.key ??
             library.data.sheet_goods.find((g) => g.name === seed.profile)
               ?.key ??
-            library.data.foundation_items?.find((i) => i.name === seed.profile)
+            pricedItems(library.data).find((i) => i.name === seed.profile)
               ?.key);
-    const seedItem = library.data.foundation_items?.find(
+    const seedItem = pricedItems(library.data).find(
       (i) => i.key === seedProfile,
     );
     if (seed !== null && seedProfile !== undefined) {
@@ -393,7 +424,7 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
       rows.map((row) => {
         const lumber = row.kind === "lumber";
         if (row.kind === "item") {
-          // A foundation item is priced its one way (profilePatch set it).
+          // An item is priced its one way (profilePatch set it).
           return {
             material: row.material,
             profile: row.profile,
@@ -443,10 +474,10 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
       label: u.name,
       group: u.kind === "door" ? "Doors" : "Windows",
     })),
-    ...(library.data?.foundation_items ?? []).map((i) => ({
+    ...pricedItems(library.data).map((i) => ({
       value: i.key,
       label: i.name,
-      group: "Foundation",
+      group: i.group,
     })),
   ];
   const sheetOptions = (library.data?.sheet_sizes ?? []).map((size) => ({
@@ -478,7 +509,7 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
         material: unit.material,
       };
     }
-    const item = library.data?.foundation_items?.find((i) => i.key === key);
+    const item = pricedItems(library.data).find((i) => i.key === key);
     if (item !== undefined) {
       return {
         profile: key,
@@ -649,7 +680,7 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
                         {itemRow ? (
                           <span
                             className="block px-2 font-data text-xs text-mist"
-                            title="A foundation item is priced one way"
+                            title="An item is priced one way"
                             data-testid="price-book-unit-item"
                           >
                             {PRICE_UNIT_LABEL[row.unit]}

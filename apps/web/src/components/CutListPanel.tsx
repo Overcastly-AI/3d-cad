@@ -111,6 +111,7 @@ export const SYSTEM_LABEL: Record<CutListLine["system"], string> = {
   sheathing: "Sheathing",
   deck: "Deck",
   frame: "Frame",
+  casework: "Casework",
   other: "Other",
 };
 
@@ -153,8 +154,11 @@ function seedFor(line: CutListLine): PriceBookSeed | null {
   ) {
     return null;
   }
-  if (line.item !== null && line.item !== undefined) {
-    // A foundation item: the book resolves its name to its key.
+  if (
+    (line.item !== null && line.item !== undefined) ||
+    (line.casework !== null && line.casework !== undefined)
+  ) {
+    // A foundation or casework item: the book resolves its name to its key.
     return {
       material: line.material,
       profile: line.profile,
@@ -221,6 +225,12 @@ function splice(line: CutListLine): readonly number[] | null {
 /** What the line buys: "12 ft" of lumber, "9 × 4x9" sheets, a "3040
  * window", or a dash. */
 function stockLabel(line: CutListLine): string {
+  if (line.casework !== null && line.casework !== undefined) {
+    // Banding is bought in whole feet; hardware by the piece.
+    return line.casework === "edge_banding"
+      ? `${formatCount(line.stock_quantity ?? 0)} ft`
+      : "Each";
+  }
   if (line.item === "concrete") {
     return line.order_yd3 === null || line.order_yd3 === undefined
       ? "—"
@@ -265,6 +275,10 @@ function priceBasis(line: CutListLine): string | undefined {
   if (line.item === "rebar") return "Each, per 20 ft stick";
   if (line.item === "anchor_bolt") return "Each, per bolt";
   if (line.unit !== null && line.unit !== undefined) return "Each, per unit";
+  if (line.casework === "edge_banding")
+    return "Per ft, on the whole feet bought";
+  if (line.casework !== null && line.casework !== undefined)
+    return "Each, per piece";
   if (line.sheet !== null && line.sheet !== undefined) {
     return `Each per ${line.sheet} sheet`;
   }
@@ -540,7 +554,12 @@ export function CutListPanel({
               // A pour lists its volume; a bolt has no length to list.
               const volume =
                 line.item === "concrete" ? (line.volume_mm3 ?? 0) : null;
-              const bolt = line.item === "anchor_bolt";
+              // A bolt or a hinge is counted, not measured: no length.
+              const bolt =
+                line.item === "anchor_bolt" ||
+                (line.casework !== null &&
+                  line.casework !== undefined &&
+                  line.casework !== "edge_banding");
               const noRun = area !== null || volume !== null || bolt;
               return (
                 <tr

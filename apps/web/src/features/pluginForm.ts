@@ -16,6 +16,9 @@
  *  - feature list: several earlier features (a roof's walls), picked as a
  *    checklist; the field holds their ids, comma-separated, in pick order.
  *  - material: a library key, or none.
+ *  - list: rows of number and choice fields (a cabinet run's boxes), added
+ *    and removed as a list; the field holds the rows as JSON
+ *    (`features/pluginList`).
  *
  * A stored number round-trips exactly (`features/storedNumber`): opening a
  * custom feature and saving it unchanged sends the stored inputs as they are.
@@ -42,6 +45,13 @@ import {
   sideName,
   supersededInputs,
 } from "./outline";
+import {
+  defaultListText,
+  firstListError,
+  listErrors,
+  listValue,
+  storedListText,
+} from "./pluginList";
 import {
   storedLengthInput,
   storedLengthMm,
@@ -174,6 +184,9 @@ export function defaultPluginForm(
       case "segments":
         values[input.name] = "";
         break;
+      case "list":
+        values[input.name] = defaultListText(input, unit);
+        break;
     }
   }
   return { values, stored: null };
@@ -188,7 +201,9 @@ export function formFromCustomParams(
   const values: Record<string, string> = {};
   for (const input of manifest.inputs) {
     const stored = params.inputs[input.name];
-    if (stored === undefined) {
+    if (input.kind === "list") {
+      values[input.name] = storedListText(input, stored, unit);
+    } else if (stored === undefined) {
       values[input.name] = "";
     } else if (typeof stored === "number") {
       values[input.name] =
@@ -199,8 +214,14 @@ export function formFromCustomParams(
       values[input.name] = stored;
     } else if (Array.isArray(stored)) {
       // Feature picks by id; a segments input's sketch line ids as they are.
-      values[input.name] = stored
-        .map((item) => (typeof item === "string" ? item : item.feature_id))
+      values[input.name] = (stored as unknown[])
+        .map((item) =>
+          typeof item === "string"
+            ? item
+            : typeof item === "object" && item !== null && "feature_id" in item
+              ? String(item.feature_id)
+              : "",
+        )
         .join(",");
     } else {
       values[input.name] = stored.feature_id;
@@ -341,6 +362,12 @@ export function validatePluginForm(
       } else if (ids.length > input.max_items) {
         error = `Pick at most ${input.max_items}.`;
       }
+    } else if (input.kind === "list") {
+      const found = listErrors(input, text, unit, form.stored?.[input.name]);
+      for (const [key, message] of Object.entries(found)) {
+        if (key !== "") errors[`${input.name}/${key}`] = message;
+      }
+      error = firstListError(input, found);
     } else if (input.kind === "segments") {
       // Lines of an outline by sketch id (BUILDING-OUTLINE), named by side.
       const ids = pickedIds(text);
@@ -420,6 +447,10 @@ export function pluginInputsFromForm(
     } else if (input.kind === "segments") {
       const ids = pickedIds(text);
       if (ids.length > 0) inputs[input.name] = ids;
+    } else if (input.kind === "list") {
+      const rows = listValue(input, text, unit, form.stored?.[input.name]);
+      if (rows === null) return null;
+      if (rows.length > 0) inputs[input.name] = rows;
     } else if (text !== "") {
       inputs[input.name] = text;
     }

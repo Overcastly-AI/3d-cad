@@ -34,6 +34,7 @@
     "bodies-built.spec.ts": 20.5,
     "body-status.spec.ts": 37.8,
     "camera-restore.spec.ts": 244.3,
+    "casework.spec.ts": 70.9,
     "click-drift.spec.ts": 25.5,
     "constraints.spec.ts": 218.2,
     "construction-geometry.spec.ts": 54.3,
