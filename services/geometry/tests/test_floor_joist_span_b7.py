@@ -137,24 +137,25 @@ def spec(name: str) -> list[Row]:
 
 
 #: The cut list (no price book): member, profile, material, quantity, length
-#: (in) or net area (in^2), stock, the members over 20 ft spliced from the
-#: fewest stock pieces (CUT-LIST-LONG-STOCK, as B7's 288 sills). In the
+#: (in) or net area (in^2), stock: 2x lumber runs to 24 ft, so the members
+#: over 20 ft are one 24 ft stick, and the left-and-right 285 in joists,
+#: which span wall to wall, are never spliced (NO-SPLICE-SPANS). In the
 #: list's order (CUT-LIST-PANEL): the sheet goods first, then the lumber by
 #: member as it first appears.
 TABLES: dict[str, list[tuple[str, str, str, int, float, str]]] = {
     LONG: [
         ("Subfloor", "23/32 plywood", PLY, 14, 55296.0, "12 x 4x8"),
         ("Joist", "2x10", SPF, 19, 189.0, "16 ft"),
-        ("Rim", "2x10", SPF, 2, 288.0, "2 x 12 ft"),
+        ("Rim", "2x10", SPF, 2, 288.0, "24 ft"),
         ("Sill", "2x6", PT, 2, 181.0, "16 ft"),
-        ("Sill", "2x6", PT, 2, 288.0, "2 x 12 ft"),
+        ("Sill", "2x6", PT, 2, 288.0, "24 ft"),
     ],
     LEFT_RIGHT: [
         ("Subfloor", "23/32 plywood", PLY, 15, 55296.0, "12 x 4x8"),
-        ("Joist", "2x10", SPF, 13, 285.0, "2 x 12 ft"),
+        ("Joist", "2x10", SPF, 13, 285.0, "24 ft"),
         ("Rim", "2x10", SPF, 2, 192.0, "16 ft"),
         ("Sill", "2x6", PT, 2, 192.0, "16 ft"),
-        ("Sill", "2x6", PT, 2, 277.0, "2 x 12 ft"),
+        ("Sill", "2x6", PT, 2, 277.0, "24 ft"),
     ],
 }
 
@@ -315,6 +316,13 @@ def test_the_cut_list_is_the_hand_typed_floors(name: str) -> None:
     ]
     assert rows == TABLES[name]
     assert cut_list.unclassified == 0
+    # Joists span wall to wall: one piece, never spliced; rims and sills may.
+    assert {line.member: line.one_piece for line in cut_list.lines} == {
+        "Subfloor": False,
+        "Joist": True,
+        "Rim": False,
+        "Sill": False,
+    }
     # The hand-typed members give the same counts and lengths.
     counted: Counter[tuple[str, float]] = Counter()
     for member, _, b in spec(name):
