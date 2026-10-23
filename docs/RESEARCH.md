@@ -2528,6 +2528,38 @@ and reframe it, a material per member, and a cut list that is always current.
     round's 23 cut-list lines and $2,868.87 (§27). An independent build123d script
     of B7 typed from buildings.md matches the STEP solid for solid, at 288 and
     at 336 (234 bodies). Golden `b7-outline`.
+- **Decided while measuring openings from either end** (OPENING-FROM-END,
+  2026-10-23; Revit's and Chief Architect's temporary dimensions read from
+  either wall end, and an opening stays put in plan when the far end moves):
+  - *Measured from.* `loft.window` and `loft.door` 1.2.0 add `measure_from`
+    (Start, End or Centre of the host wall, or of its wall of an outline)
+    before the distance, `offset_mm`, which now runs from that point to the
+    unit's centre: the wall's length less it from the End, half the length
+    plus it from the Centre (signed, positive towards the end, so its bounds
+    are -960..960 in). End and Centre are rounded to 1e-9 in, as every
+    opening coordinate is; Start is the distance itself, so 1.0.0 and 1.1.0,
+    which have no `measure_from`, frame byte-identically (`b7-outline`,
+    the B2 goldens). The wall reads the reference for every hosted opening,
+    and an outline wall measures on its own wall's spec (a fitted wall's
+    ends are the through walls' inside faces, where its framing stops).
+  - *A new opening measures from the end nearer the part origin*, so a house
+    dimensioned from its origin corner keeps its openings when it grows. That
+    is a WRITE-TIME choice, not a stored rule: a rule re-read on every
+    rebuild would flip the reference, and move the opening, when the house
+    moves past the origin. The choice is the input's default, `nearer`
+    ("Nearer the origin"), and documents STORES the end it picks
+    (`Plugin.settle`, `loft_plugins.settle_inputs`, run on every write after
+    the formulas resolve). A tie is the start. A stored opening never holds
+    `nearer`; the expander resolves it the same way if handed one (a script's
+    preview), so the two can never disagree.
+  - *Numbers.* B7 at 1.2.0 placed as a user does (every opening at its
+    default) is `b7-outline` body for body; the left window moved 60 -> 84
+    and the house grown to 336 is 1.1.0 with the three front offsets re-typed
+    from X 336 (252, 192, 108), and the independent script's at 336 with the
+    window at X 84: 234 bodies, 298 348.0666597928 in³ (the same members as
+    at 60: the move swaps which layout studs are cripples, 272/288 for
+    240/256, and which is dropped under a king, 256 for 272). Golden
+    `b7-front-wall-from-end`.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
