@@ -3120,7 +3120,7 @@ export interface components {
              * Material
              * @description The material RESOLVED for this body (its own override, else the document default); null = none assigned, so no mass.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum") | null;
         };
         /**
          * BodyMaterialAssignment
@@ -3145,7 +3145,7 @@ export interface components {
              * @description Material for THIS body only
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum";
         };
         /**
          * BodyName
@@ -4618,7 +4618,7 @@ export interface components {
              * Material
              * @description Library material, or null.
              */
-            material: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554") | null;
+            material: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum") | null;
             /**
              * Member
              * @description Member role title (e.g. 'Joist'); null when the body is not a plugin member.
@@ -4658,9 +4658,9 @@ export interface components {
             section_mm: number[];
             /**
              * Sheet
-             * @description A sheet line's sheet ('4x8', '4x9', '4x10'): the shortest that covers each of its panels; null for lumber, or for panels no sheet covers.
+             * @description A sheet line's sheet ('4x8', '4x9', '4x10', '4x12'): the shortest that covers each of its panels; null for lumber, or for panels no sheet covers.
              */
-            sheet?: ("4x8" | "4x9" | "4x10") | null;
+            sheet?: ("4x8" | "4x9" | "4x10" | "4x12") | null;
             /**
              * Stock Length Ft
              * @description Shortest standard stock that covers the piece (ft); null for a piece that is not lumber, or is spliced (stock_pieces_ft), or is longer than any stock it may be bought in (stock_note).
@@ -4683,7 +4683,7 @@ export interface components {
             stock_quantity: number | null;
             /**
              * System
-             * @description The group the line is listed under (Floor, Walls, Roof, Sheathing, ...): its members' plugin's system; every sheet good is 'sheathing'; a body that is no plugin member is 'other'.
+             * @description The group the line is listed under (Floor, Walls, Roof, Sheathing, ...): its members' plugin's system; a structural sheet good is 'sheathing' and gypsum board 'walls'; a body that is no plugin member is 'other'.
              * @enum {string}
              */
             system: "foundation" | "floor" | "walls" | "roof" | "sheathing" | "deck" | "frame" | "other";
@@ -9519,7 +9519,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554";
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum";
             /**
              * Name
              * @description Display name, e.g. 'Aluminium 6061'
@@ -9554,7 +9554,7 @@ export interface components {
              * Default Material
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
-            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554") | null;
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum") | null;
         };
         /**
          * MaterialInput
@@ -9562,7 +9562,7 @@ export interface components {
          */
         MaterialInput: {
             /** Default */
-            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554") | null;
+            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum") | null;
             /**
              * Description
              * @description Help text under the field.
@@ -9631,7 +9631,7 @@ export interface components {
             sheet_goods: components["schemas"]["SheetGood"][];
             /**
              * Sheet Sizes
-             * @description The sheets they are sold in, shortest first: 4x8, 4x9, 4x10.
+             * @description The sheets they are sold in, shortest first: 4x8, 4x9, 4x10, 4x12 (each product in its own: gypsum board in 4x8 and 4x12).
              */
             sheet_sizes: components["schemas"]["SheetSize"][];
         };
@@ -9770,7 +9770,7 @@ export interface components {
              * Material
              * @description Library material of the member.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum") | null;
             /**
              * Nominal Size
              * @description Nominal size as sold, e.g. '2x8x12'.
@@ -11613,7 +11613,7 @@ export interface components {
              * @description Library material, e.g. 'spf_lumber'.
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum";
             /**
              * Price Cents
              * @description Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.
@@ -11623,12 +11623,12 @@ export interface components {
              * Profile
              * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', or foundation item, e.g. 'ready_mix'.
              */
-            profile: ("us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2");
+            profile: ("us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2");
             /**
              * Sheet
-             * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10'); null for lumber.
+             * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10', '4x12'); null for lumber.
              */
-            sheet?: ("4x8" | "4x9" | "4x10") | null;
+            sheet?: ("4x8" | "4x9" | "4x10" | "4x12") | null;
             /**
              * Stock Length Ft
              * @description The stock length a lumber 'each' price is for (ft); null for a sheet or a per-foot or per-board-foot price.
@@ -12310,13 +12310,13 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "osb_7_16" | "plywood_15_32" | "plywood_23_32";
+            key: "osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8";
             /**
              * Material
              * @description Library material of the panels.
              * @enum {string}
              */
-            material: "osb" | "plywood";
+            material: "osb" | "plywood" | "gypsum";
             /**
              * Name
              * @description As sold, e.g. '7/16 OSB'.
@@ -12795,14 +12795,14 @@ export interface components {
         };
         /**
          * SheetSize
-         * @description One sheet size: 4 ft wide, 8, 9 or 10 ft long.
+         * @description One sheet size: 4 ft wide, 8, 9, 10 or 12 ft long.
          */
         SheetSize: {
             /**
              * Key
              * @enum {string}
              */
-            key: "4x8" | "4x9" | "4x10";
+            key: "4x8" | "4x9" | "4x10" | "4x12";
             /**
              * Length In
              * @description The long side (in).

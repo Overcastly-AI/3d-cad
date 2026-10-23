@@ -53,7 +53,8 @@ them out), so a line's offcut area is its sheets' area less its net area.
 
 **Order** (CUT-LIST-PANEL): lines are grouped by SYSTEM, as Chief
 Architect's Materials List groups by category: Floor, Walls (with their doors
-and windows), Roof, Sheathing (every sheet good), then Deck, Frame and Other.
+and windows, partitions and gypsum board), Roof, Sheathing (every structural
+sheet good), then Deck, Frame and Other.
 A plugin member's system is its plugin's (:func:`system_for_plugin`). Within a
 system, lines run by member (in the order each first appears in the tree),
 then profile and material (likewise), then length, shortest first, so one
@@ -138,6 +139,7 @@ from loft_wire.price_book import (
     PriceUnit,
 )
 from loft_wire.sheet_goods import (
+    SheetMaterialKey,
     SheetSize,
     SheetSizeKey,
     covering_sheet,
@@ -252,6 +254,7 @@ PLUGIN_SYSTEMS: Final[Mapping[str, CutListSystem]] = {
     "loft.slab": "foundation",
     "loft.floor": "floor",
     "loft.wall": "walls",
+    "loft.interior_wall": "walls",
     "loft.window": "walls",
     "loft.door": "walls",
     "loft.roof": "roof",
@@ -277,6 +280,14 @@ def _drop_schema_default(schema: dict[str, Any]) -> None:
 
 #: A direction in world coordinates.
 Vec3 = tuple[float, float, float]
+
+
+def sheet_system(material: SheetMaterialKey) -> CutListSystem:
+    """The system a sheet good's panels are listed under: structural panels
+    (OSB, plywood) are Sheathing; gypsum board is a wall finish, listed with
+    the Walls it is hung on (INTERIOR-WALLS), as Chief Architect's materials
+    list keeps wallboard with the walls."""
+    return "walls" if material == "gypsum" else "sheathing"
 
 
 # --- geometry -> gateway ------------------------------------------------------------
@@ -361,8 +372,9 @@ class CutListLine(BaseModel):
 
     system: CutListSystem = Field(
         description="The group the line is listed under (Floor, Walls, Roof, "
-        "Sheathing, ...): its members' plugin's system; every sheet good is "
-        "'sheathing'; a body that is no plugin member is 'other'."
+        "Sheathing, ...): its members' plugin's system; a structural sheet "
+        "good is 'sheathing' and gypsum board 'walls'; a body that is no "
+        "plugin member is 'other'."
     )
     member: str | None = Field(
         description="Member role title (e.g. 'Joist'); null when the body is "
@@ -393,7 +405,7 @@ class CutListLine(BaseModel):
     )
     sheet: SheetSizeKey | None = Field(
         default=None,
-        description="A sheet line's sheet ('4x8', '4x9', '4x10'): the "
+        description="A sheet line's sheet ('4x8', '4x9', '4x10', '4x12'): the "
         "shortest that covers each of its panels; null for lumber, or for "
         "panels no sheet covers.",
     )
@@ -834,9 +846,9 @@ def classify_body(
                 length_mm=extents[0],
                 section_mm=(thickness, extents[1]),
                 count=count,
-                sheet=covering_sheet(extents[0], extents[1]),
+                sheet=covering_sheet(extents[0], extents[1], good),
                 area_mm2=body.volume_mm3 / thickness if thickness > 0 else 0.0,
-                system="sheathing",
+                system=sheet_system(good.material),
                 keep_grain=keep,
                 grain_mm=_across_along(body, joist_axis) if keep else None,
             )
@@ -981,8 +993,9 @@ def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
             turn=not any(p.keep_grain for p in pieces),
         )
         offcut = round(max(sheets * sheet.area_mm2 - area, 0.0), 6)
+    good = sheet_good_for(first.profile)
     return CutListLine(
-        system="sheathing",
+        system="sheathing" if good is None else sheet_system(good.material),
         member=", ".join(members) or None,
         profile=first.profile,
         material=first.material,

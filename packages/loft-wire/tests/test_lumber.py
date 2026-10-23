@@ -76,6 +76,7 @@ EXPECTED_DENSITIES: dict[str, float] = {
     "glass": 2500.0,
     "steel_a615": 7850.0,
     "steel_f1554": 7850.0,
+    "gypsum": 846.0,
 }
 
 KG_M3_PER_PCF = 16.018463373960138  # 0.45359237 kg / 0.3048^3 m^3

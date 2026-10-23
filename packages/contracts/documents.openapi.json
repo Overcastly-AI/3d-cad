@@ -761,7 +761,8 @@
               "pvc",
               "glass",
               "steel_a615",
-              "steel_f1554"
+              "steel_f1554",
+              "gypsum"
             ],
             "title": "Material",
             "type": "string"
@@ -8193,7 +8194,8 @@
               "pvc",
               "glass",
               "steel_a615",
-              "steel_f1554"
+              "steel_f1554",
+              "gypsum"
             ],
             "title": "Key",
             "type": "string"
@@ -8253,7 +8255,8 @@
                   "pvc",
                   "glass",
                   "steel_a615",
-                  "steel_f1554"
+                  "steel_f1554",
+                  "gypsum"
                 ],
                 "type": "string"
               },
@@ -8295,7 +8298,8 @@
                   "pvc",
                   "glass",
                   "steel_a615",
-                  "steel_f1554"
+                  "steel_f1554",
+                  "gypsum"
                 ],
                 "type": "string"
               },
@@ -8420,7 +8424,7 @@
             "type": "array"
           },
           "sheet_sizes": {
-            "description": "The sheets they are sold in, shortest first: 4x8, 4x9, 4x10.",
+            "description": "The sheets they are sold in, shortest first: 4x8, 4x9, 4x10, 4x12 (each product in its own: gypsum board in 4x8 and 4x12).",
             "items": {
               "$ref": "#/components/schemas/SheetSize"
             },
@@ -8486,7 +8490,8 @@
                   "pvc",
                   "glass",
                   "steel_a615",
-                  "steel_f1554"
+                  "steel_f1554",
+                  "gypsum"
                 ],
                 "type": "string"
               },
@@ -10812,7 +10817,8 @@
               "pvc",
               "glass",
               "steel_a615",
-              "steel_f1554"
+              "steel_f1554",
+              "gypsum"
             ],
             "title": "Material",
             "type": "string"
@@ -10855,7 +10861,9 @@
                 "enum": [
                   "osb_7_16",
                   "plywood_15_32",
-                  "plywood_23_32"
+                  "plywood_23_32",
+                  "gypsum_1_2",
+                  "gypsum_5_8"
                 ],
                 "type": "string"
               },
@@ -10881,7 +10889,8 @@
                 "enum": [
                   "4x8",
                   "4x9",
-                  "4x10"
+                  "4x10",
+                  "4x12"
                 ],
                 "type": "string"
               },
@@ -10889,7 +10898,7 @@
                 "type": "null"
               }
             ],
-            "description": "The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10'); null for lumber.",
+            "description": "The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10', '4x12'); null for lumber.",
             "title": "Sheet"
           },
           "stock_length_ft": {
@@ -12139,7 +12148,9 @@
             "enum": [
               "osb_7_16",
               "plywood_15_32",
-              "plywood_23_32"
+              "plywood_23_32",
+              "gypsum_1_2",
+              "gypsum_5_8"
             ],
             "title": "Key",
             "type": "string"
@@ -12148,7 +12159,8 @@
             "description": "Library material of the panels.",
             "enum": [
               "osb",
-              "plywood"
+              "plywood",
+              "gypsum"
             ],
             "title": "Material",
             "type": "string"
@@ -12767,13 +12779,14 @@
         "type": "object"
       },
       "SheetSize": {
-        "description": "One sheet size: 4 ft wide, 8, 9 or 10 ft long.",
+        "description": "One sheet size: 4 ft wide, 8, 9, 10 or 12 ft long.",
         "properties": {
           "key": {
             "enum": [
               "4x8",
               "4x9",
-              "4x10"
+              "4x10",
+              "4x12"
             ],
             "title": "Key",
             "type": "string"

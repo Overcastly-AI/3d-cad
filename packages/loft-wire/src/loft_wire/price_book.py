@@ -52,7 +52,9 @@ from loft_wire.lumber import STOCK_LENGTHS_FT, LumberProfileKey
 from loft_wire.materials import MaterialKey
 from loft_wire.opening_units import OpeningUnitKey
 from loft_wire.sheet_goods import (
+    SHEET_GOODS,
     SHEET_GOODS_BY_KEY,
+    SHEET_SIZES_FOR,
     SheetGoodKey,
     SheetSizeKey,
 )
@@ -132,7 +134,7 @@ class PriceBookEntry(BaseModel):
     sheet: SheetSizeKey | None = Field(
         default=None,
         description="The sheet a sheet product's 'each' price is for "
-        "('4x8', '4x9', '4x10'); null for lumber.",
+        "('4x8', '4x9', '4x10', '4x12'); null for lumber.",
     )
     price_cents: int = Field(
         strict=True,
@@ -176,10 +178,17 @@ class PriceBookEntry(BaseModel):
             if self.unit != "each" or self.sheet is None:
                 raise ValueError(
                     "A sheet product is priced 'each' per sheet: name its "
-                    "sheet (4x8, 4x9 or 4x10)."
+                    "sheet (4x8, 4x9, 4x10 or 4x12)."
                 )
             if self.stock_length_ft is not None:
                 raise ValueError("A sheet price has a sheet size, not a stock length.")
+            good = next(g for g in SHEET_GOODS if g.key == self.profile)
+            sold = SHEET_SIZES_FOR[good.material]
+            if self.sheet not in sold:
+                raise ValueError(
+                    f"{good.name} is sold in {', '.join(sold)} sheets, not "
+                    f"{self.sheet}."
+                )
             return self
         if self.sheet is not None:
             raise ValueError("Only a sheet product's price has a sheet size.")

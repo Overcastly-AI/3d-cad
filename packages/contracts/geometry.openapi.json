@@ -479,7 +479,8 @@
                   "pvc",
                   "glass",
                   "steel_a615",
-                  "steel_f1554"
+                  "steel_f1554",
+                  "gypsum"
                 ],
                 "type": "string"
               },
@@ -530,7 +531,8 @@
               "pvc",
               "glass",
               "steel_a615",
-              "steel_f1554"
+              "steel_f1554",
+              "gypsum"
             ],
             "title": "Material",
             "type": "string"
@@ -7108,7 +7110,8 @@
                   "pvc",
                   "glass",
                   "steel_a615",
-                  "steel_f1554"
+                  "steel_f1554",
+                  "gypsum"
                 ],
                 "type": "string"
               },

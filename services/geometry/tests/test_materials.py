@@ -203,7 +203,10 @@ class TestResolution:
         # Rebar and anchor-bolt steel, 490 pcf (SLAB): listed, never drawn.
         assert MATERIALS_BY_KEY["steel_a615"].density_kg_m3 == 7850.0
         assert MATERIALS_BY_KEY["steel_f1554"].density_kg_m3 == 7850.0
-        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 21
+        # Gypsum board, ASCE 7's 0.55 psf per 1/8 in: 52.8 pcf = 845.8 kg/m^3
+        # (INTERIOR-WALLS).
+        assert MATERIALS_BY_KEY["gypsum"].density_kg_m3 == 846.0
+        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 22
 
     def test_a_2x10_x_12ft_spf_member_weighs_the_hand_calculation(self) -> None:
         """LUMBER-MATERIALS: the kernel measures the member, the library weighs it.
