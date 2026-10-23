@@ -562,27 +562,32 @@ def test_nothing_interferes(step_solids: list[Solid]) -> None:
 #: length (in) or net area (in^2), stock; the members over 20 ft spliced from
 #: the cheapest pieces the book prices (CUT-LIST-LONG-STOCK). The eave walls'
 #: OSB is the round's 83 175.71875 in^2 less the notches (43.1005859375 /
-#: (7/16) = 98.515625 in^2).
+#: (7/16) = 98.515625 in^2). In the list's order (CUT-LIST-PANEL): the golden's
+#: members.json names no plugins, so the lumber is one Other group after the
+#: sheet goods' Sheathing, by member as it first appears in the tree, then
+#: profile and material (the floor's PT sills before the windows' SPF), then
+#: length. The app's list, with its plugins, is grouped Floor, Walls, Roof,
+#: Sheathing (house-b7.spec.ts).
 HOUSE: list[tuple[str, int, float, str]] = [
+    ("Subfloor", 14, 55296, "12 x 4x8"),
+    ("Sheathing", 24, 83175.71875 - 98.515625, "17 x 4x9"),
     ("Joist", 19, 189, "16 ft"),
     ("Rim", 2, 288, "16 ft + 8 ft"),
-    ("Sill", 2, 288, "2 x 12 ft"),
     ("Sill", 2, 181, "16 ft"),
-    ("Subfloor", 14, 55296, "12 x 4x8"),
+    ("Sill", 2, 288, "2 x 12 ft"),
+    ("Sill", 2, 24.5, "8 ft"),
+    ("Sill", 3, 36.5, "8 ft"),
     ("Stud", 60, 92.625, "8 ft"),
     ("Jack", 12, 81, "8 ft"),
+    ("Header", 4, 27.5, "8 ft"),
     ("Header", 6, 39.5, "8 ft"),
     ("Header", 2, 41, "8 ft"),
     ("Cripple", 14, 6.125, "8 ft"),
-    ("Sill", 3, 36.5, "8 ft"),
     ("Cripple", 7, 31, "8 ft"),
-    ("Top plate", 4, 288, "16 ft + 8 ft"),
-    ("Bottom plate", 2, 125, "12 ft"),
-    ("Sheathing", 24, 83175.71875 - 98.515625, "17 x 4x9"),
-    ("Header", 4, 27.5, "8 ft"),
-    ("Sill", 2, 24.5, "8 ft"),
     ("Cripple", 4, 43, "8 ft"),
     ("Top plate", 4, 181, "16 ft"),
+    ("Top plate", 4, 288, "16 ft + 8 ft"),
+    ("Bottom plate", 2, 125, "12 ft"),
     ("Bottom plate", 2, 181, "16 ft"),
     ("Bottom plate", 1, 288, "2 x 12 ft"),
     ("Rafter", 26, 123.5341, "12 ft"),

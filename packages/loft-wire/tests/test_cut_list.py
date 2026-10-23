@@ -242,3 +242,54 @@ def test_a_deleted_part_is_listed_not_dropped() -> None:
     assert cut_list_csv(response).endswith(
         ",Deleted part,Not listed,,,3,,,,,,,,,\r\n,Total,,,,,,,,,,,,,\r\n"
     )
+
+
+def test_lines_group_by_system_then_member_and_merge_across_features() -> None:
+    """CUT-LIST-PANEL: Floor, Walls, Roof, Sheathing, as a materials list
+    groups by category; one member's lines sit together whichever wall made
+    them, shortest first, and the same key from two walls is one line."""
+
+    def piece(body: BodyExtent, title: str, plugin: str, profile: str) -> CutListMember:
+        return CutListMember(
+            feature_id=body.base_feature_id,
+            role=title.lower(),
+            title=title,
+            plugin_id=plugin,
+            metadata=MemberMetadata(profile=profile),
+        )
+
+    two_by_six = (38.1, 139.7)
+    bodies: list[tuple[BodyExtent, str, str, str]] = [
+        (_body(*two_by_six, 39.5 * IN), "Header", "loft.wall", "2x6"),  # wall 1
+        (_body(*two_by_six, 181 * IN), "Sill", "loft.floor", "2x6"),
+        (_body(*two_by_six, 92.625 * IN), "Stud", "loft.wall", "2x6"),
+        (_body(*two_by_six, 27.5 * IN), "Header", "loft.window", "2x6"),  # wall 2
+        (_body(38.1, 184.15, 123.5 * IN), "Rafter", "loft.roof", "2x8"),
+        (_body(*two_by_six, 39.5 * IN), "Header", "loft.door", "2x6"),  # wall 3
+        (_body(*two_by_six, 36.5 * IN), "Sill", "loft.window", "2x6"),
+        (_body(*two_by_six, 50 * IN), "Brace", "acme.gizmo", "2x6"),
+    ]
+    members = [piece(*row) for row in bodies]
+    extents = BodyExtentsResult(
+        part_id=uuid.uuid4(), tree_version=1, bodies=[row[0] for row in bodies]
+    )
+    response = cut_list_response(
+        document_id=uuid.uuid4(),
+        document_kind="part",
+        name="House",
+        length_unit="in",
+        pieces=part_pieces(extents, members, None),
+    )
+    assert [
+        (line.system, line.member, line.quantity, round(line.length_mm / IN, 3))
+        for line in response.lines
+    ] == [
+        ("floor", "Sill", 1, 181.0),
+        ("walls", "Header", 1, 27.5),
+        ("walls", "Header", 2, 39.5),
+        ("walls", "Stud", 1, 92.625),
+        ("walls", "Sill", 1, 36.5),
+        ("roof", "Rafter", 1, 123.5),
+        ("other", "Brace", 1, 50.0),
+    ]
+    assert response.total_quantity == len(bodies)

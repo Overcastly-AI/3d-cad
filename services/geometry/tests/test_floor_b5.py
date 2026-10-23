@@ -56,12 +56,13 @@ SPF, PT = "spf_lumber", "southern_pine_pt"
 Row = tuple[str, str, str, int, float, int]
 
 #: buildings.md B5's floor cut list: member, profile, material, qty, length
-#: (in), stock (ft), in tree order.
+#: (in), stock (ft), by member as it first appears in the tree, then length
+#: (CUT-LIST-PANEL).
 FLOOR_16: list[Row] = [
     ("Joist", "2x8", SPF, 10, 117.0, 10),
     ("Rim", "2x8", SPF, 2, 144.0, 12),
-    ("Sill", "2x6", PT, 2, 144.0, 12),
     ("Sill", "2x6", PT, 2, 109.0, 10),
+    ("Sill", "2x6", PT, 2, 144.0, 12),
 ]
 TABLES: dict[str, list[Row]] = {
     "b5-floor-2x8-16oc": FLOOR_16,
@@ -71,10 +72,10 @@ TABLES: dict[str, list[Row]] = {
     "b5-shed-walls-on-floor": [
         *FLOOR_16,
         ("Stud", "2x4", SPF, 36, 92.625, 8),
-        ("Top plate", "2x4", SPF, 4, 144.0, 12),
-        ("Bottom plate", "2x4", PT, 2, 144.0, 12),
         ("Top plate", "2x4", SPF, 4, 113.0, 10),
+        ("Top plate", "2x4", SPF, 4, 144.0, 12),
         ("Bottom plate", "2x4", PT, 2, 113.0, 10),
+        ("Bottom plate", "2x4", PT, 2, 144.0, 12),
     ],
 }
 #: The spec's volumes (in^3): the floor's, and B2's walls' 25 601.625 on it.

@@ -31,8 +31,8 @@ type Row = [string, string, string, string];
 /** buildings.md B3's roof table: member, qty, overall length (in), stock. */
 const HIP_6_12: Row[] = [
   ["Common", "6", "82.4099", "8 ft"],
-  ["Jack", "8", "56.0683", "8 ft"],
   ["Jack", "8", "29.2355", "8 ft"],
+  ["Jack", "8", "56.0683", "8 ft"],
   // loft.roof 1.2.0 and later rip the hips' tails to the commons' depth
   // (ROOF-HIP-TAIL): 106.875 + 5.884 x 6/18 (1.1.0's full tail: 109.438).
   ["Hip", "4", "108.8363", "10 ft"],
@@ -43,8 +43,8 @@ const HIP_6_12: Row[] = [
  * on the line, each plus its long points (buildings.md B3 "Edits"). */
 const HIP_8_12: Row[] = [
   ["Common", "6", "89.2985", "8 ft"],
-  ["Jack", "8", "60.9821", "8 ft"],
   ["Jack", "8", "32.1377", "8 ft"],
+  ["Jack", "8", "60.9821", "8 ft"],
   ["Hip", "4", "114.0652", "10 ft"],
   ["Ridge", "1", "25.5", "8 ft"],
 ];

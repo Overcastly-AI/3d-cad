@@ -1688,6 +1688,21 @@
           "metadata": {
             "$ref": "#/components/schemas/MemberMetadata"
           },
+          "plugin_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 3,
+                "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plugin that generated the member ('loft.wall'): the cut list groups its lines by the plugin's system. Absent when unknown (listed under 'other').",
+            "title": "Plugin Id"
+          },
           "role": {
             "description": "Manifest role, e.g. 'joist'.",
             "maxLength": 64,

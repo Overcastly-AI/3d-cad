@@ -2825,6 +2825,11 @@ export interface components {
             feature_id: string;
             metadata: components["schemas"]["MemberMetadata"];
             /**
+             * Plugin Id
+             * @description The plugin that generated the member ('loft.wall'): the cut list groups its lines by the plugin's system. Absent when unknown (listed under 'other').
+             */
+            plugin_id?: string | null;
+            /**
              * Role
              * @description Manifest role, e.g. 'joist'.
              */

@@ -35,16 +35,16 @@ const WALLS: [string, number, number, number, number][] = [
 /** buildings.md B4's roof table at overall lengths; loft.roof 1.2.0 and later rip
  * the hip and valley tails to the commons' depth (ROOF-HIP-TAIL). */
 const ROOF: CutRow[] = [
-  ["Common", "18", "82.4099", "8 ft"],
   ["Common", "2", "82.0626", "8 ft"],
-  ["Jack", "10", "56.0683", "8 ft"],
+  ["Common", "18", "82.4099", "8 ft"],
   ["Jack", "10", "29.2355", "8 ft"],
-  ["Valley jack", "2", "55.2298", "8 ft"],
+  ["Jack", "10", "56.0683", "8 ft"],
   ["Valley jack", "2", "28.397", "8 ft"],
+  ["Valley jack", "2", "55.2298", "8 ft"],
   ["Hip", "5", "108.8363", "10 ft"],
   ["Valley", "1", "109.6318", "10 ft"],
-  ["Ridge", "1", "121.5", "12 ft"],
   ["Ridge", "1", "120", "10 ft"],
+  ["Ridge", "1", "121.5", "12 ft"],
 ];
 
 /** The walls' 85 members come first in tree order; the roof's rows last. */

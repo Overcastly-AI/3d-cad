@@ -38,6 +38,7 @@ const RESPONSE: CutListResponse = {
   unpriced_lines: 2,
   lines: [
     {
+      system: "deck",
       member: "Joist",
       profile: "2x10",
       material: "southern_pine_pt",
@@ -55,6 +56,7 @@ const RESPONSE: CutListResponse = {
       extended_price_cents: 25974,
     },
     {
+      system: "other",
       member: null,
       profile: "6x6",
       material: "southern_pine_pt",
@@ -73,6 +75,7 @@ const RESPONSE: CutListResponse = {
       extended_price_cents: null,
     },
     {
+      system: "other",
       member: null,
       profile: null,
       material: null,
@@ -263,6 +266,7 @@ describe("CutListPanel", () => {
       unpriced_lines: 1,
       lines: [
         {
+          system: "sheathing",
           member: "Sheathing",
           profile: "7/16 OSB",
           material: "osb",
@@ -309,6 +313,7 @@ describe("CutListPanel", () => {
   it("shows a long member's splice and prices it per member", async () => {
     // B7's 288 in top plates and sills (CUT-LIST-LONG-STOCK): 24 ft, spliced.
     const plate = {
+      system: "walls",
       member: "Top plate",
       profile: "2x6",
       material: "southern_pine_pt",
@@ -389,6 +394,7 @@ describe("CutListPanel", () => {
       unpriced_lines: 1,
       lines: [
         {
+          system: "floor",
           member: "Rim",
           profile: "2x6",
           material: "southern_pine_pt",

@@ -4521,7 +4521,8 @@ export interface components {
         };
         /**
          * CutListLine
-         * @description One line: pieces with the same member, profile, material and length.
+         * @description One line: pieces with the same system, member, profile, material and
+         *     length.
          */
         CutListLine: {
             /**
@@ -4591,6 +4592,12 @@ export interface components {
              * @description Stock units bought for the line (the CSV's Stock qty): one per piece (until pieces are nested), a spliced piece's stock_pieces_ft counting as ONE set; for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.
              */
             stock_quantity: number | null;
+            /**
+             * System
+             * @description The group the line is listed under (Floor, Walls, Roof, Sheathing, ...): its members' plugin's system; every sheet good is 'sheathing'; a body that is no plugin member is 'other'.
+             * @enum {string}
+             */
+            system: "floor" | "walls" | "roof" | "sheathing" | "deck" | "frame" | "other";
             /**
              * Total Length Mm
              * @description quantity x length; for a sheet line, the sheets' lengths (stock_quantity x length).

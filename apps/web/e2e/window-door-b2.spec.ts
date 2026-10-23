@@ -36,33 +36,33 @@ const WALLS: [string, number, number, number, number][] = [
 const DOOR_WINDOW: CutRow[] = [
   ["Stud", "36", "92.625", "8 ft"],
   ["Jack", "4", "81", "8 ft"],
+  ["Header", "2", "27.5", "8 ft"],
   ["Header", "2", "41", "8 ft"],
   ["Cripple", "4", "6.125", "8 ft"],
+  ["Cripple", "2", "43", "8 ft"],
+  ["Top plate", "4", "113", "10 ft"],
   ["Top plate", "4", "144", "12 ft"],
   ["Bottom plate", "2", "53", "8 ft"],
-  ["Top plate", "4", "113", "10 ft"],
   ["Bottom plate", "2", "113", "10 ft"],
   ["Bottom plate", "1", "144", "12 ft"],
-  ["Header", "2", "27.5", "8 ft"],
   ["Sill", "1", "24.5", "8 ft"],
-  ["Cripple", "2", "43", "8 ft"],
 ];
 
 /** "Door moved 24 in": 7 layout studs and 3 top cripples on the front wall. */
 const DOOR_MOVED: CutRow[] = [
   ["Stud", "35", "92.625", "8 ft"],
   ["Jack", "4", "81", "8 ft"],
+  ["Header", "2", "27.5", "8 ft"],
   ["Header", "2", "41", "8 ft"],
   ["Cripple", "5", "6.125", "8 ft"],
+  ["Cripple", "2", "43", "8 ft"],
+  ["Top plate", "4", "113", "10 ft"],
   ["Top plate", "4", "144", "12 ft"],
   ["Bottom plate", "1", "29", "8 ft"],
   ["Bottom plate", "1", "77", "8 ft"],
-  ["Top plate", "4", "113", "10 ft"],
   ["Bottom plate", "2", "113", "10 ft"],
   ["Bottom plate", "1", "144", "12 ft"],
-  ["Header", "2", "27.5", "8 ft"],
   ["Sill", "1", "24.5", "8 ft"],
-  ["Cripple", "2", "43", "8 ft"],
 ];
 
 test.describe("Window and Door — hosted openings framed by B2's walls", () => {

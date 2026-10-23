@@ -3040,7 +3040,7 @@
         "type": "object"
       },
       "CutListLine": {
-        "description": "One line: pieces with the same member, profile, material and length.",
+        "description": "One line: pieces with the same system, member, profile, material and\nlength.",
         "properties": {
           "area_mm2": {
             "anyOf": [
@@ -3228,6 +3228,20 @@
             "description": "Stock units bought for the line (the CSV's Stock qty): one per piece (until pieces are nested), a spliced piece's stock_pieces_ft counting as ONE set; for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.",
             "title": "Stock Quantity"
           },
+          "system": {
+            "description": "The group the line is listed under (Floor, Walls, Roof, Sheathing, ...): its members' plugin's system; every sheet good is 'sheathing'; a body that is no plugin member is 'other'.",
+            "enum": [
+              "floor",
+              "walls",
+              "roof",
+              "sheathing",
+              "deck",
+              "frame",
+              "other"
+            ],
+            "title": "System",
+            "type": "string"
+          },
           "total_length_mm": {
             "description": "quantity x length; for a sheet line, the sheets' lengths (stock_quantity x length).",
             "minimum": 0.0,
@@ -3261,6 +3275,7 @@
           }
         },
         "required": [
+          "system",
           "member",
           "profile",
           "material",

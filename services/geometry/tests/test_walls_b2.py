@@ -59,40 +59,42 @@ GOLDENS = Path(__file__).resolve().parent.parent / "goldens"
 IN = 25.4
 SPF, PT = "spf_lumber", "southern_pine_pt"
 
-#: B2 with its door and window: buildings.md's wall cut list, in tree order
-#: (front wall first; kings are studs as the spec lists them).
+#: B2 with its door and window: buildings.md's wall cut list in the list's
+#: order (CUT-LIST-PANEL): by member as it first appears in the tree (front
+#: wall first; kings are studs as the spec lists them), then length.
 DOOR_WINDOW: list[tuple[str, str, str, int, float, int]] = [
     ("Stud", "2x4", SPF, 36, 92.625, 8),
     ("Jack", "2x4", SPF, 4, 81.0, 8),
+    ("Header", "2x6", SPF, 2, 27.5, 8),
     ("Header", "2x6", SPF, 2, 41.0, 8),
     ("Cripple", "2x4", SPF, 4, 6.125, 8),
+    ("Cripple", "2x4", SPF, 2, 43.0, 8),
+    ("Top plate", "2x4", SPF, 4, 113.0, 10),
     ("Top plate", "2x4", SPF, 4, 144.0, 12),
     ("Bottom plate", "2x4", PT, 2, 53.0, 8),
-    ("Top plate", "2x4", SPF, 4, 113.0, 10),
     ("Bottom plate", "2x4", PT, 2, 113.0, 10),
     ("Bottom plate", "2x4", PT, 1, 144.0, 12),
-    ("Header", "2x6", SPF, 2, 27.5, 8),
     ("Sill", "2x4", SPF, 1, 24.5, 8),
-    ("Cripple", "2x4", SPF, 2, 43.0, 8),
 ]
 
 #: buildings.md B2's wall cut list with no openings: member, profile,
-#: material, qty, length (in), stock (ft), in tree order (front wall first).
+#: material, qty, length (in), stock (ft), by member as it first appears in
+#: the tree (front wall first), then length.
 TABLES: dict[str, list[tuple[str, str, str, int, float, int]]] = {
     "b2-walls-no-openings-16oc": [
         ("Stud", "2x4", SPF, 36, 92.625, 8),
-        ("Top plate", "2x4", SPF, 4, 144.0, 12),
-        ("Bottom plate", "2x4", PT, 2, 144.0, 12),
         ("Top plate", "2x4", SPF, 4, 113.0, 10),
+        ("Top plate", "2x4", SPF, 4, 144.0, 12),
         ("Bottom plate", "2x4", PT, 2, 113.0, 10),
+        ("Bottom plate", "2x4", PT, 2, 144.0, 12),
     ],
     # "spacing 16 -> 24 gives 26 studs".
     "b2-walls-no-openings-24oc": [
         ("Stud", "2x4", SPF, 26, 92.625, 8),
-        ("Top plate", "2x4", SPF, 4, 144.0, 12),
-        ("Bottom plate", "2x4", PT, 2, 144.0, 12),
         ("Top plate", "2x4", SPF, 4, 113.0, 10),
+        ("Top plate", "2x4", SPF, 4, 144.0, 12),
         ("Bottom plate", "2x4", PT, 2, 113.0, 10),
+        ("Bottom plate", "2x4", PT, 2, 144.0, 12),
     ],
     # The default 144 wall turned 30 degrees: the same list as one B2 front
     # wall, read from turned bodies.
@@ -107,38 +109,38 @@ TABLES: dict[str, list[tuple[str, str, str, int, float, int]]] = {
     "b2-walls-door-moved-24": [
         ("Stud", "2x4", SPF, 35, 92.625, 8),
         ("Jack", "2x4", SPF, 4, 81.0, 8),
+        ("Header", "2x6", SPF, 2, 27.5, 8),
         ("Header", "2x6", SPF, 2, 41.0, 8),
         ("Cripple", "2x4", SPF, 5, 6.125, 8),
+        ("Cripple", "2x4", SPF, 2, 43.0, 8),
+        ("Top plate", "2x4", SPF, 4, 113.0, 10),
         ("Top plate", "2x4", SPF, 4, 144.0, 12),
         ("Bottom plate", "2x4", PT, 1, 29.0, 8),
         ("Bottom plate", "2x4", PT, 1, 77.0, 8),
-        ("Top plate", "2x4", SPF, 4, 113.0, 10),
         ("Bottom plate", "2x4", PT, 2, 113.0, 10),
         ("Bottom plate", "2x4", PT, 1, 144.0, 12),
-        ("Header", "2x6", SPF, 2, 27.5, 8),
         ("Sill", "2x4", SPF, 1, 24.5, 8),
-        ("Cripple", "2x4", SPF, 2, 43.0, 8),
     ],
     # "Window 24 -> 30 in wide: header 33.5, sill 30.5, still 2 top and 2
     # bottom cripples."
     "b2-walls-window-30": [
-        *DOOR_WINDOW[:9],
+        *DOOR_WINDOW[:2],
         ("Header", "2x6", SPF, 2, 33.5, 8),
+        *DOOR_WINDOW[3:11],
         ("Sill", "2x4", SPF, 1, 30.5, 8),
-        ("Cripple", "2x4", SPF, 2, 43.0, 8),
     ],
     # "Door deleted: the front wall has 10 full studs and one 144 bottom plate."
     "b2-walls-door-deleted": [
         ("Stud", "2x4", SPF, 36, 92.625, 8),
-        ("Top plate", "2x4", SPF, 4, 144.0, 12),
-        ("Bottom plate", "2x4", PT, 2, 144.0, 12),
         ("Top plate", "2x4", SPF, 4, 113.0, 10),
+        ("Top plate", "2x4", SPF, 4, 144.0, 12),
         ("Bottom plate", "2x4", PT, 2, 113.0, 10),
+        ("Bottom plate", "2x4", PT, 2, 144.0, 12),
         ("Jack", "2x4", SPF, 2, 81.0, 8),
         ("Header", "2x6", SPF, 2, 27.5, 8),
         ("Cripple", "2x4", SPF, 2, 6.125, 8),
-        ("Sill", "2x4", SPF, 1, 24.5, 8),
         ("Cripple", "2x4", SPF, 2, 43.0, 8),
+        ("Sill", "2x4", SPF, 1, 24.5, 8),
     ],
 }
 #: The spec's volumes (in^3); the 30 degree wall is 10 studs and 3 plates.
