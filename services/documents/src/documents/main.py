@@ -28,6 +28,7 @@ from documents.assemblies import router as assemblies_router
 from documents.assembly_joints import router as assembly_joints_router
 from documents.assembly_mirrors import router as assembly_mirrors_router
 from documents.assembly_patterns import router as assembly_patterns_router
+from documents.body_names import router as body_names_router
 from documents.custom_features import router as plugins_router
 from documents.cut_list import router as cut_list_router
 from documents.drawings import router as drawings_router
@@ -108,6 +109,7 @@ def build_app(settings: DocumentsSettings | None = None) -> FastAPI:
     # First-party plugin manifests (RESEARCH §23): the Build toolbar's tools.
     app.include_router(plugins_router)
     app.include_router(cut_list_router)
+    app.include_router(body_names_router)
     app.include_router(price_book_router)
     app.include_router(assemblies_router)
     app.include_router(assembly_joints_router)

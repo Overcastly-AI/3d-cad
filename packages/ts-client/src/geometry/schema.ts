@@ -1322,6 +1322,23 @@ export interface components {
             material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass";
         };
         /**
+         * BodyName
+         * @description One body's name, keyed by the body's identity (multi-body §MB-0).
+         */
+        BodyName: {
+            /**
+             * Base Feature Id
+             * Format: uuid
+             * @description Id of the feature (or plugin member) that created the body
+             */
+            base_feature_id: string;
+            /**
+             * Name
+             * @description The body's name, whitespace-trimmed
+             */
+            name: string;
+        };
+        /**
          * BooleanFeature
          * @description ``{"type": "boolean", "version": 1, "params": {...}}`` envelope.
          *
@@ -4389,6 +4406,11 @@ export interface components {
              * @default 0.1
              */
             angular_deflection: number;
+            /**
+             * Body Names
+             * @description The part's named bodies (BODY-NAMES): each names the STEP solids of the body its id created. A body left out keeps no name of its own. EXPORT-only, like `name`: a name is never an input to geometry.
+             */
+            body_names?: components["schemas"]["BodyName"][];
             /**
              * Features
              * @description Ordered prefix (rollback already applied), bounded by MAX_TREE_FEATURES (work bound, audit G2)

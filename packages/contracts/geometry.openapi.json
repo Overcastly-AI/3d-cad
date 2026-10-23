@@ -475,6 +475,30 @@
         "title": "BodyMaterialAssignment",
         "type": "object"
       },
+      "BodyName": {
+        "description": "One body's name, keyed by the body's identity (multi-body \u00a7MB-0).",
+        "properties": {
+          "base_feature_id": {
+            "description": "Id of the feature (or plugin member) that created the body",
+            "format": "uuid",
+            "title": "Base Feature Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The body's name, whitespace-trimmed",
+            "maxLength": 400,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_feature_id",
+          "name"
+        ],
+        "title": "BodyName",
+        "type": "object"
+      },
       "BooleanFeature": {
         "description": "``{\"type\": \"boolean\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-affecting feature that fuses two independently-built bodies\n(docs/design/multi-body.md \u00a7Decisions-3 / \u00a7MB-1): unlike extrude/revolve/\u2026\nit consumes no sketch and produces no new primitive \u2014 it combines two\nexisting bodies named by their base features. ``params`` is\n:class:`BooleanParamsV1` (``union`` wired in MB-1a; ``subtract``/``intersect``\ndefined, wired in MB-2).",
         "properties": {
@@ -4717,6 +4741,15 @@
             "minimum": 0.01,
             "title": "Angular Deflection",
             "type": "number"
+          },
+          "body_names": {
+            "description": "The part's named bodies (BODY-NAMES): each names the STEP solids of the body its id created. A body left out keeps no name of its own. EXPORT-only, like `name`: a name is never an input to geometry.",
+            "items": {
+              "$ref": "#/components/schemas/BodyName"
+            },
+            "maxItems": 1000,
+            "title": "Body Names",
+            "type": "array"
           },
           "features": {
             "description": "Ordered prefix (rollback already applied), bounded by MAX_TREE_FEATURES (work bound, audit G2)",

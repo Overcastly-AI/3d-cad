@@ -81,6 +81,7 @@ from documents.custom_features import (
 )
 from documents.duplicate import remap_ids, taken_names
 from documents.features import (
+    part_body_names,
     part_materials,
     reject_import_with_prior_body,
     validate_references,
@@ -150,6 +151,7 @@ async def build_loft_tree(session: AsyncSession, part: db.Part) -> LoftTree:
         rollback_feature_id=part.rollback_feature_id,
         features=features,
         parameters=stored_parameters(part),
+        body_names=part_body_names(part),
     )
 
 
@@ -377,7 +379,7 @@ def check_tree(tree: LoftTree) -> list[tuple[int, JsonObject]]:
 
 def remap_tree(tree: LoftTree, mapping: dict[str, str]) -> LoftTree:
     """*tree* with its ids re-minted: features, params (topo names included),
-    per-body materials and the travel stop. No mapping, no change."""
+    per-body materials and names, and the travel stop. No mapping, no change."""
     if not mapping:
         return tree
 
@@ -407,6 +409,10 @@ def remap_tree(tree: LoftTree, mapping: dict[str, str]) -> LoftTree:
                 if tree.rollback_feature_id is None
                 else new(tree.rollback_feature_id)
             ),
+            "body_names": [
+                body.model_copy(update={"base_feature_id": new(body.base_feature_id)})
+                for body in tree.body_names
+            ],
         }
     )
 
@@ -538,6 +544,10 @@ async def import_loft(
         folder_id=None,
         length_unit=tree.length_unit,
         materials=materials,
+        body_names=remap_ids(
+            [body.model_dump(mode="json") for body in tree.body_names], mapping
+        )
+        or None,
         parameters=parameters,
         tree_version=1,
     )

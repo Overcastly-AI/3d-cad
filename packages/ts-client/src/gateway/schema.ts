@@ -3135,6 +3135,23 @@ export interface components {
             material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass";
         };
         /**
+         * BodyName
+         * @description One body's name, keyed by the body's identity (multi-body §MB-0).
+         */
+        BodyName: {
+            /**
+             * Base Feature Id
+             * Format: uuid
+             * @description Id of the feature (or plugin member) that created the body
+             */
+            base_feature_id: string;
+            /**
+             * Name
+             * @description The body's name, whitespace-trimmed
+             */
+            name: string;
+        };
+        /**
          * BomLine
          * @description One line of an assembly's bill of materials.
          *
@@ -10523,6 +10540,11 @@ export interface components {
          */
         PartResponse: {
             /**
+             * Body Names
+             * @description The user's body renames (BODY-NAMES), one per body, keyed by the id of the feature or plugin member that created it. Empty when no body was renamed. A rename naming a body the tree no longer makes is inert.
+             */
+            body_names?: components["schemas"]["BodyName"][];
+            /**
              * Created At
              * Format: date-time
              */
@@ -10603,6 +10625,11 @@ export interface components {
          *     evaluate stops applying (see ``materials`` below).
          */
         PartUpdate: {
+            /**
+             * Body Names
+             * @description Replace the part's WHOLE set of body renames (BODY-NAMES): one name per body, keyed by the id of the feature or plugin member that created it. A rename wins over a member body's own name ('Front wall · Stud 3'). Omitted/null leaves them untouched; an empty list clears them. Display metadata only: the recorded evaluate stays current.
+             */
+            body_names?: components["schemas"]["BodyName"][] | null;
             /**
              * Expected Tree Version
              * @description Optimistic-concurrency guard: the tree_version the client last saw; a stale value is rejected 422 (feature-tree.md §1.2)

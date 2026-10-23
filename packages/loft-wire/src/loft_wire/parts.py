@@ -18,6 +18,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
+from loft_wire.body_names import BodyName, BodyNameList
 from loft_wire.folders import FOLDER_ID_DESCRIPTION
 from loft_wire.materials import EMPTY_MATERIAL_ASSIGNMENT, MaterialAssignment
 from loft_wire.units import DEFAULT_LENGTH_UNIT, LengthUnit
@@ -220,6 +221,14 @@ class PartUpdate(BaseModel):
         "Unlike a rename or a unit change this DOES invalidate the recorded "
         "evaluate: mass is derived from it.",
     )
+    body_names: BodyNameList | None = Field(
+        default=None,
+        description="Replace the part's WHOLE set of body renames (BODY-NAMES): "
+        "one name per body, keyed by the id of the feature or plugin member that "
+        "created it. A rename wins over a member body's own name ('Front wall · "
+        "Stud 3'). Omitted/null leaves them untouched; an empty list clears "
+        "them. Display metadata only: the recorded evaluate stays current.",
+    )
 
 
 class PartEvaluationRecord(BaseModel):
@@ -283,6 +292,13 @@ class PartResponse(BaseModel):
         "A stored NULL reads back as that empty assignment so a consumer has "
         "ONE shape to render, never null-vs-empty."
     )
+    body_names: list[BodyName] = Field(
+        default_factory=list[BodyName],
+        description="The user's body renames (BODY-NAMES), one per body, keyed "
+        "by the id of the feature or plugin member that created it. Empty when "
+        "no body was renamed. A rename naming a body the tree no longer makes is "
+        "inert.",
+    )
     tree_version: int = Field(
         ge=0,
         description="The part's CURRENT monotonic optimistic-concurrency counter "
@@ -344,6 +360,12 @@ class PartResponse(BaseModel):
         the same honest state (docs/design/materials.md §2).
         """
         return EMPTY_MATERIAL_ASSIGNMENT if value is None else value
+
+    @field_validator("body_names", mode="before")
+    @classmethod
+    def _none_renamed(cls, value: object) -> object:
+        """A stored NULL is "no body renamed": one shape on the wire."""
+        return [] if value is None else value
 
 
 class PartListResponse(BaseModel):

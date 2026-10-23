@@ -250,6 +250,14 @@ class Part(Base):
     materials: Mapped[dict[str, Any] | None] = mapped_column(
         _JSON_VARIANT, nullable=True
     )
+    #: The user's body renames (BODY-NAMES): a serialized
+    #: :class:`~loft_wire.body_names.BodyNameList`, one name per body keyed by
+    #: the id of the feature or member that created it. NULL is "no body
+    #: renamed", which every part older than migration 0026 reads as. Display
+    #: metadata: never sent to geometry's evaluate.
+    body_names: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        _JSON_VARIANT, nullable=True
+    )
     #: The parameter table (PART-PARAMETERS, RESEARCH §20): ordered
     #: :class:`~loft_wire.parameters.PartParameter` rows, each with its resolved
     #: ``value``. Always the output of ``resolve_parameters``; '[]' for every

@@ -30,6 +30,7 @@ from pydantic import (
     model_validator,
 )
 
+from loft_wire.body_names import BodyName, BodyNameList
 from loft_wire.body_types import (
     BASE_BODY_AFFECTING_FEATURE_TYPES as BASE_BODY_AFFECTING_FEATURE_TYPES,
 )
@@ -3369,6 +3370,13 @@ class ExportTreeRequest(EvaluateTreeRequest):
         "STEP PRODUCT / 3MF object and the download filename; omitted / null falls "
         "back to the part id. EXPORT-only on purpose (see DocumentName) — it is not "
         "on EvaluateTreeRequest, because a name must never be an input to geometry.",
+    )
+    body_names: BodyNameList = Field(
+        default_factory=list[BodyName],
+        exclude_if=lambda names: not names,
+        description="The part's named bodies (BODY-NAMES): each names the STEP "
+        "solids of the body its id created. A body left out keeps no name of its "
+        "own. EXPORT-only, like `name`: a name is never an input to geometry.",
     )
 
 
