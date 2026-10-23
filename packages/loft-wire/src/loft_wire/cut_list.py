@@ -55,7 +55,8 @@ bodies (a frame and its glazing, or a frame and a door's slab) are ONE piece,
 listed on the body its metadata marks ``counted`` (the frame), the others
 skipped. Units group by system (Walls, their plugin's), kind, size and
 material, one Each line ("Window 3040 x 3"), priced by the book's entry for
-their key (``window_3040``) and frame material. A custom size has no key and stays unpriced.
+their key (``window_3040``) and frame material. A custom size has no key and
+stays unpriced.
 
 Prices (PRICE-BOOK, RESEARCH §27) come from the user's
 :mod:`loft_wire.price_book`: each line is priced on the stock pieces bought
@@ -707,6 +708,7 @@ def order_lines(lines: Sequence[CutListLine]) -> list[CutListLine]:
         length = 0.0 if line.area_mm2 is not None else line.length_mm
         keys.append((SYSTEM_ORDER.index(system), member, profile, material, length))
     return [lines[i] for i in sorted(range(len(lines)), key=keys.__getitem__)]
+
 
 def _unit_line(
     piece: CutListPiece, unit: OpeningUnitPart, quantity: int

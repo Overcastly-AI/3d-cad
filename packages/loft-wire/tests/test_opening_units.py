@@ -51,6 +51,7 @@ def unit_member(
         feature_id=b.base_feature_id,
         role=role,
         title=role.capitalize(),
+        plugin_id=f"loft.{kind}",
         metadata=MemberMetadata(
             profile=profile,
             material=material,
@@ -148,6 +149,8 @@ def test_a_unit_is_one_each_line_on_its_frame() -> None:
         ("Window", "3040", "pvc", 3, "window", "window_3040", 3, 28900, "each", 86700),
         ("Door", "3068", "spf_lumber", 1, "door", "door_3068", 1, 44900, "each", 44900),
     ]
+    # Listed under Walls, as a hosted opening's framing is (CUT-LIST-PANEL).
+    assert [line.system for line in cut_list.lines] == ["walls", "walls"]
     # The glass and the slab are part of their units: never a line.
     assert cut_list.total_quantity == 4
     assert cut_list.total_price_cents == 86700 + 44900
