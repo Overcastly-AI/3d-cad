@@ -6,12 +6,12 @@ OSB, with the door and window, standing on it, on STEP.
 ``packages/loft-plugins/tests/test_sheathing.py``. The BACKLOG asks, each
 checked here against numbers typed from the spec by hand:
 
-1. the cut list counts sheets by area, as Chief Architect does: OSB 12
-   panels and 4 corner rips lapping the side walls past the front and back
-   walls' ends (3.9375 x 97.125), 47 422.71875 in^2, 10 sheets of 4x9 (the
-   walls are 97.125 tall); plywood
-   6 panels, 17 280 in^2, 4 sheets of 4x8 (3.75 by area); at $24.98 a 4x9 OSB
-   sheet and $42.50 a 4x8 plywood sheet the lines extend to $249.80 and
+1. the cut list buys the sheets the panels are cut from
+   (SHEET-COUNT-PIECES): OSB 12 panels and 4 corner rips lapping the side
+   walls past the front and back walls' ends (3.9375 x 97.125),
+   47 422.71875 in^2, 12 sheets of 4x9 (the walls are 97.125 tall; 10 by
+   area); plywood 6 panels, 17 280 in^2, 4 sheets of 4x8; at $24.98 a 4x9
+   OSB sheet and $42.50 a 4x8 plywood sheet the lines extend to $299.76 and
    $170.00;
 2. the exported STEP's solids are, solid for solid, an independent build123d
    script of the spec's members (panels as boxes less the rough openings),
@@ -270,7 +270,7 @@ SHEET_BOOK = _book(
 )
 
 
-def test_the_cut_list_buys_sheets_by_area() -> None:
+def test_the_cut_list_buys_the_sheets_the_panels_are_cut_from() -> None:
     request = _request()
     cut_list = cut_list_response(
         document_id=request.part_id,
@@ -290,19 +290,36 @@ def test_the_cut_list_buys_sheets_by_area() -> None:
             line.sheet,
             round((line.area_mm2 or 0) / IN**2, 6),
             line.stock_quantity,
+            round((line.offcut_area_mm2 or 0) / IN**2, 6),
             line.unit_price_cents,
             line.extended_price_cents,
         )
         for line in sheets
     ]
     assert rows == [
-        ("Subfloor", "23/32 plywood", "plywood", 6, "4x8", 17280, 4, 4250, 17000),
-        ("Sheathing", "7/16 OSB", "osb", 16, "4x9", 47422.71875, 10, 2498, 24980),
+        ("Subfloor", "23/32 plywood", "plywood", 6, "4x8", 17280, 4, 1152, 4250, 17000),
+        (
+            "Sheathing",
+            "7/16 OSB",
+            "osb",
+            16,
+            "4x9",
+            47422.71875,
+            12,
+            14785.28125,
+            2498,
+            29976,
+        ),
     ]
-    # By hand: 17 280 / 4 608 = 3.75 -> 4; 47 422.71875 / 5 184 = 9.15 -> 10.
-    assert 17280 / (48 * 96) == 3.75
+    # By hand. Plywood: two 96 x 48 whole; the 96 x 24 takes a third sheet
+    # and the 48 x 24 comes from its rip; a 48 x 48 takes the fourth and the
+    # other is its end. OSB: the 10 panels 48 wide (openings are cut out of
+    # whole panels) take 10; the first 17 an 11th, the second 17 its 31 in
+    # rip, which then holds three 3.9375 rips (14 - 3 x 3.9375 = 2.1875);
+    # the fourth rip a 12th. By area it was 10 (47 422.71875 / 5 184 = 9.15).
     assert math.ceil(47422.71875 / (48 * 108)) == 10
-    assert 4 * 4250 == 17000 and 10 * 2498 == 24980
+    assert 4 * 48 * 96 - 17280 == 1152 and 12 * 48 * 108 - 47422.71875 == 14785.28125
+    assert 4 * 4250 == 17000 and 12 * 2498 == 29976
     # The framing's lines are B5's floor and B2's door-and-window walls.
     lumber = Counter(
         (line.member, line.profile, line.quantity, round(line.length_mm / IN, 6))
@@ -312,7 +329,7 @@ def test_the_cut_list_buys_sheets_by_area() -> None:
     assert sum(q for (_, _, q, _) in lumber.elements()) == 16 + 64
     assert cut_list.unclassified == 0
     assert cut_list.unpriced_lines == len(cut_list.lines) - 2
-    assert cut_list.total_price_cents == 17000 + 24980
+    assert cut_list.total_price_cents == 17000 + 29976
 
 
 def test_the_csv_shows_the_area_and_the_sheet() -> None:
@@ -329,7 +346,7 @@ def test_the_csv_shows_the_area_and_the_sheet() -> None:
     plywood = next(r for r in rows if "23/32 plywood" in r)
     osb = next(r for r in rows if "7/16 OSB" in r)
     assert plywood.endswith(",6,,,17280,4x8 sheet,,4,42.50,Each,170.00")
-    assert osb.endswith(",16,,,47422.7188,4x9 sheet,,10,24.98,Each,249.80")
+    assert osb.endswith(",16,,,47422.7188,4x9 sheet,,12,24.98,Each,299.76")
 
 
 # --- 2. The STEP against the spec and an independent script -------------------------

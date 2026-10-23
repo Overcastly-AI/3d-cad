@@ -4588,6 +4588,11 @@ export interface components {
              */
             member: string | null;
             /**
+             * Offcut Area Mm2
+             * @description A sheet line's offcut (mm^2): its sheets' area less its net area (the offcuts and the openings cut out). Null for lumber, or for panels no sheet covers.
+             */
+            offcut_area_mm2?: number | null;
+            /**
              * Price Unit
              * @description Which entry priced the line: 'each' for its stock length, else 'linear_foot', else 'board_foot'; null when unpriced.
              */
@@ -4621,7 +4626,7 @@ export interface components {
             stock_pieces_ft?: number[] | null;
             /**
              * Stock Quantity
-             * @description Stock units bought for the line (the CSV's Stock qty): one per piece (until pieces are nested), a spliced piece's stock_pieces_ft counting as ONE set; for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.
+             * @description Stock units bought for the line (the CSV's Stock qty): one per piece (until pieces are nested), a spliced piece's stock_pieces_ft counting as ONE set; for a sheet line, the sheets its panels are cut from (each panel a sheet unless an earlier offcut covers it whole); null with no stock length or sheet.
              */
             stock_quantity: number | null;
             /**

@@ -308,8 +308,12 @@ plywood 4x8 at $42.50.
   (3.5 + 7/16) x 97.125, 1 529.71875 in², X -7/16..0 and 144..144 7/16 at
   Y -7/16..3.5 and 116.5..120 7/16. That is 16 panels and 47 422.71875 in²,
   so the volume is **20 747.439453125 in³**. Each sheet is 4x9, because the
-  walls are taller than 96: 47 422.71875 / 5 184 = 9.15, so **10 sheets**
-  ($249.80).
+  walls are taller than 96. By area that is 47 422.71875 / 5 184 = 9.15, 10
+  sheets, but a yard sells whole sheets and the panels are cut from **12**
+  (SHEET-COUNT-PIECES): the 10 panels 48 wide take one each (openings are
+  cut out of whole panels), the first 17 in panel an 11th, the second 17
+  comes from its 31 in rip, whose last 14 in hold three corner rips, and the
+  fourth rip takes a 12th ($299.76).
 
 Cut list (floor): Joist 2x8 10 @ 117 (10 ft); Rim 2x8 2 @ 144 (12 ft); Sill
 PT 2x6 2 @ 144 (12 ft) and 2 @ 109 (10 ft).

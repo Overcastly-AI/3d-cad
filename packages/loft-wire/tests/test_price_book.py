@@ -373,28 +373,49 @@ B7_ORDER = [
     ("walls", "Bottom plate", 1, 288.0),
     ("roof", "Rafter", 26, 123.5341),
     ("roof", "Ridge", 1, 288.0),
-    # Here each sheet good is one panel of the net area (:func:`_sheets`).
-    ("sheathing", "Subfloor", 1, 96.0),
-    ("sheathing", "Sheathing", 1, 108.0),
+    # A sheet line's length is its sheet's (:func:`_sheets`).
+    ("sheathing", "Subfloor", 14, 96.0),
+    ("sheathing", "Sheathing", 24, 108.0),
 ]
 
+#: B7's modelled panels (length, width in; count), as the b7-outline golden
+#: lays them out: the subfloor's 4x8s and 4 ft squares, and the walls' 48 in
+#: panels, two 37 in fillers and four 5.9375 in corner rips, 97.125 tall.
+B7_SUBFLOOR = [((96.0, 48.0), 10), ((48.0, 48.0), 4)]
+B7_SHEATHING = [((97.125, 48.0), 18), ((97.125, 37.0), 2), ((97.125, 5.9375), 4)]
 
-def _sheets(member: str, key: str, area_in2: float) -> CutListPiece:
-    """B7's subfloor or sheathing as one panel of the table's net area."""
+
+def _sheets(
+    member: str, key: str, area_in2: float, sizes: list[tuple[tuple[float, float], int]]
+) -> list[CutListPiece]:
+    """B7's subfloor or sheathing panels, *sizes*, their faces scaled to the
+    table's net area (openings cut out; the count does not credit them)."""
     good = sheet_good_for(key)
     assert good is not None
     sheet = SHEET_SIZES_BY_KEY["4x8" if key == "plywood_23_32" else "4x9"]
-    return CutListPiece(
-        member=member,
-        profile=good.name,
-        lumber=False,
-        material=good.material,
-        classification="member",
-        length_mm=sheet.length_mm,
-        section_mm=(good.thickness_in * MM_PER_INCH, sheet.width_mm),
-        sheet=sheet,
-        area_mm2=area_in2 * MM_PER_INCH**2,
-    )
+    gross = sum(a * b * n for (a, b), n in sizes)
+    return [
+        CutListPiece(
+            member=member,
+            profile=good.name,
+            lumber=False,
+            material=good.material,
+            classification="member",
+            length_mm=a * MM_PER_INCH,
+            section_mm=(good.thickness_in * MM_PER_INCH, b * MM_PER_INCH),
+            count=n,
+            sheet=sheet,
+            area_mm2=a * b * area_in2 / gross * MM_PER_INCH**2,
+        )
+        for (a, b), n in sizes
+    ]
+
+
+def _b7_pieces() -> list[CutListPiece]:
+    pieces = _pieces(B7)
+    pieces[4:4] = _sheets("Subfloor", "plywood_23_32", 55296, B7_SUBFLOOR)
+    pieces[16:16] = _sheets("Sheathing", "osb_7_16", 83175.71875, B7_SHEATHING)
+    return pieces
 
 
 def test_stock_for_a_long_member_is_the_fewest_joints_then_least_waste() -> None:
@@ -538,19 +559,20 @@ def test_a_37_ft_member_buys_two_20s_when_20_ft_is_priced() -> None:
     assert line.waste_mm == pytest.approx(3 * 12 * MM_PER_INCH)
 
 
-def test_b7_is_priced_to_the_last_line_2868_87() -> None:
+def test_b7_is_priced_to_the_last_line_2968_79() -> None:
     """B7's 5 lines over 20 ft (the 288 in rims, sills, top and bottom plates
     and the ridge) were blank; spliced, they price.
 
     By hand, the QA round's $2,608.83 (18 lines) plus the five splices:
     rims 2 x (22.97 + 11.47) = 68.88, sills 2 x (2 x 12.48) = 49.92, top
     plates 4 x (13.98 + 6.48) = 81.84, bottom plate 1 x 24.96 = 24.96 and
-    ridge 1 x 34.44 = 34.44: 260.04 more, $2,868.87.
+    ridge 1 x 34.44 = 34.44: 260.04 more, $2,868.87. SHEET-COUNT-PIECES
+    then buys the OSB the walls are cut from, 21 sheets, not 17 by area: 18
+    at 48 in, one per 37 in filler (its 11 in rip holds one 5.9375 corner
+    rip) and one for the other two rips, 4 x 24.98 = 99.92 more, $2,968.79.
+    The subfloor's 14 panels stay 12 sheets (10 whole, 4 squares in 2).
     """
-    pieces = _pieces(B7)
-    pieces.insert(4, _sheets("Subfloor", "plywood_23_32", 55296))
-    pieces.insert(15, _sheets("Sheathing", "osb_7_16", 83175.71875))
-    cut_list = _priced(pieces, B7_BOOK)
+    cut_list = _priced(_b7_pieces(), B7_BOOK)
     assert len(cut_list.lines) == 23 and cut_list.unpriced_lines == 0
     long = [
         (
@@ -577,19 +599,21 @@ def test_b7_is_priced_to_the_last_line_2868_87() -> None:
         )
         for line in cut_list.lines
     ] == B7_ORDER
-    assert cut_list.total_price_cents == 286887
+    sheets = [(line.member, line.stock_quantity) for line in cut_list.lines[-2:]]
+    assert sheets == [("Subfloor", 12), ("Sheathing", 21)]
+    assert cut_list.total_price_cents == 286887 + 4 * 2498 == 296879
     short = sum(
         line.extended_price_cents or 0
         for line in cut_list.lines
         if line.length_mm <= 20 * 12 * MM_PER_INCH
     )
-    assert short == 260883  # the QA round's total, unchanged
+    assert short == 260883 + 4 * 2498  # the QA round's, and 4 more sheets
     rows = cut_list_csv(cut_list).split("\r\n")
     assert rows[2].startswith("2,Floor,Rim,")
     assert rows[2].endswith(",16 ft + 8 ft,0,2,34.44,Each,68.88")
     assert rows[4].startswith("4,Floor,Sill,")
     assert rows[4].endswith(",2 x 12 ft,0,2,24.96,Each,49.92")
-    assert rows[-2] == ",Total,,,,,,,,,,,,,,2868.87"
+    assert rows[-2] == ",Total,,,,,,,,,,,,,,2968.79"
 
 
 def _cents(cell: str) -> int:
@@ -602,10 +626,7 @@ def test_every_csv_row_multiplies_out(building: str) -> None:
     """Stock qty x Unit price = Extended on every priced row (lumber, splices
     and sheets), so a row copied onto a purchase order is what it costs."""
     if building == "b7":
-        pieces = _pieces(B7)
-        pieces.insert(4, _sheets("Subfloor", "plywood_23_32", 55296))
-        pieces.insert(15, _sheets("Sheathing", "osb_7_16", 83175.71875))
-        cut_list = _priced(pieces, B7_BOOK)
+        cut_list = _priced(_b7_pieces(), B7_BOOK)
     else:
         cut_list = _priced(_pieces(B1 if building == "b1" else B2))
     rows = list(csv.reader(io.StringIO(cut_list_csv(cut_list))))

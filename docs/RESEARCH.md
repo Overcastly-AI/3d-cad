@@ -3105,7 +3105,25 @@ SolidWorks cut the body the picked face belongs to.
   sheet product's entry is `each` with its `sheet` ('4x8', '4x9', '4x10')
   and no stock length. A sheet line (one per product, material and sheet) is
   priced by that entry times its sheets: B2's OSB 10 x $24.98 = $249.80, B5's
-  plywood 4 x $42.50 = $170.00. The CHECKs became "each has a stock length
+  plywood 4 x $42.50 = $170.00 (by area; since SHEET-COUNT-PIECES, below,
+  B5's walls are 12 x $24.98 = $299.76).
+- **Sheets are counted by the panels cut from them** (SHEET-COUNT-PIECES,
+  2026-10-23, reversing the area count). A yard sells whole sheets, and
+  `ceil(net area / sheet area)` under-buys the rips and fillers that cannot
+  share a sheet: B5's walls are 10 sheets by area and 12 to cut. The model
+  already lays out every panel, so `sheets_to_cut` counts them under one
+  deterministic rule: panels go largest face first (then longest, widest);
+  each is cut from the smallest offcut of its line (same product, material
+  and sheet) that covers it whole, else from a new sheet; a panel is cut
+  from a corner, long side along the sheet's, leaving a full-length rip
+  beside it and an end across it as offcuts. Openings are not credited
+  (framers sheathe over them and cut them out), so a panel is its whole
+  face, and no kerf is allowed for. The line carries `offcut_area_mm2`, its
+  sheets' area less its net area, shown in the Stock cell's tooltip beside
+  the net area. B7's OSB is 21 sheets, not 17 (18 panels 48 wide; each 37 in
+  filler a sheet, whose 11 in rip holds one 5.9375 corner rip; one sheet
+  for the other two rips): $2,968.79 with the QA round's book, the 28 ft
+  house $3,347.92; its subfloor stays 12, B5's 4. The CHECKs became "each has a stock length
   or a sheet" and "never both". The CSV gains `Area (sq <unit>)`; a sheet
   line has its area there, `4x9 sheet` as its stock and no lengths.
 - **Saves are versioned** (PRICE-BOOK-VERSION, migration 0023). The book has

@@ -1,6 +1,7 @@
 /**
  * B7's priced cut list as the gateway serves it (CUT-LIST-PANEL): loft-wire's
- * grouping and prices of house-b7.spec.ts's table and book, $2,868.87.
+ * grouping and prices of house-b7.spec.ts's table and book, $2,968.79 (the
+ * OSB the 21 sheets its panels are cut from, SHEET-COUNT-PIECES).
  * Generated from packages/loft-wire/tests/test_price_book.py's B7 and
  * B7_BOOK; typed, so a wire change that drops a field fails tsc.
  */
@@ -444,6 +445,7 @@ export const B7_CUT_LIST: components["schemas"]["CutListResponse"] = {
       section_mm: [18.25625, 1219.2],
       sheet: "4x8",
       area_mm2: 35674767.36,
+      offcut_area_mm2: 0,
       stock_length_ft: null,
       stock_pieces_ft: null,
       waste_mm: null,
@@ -460,23 +462,24 @@ export const B7_CUT_LIST: components["schemas"]["CutListResponse"] = {
       classification: "member",
       quantity: 24,
       length_mm: 2743.2,
-      total_length_mm: 46634.4,
+      total_length_mm: 57607.2,
       section_mm: [11.1125, 1219.2],
       sheet: "4x9",
       area_mm2: 53661646.70875,
+      offcut_area_mm2: 16573051.53125,
       stock_length_ft: null,
       stock_pieces_ft: null,
       waste_mm: null,
-      stock_quantity: 17,
+      stock_quantity: 21,
       unit_price_cents: 2498,
       price_unit: "each",
-      extended_price_cents: 42466,
+      extended_price_cents: 52458,
     },
   ],
   total_quantity: 217,
   unclassified: 0,
   missing: [],
   currency: "USD",
-  total_price_cents: 286887,
+  total_price_cents: 296879,
   unpriced_lines: 0,
 };

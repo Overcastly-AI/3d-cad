@@ -28,8 +28,9 @@
  *
  * Sheet goods (SHEATHING) are one line per product and sheet: the panels'
  * count, their net AREA in the Length column (openings cut out), and in Stock
- * the sheets that area needs ("9 × 4x9"), counted by area as Chief
- * Architect's materials list counts them; priced Each per sheet.
+ * the sheets the modelled panels are cut from ("12 × 4x9", SHEET-COUNT-PIECES:
+ * a yard sells whole sheets), its tooltip naming the offcut area; priced Each
+ * per sheet.
  *
  * A member longer than the longest stock (CUT-LIST-LONG-STOCK) is SPLICED from
  * stock pieces, as a framer buys a long plate: Stock reads "2 × 12 ft" or
@@ -45,6 +46,7 @@ import {
   Button,
   CloseIcon,
   ExpandIcon,
+  type LengthUnit,
   lengthUnitLabel,
   Panel,
   PanelSection,
@@ -207,6 +209,21 @@ function stockLabel(line: CutListLine): string {
   const pieces = splice(line);
   if (pieces !== null) return spliceLabel(pieces);
   return line.stock_length_ft === null ? "—" : `${line.stock_length_ft} ft`;
+}
+
+/** A sheet line's stock tooltip: the sheets the panels are cut from and the
+ *  offcut (the sheets' area less the net area). */
+function sheetsTitle(
+  line: CutListLine,
+  sheet: string,
+  unit: LengthUnit,
+  unitLabel: string,
+): string {
+  const sheets = `${formatCount(line.stock_quantity ?? 0)} sheets of ${sheet}, cut from the panels`;
+  const offcut = line.offcut_area_mm2 ?? null;
+  return offcut === null
+    ? sheets
+    : `${sheets}; ${formatArea(offcut, unit)} ${unitLabel}² offcut`;
 }
 
 /** How the line's unit price was reached, for its tooltip. */
@@ -558,7 +575,7 @@ export function CutListPanel({
                     className={`${CELL} whitespace-nowrap text-mist`}
                     title={
                       sheet !== null
-                        ? `${formatCount(line.stock_quantity ?? 0)} sheets of ${sheet}, by area`
+                        ? sheetsTitle(line, sheet, unit, unitLabel)
                         : line.waste_mm === null
                           ? undefined
                           : `${formatLength(line.waste_mm, unit)} ${unitLabel} offcut each`

@@ -37,8 +37,11 @@ has no stock suggestion.
 smallest measured extent and its net area its volume over that thickness
 (openings cut out), and it is cut from the shortest sheet covering its other
 two extents. Panels group by product, material and sheet (not by member or
-size), and a line buys ``ceil(net area / sheet area)`` sheets, the count
-Chief Architect's materials list gives.
+size), and a line buys the sheets its panels are CUT from, as a yard sells
+whole sheets (:func:`sheets_to_cut`, SHEET-COUNT-PIECES): each panel takes a
+sheet unless an earlier offcut of the line covers it whole, largest panels
+first. Openings are not credited (framers sheathe over them and cut them
+out), so a line's offcut area is its sheets' area less its net area.
 
 **Order** (CUT-LIST-PANEL): lines are grouped by SYSTEM, as Chief
 Architect's Materials List groups by category: Floor, Walls (with their doors
@@ -105,6 +108,7 @@ from loft_wire.price_book import (
     PriceUnit,
 )
 from loft_wire.sheet_goods import (
+    SHEET_FIT_TOLERANCE_MM,
     SheetSize,
     SheetSizeKey,
     covering_sheet,
@@ -133,9 +137,6 @@ LENGTH_DECIMALS: Final = 3
 #: stock, so it is listed and left unpriced, never guessed at.
 MAX_SPLICE_PIECES: Final = 5
 
-#: A sheet line buys ``ceil(area / sheet area - SHEET_COUNT_SLACK)`` sheets,
-#: so a panel exactly one sheet's size buys one, not two by a rounding ulp.
-SHEET_COUNT_SLACK: Final = 1e-9
 
 #: How a piece was identified: from a plugin member's metadata, by matching
 #: its section to a library profile, or not at all.
@@ -302,6 +303,13 @@ class CutListLine(BaseModel):
         description="A sheet line's net area (mm^2): its panels' faces, "
         "openings cut out. Null for lumber.",
     )
+    offcut_area_mm2: float | None = Field(
+        default=None,
+        ge=0,
+        description="A sheet line's offcut (mm^2): its sheets' area less its "
+        "net area (the offcuts and the openings cut out). Null for lumber, "
+        "or for panels no sheet covers.",
+    )
     stock_length_ft: int | None = Field(
         description="Shortest standard stock that covers the piece (ft); null "
         "for a piece that is not lumber, or is spliced (stock_pieces_ft), or "
@@ -323,8 +331,9 @@ class CutListLine(BaseModel):
         ge=0,
         description="Stock units bought for the line (the CSV's Stock qty): "
         "one per piece (until pieces are nested), a spliced piece's "
-        "stock_pieces_ft counting as ONE set; for a sheet line, ceil(area / "
-        "sheet area) sheets; null with no stock length or sheet.",
+        "stock_pieces_ft counting as ONE set; for a sheet line, the sheets "
+        "its panels are cut from (each panel a sheet unless an earlier "
+        "offcut covers it whole); null with no stock length or sheet.",
     )
     unit_price_cents: int | None = Field(
         ge=0,
@@ -653,9 +662,75 @@ def part_pieces(
     ]
 
 
+Rect = tuple[float, float]
+
+
+def _fits(panel: Rect, rect: Rect) -> bool:
+    """Whether a ``(long, short)`` *panel* is cut whole from *rect*."""
+    return (
+        panel[0] <= rect[0] + SHEET_FIT_TOLERANCE_MM
+        and panel[1] <= rect[1] + SHEET_FIT_TOLERANCE_MM
+    )
+
+
+def _leftovers(rect: Rect, panel: Rect) -> list[Rect]:
+    """What is left of *rect* once *panel* is cut from its corner, long side
+    along long side: the RIP the full length beside it, then the END across
+    the panel's width, each as ``(long, short)``; slivers dropped."""
+    out: list[Rect] = []
+    for a, b in ((rect[0], rect[1] - panel[1]), (rect[0] - panel[0], panel[1])):
+        if min(a, b) > SHEET_FIT_TOLERANCE_MM:
+            out.append((max(a, b), min(a, b)))
+    return out
+
+
+def sheets_to_cut(panels: Iterable[Rect], sheet: SheetSize) -> int:
+    """How many sheets of *sheet* the ``(length, width)`` *panels* are cut from
+    (SHEET-COUNT-PIECES): the yard sells whole sheets, so count what the
+    modelled panels are actually cut from, not their area.
+
+    Deterministic: the panels go largest face first (then longest, then
+    widest). Each is cut from the smallest offcut that covers it whole (the
+    earliest of equal ones), else from a new sheet. A panel is cut from a
+    corner, long side along the sheet's, leaving a rip the full length
+    beside it and an end across it, both offcuts for later panels. No kerf
+    is allowed for, and openings are not credited: a panel is its whole
+    face, as framers sheathe over an opening and cut it out."""
+    rects = sorted(
+        ((max(a, b), min(a, b)) for a, b in panels),
+        key=lambda r: (
+            -round(r[0] * r[1], LENGTH_DECIMALS),
+            -round(r[0], LENGTH_DECIMALS),
+            -round(r[1], LENGTH_DECIMALS),
+        ),
+    )
+    if not rects:
+        return 0
+    smallest = (min(r[0] for r in rects), min(r[1] for r in rects))
+    whole: Rect = (sheet.length_mm, sheet.width_mm)
+    offcuts: list[Rect] = []
+    sheets = 0
+    for panel in rects:
+        best: int | None = None
+        for index, offcut in enumerate(offcuts):
+            if _fits(panel, offcut) and (
+                best is None
+                or offcut[0] * offcut[1] < offcuts[best][0] * offcuts[best][1]
+            ):
+                best = index
+        if best is None:
+            sheets += 1
+            source = whole
+        else:
+            source = offcuts.pop(best)
+        # An offcut no panel could fit is dropped, keeping the scan short.
+        offcuts.extend(r for r in _leftovers(source, panel) if _fits(smallest, r))
+    return sheets
+
+
 def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
     """Panels of one product, material and sheet as one line: their net area,
-    and the sheets that area needs (module docstring)."""
+    the sheets they are cut from and the offcut (module docstring)."""
     first = pieces[0]
     members: list[str] = []
     for piece in pieces:
@@ -668,9 +743,14 @@ def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
         length = round(max(p.length_mm for p in pieces), 6)
         width = round(max(p.section_mm[1] for p in pieces), 6)
         sheets = None
+        offcut = None
     else:
         length, width = round(sheet.length_mm, 6), round(sheet.width_mm, 6)
-        sheets = math.ceil(area / sheet.area_mm2 - SHEET_COUNT_SLACK)
+        sheets = sheets_to_cut(
+            ((p.length_mm, p.section_mm[1]) for p in pieces for _ in range(p.count)),
+            sheet,
+        )
+        offcut = round(max(sheets * sheet.area_mm2 - area, 0.0), 6)
     return CutListLine(
         system="sheathing",
         member=", ".join(members) or None,
@@ -683,6 +763,7 @@ def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
         section_mm=[thickness, width],
         sheet=None if sheet is None else sheet.key,
         area_mm2=round(area, 6),
+        offcut_area_mm2=offcut,
         stock_length_ft=None,
         waste_mm=None,
         stock_quantity=sheets,

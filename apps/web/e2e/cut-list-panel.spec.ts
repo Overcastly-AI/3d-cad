@@ -127,11 +127,11 @@ for (const [width, height] of [
     // The Total and the last line read in full once scrolled to.
     const total = panel.getByTestId("cut-list-price-total");
     await total.scrollIntoViewIfNeeded();
-    await expect(total).toHaveText("$2,868.87");
+    await expect(total).toHaveText("$2,968.79");
     await expect(total).toBeInViewport({ ratio: 1 });
     const last = rows.last();
     await expect(last.getByTestId("cut-list-member")).toHaveText("Sheathing");
-    await expect(last.getByTestId("cut-list-ext-price")).toHaveText("$424.66");
+    await expect(last.getByTestId("cut-list-ext-price")).toHaveText("$524.58");
     await expect(last.getByTestId("cut-list-ext-price")).toBeInViewport({
       ratio: 1,
     });
@@ -288,13 +288,13 @@ test("B7's cut list expands full width at 1280x800 and closes with Esc", async (
   // The Total reads in full once scrolled to; the head stays put.
   const total = view.getByTestId("cut-list-price-total");
   await total.scrollIntoViewIfNeeded();
-  await expect(total).toHaveText("$2,868.87");
+  await expect(total).toHaveText("$2,968.79");
   await expect(total).toBeInViewport({ ratio: 1 });
   await expect(
     view.getByRole("columnheader", { name: "Ext. price" }),
   ).toBeInViewport({ ratio: 1 });
   await expect(rows.last().getByTestId("cut-list-ext-price")).toHaveText(
-    "$424.66",
+    "$524.58",
   );
   expect(await sidewaysOverflow(view)).toEqual([]);
   await page.screenshot({

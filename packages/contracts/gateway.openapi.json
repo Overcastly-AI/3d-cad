@@ -3201,6 +3201,19 @@
             "description": "Member role title (e.g. 'Joist'); null when the body is not a plugin member.",
             "title": "Member"
           },
+          "offcut_area_mm2": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A sheet line's offcut (mm^2): its sheets' area less its net area (the offcuts and the openings cut out). Null for lumber, or for panels no sheet covers.",
+            "title": "Offcut Area Mm2"
+          },
           "price_unit": {
             "anyOf": [
               {
@@ -3300,7 +3313,7 @@
                 "type": "null"
               }
             ],
-            "description": "Stock units bought for the line (the CSV's Stock qty): one per piece (until pieces are nested), a spliced piece's stock_pieces_ft counting as ONE set; for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.",
+            "description": "Stock units bought for the line (the CSV's Stock qty): one per piece (until pieces are nested), a spliced piece's stock_pieces_ft counting as ONE set; for a sheet line, the sheets its panels are cut from (each panel a sheet unless an earlier offcut covers it whole); null with no stock length or sheet.",
             "title": "Stock Quantity"
           },
           "system": {

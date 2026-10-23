@@ -5,11 +5,11 @@ BACKLOG's acceptance, typed by hand: B2's four walls in 7/16 OSB are 12
 panels with a net area of 45 893 in^2 once the door's 38 x 82.5 and the
 window's 24.5 x 36.5 are cut out, plus 4 corner rips (3.9375 x 97.125) that
 lap the side walls past the front and back walls' ends: 47 422.71875 in^2,
-20 747.439453125 in^3, 10 sheets of 4x9 (SHEATHING review); B5's subfloor is 6
-panels, 12 420 in^3. The new versions' framing is the old versions'
-expansion member for member (the wall's is WALL-MEMBER-RENUMBER's 1.1.0,
-the floor's 1.0.0), so a stored wall or floor and its goldens
-cannot move.
+20 747.439453125 in^3, cut from 12 sheets of 4x9 (SHEET-COUNT-PIECES; 10
+by area); B5's subfloor is 6 panels, 12 420 in^3. The new versions'
+framing is the old versions' expansion member for member (the wall's is
+WALL-MEMBER-RENUMBER's 1.1.0, the floor's 1.0.0), so a stored wall or floor
+and its goldens cannot move.
 
 The geometry golden ``b5-shed-sheathed`` is B5's floor with its subfloor and
 B2's sheathed walls (with the door and window) standing on the subfloor; the
@@ -528,8 +528,8 @@ def test_a_turned_walls_panels_sit_on_its_face() -> None:
 
 
 def test_the_e2e_wall_is_three_4x9_panels() -> None:
-    """A default 144 wall with OSB: 3 panels of 48 x 97.125 (3 sheets of 4x9
-    by area: 13 986 / 5 184 = 2.70)."""
+    """A default 144 wall with OSB: 3 panels of 48 x 97.125, each cut from
+    a 4x9 (3 sheets; 2.70 by area, 13 986 / 5 184)."""
     panels = _loops(wall(OSB), "sheathing")
     assert len(panels) == 3
     assert [_net_area(loops) for loops, _ in panels] == [48 * 97.125] * 3

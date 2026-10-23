@@ -10,13 +10,15 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
 
 /**
  * SHEATHING: sheet goods as options on the Wall and the Floor, counted by
- * area and priced per sheet (docs/BACKLOG.md SHEATHING).
+ * the sheets the panels are cut from (SHEET-COUNT-PIECES) and priced per
+ * sheet (docs/BACKLOG.md SHEATHING).
  *
  *  - A 144 in Wall from Build ▾ with Exterior sheathing 7/16 OSB lists 3
- *    panels (13 986 in², 97.125 tall) as 3 sheets of 4x9; pricing the blank
- *    through the dialog at $24.98 per 4x9 sheet extends to $74.94.
+ *    panels (13 986 in², 97.125 tall) cut from 3 sheets of 4x9; pricing the
+ *    blank through the dialog at $24.98 per 4x9 sheet extends to $74.94.
  *  - A Floor from Build ▾ at its defaults has the 23/32 plywood subfloor:
- *    6 panels, 17 280 in², 4 sheets of 4x8 (3.75 by area).
+ *    6 panels, 17 280 in², cut from 4 sheets of 4x8 (two 96 x 48 whole, a
+ *    96 x 24 and its 48 x 24 from one, two 48 x 48 from one).
  */
 
 /** The default 144 wall's framing (wall-b2's list) and its OSB. */
