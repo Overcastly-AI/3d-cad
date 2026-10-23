@@ -26,11 +26,12 @@ import {
 } from "../../sketch/plane";
 import { NO_BODIES } from "./openEditor";
 import type { PartDocument } from "./usePartDocument";
+import { usePluginCatalog } from "./usePluginCatalog";
 import type { SolvedSketches } from "./useSolvedSketches";
 
 type FeatureCatalogParams = Pick<
   PartDocument,
-  "partId" | "tree" | "evaluation"
+  "partId" | "tree" | "evaluation" | "part"
 > &
   Pick<SolvedSketches, "datumById">;
 
@@ -38,6 +39,7 @@ export function useFeatureCatalog({
   partId,
   tree,
   evaluation,
+  part,
   datumById,
 }: FeatureCatalogParams) {
   // ---------------------------------------------------------------------
@@ -97,9 +99,14 @@ export function useFeatureCatalog({
   }
   const evaluatedBodies =
     liveBodies ?? (heldBodies?.partId === partId ? heldBodies.bodies : null);
+  // BODY-NAMES: a plugin member's body is named after its feature and member
+  // ("Front wall · Stud 3"), with the role titles of the installed plugins,
+  // and a stored rename wins, as Fusion's browser names every body.
+  const { catalog } = usePluginCatalog();
+  const renames = part.data?.body_names;
   const bodies = useMemo(
-    () => partBodies(features, evaluatedBodies),
-    [features, evaluatedBodies],
+    () => partBodies(features, evaluatedBodies, { catalog, renames }),
+    [features, evaluatedBodies, catalog, renames],
   );
   // Per-body lump count from the evaluate wire (§MB-4c): a disjoint-union /
   // multi-solid-import body reports `lumps > 1`, which the Bodies panel flags.

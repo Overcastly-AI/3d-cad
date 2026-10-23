@@ -374,6 +374,28 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     });
     await shoot(page, "b7-house", "iso");
 
+    // BODY-NAMES: the browser names each of the 217 member bodies after its
+    // feature and member, as the unfolded tree and the cut list do and as
+    // Fusion's browser names every body; no row reads "Body n".
+    const bodyNames = page.locator('[data-testid^="body-name-"]');
+    await expect(bodyNames).toHaveCount(217);
+    const names = await bodyNames.allTextContents();
+    expect(names.filter((name) => /^Body \d+$/.test(name))).toEqual([]);
+    expect(names).toContain("Wall 1 · Stud 1");
+    const ridge = names.findIndex((name) => name.endsWith(" · Ridge"));
+    expect(ridge).toBeGreaterThan(-1);
+    // A rename wins and is kept: right-click > Rename, as Fusion renames a
+    // body in its browser (checked again after the reload at the end).
+    await page.getByTestId(`body-select-${ridge}`).click({ button: "right" });
+    await page.getByTestId("body-ctx-rename").click();
+    const renameField = page.getByTestId(`body-rename-${ridge}`);
+    await renameField.fill("Ridge beam");
+    await renameField.press("Enter");
+    await expect(page.getByTestId(`body-name-${ridge}`)).toHaveText(
+      "Ridge beam",
+    );
+    await expectSolved(page);
+
     // Price every blank: each opens the book on its line's key.
     await openCutList(page);
     const panel = page.getByTestId("cut-list-panel");
@@ -515,10 +537,15 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await expectPrice(page, PRICE_28);
     await shoot(page, "b7-edit-length", "iso");
 
-    // A reload keeps it.
+    // A reload keeps it, the ridge's rename included.
     await page.reload();
     await expect(rows).toHaveCount(12);
     await expectSolved(page);
+    await expect(
+      page
+        .locator('[data-testid^="body-name-"]')
+        .filter({ hasText: /^Ridge beam$/ }),
+    ).toHaveCount(1);
     await openCutList(page);
     await expectTable(page, HOUSE_28, "240");
     await expectPrice(page, PRICE_28);

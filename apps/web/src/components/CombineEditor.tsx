@@ -30,7 +30,7 @@ import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import { useCommandBridge } from "../features/commandActions";
 import type { BooleanOperation, BooleanParams } from "../api/parts";
-import type { BodyInfo } from "../features/bodies";
+import { type BodyInfo, bodyPickLabel } from "../features/bodies";
 import {
   buildCombineParams,
   combineSubmitBlocker,
@@ -59,7 +59,7 @@ export interface CombineEditorProps {
 function bodyOption(body: BodyInfo): { value: string; label: string } {
   return {
     value: body.baseFeatureId,
-    label: `Body ${body.ordinal} · ${body.name}`,
+    label: bodyPickLabel(body),
   };
 }
 

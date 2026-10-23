@@ -99,6 +99,9 @@ const ONE_BODY = [
     name: "Body1",
     featureType: "extrude",
     ordinal: 1,
+    label: "Body 1",
+    named: false,
+    unrenamed: "Body 1",
   },
 ];
 

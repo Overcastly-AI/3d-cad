@@ -93,6 +93,22 @@ export function roleTitle(
 }
 
 /**
+ * A member's label, as the unfolded tree shows it: the role's title, with
+ * its place in the role ("Stud 3") when the role has more than one member.
+ * A member body is named after its feature and this ("Front wall · Stud 3",
+ * BODY-NAMES); loft-wire's `member_body_name` is the server's twin for STEP.
+ */
+export function memberLabel(
+  members: readonly ExpandedMember[],
+  member: ExpandedMember,
+  manifest: PluginManifest | undefined,
+): string {
+  const title = roleTitle(manifest, member.role);
+  const sameRole = members.filter((m) => m.role === member.role).length;
+  return sameRole > 1 ? `${title} ${member.index + 1}` : title;
+}
+
+/**
  * One result for a custom row from its members' results: any error is the
  * row's error (the first, with its code and message); all suppressed is
  * suppressed; any skipped is skipped; else ok. Undefined when geometry

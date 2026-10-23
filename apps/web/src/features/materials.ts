@@ -22,7 +22,7 @@ import type {
   MaterialAssignment,
   MaterialKey,
 } from "../api/materials";
-import type { BodyInfo } from "./bodies";
+import { type BodyInfo, bodyRowName } from "./bodies";
 
 /** One body's material row: what it is made of, what it weighs, and its name. */
 export interface BodyMaterialRow {
@@ -71,7 +71,7 @@ export function bodyMaterialRows(
     const lump = byId.get(body.baseFeatureId);
     return {
       baseFeatureId: body.baseFeatureId,
-      name: body.name,
+      name: bodyRowName(body),
       ordinal: body.ordinal,
       material: lump?.material ?? null,
       massG: lump?.mass_g ?? null,

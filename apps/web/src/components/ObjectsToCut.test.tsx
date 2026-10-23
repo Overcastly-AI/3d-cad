@@ -14,6 +14,9 @@ const BODIES: BodyInfo[] = ["b1", "b2", "b3"].map((id, i) => ({
   name: `Wall ${i + 1}`,
   featureType: "extrude",
   ordinal: i + 1,
+  label: `Body ${i + 1}`,
+  named: false,
+  unrenamed: `Body ${i + 1}`,
 }));
 
 describe("ObjectsToCut", () => {

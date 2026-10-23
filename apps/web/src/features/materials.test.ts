@@ -18,7 +18,16 @@ import {
 } from "./materials";
 
 function body(id: string, name: string, ordinal: number): BodyInfo {
-  return { baseFeatureId: id, name, featureType: "extrude", ordinal };
+  const label = `Body ${ordinal}`;
+  return {
+    baseFeatureId: id,
+    name,
+    featureType: "extrude",
+    ordinal,
+    label,
+    named: false,
+    unrenamed: label,
+  };
 }
 
 function lump(

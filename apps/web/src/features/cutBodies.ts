@@ -17,7 +17,7 @@
  * Pure functions, shared by the five cut editors and their tests.
  */
 import type { ExtrudeParams } from "../api/parts";
-import type { BodyInfo } from "./bodies";
+import { type BodyInfo, bodyPickLabel } from "./bodies";
 
 /** Objects To Cut on the wire: every body met, or the listed bodies. */
 export type CutBodies = NonNullable<ExtrudeParams["cut_bodies"]>;
@@ -96,7 +96,7 @@ export function cutBodyRows(
     .filter((body) => shown.has(body.baseFeatureId))
     .map((body) => ({
       id: body.baseFeatureId,
-      label: `Body ${body.ordinal} · ${body.name}`,
+      label: bodyPickLabel(body),
       checked: choice === "all" || listed.includes(body.baseFeatureId),
     }));
 }

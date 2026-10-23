@@ -15,8 +15,8 @@ import type { PluginManifest } from "../api/plugins";
 import {
   customMembers,
   type CustomRow,
+  memberLabel,
   pluginAvailability,
-  roleTitle,
 } from "../features/customFeature";
 import { featureTypeLabel } from "../features/featureLabels";
 
@@ -125,10 +125,7 @@ export function CustomMemberRows({
         {members.map((member) => {
           const result = resultById.get(member.id);
           const status = rolledBack ? null : (result?.status ?? null);
-          const sameRole = members.filter((m) => m.role === member.role);
-          const title = roleTitle(manifest, member.role);
-          const label =
-            sameRole.length > 1 ? `${title} ${member.index + 1}` : title;
+          const label = memberLabel(members, member, manifest);
           return (
             <li
               key={member.id}
