@@ -2739,10 +2739,15 @@ and reframe it, a material per member, and a cut list that is always current.
 - **Decided while naming member bodies** (BODY-NAMES, 2026-10-23; Fusion's
   browser and its STEP export, SolidWorks' multibody import):
   - *The name.* A member's body is `<feature> · <member>`, the member as the
-    unfolded tree labels it: the role's title and its place in the role
-    (`Front wall · Stud 3`), no number when the role has one member
-    (`Roof 1 · Ridge`). The place is `index + 1`, which the stable member
-    names keep for the same inputs. Other bodies keep "Body n".
+    unfolded tree labels it: the role's title and its place, in expansion
+    order, among the feature's members whose roles share that title
+    (`Front wall · Stud 3`), no number when the title has one member
+    (`Roof 1 · Ridge`). The wall titles two roles "Stud", so counting per
+    role gave two "Stud 1" in one wall (23 duplicates in B7); counting per
+    title keeps every B7 body's name unique with no manifest change. The
+    same inputs expand in the same order, so the names are deterministic; a
+    rename keys on the member id, never on the number. Other bodies keep
+    "Body n".
   - *Renames.* A rename is stored on the part (`parts.body_names`, migration
     0026), keyed like a per-body material by the id that created the body,
     and wins over the member's name; a blank name, or the member's own,

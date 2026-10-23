@@ -310,6 +310,34 @@ describe("body names", () => {
     expect(bodies.map(bodyRowName)[0]).toBe("Extrude1");
   });
 
+  it("numbers on across roles that share a title, keyed by member id", () => {
+    // The wall titles two roles "Stud": they count on, never two "Stud 1".
+    const twoStuds = [
+      {
+        ...catalog[0],
+        members: [
+          { role: "stud", title: "Stud" },
+          { role: "header", title: "Stud" },
+        ],
+      },
+    ] as unknown as PluginManifest[];
+    const labels = partBodies(tree, evaluated, { catalog: twoStuds }).map(
+      (b) => b.label,
+    );
+    expect(labels).toEqual([
+      "Body 1",
+      "Front wall · Stud 1",
+      "Front wall · Stud 3",
+      "Front wall · Stud 4",
+    ]);
+    expect(new Set(labels).size).toBe(labels.length);
+    // A rename is keyed on the member id, so renumbering never moves it.
+    const renames = [{ base_feature_id: "h0", name: "Header beam" }];
+    expect(
+      partBodies(tree, evaluated, { catalog: twoStuds, renames })[3]?.label,
+    ).toBe("Header beam");
+  });
+
   it("reads the role itself until the catalog has loaded", () => {
     expect(partBodies(tree, evaluated)[2]?.label).toBe("Front wall · stud 3");
   });

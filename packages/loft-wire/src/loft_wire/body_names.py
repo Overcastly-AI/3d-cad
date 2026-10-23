@@ -4,9 +4,11 @@ Fusion names every body in its browser, and so does Loft:
 
 - A plugin member's body is named after its feature and its member, as the
   unfolded tree names the member: ``"Front wall · Stud 3"``, or
-  ``"Roof · Ridge"`` when the role has one member (:func:`member_body_name`).
-  The number is the member's place in its role (``index + 1``), which the
-  stable member names keep for the same inputs (RESEARCH §23).
+  ``"Roof · Ridge"`` when its title has one member (:func:`member_body_names`).
+  The number counts, in expansion order, the feature's members whose roles
+  share the title, so two roles titled "Stud" give Stud 1..11, never two
+  "Stud 1"; the same inputs expand in the same order, so it is deterministic.
+  A rename keys on the member id, never on this number.
 - Any other body keeps its current name ("Body 2" in the browser, no name of
   its own in a STEP file).
 - A user's rename wins over both and is stored on the part as a
@@ -18,6 +20,7 @@ changes no shape and leaves the part's last evaluate current.
 """
 
 import uuid
+from collections.abc import Callable, Mapping, Sequence
 from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, Field, StringConstraints
@@ -79,12 +82,36 @@ class PartBodyNames(BaseModel):
     bodies: BodyNameList = Field(default_factory=list[BodyName])
 
 
-def member_body_name(feature_name: str, title: str, index: int, role_count: int) -> str:
-    """A plugin member's body name: ``"<feature> · <title> <n>"``, the number
-    left out when the role has one member, exactly as the unfolded tree labels
-    the member (``apps/web/src/features/customFeature.ts``, ``memberLabel``)."""
-    label = f"{title} {index + 1}" if role_count > 1 else title
+def member_body_name(feature_name: str, title: str, place: int, count: int) -> str:
+    """A plugin member's body name: ``"<feature> · <title> <place + 1>"``, the
+    number left out when *count*, the members sharing the title, is one."""
+    label = f"{title} {place + 1}" if count > 1 else title
     return f"{feature_name}{BODY_NAME_SEPARATOR}{label}"[:BODY_NAME_MAX_LENGTH]
+
+
+def member_body_names(
+    feature_name: str,
+    members: Sequence[tuple[uuid.UUID, str]],
+    titles: Mapping[str, str],
+    fallback: Callable[[str], str] = str,
+) -> list[BodyName]:
+    """Every member's body name, in expansion order. *members* are each
+    member's id and role; *titles* titles a role (*fallback* one it lacks).
+    Numbered across the roles that share a title, exactly as the unfolded
+    tree labels the members (``apps/web/src/features/customFeature.ts``,
+    ``memberLabels``)."""
+    titled = [titles.get(role) or fallback(role) for _, role in members]
+    counts: dict[str, int] = {}
+    for title in titled:
+        counts[title] = counts.get(title, 0) + 1
+    seen: dict[str, int] = {}
+    out: list[BodyName] = []
+    for (member_id, _), title in zip(members, titled, strict=True):
+        place = seen.get(title, 0)
+        seen[title] = place + 1
+        name = member_body_name(feature_name, title, place, counts[title])
+        out.append(BodyName(base_feature_id=member_id, name=name))
+    return out
 
 
 def solid_names(

@@ -27,7 +27,7 @@
  */
 import type { BodyName, FeatureResponse } from "../api/parts";
 import type { PluginManifest } from "../api/plugins";
-import { memberLabel, pinnedManifest } from "./customFeature";
+import { memberLabels, pinnedManifest } from "./customFeature";
 
 export interface BodyInfo {
   /** The body's identity — its base (creating) feature id. */
@@ -76,11 +76,8 @@ function memberNames(
       params.plugin_id,
       params.plugin_version,
     );
-    for (const member of members) {
-      out.set(
-        member.id,
-        `${feature.name} · ${memberLabel(members, member, manifest)}`,
-      );
+    for (const [id, label] of memberLabels(members, manifest)) {
+      out.set(id, `${feature.name} · ${label}`);
     }
   }
   return out;

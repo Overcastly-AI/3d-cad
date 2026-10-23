@@ -381,6 +381,8 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await expect(bodyNames).toHaveCount(217);
     const names = await bodyNames.allTextContents();
     expect(names.filter((name) => /^Body \d+$/.test(name))).toEqual([]);
+    // Unique: the wall's two roles titled Stud count on, never two "Stud 1".
+    expect(new Set(names).size).toBe(217);
     expect(names).toContain("Wall 1 · Stud 1");
     const ridge = names.findIndex((name) => name.endsWith(" · Ridge"));
     expect(ridge).toBeGreaterThan(-1);

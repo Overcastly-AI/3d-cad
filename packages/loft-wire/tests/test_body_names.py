@@ -10,6 +10,7 @@ from loft_wire.body_names import (
     BodyName,
     PartBodyNames,
     member_body_name,
+    member_body_names,
     solid_names,
 )
 from loft_wire.features import MAX_TREE_FEATURES, ExportTreeRequest
@@ -27,6 +28,18 @@ def test_a_member_is_named_as_the_tree_labels_it() -> None:
     assert member_body_name("Roof", "Ridge", 0, 1) == "Roof · Ridge"
     long = member_body_name("W" * 200, "T" * 200, 9, 12)
     assert len(long) == BODY_NAME_MAX_LENGTH
+
+
+def test_roles_that_share_a_title_count_on_in_expansion_order() -> None:
+    titles = {"stud": "Stud", "king": "Stud", "ridge": "Ridge"}
+    members = [(A, "stud"), (B, "king"), (C, "stud"), (uuid.UUID(int=4), "ridge")]
+    names = member_body_names("Wall 1", members, titles)
+    assert [(n.base_feature_id, n.name) for n in names] == [
+        (A, "Wall 1 · Stud 1"),
+        (B, "Wall 1 · Stud 2"),
+        (C, "Wall 1 · Stud 3"),
+        (uuid.UUID(int=4), "Wall 1 · Ridge"),
+    ]
 
 
 def test_each_lump_of_a_body_takes_its_name() -> None:

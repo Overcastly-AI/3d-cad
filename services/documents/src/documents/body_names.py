@@ -10,11 +10,11 @@ nothing is evaluated or written.
 """
 
 import uuid
-from collections import Counter, defaultdict
+from collections import defaultdict
 from typing import Any
 
 from fastapi import APIRouter
-from loft_wire.body_names import BodyName, PartBodyNames, member_body_name
+from loft_wire.body_names import BodyName, PartBodyNames, member_body_names
 from loft_wire.features import CustomFeature, ExpandedMember
 from py_kit.db import SessionDep
 from sqlalchemy import select
@@ -59,18 +59,14 @@ def member_names(sent: SentMembers, owners: dict[str, str]) -> list[BodyName]:
         )
         if feature is None:
             continue
-        titles = role_titles(group[0][0])
-        counts = Counter(member.role for _, member in group)
-        for _, member in group:
-            title = titles.get(member.role) or fallback_title(member.role)
-            out.append(
-                BodyName(
-                    base_feature_id=member.id,
-                    name=member_body_name(
-                        feature, title, member.index, counts[member.role]
-                    ),
-                )
+        out.extend(
+            member_body_names(
+                feature,
+                [(member.id, member.role) for _, member in group],
+                role_titles(group[0][0]),
+                fallback_title,
             )
+        )
     return out
 
 
