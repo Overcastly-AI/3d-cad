@@ -281,6 +281,17 @@
 # attempt, with 3 attempts each, as a510b6a did for planegcs. A stall now costs
 # minutes, not the shard.
 #
+# ── 2026-10-23: apt off the hot path ────────────────────────────────────────
+#
+# Bounded still meant waiting on the mirror. Run 39980520437 at 27c44a5: e2e
+# smoke spent 6m08s on the planegcs headers and 7m23s in the Chromium action,
+# then was cancelled; pytest shard 5/6 lost 7m07s to the headers and hit its
+# job timeout; 2-6 min on several more jobs that day, against ~15 s normally.
+# Both actions, and dist-bundle's nginx, now install from .debs cached by
+# runner image + package versions (scripts/ci-apt-debs.sh, `dpkg -i`, no
+# mirror). Bounded apt is the cold-cache fallback, and the job that takes it
+# saves the cache for the rest.
+#
 # The property that must survive is GATE-1's — a spec nobody named still runs.
 # It survives because the planner iterates the DISCOVERED set and looks the
 # manifest up per file, so an unmeasured file is still placed (and assumed to be
@@ -457,8 +468,8 @@ jobs:
         run: uv sync --locked
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
-      # Cached binary + apt deps, each in bounded, retried attempts; the
-      # action's header has the 2026-10-22 stall it answers.
+      # Cached binary + cached .debs (`dpkg -i`; bounded apt only on a cold
+      # cache); the action's header has the 2026-10-22/23 stalls it answers.
       - name: Chromium (cached, bounded install)
         uses: ./.github/actions/playwright-chromium
       # scripts/e2e.sh boots geometry/documents/gateway itself (PID-tracked,
@@ -692,19 +703,36 @@ jobs:
         run: uv sync --locked
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
-      # Cached binary + apt deps, each in bounded, retried attempts; the
-      # action's header has the 2026-10-22 stall it answers.
+      # Cached binary + cached .debs (`dpkg -i`; bounded apt only on a cold
+      # cache); the action's header has the 2026-10-22/23 stalls it answers.
       - name: Chromium (cached, bounded install)
         uses: ./.github/actions/playwright-chromium
       # nginx, because `vite preview` would leave the CSP half untested — it
       # serves no such header, and the header is half of what this job exists
       # for. `nginx-light` is the smallest package that has the http core;
       # nothing here needs a module beyond it.
-      - name: Install nginx
+      # From the .deb cache like the actions above (2026-10-23): this was the
+      # last unbounded apt in the lane.
+      - name: Plan the nginx .debs
+        id: nginx-plan
+        run: echo "key=nginx-debs-${ImageOS:-unknown}-${ImageVersion:-unknown}-$(scripts/ci-apt-debs.sh key nginx-light)" >> "$GITHUB_OUTPUT"
+      - name: Restore the nginx .debs
+        id: nginx-debs
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/apt-debs/nginx
+          key: ${{ steps.nginx-plan.outputs.key }}
+      - name: Install nginx (deb cache, apt fallback)
+        id: nginx-install
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends nginx-light
+          scripts/ci-apt-debs.sh install "$RUNNER_TEMP/apt-debs/nginx" nginx-light
           nginx -v
+      - name: Save the nginx .debs
+        if: steps.nginx-install.outputs.seeded == 'true' && steps.nginx-debs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/apt-debs/nginx
+          key: ${{ steps.nginx-plan.outputs.key }}
       - name: Built bundle through the production nginx config
         timeout-minutes: 20
         env:
@@ -818,8 +846,8 @@ jobs:
         run: uv sync --locked
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
-      # Cached binary + apt deps, each in bounded, retried attempts; the
-      # action's header has the 2026-10-22 stall it answers.
+      # Cached binary + cached .debs (`dpkg -i`; bounded apt only on a cold
+      # cache); the action's header has the 2026-10-22/23 stalls it answers.
       - name: Chromium (cached, bounded install)
         uses: ./.github/actions/playwright-chromium
       # scripts/e2e.sh boots the three services, and they inherit this step's

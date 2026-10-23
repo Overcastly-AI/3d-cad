@@ -1,32 +1,72 @@
 # The toolchain `uv sync` needs to build planegcs from vendor/planegcs
 # (SKETCH-SOLVE-HEAP-ORDER, docs/RESEARCH.md §2). The PyPI wheel orders parts
 # of a solve by memory address; Loft builds the patched source instead, so
-# every job that syncs the uv environment needs Eigen 3 and Boost headers. The
-# runner already has g++ and CMake. Once uv's cache holds the built wheel the
-# headers go unused, but a cold cache must not turn the job red.
+# every job that syncs the uv environment needs Eigen 3 and Boost headers
+# unless uv's cache already holds the built wheel. The runner already has g++
+# and CMake. Use it after astral-sh/setup-uv and before `uv sync`.
+#
+# ── 2026-10-22: bounded apt with retries ────────────────────────────────────
+#
+# An apt mirror stalled one shard for its whole 20-minute timeout, so each apt
+# command got 3 min and 3 attempts.
+#
+# ── 2026-10-23: no apt on the hot path ──────────────────────────────────────
+#
+# Bounding a stall did not stop paying for one. Run 39980520437 at 27c44a5:
+# this step took 7m07s on pytest shard 5/6, whose tests then ran 17m24s into
+# the 25-min job timeout (cancelled, no ledger), and 6m08s on e2e smoke; 2-6
+# min on several other jobs that day, against ~15 s normally. Now, in order:
+#   1. `scripts/planegcs-wheel-cache.sh probe` asks uv's own plan whether it
+#      will compile planegcs. If not, no headers at all. MEASURED with uv
+#      0.11.32: uv keys that wheel on the CTIME of vendor/planegcs's files, and
+#      a fresh checkout makes every ctime new, so on a hosted runner expect a
+#      miss each job. The probe is ~1 s and turns that from an assumption
+#      into a log line; a uv that keys on content makes it a hit for free.
+#   2. The headers' .debs come from actions/cache, keyed on the runner image
+#      and the packages' candidate versions, and go in with `dpkg -i`: no
+#      mirror. Expect ~10-20 s, most of it unpacking Boost.
+#   3. Cold cache (a new image or package version): the bounded apt above,
+#      downloading into the cache dir, which this action then saves. One job
+#      per runner image pays the mirror; the rest read the cache.
 name: planegcs build prerequisites
-description: Eigen 3 and Boost headers for building the vendored planegcs.
+description: Eigen 3 and Boost headers for building the vendored planegcs, from a .deb cache.
 runs:
   using: composite
   steps:
-    - name: Install Eigen 3 + Boost headers
+    - name: Does uv's cache hold the built planegcs wheel?
+      id: plan
       shell: bash
       run: |
-        if [ -f /usr/include/eigen3/Eigen/QR ] && [ -f /usr/include/boost/graph/adjacency_list.hpp ]; then
-          echo "planegcs build prerequisites already present"
-        else
-          # An apt mirror can stall a runner for the job's whole timeout (seen
-          # 2026-10-22: 20 min on one shard), so each attempt gets 3 min and
-          # a stall is retried rather than waited out.
-          for attempt in 1 2 3; do
-            # A timeout can kill dpkg mid-install; finish that first or the
-            # retry fails with "dpkg was interrupted".
-            [ "$attempt" = 1 ] || sudo timeout 180 dpkg --configure -a || true
-            if sudo timeout 180 apt-get update -qq &&
-              sudo timeout 180 apt-get install -y -qq --no-install-recommends libeigen3-dev libboost-dev; then
-              exit 0
-            fi
-            echo "::warning::planegcs prerequisites: attempt $attempt stalled or failed; retrying"
-          done
-          exit 1
+        if scripts/planegcs-wheel-cache.sh probe; then
+          echo "needed=false" >> "$GITHUB_OUTPUT"
+          exit 0
         fi
+        echo "needed=true" >> "$GITHUB_OUTPUT"
+        pkgs="libeigen3-dev libboost-dev"
+        echo "pkgs=$pkgs" >> "$GITHUB_OUTPUT"
+        # shellcheck disable=SC2086 # word splitting of the package list is intended
+        echo "key=planegcs-debs-${ImageOS:-unknown}-${ImageVersion:-unknown}-$(scripts/ci-apt-debs.sh key $pkgs)" >> "$GITHUB_OUTPUT"
+    - name: Restore the Eigen + Boost .debs
+      id: restore
+      if: steps.plan.outputs.needed == 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/apt-debs/planegcs
+        key: ${{ steps.plan.outputs.key }}
+    - name: Install Eigen 3 + Boost headers (deb cache, apt fallback)
+      id: install
+      if: steps.plan.outputs.needed == 'true'
+      shell: bash
+      env:
+        PKGS: ${{ steps.plan.outputs.pkgs }}
+        CACHE_HIT: ${{ steps.restore.outputs.cache-hit }}
+      run: |
+        echo "deb cache hit: ${CACHE_HIT:-false}"
+        # shellcheck disable=SC2086 # word splitting of the package list is intended
+        scripts/ci-apt-debs.sh install "$RUNNER_TEMP/apt-debs/planegcs" $PKGS
+    - name: Save the Eigen + Boost .debs
+      if: steps.install.outputs.seeded == 'true' && steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/apt-debs/planegcs
+        key: ${{ steps.plan.outputs.key }}

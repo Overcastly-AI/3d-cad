@@ -546,6 +546,13 @@ jobs:
       # RUN step and a second EOF do NOT. Bash only, ~0.3s.
       - name: Build-retry policy (+ prove it refuses everything but the EOF)
         run: scripts/compose-build-retry.sh --self-test
+      # The .deb cache every apt-needing job installs from (2026-10-23). Its
+      # branches (nothing missing, cold seed, warm `dpkg -i` with no apt, a
+      # broken cache falling back, apt down failing after 3 bounded tries) are
+      # otherwise only reachable on a runner whose cache is in that state.
+      # Stubbed dpkg/apt, bash only, ~0.2s.
+      - name: apt .deb cache (+ prove apt is skipped on a warm cache)
+        run: scripts/ci-apt-debs.sh --self-test
       # The pytest shard planner and its reconcile, including that the
       # `pytest` matrix, its `/N` and `--expect-shards` agree. Here so that
       # drift is red in a minute rather than after the shards. Stdlib, ~60ms.
@@ -624,6 +631,11 @@ jobs:
     # A hosted runner adds ~3-4 min of setup (uv sync from cache, pnpm, the
     # Chromium apt deps), so expect ~6-7 min. 15 is headroom, not a
     # prediction; a job timeout reads `cancelled`, so guessing low is worse.
+    #
+    # 2026-10-23: run 39980520437 at 27c44a5 was cancelled at 15 min after
+    # 6m08s on the planegcs headers and 7m23s in the Chromium action, both
+    # waiting on a slow apt mirror. Both now install cached .debs with
+    # `dpkg -i` (scripts/ci-apt-debs.sh); apt runs only on a cold cache.
     name: e2e smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -644,8 +656,8 @@ jobs:
         run: uv sync --locked
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
-      # Cached binary + apt deps, each in bounded, retried attempts; the
-      # action's header has the 2026-10-22 stall it answers.
+      # Cached binary + cached .debs (`dpkg -i`; bounded apt only on a cold
+      # cache); the action's header has the 2026-10-22/23 stalls it answers.
       - name: Chromium (cached, bounded install)
         uses: ./.github/actions/playwright-chromium
       # Same flags as a full-lane shard: --forbid-only, and NO retries
