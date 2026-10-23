@@ -1,7 +1,9 @@
 /**
  * B7's priced cut list as the gateway serves it (CUT-LIST-PANEL): loft-wire's
- * grouping and prices of house-b7.spec.ts's table and book, $2,968.79 (the
- * OSB the 21 sheets its panels are cut from, SHEET-COUNT-PIECES).
+ * grouping and prices of house-b7.spec.ts's table and book, $3,053.79 (the
+ * OSB the 21 sheets its panels are cut from, SHEET-COUNT-PIECES; the
+ * subfloor 14, a 1/8 in kerf at each real cut, SHEET-KERF; joists, studs,
+ * jacks, headers, cripples and rafters one piece, NO-SPLICE-SPANS).
  * Generated from packages/loft-wire/tests/test_price_book.py's B7 and
  * B7_BOOK; typed, so a wire change that drops a field fails tsc.
  */
@@ -27,6 +29,7 @@ export const B7_CUT_LIST: components["schemas"]["CutListResponse"] = {
       area_mm2: null,
       stock_length_ft: 16,
       stock_pieces_ft: [16],
+      one_piece: true,
       waste_mm: 76.2,
       stock_quantity: 19,
       unit_price_cents: 2297,
@@ -107,6 +110,7 @@ export const B7_CUT_LIST: components["schemas"]["CutListResponse"] = {
       area_mm2: null,
       stock_length_ft: 8,
       stock_pieces_ft: [8],
+      one_piece: true,
       waste_mm: 85.725,
       stock_quantity: 60,
       unit_price_cents: 648,
@@ -127,6 +131,7 @@ export const B7_CUT_LIST: components["schemas"]["CutListResponse"] = {
       area_mm2: null,
       stock_length_ft: 8,
       stock_pieces_ft: [8],
+      one_piece: true,
       waste_mm: 381.0,
       stock_quantity: 12,
       unit_price_cents: 648,
@@ -147,6 +152,7 @@ export const B7_CUT_LIST: components["schemas"]["CutListResponse"] = {
       area_mm2: null,
       stock_length_ft: 8,
       stock_pieces_ft: [8],
+      one_piece: true,
       waste_mm: 1739.9,
       stock_quantity: 4,
       unit_price_cents: 648,
@@ -167,6 +173,7 @@ export const B7_CUT_LIST: components["schemas"]["CutListResponse"] = {
       area_mm2: null,
       stock_length_ft: 8,
       stock_pieces_ft: [8],
+      one_piece: true,
       waste_mm: 1435.1,
       stock_quantity: 6,
       unit_price_cents: 648,
@@ -187,6 +194,7 @@ export const B7_CUT_LIST: components["schemas"]["CutListResponse"] = {
       area_mm2: null,
       stock_length_ft: 8,
       stock_pieces_ft: [8],
+      one_piece: true,
       waste_mm: 1397.0,
       stock_quantity: 2,
       unit_price_cents: 648,
@@ -207,6 +215,7 @@ export const B7_CUT_LIST: components["schemas"]["CutListResponse"] = {
       area_mm2: null,
       stock_length_ft: 8,
       stock_pieces_ft: [8],
+      one_piece: true,
       waste_mm: 2282.825,
       stock_quantity: 14,
       unit_price_cents: 648,
@@ -227,6 +236,7 @@ export const B7_CUT_LIST: components["schemas"]["CutListResponse"] = {
       area_mm2: null,
       stock_length_ft: 8,
       stock_pieces_ft: [8],
+      one_piece: true,
       waste_mm: 1651.0,
       stock_quantity: 7,
       unit_price_cents: 648,
@@ -247,6 +257,7 @@ export const B7_CUT_LIST: components["schemas"]["CutListResponse"] = {
       area_mm2: null,
       stock_length_ft: 8,
       stock_pieces_ft: [8],
+      one_piece: true,
       waste_mm: 1346.2,
       stock_quantity: 4,
       unit_price_cents: 648,
@@ -407,6 +418,7 @@ export const B7_CUT_LIST: components["schemas"]["CutListResponse"] = {
       area_mm2: null,
       stock_length_ft: 12,
       stock_pieces_ft: [12],
+      one_piece: true,
       waste_mm: 519.83386,
       stock_quantity: 26,
       unit_price_cents: 1347,
@@ -441,18 +453,18 @@ export const B7_CUT_LIST: components["schemas"]["CutListResponse"] = {
       classification: "member",
       quantity: 14,
       length_mm: 2438.4,
-      total_length_mm: 29260.8,
+      total_length_mm: 34137.6,
       section_mm: [18.25625, 1219.2],
       sheet: "4x8",
       area_mm2: 35674767.36,
-      offcut_area_mm2: 0,
+      offcut_area_mm2: 5945794.56,
       stock_length_ft: null,
       stock_pieces_ft: null,
       waste_mm: null,
-      stock_quantity: 12,
+      stock_quantity: 14,
       unit_price_cents: 4250,
       price_unit: "each",
-      extended_price_cents: 51000,
+      extended_price_cents: 59500,
     },
     {
       system: "sheathing",
@@ -480,6 +492,6 @@ export const B7_CUT_LIST: components["schemas"]["CutListResponse"] = {
   unclassified: 0,
   missing: [],
   currency: "USD",
-  total_price_cents: 296879,
+  total_price_cents: 305379,
   unpriced_lines: 0,
 };

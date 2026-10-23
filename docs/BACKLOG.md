@@ -231,7 +231,6 @@ seventh pass) are in VISION's delegated log; reverse any there.
 
 One line each. The founder triages weekly; most are closed without work.
 
-- SHEET-KERF-HALVES: with a 1/8 in kerf the subfloors' exact 48 in squares take a sheet each (B5 4 -> 6, B7 12 -> 14); framers cut 47 15/16 halves into APA's 1/8 in gaps, so either lay subfloor panels on a gapped module or let a kerf-short half count. Founder to decide.
 - SUBFLOOR-GRAIN-ORIENT: the sheet count takes a floor panel's longer side as across the joists; a last column under 48 in across is the exception, as BodyExtent carries no orientation (RESEARCH §27).
 
 - OPENING-NEARER-LOFT-IMPORT: a hand-made .loft storing measure_from "nearer" keeps it on import (refresh_expansions does not settle), so the opening floats with the wall until the next edit settles it (loft_file.py:131).

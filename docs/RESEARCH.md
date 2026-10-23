@@ -3169,10 +3169,17 @@ SolidWorks cut the body the picked face belongs to.
   12 and B7's 21 OSB: the 17 in fillers' rips still take their corner
   rips), but the subfloors' exact 48 in squares now take a sheet each: B5's
   plywood 6 sheets, not 4 ($255.00), B7's 14, not 12, so B7 prices to
-  $3,053.79 and the 28 ft house to $3,432.92 (16 sheets, not 14). A
-  framer would cut the halves 47 15/16 and close the 1/16 in in the 1/8 in
-  gap APA asks for between panels; the model lays its panels on an exact
-  48 in module with no gap, so the count cannot tell, and buys the sheet.
+  $3,053.79 and the 28 ft house to $3,432.92 (16 sheets, not 14).
+  **Only a cut side loses a kerf** (SHEET-KERF-HALVES, founder,
+  2026-10-23): a panel side at least the sheet's (or offcut's) side less
+  APA's 1/8 in panel gap (`SHEET_GAP_MM`) is a full side, laid uncut edge to
+  edge in the gap, so it leaves no offcut and loses no kerf; a 96 x 47.9
+  panel is a whole sheet. Re-derived under the rule, the counts above
+  stand: a 48 x 48 square's 48 in WIDTH is the sheet's full width (no rip),
+  but its 48 in LENGTH is a real cross cut of a 96 in sheet, so its end is
+  96 - 48 - 1/8 = 47.875 in and the next 48 in square needs a sheet. B5
+  stays 6 (and its 96 x 24's rip, a real cut, is 23.875 for the 48 x 24),
+  B7 14, the 28 ft house 16.
 - **Floor panels keep the strength axis across the joists**
   (SUBFLOOR-GRAIN, 2026-10-23). APA lays floor sheathing with its strength
   axis (the sheet's 8 ft length) across the supports, so a subfloor panel

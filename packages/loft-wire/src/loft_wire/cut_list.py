@@ -195,6 +195,10 @@ GRAIN_LOCKED_ROLES: Final[frozenset[str]] = frozenset({"subfloor"})
 #: 48 in sheet, nor two 48 in halves from one 96 in sheet.
 SHEET_KERF_MM: Final = 0.125 * MM_PER_INCH
 
+#: APA's gap between sheathing panels (mm): 1/8 in. A panel side within it
+#: of the sheet's is a full side, laid uncut (SHEET-KERF-HALVES).
+SHEET_GAP_MM: Final = 0.125 * MM_PER_INCH
+
 
 #: How a piece was identified: from a plugin member's metadata, by matching
 #: its section to a library profile, or not at all.
@@ -803,11 +807,19 @@ def _leftovers(rect: Rect, panel: Rect, *, turn: bool) -> list[Rect]:
     cut: the RIP the full length beside it, then the END across the panel's
     width; slivers dropped. With *turn*, each is ``(long, short)``, so a
     later panel may lie either way in it; without, each keeps the sheet's
-    frame, ``(along its length, along its width)``, so no panel turns."""
+    frame, ``(along its length, along its width)``, so no panel turns.
+
+    A side within :data:`SHEET_GAP_MM` of *rect*'s is NOT cut (SHEET-KERF-
+    HALVES): a framer lays a full sheet, or a full-width rip, edge to edge
+    in APA's 1/8 in panel gap, so that side leaves no offcut and loses no
+    kerf. Only a side actually cut loses one."""
     out: list[Rect] = []
-    rip = (rect[0], rect[1] - panel[1] - SHEET_KERF_MM)
-    end = (rect[0] - panel[0] - SHEET_KERF_MM, panel[1])
-    for a, b in (rip, end):
+    pieces: list[Rect] = []
+    if panel[1] < rect[1] - SHEET_GAP_MM:
+        pieces.append((rect[0], rect[1] - panel[1] - SHEET_KERF_MM))
+    if panel[0] < rect[0] - SHEET_GAP_MM:
+        pieces.append((rect[0] - panel[0] - SHEET_KERF_MM, panel[1]))
+    for a, b in pieces:
         if min(a, b) > SHEET_FIT_TOLERANCE_MM:
             out.append((max(a, b), min(a, b)) if turn else (a, b))
     return out

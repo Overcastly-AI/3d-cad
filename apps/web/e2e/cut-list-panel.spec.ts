@@ -127,7 +127,7 @@ for (const [width, height] of [
     // The Total and the last line read in full once scrolled to.
     const total = panel.getByTestId("cut-list-price-total");
     await total.scrollIntoViewIfNeeded();
-    await expect(total).toHaveText("$2,968.79");
+    await expect(total).toHaveText("$3,053.79");
     await expect(total).toBeInViewport({ ratio: 1 });
     const last = rows.last();
     await expect(last.getByTestId("cut-list-member")).toHaveText("Sheathing");
@@ -288,7 +288,7 @@ test("B7's cut list expands full width at 1280x800 and closes with Esc", async (
   // The Total reads in full once scrolled to; the head stays put.
   const total = view.getByTestId("cut-list-price-total");
   await total.scrollIntoViewIfNeeded();
-  await expect(total).toHaveText("$2,968.79");
+  await expect(total).toHaveText("$3,053.79");
   await expect(total).toBeInViewport({ ratio: 1 });
   await expect(
     view.getByRole("columnheader", { name: "Ext. price" }),

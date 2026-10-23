@@ -232,6 +232,13 @@ def test_an_offcut_is_reused_only_where_it_covers_a_whole_panel() -> None:
     # 47.875 long: one 48 in square per sheet, two 47.875 in squares.
     assert sheets_to_cut([(4 * ft, 4 * ft)] * 3, sheet) == 3
     assert sheets_to_cut([(47.875 * IN, 47.875 * IN)] * 4, sheet) == 2
+    # Only a cut side loses a kerf (SHEET-KERF-HALVES): a side within APA's
+    # 1/8 in panel gap of the sheet's is laid uncut. A 96 x 47.9 panel is a
+    # whole sheet and leaves nothing; a 96 x 24 rip's other side is uncut, so
+    # the 23.875 beside it is all the one rip cut loses.
+    assert sheets_to_cut([(95.9 * IN, 47.9 * IN)] * 2, sheet) == 2
+    assert sheets_to_cut([(8 * ft, 47.9 * IN), (8 * ft, 0.05 * IN)], sheet) == 2
+    assert sheets_to_cut([(8 * ft, 24 * IN), (8 * ft, 23.875 * IN)], sheet) == 1
     # A panel exactly a sheet buys one, not two by a rounding ulp.
     assert sheets_to_cut([(sheet.length_mm + 1e-9, sheet.width_mm)], sheet) == 1
     assert sheets_to_cut([], sheet) == 0
