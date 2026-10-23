@@ -207,10 +207,19 @@ class _InputBase(BaseModel):
     superseded_by: InputName | None = Field(
         default=None,
         exclude_if=is_none,
-        description="Another input of this manifest (a feature pick) that, once "
-        "set, makes this one unused: a wall's start, direction and length when "
-        "an outline is picked (BUILDING-OUTLINE). The form hides this input "
-        "while that one is set; its stored value is kept. Absent: always used.",
+        description="Another input of this manifest that makes this one unused: "
+        "a feature pick, once set (a wall's start, direction and length when an "
+        "outline is picked, BUILDING-OUTLINE), or a choice, on any option but "
+        "`superseded_unless` (a window's typed size unless Size is Custom, "
+        "OPENING-UNITS). The form hides this input while it is unused; its "
+        "stored value is kept. Absent: always used.",
+    )
+    superseded_unless: InputName | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="When `superseded_by` names a choice: the option of it that "
+        "uses this input ('custom'); every other option hides it. Absent for a "
+        "feature pick.",
     )
 
 
@@ -565,17 +574,36 @@ class PluginManifest(BaseModel):
             for item in self.inputs
             if isinstance(item, FeatureReferenceInput | FeatureListInput)
         }
+        choices = {
+            item.name: item for item in self.inputs if isinstance(item, ChoiceInput)
+        }
         for item in self.inputs:
             if isinstance(item, SegmentsInput) and item.outline_input not in picks:
                 raise ValueError(
                     f"segments input {item.name!r} must name a feature input as "
                     "its outline_input"
                 )
-            if item.superseded_by is not None and (
-                item.superseded_by not in picks or item.superseded_by == item.name
-            ):
+            if item.superseded_by is None:
+                if item.superseded_unless is not None:
+                    raise ValueError(
+                        f"input {item.name!r}: superseded_unless needs superseded_by"
+                    )
+                continue
+            choice = choices.get(item.superseded_by)
+            if choice is not None and item.superseded_by != item.name:
+                if item.superseded_unless not in {o.value for o in choice.options}:
+                    raise ValueError(
+                        f"input {item.name!r}: superseded_unless must be an option "
+                        f"of {item.superseded_by!r}"
+                    )
+            elif item.superseded_by not in picks or item.superseded_by == item.name:
                 raise ValueError(
-                    f"input {item.name!r} must be superseded by another feature input"
+                    f"input {item.name!r} must be superseded by another feature "
+                    "or choice input"
+                )
+            elif item.superseded_unless is not None:
+                raise ValueError(
+                    f"input {item.name!r}: superseded_unless is for a choice only"
                 )
         return self
 

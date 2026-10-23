@@ -173,8 +173,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           },
           "unit": {
             "const": "deg",
@@ -1098,8 +1113,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           }
         },
         "required": [
@@ -1522,8 +1552,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           }
         },
         "required": [
@@ -4542,8 +4587,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           }
         },
         "required": [
@@ -4684,8 +4744,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           }
         },
         "required": [
@@ -6998,8 +7073,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           },
           "unit": {
             "const": "mm",
@@ -8117,8 +8207,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           }
         },
         "required": [
@@ -10693,8 +10798,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           }
         },
         "required": [
@@ -11530,8 +11650,23 @@
                 "type": "null"
               }
             ],
-            "description": "Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.",
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
             "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
           }
         },
         "required": [

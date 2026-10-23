@@ -672,6 +672,9 @@ def _with_unit(
                 update={
                     "label": _CUSTOM_LABELS[item.name],
                     "description": f"{item.description} Read when Size is Custom.",
+                    # Hidden while a call size is picked (OPENING-UNITS).
+                    "superseded_by": "size",
+                    "superseded_unless": CUSTOM_SIZE,
                 }
             )
         inputs.append(item)

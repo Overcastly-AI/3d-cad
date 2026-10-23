@@ -291,3 +291,55 @@ describe("an Outline pick (a wall)", () => {
     expect(useOutlinePickStore.getState().treePick).toBeNull();
   });
 });
+
+describe("a call size (OPENING-UNITS)", () => {
+  const UNIT_WINDOW = {
+    ...BASE,
+    id: "loft.window",
+    version: "1.3.0",
+    title: "Window",
+    inputs: [
+      {
+        kind: "length",
+        name: "width_mm",
+        label: "Custom width",
+        unit: "mm",
+        default: 914.4,
+        minimum: 0,
+        exclusive_minimum: true,
+        superseded_by: "size",
+        superseded_unless: "custom",
+      },
+      {
+        kind: "choice",
+        name: "size",
+        label: "Size",
+        options: [
+          { value: "window_3040", label: `3040 (3'0" x 4'0")` },
+          { value: "window_2030", label: `2030 (2'0" x 3'0")` },
+          { value: "custom", label: "Custom (type the size)" },
+        ],
+        default: "window_3040",
+      },
+    ],
+  } as unknown as PluginManifest;
+
+  it("hides the Custom size while a code is picked, and shows it for Custom", () => {
+    const { onSubmit } = renderEditor(UNIT_WINDOW, []);
+    const size = screen.getByTestId("plugin-input-size");
+    expect(size).toHaveValue("window_3040");
+    expect(screen.queryByTestId("plugin-input-width_mm")).toBeNull();
+    fireEvent.change(size, { target: { value: "window_2030" } });
+    expect(screen.queryByTestId("plugin-input-width_mm")).toBeNull();
+    fireEvent.change(size, { target: { value: "custom" } });
+    expect(screen.getByTestId("plugin-input-width_mm")).toBeInTheDocument();
+    fireEvent.change(size, { target: { value: "window_2030" } });
+    expect(screen.queryByTestId("plugin-input-width_mm")).toBeNull();
+    // The typed size is kept, unread, while a code sizes the unit.
+    fireEvent.click(screen.getByTestId("plugin-submit"));
+    expect(onSubmit.mock.calls[0]?.[0].inputs).toMatchObject({
+      size: "window_2030",
+      width_mm: 914.4,
+    });
+  });
+});

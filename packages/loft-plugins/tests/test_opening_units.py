@@ -38,8 +38,9 @@ from loft_wire.opening_units import (
     WINDOW_CODES,
     code_size_in,
 )
-from loft_wire.plugins import ChoiceInput
+from loft_wire.plugins import ChoiceInput, PluginManifest
 from loft_wire.sketch import SketchLine
+from pydantic import ValidationError
 
 IN = 25.4
 WALL = REGISTRY.get("loft.wall", "1.1.0")
@@ -116,6 +117,44 @@ def test_1_3_0_adds_size_and_unit_and_keeps_every_older_input() -> None:
         "2068 (2'0\" x 6'8\")",
         "2468 (2'4\" x 6'8\")",
     ]
+
+
+def test_the_typed_size_is_hidden_unless_size_is_custom() -> None:
+    custom = {
+        "width_mm",
+        "height_mm",
+        "ro_width_allowance_mm",
+        "ro_height_allowance_mm",
+    }
+    for plugin in (WINDOW, DOOR):
+        manifest = plugin.manifest
+        # The released manifest still validates with the new fields set.
+        assert PluginManifest.model_validate(manifest.model_dump()) == manifest
+        hidden = {
+            i.name: (i.superseded_by, i.superseded_unless) for i in manifest.inputs
+        }
+        for name in custom:
+            assert hidden[name] == ("size", "custom")
+        assert all(
+            hidden[n] == (None, None)
+            for n in hidden
+            if n not in custom and n != "wall_segment"
+        )
+
+
+def test_superseded_unless_must_name_an_option_of_its_choice() -> None:
+    raw = WINDOW.manifest.model_dump()
+    width = next(i for i in raw["inputs"] if i["name"] == "width_mm")
+    width["superseded_unless"] = "window_9999"
+    with pytest.raises(ValidationError, match="must be an option of 'size'"):
+        PluginManifest.model_validate(raw)
+    width["superseded_by"] = None
+    width["superseded_unless"] = "custom"
+    with pytest.raises(ValidationError, match="needs superseded_by"):
+        PluginManifest.model_validate(raw)
+    width["superseded_by"] = "host_wall"
+    with pytest.raises(ValidationError, match="for a choice only"):
+        PluginManifest.model_validate(raw)
 
 
 # --- Expanding on one wall -----------------------------------------------------------

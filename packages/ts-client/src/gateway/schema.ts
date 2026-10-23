@@ -2526,9 +2526,14 @@ export interface components {
             name: string;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
             /**
              * Unit
              * @default deg
@@ -3427,9 +3432,14 @@ export interface components {
             options: components["schemas"]["ChoiceOption"][];
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
         };
         /**
          * ChoiceOption
@@ -4454,9 +4464,14 @@ export interface components {
             name: string;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
         };
         /**
          * CustomFeature
@@ -7228,9 +7243,14 @@ export interface components {
             plugin_ids?: string[] | null;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
         };
         /**
          * FeatureMutationResponse
@@ -7307,9 +7327,14 @@ export interface components {
             plugin_ids?: string[] | null;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
         };
         /**
          * FeatureReorderRequest
@@ -8860,9 +8885,14 @@ export interface components {
             name: string;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
             /**
              * Unit
              * @default mm
@@ -9432,9 +9462,14 @@ export interface components {
             name: string;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
         };
         /**
          * MaterialLibraryResponse
@@ -11566,9 +11601,14 @@ export interface components {
             name: string;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
         };
         /**
          * ProjectedPoint
@@ -11975,9 +12015,14 @@ export interface components {
             outline_input: string;
             /**
              * Superseded By
-             * @description Another input of this manifest (a feature pick) that, once set, makes this one unused: a wall's start, direction and length when an outline is picked (BUILDING-OUTLINE). The form hides this input while that one is set; its stored value is kept. Absent: always used.
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
              */
             superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
         };
         /**
          * SelectorV1

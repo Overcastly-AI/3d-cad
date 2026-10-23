@@ -249,4 +249,34 @@ describe("supersededInputs", () => {
     expect([...supersededInputs(ROOF, { walls: "" })]).toEqual([]);
     expect([...supersededInputs(ROOF, { walls: "w1" })]).toEqual(["span_mm"]);
   });
+
+  it("hides a window's typed size on every Size but its superseded_unless", () => {
+    const window = {
+      ...ROOF,
+      inputs: [
+        {
+          kind: "choice",
+          name: "size",
+          label: "Size",
+          options: [
+            { value: "window_3040", label: "3040" },
+            { value: "custom", label: "Custom" },
+          ],
+          default: "window_3040",
+        },
+        {
+          kind: "length",
+          name: "width_mm",
+          label: "Custom width",
+          default: 914.4,
+          superseded_by: "size",
+          superseded_unless: "custom",
+        },
+      ],
+    } as unknown as PluginManifest;
+    expect([...supersededInputs(window, { size: "window_3040" })]).toEqual([
+      "width_mm",
+    ]);
+    expect([...supersededInputs(window, { size: "custom" })]).toEqual([]);
+  });
 });
