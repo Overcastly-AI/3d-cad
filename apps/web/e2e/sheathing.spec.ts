@@ -17,10 +17,8 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  *    panels (13 986 in², 97.125 tall) cut from 3 sheets of 4x9; pricing the
  *    blank through the dialog at $24.98 per 4x9 sheet extends to $74.94.
  *  - A Floor from Build ▾ at its defaults has the 23/32 plywood subfloor:
- *    6 panels, 17 280 in², cut from 6 sheets of 4x8: with a 1/8 in kerf at
- *    each cut (SHEET-KERF), the 96 x 24's rip and each 48 x 48's end are
- *    1/8 in short of another panel, and a floor panel is never turned to
- *    fit one (SUBFLOOR-GRAIN). It was 4 before the kerf.
+ *    6 panels, 17 280 in², cut from 4 sheets of 4x8 (two 96 x 48 whole, a
+ *    96 x 24 and its 48 x 24 from one, two 48 x 48 from one).
  */
 
 /** The default 144 wall's framing (wall-b2's list) and its OSB. */
@@ -37,7 +35,7 @@ const FLOOR_SUBFLOOR: CutRow[] = [
   ["Rim", "2", "144", "12 ft"],
   ["Sill", "2", "109", "10 ft"],
   ["Sill", "2", "144", "12 ft"],
-  ["Subfloor", "6", "17,280 in²", "6 × 4x8"],
+  ["Subfloor", "6", "17,280 in²", "4 × 4x8"],
 ];
 
 async function inchPart(
@@ -132,7 +130,7 @@ test.describe("Sheathing — sheet goods on the Wall and the Floor", () => {
     ]);
   });
 
-  test("a Floor from Build ▾ has its 23/32 plywood subfloor: 6 sheets of 4x8", async ({
+  test("a Floor from Build ▾ has its 23/32 plywood subfloor: 4 sheets of 4x8", async ({
     page,
   }) => {
     test.setTimeout(240_000);

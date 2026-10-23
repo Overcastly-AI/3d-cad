@@ -10,9 +10,9 @@ checked here against numbers typed from the spec by hand:
    (SHEET-COUNT-PIECES): OSB 12 panels and 4 corner rips lapping the side
    walls past the front and back walls' ends (3.9375 x 97.125),
    47 422.71875 in^2, 12 sheets of 4x9 (the walls are 97.125 tall; 10 by
-   area); plywood 6 panels, 17 280 in^2, 6 sheets of 4x8 (4 before a
-   1/8 in kerf was lost at each cut, SHEET-KERF); at $24.98 a 4x9 OSB sheet
-   and $42.50 a 4x8 plywood sheet the lines extend to $299.76 and $255.00;
+   area); plywood 6 panels, 17 280 in^2, 4 sheets of 4x8; at $24.98 a 4x9
+   OSB sheet and $42.50 a 4x8 plywood sheet the lines extend to $299.76 and
+   $170.00;
 2. the exported STEP's solids are, solid for solid, an independent build123d
    script of the spec's members (panels as boxes less the rough openings),
    the OSB summing to 20 747.439453125 in^3 and the subfloor to 12 420 to
@@ -297,18 +297,7 @@ def test_the_cut_list_buys_the_sheets_the_panels_are_cut_from() -> None:
         for line in sheets
     ]
     assert rows == [
-        (
-            "Subfloor",
-            "23/32 plywood",
-            "plywood",
-            6,
-            "4x8",
-            17280,
-            6,
-            10368,
-            4250,
-            25500,
-        ),
+        ("Subfloor", "23/32 plywood", "plywood", 6, "4x8", 17280, 4, 1152, 4250, 17000),
         (
             "Sheathing",
             "7/16 OSB",
@@ -322,17 +311,17 @@ def test_the_cut_list_buys_the_sheets_the_panels_are_cut_from() -> None:
             29976,
         ),
     ]
-    # By hand, a 1/8 in kerf at each cut (SHEET-KERF). Plywood: two 96 x 48
-    # whole; the 96 x 24 takes a third sheet, its rip 23.875 wide; each
-    # 48 x 48 a sheet, its end 47.875 long; the 48 x 24 fits neither (it
-    # keeps the strength axis across the joists, SUBFLOOR-GRAIN), so a
-    # sixth. OSB: the 10 panels 48 wide (openings are cut out of whole
+    # By hand, a 1/8 in kerf at each cut, and a piece up to 1/8 in short
+    # filling its panel in APA's panel gap (SHEET-KERF-GAP). Plywood: two
+    # 96 x 48 whole; the 96 x 24 takes a third sheet and the 48 x 24 comes
+    # from its 23.875 rip; a 48 x 48 takes the fourth and the other is its
+    # 47.875 end. OSB: the 10 panels 48 wide (openings are cut out of whole
     # panels) take 10; the first 17 an 11th, the second 17 its 30.875 in
     # rip, which then holds three 3.9375 rips (13.75 - 3 x 4.0625 = 1.5625);
     # the fourth rip a 12th. By area it was 10 (47 422.71875 / 5 184 = 9.15).
     assert math.ceil(47422.71875 / (48 * 108)) == 10
-    assert 6 * 48 * 96 - 17280 == 10368 and 12 * 48 * 108 - 47422.71875 == 14785.28125
-    assert 6 * 4250 == 25500 and 12 * 2498 == 29976
+    assert 4 * 48 * 96 - 17280 == 1152 and 12 * 48 * 108 - 47422.71875 == 14785.28125
+    assert 4 * 4250 == 17000 and 12 * 2498 == 29976
     # The framing's lines are B5's floor and B2's door-and-window walls.
     lumber = Counter(
         (line.member, line.profile, line.quantity, round(line.length_mm / IN, 6))
@@ -342,7 +331,7 @@ def test_the_cut_list_buys_the_sheets_the_panels_are_cut_from() -> None:
     assert sum(q for (_, _, q, _) in lumber.elements()) == 16 + 64
     assert cut_list.unclassified == 0
     assert cut_list.unpriced_lines == len(cut_list.lines) - 2
-    assert cut_list.total_price_cents == 25500 + 29976
+    assert cut_list.total_price_cents == 17000 + 29976
 
 
 def test_the_csv_shows_the_area_and_the_sheet() -> None:
@@ -358,7 +347,7 @@ def test_the_csv_shows_the_area_and_the_sheet() -> None:
     rows = cut_list_csv(cut_list).split("\r\n")
     plywood = next(r for r in rows if "23/32 plywood" in r)
     osb = next(r for r in rows if "7/16 OSB" in r)
-    assert plywood.endswith(",6,,,17280,4x8 sheet,,6,42.50,Each,255.00")
+    assert plywood.endswith(",6,,,17280,4x8 sheet,,4,42.50,Each,170.00")
     assert osb.endswith(",16,,,47422.7188,4x9 sheet,,12,24.98,Each,299.76")
 
 

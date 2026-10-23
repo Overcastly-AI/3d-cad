@@ -3066,7 +3066,7 @@ property feeds a BOM column; Loft's price book feeds the cut list.
   that may splice and is over 20 ft
   (the longest every yard stocks), the splice tiers, so B7's 24 ft rims,
   plates and ridge are 24 ft stock but still price as 16 + 8 with the QA
-  round's book, and its total moves only for SHEET-KERF (below). Splices
+  round's book, so its total is unchanged. Splices
   of dimension lumber now draw on 18 to 24 ft too (36 ft is 2 x 18).
 - **CSV:** `Stock qty`, `Unit price (USD)`, `Price unit` (Each, Per ft,
   Per BF) and `Extended (USD)` as plain numbers (`28.47`, no symbol or
@@ -3141,8 +3141,7 @@ SolidWorks cut the body the picked face belongs to.
   and no stock length. A sheet line (one per product, material and sheet) is
   priced by that entry times its sheets: B2's OSB 10 x $24.98 = $249.80, B5's
   plywood 4 x $42.50 = $170.00 (by area; since SHEET-COUNT-PIECES, below,
-  B5's walls are 12 x $24.98 = $299.76, and since SHEET-KERF its plywood
-  6 x $42.50 = $255.00).
+  B5's walls are 12 x $24.98 = $299.76).
 - **Sheets are counted by the panels cut from them** (SHEET-COUNT-PIECES,
   2026-10-23, reversing the area count). A yard sells whole sheets, and
   `ceil(net area / sheet area)` under-buys the rips and fillers that cannot
@@ -3162,24 +3161,23 @@ SolidWorks cut the body the picked face belongs to.
   house $3,347.92; its subfloor stays 12, B5's 4. The CHECKs became "each has a stock length
   or a sheet" and "never both". The CSV gains `Area (sq <unit>)`; a sheet
   line has its area there, `4x9 sheet` as its stock and no lengths.
-- **A kerf is lost at every cut** (SHEET-KERF, 2026-10-23). `sheets_to_cut`
+- **A kerf is lost at every cut, and the panel gap absorbs it** (SHEET-KERF,
+  SHEET-KERF-HALVES, SHEET-KERF-GAP; founder, 2026-10-23). `sheets_to_cut`
   takes 1/8 in (`SHEET_KERF_MM`, a circular or panel saw's blade) from each
-  rip and end it leaves, so two 24 in rips no longer come from one 48 in
-  sheet, nor two 48 in squares from one 96 in sheet. The walls hold (B5's
-  12 and B7's 21 OSB: the 17 in fillers' rips still take their corner
-  rips), but the subfloors' exact 48 in squares now take a sheet each: B5's
-  plywood 6 sheets, not 4 ($255.00), B7's 14, not 12, so B7 prices to
-  $3,053.79 and the 28 ft house to $3,432.92 (16 sheets, not 14).
-  **Only a cut side loses a kerf** (SHEET-KERF-HALVES, founder,
-  2026-10-23): a panel side at least the sheet's (or offcut's) side less
-  APA's 1/8 in panel gap (`SHEET_GAP_MM`) is a full side, laid uncut edge to
-  edge in the gap, so it leaves no offcut and loses no kerf; a 96 x 47.9
-  panel is a whole sheet. Re-derived under the rule, the counts above
-  stand: a 48 x 48 square's 48 in WIDTH is the sheet's full width (no rip),
-  but its 48 in LENGTH is a real cross cut of a 96 in sheet, so its end is
-  96 - 48 - 1/8 = 47.875 in and the next 48 in square needs a sheet. B5
-  stays 6 (and its 96 x 24's rip, a real cut, is 23.875 for the 48 x 24),
-  B7 14, the 28 ft house 16.
+  rip and end it leaves, and only from a side actually cut: a panel side at
+  least the sheet's (or offcut's) side less APA's 1/8 in panel gap
+  (`SHEET_GAP_MM`) is laid uncut and leaves no offcut. Panels are laid with
+  that gap, so a piece up to 1/8 in short of its modelled size on any side
+  fills the panel: a 4x8 cut in half gives two 47 15/16 in pieces that fill
+  two 48 in modelled squares, and a 24 in rip's 23.875 in remainder fills
+  the next 24 in rip. Kerfs still add up past the gap: three 16 in rips
+  leave the third 15.75 in (1/4 in short), so they take two 48 in sheets,
+  and three 32 in thirds of a 96 in sheet do not fit one. The kerf-only
+  rule (SHEET-KERF alone) had bought B5's subfloor 6 sheets and B7's 14;
+  with the gap the counts are SHEET-COUNT-PIECES' again: B5's plywood 4
+  ($170.00), its OSB 12, B7's subfloor 12 and OSB 21 ($2,968.79), the 28 ft
+  house's subfloor 14 ($3,347.92). The rule applies to every sheet line,
+  floor and wall alike.
 - **Floor panels keep the strength axis across the joists**
   (SUBFLOOR-GRAIN, 2026-10-23). APA lays floor sheathing with its strength
   axis (the sheet's 8 ft length) across the supports, so a subfloor panel

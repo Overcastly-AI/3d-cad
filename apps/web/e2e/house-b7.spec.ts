@@ -46,11 +46,12 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * (CUT-LIST-LONG-STOCK): rims and ridge 16 ft + 8 ft, top plates
  * 16 ft + 8 ft, PT sills and bottom plate 2 x 12 ft. The OSB is the 21
  * sheets the wall panels are cut from, not 17 by area (SHEET-COUNT-PIECES),
- * and the subfloor 14, its 48 in squares a sheet each with a 1/8 in kerf
- * (SHEET-KERF), so B7 prices to the last line at $3,092.67: loft-wire's
- * test_b7_is_priced_to_the_last_line_3053_79 sums the two-ply house by hand
- * ($2,793.75 for the 18 short lines + $260.04 of splices), plus the six
- * plies' $38.88.
+ * and the subfloor 12 (a 1/8 in kerf at each cut, the second 48 in square
+ * 1/8 in short in APA's panel gap, SHEET-KERF-GAP), so B7 prices to the
+ * last line at $3,007.67: loft-wire's
+ * test_b7_is_priced_to_the_last_line_2968_79 sums the two-ply house by
+ * hand ($2,708.75 for the 18 short lines + $260.04 of splices), plus the
+ * six plies' $38.88.
  *
  * Then the three named edits, each from the base house: the front left
  * window moved 24 in, one field 60 -> 84 (undone with Ctrl+Z), pitch 6/12 ->
@@ -124,9 +125,9 @@ const HOUSE: CutRow[] = [
   // Sheathing: 80 869 in² of walls less openings + four 5.9375 x 97.125
   // corner rips, cut from 21 sheets (SHEET-COUNT-PIECES): 18 panels 48 wide,
   // two 37 in fillers whose 11 in rips hold a corner rip each, and one sheet
-  // for the other two rips. The subfloor's four 48 x 48 take a sheet each:
-  // a 1/8 in kerf leaves each end 47.875 long (SHEET-KERF; it was 12).
-  ["Subfloor", "14", "55,296 in²", "14 × 4x8"],
+  // for the other two rips. The subfloor's four 48 x 48 take two sheets:
+  // a square's 47.875 in end fills the other in the panel gap.
+  ["Subfloor", "14", "55,296 in²", "12 × 4x8"],
   ["Sheathing", "24", "83,175.7188 in²", "21 × 4x9"],
 ];
 
@@ -174,7 +175,7 @@ const HOUSE_28: CutRow[] = [
   ["Bottom plate", "1", "336", "16 ft + 12 ft"],
   ["Rafter", "30", "123.5341", "12 ft"],
   ["Ridge", "1", "336", "2 × 16 ft"],
-  ["Subfloor", "16", "64,512 in²", "16 × 4x8"],
+  ["Subfloor", "16", "64,512 in²", "14 × 4x8"],
   ["Sheathing", "26", "92,499.7188 in²", "23 × 4x9"],
 ];
 
@@ -182,7 +183,7 @@ const HOUSE_28: CutRow[] = [
 const PRICES: [string, string, string][] = [
   ["Joist", "16 ft", "22.97"], // SPF 2x10 16 ft
   ["Sill", "16 ft", "16.98"], // PT 2x6 16 ft
-  ["Subfloor", "14 × 4x8", "42.50"], // 23/32 plywood 4x8
+  ["Subfloor", "12 × 4x8", "42.50"], // 23/32 plywood 4x8
   ["Stud", "8 ft", "6.48"], // SPF 2x6 8 ft
   ["Bottom plate", "12 ft", "12.48"], // PT 2x6 12 ft
   ["Sheathing", "21 × 4x9", "24.98"], // 7/16 OSB 4x9
@@ -191,15 +192,15 @@ const PRICES: [string, string, string][] = [
 ];
 
 /**
- * The 18 short lines, 19 x 22.97 + 4 x 16.98 + 14 x 42.50 + 120 x 6.48 +
- * 2 x 12.48 + 21 x 24.98 + 4 x 13.98 + 26 x 13.47 = 2 832.63, plus the
+ * The 18 short lines, 19 x 22.97 + 4 x 16.98 + 12 x 42.50 + 120 x 6.48 +
+ * 2 x 12.48 + 21 x 24.98 + 4 x 13.98 + 26 x 13.47 = 2 747.63, plus the
  * splices: rims 2 x 34.44, sills 2 x 24.96, top plates 4 x 20.46, bottom
  * plate 24.96, ridge 34.44 = 260.04.
  */
-const PRICE = "$3,092.67";
+const PRICE = "$3,007.67";
 /**
- * 28 ft: the short lines (22 joists, 16 plywood and 23 OSB sheets, 126
- * 2x6 x 8, 30 rafters, ...) come to 3 133.76, and the PT sills and bottom
+ * 28 ft: the short lines (22 joists, 14 plywood and 23 OSB sheets, 126
+ * 2x6 x 8, 30 rafters, ...) come to 3 048.76, and the PT sills and bottom
  * plate splice 16 + 12 (3 x 29.46 = 88.38). The SPF rims, top plates and
  * ridge have no priced two-piece 28 ft splice (2 x 14, 16 + 12, 18 + 10,
  * 20 + 8: the book has the 16 and 8 ft SPF 2x10 and 2x6 but no 10, 12, 14,
@@ -208,7 +209,7 @@ const PRICE = "$3,092.67";
  * 2 x 16 (32 ft, before 16 + 8 + 8's three pieces): rims 2 x 45.94, top
  * plates 4 x 27.96, ridge 45.94 = 249.66 more.
  */
-const PRICE_28 = "$3,471.80";
+const PRICE_28 = "$3,386.80";
 
 const VOLUME = "266,665.1045";
 const VOLUME_8_12 = "269,263.7754";
@@ -432,8 +433,8 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     // splice (2 x 12, 14 + 10, 16 + 8: only 16 ft is in the book), so they
     // buy the first one the book prices whole, fewest pieces then least
     // waste, 2 x 16 (CUT-LIST-SPLICE-TIES, SPLICE-FEWEST-PIECES):
-    // 2 832.63 + 81.84 + 74.88 = 2 989.35, plus 3 x 45.94 = 3 127.17.
-    await expectPrice(page, "$3,127.17");
+    // 2 747.63 + 81.84 + 74.88 = 2 904.35, plus 3 x 45.94 = 3 042.17.
+    await expectPrice(page, "$3,042.17");
     const rim = panel.locator(
       '[data-testid="cut-list-row"][data-member="Rim"]',
     );
@@ -491,7 +492,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     const csv = (
       await readFile(await (await downloading).path(), "utf-8")
     ).split("\r\n");
-    expect(csv).toContain(",Total,,,,,,,,,,,,,,3092.67");
+    expect(csv).toContain(",Total,,,,,,,,,,,,,,3007.67");
 
     // Edit 1: the front left window (X 60) moved 24 in, to X 84: one field,
     // its distance from the X 0 end. The wall re-frames it with the same

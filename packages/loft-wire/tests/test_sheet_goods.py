@@ -174,16 +174,15 @@ def test_a_panel_exactly_one_sheet_buys_one_sheet() -> None:
     assert line.stock_quantity == 3
 
 
-def test_b5s_subfloor_is_6_sheets_of_4x8() -> None:
+def test_b5s_subfloor_is_4_sheets_of_4x8() -> None:
     """2 x 96 x 48 whole; 96 x 24 takes a third, its rip 23.875 wide after
-    the kerf; each 48 x 48 takes a sheet, its end 47.875 long (SHEET-KERF:
-    it was 4 sheets, the squares from one sheet with no kerf); the 48 x 24
-    fits neither the rip nor, kept across the joists, a 47.875 x 48 end
-    (SUBFLOOR-GRAIN; turned, it would), so a sixth."""
+    the kerf, which the 48 x 24 fills, 1/8 in short in APA's panel gap
+    (SHEET-KERF-GAP); a 48 x 48 takes a fourth, its 47.875 end the other
+    square. A kerf alone made it 6 (SHEET-KERF)."""
     (line,) = _response(_b5_plywood()).lines
-    assert (line.sheet, line.quantity, line.stock_quantity) == ("4x8", 6, 6)
+    assert (line.sheet, line.quantity, line.stock_quantity) == ("4x8", 6, 4)
     assert line.area_mm2 == pytest.approx(17280 * IN**2, abs=1e-6)
-    assert line.offcut_area_mm2 == pytest.approx((6 * 4608 - 17280) * IN**2)
+    assert line.offcut_area_mm2 == pytest.approx((4 * 4608 - 17280) * IN**2)
 
 
 def _b5_walls() -> list[tuple[BodyExtent, CutListMember]]:
@@ -217,21 +216,24 @@ def test_the_count_does_not_depend_on_the_panel_order() -> None:
 def test_an_offcut_is_reused_only_where_it_covers_a_whole_panel() -> None:
     sheet = SHEET_SIZES_BY_KEY["4x8"]
     ft = 12 * IN
-    # A 1/8 in kerf is lost at each cut (SHEET-KERF): a 24 in rip leaves
-    # 23.875 in, so 4 x 24 in rips take 4 sheets (2 with no kerf).
-    assert sheets_to_cut([(8 * ft, 2 * ft)] * 4, sheet) == 4
-    assert sheets_to_cut([(8 * ft, 24 * IN), (8 * ft, 23.875 * IN)], sheet) == 1
+    # A 1/8 in kerf is lost at each cut (SHEET-KERF), but a piece up to 1/8
+    # in short fills its panel, the shortfall in APA's panel gap
+    # (SHEET-KERF-GAP): a 24 in rip leaves 23.875, which fills the next
+    # 24 in rip, so 4 x 24 in rips take 2 sheets.
+    assert sheets_to_cut([(8 * ft, 2 * ft)] * 4, sheet) == 2
+    # Kerfs add up past the gap: three 16 in rips leave 15.75 for the third
+    # (1/4 in short), so 2 sheets; three 15.875 in rips fit one.
+    assert sheets_to_cut([(8 * ft, 16 * IN)] * 3, sheet) == 2
+    assert sheets_to_cut([(8 * ft, 15.875 * IN)] * 3, sheet) == 1
     # 3 x 32 in wide panels: no offcut (15.875 in) covers another: 3 sheets,
-    # though their area is 2 sheets.
+    # though their area is 2 sheets. The 15.875 in rips left fill 16 in ones.
     assert sheets_to_cut([(8 * ft, 32 * IN)] * 3, sheet) == 3
-    # The 15.875 in rips left cover 15.875 in panels, not 16 in ones.
-    narrow = [(8 * ft, 15.875 * IN)] * 3
-    assert sheets_to_cut([(8 * ft, 32 * IN)] * 3 + narrow, sheet) == 3
-    assert sheets_to_cut([(8 * ft, 32 * IN)] * 3 + [(8 * ft, 16 * IN)] * 3, sheet) == 5
-    # A 4 x 4 end is cut across a 4 x 8 sheet too, but the kerf leaves it
-    # 47.875 long: one 48 in square per sheet, two 47.875 in squares.
-    assert sheets_to_cut([(4 * ft, 4 * ft)] * 3, sheet) == 3
-    assert sheets_to_cut([(47.875 * IN, 47.875 * IN)] * 4, sheet) == 2
+    assert sheets_to_cut([(8 * ft, 32 * IN)] * 3 + [(8 * ft, 16 * IN)] * 3, sheet) == 3
+    # A 4 x 4 end is cut across a 4 x 8 sheet: two 48 in squares from one
+    # sheet (47 15/16 each in the gap), but not three 32 x 48 thirds (two
+    # kerfs leave the last 31.75, 1/4 in short).
+    assert sheets_to_cut([(4 * ft, 4 * ft)] * 3, sheet) == 2
+    assert sheets_to_cut([(32 * IN, 4 * ft)] * 3, sheet) == 2
     # Only a cut side loses a kerf (SHEET-KERF-HALVES): a side within APA's
     # 1/8 in panel gap of the sheet's is laid uncut. A 96 x 47.9 panel is a
     # whole sheet and leaves nothing; a 96 x 24 rip's other side is uncut, so
@@ -254,8 +256,9 @@ def test_a_part_placed_twice_cuts_its_panels_twice() -> None:
         length_unit="in",
         pieces=[piece],
     ).lines
-    # Three 96 x 24 rips, a sheet each: the kerf leaves 23.875 beside one.
-    assert (line.quantity, line.stock_quantity) == (3, 3)
+    # Three 96 x 24 rips: two from one sheet (the second 1/8 in short, in
+    # the panel gap), the third from a second.
+    assert (line.quantity, line.stock_quantity) == (3, 2)
 
 
 def test_a_floor_panel_keeps_the_sheets_strength_axis() -> None:
@@ -302,9 +305,8 @@ def test_sheet_lines_are_priced_per_sheet() -> None:
         "each",
         11 * 2498,
     )
-    # B5's subfloor is 6 sheets since SHEET-KERF (it was 4).
-    assert (plywood.unit_price_cents, plywood.extended_price_cents) == (4250, 25500)
-    assert response.total_price_cents == 27478 + 25500
+    assert (plywood.unit_price_cents, plywood.extended_price_cents) == (4250, 17000)
+    assert response.total_price_cents == 27478 + 17000
     # A 4x8 price does not price a line of 4x9 sheets.
     other = _sheet_book(("osb", "osb_7_16", "4x8", 2000))
     (line,) = _response(_b2_osb(), other).lines

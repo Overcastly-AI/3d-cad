@@ -44,11 +44,12 @@ two extents. Panels group by product, material and sheet (not by member or
 size), and a line buys the sheets its panels are CUT from, as a yard sells
 whole sheets (:func:`sheets_to_cut`, SHEET-COUNT-PIECES): each panel takes a
 sheet unless an earlier offcut of the line covers it whole, largest panels
-first, a saw kerf (:data:`SHEET_KERF_MM`) lost at every cut (SHEET-KERF). A
-floor panel keeps the sheet's strength axis across the joists, so it is never
-turned to fit an offcut (SUBFLOOR-GRAIN); a wall panel may be. Openings are
-not credited (framers sheathe over them and cut them out), so a line's
-offcut area is its sheets' area less its net area.
+first, a saw kerf (:data:`SHEET_KERF_MM`) lost at every cut (SHEET-KERF) and
+a piece up to 1/8 in short filling its panel in APA's panel gap
+(SHEET-KERF-GAP). A floor panel keeps the sheet's strength axis across the
+joists, so it is never turned to fit an offcut (SUBFLOOR-GRAIN); a wall
+panel may be. Openings are not credited (framers sheathe over them and cut
+them out), so a line's offcut area is its sheets' area less its net area.
 
 **Order** (CUT-LIST-PANEL): lines are grouped by SYSTEM, as Chief
 Architect's Materials List groups by category: Floor, Walls (with their doors
@@ -191,8 +192,9 @@ ONE_PIECE_ROLES: Final[frozenset[str]] = frozenset(
 GRAIN_LOCKED_ROLES: Final[frozenset[str]] = frozenset({"subfloor"})
 
 #: The saw kerf lost at every cut of a sheet (mm): 1/8 in, a circular saw's
-#: or panel saw's blade (SHEET-KERF). Two 24 in rips do not come from one
-#: 48 in sheet, nor two 48 in halves from one 96 in sheet.
+#: or panel saw's blade (SHEET-KERF). The panel gap absorbs one (two 48 in
+#: halves come from a 96 in sheet); kerfs past it do not (three 16 in rips
+#: do not come from one 48 in sheet).
 SHEET_KERF_MM: Final = 0.125 * MM_PER_INCH
 
 #: APA's gap between sheathing panels (mm): 1/8 in. A panel side within it
@@ -794,11 +796,13 @@ Rect = tuple[float, float]
 
 
 def _fits(panel: Rect, rect: Rect) -> bool:
-    """Whether a ``(long, short)`` *panel* is cut whole from *rect*."""
-    return (
-        panel[0] <= rect[0] + SHEET_FIT_TOLERANCE_MM
-        and panel[1] <= rect[1] + SHEET_FIT_TOLERANCE_MM
-    )
+    """Whether a ``(long, short)`` *panel* is cut from *rect*: each side at
+    most :data:`SHEET_GAP_MM` short of the modelled panel's (SHEET-KERF-GAP).
+    Panels are laid with APA's 1/8 in gap, so a piece 1/8 in short on an
+    edge fills the panel and the gap absorbs the kerf: a 4x8 cut in half
+    gives two 47 15/16 in pieces that fill two 48 in squares."""
+    slack = SHEET_GAP_MM + SHEET_FIT_TOLERANCE_MM
+    return panel[0] <= rect[0] + slack and panel[1] <= rect[1] + slack
 
 
 def _leftovers(rect: Rect, panel: Rect, *, turn: bool) -> list[Rect]:
@@ -837,8 +841,10 @@ def sheets_to_cut(
     earliest of equal ones), else from a new sheet. A panel is cut from a
     corner, long side along the sheet's, leaving a rip the full length
     beside it and an end across it, both offcuts for later panels, less a
-    1/8 in kerf at each cut (SHEET-KERF): two 24 in rips take two 48 in
-    sheets. With *turn* false (a floor's panels, SUBFLOOR-GRAIN) a panel's
+    1/8 in kerf at each cut (SHEET-KERF), a piece up to 1/8 in short still
+    filling its panel in the panel gap (:func:`_fits`): three 16 in rips
+    take two 48 in sheets, two 24 in rips one. With *turn* false (a floor's
+    panels, SUBFLOOR-GRAIN) a panel's
     long side stays along the sheet's length, its strength axis, so an
     offcut narrower along the sheet than the panel is long never takes it;
     with *turn* (wall sheathing) a panel may lie either way in an offcut.
