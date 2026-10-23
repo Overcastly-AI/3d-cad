@@ -162,6 +162,9 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # B7 with its window and door units (OPENING-UNITS): b7-outline's class,
     # measured 3.3e-4 mm^3 (the twin 3.8e-4).
     "b7-units": 1e-3,
+    # B2 in 2x6 with three-ply headers (HEADER-PLIES): the B2 walls' drift,
+    # measured 2.4e-6 mm^3 over 66 bodies.
+    "b2-2x6-walls-header-plies": 1e-5,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

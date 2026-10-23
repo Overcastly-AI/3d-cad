@@ -1,0 +1,60 @@
+{
+  "description": "B2 IN 2x6 WITH THREE-PLY HEADERS (HEADER-PLIES; loft.window/loft.door 1.4.0, IRC R602.7): buildings.md B2's four walls (144 x 120 outside, 97.125 tall, 16 in o.c., double top plate) framed in 2x6, the front and back running through and the sides 109 between them, with B2's door (a 3068, rough opening 38 x 82.5 centred on X 72) and window (a 2030, rough opening 24.5 x 36.5 under an 82.5 head, centred on Y 60), both drawn as the rough opening only, at 1.4.0's default Header build, Fill the wall: each header is THREE 2x6 plies on edge across the 5.5 in wall (1.5 + 0.5 + 1.5 + 0.5 + 1.5, the spacers not members) where 1.0.0-1.3.0 frame two. model.json is EXACTLY the four walls' expansions (loft.wall 1.1.0) with the member materials documents applies; members.json is each body's member metadata. packages/loft-plugins/tests/test_header_plies.py asserts both files are the plugins' output; services/geometry/tests/test_header_plies_b2.py checks the cut list (3 x 41 and 3 x 27.5 header plies, priced), that the exported STEP's solids are the hand-typed members box for box, that none enters a rough opening, and interference none.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC, from the members typed by hand from B2's plan at 2x6 in test_header_plies_b2.py's spec_boxes (front wall Y 0..5.5 and back Y 114.5..120 along X 0..144, side walls X 0..5.5 and 138.5..144 along Y 5.5..114.5; bottom plates Z 0..1.5, studs and kings 1.5..94.125, top plates 94.125..97.125; jacks Z 1.5..82.5; header plies Z 82.5..88 at 0..1.5, 2..3.5 and 4..5.5 in from the exterior face, the door's X 51.5..92.5 and the window's Y 46.25..73.75; top cripples 88..94.125; window sill Z 44.5..46, bottom cripples 1.5..44.5), summed in exact rational arithmetic (x 25.4 = mm exactly), never from the plugin.",
+    "",
+    "volume = 180807/4 in^3 (66 boxes, every one a 2x6 of 8.25 in^2: the cut list's 5479 in of studs 36 x 92.625, jacks 4 x 81, header plies 3 x 41 + 3 x 27.5, cripples 4 x 6.125 + 2 x 43, sill 24.5, top plates 4 x 144 + 4 x 109, bottom plates 144 + 2 x 109 + 2 x 53) x 25.4^3 = 740723970.162 mm^3.",
+    "",
+    "surface_area = sum of 2(ab + bc + ca) over the 66 boxes (bodies are separate, touching faces are not merged) = 77795 in^2 = 50190222.2 mm^2.",
+    "",
+    "centroid = volume-weighted mean of the box centres (exact rationals): x = 6718721/87664 in, y = 5024455/87664 in, z = 4687981/87664 in.",
+    "",
+    "mass_g = (SPF volume x 450 + PT volume x 582) kg/m^3, the PT being the bottom plates (468 in x 8.25 in^2), the rest SPF = 341677.486514628 g; center_of_mass x = 171921689/2246512 in, y = 387484061/6739536 in, z = 117240709/2246512 in.",
+    "",
+    "bounding_box: X 0..144, Y 0..120, Z 0..97.125 in = 0..3657.6, 0..3048.0, 0..2466.975 mm.",
+    "",
+    "topology: 66 boxes x (6 faces, 12 edges, 1 shell) = 396 faces, 792 edges, 66 shells.",
+    "",
+    "MESH counts are recorded but also exact for boxes: 12 triangles and 24 vertices per box = 792 triangles, 1584 vertices."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), as b2-walls-door-window: the bounds are ABSOLUTE and the part is ~7.4e8 mm^3, so the double-precision sum of its 66 separate bodies carries round-off near the ULP of the sum (~1.2e-7). Measured 2026-10-23: 2.4e-7 mm^3 on the volume, 4.5e-8 mm^2 on the area, <= 6.9e-13 mm on the centroid and <= 9.1e-13 mm on the centre of mass, 2.3e-10 g on the mass. 1e-6 is 4.2x the worst and ~1.4e-15 relative; a member 0.001 in out of place moves the volume by >= 1.2 mm^3 and fails by six orders of magnitude.",
+  "roundtrip_tolerance": 1e-5,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-23: the STEP round trip re-sums the 66 re-imported solids in another order and moves the VOLUME by 2.4e-6 mm^3 (3.2e-15 relative) and the AREA by 7.5e-8 mm^2, the centroid by <= 3.0e-12 mm. That is above ROUNDTRIP_TOL (1e-7 absolute), near the ULP of a 7.4e8 sum, for b2-walls-door-window's cause on a part 1.6x its volume. 1e-5 is 4.2x the worst; it applies to volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 740723970.162,
+    "surface_area": 50190222.2,
+    "centroid": {
+      "x": 1946.700052473079,
+      "y": 1455.798925442599,
+      "z": 1358.30805575835
+    },
+    "mass_g": 341677.486514628,
+    "center_of_mass": {
+      "x": 1943.8181948727627,
+      "y": 1460.352040466881,
+      "z": 1325.5722687437235
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 3657.6,
+        "y": 3048.0,
+        "z": 2466.975
+      }
+    }
+  },
+  "topology": {
+    "faces": 396,
+    "edges": 792,
+    "shells": 66
+  },
+  "mesh": {
+    "vertices": 1584,
+    "triangles": 792
+  }
+}

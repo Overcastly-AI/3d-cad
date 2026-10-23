@@ -289,6 +289,9 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # B7 with its window and door units (OPENING-UNITS): b7-outline's
         # class, 3.8e-4 at worst (the twin's).
         "b7-units",
+        # B2 in 2x6 with three-ply headers (HEADER-PLIES): the B2 walls'
+        # summation drift over 66 boxes (2.4e-6 mm^3).
+        "b2-2x6-walls-header-plies",
     }
 )
 
