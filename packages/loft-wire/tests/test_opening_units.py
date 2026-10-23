@@ -189,10 +189,14 @@ def test_a_custom_unit_has_no_key_and_no_price() -> None:
 
 def test_the_csv_lists_a_unit_each() -> None:
     rows = cut_list_csv(listed(window_3040())).split("\r\n")
-    assert rows[1].split(",")[1:3] == ["Window", "3040"]
-    cells = rows[1].split(",")
-    assert cells[9] == "Unit" and cells[11] == "1"
-    assert cells[12:] == ["289.00", "Each", "289.00"]
+    row = dict(zip(rows[0].split(","), rows[1].split(","), strict=True))
+    assert (row["System"], row["Member"], row["Profile"]) == ("Walls", "Window", "3040")
+    assert row["Stock"] == "Unit" and row["Stock qty"] == "1"
+    assert (row["Unit price (USD)"], row["Price unit"], row["Extended (USD)"]) == (
+        "289.00",
+        "Each",
+        "289.00",
+    )
 
 
 def test_a_unit_price_is_each_with_no_stock_or_sheet() -> None:
