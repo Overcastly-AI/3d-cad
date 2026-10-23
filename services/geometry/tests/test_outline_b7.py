@@ -918,7 +918,7 @@ def test_each_unit_is_one_priced_line_and_the_lumber_is_unchanged() -> None:
     # The round's $2,868.87 plus the units: 449 + 3 x 289 + 2 x 189.
     assert cut_list.total_price_cents == 286887 + 44900 + 86700 + 37800 == 456287
     assert cut_list.unpriced_lines == 0
-    assert ",Total,,,,,,,,,,,,,4562.87" in cut_list_csv(cut_list).split("\r\n")
+    assert ",Total,,,,,,,,,,,,,,4562.87" in cut_list_csv(cut_list).split("\r\n")
 
 
 def test_with_its_units_every_body_weighs_by_its_material() -> None:
