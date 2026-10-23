@@ -383,15 +383,16 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     });
     await shoot(page, "b7-house", "iso");
 
-    // BODY-NAMES: the browser names each of the 217 member bodies after its
-    // feature and member, as the unfolded tree and the cut list do and as
-    // Fusion's browser names every body; no row reads "Body n".
+    // BODY-NAMES: the browser names each of the 223 member bodies (b7's 217
+    // and HEADER-PLIES' six third plies) after its feature and member, as the
+    // unfolded tree and the cut list do and as Fusion's browser names every
+    // body; no row reads "Body n".
     const bodyNames = page.locator('[data-testid^="body-name-"]');
-    await expect(bodyNames).toHaveCount(217);
+    await expect(bodyNames).toHaveCount(223);
     const names = await bodyNames.allTextContents();
     expect(names.filter((name) => /^Body \d+$/.test(name))).toEqual([]);
     // Unique: the wall's two roles titled Stud count on, never two "Stud 1".
-    expect(new Set(names).size).toBe(217);
+    expect(new Set(names).size).toBe(223);
     expect(names).toContain("Wall 1 · Stud 1");
     const ridge = names.findIndex((name) => name.endsWith(" · Ridge"));
     expect(ridge).toBeGreaterThan(-1);
