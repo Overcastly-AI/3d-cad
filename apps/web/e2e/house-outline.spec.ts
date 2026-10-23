@@ -1,7 +1,7 @@
 import { expectSolved, openBuildTool } from "./buildFlow";
 import { expect, test, type Page } from "./fixtures";
 import { createFeature } from "./partSeed";
-import { SCREENSHOT_DIR, seedSession } from "./support";
+import { expectSeatsSettled, SCREENSHOT_DIR, seedSession } from "./support";
 
 /**
  * BUILDING-OUTLINE: B7 (docs/reference-parts/buildings.md) from ONE outline
@@ -265,8 +265,17 @@ test.describe("B7 from one outline sketch", () => {
     );
     const slope = page.getByTestId("plugin-input-slope_walls");
     await expect(slope).toHaveAttribute("data-armed", "true");
-    await side(page, "slope_walls", "Front").click();
-    await page.getByRole("button", { name: "Back wall" }).click();
+    // Front is picked on the model. The back wall's outline line runs behind
+    // the house in this view, so its mark is ghosted and takes no pointer
+    // (PICKMARK-OCCLUDE-1); as in Fusion, a hidden side is picked from the
+    // field's side list, not through the body. (Clicking the mark only ever
+    // passed when the click beat the occlusion pass.)
+    await page.getByRole("button", { name: "Front wall" }).click();
+    await expectSeatsSettled(page, "roof slope walls");
+    await expect(
+      page.getByRole("button", { name: "Back wall" }),
+    ).toHaveAttribute("data-buried", "true");
+    await side(page, "slope_walls", "Back").click();
     await expect(
       page.getByRole("button", { name: "Defines slope: Front, Back" }),
     ).toBeVisible();
