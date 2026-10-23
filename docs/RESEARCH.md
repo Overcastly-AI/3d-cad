@@ -2933,6 +2933,53 @@ and reframe it, a material per member, and a cut list that is always current.
     the run at Y 57 moving nothing else. C3's melamine V3021 is 3 072.140625
     in^3, 343.25 in of PVC banding, 4 hinges, priced to the last line.
     Goldens `c1-*`, `c2-kitchen-b7-left-wall`, `c3-*`.
+- **Decided while building the crawl space** (CRAWL-SPACE, 2026-10-23;
+  Chief Architect's foundation and Revit's foundation walls follow the
+  exterior wall loop, footing and wall each with its own volume):
+  - *A pour each.* `loft.foundation` 1.0.0 extrudes the footing's ring
+    (the outline offset out and in by the footing's reach past the stem)
+    down from its top, then the stem's ring down from the stem's top to the
+    footing's, each a NEW body, face to face: the footing is poured first
+    and the stem formed on it (buildings.md: one body per pour). Both list
+    `concrete` with the one allowance, so the cut list orders them on their
+    sum (B9: 6.59 yd³, 7.00 ordered). The footing carries its rebar.
+  - *The floor is unchanged.* The stem's outside face is the outline and
+    its top is the picked floor's base elevation (Z 0 with none), so a
+    `loft.floor` on the outline sits on it flush outside. The foundation
+    picks the EARLIER floor ("Floor on it", as Chief builds the foundation
+    from the floor above), refuses one on another outline, and reads its
+    sills: the crawl height is measured to the joists' underside (base +
+    sill), and the stem lists the sills' bolts. `AnchorBolts.plates_mm` lets
+    a pour list bolts for plates another feature frames, each counted by
+    R403.1.6 from its length (the floor's own piece list, the lengths the
+    kernel builds); a plate's `anchor_bolts` still counts its measured
+    length. No floor: a 1.5 in sill and one sill per side are assumed. No
+    wall or floor release changed.
+  - *Openings are scoped cuts.* Each vent and the access is a plan
+    rectangle through the stem, 1 in clear of both faces and the top so no
+    tool face lies on a stem face, cut DOWN from above the top with
+    `cut_bodies` = the stem, so the sill above and the footing below are
+    never touched. An opening below grade (R408.4 would need an areaway),
+    into a corner's crossing stem, or overlapping another is refused.
+  - *Vent layout* (R408.1): ``max(corners, ceil(area / 150 / net))`` vents,
+    the area inside the stem and the net area typed (72 in² default, a
+    maker's figure). Each corner's vent sits 24 in from it on its longer
+    line (ties: front or back); the rest go round the lines without the
+    access, longest first, then front, back, left, right, then nearer the
+    origin, spaced evenly between that line's corner vents. Vents are
+    numbered by that line rank, never by the corner the sketch was drawn
+    from. The access (R408.4 through a wall: 16 x 24 min) is centred on the
+    longest line facing the picked side, back by default.
+  - *R317.1 is advice.* A crawl under 18 in builds and carries
+    `crawl_height_low` on the feature (documents, from its stored input),
+    shown in its editor; the refusal is kept for geometry that would be
+    wrong (an opening below grade), not for a code choice the engineer may
+    meet with treated joists.
+  - *Numbers.* B9: the footing 118 784 in³, the stem 196 736 - 5 x 1 024 -
+    3 072 = 188 544: 307 328 in³; loops of 968 and 888, 10 sticks; 18 bolts.
+    Golden `b9-crawl-space`: b7-outline's 217 bodies plus the footing (10
+    faces) and the stem (33 faces), 219 in all, matched solid for solid to
+    an independent build123d script on STEP.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

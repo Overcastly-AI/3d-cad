@@ -438,18 +438,23 @@ top at Z 0, flush with its outside face.
   (X 24 and 264) and one on the front wall at X 144 (5 x 1 024 in³).
 - **Access:** 24 wide x 16 high, Z -16..0, centred on the back wall at
   X 144 (3 072 in³), above grade as R408.4 requires.
-- **Concrete:** 196 736 + 118 784 - 5 120 - 3 072 = 307 328 in³ =
+- **Concrete:** the footing and the stem are a pour (and a body) each,
+  ordered together on one line as the cut list groups pours of one
+  allowance: 118 784 + (196 736 - 5 120 - 3 072) = 307 328 in³ =
   **6.59 yd³; x 1.05 = 6.92, so 7.00 bought** (6.75 with no allowance).
 - **Rebar:** 2 #4 bars 3 in above the footing's bottom and 3 in in from each
   face: loops of 968 (80.67 ft) and 888 (74 ft), **10 sticks**.
-- **Anchor bolts** through the floor's sills (288, 288, 181, 181):
-  5 + 5 + 4 + 4 = **18 bolts**.
+- **Anchor bolts** cast into the stem for the floor's sills (288, 288, 181,
+  181): 5 + 5 + 4 + 4 = **18 bolts**, listed by the foundation.
 
 **Edits:** crawl height 24 -> 30: grade Z -28.5, stem Z -32.5..0, footing
 Z -40.5..-32.5, 351 872 in³, 7.54 yd³ (x 1.05 = 7.92, 8.00 bought; 7.75
 with no allowance), nothing above Z 0
 moves. 24 -> 28 ft: rebuilds with no interference; the 391.1 ft² crawl
-takes 6 vents.
+takes 6 vents (375.5 in² / 72): the four corners', one centred on the
+front wall (X 168) and one centred on the left wall (Y 96), the longest
+lines without the access taking the rest in turn (front, back, left,
+right on a tie).
 
 ## B10 Small house with partitions (stops INTERIOR-WALLS)
 

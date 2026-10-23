@@ -86,12 +86,16 @@ kitchen and baths (casework). Each item names its builder types.
    24 x 16 in access (R408.4) are cut from the stem. The floor's sills sit
    flush outside on the stem's top at Z 0, so `loft.floor` is unchanged.
    CMU block is a later choice. _Accept:_ B9 (buildings.md) is
-   307 328 in³ (6.59 yd³, 7.00 bought with the 5% allowance) with 5
+   307 328 in³ (6.59 yd³; x 1.05 = 6.92, so 7.00 bought) with 5
    vents, 1 access, 10 sticks of #4 and 18 anchor bolts through the sills
    (`loft_wire.foundation` and the cut list's pours, rebar and bolts are
    SLAB's, so the foundation reuses them); B7's floor and walls on it
    have no interference; crawl height 24 -> 30 lowers the footing 6 in and
-   moves nothing above Z 0.
+   moves nothing above Z 0. _Kernel, wire and pricing half built
+   (2026-10-23):_ `loft.foundation` 1.0.0, golden `b9-crawl-space`,
+   `crawl-space.spec.ts`; the footing and stem are a pour each, and the
+   access is R408.4's through-wall 24 x 16 (18 x 24 is the through-floor
+   minimum).
 7. [ ] **INTERIOR-WALLS** (founder 2026-10-23; kernel-architect for
    `loft.interior_wall` 1.0.0, a `loft.wall` version that frames T-backing
    and offers gypsum on its inside face, and goldens; backend-builder for
@@ -278,6 +282,10 @@ One line each. The founder triages weekly; most are closed without work.
 - BARE-UNIT-SAME-EDIT: one edit that changes a legacy dimension and adds a new one with the same text leaves the new one reading mm; the text match also ignores length vs angle.
 - BARE-UNIT-LIST-POINTERS: list params are matched by pointer position, so a reorder counts the moved formulas as entered and writes the unit into them.
 - BARE-UNIT-DISPLAY-NOISE: `storedLengthInput` can show a formula's value as 6.000000000000001 in the editor's form.
+- CRAWL-VENT-UNITS: the foundation's vents and access are cut but not listed; Chief's materials list carries the vent units and the access door Each.
+- CRAWL-TWO-ORDERS: the footing and stem are a pour each but the cut list orders them on one line (SLAB's grouping by allowance); crews take two deliveries, each rounded up (B9: 2.75 + 4.25, the same 7.00 here).
+- CRAWL-NO-FLOOR-BOLTS: a foundation with no Floor on it lists bolts for one sill per outline side (192, not the floor's 181), which can count one more or fewer per side than the floor built later.
+- VISION-WASTE-LINE: VISION's "Concrete, rebar and bolts" bullet still says "no waste factor", which the 2026-10-23 5% allowance decision replaced.
 
 - SKETCH-LINE-ANGLE-WHEN: the L / ∠ cells arm after the end click (type 450 Tab 73 Enter then); keys typed BEFORE the end click stay the X / Y point cells (G2, sketch-line-length-tab), whereas Fusion's box takes length and angle mid-drag. Founder to decide whether the mid-drag keys should become L / ∠.
 - SKETCH-LINE-ANGLE-ZERO: the angle cell takes (0, 180) as `AngleConstraint` does; 0 or 180 is refused with a message rather than becoming Horizontal (or Collinear to the previous segment), which Fusion does.
