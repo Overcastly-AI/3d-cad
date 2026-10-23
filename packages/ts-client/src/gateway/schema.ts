@@ -3120,7 +3120,7 @@ export interface components {
              * Material
              * @description The material RESOLVED for this body (its own override, else the document default); null = none assigned, so no mass.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
         };
         /**
          * BodyMaterialAssignment
@@ -3145,7 +3145,7 @@ export interface components {
              * @description Material for THIS body only
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine";
         };
         /**
          * BodyName
@@ -3348,6 +3348,38 @@ export interface components {
              * @description Size along Z (mm)
              */
             z: number;
+        };
+        /**
+         * CaseworkItem
+         * @description One item a cabinet buys that is not a panel: banding or hardware.
+         */
+        CaseworkItem: {
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "banding" | "hinge" | "slide";
+            /**
+             * Materials
+             * @description The materials it is listed and priced in.
+             */
+            materials: ("plywood" | "pvc" | "steel_1018")[];
+            /**
+             * Name
+             * @description As listed, e.g. 'Drawer slides 22 in, pair'.
+             */
+            name: string;
+            /**
+             * Unit
+             * @description How it is priced: banding per linear foot, hardware Each.
+             * @enum {string}
+             */
+            unit: "each" | "linear_foot";
         };
         /**
          * CentreToCentreMeasurement
@@ -4573,7 +4605,9 @@ export interface components {
              * @description Input name -> value, validated against the pinned manifest.
              */
             inputs: {
-                [key: string]: number | string | components["schemas"]["FeatureRef"] | components["schemas"]["FeatureRef"][] | string[];
+                [key: string]: number | string | components["schemas"]["FeatureRef"] | components["schemas"]["FeatureRef"][] | string[] | {
+                    [key: string]: number | string;
+                }[];
             };
             /** Plugin Id */
             plugin_id: string;
@@ -4594,6 +4628,11 @@ export interface components {
              * @description A sheet line's net area (mm^2): its panels' faces, openings cut out. Null for lumber.
              */
             area_mm2?: number | null;
+            /**
+             * Casework
+             * @description A casework item line (CASEWORK): 'edge_banding' (its total length in length_mm, bought in whole feet, stock_quantity), 'hinge' or a 'slide_<n>' pair (Each, quantity pieces). Its price-book key; absent on every other line.
+             */
+            casework?: ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24") | null;
             /**
              * Classification
              * @enum {string}
@@ -4618,7 +4657,7 @@ export interface components {
              * Material
              * @description Library material, or null.
              */
-            material: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum") | null;
+            material: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
             /**
              * Member
              * @description Member role title (e.g. 'Joist'); null when the body is not a plugin member.
@@ -4683,10 +4722,10 @@ export interface components {
             stock_quantity: number | null;
             /**
              * System
-             * @description The group the line is listed under (Floor, Walls, Roof, Sheathing, ...): its members' plugin's system; a structural sheet good is 'sheathing' and gypsum board 'walls'; a body that is no plugin member is 'other'.
+             * @description The group the line is listed under (Floor, Walls, Roof, Sheathing, ...): its members' plugin's system; a structural sheet good is 'sheathing', gypsum board 'walls' and a cabinet panel 'casework'; a body that is no plugin member is 'other'.
              * @enum {string}
              */
-            system: "foundation" | "floor" | "walls" | "roof" | "sheathing" | "deck" | "frame" | "other";
+            system: "foundation" | "floor" | "walls" | "roof" | "sheathing" | "deck" | "frame" | "casework" | "other";
             /**
              * Total Length Mm
              * @description quantity x length; for a sheet line, the sheets' lengths (stock_quantity x length).
@@ -6060,6 +6099,20 @@ export interface components {
             kind: "edge";
             /** @description Stage-1 signature of the picked edge (curve 'line' or 'circle') */
             signature: components["schemas"]["EdgeSignature"];
+        };
+        /**
+         * EdgeBanding
+         * @description The banding one panel carries: its banded edges' total length and the
+         *     banding's material.
+         */
+        EdgeBanding: {
+            /** Length Mm */
+            length_mm: number;
+            /**
+             * Material
+             * @enum {string}
+             */
+            material: "plywood" | "pvc";
         };
         /**
          * EdgeLengthMeasurement
@@ -7951,6 +8004,19 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * HardwareCount
+         * @description Hardware one member carries: a door's hinges, a drawer's slide pair.
+         */
+        HardwareCount: {
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24";
+            /** Quantity */
+            quantity: number;
+        };
+        /**
          * HoleBlindDepth
          * @description A blind hole drilled ``depth_mm`` into the material (``kind: "blind"``).
          *
@@ -9119,6 +9185,77 @@ export interface components {
             spacing_mm: number;
         };
         /**
+         * ListInput
+         * @description An ordered list of ROWS, each the same few number and choice fields
+         *     (``fields``): a cabinet run's boxes, as Mozaik lists a run's cabinets.
+         *     Stored as a list of ``{field: value}`` objects in row order, a field left
+         *     out of a row taking its default; an empty list is stored as no value,
+         *     allowed only when ``min_items`` is 0. A formula drives one field of one
+         *     row by pointer (``/inputs/<name>/<row>/<field>``). The form shows the
+         *     rows as an add and remove list, a new row taking the last row's values.
+         */
+        ListInput: {
+            /**
+             * Default
+             * @description A new feature's rows (a field a row leaves out takes its default).
+             */
+            default?: {
+                [key: string]: number | string;
+            }[];
+            /**
+             * Description
+             * @description Help text under the field.
+             */
+            description?: string | null;
+            /**
+             * Fields
+             * @description The fields of every row, in form order.
+             */
+            fields: (components["schemas"]["LengthInput"] | components["schemas"]["AngleInput"] | components["schemas"]["CountInput"] | components["schemas"]["ChoiceInput"])[];
+            /**
+             * Item Label
+             * @description What one row is called, e.g. 'Box'.
+             */
+            item_label: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "list";
+            /**
+             * Label
+             * @description Form label, e.g. 'Twist angle'.
+             */
+            label: string;
+            /**
+             * Max Items
+             * @description Most rows.
+             * @default 32
+             */
+            max_items: number;
+            /**
+             * Min Items
+             * @description Fewest rows; 0 makes the input optional.
+             * @default 0
+             */
+            min_items: number;
+            /**
+             * Name
+             * @description Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.
+             */
+            name: string;
+            /**
+             * Superseded By
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
+             */
+            superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
+        };
+        /**
          * LockMate
          * @description Rigidly fix two instances' relative pose — 0 DOF (design §2.1/§2.3).
          *
@@ -9301,7 +9438,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12";
+            key: "us_1x2" | "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12";
             /**
              * Name
              * @description Nominal size as sold, e.g. '2x10' or '5/4x6'.
@@ -9519,7 +9656,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum";
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine";
             /**
              * Name
              * @description Display name, e.g. 'Aluminium 6061'
@@ -9554,7 +9691,7 @@ export interface components {
              * Default Material
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
-            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum") | null;
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
         };
         /**
          * MaterialInput
@@ -9562,7 +9699,7 @@ export interface components {
          */
         MaterialInput: {
             /** Default */
-            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum") | null;
+            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
             /**
              * Description
              * @description Help text under the field.
@@ -9607,6 +9744,11 @@ export interface components {
          *     weldment profiles beside its material database.
          */
         MaterialLibraryResponse: {
+            /**
+             * Casework Items
+             * @description Edge banding and cabinet hardware (CASEWORK): what a casework price is keyed by ('hinge', 'slide_22'), its unit and the materials it is sold in.
+             */
+            casework_items?: components["schemas"]["CaseworkItem"][];
             /**
              * Foundation Items
              * @description Foundation items (SLAB): ready-mix concrete per cubic yard, #4 rebar per 20 ft stick and 1/2 in anchor bolts Each, keyed as a price-book profile ('rebar_4').
@@ -9764,13 +9906,25 @@ export interface components {
         MemberMetadata: {
             /** @description Set on a plate that bears on concrete (SLAB): the cut list counts its anchor bolts from its measured length (IRC R403.1.6). Absent otherwise. */
             anchor_bolts?: components["schemas"]["AnchorBolts"] | null;
+            /** @description The edge banding on this panel's exposed edges (CASEWORK), listed by the foot under Casework. Absent: none. */
+            banding?: components["schemas"]["EdgeBanding"] | null;
             /** @description Set on a concrete body, one per pour (SLAB): the cut list lists its measured volume in cubic yards and orders it with the pour's waste allowance, rounded up to 1/4 yd³. Absent otherwise. */
             concrete?: components["schemas"]["ConcretePour"] | null;
+            /**
+             * Grain
+             * @description A sheet-good panel with grain (CASEWORK: a plywood cabinet panel): the world direction its face grain runs, a unit vector [x, y, z]. The cut list lays the panel with that side along the sheet's length and never turns it. Absent: the panel may turn.
+             */
+            grain?: number[] | null;
+            /**
+             * Hardware
+             * @description Hardware this member carries (CASEWORK: a door's hinges, a drawer box's pair of slides), listed Each under Casework. Absent: none.
+             */
+            hardware?: components["schemas"]["HardwareCount"][] | null;
             /**
              * Material
              * @description Library material of the member.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
             /**
              * Nominal Size
              * @description Nominal size as sold, e.g. '2x8x12'.
@@ -11355,7 +11509,7 @@ export interface components {
              */
             id: string;
             /** Inputs */
-            inputs: (components["schemas"]["LengthInput"] | components["schemas"]["AngleInput"] | components["schemas"]["CountInput"] | components["schemas"]["ChoiceInput"] | components["schemas"]["ProfileInput"] | components["schemas"]["FeatureReferenceInput"] | components["schemas"]["FeatureListInput"] | components["schemas"]["SegmentsInput"] | components["schemas"]["MaterialInput"])[];
+            inputs: (components["schemas"]["LengthInput"] | components["schemas"]["AngleInput"] | components["schemas"]["CountInput"] | components["schemas"]["ChoiceInput"] | components["schemas"]["ProfileInput"] | components["schemas"]["FeatureReferenceInput"] | components["schemas"]["FeatureListInput"] | components["schemas"]["SegmentsInput"] | components["schemas"]["MaterialInput"] | components["schemas"]["ListInput"])[];
             /**
              * Latest
              * @description True on the newest released version of this plugin: the one a new feature is inserted with. Older versions are listed so a feature pinned to one still gets its form.
@@ -11613,7 +11767,7 @@ export interface components {
              * @description Library material, e.g. 'spf_lumber'.
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine";
             /**
              * Price Cents
              * @description Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.
@@ -11621,9 +11775,9 @@ export interface components {
             price_cents: number;
             /**
              * Profile
-             * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', or foundation item, e.g. 'ready_mix'.
+             * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', or casework item, e.g. 'hinge'.
              */
-            profile: ("us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2");
+            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24");
             /**
              * Sheet
              * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10', '4x12'); null for lumber.
@@ -12310,13 +12464,13 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8";
+            key: "osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4";
             /**
              * Material
              * @description Library material of the panels.
              * @enum {string}
              */
-            material: "osb" | "plywood" | "gypsum";
+            material: "osb" | "plywood" | "gypsum" | "melamine";
             /**
              * Name
              * @description As sold, e.g. '7/16 OSB'.

@@ -33,17 +33,20 @@ SHEET_GAP_MM: Final = 0.125 * MM_PER_INCH
 Rect = tuple[float, float]
 
 
-def _fits(panel: Rect, rect: Rect) -> bool:
+def _fits(panel: Rect, rect: Rect, gap: float = SHEET_GAP_MM) -> bool:
     """Whether a ``(long, short)`` *panel* is cut from *rect*: each side at
     most :data:`SHEET_GAP_MM` short of the modelled panel's (SHEET-KERF-GAP).
     Panels are laid with APA's 1/8 in gap, so a piece 1/8 in short on an
     edge fills the panel and the gap absorbs the kerf: a 4x8 cut in half
-    gives two 47 15/16 in pieces that fill two 48 in squares."""
-    slack = SHEET_GAP_MM + SHEET_FIT_TOLERANCE_MM
+    gives two 47 15/16 in pieces that fill two 48 in squares. *gap* 0 (a
+    cabinet panel, cut to size, CASEWORK): no piece may be short."""
+    slack = gap + SHEET_FIT_TOLERANCE_MM
     return panel[0] <= rect[0] + slack and panel[1] <= rect[1] + slack
 
 
-def _leftovers(rect: Rect, panel: Rect, *, turn: bool) -> list[Rect]:
+def _leftovers(
+    rect: Rect, panel: Rect, *, turn: bool, gap: float = SHEET_GAP_MM
+) -> list[Rect]:
     """What is left of *rect* once *panel* is cut from its corner, long side
     along *rect*'s first side, a kerf (:data:`SHEET_KERF_MM`) lost at each
     cut: the RIP the full length beside it, then the END across the panel's
@@ -59,12 +62,13 @@ def _leftovers(rect: Rect, panel: Rect, *, turn: bool) -> list[Rect]:
     The END is as wide as the material, not the panel: a panel may be up to
     :data:`SHEET_GAP_MM` wider than *rect* (:func:`_fits`), and the end
     recording the panel's width would let that 1/8 in compound, piece after
-    piece. So no piece is ever more than 1/8 in short."""
+    piece. So no piece is ever more than 1/8 in short. With *gap* 0 every
+    side short of *rect*'s is cut."""
     out: list[Rect] = []
     pieces: list[Rect] = []
-    if panel[1] < rect[1] - SHEET_GAP_MM:
+    if panel[1] < rect[1] - gap:
         pieces.append((rect[0], rect[1] - panel[1] - SHEET_KERF_MM))
-    if panel[0] < rect[0] - SHEET_GAP_MM:
+    if panel[0] < rect[0] - gap:
         pieces.append((rect[0] - panel[0] - SHEET_KERF_MM, min(panel[1], rect[1])))
     for a, b in pieces:
         if min(a, b) > SHEET_FIT_TOLERANCE_MM:
@@ -73,7 +77,11 @@ def _leftovers(rect: Rect, panel: Rect, *, turn: bool) -> list[Rect]:
 
 
 def sheets_to_cut(
-    panels: Iterable[Rect], sheet: SheetSize, *, turn: bool = True
+    panels: Iterable[Rect],
+    sheet: SheetSize,
+    *,
+    turn: bool = True,
+    gap_mm: float = SHEET_GAP_MM,
 ) -> int:
     """How many sheets of *sheet* the ``(length, width)`` *panels* are cut from
     (SHEET-COUNT-PIECES): the yard sells whole sheets, so count what the
@@ -92,7 +100,11 @@ def sheets_to_cut(
     strength axis, in the sheet and in every offcut, never turned; with
     *turn* (wall sheathing) a panel may lie either way in an offcut.
     Openings are not credited: a panel is its whole face, as framers
-    sheathe over an opening and cut it out."""
+    sheathe over an opening and cut it out. *gap_mm* is the panel gap a
+    short piece may fill: APA's 1/8 in for sheathing, 0 for a cabinet
+    panel, which is cut to its size (CASEWORK); a plywood cabinet panel is
+    given ``(along its grain, across it)`` with *turn* false, so its grain
+    runs along the sheet's length."""
     # A wall panel may turn, so it goes (long, short); a floor panel keeps
     # the (across, along) it was given, across along the sheet's length.
     rects = sorted(
@@ -112,7 +124,7 @@ def sheets_to_cut(
     for panel in rects:
         best: int | None = None
         for index, offcut in enumerate(offcuts):
-            if _fits(panel, offcut) and (
+            if _fits(panel, offcut, gap_mm) and (
                 best is None
                 or offcut[0] * offcut[1] < offcuts[best][0] * offcuts[best][1]
             ):
@@ -124,6 +136,8 @@ def sheets_to_cut(
             source = offcuts.pop(best)
         # An offcut no panel could fit is dropped, keeping the scan short.
         offcuts.extend(
-            r for r in _leftovers(source, panel, turn=turn) if _fits(smallest, r)
+            r
+            for r in _leftovers(source, panel, turn=turn, gap=gap_mm)
+            if _fits(smallest, r, gap_mm)
         )
     return sheets

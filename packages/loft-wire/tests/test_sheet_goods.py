@@ -57,6 +57,10 @@ def test_the_library() -> None:
         ("plywood_23_32", "23/32 plywood", "plywood", 0.71875),
         ("gypsum_1_2", "1/2 gypsum", "gypsum", 0.5),
         ("gypsum_5_8", "5/8 gypsum", "gypsum", 0.625),
+        ("plywood_3_4", "3/4 plywood", "plywood", 0.75),
+        ("melamine_3_4", "3/4 melamine", "melamine", 0.75),
+        ("plywood_1_2", "1/2 plywood", "plywood", 0.5),
+        ("plywood_1_4", "1/4 plywood", "plywood", 0.25),
     ]
     assert [(s.key, s.width_in, s.length_in) for s in SHEET_SIZES] == [
         ("4x8", 48, 96),

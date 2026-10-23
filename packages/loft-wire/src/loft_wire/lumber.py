@@ -43,6 +43,7 @@ COMMON_MAX_STOCK_FT: Final = 20
 #: The built-in profile keys. A closed literal, like ``MaterialKey``: an
 #: unknown profile is a parse error at the boundary.
 LumberProfileKey = Literal[
+    "us_1x2",
     "us_1x4",
     "us_1x6",
     "us_5_4x6",
@@ -115,6 +116,7 @@ def _profile(
 
 #: The library in display order: boards, decking, dimension, timbers.
 LUMBER_PROFILES: tuple[LumberProfile, ...] = (
+    _profile("us_1x2", "1x2", "board", 0.75, 1.5),
     _profile("us_1x4", "1x4", "board", 0.75, 3.5),
     _profile("us_1x6", "1x6", "board", 0.75, 5.5),
     _profile("us_5_4x6", "5/4x6", "decking", 1.0, 5.5),

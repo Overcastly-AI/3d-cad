@@ -135,6 +135,10 @@ def format_yd3(value: float) -> str:
 
 
 def _stock(line: CutListLine) -> str:
+    if line.casework == "edge_banding":
+        return f"{line.stock_quantity} ft"
+    if line.casework is not None:
+        return "Each"
     if line.item == "concrete":
         net = volume_yd3(line.volume_mm3 or 0.0)
         return f"{format_yd3(net)} yd3 net + {line.waste_percent or 0}% waste"
@@ -168,7 +172,11 @@ def cut_list_csv(cut_list: CutListResponse) -> str:
     for item, line in enumerate(cut_list.lines, start=1):
         sheet = line.area_mm2 is not None
         # A pour has no length to cut, a bolt no length at all.
-        no_length = sheet or line.item in ("concrete", "anchor_bolt")
+        no_length = (
+            sheet
+            or line.item in ("concrete", "anchor_bolt")
+            or (line.casework is not None and line.casework != "edge_banding")
+        )
         stock_qty = (
             format_yd3(line.order_yd3)
             if line.order_yd3 is not None
@@ -182,7 +190,7 @@ def cut_list_csv(cut_list: CutListResponse) -> str:
                 csv_text(line.member or ""),
                 csv_text(line.profile or "Unclassified"),
                 ""
-                if line.item is not None
+                if line.item is not None or line.casework is not None
                 else " x ".join(format_length(v, unit) for v in line.section_mm),
                 csv_text(material),
                 line.quantity,

@@ -54,7 +54,7 @@ them out), so a line's offcut area is its sheets' area less its net area.
 **Order** (CUT-LIST-PANEL): lines are grouped by SYSTEM, as Chief
 Architect's Materials List groups by category: Floor, Walls (with their doors
 and windows, partitions and gypsum board), Roof, Sheathing (every structural
-sheet good), then Deck, Frame and Other.
+sheet good but a cabinet's), then Deck, Frame, Casework and Other.
 A plugin member's system is its plugin's (:func:`system_for_plugin`). Within a
 system, lines run by member (in the order each first appears in the tree),
 then profile and material (likewise), then length, shortest first, so one
@@ -80,6 +80,11 @@ a pour's ``rebar`` runs are lines by centreline length, each run bought in
 counted from the plate's measured length (IRC R403.1.6), into one Each line.
 All three sit under Foundation, the list's first system.
 
+**Casework** (CASEWORK): a ``loft.cabinets`` panel is a sheet good under
+Casework, cut to size (no panel gap) with its grain kept along the sheet;
+its banding and hardware are lines of their own
+(:mod:`loft_wire.cut_list_casework`).
+
 Prices (PRICE-BOOK, RESEARCH §27) come from the user's
 :mod:`loft_wire.price_book`: each line is priced on the stock pieces bought
 (:func:`price_lines`), in integer cents, and a line the book does not price
@@ -95,13 +100,17 @@ import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
-from functools import lru_cache
-from itertools import combinations_with_replacement, permutations
+from itertools import permutations
 from typing import Any, Final, Literal
 
 from pydantic import BaseModel, Field
 
 from loft_wire.assemblies import RefDocumentKind
+from loft_wire.casework import (
+    CASEWORK_ITEMS_BY_KEY,
+    CaseworkItemKey,
+    grain_face,
+)
 from loft_wire.features import EvaluateTreeRequest
 from loft_wire.foundation import (
     FOUNDATION_ITEMS_BY_KEY,
@@ -116,7 +125,6 @@ from loft_wire.lumber import (
     COMMON_STOCK_LENGTHS_FT,
     LUMBER_PROFILES,
     MM_PER_INCH,
-    STOCK_LENGTHS_FT,
     LumberProfile,
     stock_lengths_ft,
 )
@@ -141,7 +149,18 @@ from loft_wire.sheet_goods import (
     covering_sheet,
     sheet_good_for,
 )
-from loft_wire.sheet_nesting import sheets_to_cut
+from loft_wire.sheet_nesting import SHEET_GAP_MM, sheets_to_cut
+from loft_wire.stock import MAX_SPLICE_PIECES as MAX_SPLICE_PIECES
+from loft_wire.stock import (
+    _covers,  # pyright: ignore[reportPrivateUsage]
+    _splice_tiers,  # pyright: ignore[reportPrivateUsage]
+)
+from loft_wire.stock import no_stock_note as no_stock_note
+from loft_wire.stock import splice_label as splice_label
+from loft_wire.stock import stock_length_ft as stock_length_ft
+from loft_wire.stock import stock_pieces_ft as stock_pieces_ft
+from loft_wire.stock import stock_splice_tiers as stock_splice_tiers
+from loft_wire.stock import stock_splices as stock_splices
 from loft_wire.twist import is_none
 from loft_wire.units import LengthUnit
 
@@ -159,12 +178,6 @@ PRISM_TOLERANCE: Final = 1e-6
 
 #: Lengths group when equal to this many decimals of a millimetre (1 um).
 LENGTH_DECIMALS: Final = 3
-
-#: The most stock pieces one member is spliced from: 5 x 24 ft covers 120 ft
-#: of dimension lumber (5 x 20 ft, 100 ft, of the rest). A longer member (a
-#: modelling slip more often than a real plate) has no stock, so it is listed
-#: and left unpriced, never guessed at.
-MAX_SPLICE_PIECES: Final = 5
 
 #: Member roles that are ONE piece of stock, never spliced (NO-SPLICE-SPANS,
 #: RESEARCH §27): members that span between bearings (joists, rafters and
@@ -216,7 +229,15 @@ CutListClassification = Literal["member", "matched", "unclassified"]
 #: The system a line belongs to (CUT-LIST-PANEL), in the order the list is
 #: grouped: a materials list's categories.
 CutListSystem = Literal[
-    "foundation", "floor", "walls", "roof", "sheathing", "deck", "frame", "other"
+    "foundation",
+    "floor",
+    "walls",
+    "roof",
+    "sheathing",
+    "deck",
+    "frame",
+    "casework",
+    "other",
 ]
 
 #: :data:`CutListSystem` in list order.
@@ -228,6 +249,7 @@ SYSTEM_ORDER: Final[tuple[CutListSystem, ...]] = (
     "sheathing",
     "deck",
     "frame",
+    "casework",
     "other",
 )
 
@@ -240,6 +262,7 @@ SYSTEM_LABELS: Final[Mapping[CutListSystem, str]] = {
     "sheathing": "Sheathing",
     "deck": "Deck",
     "frame": "Frame",
+    "casework": "Casework",
     "other": "Other",
 }
 
@@ -256,6 +279,7 @@ PLUGIN_SYSTEMS: Final[Mapping[str, CutListSystem]] = {
     "loft.roof": "roof",
     "loft.deck": "deck",
     "loft.timber_frame": "frame",
+    "loft.cabinets": "casework",
 }
 
 
@@ -369,7 +393,8 @@ class CutListLine(BaseModel):
     system: CutListSystem = Field(
         description="The group the line is listed under (Floor, Walls, Roof, "
         "Sheathing, ...): its members' plugin's system; a structural sheet "
-        "good is 'sheathing' and gypsum board 'walls'; a body that is no "
+        "good is 'sheathing', gypsum board 'walls' and a cabinet panel "
+        "'casework'; a body that is no "
         "plugin member is 'other'."
     )
     member: str | None = Field(
@@ -509,6 +534,14 @@ class CutListLine(BaseModel):
         ge=0,
         description="A concrete line's waste allowance (percent); null otherwise.",
     )
+    casework: CaseworkItemKey | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="A casework item line (CASEWORK): 'edge_banding' (its "
+        "total length in length_mm, bought in whole feet, stock_quantity), "
+        "'hinge' or a 'slide_<n>' pair (Each, quantity pieces). Its price-book "
+        "key; absent on every other line.",
+    )
 
 
 class CutListMissing(BaseModel):
@@ -589,123 +622,6 @@ def _is_prism(body: BodyExtent) -> bool:
     return box > 0 and abs(body.volume_mm3 - box) <= PRISM_TOLERANCE * box
 
 
-def _covers(length_mm: float, feet: int) -> bool:
-    return length_mm <= feet * MM_PER_FOOT + 1e-6
-
-
-def stock_length_ft(
-    length_mm: float, lengths: Sequence[int] = STOCK_LENGTHS_FT
-) -> int | None:
-    """The shortest stock of *lengths* (ft, shortest first; every standard
-    length by default) that covers *length_mm*, or ``None``."""
-    for feet in lengths:
-        if _covers(length_mm, feet):
-            return feet
-    return None
-
-
-@lru_cache(maxsize=1024)
-def _splice_tiers(
-    length_mm: float, lengths: tuple[int, ...]
-) -> tuple[tuple[tuple[int, ...], ...], ...]:
-    """Every 2 to :data:`MAX_SPLICE_PIECES`-piece splice of *lengths* that
-    covers *length_mm*, in tiers (:func:`stock_splice_tiers`), whether or
-    not one stock length covers it too."""
-    tiers: dict[tuple[int, int], list[tuple[int, ...]]] = {}
-    for pieces in range(2, MAX_SPLICE_PIECES + 1):
-        for splice in combinations_with_replacement(
-            sorted(lengths, reverse=True), pieces
-        ):
-            feet = sum(splice)
-            if _covers(length_mm, feet):
-                tiers.setdefault((pieces, feet), []).append(splice)
-    return tuple(tuple(sorted(tiers[key], key=_evenness)) for key in sorted(tiers))
-
-
-def _evenness(splice: tuple[int, ...]) -> tuple[int, ...]:
-    """Sort key among equally good splices: the most even first (the longest
-    shortest piece, then the shortest longest), then the longer pieces first,
-    so 24 ft is 12 + 12, then 14 + 10, then 16 + 8."""
-    return (-min(splice), max(splice), *(-feet for feet in splice))
-
-
-def stock_splice_tiers(
-    length_mm: float, lengths: Sequence[int] = STOCK_LENGTHS_FT
-) -> tuple[tuple[tuple[int, ...], ...], ...]:
-    """Every splice that covers a member longer than the longest stock,
-    grouped into tiers of equally good splices, the best tier first
-    (RESEARCH §27).
-
-    A framer splices a plate or rim longer than stock from stock pieces, the
-    joints over studs or joists (Chief Architect's materials list buys it the
-    same way). A splice is a combination of at most :data:`MAX_SPLICE_PIECES`
-    stock pieces covering *length_mm*, each longest piece first; tiers are
-    ordered by FEWEST PIECES (joints), then LEAST WASTE (the fewest feet
-    bought), and within a tier most even first (:func:`_evenness`). Joints
-    must land over a stud or joist and double top-plate joints be offset 24
-    in (IRC R602.3.2), so a framer orders plates and rims in the longest
-    lengths and cuts blocking from the offcut: 28 ft with 8, 10 and 16 ft
-    stock is 2 x 16, not 10 + 10 + 8 (SPLICE-FEWEST-PIECES). The first tier
-    is the choice (:func:`stock_splices`); the later ones let
-    :func:`price_lines` buy what the book prices, as a yard quotes 28 ft as
-    16 + 16 when it stocks no 14 ft. *lengths* are the stock lengths (ft)
-    the member is sold in (every standard length by default). Empty for a
-    member that one stock length covers, or that no splice covers."""
-    if stock_length_ft(length_mm, lengths) is not None:
-        return ()
-    return _splice_tiers(length_mm, tuple(lengths))
-
-
-def stock_splices(
-    length_mm: float, lengths: Sequence[int] = STOCK_LENGTHS_FT
-) -> tuple[tuple[int, ...], ...]:
-    """The equally good fewest-piece, least-waste splices for a member longer
-    than the longest stock, best first: the first tier of
-    :func:`stock_splice_tiers` (26 ft is 14 + 12, 16 + 10 or 18 + 8; 37 ft
-    is 20 + 18). Empty for a member that one stock length covers, or that no
-    splice covers."""
-    tiers = stock_splice_tiers(length_mm, lengths)
-    return tiers[0] if tiers else ()
-
-
-def stock_pieces_ft(
-    length_mm: float, lengths: Sequence[int] = STOCK_LENGTHS_FT, *, splice: bool = True
-) -> tuple[int, ...] | None:
-    """The stock one member of *length_mm* is cut from: one stock length of
-    *lengths*, else the best splice, or ``None`` when no splice covers it or
-    the member may not be spliced (*splice* false, NO-SPLICE-SPANS)."""
-    single = stock_length_ft(length_mm, lengths)
-    if single is not None:
-        return (single,)
-    if not splice:
-        return None
-    splices = stock_splices(length_mm, lengths)
-    return splices[0] if splices else None
-
-
-def no_stock_note(member: str | None, lengths: Sequence[int], *, splice: bool) -> str:
-    """Why a lumber piece has no stock (``stock_note``): a one-piece member
-    past the longest stock, or any member past the longest splice."""
-    longest = max(lengths)
-    if not splice:
-        what = (member or "member").lower()
-        return f"One piece, longer than {longest} ft stock: a {what} is not spliced"
-    return (
-        f"Longer than {MAX_SPLICE_PIECES} x {longest} ft: no splice of stock covers it"
-    )
-
-
-def splice_label(pieces: Sequence[int]) -> str:
-    """A member's stock as a framer writes it: ``16 ft``, ``2 x 12 ft``,
-    ``14 ft + 12 ft``, ``2 x 20 ft + 8 ft`` (longest first), as the CSV writes it."""
-    counts: dict[int, int] = {}
-    for feet in sorted(pieces, reverse=True):
-        counts[feet] = counts.get(feet, 0) + 1
-    return " + ".join(
-        f"{feet} ft" if n == 1 else f"{n} x {feet} ft" for feet, n in counts.items()
-    )
-
-
 @dataclass(frozen=True)
 class CutListPiece:
     """One measured piece, before grouping (``count`` copies of it). A sheet
@@ -729,9 +645,10 @@ class CutListPiece:
     one_piece: bool = False
     #: A panel that keeps the sheet's strength axis (:data:`GRAIN_LOCKED_ROLES`).
     keep_grain: bool = False
-    #: A grain-locked panel's face as ``(across its supports, along them)``
-    #: (mm), the side that must lie along the sheet's length first
-    #: (:func:`_across_along`); ``None`` for every other piece.
+    #: A grain-locked panel's face, the side that must lie along the
+    #: sheet's length first (mm): a floor panel's ``(across its supports,
+    #: along them)`` (:func:`_across_along`), a cabinet panel's ``(along its
+    #: grain, across it)``; ``None`` for every other piece.
     grain_mm: tuple[float, float] | None = None
     #: A foundation item (SLAB): a pour, a rebar run or anchor bolts.
     item: FoundationItemKind | None = None
@@ -740,6 +657,12 @@ class CutListPiece:
     waste_percent: int | None = None
     #: A rebar run is a closed loop.
     closed: bool = False
+    #: The panel gap a short sheet piece may fill (:func:`sheets_to_cut`):
+    #: 0 for a cabinet panel, cut to its size.
+    gap_mm: float = SHEET_GAP_MM
+    #: A casework item (banding or hardware, CASEWORK): its key, and a
+    #: banding piece's length in ``length_mm``; ``None`` for a body.
+    casework: CaseworkItemKey | None = None
 
     @property
     def panel(self) -> bool:
@@ -832,7 +755,9 @@ def classify_body(
         if good is not None:
             # A panel: its thinnest extent through it, the other two its face.
             thickness = extents[2]
-            keep = member.role in GRAIN_LOCKED_ROLES
+            grain = member.metadata.grain
+            keep = member.role in GRAIN_LOCKED_ROLES or grain is not None
+            cabinet = system_for_plugin(member.plugin_id) == "casework"
             return CutListPiece(
                 member=member.title,
                 profile=good.name,
@@ -844,9 +769,16 @@ def classify_body(
                 count=count,
                 sheet=covering_sheet(extents[0], extents[1], good),
                 area_mm2=body.volume_mm3 / thickness if thickness > 0 else 0.0,
-                system=sheet_system(good.material),
+                system="casework" if cabinet else sheet_system(good.material),
                 keep_grain=keep,
-                grain_mm=_across_along(body, joist_axis) if keep else None,
+                grain_mm=(
+                    None
+                    if not keep
+                    else _across_along(body, joist_axis)
+                    if grain is None
+                    else grain_face(extents, body.axes, grain)
+                ),
+                gap_mm=0.0 if cabinet else SHEET_GAP_MM,
             )
         lumber = lumber_for(member.metadata.profile)
         split = None if lumber is None else _split(extents, lumber)
@@ -958,6 +890,11 @@ def part_pieces(
         piece = classify_body(body, member, materials, count, joist_axis)
         out.append(piece)
         out.extend(listed_pieces(piece, member))
+        if member is not None:
+            # Late: cut_list_casework reads this module's types (CASEWORK).
+            from loft_wire.cut_list_casework import casework_pieces
+
+            out.extend(casework_pieces(member, count))
     return out
 
 
@@ -993,10 +930,17 @@ def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
             ),
             sheet,
             turn=not any(p.keep_grain for p in pieces),
+            gap_mm=first.gap_mm,
         )
         offcut = round(max(sheets * sheet.area_mm2 - area, 0.0), 6)
     return CutListLine(
-        system="sheathing" if good is None else sheet_system(good.material),
+        system=(
+            "casework"
+            if first.system == "casework"
+            else "sheathing"
+            if good is None
+            else sheet_system(good.material)
+        ),
         member=", ".join(members) or None,
         profile=first.profile,
         material=first.material,
@@ -1109,7 +1053,9 @@ def order_lines(lines: Sequence[CutListLine]) -> list[CutListLine]:
         )
         length = (
             0.0
-            if line.area_mm2 is not None or line.item in ("concrete", "anchor_bolt")
+            if line.area_mm2 is not None
+            or line.item in ("concrete", "anchor_bolt")
+            or line.casework is not None
             else line.length_mm
         )
         keys.append((SYSTEM_ORDER.index(system), member, profile, material, length))
@@ -1152,7 +1098,19 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
     groups: dict[tuple[object, ...], tuple[CutListPiece, int]] = {}
     panels: dict[tuple[object, ...], list[CutListPiece]] = {}
     pours: dict[tuple[object, ...], list[CutListPiece]] = {}
+    items: dict[tuple[object, ...], list[CutListPiece]] = {}
     for piece in pieces:
+        if piece.casework is not None:
+            casework_key: tuple[object, ...] = (
+                "casework",
+                piece.system,
+                piece.casework,
+                piece.material,
+            )
+            first, count = groups.get(casework_key, (piece, 0))
+            items.setdefault(casework_key, []).append(piece)
+            groups[casework_key] = (first, count + piece.count)
+            continue
         if piece.item is not None:
             item_key: tuple[object, ...] = (
                 "item",
@@ -1186,6 +1144,7 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
         if piece.panel:
             panel_key: tuple[object, ...] = (
                 "sheet",
+                piece.system,
                 piece.profile,
                 piece.material,
                 None if piece.sheet is None else piece.sheet.key,
@@ -1210,6 +1169,11 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
         groups[key] = (first, count + piece.count)
     lines: list[CutListLine] = []
     for group_key, (piece, quantity) in groups.items():
+        if piece.casework is not None:
+            from loft_wire.cut_list_casework import casework_line
+
+            lines.append(casework_line(items[group_key], quantity))
+            continue
         if piece.item == "concrete":
             lines.append(_concrete_line(pours[group_key], quantity))
             continue
@@ -1391,8 +1355,16 @@ def price_lines(
         unit_price: int | None = None
         unit: PriceUnit | None = None
         update: dict[str, object] = {}
-        item = foundation_item_for(line.profile) if line.item is not None else None
-        if item is not None:
+        if line.casework is not None:
+            kind = CASEWORK_ITEMS_BY_KEY[line.casework]
+            entry = None
+            if line.material is not None:
+                entry = entries.get((line.material, kind.key, kind.unit, None, None))
+            if entry is not None:
+                unit_price, unit = entry.price_cents, entry.unit
+        elif (
+            item := foundation_item_for(line.profile) if line.item is not None else None
+        ) is not None:
             if line.material is not None:
                 key = (line.material, item.key, item.price_unit)
                 entry = entries.get((*key, item.stock_length_ft, None))

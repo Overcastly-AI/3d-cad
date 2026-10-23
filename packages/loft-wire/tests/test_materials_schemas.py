@@ -63,6 +63,7 @@ def test_the_library_is_closed_and_ordered() -> None:
         "steel_a615",
         "steel_f1554",
         "gypsum",
+        "melamine",
     ]
     assert set(MATERIALS_BY_KEY) == {m.key for m in MATERIALS}
     assert all(m.density_kg_m3 > 0 for m in MATERIALS)

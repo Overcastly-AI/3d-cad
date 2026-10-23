@@ -26,6 +26,10 @@ Foundation items (SLAB, :mod:`loft_wire.foundation`): ready-mix concrete
 (``ready_mix``) is priced per ``cubic_yard`` ordered, #4 rebar
 (``rebar_4``) ``each`` per 20 ft stick (stock length 20) and a 1/2 in anchor
 bolt (``anchor_bolt_1_2``) ``each`` with no stock length or sheet.
+Casework items (CASEWORK, :mod:`loft_wire.casework`) are priced in the one
+unit their item names: edge banding per linear foot in its material
+(``edge_banding`` in ``pvc``), a hinge or a pair of slides Each
+(``hinge``, ``slide_22`` in ``steel_1018``), with no stock length or sheet.
 
 The book has a ``version`` (PRICE-BOOK-VERSION): 0 until the first save, then
 one more on every save. ``GET`` serves it in the body and as the ``ETag``;
@@ -44,6 +48,7 @@ from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from loft_wire.casework import CASEWORK_ITEMS_BY_KEY, CaseworkItemKey
 from loft_wire.foundation import (
     FOUNDATION_ITEMS_BY_KEY,
     FoundationItemKey,
@@ -113,12 +118,16 @@ class PriceBookEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     material: MaterialKey = Field(description="Library material, e.g. 'spf_lumber'.")
-    profile: LumberProfileKey | SheetGoodKey | OpeningUnitKey | FoundationItemKey = (
-        Field(
-            description="Lumber profile, e.g. 'us_2x4', sheet product, e.g. "
-            "'osb_7_16', window or door unit, e.g. 'window_3040', or "
-            "foundation item, e.g. 'ready_mix'."
-        )
+    profile: (
+        LumberProfileKey
+        | SheetGoodKey
+        | OpeningUnitKey
+        | FoundationItemKey
+        | CaseworkItemKey
+    ) = Field(
+        description="Lumber profile, e.g. 'us_2x4', sheet product, e.g. "
+        "'osb_7_16', window or door unit, e.g. 'window_3040', foundation "
+        "item, e.g. 'ready_mix', or casework item, e.g. 'hinge'."
     )
     unit: PriceUnit = Field(
         description="'each' (one stock piece of `stock_length_ft`, one sheet "
@@ -172,6 +181,23 @@ class PriceBookEntry(BaseModel):
                 raise ValueError(
                     "A window or door unit is priced 'each' per unit, with no "
                     "stock length or sheet."
+                )
+            return self
+        item = CASEWORK_ITEMS_BY_KEY.get(self.profile)
+        if item is not None:
+            if (
+                self.unit != item.unit
+                or self.stock_length_ft is not None
+                or self.sheet is not None
+            ):
+                per = "per linear foot" if item.unit == "linear_foot" else "Each"
+                raise ValueError(
+                    f"{item.name} is priced {per}, with no stock length or sheet."
+                )
+            if self.material not in item.materials:
+                raise ValueError(
+                    f"{item.name} is sold in "
+                    f"{' or '.join(item.materials)}, not {self.material}."
                 )
             return self
         if self.profile in SHEET_GOODS_BY_KEY:

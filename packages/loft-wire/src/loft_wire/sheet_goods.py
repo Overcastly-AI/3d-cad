@@ -34,11 +34,19 @@ from loft_wire.lumber import MM_PER_INCH
 
 #: The library materials sheet goods are made of (each a ``MaterialKey``;
 #: spelt here so :mod:`loft_wire.materials` can serve this library).
-SheetMaterialKey = Literal["osb", "plywood", "gypsum"]
+SheetMaterialKey = Literal["osb", "plywood", "gypsum", "melamine"]
 
 #: The built-in sheet products. A closed literal, like ``LumberProfileKey``.
 SheetGoodKey = Literal[
-    "osb_7_16", "plywood_15_32", "plywood_23_32", "gypsum_1_2", "gypsum_5_8"
+    "osb_7_16",
+    "plywood_15_32",
+    "plywood_23_32",
+    "gypsum_1_2",
+    "gypsum_5_8",
+    "plywood_3_4",
+    "melamine_3_4",
+    "plywood_1_2",
+    "plywood_1_4",
 ]
 
 #: The sheet sizes sold, by name (width x length, ft).
@@ -98,6 +106,12 @@ SHEET_GOODS: tuple[SheetGood, ...] = (
     _good("plywood_23_32", "23/32 plywood", "plywood", 23 / 32),
     _good("gypsum_1_2", "1/2 gypsum", "gypsum", 1 / 2),
     _good("gypsum_5_8", "5/8 gypsum", "gypsum", 5 / 8),
+    # Casework (CASEWORK): cabinet panels are cut to their nominal thickness,
+    # carcass and fronts 3/4, drawer boxes 1/2 on a 1/4 bottom.
+    _good("plywood_3_4", "3/4 plywood", "plywood", 3 / 4),
+    _good("melamine_3_4", "3/4 melamine", "melamine", 3 / 4),
+    _good("plywood_1_2", "1/2 plywood", "plywood", 1 / 2),
+    _good("plywood_1_4", "1/4 plywood", "plywood", 1 / 4),
 )
 
 #: Key -> product.
@@ -121,6 +135,8 @@ SHEET_SIZES_FOR: Mapping[SheetMaterialKey, tuple[SheetSizeKey, ...]] = {
     "osb": ("4x8", "4x9", "4x10"),
     "plywood": ("4x8", "4x9", "4x10"),
     "gypsum": ("4x8", "4x12"),
+    # Melamine is sold in 4x8 only (CASEWORK).
+    "melamine": ("4x8",),
 }
 
 #: How far a panel may exceed a sheet and still be cut from it (mm): far

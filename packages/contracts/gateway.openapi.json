@@ -1003,7 +1003,8 @@
                   "glass",
                   "steel_a615",
                   "steel_f1554",
-                  "gypsum"
+                  "gypsum",
+                  "melamine"
                 ],
                 "type": "string"
               },
@@ -1055,7 +1056,8 @@
               "glass",
               "steel_a615",
               "steel_f1554",
-              "gypsum"
+              "gypsum",
+              "melamine"
             ],
             "title": "Material",
             "type": "string"
@@ -1282,6 +1284,71 @@
           "z"
         ],
         "title": "BoxParams",
+        "type": "object"
+      },
+      "CaseworkItem": {
+        "description": "One item a cabinet buys that is not a panel: banding or hardware.",
+        "properties": {
+          "key": {
+            "enum": [
+              "edge_banding",
+              "hinge",
+              "slide_12",
+              "slide_14",
+              "slide_16",
+              "slide_18",
+              "slide_20",
+              "slide_22",
+              "slide_24"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "banding",
+              "hinge",
+              "slide"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "materials": {
+            "description": "The materials it is listed and priced in.",
+            "items": {
+              "enum": [
+                "plywood",
+                "pvc",
+                "steel_1018"
+              ],
+              "type": "string"
+            },
+            "title": "Materials",
+            "type": "array"
+          },
+          "name": {
+            "description": "As listed, e.g. 'Drawer slides 22 in, pair'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "unit": {
+            "description": "How it is priced: banding per linear foot, hardware Each.",
+            "enum": [
+              "each",
+              "linear_foot"
+            ],
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "name",
+          "unit",
+          "materials"
+        ],
+        "title": "CaseworkItem",
         "type": "object"
       },
       "CentreToCentreMeasurement": {
@@ -3118,6 +3185,35 @@
                     "maxItems": 32,
                     "minItems": 1,
                     "type": "array"
+                  },
+                  {
+                    "items": {
+                      "maxProperties": 16,
+                      "patternProperties": {
+                        "^[a-z][a-z0-9_]*$": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "maxLength": 200,
+                              "type": "string"
+                            }
+                          ]
+                        }
+                      },
+                      "propertyNames": {
+                        "maxLength": 48,
+                        "minLength": 1
+                      },
+                      "type": "object"
+                    },
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "type": "array"
                   }
                 ]
               }
@@ -3167,6 +3263,29 @@
             ],
             "description": "A sheet line's net area (mm^2): its panels' faces, openings cut out. Null for lumber.",
             "title": "Area Mm2"
+          },
+          "casework": {
+            "anyOf": [
+              {
+                "enum": [
+                  "edge_banding",
+                  "hinge",
+                  "slide_12",
+                  "slide_14",
+                  "slide_16",
+                  "slide_18",
+                  "slide_20",
+                  "slide_22",
+                  "slide_24"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A casework item line (CASEWORK): 'edge_banding' (its total length in length_mm, bought in whole feet, stock_quantity), 'hinge' or a 'slide_<n>' pair (Each, quantity pieces). Its price-book key; absent on every other line.",
+            "title": "Casework"
           },
           "classification": {
             "enum": [
@@ -3238,7 +3357,8 @@
                   "glass",
                   "steel_a615",
                   "steel_f1554",
-                  "gypsum"
+                  "gypsum",
+                  "melamine"
                 ],
                 "type": "string"
               },
@@ -3410,7 +3530,7 @@
             "title": "Stock Quantity"
           },
           "system": {
-            "description": "The group the line is listed under (Floor, Walls, Roof, Sheathing, ...): its members' plugin's system; a structural sheet good is 'sheathing' and gypsum board 'walls'; a body that is no plugin member is 'other'.",
+            "description": "The group the line is listed under (Floor, Walls, Roof, Sheathing, ...): its members' plugin's system; a structural sheet good is 'sheathing', gypsum board 'walls' and a cabinet panel 'casework'; a body that is no plugin member is 'other'.",
             "enum": [
               "foundation",
               "floor",
@@ -3419,6 +3539,7 @@
               "sheathing",
               "deck",
               "frame",
+              "casework",
               "other"
             ],
             "title": "System",
@@ -5335,6 +5456,31 @@
           "signature"
         ],
         "title": "EdgeAxisRef",
+        "type": "object"
+      },
+      "EdgeBanding": {
+        "description": "The banding one panel carries: its banded edges' total length and the\nbanding's material.",
+        "properties": {
+          "length_mm": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000000.0,
+            "title": "Length Mm",
+            "type": "number"
+          },
+          "material": {
+            "enum": [
+              "plywood",
+              "pvc"
+            ],
+            "title": "Material",
+            "type": "string"
+          }
+        },
+        "required": [
+          "length_mm",
+          "material"
+        ],
+        "title": "EdgeBanding",
         "type": "object"
       },
       "EdgeLengthMeasurement": {
@@ -8686,6 +8832,37 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HardwareCount": {
+        "description": "Hardware one member carries: a door's hinges, a drawer's slide pair.",
+        "properties": {
+          "key": {
+            "enum": [
+              "hinge",
+              "slide_12",
+              "slide_14",
+              "slide_16",
+              "slide_18",
+              "slide_20",
+              "slide_22",
+              "slide_24"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "quantity": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "quantity"
+        ],
+        "title": "HardwareCount",
+        "type": "object"
+      },
       "HoleBlindDepth": {
         "description": "A blind hole drilled ``depth_mm`` into the material (``kind: \"blind\"``).\n\n``depth_mm`` is measured from the placement face INTO the solid along the\n(inward) drill axis. A depth that exceeds the available material \u2014 the drill\nwould break through the far side \u2014 is a per-feature ``hole_too_deep`` rebuild\nerror (use a through-all hole instead), never a silently wrong body.",
         "properties": {
@@ -10512,6 +10689,168 @@
         "title": "LinearPatternParamsV1",
         "type": "object"
       },
+      "ListInput": {
+        "description": "An ordered list of ROWS, each the same few number and choice fields\n(``fields``): a cabinet run's boxes, as Mozaik lists a run's cabinets.\nStored as a list of ``{field: value}`` objects in row order, a field left\nout of a row taking its default; an empty list is stored as no value,\nallowed only when ``min_items`` is 0. A formula drives one field of one\nrow by pointer (``/inputs/<name>/<row>/<field>``). The form shows the\nrows as an add and remove list, a new row taking the last row's values.",
+        "properties": {
+          "default": {
+            "description": "A new feature's rows (a field a row leaves out takes its default).",
+            "items": {
+              "maxProperties": 16,
+              "patternProperties": {
+                "^[a-z][a-z0-9_]*$": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "maxLength": 200,
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "propertyNames": {
+                "maxLength": 48,
+                "minLength": 1
+              },
+              "type": "object"
+            },
+            "maxItems": 32,
+            "title": "Default",
+            "type": "array"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Help text under the field.",
+            "title": "Description"
+          },
+          "fields": {
+            "description": "The fields of every row, in form order.",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "angle": "#/components/schemas/AngleInput",
+                  "choice": "#/components/schemas/ChoiceInput",
+                  "count": "#/components/schemas/CountInput",
+                  "length": "#/components/schemas/LengthInput"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/LengthInput"
+                },
+                {
+                  "$ref": "#/components/schemas/AngleInput"
+                },
+                {
+                  "$ref": "#/components/schemas/CountInput"
+                },
+                {
+                  "$ref": "#/components/schemas/ChoiceInput"
+                }
+              ]
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Fields",
+            "type": "array"
+          },
+          "item_label": {
+            "description": "What one row is called, e.g. 'Box'.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Item Label",
+            "type": "string"
+          },
+          "kind": {
+            "const": "list",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "Form label, e.g. 'Twist angle'.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "max_items": {
+            "default": 32,
+            "description": "Most rows.",
+            "maximum": 32.0,
+            "minimum": 1.0,
+            "title": "Max Items",
+            "type": "integer"
+          },
+          "min_items": {
+            "default": 0,
+            "description": "Fewest rows; 0 makes the input optional.",
+            "maximum": 32.0,
+            "minimum": 0.0,
+            "title": "Min Items",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.",
+            "maxLength": 48,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
+            "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "kind",
+          "item_label",
+          "fields"
+        ],
+        "title": "ListInput",
+        "type": "object"
+      },
       "LockMate": {
         "description": "Rigidly fix two instances' relative pose \u2014 0 DOF (design \u00a72.1/\u00a72.3).\n\nTrivial for the solver (it fixes a relative pose, 0 iterative work) and\ncovers weldments/press-fits. References two instances directly by id (no\npicked geometry) \u2014 the relative-pose residual drives ``b``'s pose to a fixed\ntransform of ``a``'s (\u00a72.3).",
         "properties": {
@@ -10736,6 +11075,7 @@
           },
           "key": {
             "enum": [
+              "us_1x2",
               "us_1x4",
               "us_1x6",
               "us_5_4x6",
@@ -11138,7 +11478,8 @@
               "glass",
               "steel_a615",
               "steel_f1554",
-              "gypsum"
+              "gypsum",
+              "melamine"
             ],
             "title": "Key",
             "type": "string"
@@ -11199,7 +11540,8 @@
                   "glass",
                   "steel_a615",
                   "steel_f1554",
-                  "gypsum"
+                  "gypsum",
+                  "melamine"
                 ],
                 "type": "string"
               },
@@ -11242,7 +11584,8 @@
                   "glass",
                   "steel_a615",
                   "steel_f1554",
-                  "gypsum"
+                  "gypsum",
+                  "melamine"
                 ],
                 "type": "string"
               },
@@ -11327,6 +11670,14 @@
       "MaterialLibraryResponse": {
         "description": "The built-in material library, served so no client hardcodes a density.\n\nThe picker needs names + densities, and a second copy of the table in TS\nwould be a DRY violation that silently drifts (CLAUDE.md). One table, in\npy-kit, served over the API.\n\n``profiles`` is the section library members are cut from (US lumber,\n``loft_wire.lumber``), served beside the materials as SolidWorks serves\nweldment profiles beside its material database.",
         "properties": {
+          "casework_items": {
+            "description": "Edge banding and cabinet hardware (CASEWORK): what a casework price is keyed by ('hinge', 'slide_22'), its unit and the materials it is sold in.",
+            "items": {
+              "$ref": "#/components/schemas/CaseworkItem"
+            },
+            "title": "Casework Items",
+            "type": "array"
+          },
           "foundation_items": {
             "description": "Foundation items (SLAB): ready-mix concrete per cubic yard, #4 rebar per 20 ft stick and 1/2 in anchor bolts Each, keyed as a price-book profile ('rebar_4').",
             "items": {
@@ -11615,6 +11966,17 @@
             ],
             "description": "Set on a plate that bears on concrete (SLAB): the cut list counts its anchor bolts from its measured length (IRC R403.1.6). Absent otherwise."
           },
+          "banding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EdgeBanding"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The edge banding on this panel's exposed edges (CASEWORK), listed by the foot under Casework. Absent: none."
+          },
           "concrete": {
             "anyOf": [
               {
@@ -11625,6 +11987,39 @@
               }
             ],
             "description": "Set on a concrete body, one per pour (SLAB): the cut list lists its measured volume in cubic yards and orders it with the pour's waste allowance, rounded up to 1/4 yd\u00b3. Absent otherwise."
+          },
+          "grain": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A sheet-good panel with grain (CASEWORK: a plywood cabinet panel): the world direction its face grain runs, a unit vector [x, y, z]. The cut list lays the panel with that side along the sheet's length and never turns it. Absent: the panel may turn.",
+            "title": "Grain"
+          },
+          "hardware": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/HardwareCount"
+                },
+                "maxItems": 8,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Hardware this member carries (CASEWORK: a door's hinges, a drawer box's pair of slides), listed Each under Casework. Absent: none.",
+            "title": "Hardware"
           },
           "material": {
             "anyOf": [
@@ -11651,7 +12046,8 @@
                   "glass",
                   "steel_a615",
                   "steel_f1554",
-                  "gypsum"
+                  "gypsum",
+                  "melamine"
                 ],
                 "type": "string"
               },
@@ -13995,6 +14391,7 @@
                   "feature": "#/components/schemas/FeatureReferenceInput",
                   "features": "#/components/schemas/FeatureListInput",
                   "length": "#/components/schemas/LengthInput",
+                  "list": "#/components/schemas/ListInput",
                   "material": "#/components/schemas/MaterialInput",
                   "profile": "#/components/schemas/ProfileInput",
                   "segments": "#/components/schemas/SegmentsInput"
@@ -14028,6 +14425,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/MaterialInput"
+                },
+                {
+                  "$ref": "#/components/schemas/ListInput"
                 }
               ]
             },
@@ -14447,7 +14847,8 @@
               "glass",
               "steel_a615",
               "steel_f1554",
-              "gypsum"
+              "gypsum",
+              "melamine"
             ],
             "title": "Material",
             "type": "string"
@@ -14463,6 +14864,7 @@
             "anyOf": [
               {
                 "enum": [
+                  "us_1x2",
                   "us_1x4",
                   "us_1x6",
                   "us_5_4x6",
@@ -14492,7 +14894,11 @@
                   "plywood_15_32",
                   "plywood_23_32",
                   "gypsum_1_2",
-                  "gypsum_5_8"
+                  "gypsum_5_8",
+                  "plywood_3_4",
+                  "melamine_3_4",
+                  "plywood_1_2",
+                  "plywood_1_4"
                 ],
                 "type": "string"
               },
@@ -14507,9 +14913,23 @@
                   "anchor_bolt_1_2"
                 ],
                 "type": "string"
+              },
+              {
+                "enum": [
+                  "edge_banding",
+                  "hinge",
+                  "slide_12",
+                  "slide_14",
+                  "slide_16",
+                  "slide_18",
+                  "slide_20",
+                  "slide_22",
+                  "slide_24"
+                ],
+                "type": "string"
               }
             ],
-            "description": "Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', or foundation item, e.g. 'ready_mix'.",
+            "description": "Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', or casework item, e.g. 'hinge'.",
             "title": "Profile"
           },
           "sheet": {
@@ -15611,7 +16031,11 @@
               "plywood_15_32",
               "plywood_23_32",
               "gypsum_1_2",
-              "gypsum_5_8"
+              "gypsum_5_8",
+              "plywood_3_4",
+              "melamine_3_4",
+              "plywood_1_2",
+              "plywood_1_4"
             ],
             "title": "Key",
             "type": "string"
@@ -15621,7 +16045,8 @@
             "enum": [
               "osb",
               "plywood",
-              "gypsum"
+              "gypsum",
+              "melamine"
             ],
             "title": "Material",
             "type": "string"

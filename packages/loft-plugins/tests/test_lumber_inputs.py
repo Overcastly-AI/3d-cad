@@ -36,7 +36,7 @@ MANIFEST = PluginManifest(
 def test_options_cover_the_library_labelled_by_nominal_size() -> None:
     options = lumber_options()
     assert [o.value for o in options] == [p.key for p in LUMBER_PROFILES]
-    assert options[0].label == "1x4"
+    assert options[0].label == "1x2"
     assert [o.label for o in lumber_options(["us_2x12", "us_2x8"])] == [
         "2x8",
         "2x12",

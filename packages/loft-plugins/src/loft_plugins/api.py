@@ -33,11 +33,25 @@ from loft_wire.plugins import (
     member_id,
 )
 
+#: One row of a list input: field name -> float, int or str, as a top-level
+#: number or choice is stored.
+ListRowValue = dict[str, int | float | str]
+
 #: A canonical input value: float for a length or angle, int for a count, str
 #: for a choice or material, a ``FeatureRef`` for a profile or feature, a list
-#: of them for a feature list, line ids for a segments input, and ``None`` for
-#: an optional feature, feature list, segments or material left empty.
-InputValue = float | int | str | FeatureRef | list[FeatureRef] | list[str] | None
+#: of them for a feature list, line ids for a segments input, rows for a list
+#: input, and ``None`` for an optional feature, feature list, segments, list
+#: or material left empty.
+InputValue = (
+    float
+    | int
+    | str
+    | FeatureRef
+    | list[FeatureRef]
+    | list[str]
+    | list[ListRowValue]
+    | None
+)
 
 
 class PluginError(Exception):
@@ -173,6 +187,22 @@ class ExpandInputs:
                 PLUGIN_INPUT_INVALID, f"{name!r} names no lines", input=name
             )
         return [v for v in value if isinstance(v, str)]
+
+    def rows(self, name: str) -> list["ExpandInputs"]:
+        """A list input's rows, in order (empty when left empty), each read
+        with :meth:`number`, :meth:`count` and :meth:`choice` by field name."""
+        value = self._get(name)
+        if value is None:
+            return []
+        if not isinstance(value, list) or not all(isinstance(v, dict) for v in value):
+            raise PluginError(
+                PLUGIN_INPUT_INVALID, f"{name!r} holds no rows", input=name
+            )
+        return [
+            ExpandInputs(self.feature_id, cast(Mapping[str, InputValue], row))
+            for row in value
+            if isinstance(row, dict)
+        ]
 
     def optional_feature(self, name: str) -> FeatureRef | None:
         """An optional feature input's pick, or ``None`` when left empty."""

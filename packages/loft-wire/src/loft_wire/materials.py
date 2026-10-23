@@ -25,6 +25,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from loft_wire.casework import CaseworkItem
 from loft_wire.foundation import FoundationItem
 from loft_wire.lumber import LumberProfile
 from loft_wire.opening_units import OpeningUnitSize
@@ -58,6 +59,7 @@ MaterialKey = Literal[
     "steel_a615",
     "steel_f1554",
     "gypsum",
+    "melamine",
 ]
 
 
@@ -245,6 +247,14 @@ _LIBRARY: tuple[Material, ...] = (
         source=f"ASCE 7-16 Table C3.1-1a, gypsum board 0.55 psf per 1/8 in, "
         f"52.8 {_PCF}",
     ),
+    # Casework (CASEWORK, RESEARCH §23): melamine-faced particleboard, the
+    # carcass panel a frameless shop cuts beside cabinet plywood.
+    Material(
+        key="melamine",
+        name="Melamine (faced particleboard)",
+        density_kg_m3=721.0,
+        source=f"ANSI A208.1 grade M-2 particleboard, typical 45 {_PCF}",
+    ),
 )
 
 #: The library in display order (metals, polymers, wood, then structural steel
@@ -290,6 +300,12 @@ class MaterialLibraryResponse(BaseModel):
         description="Foundation items (SLAB): ready-mix concrete per cubic "
         "yard, #4 rebar per 20 ft stick and 1/2 in anchor bolts Each, keyed "
         "as a price-book profile ('rebar_4').",
+    )
+    casework_items: list[CaseworkItem] = Field(
+        default_factory=list[CaseworkItem],
+        description="Edge banding and cabinet hardware (CASEWORK): what a "
+        "casework price is keyed by ('hinge', 'slide_22'), its unit and the "
+        "materials it is sold in.",
     )
 
 
