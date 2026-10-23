@@ -166,7 +166,9 @@ built from Build-group plugins with no member drawn by hand:
 - **B4 L-shaped house:** six walls under a hip roof with a valley and valley jacks; a narrowed wing adds a hip-valley cripple.
 - **B5 shed on a floor:** B2's walls on a framed 2x8 floor, with OSB wall sheathing and a plywood subfloor, priced per sheet.
 - **B6 timber frame:** two 8x8 bents with tie beams and girts, every joint a pegged mortise and tenon.
-- **B7 small house:** 24 x 16 ft, 2x6 walls on a 2x10 floor, a door, four windows, a 6/12 gable, sheathed and priced to the last line: a gap-finding round. Round of 2026-10-22 (caf0aa8, e2e `house-b7.spec.ts`): it builds from 12 Build features. That took 87 gestures, with 37 values typed and 8 of them worked out by hand. The 217 members are exactly the independent script's, and the STEP's 217 solids measure 264 895.4795 in³ as the script gives. All three edits regenerate as the script says, with the volume 267 494.1504 in³ at 8/12. Since CUT-LIST-LONG-STOCK (30ac7b7) the members over 20 ft are spliced, and B7 prices to the last line at $2,868.87. Since BUILDING-OUTLINE (on main at fe9d2b5) B7 builds from one outline sketch, and 24 -> 28 ft is one dimension edit, down from 8 feature edits (e2e `house-b7.spec.ts`; not yet a qa-tester re-run). Doors and windows are not priced yet (OPENING-UNITS).
+- **B7 small house:** 24 x 16 ft, 2x6 walls on a 2x10 floor, a door, four windows, a 6/12 gable, sheathed and priced to the last line: a gap-finding round. Round of 2026-10-22 (caf0aa8, e2e `house-b7.spec.ts`): it builds from 12 Build features. That took 87 gestures, with 37 values typed and 8 of them worked out by hand. The 217 members are exactly the independent script's, and the STEP's 217 solids measure 264 895.4795 in³ as the script gives. All three edits regenerate as the script says, with the volume 267 494.1504 in³ at 8/12. Since CUT-LIST-LONG-STOCK (30ac7b7) the members over 20 ft are spliced, and B7 prices to the last line at $2,868.87. Since BUILDING-OUTLINE (on main at fe9d2b5) B7 builds from one outline sketch, and 24 -> 28 ft is one dimension edit, down from 8 feature edits (e2e `house-b7.spec.ts`; not yet a qa-tester re-run). Doors and windows are priced as units since OPENING-UNITS (6abeb20).
+- **B8-B10 foundations and partitions** (founder 2026-10-23, `buildings.md`): B7 on a thickened-edge slab (6.62 yd³), on a crawl space with a stem wall and footing (6.59 yd³), and with two 2x4 partitions, a door and ladder backing. Not built yet (SLAB, CRAWL-SPACE, INTERIOR-WALLS).
+- **C1-C3 casework** (founder 2026-10-23, `casework.md`): a frameless B24 to the panel, a kitchen run on B10's wall, a melamine vanity, each with panels by sheet, banding by the foot and hinges and slides Each. Not built yet (CASEWORK).
 
 ## Daily-driver scorecard
 
@@ -378,3 +380,32 @@ goal and answer them"); the product-manager decided them. Each is in
 - **Hip roof on sheathed outline walls:** the hips and hip jacks notch the
   OSB, as the gable's tails already do, rather than being refused. This is
   being built in roof 1.4.0 (ROOF-HIP-SHEATHING-NOTCH).
+- **Foundations (2026-10-23, seventh pass; founder: "Slab and crawl
+  space."):** SLAB, then CRAWL-SPACE, after the four in-flight items
+  (HEADER-PLIES, FLOOR-JOIST-SPAN, CUT-LIST-STOCK-RULES, BODY-NAMES); deck
+  pier footings drop to Next (DECK-FOOTINGS). Both are driven by the
+  building outline, as Chief's and Revit's foundations follow the exterior
+  wall loop. The slab replaces the floor; on a crawl space the existing
+  floor sits on the stem's top at Z 0, unchanged.
+- **Crawl space defaults:** poured concrete, not CMU (Chief's default stem
+  wall, and the common US pour); 8 in stem on a 16 x 8 in footing; 24 in
+  crawl height with a warning below 18 in. The 18 in is IRC R317.1 (treated
+  or durable joists below it); R408.4 is the access opening. Vents by
+  R408.1 and a 24 x 16 in access are cut from the stem.
+- **Concrete, rebar and bolts:** concrete listed in yd³ and bought in
+  1/4 yd³ steps, no waste factor; rebar and anchor bolts listed, not drawn
+  (they would sit inside the concrete); #4 in 20 ft sticks with 24 in laps;
+  bolts by R403.1.6. The price book gains a cubic-yard unit and Each
+  products for bolts and hardware.
+- **Partitions:** centred on their sketch line (Revit's default location
+  line), from loop-free lines of the outline sketch or a separate sketch;
+  2x4, gypsum both faces from 4x8 sheets hung horizontally; the wall a
+  partition meets frames its backing, ladder blocking by default, as it
+  frames the openings it hosts. Exterior walls get an inside-face gypsum
+  option in the same wall version.
+- **Casework:** a cabinet run is ONE feature with an ordered list of
+  boxes, as Mozaik's runs; a single cabinet is a run of one. That needs a
+  list input in the plugin manifest. Cabinets live in the house part under
+  a Casework system in the cut list. Default frameless, 3/4 plywood, US
+  stock sizes, Blum's hinge count; face frame and melamine are choices.
+
