@@ -12,6 +12,10 @@ import { seedSession } from "./support";
  * one field, 60 -> 84. When the house grows to 336 the window stays at X 84,
  * where loft.window 1.1.0 measured from the start (X 336) and moved 48.
  *
+ * Changing Measured from then converts the distance from the wall's length
+ * (OPENING-MEASURE-SWITCH): the window stays at X 84 whichever point it is
+ * measured from, and the switch is one undo step.
+ *
  * The window's place is read from what the wall frames for it: its sill's
  * section, drawn in plan in world millimetres.
  */
@@ -229,5 +233,62 @@ test.describe("Openings measured from the wall end nearer the origin", () => {
       )
       .flatMap((m) => (m.feature.params.entities ?? []).map((e) => e.start.x));
     expect(Math.max(...(front ?? [0])) / IN).toBeCloseTo(336, 6);
+
+    // OPENING-MEASURE-SWITCH: changing the reference converts the distance
+    // from the 336 in wall, so the window stays at X 84 (Revit, Chief
+    // Architect). The page reloads to read the grown wall the API wrote.
+    await page.reload();
+    await expect(rows).toHaveCount(3);
+    await expectSolved(page);
+    await page.getByTestId("feature-select-2").click();
+    await expect(from).toHaveValue("end");
+    await expect(distance).toHaveValue("84");
+    const ends = page.getByTestId("opening-ends");
+    await expect(ends).toHaveText("252 in from start · 84 in from end");
+    await from.selectOption("start");
+    await expect(distance).toHaveValue("252");
+    await from.selectOption("centre");
+    // Signed from the centre, positive towards the end: 252 - 168.
+    await expect(distance).toHaveValue("84");
+    await expect(ends).toHaveText("252 in from start · 84 in from end");
+    await submit(page);
+    await expectSolved(page);
+    const centred = (await tree(page, account.token, partId)).find((f) =>
+      f.name.startsWith("Window"),
+    );
+    expect(centred?.feature.params.inputs?.measure_from).toBe("centre");
+    expect(centred?.feature.params.inputs?.offset_mm as number).toBeCloseTo(
+      84 * IN,
+      6,
+    );
+    expect(await windowX(page, account.token, partId)).toBeCloseTo(84, 6);
+
+    // Clicking an end's read-out makes it the reference; the window stays.
+    await page.getByTestId("feature-select-2").click();
+    await expect(from).toHaveValue("centre");
+    await page.getByTestId("opening-ends-start").click();
+    await expect(from).toHaveValue("start");
+    await expect(distance).toHaveValue("252");
+    await expect(distance).toBeFocused();
+    await submit(page);
+    await expectSolved(page);
+    const fromStart = (await tree(page, account.token, partId)).find((f) =>
+      f.name.startsWith("Window"),
+    );
+    expect(fromStart?.feature.params.inputs?.measure_from).toBe("start");
+    expect(await windowX(page, account.token, partId)).toBeCloseTo(84, 6);
+
+    // The switch was one edit: one undo puts the centre reference back.
+    await page.getByTestId("undo-button").click();
+    await expect
+      .poll(
+        async () =>
+          (await tree(page, account.token, partId)).find((f) =>
+            f.name.startsWith("Window"),
+          )?.feature.params.inputs?.measure_from,
+        { timeout: 30_000 },
+      )
+      .toBe("centre");
+    expect(await windowX(page, account.token, partId)).toBeCloseTo(84, 6);
   });
 });
