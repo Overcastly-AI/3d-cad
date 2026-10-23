@@ -292,6 +292,10 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # B2 in 2x6 with three-ply headers (HEADER-PLIES): the B2 walls'
         # summation drift over 66 boxes (2.4e-6 mm^3).
         "b2-2x6-walls-header-plies",
+        # B7's floor both ways (FLOOR-JOIST-SPAN): the B5 floor goldens'
+        # summation drift, 9.5e-7 mm^3 at worst.
+        "b7-floor-left-right",
+        "b7-floor-long-walls",
     }
 )
 
