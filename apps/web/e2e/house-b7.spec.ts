@@ -33,15 +33,20 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * studs, cripples, headers and plates by the B2 layout rules, rafters (95.25 +
  * 12) x sqrt(1.25) + 7.25 x 6/12 = 123.5341 overall, and the volume as the
  * members' prisms less each rafter's birdsmouth: 264 895.4795 in³ (the STEP
- * export measured the same, 217 solids).
+ * export measured the same, 217 solids) with b7-outline's two-ply headers.
+ * A new opening fills the 2x6 wall with a three-ply header (HEADER-PLIES,
+ * loft.window/loft.door 1.4.0): one more 2x6 ply over each of the six
+ * openings, 3 x 39.5 + 41 + 2 x 27.5 = 214.5 in x 8.25 in² = 1 769.625 in³
+ * more, 223 bodies, and six more 8 ft SPF 2x6 at $6.48 = $38.88.
  *
  * Priced through the blank prices: the eight single-stock keys, then the
  * rim's blank, whose seeded row is turned to an 8 ft SPF 2x10 at $11.47. The
  * five lines over 20 ft are spliced (CUT-LIST-LONG-STOCK): rims and ridge
  * 16 ft + 8 ft, top plates 16 ft + 8 ft, PT sills and bottom plate 2 x 12 ft,
- * so B7 prices to the last line at $2,868.87, as loft-wire's
- * test_b7_is_priced_to_the_last_line_2868_87 sums it by hand ($2,608.83 for
- * the 18 short lines + $260.04 of splices).
+ * so B7 prices to the last line at $2,907.75: loft-wire's
+ * test_b7_is_priced_to_the_last_line_2868_87 sums the two-ply house by hand
+ * ($2,608.83 for the 18 short lines + $260.04 of splices), plus the six
+ * plies' $38.88.
  *
  * Then the three named edits, each from the base house: the front left
  * window moved 24 in, one field 60 -> 84 (undone with Ctrl+Z), pitch 6/12 ->
@@ -96,9 +101,9 @@ const HOUSE: CutRow[] = [
   // Walls, with their door and windows
   ["Stud", "60", "92.625", "8 ft"],
   ["Jack", "12", "81", "8 ft"],
-  ["Header", "4", "27.5", "8 ft"],
-  ["Header", "6", "39.5", "8 ft"],
-  ["Header", "2", "41", "8 ft"],
+  ["Header", "6", "27.5", "8 ft"],
+  ["Header", "9", "39.5", "8 ft"],
+  ["Header", "3", "41", "8 ft"],
   ["Cripple", "14", "6.125", "8 ft"],
   ["Cripple", "7", "31", "8 ft"],
   ["Cripple", "4", "43", "8 ft"],
@@ -146,9 +151,9 @@ const HOUSE_28: CutRow[] = [
   ["Sill", "2", "336", "16 ft + 12 ft"],
   ["Stud", "66", "92.625", "8 ft"],
   ["Jack", "12", "81", "8 ft"],
-  ["Header", "4", "27.5", "8 ft"],
-  ["Header", "6", "39.5", "8 ft"],
-  ["Header", "2", "41", "8 ft"],
+  ["Header", "6", "27.5", "8 ft"],
+  ["Header", "9", "39.5", "8 ft"],
+  ["Header", "3", "41", "8 ft"],
   ["Cripple", "14", "6.125", "8 ft"],
   ["Cripple", "7", "31", "8 ft"],
   ["Cripple", "4", "43", "8 ft"],
@@ -179,15 +184,15 @@ const PRICES: [string, string, string][] = [
 ];
 
 /**
- * The 18 short lines, 19 x 22.97 + 4 x 16.98 + 12 x 42.50 + 114 x 6.48 +
- * 2 x 12.48 + 17 x 24.98 + 4 x 13.98 + 26 x 13.47 = 2 608.83, plus the
+ * The 18 short lines, 19 x 22.97 + 4 x 16.98 + 12 x 42.50 + 120 x 6.48 +
+ * 2 x 12.48 + 17 x 24.98 + 4 x 13.98 + 26 x 13.47 = 2 647.71, plus the
  * splices: rims 2 x 34.44, sills 2 x 24.96, top plates 4 x 20.46, bottom
  * plate 24.96, ridge 34.44 = 260.04.
  */
-const PRICE = "$2,868.87";
+const PRICE = "$2,907.75";
 /**
- * 28 ft: the short lines (22 joists, 14 plywood and 18 OSB sheets, 120
- * 2x6 x 8, 30 rafters, ...) come to 2 884.98, and the PT sills and bottom
+ * 28 ft: the short lines (22 joists, 14 plywood and 18 OSB sheets, 126
+ * 2x6 x 8, 30 rafters, ...) come to 2 923.86, and the PT sills and bottom
  * plate splice 16 + 12 (3 x 29.46 = 88.38). The SPF rims, top plates and
  * ridge have no priced least-waste splice (2 x 14, 16 + 12, 20 + 8: the book
  * has the 16 and 8 ft SPF 2x10 and 2x6 but no 14, 12 or 20 ft), nor any
@@ -195,10 +200,10 @@ const PRICE = "$2,868.87";
  * 2 x 16 (32 ft, before 16 + 8 + 8's three pieces): rims 2 x 45.94, top
  * plates 4 x 27.96, ridge 45.94 = 249.66 more.
  */
-const PRICE_28 = "$3,223.02";
+const PRICE_28 = "$3,261.90";
 
-const VOLUME = "264,895.4795";
-const VOLUME_8_12 = "267,494.1504";
+const VOLUME = "266,665.1045";
+const VOLUME_8_12 = "269,263.7754";
 
 const IN = 25.4;
 
@@ -363,7 +368,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await expectSolved(page);
 
     await openCutList(page);
-    await expectTable(page, HOUSE, "217");
+    await expectTable(page, HOUSE, "223");
     await expect(page.getByTestId("prop-volume")).toContainText(VOLUME, {
       timeout: 60_000,
     });
@@ -394,8 +399,8 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     // from 16 + 8. The 2x10 rims and ridge have no priced least-waste splice
     // (2 x 12, 14 + 10, 16 + 8: only 16 ft is in the book), so they buy the
     // least-waste one the book prices whole, 2 x 16 (CUT-LIST-SPLICE-TIES):
-    // 2 608.83 + 81.84 + 74.88 = 2 765.55, plus 3 x 45.94 = 2 903.37.
-    await expectPrice(page, "$2,903.37");
+    // 2 647.71 + 81.84 + 74.88 = 2 804.43, plus 3 x 45.94 = 2 942.25.
+    await expectPrice(page, "$2,942.25");
     const rim = panel.locator(
       '[data-testid="cut-list-row"][data-member="Rim"]',
     );
@@ -422,7 +427,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await dialog.getByTestId("price-book-save").click();
     await expect(dialog).toBeHidden({ timeout: 15_000 });
     await expectPrice(page, PRICE);
-    await expectTable(page, HOUSE_PRICED, "217");
+    await expectTable(page, HOUSE_PRICED, "223");
     await expect(rim.getByTestId("cut-list-unit-price")).toHaveText("$34.44");
     await expect(rim.getByTestId("cut-list-ext-price")).toHaveText("$68.88");
     await panel.evaluate((aside) => aside.scrollIntoView({ block: "start" }));
@@ -464,7 +469,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
       await storedOffset(page, account.token, partId, FRONT_LEFT),
     ).toBeCloseTo(84, 9);
     await openCutList(page);
-    await expectTable(page, HOUSE_PRICED, "217");
+    await expectTable(page, HOUSE_PRICED, "223");
     await expectPrice(page, PRICE);
     await shoot(page, "b7-edit-window", "front");
     await page.keyboard.press("Control+z");
@@ -479,7 +484,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await edit(page, ROOF, { pitch: "8/12" });
     await expectSolved(page);
     await openCutList(page);
-    await expectTable(page, PITCH_8_12, "217");
+    await expectTable(page, PITCH_8_12, "223");
     await expectPrice(page, PRICE);
     await expect(page.getByTestId("prop-volume")).toContainText(VOLUME_8_12, {
       timeout: 60_000,
@@ -506,7 +511,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
       ).toBeCloseTo(x, 9);
     }
     await openCutList(page);
-    await expectTable(page, HOUSE_28, "234");
+    await expectTable(page, HOUSE_28, "240");
     await expectPrice(page, PRICE_28);
     await shoot(page, "b7-edit-length", "iso");
 
@@ -515,7 +520,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await expect(rows).toHaveCount(12);
     await expectSolved(page);
     await openCutList(page);
-    await expectTable(page, HOUSE_28, "234");
+    await expectTable(page, HOUSE_28, "240");
     await expectPrice(page, PRICE_28);
   });
 });
