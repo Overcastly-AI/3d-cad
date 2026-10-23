@@ -1,0 +1,207 @@
+"""Foundation takeoff: concrete, rebar and anchor bolts (SLAB, RESEARCH §23).
+
+What Chief Architect's materials list carries for a foundation and Revit's
+structural foundation schedules list: the CONCRETE of each pour by volume,
+its reinforcing bars by length and the anchor bolts that hold the sill or
+bottom plates down (docs/reference-parts/buildings.md, "Foundation and
+partition conventions").
+
+* **Concrete** is one body per pour, listed in cubic yards (46 656 in³ per
+  yd³) and ORDERED with a waste allowance (5 % by default, an input of the
+  pour: crews order over for spillage and sub-grade variance), then rounded
+  UP to the 1/4 yd³ a ready-mix plant batches (:func:`concrete_order_yd3`).
+  Priced per cubic yard ordered.
+* **Rebar and anchor bolts are listed, not drawn**: they would sit inside the
+  concrete (the no-interference rule), and Chief lists them from the
+  foundation's settings. A bar is listed by its CENTRELINE length; #4 is
+  bought in 20 ft sticks lapped 24 in at each joint, so a closed loop of L
+  takes ``ceil(L / 18 ft)`` sticks (:func:`rebar_sticks`).
+* **Anchor bolts** (IRC R403.1.6): 1/2 in, one 12 in from each end of each
+  plate piece that bears on concrete, the rest at most 72 in apart, at least 2
+  per piece (:func:`anchor_bolt_count`). The count is taken from the plate's
+  MEASURED length in the cut list, as every length is.
+
+Each item is a price-book key beside the lumber, sheet and unit keys:
+``ready_mix`` per cubic yard, ``rebar_4`` Each per 20 ft stick and
+``anchor_bolt_1_2`` Each. Inches are the source of truth (exact binary
+fractions); millimetres are derived at x 25.4 exactly. Pure: no I/O.
+"""
+
+import math
+from collections.abc import Mapping
+from fractions import Fraction
+from typing import Final, Literal
+
+from pydantic import BaseModel, Field
+
+from loft_wire.lumber import MM_PER_INCH
+
+#: Cubic inches per cubic yard, exactly (36^3).
+IN3_PER_YD3: Final = 46_656
+
+#: Ready-mix is ordered in quarter yards.
+CONCRETE_ORDER_STEP_YD3: Final = Fraction(1, 4)
+
+#: The waste allowance a new pour orders with (percent of its net volume).
+DEFAULT_CONCRETE_WASTE_PERCENT: Final = 5
+
+#: The highest allowance a pour may take (percent).
+MAX_CONCRETE_WASTE_PERCENT: Final = 25
+
+#: A pour orders ``ceil(yd3 x (1 + waste) / step - ORDER_SLACK)`` steps, so a
+#: pour of exactly 7 yd³ by the kernel's measure orders 7, not 7.25 by an ulp.
+ORDER_SLACK: Final = 1e-9
+
+#: A rebar stick (in): 20 ft, lapped 24 in at each joint.
+REBAR_STICK_IN: Final = 240
+REBAR_LAP_IN: Final = 24
+
+#: Anchor bolts (IRC R403.1.6): 12 in from each end, at most 72 in apart.
+ANCHOR_BOLT_END_IN: Final = 12
+ANCHOR_BOLT_SPACING_IN: Final = 72
+
+#: The listed foundation items, by price-book key.
+FoundationItemKey = Literal["ready_mix", "rebar_4", "anchor_bolt_1_2"]
+
+#: What an item is.
+FoundationItemKind = Literal["concrete", "rebar", "anchor_bolt"]
+
+#: The library materials the items are made of (each a ``MaterialKey``;
+#: spelt here so :mod:`loft_wire.materials` can serve this catalogue).
+FoundationMaterialKey = Literal["concrete", "steel_a615", "steel_f1554"]
+
+
+class FoundationItem(BaseModel):
+    """One listed foundation item: what it is priced and weighed as."""
+
+    key: FoundationItemKey = Field(description="Price-book key, e.g. 'rebar_4'.")
+    kind: FoundationItemKind
+    name: str = Field(description="As listed, e.g. '#4 rebar'.")
+    material: FoundationMaterialKey = Field(
+        description="Library material the item is priced as."
+    )
+    price_unit: Literal["cubic_yard", "each"] = Field(
+        description="How a price-book entry prices it: concrete per cubic "
+        "yard ordered, a rebar stick or an anchor bolt Each."
+    )
+    stock_length_ft: int | None = Field(
+        default=None,
+        description="The stock an Each price is for (ft): 20 for a rebar "
+        "stick; null for a bolt or concrete.",
+    )
+
+
+#: The catalogue in display order.
+FOUNDATION_ITEMS: tuple[FoundationItem, ...] = (
+    FoundationItem(
+        key="ready_mix",
+        kind="concrete",
+        name="Ready-mix concrete",
+        material="concrete",
+        price_unit="cubic_yard",
+    ),
+    FoundationItem(
+        key="rebar_4",
+        kind="rebar",
+        name="#4 rebar",
+        material="steel_a615",
+        price_unit="each",
+        stock_length_ft=REBAR_STICK_IN // 12,
+    ),
+    FoundationItem(
+        key="anchor_bolt_1_2",
+        kind="anchor_bolt",
+        name="1/2 in anchor bolt",
+        material="steel_f1554",
+        price_unit="each",
+    ),
+)
+
+#: Key -> item.
+FOUNDATION_ITEMS_BY_KEY: Mapping[str, FoundationItem] = {
+    item.key: item for item in FOUNDATION_ITEMS
+}
+
+
+def foundation_item_for(profile: str | None) -> FoundationItem | None:
+    """The item a member's ``profile`` names, by key or name, or ``None``."""
+    if profile is None:
+        return None
+    for item in FOUNDATION_ITEMS:
+        if profile in (item.key, item.name):
+            return item
+    return None
+
+
+# --- Member metadata ----------------------------------------------------------------
+
+
+class ConcretePour(BaseModel):
+    """Set on a concrete body (a pour): the cut list lists its MEASURED volume
+    in cubic yards and orders it with this allowance."""
+
+    item: Literal["ready_mix"] = "ready_mix"
+    waste_percent: int = Field(
+        default=DEFAULT_CONCRETE_WASTE_PERCENT,
+        ge=0,
+        le=MAX_CONCRETE_WASTE_PERCENT,
+        description="Ordered over the net volume (percent), then rounded up "
+        "to 1/4 yd³.",
+    )
+
+
+class RebarRun(BaseModel):
+    """One bar a pour carries, listed not drawn: its centreline length."""
+
+    item: Literal["rebar_4"] = "rebar_4"
+    length_mm: float = Field(gt=0, description="Centreline length (mm).")
+    closed: bool = Field(
+        description="A closed loop (lapped where it closes) or an open run."
+    )
+
+
+class AnchorBolts(BaseModel):
+    """Set on a plate that bears on concrete: the cut list counts its bolts
+    from the plate's measured length (:func:`anchor_bolt_count`)."""
+
+    item: Literal["anchor_bolt_1_2"] = "anchor_bolt_1_2"
+
+
+# --- The arithmetic -----------------------------------------------------------------
+
+
+def volume_yd3(volume_mm3: float) -> float:
+    """*volume_mm3* in cubic yards."""
+    return volume_mm3 / (IN3_PER_YD3 * MM_PER_INCH**3)
+
+
+def concrete_order_yd3(volume_mm3: float, waste_percent: int) -> Fraction:
+    """The cubic yards ordered for a net *volume_mm3*: plus the allowance,
+    rounded UP to 1/4 yd³ (buildings.md B8: 6.62 yd³ net, x 1.05 = 6.95,
+    orders 7)."""
+    wanted = volume_yd3(volume_mm3) * (100 + waste_percent) / 100
+    steps = math.ceil(wanted / CONCRETE_ORDER_STEP_YD3 - ORDER_SLACK)
+    return max(steps, 0) * CONCRETE_ORDER_STEP_YD3
+
+
+def rebar_sticks(length_in: float, closed: bool) -> int:
+    """The 20 ft sticks a bar of *length_in* takes, lapped 24 in at each
+    joint: a closed loop ``ceil(L / 216)`` (every stick adds 18 ft, the loop's
+    own closing lap included), an open run one stick to 240 in and one more
+    per 216 beyond."""
+    reach = REBAR_STICK_IN - REBAR_LAP_IN
+    if closed:
+        return max(1, math.ceil(length_in / reach - ORDER_SLACK))
+    if length_in <= REBAR_STICK_IN + ORDER_SLACK:
+        return 1
+    return 1 + math.ceil((length_in - REBAR_STICK_IN) / reach - ORDER_SLACK)
+
+
+def anchor_bolt_count(plate_length_in: float) -> int:
+    """IRC R403.1.6's bolts in one plate piece: one 12 in from each end, the
+    rest equally spaced at most 72 in, at least 2:
+    ``max(2, ceil((L - 24) / 72) + 1)`` (B8: 125 takes 3, 181 4, 288 5)."""
+    between = plate_length_in - 2 * ANCHOR_BOLT_END_IN
+    if between <= 0:
+        return 2
+    return max(2, math.ceil(between / ANCHOR_BOLT_SPACING_IN - ORDER_SLACK) + 1)

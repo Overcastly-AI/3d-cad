@@ -16,6 +16,19 @@
         "title": "AllEdgesSelector",
         "type": "object"
       },
+      "AnchorBolts": {
+        "description": "Set on a plate that bears on concrete: the cut list counts its bolts\nfrom the plate's measured length (:func:`anchor_bolt_count`).",
+        "properties": {
+          "item": {
+            "const": "anchor_bolt_1_2",
+            "default": "anchor_bolt_1_2",
+            "title": "Item",
+            "type": "string"
+          }
+        },
+        "title": "AnchorBolts",
+        "type": "object"
+      },
       "AngleConstraint": {
         "description": "Dimension: the angle between two lines (DEGREES, not mm).\n\nThe dimension every non-orthogonal feature needs \u2014 a gusset at 30\u00b0, a\ndovetail, a draft face \u2014 and the one whose absence meant such geometry could\nbe *drawn* but never *driven*, so it drifted on every edit\n(docs/AUDIT-PRODUCT.md T-5). ``a`` and ``b`` are whole line entities by id,\nlike :class:`ParallelConstraint`; both must be lines. Removes one rotational\ndegree of freedom.\n\n**Which angle: the one at the shared corner.** Two lines subtend two\nsupplementary angles, and picking the wrong one is the difference between an\nacute gusset and an obtuse one. The convention, which the solver and the\nreadout both apply and the UI should display verbatim from\n:class:`SolvedAngle`:\n\n* If ``a`` and ``b`` are joined at an endpoint by ``coincident`` constraints\n  (the ordinary case \u2014 two edges of a profile meeting at a corner), the\n  angle is measured between the two lines' directions taken **away from that\n  shared corner**. That is the INTERIOR angle a user sees and would type.\n  The join is read from the sketch's coincidence constraints, symbolically \u2014\n  never from a coordinate-proximity test, which would need an epsilon\n  (CLAUDE.md) and would silently change meaning as geometry moved.\n* Otherwise the lines' authored ``start -> end`` directions are used as-is.\n\n``value_deg`` is unsigned and strictly between 0 and 180: 0 and 180 are the\ndegenerate ends where the lines are parallel (use ``parallel``), and a\nsingle unsigned number cannot say which side of ``a`` the line ``b`` sits\non. The SIDE is taken from the geometry as drawn \u2014 the solver holds the\nangle the author already has and only resizes it \u2014 so typing a number never\nflips a profile inside out.",
         "properties": {
@@ -987,7 +1000,9 @@
                   "steel_a992",
                   "concrete",
                   "pvc",
-                  "glass"
+                  "glass",
+                  "steel_a615",
+                  "steel_f1554"
                 ],
                 "type": "string"
               },
@@ -1036,7 +1051,9 @@
               "steel_a992",
               "concrete",
               "pvc",
-              "glass"
+              "glass",
+              "steel_a615",
+              "steel_f1554"
             ],
             "title": "Material",
             "type": "string"
@@ -2878,6 +2895,27 @@
         "title": "ConcentricMate",
         "type": "object"
       },
+      "ConcretePour": {
+        "description": "Set on a concrete body (a pour): the cut list lists its MEASURED volume\nin cubic yards and orders it with this allowance.",
+        "properties": {
+          "item": {
+            "const": "ready_mix",
+            "default": "ready_mix",
+            "title": "Item",
+            "type": "string"
+          },
+          "waste_percent": {
+            "default": 5,
+            "description": "Ordered over the net volume (percent), then rounded up to 1/4 yd\u00b3.",
+            "maximum": 25.0,
+            "minimum": 0.0,
+            "title": "Waste Percent",
+            "type": "integer"
+          }
+        },
+        "title": "ConcretePour",
+        "type": "object"
+      },
       "CountInput": {
         "description": "A whole number of things (studs, rungs). Accepts a \u00a720 expression that\nevaluates to a whole plain number.",
         "properties": {
@@ -3150,6 +3188,23 @@
             "description": "unit_price_cents x stock_quantity, on every line, so a row multiplies out; null when unpriced.",
             "title": "Extended Price Cents"
           },
+          "item": {
+            "anyOf": [
+              {
+                "enum": [
+                  "concrete",
+                  "rebar",
+                  "anchor_bolt"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A foundation line (SLAB): 'concrete' (its pours, by volume), 'rebar' (runs of one length, bought in 20 ft sticks: stock_quantity) or 'anchor_bolt' (Each). Null otherwise.",
+            "title": "Item"
+          },
           "length_mm": {
             "description": "Measured length of each piece; for a sheet line, the sheet's length.",
             "minimum": 0.0,
@@ -3178,7 +3233,9 @@
                   "steel_a992",
                   "concrete",
                   "pvc",
-                  "glass"
+                  "glass",
+                  "steel_a615",
+                  "steel_f1554"
                 ],
                 "type": "string"
               },
@@ -3219,13 +3276,27 @@
             "title": "One Piece",
             "type": "boolean"
           },
+          "order_yd3": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A concrete line's order (yd\u00b3): the net volume plus waste_percent, rounded up to 1/4 yd\u00b3; its unit price is per yd\u00b3 and its extended price that times this. Null otherwise.",
+            "title": "Order Yd3"
+          },
           "price_unit": {
             "anyOf": [
               {
                 "enum": [
                   "each",
                   "linear_foot",
-                  "board_foot"
+                  "board_foot",
+                  "cubic_yard"
                 ],
                 "type": "string"
               },
@@ -3337,6 +3408,7 @@
           "system": {
             "description": "The group the line is listed under (Floor, Walls, Roof, Sheathing, ...): its members' plugin's system; every sheet good is 'sheathing'; a body that is no plugin member is 'other'.",
             "enum": [
+              "foundation",
               "floor",
               "walls",
               "roof",
@@ -3395,6 +3467,19 @@
             "description": "Price of ONE stock unit (see stock_quantity) in the book's currency's cents: one stock piece, one splice set (its pieces summed, each rounded once) or one sheet. Null (blank, never 0) when the book has no price for the line or the line has no stock.",
             "title": "Unit Price Cents"
           },
+          "volume_mm3": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A concrete line's net volume (mm^3), measured; null otherwise.",
+            "title": "Volume Mm3"
+          },
           "waste_mm": {
             "anyOf": [
               {
@@ -3406,6 +3491,19 @@
             ],
             "description": "Offcut of each piece from its stock (mm), a splice's pieces summed; null with no stock.",
             "title": "Waste Mm"
+          },
+          "waste_percent": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A concrete line's waste allowance (percent); null otherwise.",
+            "title": "Waste Percent"
           }
         },
         "required": [
@@ -8502,6 +8600,75 @@
         "title": "FormulaWarning",
         "type": "object"
       },
+      "FoundationItem": {
+        "description": "One listed foundation item: what it is priced and weighed as.",
+        "properties": {
+          "key": {
+            "description": "Price-book key, e.g. 'rebar_4'.",
+            "enum": [
+              "ready_mix",
+              "rebar_4",
+              "anchor_bolt_1_2"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "concrete",
+              "rebar",
+              "anchor_bolt"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "material": {
+            "description": "Library material the item is priced as.",
+            "enum": [
+              "concrete",
+              "steel_a615",
+              "steel_f1554"
+            ],
+            "title": "Material",
+            "type": "string"
+          },
+          "name": {
+            "description": "As listed, e.g. '#4 rebar'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "price_unit": {
+            "description": "How a price-book entry prices it: concrete per cubic yard ordered, a rebar stick or an anchor bolt Each.",
+            "enum": [
+              "cubic_yard",
+              "each"
+            ],
+            "title": "Price Unit",
+            "type": "string"
+          },
+          "stock_length_ft": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stock an Each price is for (ft): 20 for a rebar stick; null for a bolt or concrete.",
+            "title": "Stock Length Ft"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "name",
+          "material",
+          "price_unit"
+        ],
+        "title": "FoundationItem",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -10964,7 +11131,9 @@
               "steel_a992",
               "concrete",
               "pvc",
-              "glass"
+              "glass",
+              "steel_a615",
+              "steel_f1554"
             ],
             "title": "Key",
             "type": "string"
@@ -11022,7 +11191,9 @@
                   "steel_a992",
                   "concrete",
                   "pvc",
-                  "glass"
+                  "glass",
+                  "steel_a615",
+                  "steel_f1554"
                 ],
                 "type": "string"
               },
@@ -11062,7 +11233,9 @@
                   "steel_a992",
                   "concrete",
                   "pvc",
-                  "glass"
+                  "glass",
+                  "steel_a615",
+                  "steel_f1554"
                 ],
                 "type": "string"
               },
@@ -11147,6 +11320,14 @@
       "MaterialLibraryResponse": {
         "description": "The built-in material library, served so no client hardcodes a density.\n\nThe picker needs names + densities, and a second copy of the table in TS\nwould be a DRY violation that silently drifts (CLAUDE.md). One table, in\npy-kit, served over the API.\n\n``profiles`` is the section library members are cut from (US lumber,\n``loft_wire.lumber``), served beside the materials as SolidWorks serves\nweldment profiles beside its material database.",
         "properties": {
+          "foundation_items": {
+            "description": "Foundation items (SLAB): ready-mix concrete per cubic yard, #4 rebar per 20 ft stick and 1/2 in anchor bolts Each, keyed as a price-book profile ('rebar_4').",
+            "items": {
+              "$ref": "#/components/schemas/FoundationItem"
+            },
+            "title": "Foundation Items",
+            "type": "array"
+          },
           "materials": {
             "items": {
               "$ref": "#/components/schemas/Material"
@@ -11416,6 +11597,28 @@
       "MemberMetadata": {
         "description": "What the cut list and mass need about one generated member (RESEARCH \u00a723).\n\nAll optional: a helper member (a path sketch) carries none.",
         "properties": {
+          "anchor_bolts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnchorBolts"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set on a plate that bears on concrete (SLAB): the cut list counts its anchor bolts from its measured length (IRC R403.1.6). Absent otherwise."
+          },
+          "concrete": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConcretePour"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set on a concrete body, one per pour (SLAB): the cut list lists its measured volume in cubic yards and orders it with the pour's waste allowance, rounded up to 1/4 yd\u00b3. Absent otherwise."
+          },
           "material": {
             "anyOf": [
               {
@@ -11438,7 +11641,9 @@
                   "steel_a992",
                   "concrete",
                   "pvc",
-                  "glass"
+                  "glass",
+                  "steel_a615",
+                  "steel_f1554"
                 ],
                 "type": "string"
               },
@@ -11474,6 +11679,22 @@
             ],
             "description": "Section the member is cut from, e.g. '2x8'.",
             "title": "Profile"
+          },
+          "rebar": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/RebarRun"
+                },
+                "maxItems": 64,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The bars a pour carries, listed, not drawn (SLAB): each by its centreline length, bought in 20 ft sticks lapped 24 in. Absent on every other member.",
+            "title": "Rebar"
           },
           "unit": {
             "anyOf": [
@@ -14215,7 +14436,9 @@
               "steel_a992",
               "concrete",
               "pvc",
-              "glass"
+              "glass",
+              "steel_a615",
+              "steel_f1554"
             ],
             "title": "Material",
             "type": "string"
@@ -14265,9 +14488,17 @@
               {
                 "pattern": "^(window|door)_[0-9]{4}$",
                 "type": "string"
+              },
+              {
+                "enum": [
+                  "ready_mix",
+                  "rebar_4",
+                  "anchor_bolt_1_2"
+                ],
+                "type": "string"
               }
             ],
-            "description": "Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', or window or door unit, e.g. 'window_3040'.",
+            "description": "Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', or foundation item, e.g. 'ready_mix'.",
             "title": "Profile"
           },
           "sheet": {
@@ -14300,11 +14531,12 @@
             "title": "Stock Length Ft"
           },
           "unit": {
-            "description": "'each' (one stock piece of `stock_length_ft`, or one sheet of `sheet`), 'linear_foot' or 'board_foot' (any stock length; lumber only).",
+            "description": "'each' (one stock piece of `stock_length_ft`, one sheet of `sheet`, one unit or one anchor bolt), 'linear_foot' or 'board_foot' (any stock length; lumber only), or 'cubic_yard' (ready-mix concrete only, per yd\u00b3 ordered).",
             "enum": [
               "each",
               "linear_foot",
-              "board_foot"
+              "board_foot",
+              "cubic_yard"
             ],
             "title": "Unit",
             "type": "string"
@@ -14787,6 +15019,34 @@
           "edge"
         ],
         "title": "RadiusDimensionParams",
+        "type": "object"
+      },
+      "RebarRun": {
+        "description": "One bar a pour carries, listed not drawn: its centreline length.",
+        "properties": {
+          "closed": {
+            "description": "A closed loop (lapped where it closes) or an open run.",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "item": {
+            "const": "rebar_4",
+            "default": "rebar_4",
+            "title": "Item",
+            "type": "string"
+          },
+          "length_mm": {
+            "description": "Centreline length (mm).",
+            "exclusiveMinimum": 0.0,
+            "title": "Length Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "length_mm",
+          "closed"
+        ],
+        "title": "RebarRun",
         "type": "object"
       },
       "RegisterRequest": {

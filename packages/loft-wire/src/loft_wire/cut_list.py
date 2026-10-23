@@ -69,6 +69,16 @@ material, one Each line ("Window 3040 x 3"), priced by the book's entry for
 their key (``window_3040``) and frame material. A custom size has no key and
 stays unpriced.
 
+**Foundation items** (SLAB, :mod:`loft_wire.foundation`): a concrete body
+(its metadata's ``concrete``) is a POUR, listed by its MEASURED volume and
+grouped by product, material and waste allowance across members, as sheets
+are; the line orders ``net x (1 + waste)`` rounded up to 1/4 yd³ and is
+priced per cubic yard ordered. Rebar and anchor bolts are listed, not drawn:
+a pour's ``rebar`` runs are lines by centreline length, each run bought in
+20 ft sticks lapped 24 in, and a plate with ``anchor_bolts`` adds its bolts,
+counted from the plate's measured length (IRC R403.1.6), into one Each line.
+All three sit under Foundation, the list's first system.
+
 Prices (PRICE-BOOK, RESEARCH §27) come from the user's
 :mod:`loft_wire.price_book`: each line is priced on the stock pieces bought
 (:func:`price_lines`), in integer cents, and a line the book does not price
@@ -94,6 +104,15 @@ from pydantic import BaseModel, Field
 
 from loft_wire.assemblies import RefDocumentKind
 from loft_wire.features import EvaluateTreeRequest
+from loft_wire.foundation import (
+    FOUNDATION_ITEMS_BY_KEY,
+    FoundationItemKind,
+    anchor_bolt_count,
+    concrete_order_yd3,
+    foundation_item_for,
+    rebar_sticks,
+    volume_yd3,
+)
 from loft_wire.lumber import (
     COMMON_MAX_STOCK_FT,
     COMMON_STOCK_LENGTHS_FT,
@@ -198,10 +217,13 @@ CutListClassification = Literal["member", "matched", "unclassified"]
 
 #: The system a line belongs to (CUT-LIST-PANEL), in the order the list is
 #: grouped: a materials list's categories.
-CutListSystem = Literal["floor", "walls", "roof", "sheathing", "deck", "frame", "other"]
+CutListSystem = Literal[
+    "foundation", "floor", "walls", "roof", "sheathing", "deck", "frame", "other"
+]
 
 #: :data:`CutListSystem` in list order.
 SYSTEM_ORDER: Final[tuple[CutListSystem, ...]] = (
+    "foundation",
     "floor",
     "walls",
     "roof",
@@ -213,6 +235,7 @@ SYSTEM_ORDER: Final[tuple[CutListSystem, ...]] = (
 
 #: How a system is named in the CSV and the panel's group heads.
 SYSTEM_LABELS: Final[Mapping[CutListSystem, str]] = {
+    "foundation": "Foundation",
     "floor": "Floor",
     "walls": "Walls",
     "roof": "Roof",
@@ -226,6 +249,7 @@ SYSTEM_LABELS: Final[Mapping[CutListSystem, str]] = {
 #: frame into their wall, so their members are the walls' (a later Doors and
 #: windows group would take them). A plugin not listed is "other".
 PLUGIN_SYSTEMS: Final[Mapping[str, CutListSystem]] = {
+    "loft.slab": "foundation",
     "loft.floor": "floor",
     "loft.wall": "walls",
     "loft.window": "walls",
@@ -454,6 +478,29 @@ class CutListLine(BaseModel):
         description="A unit line's price-book key ('window_3040'); null for a "
         "custom size, or a line that is not a unit.",
     )
+    item: FoundationItemKind | None = Field(
+        default=None,
+        description="A foundation line (SLAB): 'concrete' (its pours, by "
+        "volume), 'rebar' (runs of one length, bought in 20 ft sticks: "
+        "stock_quantity) or 'anchor_bolt' (Each). Null otherwise.",
+    )
+    volume_mm3: float | None = Field(
+        default=None,
+        ge=0,
+        description="A concrete line's net volume (mm^3), measured; null otherwise.",
+    )
+    order_yd3: float | None = Field(
+        default=None,
+        ge=0,
+        description="A concrete line's order (yd³): the net volume plus "
+        "waste_percent, rounded up to 1/4 yd³; its unit price is per yd³ "
+        "and its extended price that times this. Null otherwise.",
+    )
+    waste_percent: int | None = Field(
+        default=None,
+        ge=0,
+        description="A concrete line's waste allowance (percent); null otherwise.",
+    )
 
 
 class CutListMissing(BaseModel):
@@ -678,6 +725,13 @@ class CutListPiece:
     #: (mm), the side that must lie along the sheet's length first
     #: (:func:`_across_along`); ``None`` for every other piece.
     grain_mm: tuple[float, float] | None = None
+    #: A foundation item (SLAB): a pour, a rebar run or anchor bolts.
+    item: FoundationItemKind | None = None
+    #: A pour's measured volume (mm^3) and waste allowance (percent).
+    volume_mm3: float | None = None
+    waste_percent: int | None = None
+    #: A rebar run is a closed loop.
+    closed: bool = False
 
     @property
     def panel(self) -> bool:
@@ -748,6 +802,23 @@ def classify_body(
             unit=unit,
             system=system_for_plugin(member.plugin_id),
         )
+    if member is not None and member.metadata.concrete is not None:
+        # A pour: listed by its measured volume (module docstring).
+        pour = member.metadata.concrete
+        return CutListPiece(
+            member=member.title,
+            profile=FOUNDATION_ITEMS_BY_KEY[pour.item].name,
+            lumber=False,
+            material=material,
+            classification="member",
+            length_mm=extents[0],
+            section_mm=default_section,
+            count=count,
+            system=system_for_plugin(member.plugin_id),
+            item="concrete",
+            volume_mm3=body.volume_mm3,
+            waste_percent=pour.waste_percent,
+        )
     if member is not None:
         good = sheet_good_for(member.metadata.profile)
         if good is not None:
@@ -810,15 +881,62 @@ def classify_body(
     )
 
 
+def listed_pieces(
+    piece: CutListPiece, member: CutListMember | None
+) -> list[CutListPiece]:
+    """The items *member*'s body carries but does not draw (SLAB): a pour's
+    rebar runs and a plate's anchor bolts, counted from *piece*, the body as
+    measured. Listed under Foundation, after the body."""
+    if member is None:
+        return []
+    metadata = member.metadata
+    out: list[CutListPiece] = []
+    for run in metadata.rebar or ():
+        item = FOUNDATION_ITEMS_BY_KEY[run.item]
+        out.append(
+            CutListPiece(
+                member="Rebar",
+                profile=item.name,
+                lumber=False,
+                material=item.material,
+                classification="member",
+                length_mm=run.length_mm,
+                section_mm=(0.0, 0.0),
+                count=piece.count,
+                system="foundation",
+                item="rebar",
+                closed=run.closed,
+            )
+        )
+    if metadata.anchor_bolts is not None:
+        item = FOUNDATION_ITEMS_BY_KEY[metadata.anchor_bolts.item]
+        bolts = anchor_bolt_count(piece.length_mm / MM_PER_INCH)
+        out.append(
+            CutListPiece(
+                member="Anchor bolt",
+                profile=item.name,
+                lumber=False,
+                material=item.material,
+                classification="member",
+                length_mm=0.0,
+                section_mm=(0.0, 0.0),
+                count=piece.count * bolts,
+                system="foundation",
+                item="anchor_bolt",
+            )
+        )
+    return out
+
+
 def part_pieces(
     extents: BodyExtentsResult,
     members: Iterable[CutListMember],
     materials: MaterialAssignment | None,
     count: int = 1,
 ) -> list[CutListPiece]:
-    """Every body of one part as pieces, in tree order (*count* of each).
-    The part's first joist with measured axes orients its floor panels
-    (SUBFLOOR-GRAIN)."""
+    """Every body of one part as pieces, in tree order (*count* of each),
+    each followed by the items it lists but does not draw. The part's first
+    joist with measured axes orients its floor panels (SUBFLOOR-GRAIN)."""
     by_id = {member.feature_id: member for member in members}
     joist_axis: Vec3 | None = None
     for body in extents.bodies:
@@ -826,12 +944,13 @@ def part_pieces(
         if member is not None and member.role == "joist" and body.axes is not None:
             joist_axis = body.axes[0]
             break
-    return [
-        classify_body(
-            body, by_id.get(body.base_feature_id), materials, count, joist_axis
-        )
-        for body in extents.bodies
-    ]
+    out: list[CutListPiece] = []
+    for body in extents.bodies:
+        member = by_id.get(body.base_feature_id)
+        piece = classify_body(body, member, materials, count, joist_axis)
+        out.append(piece)
+        out.extend(listed_pieces(piece, member))
+    return out
 
 
 def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
@@ -884,6 +1003,78 @@ def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
     )
 
 
+def _members_of(pieces: Sequence[CutListPiece]) -> str | None:
+    members: list[str] = []
+    for piece in pieces:
+        if piece.member is not None and piece.member not in members:
+            members.append(piece.member)
+    return ", ".join(members) or None
+
+
+def _concrete_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
+    """Pours of one product, material and allowance as one line: their
+    measured volume, and the cubic yards that orders (module docstring)."""
+    first = pieces[0]
+    volume = sum((p.volume_mm3 or 0.0) * p.count for p in pieces)
+    waste = first.waste_percent or 0
+    length = round(max(p.length_mm for p in pieces), 6)
+    return CutListLine(
+        system=first.system,
+        member=_members_of(pieces),
+        profile=first.profile,
+        material=first.material,
+        classification=first.classification,
+        quantity=quantity,
+        length_mm=length,
+        total_length_mm=round(sum(p.length_mm * p.count for p in pieces), 6),
+        section_mm=[round(v, 6) for v in first.section_mm],
+        stock_length_ft=None,
+        waste_mm=None,
+        stock_quantity=None,
+        unit_price_cents=None,
+        price_unit=None,
+        extended_price_cents=None,
+        item="concrete",
+        volume_mm3=round(volume, 6),
+        order_yd3=float(concrete_order_yd3(volume, waste)),
+        waste_percent=waste,
+    )
+
+
+#: The stick a rebar line is bought in (ft).
+_REBAR_STICK_FT: Final = FOUNDATION_ITEMS_BY_KEY["rebar_4"].stock_length_ft
+
+
+def _item_line(piece: CutListPiece, quantity: int) -> CutListLine:
+    """Rebar runs of one length, bought in 20 ft sticks (each run lapped
+    on its own), or anchor bolts, Each."""
+    length = round(piece.length_mm, 6)
+    rebar = piece.item == "rebar"
+    sticks = (
+        rebar_sticks(length / MM_PER_INCH, piece.closed) * quantity
+        if rebar
+        else quantity
+    )
+    return CutListLine(
+        system=piece.system,
+        member=piece.member,
+        profile=piece.profile,
+        material=piece.material,
+        classification=piece.classification,
+        quantity=quantity,
+        length_mm=length,
+        total_length_mm=round(length * quantity, 6),
+        section_mm=[0.0, 0.0],
+        stock_length_ft=_REBAR_STICK_FT if rebar else None,
+        waste_mm=None,
+        stock_quantity=sticks,
+        unit_price_cents=None,
+        price_unit=None,
+        extended_price_cents=None,
+        item=piece.item,
+    )
+
+
 def _first_seen(order: dict[tuple[object, ...], int], key: tuple[object, ...]) -> int:
     return order.setdefault(key, len(order))
 
@@ -902,7 +1093,11 @@ def order_lines(lines: Sequence[CutListLine]) -> list[CutListLine]:
         material = _first_seen(
             seen, ("material", system, line.member, line.profile, line.material)
         )
-        length = 0.0 if line.area_mm2 is not None else line.length_mm
+        length = (
+            0.0
+            if line.area_mm2 is not None or line.item in ("concrete", "anchor_bolt")
+            else line.length_mm
+        )
         keys.append((SYSTEM_ORDER.index(system), member, profile, material, length))
     return [lines[i] for i in sorted(range(len(lines)), key=keys.__getitem__)]
 
@@ -942,7 +1137,24 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
     (:func:`order_lines`)."""
     groups: dict[tuple[object, ...], tuple[CutListPiece, int]] = {}
     panels: dict[tuple[object, ...], list[CutListPiece]] = {}
+    pours: dict[tuple[object, ...], list[CutListPiece]] = {}
     for piece in pieces:
+        if piece.item is not None:
+            item_key: tuple[object, ...] = (
+                "item",
+                piece.item,
+                piece.system,
+                piece.profile,
+                piece.material,
+            )
+            if piece.item == "concrete":
+                item_key += (piece.waste_percent,)
+                pours.setdefault(item_key, []).append(piece)
+            elif piece.item == "rebar":
+                item_key += (round(piece.length_mm, LENGTH_DECIMALS), piece.closed)
+            first, count = groups.get(item_key, (piece, 0))
+            groups[item_key] = (first, count + piece.count)
+            continue
         if piece.unit is not None:
             if not piece.unit.counted:
                 continue  # the unit is listed on its counted body
@@ -984,6 +1196,12 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
         groups[key] = (first, count + piece.count)
     lines: list[CutListLine] = []
     for group_key, (piece, quantity) in groups.items():
+        if piece.item == "concrete":
+            lines.append(_concrete_line(pours[group_key], quantity))
+            continue
+        if piece.item is not None:
+            lines.append(_item_line(piece, quantity))
+            continue
         if piece.panel:
             lines.append(_sheet_line(panels[group_key], quantity))
             continue
@@ -1067,7 +1285,7 @@ def stock_piece_price(
     return _round_half_up(board_feet * entry.price_cents)
 
 
-#: Which unit wins when the book prices a line more than one way.
+#: Which unit wins when the book prices a line more than one way (lumber).
 PRICE_PRECEDENCE: Final[tuple[PriceUnit, ...]] = ("each", "linear_foot", "board_foot")
 
 
@@ -1145,8 +1363,10 @@ def price_lines(
     per piece, a splice set counting once), so the offcut is paid for. A
     sheet line is priced by the 'each' entry for its product and sheet,
     times its sheets, and a unit line by the 'each' entry for its unit key
-    and material, times its units. A line with no stock or no entry
-    stays unpriced (null)."""
+    and material, times its units. A foundation line (SLAB) is priced by its
+    item's entry: concrete per cubic yard times the yards ordered, a rebar
+    line Each per 20 ft stick times its sticks, anchor bolts Each. A line
+    with no stock or no entry stays unpriced (null)."""
     entries = {entry.key: entry for entry in book.entries}
     priced: list[CutListLine] = []
     for line in lines:
@@ -1157,7 +1377,14 @@ def price_lines(
         unit_price: int | None = None
         unit: PriceUnit | None = None
         update: dict[str, object] = {}
-        if line.unit is not None:
+        item = foundation_item_for(line.profile) if line.item is not None else None
+        if item is not None:
+            if line.material is not None:
+                key = (line.material, item.key, item.price_unit)
+                entry = entries.get((*key, item.stock_length_ft, None))
+                if entry is not None:
+                    unit_price, unit = entry.price_cents, entry.unit
+        elif line.unit is not None:
             if line.unit_key is not None and line.material is not None:
                 entry = entries.get((line.material, line.unit_key, "each", None, None))
                 if entry is not None:
@@ -1200,15 +1427,25 @@ def price_lines(
                     **update,
                     "unit_price_cents": unit_price,
                     "price_unit": unit,
-                    "extended_price_cents": (
-                        None
-                        if unit_price is None or quantity is None
-                        else unit_price * quantity
-                    ),
+                    "extended_price_cents": _extended(line, unit_price, quantity),
                 }
             )
         )
     return priced
+
+
+def _extended(
+    line: CutListLine, unit_price: int | None, quantity: int | None
+) -> int | None:
+    """Unit price x stock quantity; for concrete, x the cubic yards ORDERED
+    (a multiple of 1/4, so exact), rounded once, half up."""
+    if unit_price is None:
+        return None
+    if line.item == "concrete":
+        if line.order_yd3 is None:
+            return None
+        return _round_half_up(Fraction(line.order_yd3) * unit_price)
+    return None if quantity is None else unit_price * quantity
 
 
 def cut_list_response(
@@ -1318,6 +1555,7 @@ PRICE_UNIT_LABELS: Final[Mapping[PriceUnit, str]] = {
     "each": "Each",
     "linear_foot": "Per ft",
     "board_foot": "Per BF",
+    "cubic_yard": "Per yd3",
 }
 
 
@@ -1354,7 +1592,17 @@ def csv_text(value: str) -> str:
     return value
 
 
+def format_yd3(value: float) -> str:
+    """Cubic yards to 2 places, as ready-mix is listed (``6.62``)."""
+    return f"{value:.2f}"
+
+
 def _stock(line: CutListLine) -> str:
+    if line.item == "concrete":
+        net = volume_yd3(line.volume_mm3 or 0.0)
+        return f"{format_yd3(net)} yd3 net + {line.waste_percent or 0}% waste"
+    if line.item == "anchor_bolt":
+        return "Each"
     if line.unit is not None:
         return "Unit"
     if line.sheet is not None:
@@ -1382,6 +1630,13 @@ def cut_list_csv(cut_list: CutListResponse) -> str:
     writer.writerow(header)
     for item, line in enumerate(cut_list.lines, start=1):
         sheet = line.area_mm2 is not None
+        # A pour has no length to cut, a bolt no length at all.
+        no_length = sheet or line.item in ("concrete", "anchor_bolt")
+        stock_qty = (
+            format_yd3(line.order_yd3)
+            if line.order_yd3 is not None
+            else ("" if line.stock_quantity is None else line.stock_quantity)
+        )
         material = "" if line.material is None else MATERIALS_BY_KEY[line.material].name
         writer.writerow(
             [
@@ -1389,15 +1644,17 @@ def cut_list_csv(cut_list: CutListResponse) -> str:
                 SYSTEM_LABELS[line.system],
                 csv_text(line.member or ""),
                 csv_text(line.profile or "Unclassified"),
-                " x ".join(format_length(v, unit) for v in line.section_mm),
+                ""
+                if line.item is not None
+                else " x ".join(format_length(v, unit) for v in line.section_mm),
                 csv_text(material),
                 line.quantity,
-                "" if sheet else format_length(line.length_mm, unit),
-                "" if sheet else format_length(line.total_length_mm, unit),
+                "" if no_length else format_length(line.length_mm, unit),
+                "" if no_length else format_length(line.total_length_mm, unit),
                 "" if line.area_mm2 is None else format_area(line.area_mm2, unit),
                 _stock(line),
                 "" if line.waste_mm is None else format_length(line.waste_mm, unit),
-                "" if line.stock_quantity is None else line.stock_quantity,
+                stock_qty,
                 _money(line.unit_price_cents),
                 "" if line.price_unit is None else PRICE_UNIT_LABELS[line.price_unit],
                 _money(line.extended_price_cents),

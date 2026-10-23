@@ -31,6 +31,7 @@ from loft_wire.sheet_goods import SHEET_GOODS_BY_KEY, SheetGood
 
 from loft_plugins.api import ExpandInputs, InputValue, PluginError
 from loft_plugins.builtin import floor as floor_v1
+from loft_plugins.builtin import slab as slab_v1
 from loft_plugins.builtin import wall as wall_v1
 from loft_plugins.builtin.outline import (
     Outline,
@@ -218,13 +219,31 @@ def floor_of(
 # --- Walls -------------------------------------------------------------------------
 
 
+def picked_slab(inputs: ExpandInputs) -> CustomFeature | None:
+    """The ``loft.slab`` a wall's On floor names (1.4.0), or ``None``."""
+    if "floor" not in inputs.values:
+        return None
+    ref = inputs.optional_feature("floor")
+    if ref is None:
+        return None
+    envelope = inputs.resolve(ref)
+    if isinstance(envelope, CustomFeature) and envelope.params.plugin_id == "loft.slab":
+        return envelope
+    return None
+
+
 def _floor_elevation(inputs: ExpandInputs) -> dict[str, InputValue]:
-    """The base elevation a 1.3.0 wall on a picked floor stands at."""
+    """The base elevation a 1.3.0 wall on a picked floor stands at, or a
+    1.4.0 wall on a picked slab: the slab's top (SLAB)."""
     if "floor" not in inputs.values:
         return {}
     ref = inputs.optional_feature("floor")
     if ref is None:
         return {}
+    slab = picked_slab(inputs)
+    if slab is not None:
+        values = stored_inputs(ref.feature_id, slab, inputs.earlier, inputs.parameters)
+        return {"elevation_mm": slab_v1.slab_top(values) * MM_PER_INCH}
     return {"elevation_mm": floor_of(ref, inputs).top * MM_PER_INCH}
 
 

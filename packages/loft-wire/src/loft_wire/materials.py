@@ -25,6 +25,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from loft_wire.foundation import FoundationItem
 from loft_wire.lumber import LumberProfile
 from loft_wire.opening_units import OpeningUnitSize
 from loft_wire.sheet_goods import SheetGood, SheetSize
@@ -54,6 +55,8 @@ MaterialKey = Literal[
     "concrete",
     "pvc",
     "glass",
+    "steel_a615",
+    "steel_f1554",
 ]
 
 
@@ -218,6 +221,20 @@ _LIBRARY: tuple[Material, ...] = (
         density_kg_m3=2500.0,
         source="ASTM C1036 float glass, typical 2500 kg/m^3",
     ),
+    # Foundation items (SLAB): listed, not drawn (loft_wire.foundation), so
+    # they carry no mass; the key is what a rebar stick or bolt is priced as.
+    Material(
+        key="steel_a615",
+        name="Reinforcing steel (ASTM A615)",
+        density_kg_m3=7850.0,
+        source=f"CRSI Manual of Standard Practice, 490 {_PCF}",
+    ),
+    Material(
+        key="steel_f1554",
+        name="Anchor-bolt steel (ASTM F1554)",
+        density_kg_m3=7850.0,
+        source=f"AISC Steel Construction Manual, 490 {_PCF}",
+    ),
 )
 
 #: The library in display order (metals, polymers, wood, then structural steel
@@ -256,6 +273,12 @@ class MaterialLibraryResponse(BaseModel):
         default_factory=list[OpeningUnitSize],
         description="Window and door units by call size (OPENING-UNITS): "
         "what a unit price is keyed by ('window_3040') and its frame material.",
+    )
+    foundation_items: list[FoundationItem] = Field(
+        default_factory=list[FoundationItem],
+        description="Foundation items (SLAB): ready-mix concrete per cubic "
+        "yard, #4 rebar per 20 ft stick and 1/2 in anchor bolts Each, keyed "
+        "as a price-book profile ('rebar_4').",
     )
 
 

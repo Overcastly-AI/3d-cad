@@ -884,8 +884,8 @@ export interface paths {
         };
         /**
          * List Materials
-         * @description The built-in materials, lumber profiles, sheet goods and window and door
-         *     units, in display order.
+         * @description The built-in materials, lumber profiles, sheet goods, window and door
+         *     units and foundation items, in display order.
          *
          *     v1 is a closed library (docs/design/materials.md §1/§5): a fixed
          *     ``MaterialKey`` literal means an unknown material is a parse error at the
@@ -1710,6 +1710,19 @@ export interface components {
             kind: "all_edges";
         };
         /**
+         * AnchorBolts
+         * @description Set on a plate that bears on concrete: the cut list counts its bolts
+         *     from the plate's measured length (:func:`anchor_bolt_count`).
+         */
+        AnchorBolts: {
+            /**
+             * Item
+             * @default anchor_bolt_1_2
+             * @constant
+             */
+            item: "anchor_bolt_1_2";
+        };
+        /**
          * AngleConstraint
          * @description Dimension: the angle between two lines (DEGREES, not mm).
          *
@@ -2212,7 +2225,7 @@ export interface components {
              * @description Material for THIS body only
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554";
         };
         /**
          * BodyName
@@ -2758,6 +2771,25 @@ export interface components {
              * @enum {string}
              */
             type: "concentric";
+        };
+        /**
+         * ConcretePour
+         * @description Set on a concrete body (a pour): the cut list lists its MEASURED volume
+         *     in cubic yards and orders it with this allowance.
+         */
+        ConcretePour: {
+            /**
+             * Item
+             * @default ready_mix
+             * @constant
+             */
+            item: "ready_mix";
+            /**
+             * Waste Percent
+             * @description Ordered over the net volume (percent), then rounded up to 1/4 yd³.
+             * @default 5
+             */
+            waste_percent: number;
         };
         /**
          * CountInput
@@ -5217,6 +5249,45 @@ export interface components {
              */
             value: number | null;
         };
+        /**
+         * FoundationItem
+         * @description One listed foundation item: what it is priced and weighed as.
+         */
+        FoundationItem: {
+            /**
+             * Key
+             * @description Price-book key, e.g. 'rebar_4'.
+             * @enum {string}
+             */
+            key: "ready_mix" | "rebar_4" | "anchor_bolt_1_2";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "concrete" | "rebar" | "anchor_bolt";
+            /**
+             * Material
+             * @description Library material the item is priced as.
+             * @enum {string}
+             */
+            material: "concrete" | "steel_a615" | "steel_f1554";
+            /**
+             * Name
+             * @description As listed, e.g. '#4 rebar'.
+             */
+            name: string;
+            /**
+             * Price Unit
+             * @description How a price-book entry prices it: concrete per cubic yard ordered, a rebar stick or an anchor bolt Each.
+             * @enum {string}
+             */
+            price_unit: "cubic_yard" | "each";
+            /**
+             * Stock Length Ft
+             * @description The stock an Each price is for (ft): 20 for a rebar stick; null for a bolt or concrete.
+             */
+            stock_length_ft?: number | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -6824,7 +6895,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass";
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554";
             /**
              * Name
              * @description Display name, e.g. 'Aluminium 6061'
@@ -6859,7 +6930,7 @@ export interface components {
              * Default Material
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
-            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass") | null;
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554") | null;
         };
         /**
          * MaterialInput
@@ -6867,7 +6938,7 @@ export interface components {
          */
         MaterialInput: {
             /** Default */
-            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass") | null;
+            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554") | null;
             /**
              * Description
              * @description Help text under the field.
@@ -6912,6 +6983,11 @@ export interface components {
          *     weldment profiles beside its material database.
          */
         MaterialLibraryResponse: {
+            /**
+             * Foundation Items
+             * @description Foundation items (SLAB): ready-mix concrete per cubic yard, #4 rebar per 20 ft stick and 1/2 in anchor bolts Each, keyed as a price-book profile ('rebar_4').
+             */
+            foundation_items?: components["schemas"]["FoundationItem"][];
             /** Materials */
             materials: components["schemas"]["Material"][];
             /**
@@ -6942,11 +7018,15 @@ export interface components {
          *     All optional: a helper member (a path sketch) carries none.
          */
         MemberMetadata: {
+            /** @description Set on a plate that bears on concrete (SLAB): the cut list counts its anchor bolts from its measured length (IRC R403.1.6). Absent otherwise. */
+            anchor_bolts?: components["schemas"]["AnchorBolts"] | null;
+            /** @description Set on a concrete body, one per pour (SLAB): the cut list lists its measured volume in cubic yards and orders it with the pour's waste allowance, rounded up to 1/4 yd³. Absent otherwise. */
+            concrete?: components["schemas"]["ConcretePour"] | null;
             /**
              * Material
              * @description Library material of the member.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554") | null;
             /**
              * Nominal Size
              * @description Nominal size as sold, e.g. '2x8x12'.
@@ -6957,6 +7037,11 @@ export interface components {
              * @description Section the member is cut from, e.g. '2x8'.
              */
             profile?: string | null;
+            /**
+             * Rebar
+             * @description The bars a pour carries, listed, not drawn (SLAB): each by its centreline length, bought in 20 ft sticks lapped 24 in. Absent on every other member.
+             */
+            rebar?: components["schemas"]["RebarRun"][] | null;
             /** @description Set on the bodies of a bought window or door unit (OPENING-UNITS): the cut list lists the unit once, Each, on its counted body. Absent on every other member. */
             unit?: components["schemas"]["OpeningUnitPart"] | null;
         };
@@ -8449,7 +8534,7 @@ export interface components {
              * @description Library material, e.g. 'spf_lumber'.
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554";
             /**
              * Price Cents
              * @description Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.
@@ -8457,9 +8542,9 @@ export interface components {
             price_cents: number;
             /**
              * Profile
-             * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', or window or door unit, e.g. 'window_3040'.
+             * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', or foundation item, e.g. 'ready_mix'.
              */
-            profile: ("us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32") | string;
+            profile: ("us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2");
             /**
              * Sheet
              * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10'); null for lumber.
@@ -8472,10 +8557,10 @@ export interface components {
             stock_length_ft?: number | null;
             /**
              * Unit
-             * @description 'each' (one stock piece of `stock_length_ft`, or one sheet of `sheet`), 'linear_foot' or 'board_foot' (any stock length; lumber only).
+             * @description 'each' (one stock piece of `stock_length_ft`, one sheet of `sheet`, one unit or one anchor bolt), 'linear_foot' or 'board_foot' (any stock length; lumber only), or 'cubic_yard' (ready-mix concrete only, per yd³ ordered).
              * @enum {string}
              */
-            unit: "each" | "linear_foot" | "board_foot";
+            unit: "each" | "linear_foot" | "board_foot" | "cubic_yard";
         };
         /**
          * PriceBookResponse
@@ -8641,6 +8726,28 @@ export interface components {
              * @enum {string}
              */
             type: "radius";
+        };
+        /**
+         * RebarRun
+         * @description One bar a pour carries, listed not drawn: its centreline length.
+         */
+        RebarRun: {
+            /**
+             * Closed
+             * @description A closed loop (lapped where it closes) or an open run.
+             */
+            closed: boolean;
+            /**
+             * Item
+             * @default rebar_4
+             * @constant
+             */
+            item: "rebar_4";
+            /**
+             * Length Mm
+             * @description Centreline length (mm).
+             */
+            length_mm: number;
         };
         /** RefBackfillPart */
         RefBackfillPart: {

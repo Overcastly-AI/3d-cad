@@ -22,7 +22,8 @@ export type SheetGood = components["schemas"]["SheetGood"];
 export type SheetGoodKey = SheetGood["key"];
 export type SheetSize = components["schemas"]["SheetSize"];
 export type SheetSizeKey = SheetSize["key"];
-/** What an entry prices: a lumber profile or a sheet product. */
+export type FoundationItem = components["schemas"]["FoundationItem"];
+/** What an entry prices: lumber, a sheet product, a unit or a foundation item. */
 export type PriceProfileKey = PriceBookEntry["profile"];
 
 /**
@@ -39,6 +40,7 @@ export const PRICE_UNIT_LABEL: Record<PriceUnit, string> = {
   each: "Each",
   linear_foot: "Per ft",
   board_foot: "Per BF",
+  cubic_yard: "Per yd³",
 };
 
 /** Why a save was refused: the stored book is no longer the one drafted. */

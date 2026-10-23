@@ -1,0 +1,50 @@
+{
+  "description": "B2'S PLAIN SLAB (SLAB; docs/reference-parts/buildings.md B8 'Edge off', docs/BACKLOG.md SLAB): ONE loft.slab 1.0.0 on a typed 144 x 120 in rectangle from the origin, 4 in thick, its top at Z 0, the thickened edge off. One body, concrete (2400 kg/m^3), its metadata the pour (5% waste allowance) and no rebar. model.json is EXACTLY the expansion with its member material; members.json is the body's member metadata with its plugin (packages/loft-plugins/tests/test_slab.py pins both); services/geometry/tests/test_slab_b8.py checks the cut list (1.48 yd^3 net, 1.75 ordered) and these numbers against a build123d box.",
+  "derivation": [
+    "Every expectation is ANALYTIC (x 25.4 = mm exactly), never recorded from the plugin or the kernel.",
+    "volume = 144 x 120 x 4 = 69 120 in^3 = 1 132 673 863.68 mm^3 (16 387.064 mm^3 per in^3).",
+    "surface_area = 2 (144 x 120 + 120 x 4 + 144 x 4) = 36 672 in^2 = 23 659 307.52 mm^2.",
+    "centroid = (72, 60, -2) in = (1828.8, 1524, -50.8) mm by symmetry; the centre of mass is the same (one material).",
+    "mass_g = 69 120 in^3 x 16.387064 cm^3/in^3 x 2.4 g/cm^3 = 2 718 417.272832 g.",
+    "bounding_box: X 0..144, Y 0..120, Z -4..0 in = 0..3657.6, 0..3048, -101.6..0 mm.",
+    "topology: one box: 6 faces, 12 edges, 1 shell. MESH: 24 vertices and 12 triangles (2 per planar quad, no shared vertices)."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): the kernel's volume is 1 132 673 863.6799998 mm^3, one ULP (2.4e-7) below the exact decimal, because x 25.4 is not exact in binary; the area, bounds and centroid are within 2.3e-13. 1e-6 is 4 ULPs of a 1.1e9 mm^3 value; the slab 1/16 in thinner changes the volume by 1.8e7 mm^3.",
+  "properties": {
+    "volume": 1132673863.68,
+    "surface_area": 23659307.52,
+    "centroid": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": -50.8
+    },
+    "mass_g": 2718417.272832,
+    "center_of_mass": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": -50.8
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": -101.6
+      },
+      "max": {
+        "x": 3657.6,
+        "y": 3048.0,
+        "z": 0.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 6,
+    "edges": 12,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 24,
+    "triangles": 12
+  }
+}

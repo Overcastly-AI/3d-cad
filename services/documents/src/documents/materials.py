@@ -12,6 +12,7 @@ document property; the density it resolves to is what geometry consumes.
 """
 
 from fastapi import APIRouter
+from loft_wire.foundation import FOUNDATION_ITEMS
 from loft_wire.lumber import LUMBER_PROFILES
 from loft_wire.materials import MATERIALS, MaterialLibraryResponse
 from loft_wire.opening_units import OPENING_UNITS
@@ -22,8 +23,8 @@ router = APIRouter(prefix="/api/v1/materials", tags=["materials"])
 
 @router.get("")
 async def list_materials() -> MaterialLibraryResponse:
-    """The built-in materials, lumber profiles, sheet goods and window and door
-    units, in display order.
+    """The built-in materials, lumber profiles, sheet goods, window and door
+    units and foundation items, in display order.
 
     v1 is a closed library (docs/design/materials.md §1/§5): a fixed
     ``MaterialKey`` literal means an unknown material is a parse error at the
@@ -36,4 +37,5 @@ async def list_materials() -> MaterialLibraryResponse:
         sheet_goods=list(SHEET_GOODS),
         sheet_sizes=list(SHEET_SIZES),
         opening_units=list(OPENING_UNITS),
+        foundation_items=list(FOUNDATION_ITEMS),
     )

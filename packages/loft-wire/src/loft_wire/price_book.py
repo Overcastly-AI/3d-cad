@@ -22,6 +22,11 @@ key ``<kind>_<code>`` ("window_3040") and its frame's material ("Vinyl window
 3040 = $289.00"), with no stock length or sheet, as Chief Architect prices a
 window or door item in its materials list.
 
+Foundation items (SLAB, :mod:`loft_wire.foundation`): ready-mix concrete
+(``ready_mix``) is priced per ``cubic_yard`` ordered, #4 rebar
+(``rebar_4``) ``each`` per 20 ft stick (stock length 20) and a 1/2 in anchor
+bolt (``anchor_bolt_1_2``) ``each`` with no stock length or sheet.
+
 The book has a ``version`` (PRICE-BOOK-VERSION): 0 until the first save, then
 one more on every save. ``GET`` serves it in the body and as the ``ETag``;
 a ``PUT`` names the version it was drafted from in ``If-Match`` and is refused
@@ -39,6 +44,10 @@ from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from loft_wire.foundation import (
+    FOUNDATION_ITEMS_BY_KEY,
+    FoundationItemKey,
+)
 from loft_wire.lumber import STOCK_LENGTHS_FT, LumberProfileKey
 from loft_wire.materials import MaterialKey
 from loft_wire.opening_units import OpeningUnitKey
@@ -52,7 +61,7 @@ from loft_wire.sheet_goods import (
 Currency = Literal["USD"]
 
 #: The unit an entry's price is per.
-PriceUnit = Literal["each", "linear_foot", "board_foot"]
+PriceUnit = Literal["each", "linear_foot", "board_foot", "cubic_yard"]
 
 #: Most entries one book holds (a lumber yard's dimensional list is ~200).
 MAX_PRICE_BOOK_ENTRIES: Final = 500
@@ -102,14 +111,18 @@ class PriceBookEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     material: MaterialKey = Field(description="Library material, e.g. 'spf_lumber'.")
-    profile: LumberProfileKey | SheetGoodKey | OpeningUnitKey = Field(
-        description="Lumber profile, e.g. 'us_2x4', sheet product, e.g. "
-        "'osb_7_16', or window or door unit, e.g. 'window_3040'."
+    profile: LumberProfileKey | SheetGoodKey | OpeningUnitKey | FoundationItemKey = (
+        Field(
+            description="Lumber profile, e.g. 'us_2x4', sheet product, e.g. "
+            "'osb_7_16', window or door unit, e.g. 'window_3040', or "
+            "foundation item, e.g. 'ready_mix'."
+        )
     )
     unit: PriceUnit = Field(
-        description="'each' (one stock piece of `stock_length_ft`, or one "
-        "sheet of `sheet`), 'linear_foot' or 'board_foot' (any stock length; "
-        "lumber only)."
+        description="'each' (one stock piece of `stock_length_ft`, one sheet "
+        "of `sheet`, one unit or one anchor bolt), 'linear_foot' or "
+        "'board_foot' (any stock length; lumber only), or 'cubic_yard' "
+        "(ready-mix concrete only, per yd³ ordered)."
     )
     stock_length_ft: int | None = Field(
         default=None,
@@ -131,6 +144,23 @@ class PriceBookEntry(BaseModel):
 
     @model_validator(mode="after")
     def _stock_length_matches_unit(self) -> "PriceBookEntry":
+        item = FOUNDATION_ITEMS_BY_KEY.get(self.profile)
+        if item is not None:
+            if (
+                self.unit != item.price_unit
+                or self.stock_length_ft != item.stock_length_ft
+                or self.sheet is not None
+            ):
+                stock = (
+                    f" at a stock length of {item.stock_length_ft} ft"
+                    if item.stock_length_ft is not None
+                    else ", with no stock length or sheet"
+                )
+                unit = "per cubic yard" if item.price_unit == "cubic_yard" else "Each"
+                raise ValueError(f"{item.name} is priced {unit}{stock}.")
+            return self
+        if self.unit == "cubic_yard":
+            raise ValueError("Only ready-mix concrete is priced per cubic yard.")
         if _is_unit_key(self.profile):
             if (
                 self.unit != "each"

@@ -1,0 +1,58 @@
+{
+  "description": "B8 SMALL HOUSE ON A SLAB (SLAB; docs/reference-parts/buildings.md B8, docs/BACKLOG.md SLAB): B7's 288 x 192 in outline sketch (the Rectangle tool from the origin), ONE loft.slab 1.0.0 on it (4 in thick, top at Z 0, a 12 in thickened edge 12 in deep overall, two #4 loops listed, 5% concrete waste), loft.wall 1.4.0 on the outline standing ON THE SLAB (2x6 at 16 in, PT bottom plates, 7/16 OSB; front and back through, sides fitted between; each bottom-plate piece listing its anchor bolts), B7's door and four windows (loft.door / loft.window 1.1.0) and B7's 6/12 gable (loft.roof 1.4.0, 2x8 rafters at 24 in on a 2x10 ridge, tails notched out of the eave OSB). The slab is one pour: the plate's extrude starts the body and the edge ring's extrude merges into it. model.json is EXACTLY the sketch and the expansions with their member materials; members.json is each body's member metadata with its plugin (packages/loft-plugins/tests/test_slab.py pins both); services/geometry/tests/test_slab_b8.py checks the STEP solid for solid, interference, the cut list (6.62 yd^3 net, 7.00 ordered, 10 sticks of #4, 19 bolts), its price and mass.",
+  "derivation": [
+    "INDEPENDENT of the plugins: test_slab_b8.script() types the slab from buildings.md (a 288 x 192 x 12 box, Z -12..0, less the 264 x 168 x 8 pocket X 12..276, Y 12..180, Z -12..-4) and takes B7's walls, openings, OSB and roof from test_outline_b7.script() (typed from the QA-B7-HOUSE round) less its 39 floor members, lowered by the subfloor's top, 11.46875 in, so the walls stand on the slab at Z 0. The STEP matches it solid for solid.",
+    "",
+    "volume (analytic): the slab 221 184 + (55 296 - 44 352) x 8 = 308 736 in^3, plus b7-outline's 264 852.3788656 in^3 less its floor's 105 299.625 (842397/8): 468 288.7538656 in^3 = 7 673 877 780.0753 mm^3.",
+    "",
+    "The slab alone: area 55 296 (top) + 11 520 (outer sides, 960 x 12) + 10 944 (ring underside) + 44 352 (pocket ceiling) + 6 912 (pocket sides, 864 x 8) = 129 024 in^2; centroid Z (221 184 x -2 + 87 552 x -8) / 308 736 = -3.7015 in.",
+    "",
+    "surface_area, centroid, mass_g and center_of_mass are the script's solids summed (test_slab_b8.expected_numbers()): concrete 2400, spf_lumber 450, southern_pine_pt 582, osb 641 kg/m^3; X is symmetric about 144 in (3657.6 mm).",
+    "",
+    "bounding_box: X -7/16 (the left OSB) .. 288 7/16, Y -12 .. 204 (the rafter tails), Z -12 (the edge's bottom) .. the ridge's top 161.907829 - 11.46875 = 150.439079 in.",
+    "",
+    "topology and MESH: b7-outline's 1 520 faces, 3 258 edges, 217 shells less the floor's 39 boxes (234, 468, 39), plus the slab's 11 faces (top, 4 outer sides, the ring underside with the pocket's loop as a hole, 4 pocket sides, the pocket ceiling), 24 edges, 1 shell: 1 297, 2 814, 179. Every face is planar, so a face of n edge-vertices on h holes meshes as n + 2h - 2 triangles on n vertices: the slab 48 vertices and 28 triangles, the house 5 628 and 3 036. The kernel's build of model.json meets every count exactly.",
+    "",
+    "Interference none (test_nothing_interferes probes every pair whose boxes overlap): the bottom plates meet the slab face to face at Z 0."
+  ],
+  "tolerance": 1e-5,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): the bounds are ABSOLUTE and the part is ~7.7e9 mm^3 summed over 179 bodies, so the double-precision sum carries round-off near the ULP of the sum (~9.5e-7): the kernel differs from the script by -3.8e-06 mm^3 on the volume, +1.0e-06 mm^2 on the area, <= 1.4e-12 mm on the centroid and centre of mass and 3e-09 g on the mass. 1e-5 is 2.6x the worst, b7-outline's ratio; the edge 1/16 in narrower changes the volume by 1.1e6 mm^3, so it fails by eleven orders.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-23: OCCT's STEP writer rounds the 26 sloped rafters' and the notched panels' irrational coordinates, b7-outline's class. Round-trip drift: volume -2.87e-4 mm^3 and area -2.66e-5 mm^2; the centroid moves <= 1.1e-10 mm. The slab itself round-trips exactly (b2-slab-plain drifts 0). 1e-3 is 3.5x the worst and b7-outline's bound; it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 7673877780.075349,
+    "surface_area": 326870154.5617745,
+    "centroid": {
+      "x": 3657.5999999999926,
+      "y": 2434.8389055814177,
+      "z": 526.256323254448
+    },
+    "mass_g": 13448656.587698413,
+    "center_of_mass": {
+      "x": 3657.5999999999813,
+      "y": 2438.8256815293116,
+      "z": 76.4573751978208
+    },
+    "bounding_box": {
+      "min": {
+        "x": -11.112499999999999,
+        "y": -304.79999999999995,
+        "z": -304.79999999999995
+      },
+      "max": {
+        "x": 7326.3125,
+        "y": 5181.599999999999,
+        "z": 3821.1526256949596
+      }
+    }
+  },
+  "topology": {
+    "faces": 1297,
+    "edges": 2814,
+    "shells": 179
+  },
+  "mesh": {
+    "vertices": 5628,
+    "triangles": 3036
+  }
+}

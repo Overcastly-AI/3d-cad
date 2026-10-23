@@ -1,0 +1,17 @@
+[
+  {
+    "feature_id": "22de6e97-d2df-5a57-baa4-ebd5fbddb37b",
+    "role": "slab",
+    "title": "Slab",
+    "plugin_id": "loft.slab",
+    "metadata": {
+      "profile": "Ready-mix concrete",
+      "material": "concrete",
+      "nominal_size": null,
+      "concrete": {
+        "item": "ready_mix",
+        "waste_percent": 5
+      }
+    }
+  }
+]

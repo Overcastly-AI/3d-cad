@@ -477,7 +477,9 @@
                   "steel_a992",
                   "concrete",
                   "pvc",
-                  "glass"
+                  "glass",
+                  "steel_a615",
+                  "steel_f1554"
                 ],
                 "type": "string"
               },
@@ -526,7 +528,9 @@
               "steel_a992",
               "concrete",
               "pvc",
-              "glass"
+              "glass",
+              "steel_a615",
+              "steel_f1554"
             ],
             "title": "Material",
             "type": "string"
@@ -7102,7 +7106,9 @@
                   "steel_a992",
                   "concrete",
                   "pvc",
-                  "glass"
+                  "glass",
+                  "steel_a615",
+                  "steel_f1554"
                 ],
                 "type": "string"
               },

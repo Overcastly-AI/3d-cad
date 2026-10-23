@@ -159,6 +159,32 @@ vi.mock("../api/materials", () => ({
         { key: "4x8", width_in: 48, length_in: 96 },
         { key: "4x9", width_in: 48, length_in: 108 },
       ],
+      foundation_items: [
+        {
+          key: "ready_mix",
+          kind: "concrete",
+          name: "Ready-mix concrete",
+          material: "concrete",
+          price_unit: "cubic_yard",
+          stock_length_ft: null,
+        },
+        {
+          key: "rebar_4",
+          kind: "rebar",
+          name: "#4 rebar",
+          material: "steel_a615",
+          price_unit: "each",
+          stock_length_ft: 20,
+        },
+        {
+          key: "anchor_bolt_1_2",
+          kind: "anchor_bolt",
+          name: "1/2 in anchor bolt",
+          material: "steel_f1554",
+          price_unit: "each",
+          stock_length_ft: null,
+        },
+      ],
     }),
   ),
   fetchMaterials: vi.fn(() =>
@@ -405,6 +431,118 @@ describe("CutListPanel", () => {
         within(seeded).getByLabelText("Price in dollars, price 1"),
       ).toHaveFocus(),
     );
+  });
+
+  it("lists B8's pour by the yard, its rebar by the stick and its bolts", async () => {
+    // SLAB: 308 736 in³ = 6.62 yd³ net, 7.00 ordered with 5%; 2 loops of
+    // 912 in in 10 sticks; 19 anchor bolts. The concrete is priced.
+    const none = {
+      stock_pieces_ft: null,
+      waste_mm: null,
+      section_mm: [0, 0],
+    };
+    const lines: CutListLine[] = [
+      {
+        ...none,
+        system: "foundation",
+        member: "Slab",
+        profile: "Ready-mix concrete",
+        material: "concrete",
+        classification: "member",
+        quantity: 1,
+        length_mm: 288 * IN,
+        total_length_mm: 288 * IN,
+        stock_length_ft: null,
+        stock_quantity: null,
+        unit_price_cents: 16500,
+        price_unit: "cubic_yard",
+        extended_price_cents: 115500,
+        item: "concrete",
+        volume_mm3: 308736 * IN ** 3,
+        order_yd3: 7,
+        waste_percent: 5,
+      },
+      {
+        ...none,
+        system: "foundation",
+        member: "Rebar",
+        profile: "#4 rebar",
+        material: "steel_a615",
+        classification: "member",
+        quantity: 2,
+        length_mm: 912 * IN,
+        total_length_mm: 1824 * IN,
+        stock_length_ft: 20,
+        stock_quantity: 10,
+        unit_price_cents: null,
+        price_unit: null,
+        extended_price_cents: null,
+        item: "rebar",
+      },
+      {
+        ...none,
+        system: "foundation",
+        member: "Anchor bolt",
+        profile: "1/2 in anchor bolt",
+        material: "steel_f1554",
+        classification: "member",
+        quantity: 19,
+        length_mm: 0,
+        total_length_mm: 0,
+        stock_length_ft: null,
+        stock_quantity: 19,
+        unit_price_cents: null,
+        price_unit: null,
+        extended_price_cents: null,
+        item: "anchor_bolt",
+      },
+    ];
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      total_quantity: 22,
+      unclassified: 0,
+      missing: [],
+      total_price_cents: 115500,
+      unpriced_lines: 2,
+      lines,
+    });
+    renderPanel();
+    const [slab, rebar, bolts] = await screen.findAllByTestId("cut-list-row");
+    const pour = within(slab!);
+    expect(pour.getByTestId("cut-list-volume")).toHaveTextContent("6.62 yd³");
+    expect(pour.getByTestId("cut-list-total-length")).toBeEmptyDOMElement();
+    expect(pour.getByTestId("cut-list-stock")).toHaveTextContent("7.00 yd³");
+    expect(pour.getByTestId("cut-list-stock")).toHaveAttribute(
+      "title",
+      "6.62 yd³ + 5% waste, rounded up to 1/4 yd³",
+    );
+    expect(pour.getByTestId("cut-list-unit-price")).toHaveTextContent(
+      "$165.00",
+    );
+    expect(pour.getByTestId("cut-list-ext-price")).toHaveTextContent(
+      "$1,155.00",
+    );
+    expect(within(rebar!).getByTestId("cut-list-length")).toHaveTextContent(
+      "912",
+    );
+    expect(within(rebar!).getByTestId("cut-list-stock")).toHaveTextContent(
+      "10 × 20 ft",
+    );
+    expect(within(bolts!).getByTestId("cut-list-length")).toHaveTextContent(
+      "—",
+    );
+    expect(within(bolts!).getByTestId("cut-list-stock")).toHaveTextContent(
+      "Each",
+    );
+    // A blank price opens the book on the item, priced its one way.
+    fireEvent.click(within(rebar!).getByTestId("cut-list-price-blank"));
+    const seeded = await screen.findByTestId("price-book-row");
+    expect(seeded).toHaveAttribute("data-profile", "rebar_4");
+    expect(seeded).toHaveAttribute("data-kind", "item");
+    expect(seeded).toHaveAttribute("data-unit", "each");
+    expect(
+      within(seeded).getByTestId("price-book-stock-item"),
+    ).toHaveTextContent("20 ft");
   });
 
   it("shows a long member's splice and prices it per member", async () => {

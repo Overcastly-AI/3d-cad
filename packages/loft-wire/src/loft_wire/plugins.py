@@ -43,6 +43,7 @@ from pydantic import (
     model_validator,
 )
 
+from loft_wire.foundation import AnchorBolts, ConcretePour, RebarRun
 from loft_wire.materials import MaterialKey
 from loft_wire.opening_units import OpeningUnitPart
 from loft_wire.refs import FeatureRef
@@ -509,6 +510,28 @@ class MemberMetadata(BaseModel):
         description="Set on the bodies of a bought window or door unit "
         "(OPENING-UNITS): the cut list lists the unit once, Each, on its "
         "counted body. Absent on every other member.",
+    )
+    concrete: ConcretePour | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="Set on a concrete body, one per pour (SLAB): the cut list "
+        "lists its measured volume in cubic yards and orders it with the "
+        "pour's waste allowance, rounded up to 1/4 yd³. Absent otherwise.",
+    )
+    rebar: list[RebarRun] | None = Field(
+        default=None,
+        exclude_if=is_none,
+        max_length=64,
+        description="The bars a pour carries, listed, not drawn (SLAB): each "
+        "by its centreline length, bought in 20 ft sticks lapped 24 in. "
+        "Absent on every other member.",
+    )
+    anchor_bolts: AnchorBolts | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="Set on a plate that bears on concrete (SLAB): the cut "
+        "list counts its anchor bolts from its measured length (IRC "
+        "R403.1.6). Absent otherwise.",
     )
 
     @field_validator("profile", "nominal_size")

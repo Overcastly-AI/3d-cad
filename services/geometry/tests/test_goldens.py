@@ -296,6 +296,9 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # summation drift, 9.5e-7 mm^3 at worst.
         "b7-floor-left-right",
         "b7-floor-long-walls",
+        # B8: B7's walls, openings and roof on its slab (SLAB): b7-outline's
+        # class, 2.9e-4 at worst; the slab itself round-trips exactly.
+        "b8-slab-house",
     }
 )
 

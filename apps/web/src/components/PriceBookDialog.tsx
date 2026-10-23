@@ -5,8 +5,9 @@
  * material and a profile, priced Each at a stock length, per linear foot or
  * per board foot; a sheet product (SHEATHING), priced Each per sheet; or a
  * window or door unit (OPENING-UNITS), priced Each by its call size
- * ('window_3040') and frame material. The profile list files each kind under
- * its own heading.
+ * ('window_3040') and frame material; or a foundation item (SLAB): ready-mix
+ * per cubic yard, #4 rebar Each per 20 ft stick, an anchor bolt Each, each
+ * its one way. The profile list files each kind under its own heading.
  *
  * The book is saved whole (`PUT` replaces it), so the dialog edits a draft and
  * Save sends every row; Cancel or Escape drops the draft. Opened from a blank
@@ -74,8 +75,9 @@ export interface PriceBookDialogProps {
   onClose: () => void;
 }
 
-/** What a row prices: lumber, a sheet product, or a window or door unit. */
-type RowKind = "lumber" | "sheet" | "unit";
+/** What a row prices: lumber, a sheet product, a window or door unit, or a
+ * foundation item (priced its one way: its unit and stock are the item's). */
+type RowKind = "lumber" | "sheet" | "unit" | "item";
 
 interface DraftRow {
   id: number;
@@ -117,16 +119,21 @@ function kindOf(
   entry?: PriceBookEntry,
 ): RowKind {
   if (library?.opening_units?.some((u) => u.key === profile)) return "unit";
+  if (library?.foundation_items?.some((i) => i.key === profile)) return "item";
   if (library?.sheet_goods.some((g) => g.key === profile)) return "sheet";
   if (library?.profiles.some((p) => p.key === profile)) return "lumber";
   if (entry === undefined)
     return profile.startsWith("us_") ? "lumber" : "sheet";
   if (entry.sheet !== null && entry.sheet !== undefined) return "sheet";
+  if (entry.unit === "cubic_yard") return "item";
   if (entry.unit !== "each" || entry.stock_length_ft != null) return "lumber";
   return "unit";
 }
 
 function rowKey(row: DraftRow): string {
+  if (row.kind === "item") {
+    return [row.material, row.profile, row.unit, row.stockLengthFt].join("|");
+  }
   return [
     row.material,
     row.profile,
@@ -224,16 +231,21 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
     )
       return;
     base.current = book.data;
-    const draft: DraftRow[] = (book.data.entries ?? []).map((entry) => ({
-      id: nextId.current++,
-      kind: kindOf(entry.profile, library.data, entry),
-      material: entry.material,
-      profile: entry.profile,
-      unit: entry.unit,
-      stockLengthFt: entry.stock_length_ft ?? DEFAULT_STOCK_FT,
-      sheet: entry.sheet ?? DEFAULT_SHEET,
-      price: centsToDecimal(entry.price_cents),
-    }));
+    const draft: DraftRow[] = (book.data.entries ?? []).map((entry) => {
+      const kind = kindOf(entry.profile, library.data, entry);
+      return {
+        id: nextId.current++,
+        kind,
+        material: entry.material,
+        profile: entry.profile,
+        unit: entry.unit,
+        // An item's stock is its own (a rebar stick's 20 ft, else none).
+        stockLengthFt:
+          entry.stock_length_ft ?? (kind === "item" ? 0 : DEFAULT_STOCK_FT),
+        sheet: entry.sheet ?? DEFAULT_SHEET,
+        price: centsToDecimal(entry.price_cents),
+      };
+    });
     const unitKey = seed?.unitKey ?? null;
     const seedProfile: PriceProfileKey | undefined =
       seed === null
@@ -241,7 +253,13 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
         : unitKey !== null
           ? library.data.opening_units?.find((u) => u.key === unitKey)?.key
           : (library.data.profiles.find((p) => p.name === seed.profile)?.key ??
-            library.data.sheet_goods.find((g) => g.name === seed.profile)?.key);
+            library.data.sheet_goods.find((g) => g.name === seed.profile)
+              ?.key ??
+            library.data.foundation_items?.find((i) => i.name === seed.profile)
+              ?.key);
+    const seedItem = library.data.foundation_items?.find(
+      (i) => i.key === seedProfile,
+    );
     if (seed !== null && seedProfile !== undefined) {
       const lengths = [...new Set(seed.stockLengthsFt ?? [seed.stockLengthFt])];
       let focus: number | null = null;
@@ -252,8 +270,11 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
           kind: kindOf(seedProfile, library.data),
           material: seed.material,
           profile: seedProfile,
-          unit: "each",
-          stockLengthFt: feet ?? DEFAULT_STOCK_FT,
+          unit: seedItem?.price_unit ?? "each",
+          stockLengthFt:
+            seedItem === undefined
+              ? (feet ?? DEFAULT_STOCK_FT)
+              : (seedItem.stock_length_ft ?? 0),
           sheet: seed.sheet ?? DEFAULT_SHEET,
           price: "",
         };
@@ -371,6 +392,17 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
     save.mutate(
       rows.map((row) => {
         const lumber = row.kind === "lumber";
+        if (row.kind === "item") {
+          // A foundation item is priced its one way (profilePatch set it).
+          return {
+            material: row.material,
+            profile: row.profile,
+            unit: row.unit,
+            stock_length_ft: row.stockLengthFt > 0 ? row.stockLengthFt : null,
+            sheet: null,
+            price_cents: parseMoney(row.price) ?? 0,
+          };
+        }
         return {
           material: row.material,
           profile: row.profile,
@@ -411,6 +443,11 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
       label: u.name,
       group: u.kind === "door" ? "Doors" : "Windows",
     })),
+    ...(library.data?.foundation_items ?? []).map((i) => ({
+      value: i.key,
+      label: i.name,
+      group: "Foundation",
+    })),
   ];
   const sheetOptions = (library.data?.sheet_sizes ?? []).map((size) => ({
     value: size.key,
@@ -439,6 +476,16 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
         kind: "unit",
         unit: "each",
         material: unit.material,
+      };
+    }
+    const item = library.data?.foundation_items?.find((i) => i.key === key);
+    if (item !== undefined) {
+      return {
+        profile: key,
+        kind: "item",
+        unit: item.price_unit,
+        stockLengthFt: item.stock_length_ft ?? 0,
+        material: item.material,
       };
     }
     return { profile: key, kind: "lumber" };
@@ -487,7 +534,8 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
           line on the stock pieces it buys: Each at that stock length first,
           then per linear foot, then per board foot (nominal size). Sheet goods
           are priced Each per sheet, on the sheets their area needs; windows and
-          doors Each per unit, by call size.
+          doors Each per unit, by call size; concrete per cubic yard ordered,
+          rebar Each per 20 ft stick and anchor bolts Each.
         </p>
         <div className="min-h-0 overflow-y-auto px-4 pt-2">
           {loadError ? (
@@ -551,6 +599,7 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
                   const n = index + 1;
                   const sheet = row.kind === "sheet";
                   const unitRow = row.kind === "unit";
+                  const itemRow = row.kind === "item";
                   const what = `${profileName(row.profile)} ${materialName(row.material)}`;
                   return (
                     <tr
@@ -597,7 +646,15 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
                         />
                       </td>
                       <td className="py-1.5 pr-2">
-                        {sheet || unitRow ? (
+                        {itemRow ? (
+                          <span
+                            className="block px-2 font-data text-xs text-mist"
+                            title="A foundation item is priced one way"
+                            data-testid="price-book-unit-item"
+                          >
+                            {PRICE_UNIT_LABEL[row.unit]}
+                          </span>
+                        ) : sheet || unitRow ? (
                           <span
                             className="block px-2 font-data text-xs text-mist"
                             title={
@@ -630,7 +687,18 @@ export function PriceBookDialog({ seed, onClose }: PriceBookDialogProps) {
                         )}
                       </td>
                       <td className="py-1.5 pr-2">
-                        {sheet ? (
+                        {itemRow ? (
+                          <span
+                            className="block px-2 font-data text-xs text-gauge"
+                            data-testid="price-book-stock-item"
+                          >
+                            {row.stockLengthFt > 0
+                              ? `${row.stockLengthFt} ft`
+                              : row.unit === "cubic_yard"
+                                ? "Ordered"
+                                : "Each"}
+                          </span>
+                        ) : sheet ? (
                           <SelectField
                             hideLabel
                             label={`Sheet, price ${n}`}
