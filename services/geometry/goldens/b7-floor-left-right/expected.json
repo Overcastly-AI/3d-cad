@@ -1,0 +1,62 @@
+{
+  "description": "B7 FLOOR, JOISTS BEAR ON LEFT AND RIGHT (FLOOR-JOIST-SPAN; docs/reference-parts/buildings.md B7): ONE loft.floor 1.3.0 on B7's 288 x 192 outline sketch (2x10 SPF joists at 16 in o.c., PT 2x6 sills, 23/32 plywood subfloor), the sketch drawn from the back-left corner down its left side, the drawing on which 1.2.0 read its width from the first line and framed 24 ft joists. The rims run on the short side walls and the joists span 24 ft along X. model.json is EXACTLY the sketch and the expansion with the member materials documents applies; members.json is each body's member metadata (packages/loft-plugins/tests/test_floor_joist_span.py pins both); services/geometry/tests/test_floor_joist_span_b7.py checks the cut list, the STEP against an independent build123d script, interference and mass, and that these numbers are its exact-rational ones.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC, from B7's floor typed by hand in exact rational arithmetic (x 25.4 = mm exactly), never from the plugin (test_floor_joist_span_b7.spec and expected_numbers).",
+    "Sills Z 0..1.5: Y 0..192 at X 0..5.5 and 282.5..288; Y 0..5.5 and 186.5..192 at X 5.5..282.5 (277).",
+    "Rims Z 1.5..10.75: Y 0..192 at X 0..1.5 and 286.5..288.",
+    "Joists Z 1.5..10.75, X 1.5..286.5 (285), 1.5 wide centred on Y 0.75, 16, ..., 176, 191.25 (13: 16k + 0.75 <= 190.5 gives k = 1..11).",
+    "Subfloor Z 10.75..11.46875, 6 rows 48 wide along X; even rows cut at Y 96 (2 panels), odd rows at Y 48 and 144 (3): 15.",
+    "",
+    "volume = sills 2 x 192 x 8.25 + 2 x 277 x 8.25 (7 738.5) + rims 2 x 192 x 13.875 (5 328) + joists 13 x 285 x 13.875 (51 406.875) + subfloor 288 x 192 x 23/32 (39 744) = 104 217.375 in^3 (833739/8).",
+    "",
+    "surface_area = sum of 2(ab + bc + ca) over the 34 boxes (bodies are separate, touching faces not merged) = 859243/4 in^2 = 138587303.47 mm^2.",
+    "",
+    "centroid = volume-weighted mean of the box centres: x = 144 in = 3657.6 mm and y = 96 in = 2438.4 mm (symmetric about both), z = 16956501/2223304 in = 193.7185042621252 mm.",
+    "",
+    "mass_g = SPF x 450 + PT x 582 + plywood x 577 kg/m^3 = 867970.15712073 g; center_of_mass x = 3657.6, y = 2438.4, z = 1473837303/188326360 in = 198.77975391336614 mm.",
+    "",
+    "bounding_box: X 0..288, Y 0..192, Z 0..11.46875 in = 0..7315.2, 0..4876.8, 0..291.30625 mm.",
+    "",
+    "topology: 34 boxes x (6 faces, 12 edges, 1 shell). MESH: 24 vertices and 12 triangles a box."
+  ],
+  "tolerance": 5e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): the bounds are ABSOLUTE and the part is ~1.7e+09 mm^3 summed over 34 bodies, so the double-precision sum carries round-off near the ULP of the sum (~2.4e-7): measured -9.5e-07 mm^3 on the volume, -6e-08 mm^2 on the area, <= 2.3e-12 mm on the centroid and centre of mass and <= 4.7e-10 g on the mass. 5e-6 is 2.6x the worst of the two B7 floor goldens and b7-outline's bound; one joist 0.001 in too long adds 228 mm^3 and the joists turned change the volume by 1.8e7 mm^3, so either fails by orders.",
+  "roundtrip_tolerance": 3e-6,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-23: the STEP round trip re-sums the 34 re-imported solids in another order and moves the VOLUME by -2.4e-07 mm^3 (~5e-16 relative) and the AREA by under 1e-7 mm^2, above ROUNDTRIP_TOL (1e-7 absolute), near the ULP of a 1.7e9 mm^3 sum. 3e-6 is 3.1x the worst of the two B7 floor goldens, the B5 floor goldens' bound and cause; it applies to volume and area only, centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 1707816794.037,
+    "surface_area": 138587303.47,
+    "centroid": {
+      "x": 3657.6,
+      "y": 2438.4,
+      "z": 193.7185042621252
+    },
+    "mass_g": 867970.15712073,
+    "center_of_mass": {
+      "x": 3657.6,
+      "y": 2438.4,
+      "z": 198.77975391336614
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 7315.2,
+        "y": 4876.8,
+        "z": 291.30625
+      }
+    }
+  },
+  "topology": {
+    "faces": 204,
+    "edges": 408,
+    "shells": 34
+  },
+  "mesh": {
+    "vertices": 816,
+    "triangles": 408
+  }
+}

@@ -287,6 +287,7 @@ export function PartPage() {
     partId,
     tree,
     evaluation,
+    part,
     datumById,
   });
   const { features, sketchProfiles, closedProfiles, bodies, specFromPlaneRef } =

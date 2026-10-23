@@ -275,8 +275,9 @@ describe("CutListPanel", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("lists sheet goods by area and the sheets it needs", async () => {
-    // B2's 7/16 OSB (SHEATHING): 12 panels, 45 893 in^2, 9 sheets of 4x9.
+  it("lists sheet goods by area and the sheets they are cut from", async () => {
+    // B2's 7/16 OSB (SHEET-COUNT-PIECES): 12 panels, 45 893 in^2, cut from
+    // 11 sheets of 4x9, 11 131 in^2 offcut.
     vi.mocked(fetchCutList).mockResolvedValueOnce({
       ...RESPONSE,
       total_quantity: 12,
@@ -297,10 +298,11 @@ describe("CutListPanel", () => {
           section_mm: [0.4375 * IN, 48 * IN],
           sheet: "4x9",
           area_mm2: 45893 * IN * IN,
+          offcut_area_mm2: 11131 * IN * IN,
           stock_length_ft: null,
           stock_pieces_ft: null,
           waste_mm: null,
-          stock_quantity: 9,
+          stock_quantity: 11,
           unit_price_cents: null,
           price_unit: null,
           extended_price_cents: null,
@@ -314,10 +316,10 @@ describe("CutListPanel", () => {
     expect(sheet.getByTestId("cut-list-qty")).toHaveTextContent("12");
     expect(sheet.getByTestId("cut-list-area")).toHaveTextContent("45,893 in²");
     expect(sheet.getByTestId("cut-list-total-length")).toBeEmptyDOMElement();
-    expect(sheet.getByTestId("cut-list-stock")).toHaveTextContent("9 × 4x9");
+    expect(sheet.getByTestId("cut-list-stock")).toHaveTextContent("11 × 4x9");
     expect(sheet.getByTestId("cut-list-stock")).toHaveAttribute(
       "title",
-      "9 sheets of 4x9, by area",
+      "11 sheets of 4x9, cut from the panels; 11,131 in² offcut",
     );
     // Its blank price opens the book on a per-sheet row for its sheet.
     fireEvent.click(
@@ -476,6 +478,49 @@ describe("CutListPanel", () => {
     const seeded = await screen.findByTestId("price-book-row");
     expect(within(seeded).getByLabelText("Stock length, price 1")).toHaveValue(
       "12",
+    );
+  });
+
+  it("says why a joist past 24 ft has no stock", async () => {
+    // NO-SPLICE-SPANS: a joist is one piece, so past 24 ft it has no stock.
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      total_quantity: 2,
+      unclassified: 0,
+      missing: [],
+      total_price_cents: null,
+      unpriced_lines: 1,
+      lines: [
+        {
+          system: "floor",
+          member: "Joist",
+          profile: "2x10",
+          material: "spf_lumber",
+          classification: "member",
+          quantity: 2,
+          length_mm: 300 * IN,
+          total_length_mm: 600 * IN,
+          section_mm: [1.5 * IN, 9.25 * IN],
+          stock_length_ft: null,
+          stock_pieces_ft: null,
+          one_piece: true,
+          stock_note:
+            "One piece, longer than 24 ft stock: a joist is not spliced",
+          waste_mm: null,
+          stock_quantity: null,
+          unit_price_cents: null,
+          price_unit: null,
+          extended_price_cents: null,
+        },
+      ],
+    });
+    renderPanel();
+    const [joist] = await screen.findAllByTestId("cut-list-row");
+    const stock = within(joist!).getByTestId("cut-list-stock");
+    expect(stock).toHaveTextContent("—");
+    expect(stock).toHaveAttribute(
+      "title",
+      "One piece, longer than 24 ft stock: a joist is not spliced",
     );
   });
 

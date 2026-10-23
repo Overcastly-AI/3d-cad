@@ -26,7 +26,8 @@ from the wall's start, and for a window the head height: the top of the rough
 opening (the header's underside) above the wall's base, 82.5 in by default so
 window and door heads align, as framers set them. A door's rough opening
 stands on the wall's base. The header is two plies of ``header_profile`` on
-edge.
+edge; from 1.4.0 (HEADER-PLIES), by default as many as fill the wall (three
+in a 2x6 wall), or two with foam between.
 """
 
 from collections.abc import Iterator
@@ -739,3 +740,62 @@ WINDOW_V1_3 = Plugin(
     WINDOW_MANIFEST_V1_3, _unit_expander("window", "window"), settle=_settle
 )
 DOOR_V1_3 = Plugin(DOOR_MANIFEST_V1_3, _unit_expander("door", "door"), settle=_settle)
+
+
+# --- 1.4.0: a header the wall's thickness (HEADER-PLIES) ---------------------------
+
+
+def _with_header_build(manifest: PluginManifest) -> PluginManifest:
+    """*manifest* (1.3.0) at 1.4.0: Header build after the header's size. A
+    built-up header is the wall's thickness (IRC R602.7; Table R602.7(1)
+    sizes headers as plies, "3-2x8"): by default as many plies as fill the
+    wall with 1/2 in spacers, two in a 2x4 wall and three in a 2x6
+    (``loft_plugins.builtin.wall.header_plies``); or two plies with foam
+    between, an insulated header."""
+    inputs: list[PluginInput] = []
+    for item in manifest.inputs:
+        if item.name != "header_profile":
+            inputs.append(item)
+            continue
+        inputs.append(
+            item.model_copy(
+                update={
+                    "description": "Plies on edge over the jacks; size their "
+                    "depth by the span."
+                }
+            )
+        )
+        inputs.append(
+            ChoiceInput(
+                kind="choice",
+                name="header_build",
+                label="Header build",
+                description="Fill the wall: plies spaced to the wall's "
+                "thickness (two in a 2x4 wall and three in a 2x6, with 1/2 in "
+                "spacers; three in a 2x8, with wider gaps). Two "
+                "plies: one at each face, rigid foam between (an insulated "
+                "header).",
+                options=[
+                    ChoiceOption(value="fill", label="Fill the wall"),
+                    ChoiceOption(value="two_ply", label="Two plies, foam between"),
+                ],
+                default="fill",
+            )
+        )
+    return manifest.model_copy(
+        update={
+            "version": "1.4.0",
+            "inputs": inputs,
+            "description": manifest.description
+            + " Its header fills the wall's thickness.",
+        }
+    )
+
+
+WINDOW_MANIFEST_V1_4 = _with_header_build(WINDOW_MANIFEST_V1_3)
+DOOR_MANIFEST_V1_4 = _with_header_build(DOOR_MANIFEST_V1_3)
+
+WINDOW_V1_4 = Plugin(
+    WINDOW_MANIFEST_V1_4, _unit_expander("window", "window"), settle=_settle
+)
+DOOR_V1_4 = Plugin(DOOR_MANIFEST_V1_4, _unit_expander("door", "door"), settle=_settle)

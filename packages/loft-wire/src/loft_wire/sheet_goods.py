@@ -4,8 +4,9 @@ Wall sheathing and subfloor are cut from 4 ft wide sheets, as Chief
 Architect's wall and floor structure layers and Medeek's sheathing options
 build them. A panel is the piece fastened to the framing; it is cut from the
 SHORTEST sheet that covers it (a 97.125 in tall wall panel from a 4x9), and
-the cut list buys sheets by area, as Chief Architect's materials list counts
-them: ``ceil(net area / sheet area)`` (:mod:`loft_wire.cut_list`).
+the cut list buys the sheets the panels are cut from, each panel a sheet
+unless an earlier offcut covers it whole (SHEET-COUNT-PIECES,
+:func:`loft_wire.cut_list.sheets_to_cut`).
 
 A product is a material at a thickness, named as the trade sells it: "7/16
 OSB", "23/32 plywood". APA performance-category panels are sold under their

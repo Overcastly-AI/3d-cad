@@ -1049,6 +1049,30 @@
         "title": "BodyMaterialAssignment",
         "type": "object"
       },
+      "BodyName": {
+        "description": "One body's name, keyed by the body's identity (multi-body \u00a7MB-0).",
+        "properties": {
+          "base_feature_id": {
+            "description": "Id of the feature (or plugin member) that created the body",
+            "format": "uuid",
+            "title": "Base Feature Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The body's name, whitespace-trimmed",
+            "maxLength": 400,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_feature_id",
+          "name"
+        ],
+        "title": "BodyName",
+        "type": "object"
+      },
       "BomLine": {
         "description": "One line of an assembly's bill of materials.\n\nA BOM line GROUPS instances by the document they reference: ``quantity`` is\nthe count of instances sharing this ``ref_document_id`` (within the line's\nparent for an indented line, across every level for a parts-only line),\n``name`` is the referenced document's CURRENT name, and\n``ref_document_kind`` is ``part`` or ``assembly``. In the top-level list a\nsub-assembly is one ``kind: \"assembly\"`` line; the indented and parts-only\nlists open it up (SolidWorks' three BOM types).\n\nA referenced document that was DELETED while still instanced surfaces\nhonestly, not silently: the line stays (its instances still exist and still\ncount), with ``name`` null and ``missing`` true, so a client can flag the\ndangling reference rather than the read 500-ing or the quantity vanishing.",
         "properties": {
@@ -3177,6 +3201,24 @@
             "description": "Member role title (e.g. 'Joist'); null when the body is not a plugin member.",
             "title": "Member"
           },
+          "offcut_area_mm2": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A sheet line's offcut (mm^2): its sheets' area less its net area (the offcuts and the openings cut out). Null for lumber, or for panels no sheet covers.",
+            "title": "Offcut Area Mm2"
+          },
+          "one_piece": {
+            "description": "True when each piece is one stock length, never spliced: a member that spans between bearings (a joist, rafter, header or beam) or a column (NO-SPLICE-SPANS). Omitted when false.",
+            "title": "One Piece",
+            "type": "boolean"
+          },
           "price_unit": {
             "anyOf": [
               {
@@ -3247,8 +3289,21 @@
                 "type": "null"
               }
             ],
-            "description": "Shortest standard stock that covers the piece (ft); null for a piece that is not lumber, or is spliced (stock_pieces_ft), or is longer than any splice covers.",
+            "description": "Shortest standard stock that covers the piece (ft); null for a piece that is not lumber, or is spliced (stock_pieces_ft), or is longer than any stock it may be bought in (stock_note).",
             "title": "Stock Length Ft"
+          },
+          "stock_note": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a lumber line has no stock, when it is longer than any it may be bought in ('One piece, longer than 24 ft stock: a joist is not spliced'); absent otherwise.",
+            "title": "Stock Note"
           },
           "stock_pieces_ft": {
             "anyOf": [
@@ -3276,7 +3331,7 @@
                 "type": "null"
               }
             ],
-            "description": "Stock units bought for the line (the CSV's Stock qty): one per piece (until pieces are nested), a spliced piece's stock_pieces_ft counting as ONE set; for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.",
+            "description": "Stock units bought for the line (the CSV's Stock qty): one per piece (until pieces are nested), a spliced piece's stock_pieces_ft counting as ONE set; for a sheet line, the sheets its panels are cut from (each panel a sheet unless an earlier offcut covers it whole); null with no stock length or sheet.",
             "title": "Stock Quantity"
           },
           "system": {
@@ -12583,6 +12638,14 @@
       "PartResponse": {
         "description": "A part as stored \u2014 identity, ownership, unit, timestamps, rebuild health.\n\nThe feature tree itself is not inlined here (it is its own\n``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what\nIS here is the fixed-size last-evaluate record (\u00a74.4a) so a register can\ntell the truth about a whole drawer of parts in one query \u2014 five scalars per\nrow, never per-feature or per-sheet growth.",
         "properties": {
+          "body_names": {
+            "description": "The user's body renames (BODY-NAMES), one per body, keyed by the id of the feature or plugin member that created it. Empty when no body was renamed. A rename naming a body the tree no longer makes is inert.",
+            "items": {
+              "$ref": "#/components/schemas/BodyName"
+            },
+            "title": "Body Names",
+            "type": "array"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -12732,6 +12795,22 @@
       "PartUpdate": {
         "description": "Rename, re-unit and/or re-material a part. Bumps ``tree_version`` (any\ndocument edit bumps \u2014 the feature-tree.md \u00a71.2 pattern applied to the part\nheader).\n\nEvery mutable field is optional; at least one must be provided. Changing\nthe display unit is a document edit (docs/design/units.md \u00a7U1) \u2014 it does\nNOT convert any stored ``*_mm`` value, only relabels how they render.\nChanging the material does more: mass is derived from it, so the recorded\nevaluate stops applying (see ``materials`` below).",
         "properties": {
+          "body_names": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/BodyName"
+                },
+                "maxItems": 1000,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replace the part's WHOLE set of body renames (BODY-NAMES): one name per body, keyed by the id of the feature or plugin member that created it. A rename wins over a member body's own name ('Front wall \u00b7 Stud 3'). Omitted/null leaves them untouched; an empty list clears them. Display metadata only: the recorded evaluate stays current.",
+            "title": "Body Names"
+          },
           "expected_tree_version": {
             "description": "Optimistic-concurrency guard: the tree_version the client last saw; a stale value is rejected 422 (feature-tree.md \u00a71.2)",
             "minimum": 0.0,

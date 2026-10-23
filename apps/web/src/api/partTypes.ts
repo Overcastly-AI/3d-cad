@@ -6,6 +6,9 @@
 import type { components } from "@loft/ts-client/gateway";
 
 export type PartResponse = components["schemas"]["PartResponse"];
+/** A body rename (BODY-NAMES), keyed by the id of the feature or plugin
+ * member that created the body. */
+export type BodyName = components["schemas"]["BodyName"];
 /** Document display unit — the single source is the generated contract. */
 export type LengthUnit = PartResponse["length_unit"];
 /**

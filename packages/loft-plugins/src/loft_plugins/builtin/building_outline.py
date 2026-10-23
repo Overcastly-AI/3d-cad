@@ -12,6 +12,12 @@ inputs are left empty:
   wall, member for member, at the floor's top when one is picked.
 * ``loft.floor`` 1.2.0 adds **Outline** (a rectangle): the floor fills it,
   the width along the outline's first line. With no outline it is 1.1.0's.
+* ``loft.floor`` 1.3.0 replaces Joist direction with **Joists bear on**
+  (FLOOR-JOIST-SPAN): Long walls (the default: the joists span the shorter
+  way), Front and back, or Left and right, as Chief Architect frames a floor
+  across its shorter span and Revit picks a span direction. An outline's
+  rectangle is read from its corners, so the drawing order cannot turn the
+  joists (:func:`~loft_plugins.builtin.house.floor_values_v1_3`).
 
 **An outline wall's members.** Each wall is framed exactly as a 1.2.0 wall
 of its spec (studs from its clockwise start, its hosted doors and windows,
@@ -36,6 +42,8 @@ from collections.abc import Iterator, Sequence
 from loft_wire.plugins import (
     PLUGIN_INPUT_INVALID,
     PLUGIN_INPUT_UNSUPPORTED,
+    ChoiceInput,
+    ChoiceOption,
     FeatureReferenceInput,
     PluginInput,
     PluginManifest,
@@ -47,6 +55,7 @@ from loft_plugins.builtin import wall as wall_v1
 from loft_plugins.builtin.house import (
     OutlineWall,
     floor_values,
+    floor_values_v1_3,
     outline_walls,
     wall_outline,
     wall_values,
@@ -144,6 +153,55 @@ FLOOR_MANIFEST_V1_2 = PluginManifest(
 def expand_floor_v1_2(inputs: ExpandInputs) -> Iterator[Member]:
     """1.1.0's floor, on the outline's rectangle when one is picked."""
     yield from sheathing.expand_floor_v1_1(floor_values(inputs))
+
+
+# --- Floor 1.3.0 -------------------------------------------------------------------
+
+JOISTS_BEAR_ON = ChoiceInput(
+    kind="choice",
+    name="joists_bear_on",
+    label="Joists bear on",
+    description="The walls under the rims; the joists span between them. Long "
+    "walls frames the shorter span. Front and back are the width's edges (on "
+    "an outline, the walls facing -Y and +Y), left and right the depth's.",
+    options=[
+        ChoiceOption(value="long_walls", label="Long walls"),
+        ChoiceOption(value="front_back", label="Front and back"),
+        ChoiceOption(value="left_right", label="Left and right"),
+    ],
+    default="long_walls",
+)
+
+
+def _floor_inputs_v1_3() -> list[PluginInput]:
+    """1.2.0's inputs with Joist direction replaced, in place, by Joists
+    bear on, and the outline's text no longer tying the span to its first line."""
+    replaced = {
+        "joist_direction": JOISTS_BEAR_ON,
+        "outline": _outline_input(
+            "The floor fills it (a rectangle; Joists bear on picks the span)."
+        ),
+    }
+    return [replaced.get(item.name, item) for item in FLOOR_MANIFEST_V1_3_INPUTS]
+
+
+FLOOR_MANIFEST_V1_3 = PluginManifest(
+    id="loft.floor",
+    version="1.3.0",
+    title=sheathing.FLOOR_MANIFEST_V1_1.title,
+    description="A framed platform floor on a typed rectangle or an outline "
+    "sketch: sill plates, rim joists, joists spanning between the walls they "
+    "bear on (the long walls by default), and a subfloor, with a cut list "
+    "(Chief Architect, Revit, Medeek Foundation).",
+    inputs=_floor_inputs_v1_3(),
+    members=sheathing.FLOOR_MANIFEST_V1_1.members,
+)
+
+
+def expand_floor_v1_3(inputs: ExpandInputs) -> Iterator[Member]:
+    """1.1.0's floor on the rectangle typed or read from the outline's
+    corners, its joists across the walls they bear on."""
+    yield from sheathing.expand_floor_v1_1(floor_values_v1_3(inputs))
 
 
 # --- Wall 1.3.0 --------------------------------------------------------------------
@@ -259,3 +317,4 @@ def expand_wall_v1_3(inputs: ExpandInputs) -> Iterator[Member]:
 
 WALL_V1_3 = Plugin(WALL_MANIFEST_V1_3, expand_wall_v1_3)
 FLOOR_V1_2 = Plugin(FLOOR_MANIFEST_V1_2, expand_floor_v1_2)
+FLOOR_V1_3 = Plugin(FLOOR_MANIFEST_V1_3, expand_floor_v1_3)

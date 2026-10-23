@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import type { FeatureResponse } from "../api/parts";
-import { computeBodies, lumpBadgeLabel, partBodies } from "./bodies";
+import type { PluginManifest } from "../api/plugins";
+import {
+  bodyPickLabel,
+  bodyRowName,
+  computeBodies,
+  lumpBadgeLabel,
+  partBodies,
+  withBodyRename,
+} from "./bodies";
 
 function base(id: string, name: string): Omit<FeatureResponse, "feature"> {
   return {
@@ -200,6 +208,9 @@ describe("partBodies", () => {
         name: "Extrude1",
         featureType: "extrude",
         ordinal: 1,
+        label: "Body 1",
+        named: false,
+        unrenamed: "Body 1",
       },
     ]);
   });
@@ -232,6 +243,130 @@ describe("partBodies", () => {
     expect(partBodies(tree, built("gone", "x1")).map((b) => b.name)).toEqual([
       "Extrude1",
     ]);
+  });
+});
+
+/**
+ * BODY-NAMES: B7's 217 bodies read "Body 1..217". A member body is named after
+ * its feature and member, as the unfolded tree labels the member, and a
+ * rename wins, as in Fusion's browser.
+ */
+describe("body names", () => {
+  const extrudeMember = (id: string, role: string, index: number) => ({
+    role,
+    index,
+    id,
+    feature: extrude(id, id, "add", false).feature,
+  });
+  const wall = {
+    ...base("w", "Front wall"),
+    feature: {
+      type: "custom",
+      version: 1,
+      params: {
+        plugin_id: "loft.wall",
+        plugin_version: "1.1.0",
+        inputs: {},
+        expansion: [
+          extrudeMember("s0", "stud", 0),
+          extrudeMember("s1", "stud", 1),
+          extrudeMember("s2", "stud", 2),
+          extrudeMember("h0", "header", 0),
+        ],
+      },
+    },
+  } as unknown as FeatureResponse;
+  const catalog = [
+    {
+      id: "loft.wall",
+      version: "1.1.0",
+      members: [
+        { role: "stud", title: "Stud" },
+        { role: "header", title: "Header" },
+      ],
+    },
+  ] as unknown as PluginManifest[];
+  const tree = [extrude("x1", "Extrude1", "add", true), wall];
+  const evaluated = ["x1", "s0", "s2", "h0"].map((id) => ({
+    base_feature_id: id,
+    lumps: 1,
+  }));
+
+  it("names a member body by its feature and member", () => {
+    const bodies = partBodies(tree, evaluated, { catalog });
+    expect(bodies.map((b) => b.label)).toEqual([
+      "Body 1",
+      "Front wall · Stud 1",
+      "Front wall · Stud 3",
+      "Front wall · Header",
+    ]);
+    expect(bodies.map((b) => b.named)).toEqual([false, true, true, true]);
+    expect(bodies.map(bodyPickLabel)).toEqual([
+      "Body 1 · Extrude1",
+      "Front wall · Stud 1",
+      "Front wall · Stud 3",
+      "Front wall · Header",
+    ]);
+    expect(bodies.map(bodyRowName)[0]).toBe("Extrude1");
+  });
+
+  it("numbers on across roles that share a title, keyed by member id", () => {
+    // The wall titles two roles "Stud": they count on, never two "Stud 1".
+    const twoStuds = [
+      {
+        ...catalog[0],
+        members: [
+          { role: "stud", title: "Stud" },
+          { role: "header", title: "Stud" },
+        ],
+      },
+    ] as unknown as PluginManifest[];
+    const labels = partBodies(tree, evaluated, { catalog: twoStuds }).map(
+      (b) => b.label,
+    );
+    expect(labels).toEqual([
+      "Body 1",
+      "Front wall · Stud 1",
+      "Front wall · Stud 3",
+      "Front wall · Stud 4",
+    ]);
+    expect(new Set(labels).size).toBe(labels.length);
+    // A rename is keyed on the member id, so renumbering never moves it.
+    const renames = [{ base_feature_id: "h0", name: "Header beam" }];
+    expect(
+      partBodies(tree, evaluated, { catalog: twoStuds, renames })[3]?.label,
+    ).toBe("Header beam");
+  });
+
+  it("reads the role itself until the catalog has loaded", () => {
+    expect(partBodies(tree, evaluated)[2]?.label).toBe("Front wall · stud 3");
+  });
+
+  it("lets a rename win, and a rename back to the own name clears it", () => {
+    const renames = [
+      { base_feature_id: "x1", name: "Sill block" },
+      { base_feature_id: "s2", name: "King stud" },
+    ];
+    const bodies = partBodies(tree, evaluated, { catalog, renames });
+    expect(bodies.map((b) => b.label)).toEqual([
+      "Sill block",
+      "Front wall · Stud 1",
+      "King stud",
+      "Front wall · Header",
+    ]);
+    expect(bodies[2]?.unrenamed).toBe("Front wall · Stud 3");
+    expect(
+      withBodyRename(
+        renames,
+        "s2",
+        " Front wall · Stud 3 ",
+        "Front wall · Stud 3",
+      ),
+    ).toEqual([renames[0]]);
+    expect(withBodyRename(renames, "x1", "  ", "Body 1")).toEqual([renames[1]]);
+    expect(
+      withBodyRename([], "s0", " Corner stud ", "Front wall · Stud 1"),
+    ).toEqual([{ base_feature_id: "s0", name: "Corner stud" }]);
   });
 });
 

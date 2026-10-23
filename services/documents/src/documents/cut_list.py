@@ -25,7 +25,7 @@ from documents.parts import Principal, get_owned_part
 router = APIRouter(prefix="/api/v1/parts", tags=["cut-list"])
 
 
-def _role_titles(envelope: CustomFeature) -> dict[str, str]:
+def role_titles(envelope: CustomFeature) -> dict[str, str]:
     try:
         plugin = PLUGINS.get(envelope.params.plugin_id, envelope.params.plugin_version)
     except PluginError:
@@ -33,7 +33,7 @@ def _role_titles(envelope: CustomFeature) -> dict[str, str]:
     return {role.role: role.title for role in plugin.manifest.members}
 
 
-def _title(role: str) -> str:
+def fallback_title(role: str) -> str:
     return role.replace("_", " ").capitalize()
 
 
@@ -46,13 +46,13 @@ def cut_list_members(sent: SentMembers) -> list[CutListMember]:
             continue
         pin = (envelope.params.plugin_id, envelope.params.plugin_version)
         if pin not in titles:
-            titles[pin] = _role_titles(envelope)
+            titles[pin] = role_titles(envelope)
         by_role = titles[pin]
         out.append(
             CutListMember(
                 feature_id=member_id,
                 role=member.role,
-                title=by_role.get(member.role, _title(member.role)),
+                title=by_role.get(member.role, fallback_title(member.role)),
                 plugin_id=envelope.params.plugin_id,
                 metadata=member.metadata,
             )

@@ -5,13 +5,13 @@ Where we are and what comes next. The orchestrator keeps "Now" true; the
 
 ## Now (2026-10-23)
 
-B7, a 24 x 16 ft house, builds from one outline sketch, prices to the last
-line, and grows 4 ft by one dimension. In flight: openings measured from
-either wall end, a cut list that fits the screen, and hip roofs on sheathed
-walls. Next, in order: an opt-in update for stored roofs whose tails pass
-through the sheathing (a fix), then priced window and door units, 3-ply
-headers in 2x6 walls, and floor joists that span the short way however the
-outline was drawn.
+B7, a 24 x 16 ft house, builds from one outline sketch with priced window
+and door units. In flight: 3-ply headers in 2x6 walls, joists across the
+short span however the outline was drawn, cut-list stock rules (sheets as
+cut, no splice where framers never splice, kerf, grain) and body names.
+Next, in order (founder: "Slab and crawl space"): a slab on grade (B8),
+a crawl space on a stem wall (B9), partitions (B10), then cabinets and
+vanities (C1-C3).
 
 ## Shipped
 
@@ -40,8 +40,9 @@ outline was drawn.
 4. MCP server on top of `loft-script`.
 5. Assemblies a working engineer can use: joints, drag, limits, component patterns
    and in-context edits, driven by the reference assemblies A1-A3.
-6. Building generators beyond B1-B7: sheets and splices counted as a yard
-   quotes them, slabs, stairs, steel studs and roof sheathing (RESEARCH §23).
+6. Building generators beyond B1-B10 and C1-C3: deck footings, splices
+   as a yard quotes them, stairs, CMU stem walls and steel studs
+   (RESEARCH §23).
 
 ## Later
 

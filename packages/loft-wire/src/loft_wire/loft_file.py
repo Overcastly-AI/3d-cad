@@ -58,6 +58,7 @@ from pydantic import (
     ValidationError,
 )
 
+from loft_wire.body_names import BodyName, BodyNameList
 from loft_wire.expr import MAX_PARAMETERS
 from loft_wire.feature_expressions import EXPRESSIONS_FIELD, FeatureExpressions
 from loft_wire.features import (
@@ -323,6 +324,12 @@ class LoftTree(BaseModel):
         max_length=MAX_PARAMETERS,
         exclude_if=lambda rows: not rows,
     )
+    #: The user's body renames (BODY-NAMES), keyed like per-body materials.
+    #: Left out of the dump while empty, so every tree without one keeps its
+    #: bytes (and its version ``tree_sha256``); an older reader ignores it.
+    body_names: BodyNameList = Field(
+        default_factory=list[BodyName], exclude_if=lambda names: not names
+    )
 
 
 def _utc(value: datetime) -> datetime:
@@ -500,7 +507,10 @@ def _extract_blobs(tree: LoftTree) -> tuple[LoftTree, dict[str, bytes]]:
 
 
 def _canonical_tree(tree: LoftTree) -> LoftTree:
-    """Sort what has no meaningful order (per-body materials) by its key."""
+    """Sort what has no meaningful order (per-body materials and body names)
+    by its key."""
+    names = sorted(tree.body_names, key=lambda body: str(body.base_feature_id))
+    tree = tree.model_copy(update={"body_names": names})
     if tree.materials is None:
         return tree
     bodies = sorted(tree.materials.bodies, key=lambda body: str(body.base_feature_id))

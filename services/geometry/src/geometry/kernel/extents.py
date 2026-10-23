@@ -76,8 +76,27 @@ def _inertia_frame(body: BodyShape) -> tuple[Vec, Vec]:
 
 def body_extents(body: BodyShape) -> tuple[float, float, float]:
     """The body's extents along its own axes (mm), longest first."""
+    return body_extents_and_axes(body)[0]
+
+
+def _cross(a: Vec, b: Vec) -> Vec:
+    return (
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    )
+
+
+def body_extents_and_axes(
+    body: BodyShape,
+) -> tuple[tuple[float, float, float], tuple[Vec, Vec, Vec]]:
+    """The body's extents along its own axes (mm), longest first, and the
+    world direction of each (sign-free unit vectors, :func:`_canonical`), so
+    the cut list can tell which way a panel runs (SUBFLOOR-GRAIN). Ties in
+    extent keep the frame's order (x, y, z), deterministically."""
     frame = _planar_frame(body) or _inertia_frame(body)
     x_dir, z_dir = frame
+    y_dir = _canonical(_cross(z_dir, x_dir))
     axes = gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(*z_dir), gp_Dir(*x_dir))
     # World -> the member's frame (gp_Trsf.SetTransformation from the default
     # system to *axes*), so the member is axis-aligned for the box.
@@ -87,12 +106,25 @@ def body_extents(body: BodyShape) -> tuple[float, float, float]:
     box = Bnd_Box()
     BRepBndLib.AddOptimal_s(local, box, False, False)
     x0, y0, z0, x1, y1, z1 = box.Get()
-    extents = sorted((x1 - x0, y1 - y0, z1 - z0), reverse=True)
-    return (
-        round(extents[0], _DECIMALS),
-        round(extents[1], _DECIMALS),
-        round(extents[2], _DECIMALS),
-    )
+    measured: list[tuple[float, Vec]] = [
+        (float(x1 - x0), x_dir),
+        (float(y1 - y0), y_dir),
+        (float(z1 - z0), z_dir),
+    ]
+
+    def size(i: int) -> float:
+        return -round(measured[i][0], _DECIMALS)
+
+    order = sorted(range(3), key=size)
+
+    def extent(i: int) -> float:
+        return round(measured[order[i]][0], _DECIMALS)
+
+    def axis(i: int) -> Vec:
+        x, y, z = measured[order[i]][1]
+        return (round(x, 9) + 0.0, round(y, 9) + 0.0, round(z, 9) + 0.0)
+
+    return (extent(0), extent(1), extent(2)), (axis(0), axis(1), axis(2))
 
 
 def body_volume(body: BodyShape) -> float:

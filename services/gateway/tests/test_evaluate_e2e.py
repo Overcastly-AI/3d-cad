@@ -15,6 +15,7 @@ epsilon.
 """
 
 import asyncio
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -819,3 +820,85 @@ def test_evaluate_before_previews_the_input_body_without_writing(
         rolled_result = EvaluateTreeResult.model_validate(rolled.json())
         assert rolled_result.mesh_glb_id == previewed.mesh_glb_id
         assert rolled_result.properties == previewed.properties
+
+
+def _solid_names(step: bytes) -> list[str]:
+    """Every ``MANIFOLD_SOLID_BREP``'s name, in file order, decoded."""
+    return [
+        name.decode("utf-8")
+        for name in re.findall(rb"MANIFOLD_SOLID_BREP\('((?:[^']|'')*)'", step)
+    ]
+
+
+def test_a_part_export_names_each_member_body_and_keeps_a_rename(
+    stack: Stack,
+) -> None:
+    """BODY-NAMES over the real stack: a 12 ft wall's thirteen bodies reach
+    the STEP file named after the wall and member ("Front wall · Stud 3"),
+    as Fusion names its bodies, and a rename stored on the part wins. The
+    part stays one PRODUCT named after the part."""
+    with httpx.Client(base_url=stack.gateway_url, timeout=120.0) as client:
+        register = client.post(
+            "/api/v1/auth/register",
+            json={"email": "body-names@example.com", "password": "hunter2-passphrase"},
+        )
+        assert register.status_code == 201, register.text
+        bearer = {"Authorization": f"Bearer {register.json()['access_token']}"}
+        part = client.post(
+            "/api/v1/parts", json={"name": "Wall panel"}, headers=bearer
+        ).json()
+        wall = client.post(
+            f"/api/v1/parts/{part['id']}/features",
+            json={
+                "name": "Front wall",
+                "feature": {
+                    "type": "custom",
+                    "version": 1,
+                    "params": {
+                        "plugin_id": "loft.wall",
+                        "plugin_version": "1.1.0",
+                        "inputs": {},
+                    },
+                },
+                "expected_tree_version": 0,
+            },
+            headers=bearer,
+        )
+        assert wall.status_code == 201, wall.text
+
+        def export() -> bytes:
+            response = client.post(
+                f"/api/v1/parts/{part['id']}/export",
+                params={"format": "step"},
+                headers=bearer,
+            )
+            assert response.status_code == 200, response.text
+            return response.content
+
+        named = _solid_names(export())
+        assert len(named) == 13
+        assert named.count("Front wall · Stud 3") == 1
+        assert sorted(n for n in named if "plate" in n) == [
+            "Front wall · Bottom plate",
+            "Front wall · Top plate 1",
+            "Front wall · Top plate 2",
+        ]
+        assert all(n.startswith("Front wall · ") for n in named)
+        assert export() == export()  # deterministic, names and all
+
+        members = wall.json()["feature"]["feature"]["params"]["expansion"]
+        stud = next(m for m in members if m["role"] == "stud" and m["index"] == 2)
+        renamed = client.patch(
+            f"/api/v1/parts/{part['id']}",
+            json={
+                "expected_tree_version": wall.json()["tree_version"],
+                "body_names": [{"base_feature_id": stud["id"], "name": "King stud"}],
+            },
+            headers=bearer,
+        )
+        assert renamed.status_code == 200, renamed.text
+        step = export()
+        names = _solid_names(step)
+        assert "King stud" in names
+        assert "Front wall · Stud 3" not in names
+        assert step.count(b"PRODUCT('Wall panel'") == 1

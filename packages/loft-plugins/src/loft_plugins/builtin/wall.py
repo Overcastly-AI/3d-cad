@@ -39,15 +39,16 @@ them, and the wall frames every opening that names it: the registry hands the
 wall the later features hosted in it (``ExpandInputs.hosted``, their inputs
 only). Around each rough opening (RO): full-height kings outside jacks that
 carry a doubled header on edge (two plies at the wall's faces, the spacer
-between them not a member), top cripples from the header to the top plate
-and, for a window, a flat sill with bottom cripples down to the bottom plate,
-at the layout centres the opening replaces. A layout stud that would enter
-the framing's span is dropped; a door cuts the bottom plate out of its RO.
-Every shared face is ONE float, used by both members that meet at it, so no
-two members overlap by rounding. The framing is laid out in wall-local
-coordinates (:func:`wall_pieces`, a pure list of :class:`Piece`) and only
-then placed in the world (:class:`WallFrame`). A roof or opening that reads
-a wall's geometry builds :class:`WallSpec` from the wall's stored inputs.
+between them not a member; a 1.4.0 opening fills a 2x6 wall with three),
+top cripples from the header to the top plate and, for a window, a flat sill
+with bottom cripples down to the bottom plate, at the layout centres the
+opening replaces. A layout stud that would enter the framing's span is
+dropped; a door cuts the bottom plate out of its RO. Every shared face is ONE
+float, used by both members that meet at it, so no two members overlap by
+rounding. The framing is laid out in wall-local coordinates
+(:func:`wall_pieces`, a pure list of :class:`Piece`) and only then placed in
+the world (:class:`WallFrame`). A roof or opening that reads a wall's
+geometry builds :class:`WallSpec` from the wall's stored inputs.
 
 Inputs are millimetres on the wire (their names end ``_mm``) and inches
 inside, rounded to 1e-9 in so a round trip gives back the exact spec value.
@@ -494,6 +495,56 @@ def unit_size(kind: Literal["door", "window"], inputs: ExpandInputs) -> UnitSize
     )
 
 
+#: An opening's header build (HEADER-PLIES): two plies at the wall's faces
+#: with a spacer or insulation between, or as many plies as fill the wall.
+HeaderBuild = Literal["two_ply", "fill"]
+
+#: The plywood spacer between two plies of a built-up header (in): 1/2 in
+#: makes two 1-1/2 in plies the 3-1/2 in of a 2x4 wall (IRC R602.7).
+HEADER_SPACER = 0.5
+
+
+def _header_build(inputs: ExpandInputs) -> HeaderBuild:
+    """1.4.0's ``header_build``; two plies before it (no such input)."""
+    if "header_build" not in inputs.values:
+        return "two_ply"
+    match inputs.choice("header_build"):
+        case "fill":
+            return "fill"
+        case "two_ply":
+            return "two_ply"
+        case other:
+            raise PluginError(
+                PLUGIN_INPUT_INVALID,
+                f"Header build: {other!r} is not a header build.",
+                input="header_build",
+            )
+
+
+def header_plies(
+    depth: float, ply: float, build: HeaderBuild = "two_ply"
+) -> list[tuple[float, float]]:
+    """A header's plies across a wall *depth* deep (in, ``v0, v1`` from the
+    exterior face), in emission order: the two face plies first (so a ply
+    keeps its name when the build changes), then the inner plies outward in.
+
+    ``two_ply`` is the two face plies. ``fill`` is as many plies of *ply* as
+    fit with at least :data:`HEADER_SPACER` between each two, the outer two
+    flush with the faces and the rest evenly spaced: 2 in a 2x4 wall (the
+    1/2 in spacer), 3 in a 2x6 (two 1/2 in spacers, 1.5 + 0.5 + 1.5 + 0.5 +
+    1.5 = 5.5), 3 in a 2x8 (1-3/8 in gaps)."""
+    faces = [(0.0, ply), (depth - ply, depth)]  # 1.0.0-1.3.0 exactly
+    if build == "two_ply":
+        return faces
+    count = max(2, math.floor((depth + HEADER_SPACER) / (ply + HEADER_SPACER) + _EPS))
+    gap = (depth - count * ply) / (count - 1)
+    inner = [
+        (_rounded(k * (ply + gap)), _rounded(k * (ply + gap) + ply))
+        for k in range(1, count - 1)
+    ]
+    return faces + inner
+
+
 @dataclass(frozen=True)
 class Opening:
     """A hosted rough opening (RO) in its wall's frame, inches: ``centre``
@@ -509,6 +560,11 @@ class Opening:
     header: LumberProfile
     #: The door or window feature's id: 1.1.0 names its members after it.
     feature_id: uuid.UUID = _NO_FEATURE
+    #: How the header is built (``loft.window``/``loft.door`` 1.4.0's
+    #: ``header_build``, HEADER-PLIES): ``fill`` fills the wall's depth with
+    #: plies (:func:`header_plies`); ``two_ply`` (and every opening before
+    #: 1.4.0) is two plies at the wall's faces.
+    header_build: HeaderBuild = "two_ply"
 
     @classmethod
     def from_inputs(
@@ -539,6 +595,7 @@ class Opening:
             head=head,
             header=inputs.lumber("header_profile"),
             feature_id=inputs.feature_id,
+            header_build=_header_build(inputs),
         )
 
     @classmethod
@@ -680,7 +737,7 @@ def frame_opening(wall: WallSpec, opening: Opening, named: bool = False) -> Fram
     ]
     pieces["header"] = [
         Piece("header", hp, mat, b, e, v0, v1, opening.head, header_top)
-        for v0, v1 in ((0.0, hp.thickness_in), (depth - hp.thickness_in, depth))
+        for v0, v1 in header_plies(depth, hp.thickness_in, opening.header_build)
     ]
     if header_top < stud_top:
         pieces["cripple"] = [

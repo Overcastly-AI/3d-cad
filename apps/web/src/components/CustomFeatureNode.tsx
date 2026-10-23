@@ -15,8 +15,8 @@ import type { PluginManifest } from "../api/plugins";
 import {
   customMembers,
   type CustomRow,
+  memberLabels,
   pluginAvailability,
-  roleTitle,
 } from "../features/customFeature";
 import { featureTypeLabel } from "../features/featureLabels";
 
@@ -114,6 +114,7 @@ export function CustomMemberRows({
   const manifest =
     availability.state === "ready" ? availability.manifest : undefined;
   const members = customMembers(params);
+  const labels = memberLabels(members, manifest);
   return (
     <li data-testid={`feature-members-${index}`}>
       <ol aria-label={`${row.name} members`}>
@@ -125,10 +126,7 @@ export function CustomMemberRows({
         {members.map((member) => {
           const result = resultById.get(member.id);
           const status = rolledBack ? null : (result?.status ?? null);
-          const sameRole = members.filter((m) => m.role === member.role);
-          const title = roleTitle(manifest, member.role);
-          const label =
-            sameRole.length > 1 ? `${title} ${member.index + 1}` : title;
+          const label = labels.get(member.id) ?? member.role;
           return (
             <li
               key={member.id}

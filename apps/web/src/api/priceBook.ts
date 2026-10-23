@@ -30,7 +30,9 @@ export type PriceProfileKey = PriceBookEntry["profile"];
  * `loft_wire.lumber.STOCK_LENGTHS_FT`, which the API does not serve; the
  * gateway refuses any other length with a 422, so a drift fails loudly.
  */
-export const STOCK_LENGTHS_FT: readonly number[] = [8, 10, 12, 14, 16, 20];
+export const STOCK_LENGTHS_FT: readonly number[] = [
+  8, 10, 12, 14, 16, 18, 20, 22, 24,
+];
 
 /** How a unit reads in the dialog and the cut list. */
 export const PRICE_UNIT_LABEL: Record<PriceUnit, string> = {

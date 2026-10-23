@@ -38,7 +38,9 @@ import {
   IsolateIcon,
   Panel,
   PanelSection,
+  RenameIcon,
   SegmentedControl,
+  TextField,
   Truncated,
   type ContextMenuSection,
 } from "@loft/design";
@@ -66,6 +68,11 @@ export interface BodiesPanelProps {
   selectedFeatureId: string | null;
   /** Select a body by its base feature id (highlights + opens its editor). */
   onSelectBody: (baseFeatureId: string) => void;
+  /** Rename a body (BODY-NAMES); a blank name restores the body's own name.
+   * Omitted, the panel offers no rename. */
+  onRenameBody?: (body: BodyInfo, name: string) => void;
+  /** Why the last rename was not kept, or null. */
+  renameError?: string | null;
 }
 
 /** The three stops, in the order the eye walks them (the assembly's order). */
@@ -92,6 +99,8 @@ export function BodiesPanel({
   lumpsByFeature,
   selectedFeatureId,
   onSelectBody,
+  onRenameBody,
+  renameError = null,
 }: BodiesPanelProps) {
   const eyebrow = `Bodies · ${bodies.length}`;
   const view = usePartViewStore((state) => state.view);
@@ -110,9 +119,16 @@ export function BodiesPanel({
   const showAll = usePartViewStore((state) => state.showAll);
   const [menu, setMenu] = useState<{
     body: PartBodyView;
+    info: BodyInfo;
     x: number;
     y: number;
   } | null>(null);
+  // The body whose name is being edited, by base feature id (BODY-NAMES).
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const commitRename = (body: BodyInfo, name: string) => {
+    setRenamingId(null);
+    if (name.trim() !== body.label) onRenameBody?.(body, name);
+  };
 
   // The scene's view of the body set: keys in tree order plus each body's lump
   // count, which is what lets the renderer split ONE fused GLB back into per-
@@ -122,7 +138,7 @@ export function BodiesPanel({
     () =>
       bodies.map((body) => ({
         key: bodyKey(body.baseFeatureId),
-        label: `Body ${body.ordinal}`,
+        label: body.label,
         lumps: lumpsByFeature?.get(body.baseFeatureId) ?? 1,
       })),
     [bodies, lumpsByFeature],
@@ -133,8 +149,28 @@ export function BodiesPanel({
 
   const hiddenCount = hiddenBodyCount(view, bodyViews);
 
-  const buildSections = (body: PartBodyView): ContextMenuSection[] => {
+  const buildSections = (
+    body: PartBodyView,
+    info: BodyInfo,
+  ): ContextMenuSection[] => {
     const hidden = bodyMode(view, body.key, sketchOpen) === "hidden";
+    const rename: ContextMenuSection[] =
+      onRenameBody === undefined
+        ? []
+        : [
+            {
+              key: "name",
+              items: [
+                {
+                  key: "rename",
+                  label: "Rename",
+                  icon: <RenameIcon />,
+                  onSelect: () => setRenamingId(info.baseFeatureId),
+                  "data-testid": "body-ctx-rename",
+                },
+              ],
+            },
+          ];
     return [
       {
         key: "view",
@@ -174,6 +210,7 @@ export function BodiesPanel({
           },
         ],
       },
+      ...rename,
     ];
   };
 
@@ -197,7 +234,8 @@ export function BodiesPanel({
                   lumpsByFeature?.get(body.baseFeatureId),
                 );
                 const key = bodyKey(body.baseFeatureId);
-                const label = `Body ${body.ordinal}`;
+                const label = body.label;
+                const renaming = renamingId === body.baseFeatureId;
                 const mode = bodyMode(view, key, sketchOpen);
                 const EyeGlyph = EYE_GLYPH[mode];
                 const bodyView = bodyViews[index];
@@ -217,6 +255,7 @@ export function BodiesPanel({
                             setAddressed(key);
                             setMenu({
                               body: bodyView,
+                              info: body,
                               x: event.clientX,
                               y: event.clientY,
                             });
@@ -252,53 +291,91 @@ export function BodiesPanel({
                       >
                         <EyeGlyph size={16} />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAddressed(key);
-                          onSelectBody(body.baseFeatureId);
-                        }}
-                        aria-pressed={selected}
-                        aria-label={`Select ${label}`}
-                        data-testid={`body-select-${body.ordinal - 1}`}
-                        // Measured 262x19.5 before this pass — under the 24px
-                        // dense floor (`target.dense`, WCAG 2.2 SC 2.5.8). It
-                        // is the row's PRIMARY action, so it takes the row's
-                        // full height rather than floating on a baseline in it.
-                        // `min-w-0`, as in the feature tree (GEOMETRY-QA F6,
-                        // review S6): without it this flex item cannot shrink
-                        // below its content, and a body named for a long
-                        // feature ran 41 px past the panel, cut mid-glyph.
-                        className="flex min-h-target-dense min-w-0 grow items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
-                      >
-                        <span className="w-5 shrink-0 font-data text-xs tabular-nums text-gauge">
-                          {String(body.ordinal).padStart(2, "0")}
-                        </span>
-                        <Truncated
-                          text={label}
-                          className={`grow font-data text-sm ${
-                            mode === "hidden" ? "text-gauge" : "text-mist"
-                          }`}
+                      {renaming ? (
+                        // Rename in place, as the feature tree does (and
+                        // Fusion's browser): Enter or leaving the field keeps
+                        // it, Escape drops it, a blank name restores the
+                        // body's own name (BODY-NAMES).
+                        <TextField
+                          label={`Rename ${label}`}
+                          hideLabel
+                          autoFocus
+                          defaultValue={label}
+                          className="grow"
+                          data-testid={`body-rename-${body.ordinal - 1}`}
+                          onFocus={(e) => e.currentTarget.select()}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              commitRename(body, e.currentTarget.value);
+                            } else if (e.key === "Escape") {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setRenamingId(null);
+                            }
+                          }}
+                          onBlur={(e) =>
+                            commitRename(body, e.currentTarget.value)
+                          }
                         />
-                        {lumpBadge !== null ? (
-                          <span
-                            data-testid={`body-lumps-${body.ordinal - 1}`}
-                            title="A disjoint multi-solid body"
-                            className="inline-flex shrink-0 items-center rounded-sm border border-etch px-1 font-display text-2xs uppercase tracking-[0.12em] text-gauge tabular-nums"
-                          >
-                            {lumpBadge}
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAddressed(key);
+                            onSelectBody(body.baseFeatureId);
+                          }}
+                          onDoubleClick={
+                            onRenameBody === undefined
+                              ? undefined
+                              : () => setRenamingId(body.baseFeatureId)
+                          }
+                          aria-pressed={selected}
+                          aria-label={`Select ${label}`}
+                          data-testid={`body-select-${body.ordinal - 1}`}
+                          // Measured 262x19.5 before this pass — under the 24px
+                          // dense floor (`target.dense`, WCAG 2.2 SC 2.5.8). It
+                          // is the row's PRIMARY action, so it takes the row's
+                          // full height rather than floating on a baseline in it.
+                          // `min-w-0`, as in the feature tree (GEOMETRY-QA F6,
+                          // review S6): without it this flex item cannot shrink
+                          // below its content, and a body named for a long
+                          // feature ran 41 px past the panel, cut mid-glyph.
+                          className="flex min-h-target-dense min-w-0 grow items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+                        >
+                          <span className="w-5 shrink-0 font-data text-xs tabular-nums text-gauge">
+                            {String(body.ordinal).padStart(2, "0")}
                           </span>
-                        ) : null}
-                        {/* The SOURCE feature's name, capped like the tree's
+                          <Truncated
+                            text={label}
+                            data-testid={`body-name-${body.ordinal - 1}`}
+                            className={`grow font-data text-sm ${
+                              mode === "hidden" ? "text-gauge" : "text-mist"
+                            }`}
+                          />
+                          {lumpBadge !== null ? (
+                            <span
+                              data-testid={`body-lumps-${body.ordinal - 1}`}
+                              title="A disjoint multi-solid body"
+                              className="inline-flex shrink-0 items-center rounded-sm border border-etch px-1 font-display text-2xs uppercase tracking-[0.12em] text-gauge tabular-nums"
+                            >
+                              {lumpBadge}
+                            </span>
+                          ) : null}
+                          {/* The SOURCE feature's name, capped like the tree's
                             badge so it ellipsises (with its whole name on
                             `title`) instead of taking the row. */}
-                        <span
-                          title={body.name}
-                          className="min-w-0 max-w-[60%] shrink-0 truncate font-body text-xs text-gauge"
-                        >
-                          {body.name}
-                        </span>
-                      </button>
+                          {/* A member's name already starts with it. */}
+                          {label.startsWith(`${body.name} · `) ? null : (
+                            <span
+                              title={body.name}
+                              className="min-w-0 max-w-[60%] shrink-0 truncate font-body text-xs text-gauge"
+                            >
+                              {body.name}
+                            </span>
+                          )}
+                        </button>
+                      )}
                     </div>
                     {(addressedKey === key || selected) && partitioned ? (
                       // The addressed body's opacity stops. ADDRESSED, not
@@ -342,6 +419,15 @@ export function BodiesPanel({
               })}
             </ol>
           )}
+          {renameError !== null ? (
+            <p
+              role="alert"
+              className="px-3 py-1 font-body text-xs text-flag"
+              data-testid="body-rename-error"
+            >
+              {renameError}
+            </p>
+          ) : null}
         </PanelSection>
       </Panel>
       {menu !== null ? (
@@ -351,7 +437,7 @@ export function BodiesPanel({
           y={menu.y}
           aria-label={`Actions for ${menu.body.label}`}
           data-testid="body-context-menu"
-          sections={buildSections(menu.body)}
+          sections={buildSections(menu.body, menu.info)}
           onClose={() => setMenu(null)}
         />
       ) : null}

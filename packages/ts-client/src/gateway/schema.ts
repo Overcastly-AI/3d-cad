@@ -3135,6 +3135,23 @@ export interface components {
             material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass";
         };
         /**
+         * BodyName
+         * @description One body's name, keyed by the body's identity (multi-body §MB-0).
+         */
+        BodyName: {
+            /**
+             * Base Feature Id
+             * Format: uuid
+             * @description Id of the feature (or plugin member) that created the body
+             */
+            base_feature_id: string;
+            /**
+             * Name
+             * @description The body's name, whitespace-trimmed
+             */
+            name: string;
+        };
+        /**
          * BomLine
          * @description One line of an assembly's bill of materials.
          *
@@ -4571,6 +4588,16 @@ export interface components {
              */
             member: string | null;
             /**
+             * Offcut Area Mm2
+             * @description A sheet line's offcut (mm^2): its sheets' area less its net area (the offcuts and the openings cut out). Null for lumber, or for panels no sheet covers.
+             */
+            offcut_area_mm2?: number | null;
+            /**
+             * One Piece
+             * @description True when each piece is one stock length, never spliced: a member that spans between bearings (a joist, rafter, header or beam) or a column (NO-SPLICE-SPANS). Omitted when false.
+             */
+            one_piece?: boolean;
+            /**
              * Price Unit
              * @description Which entry priced the line: 'each' for its stock length, else 'linear_foot', else 'board_foot'; null when unpriced.
              */
@@ -4594,9 +4621,14 @@ export interface components {
             sheet?: ("4x8" | "4x9" | "4x10") | null;
             /**
              * Stock Length Ft
-             * @description Shortest standard stock that covers the piece (ft); null for a piece that is not lumber, or is spliced (stock_pieces_ft), or is longer than any splice covers.
+             * @description Shortest standard stock that covers the piece (ft); null for a piece that is not lumber, or is spliced (stock_pieces_ft), or is longer than any stock it may be bought in (stock_note).
              */
             stock_length_ft: number | null;
+            /**
+             * Stock Note
+             * @description Why a lumber line has no stock, when it is longer than any it may be bought in ('One piece, longer than 24 ft stock: a joist is not spliced'); absent otherwise.
+             */
+            stock_note?: string | null;
             /**
              * Stock Pieces Ft
              * @description The stock pieces ONE piece of the line is cut from (ft), longest first: [16] for one stock length, [12, 12] for a member spliced from two 12 ft pieces (longer than the longest stock); null with no stock.
@@ -4604,7 +4636,7 @@ export interface components {
             stock_pieces_ft?: number[] | null;
             /**
              * Stock Quantity
-             * @description Stock units bought for the line (the CSV's Stock qty): one per piece (until pieces are nested), a spliced piece's stock_pieces_ft counting as ONE set; for a sheet line, ceil(area / sheet area) sheets; null with no stock length or sheet.
+             * @description Stock units bought for the line (the CSV's Stock qty): one per piece (until pieces are nested), a spliced piece's stock_pieces_ft counting as ONE set; for a sheet line, the sheets its panels are cut from (each panel a sheet unless an earlier offcut covers it whole); null with no stock length or sheet.
              */
             stock_quantity: number | null;
             /**
@@ -10523,6 +10555,11 @@ export interface components {
          */
         PartResponse: {
             /**
+             * Body Names
+             * @description The user's body renames (BODY-NAMES), one per body, keyed by the id of the feature or plugin member that created it. Empty when no body was renamed. A rename naming a body the tree no longer makes is inert.
+             */
+            body_names?: components["schemas"]["BodyName"][];
+            /**
              * Created At
              * Format: date-time
              */
@@ -10603,6 +10640,11 @@ export interface components {
          *     evaluate stops applying (see ``materials`` below).
          */
         PartUpdate: {
+            /**
+             * Body Names
+             * @description Replace the part's WHOLE set of body renames (BODY-NAMES): one name per body, keyed by the id of the feature or plugin member that created it. A rename wins over a member body's own name ('Front wall · Stud 3'). Omitted/null leaves them untouched; an empty list clears them. Display metadata only: the recorded evaluate stays current.
+             */
+            body_names?: components["schemas"]["BodyName"][] | null;
             /**
              * Expected Tree Version
              * @description Optimistic-concurrency guard: the tree_version the client last saw; a stale value is rejected 422 (feature-tree.md §1.2)

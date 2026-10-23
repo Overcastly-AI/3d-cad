@@ -24,6 +24,7 @@ from collections.abc import Sequence
 from typing import Annotated
 
 from fastapi import APIRouter, Query, status
+from loft_wire.body_names import BodyName
 from loft_wire.features import (
     AuthoredEnvelope,
     CustomFeature,
@@ -420,6 +421,12 @@ def part_materials(part: db.Part) -> MaterialAssignment | None:
     if not part.materials:
         return None
     return MaterialAssignment.model_validate(part.materials)
+
+
+def part_body_names(part: db.Part) -> list[BodyName]:
+    """The part's stored body renames (BODY-NAMES), ``[]`` when it has none:
+    the one read of the ``parts.body_names`` column."""
+    return [BodyName.model_validate(entry) for entry in part.body_names or []]
 
 
 def evaluation_materials(part: db.Part, sent: SentMembers) -> MaterialAssignment | None:

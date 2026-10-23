@@ -370,7 +370,8 @@ async def update_part(
     owner_id: Principal,
     session: SessionDep,
 ) -> PartResponse:
-    """Rename, re-unit and/or re-material a part (bumps ``tree_version``; 404).
+    """Rename, re-unit and/or re-material a part, or rename its bodies (bumps
+    ``tree_version``; 404).
 
     Changing the display unit is a document edit (docs/design/units.md §U1) —
     it bumps ``tree_version`` like any header mutation but touches no stored
@@ -385,9 +386,10 @@ async def update_part(
         request.name is None
         and request.length_unit is None
         and request.materials is None
+        and request.body_names is None
     ):
         raise ValidationApiError(
-            "Provide at least one of name, length_unit or materials.",
+            "Provide at least one of name, length_unit, materials or body_names.",
             code="empty_part_update",
         )
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
@@ -413,6 +415,11 @@ async def update_part(
             if request.materials == EMPTY_MATERIAL_ASSIGNMENT
             else request.materials.model_dump(mode="json")
         )
+    if request.body_names is not None:
+        # Wholesale replacement, as materials: an empty list is stored NULL.
+        part.body_names = [
+            entry.model_dump(mode="json") for entry in request.body_names
+        ] or None
     part.tree_version += 1
     if request.materials is None and part.last_eval_tree_version is not None:
         # Carry the last-evaluate record FORWARD (feature-tree.md §4.4a) for a
@@ -420,7 +427,8 @@ async def update_part(
         # (units are presentation metadata — storage stays canonical mm, units.md
         # §U1). Letting the version bump mark the record stale would be a false
         # "unknown" — renaming a part would grey out its health — so the claim
-        # follows the version it is still true of. A MATERIAL change is excluded
+        # follows the version it is still true of. A body rename is display
+        # metadata too (BODY-NAMES). A MATERIAL change is excluded
         # from that carry-forward on purpose: the evaluated mass is derived from
         # the material, so the recorded result really does describe a state that
         # no longer holds, and 'stale' is the honest verdict. EVERY other write

@@ -25,7 +25,9 @@
  *
  * Rolled-back features (below the rollback bar) never contribute a body.
  */
-import type { FeatureResponse } from "../api/parts";
+import type { BodyName, FeatureResponse } from "../api/parts";
+import type { PluginManifest } from "../api/plugins";
+import { memberLabels, pinnedManifest } from "./customFeature";
 
 export interface BodyInfo {
   /** The body's identity — its base (creating) feature id. */
@@ -34,8 +36,103 @@ export interface BodyInfo {
   name: string;
   /** The base feature's type (extrude / revolve / sweep / loft / import). */
   featureType: string;
-  /** 1-based tree order among bodies — the "Body N" label. */
+  /** 1-based tree order among bodies — the "Body N" fallback. */
   ordinal: number;
+  /**
+   * What the browser calls the body (BODY-NAMES): the user's rename, else a
+   * plugin member's own name ("Front wall · Stud 3", as the unfolded tree
+   * labels the member), else "Body N".
+   */
+  label: string;
+  /** The label is a rename or a member's name, not the "Body N" fallback. */
+  named: boolean;
+  /** The label the body has without a rename: a rename back to it clears. */
+  unrenamed: string;
+}
+
+/** A body before it is numbered and named. */
+type UnnamedBody = Omit<BodyInfo, "ordinal" | "label" | "named" | "unrenamed">;
+
+/** What names a body beyond its feature: the plugin catalog (role titles)
+ * and the part's stored renames. Both optional; without them every body is
+ * "Body N". */
+export interface BodyNaming {
+  catalog?: readonly PluginManifest[] | undefined;
+  renames?: readonly BodyName[] | undefined;
+}
+
+/** The plugin member names of *features*, by member id: "<feature> · <member>". */
+function memberNames(
+  features: readonly FeatureResponse[],
+  catalog: readonly PluginManifest[] | undefined,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const feature of features) {
+    if (feature.feature.type !== "custom") continue;
+    const params = feature.feature.params;
+    const members = params.expansion ?? [];
+    const manifest = pinnedManifest(
+      catalog,
+      params.plugin_id,
+      params.plugin_version,
+    );
+    for (const [id, label] of memberLabels(members, manifest)) {
+      out.set(id, `${feature.name} · ${label}`);
+    }
+  }
+  return out;
+}
+
+/** *bodies* numbered in order and named (see {@link BodyInfo.label}). */
+function labelled(
+  bodies: readonly UnnamedBody[],
+  features: readonly FeatureResponse[],
+  naming: BodyNaming,
+): BodyInfo[] {
+  const renames = new Map(
+    (naming.renames ?? []).map((entry) => [entry.base_feature_id, entry.name]),
+  );
+  const members = memberNames(features, naming.catalog);
+  return bodies.map((body, index) => {
+    const member = members.get(body.baseFeatureId);
+    const own = renames.get(body.baseFeatureId) ?? member;
+    return {
+      ...body,
+      ordinal: index + 1,
+      label: own ?? `Body ${index + 1}`,
+      named: own !== undefined,
+      unrenamed: member ?? `Body ${index + 1}`,
+    };
+  });
+}
+
+/** A body as a picker names it: its own name, or "Body N · Extrude1". */
+export function bodyPickLabel(body: BodyInfo): string {
+  return body.named ? body.label : `${body.label} · ${body.name}`;
+}
+
+/** A body as the material list names it: its own name, or its feature's. */
+export function bodyRowName(body: BodyInfo): string {
+  return body.named ? body.label : body.name;
+}
+
+/**
+ * The renames a part stores after renaming *body* to *name* (BODY-NAMES). A
+ * blank name, or the name the body has without a rename (*unrenamed*), clears
+ * its rename.
+ */
+export function withBodyRename(
+  renames: readonly BodyName[],
+  baseFeatureId: string,
+  name: string,
+  unrenamed: string,
+): BodyName[] {
+  const rest = renames.filter(
+    (entry) => entry.base_feature_id !== baseFeatureId,
+  );
+  const trimmed = name.trim();
+  if (trimmed === "" || trimmed === unrenamed) return rest;
+  return [...rest, { base_feature_id: baseFeatureId, name: trimmed }];
 }
 
 /** Body-creating solid features that carry an `operation` + `merge`. */
@@ -47,8 +144,9 @@ const BODY_CREATING = new Set(["extrude", "revolve", "sweep", "pipe", "loft"]);
  */
 export function computeBodies(
   features: readonly FeatureResponse[],
+  naming: BodyNaming = {},
 ): BodyInfo[] {
-  const bodies: Omit<BodyInfo, "ordinal">[] = [];
+  const bodies: UnnamedBody[] = [];
   let activeId: string | null = null;
   const indexOf = (id: string): number =>
     bodies.findIndex((b) => b.baseFeatureId === id);
@@ -97,7 +195,7 @@ export function computeBodies(
     // Everything else modifies the active body or is non-body: set unchanged.
   }
 
-  return bodies.map((b, i) => ({ ...b, ordinal: i + 1 }));
+  return labelled(bodies, features, naming);
 }
 
 /**
@@ -126,8 +224,9 @@ export function computeBodies(
 export function partBodies(
   features: readonly FeatureResponse[],
   evaluated: readonly { base_feature_id: string }[] | null,
+  naming: BodyNaming = {},
 ): BodyInfo[] {
-  if (evaluated === null) return computeBodies(features);
+  if (evaluated === null) return computeBodies(features, naming);
   const byId = new Map(features.map((f) => [f.id, f]));
   // A custom feature's body is founded by one of its MEMBERS (PLUGIN-UI):
   // named by the custom feature, keyed by the member as the server keys it.
@@ -137,7 +236,7 @@ export function partBodies(
       byId.set(member.id, feature);
     }
   }
-  const bodies: BodyInfo[] = [];
+  const bodies: UnnamedBody[] = [];
   for (const { base_feature_id: id } of evaluated) {
     const feature = byId.get(id);
     if (feature === undefined) continue;
@@ -145,10 +244,9 @@ export function partBodies(
       baseFeatureId: id,
       name: feature.name,
       featureType: feature.feature.type,
-      ordinal: bodies.length + 1,
     });
   }
-  return bodies;
+  return labelled(bodies, features, naming);
 }
 
 /**

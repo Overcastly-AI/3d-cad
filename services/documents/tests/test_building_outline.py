@@ -543,3 +543,33 @@ def test_older_windows_draw_no_unit(client: TestClient) -> None:
     stored = part.stored()["Window"]["params"]
     assert "size" not in stored["inputs"]
     assert stored["expansion"] == []
+
+
+# --- A header the wall's thickness (HEADER-PLIES) ----------------------------------
+
+
+def _headers(part: _Part) -> list[dict[str, Any]]:
+    response = part.client.get(
+        f"/api/v1/parts/{part.id}/cut-list-request", headers=HEADERS
+    )
+    assert response.status_code == 200, response.text
+    return [m for m in response.json()["members"] if m["role"] == "header"]
+
+
+def test_a_1_4_0_window_fills_a_2x6_wall_with_three_plies(client: TestClient) -> None:
+    """B7's 2x6 outline walls: a new window stores Fill the wall and its
+    header lists three 2x6 plies; Two plies lists two, as a stored 1.3.0
+    window still does."""
+    part, _, walls = _walls_only(client)
+    window = part.add("Window", _unit("1.4.0", walls, offset_mm=60 * IN))
+    assert part.stored()["Window"]["params"]["inputs"]["header_build"] == "fill"
+    headers = _headers(part)
+    assert [(h["title"], h["metadata"]["profile"]) for h in headers] == [
+        ("Header", "2x6")
+    ] * 3
+    part.edit(window, _unit("1.4.0", walls, offset_mm=60 * IN, header_build="two_ply"))
+    assert len(_headers(part)) == 2
+
+    older, _, older_walls = _walls_only(client)
+    older.add("Window", _unit("1.3.0", older_walls, offset_mm=60 * IN))
+    assert len(_headers(older)) == 2

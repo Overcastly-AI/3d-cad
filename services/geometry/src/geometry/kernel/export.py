@@ -254,7 +254,12 @@ THREE_MF_MODEL_PART = "3D/3dmodel.model"
 THREE_MF_UUID_NAMESPACE = uuid.UUID("1cbe3d7c-1f0e-5f4a-9d3e-2b7a5c6f4e10")
 
 
-def export_step_bytes(shape: BodyShape, *, name: str | None = None) -> bytes:
+def export_step_bytes(
+    shape: BodyShape,
+    *,
+    name: str | None = None,
+    solid_names: Sequence[str | None] | None = None,
+) -> bytes:
     """Export *shape* as a STEP AP214 part 21 file (exact B-rep, mm units).
 
     *shape* is any B-rep :class:`~build123d.Shape` — a single :class:`Solid` or a
@@ -279,6 +284,12 @@ def export_step_bytes(shape: BodyShape, *, name: str | None = None) -> bytes:
     same document build123d builds, byte-equivalence asserted — so no consumer
     sees a level, a product or an occurrence that was not there before.
 
+    *solid_names* (BODY-NAMES) names each solid of *shape* in its ``solids()``
+    order, ``None`` leaving one unnamed: the name lands on the solid's
+    ``MANIFOLD_SOLID_BREP``, as Fusion writes a body's name, while the part
+    stays ONE ``PRODUCT``. The structure is unchanged, and with no names the
+    bytes are too (:func:`_name_solids`).
+
     A welcome consequence: the caller's shape is no longer MUTATED. The old path
     had to borrow ``shape.label`` (build123d reads the name off it) and restore
     it in a ``finally``; the name now goes straight onto the XDE label instead.
@@ -289,7 +300,7 @@ def export_step_bytes(shape: BodyShape, *, name: str | None = None) -> bytes:
     # (``export_step`` read the name off the shape), kept so this path is inert
     # for every existing caller.
     header_name = (name if name is not None else shape.label) or None
-    doc = _single_body_xde_document(shape, header_name)
+    doc = _single_body_xde_document(shape, header_name, solid_names)
     data = _write_step_document(doc, header_name)
     if not data.startswith(STEP_MAGIC):
         raise RuntimeError("STEP export produced a non-part-21 payload")
@@ -884,7 +895,11 @@ def _xde_document(auto_naming: bool) -> tuple[TDocStd_Document, XCAFDoc_ShapeToo
     return doc, shape_tool
 
 
-def _single_body_xde_document(shape: BodyShape, name: str | None) -> TDocStd_Document:
+def _single_body_xde_document(
+    shape: BodyShape,
+    name: str | None,
+    solid_names: Sequence[str | None] | None = None,
+) -> TDocStd_Document:
     """The XDE document a SINGLE-BODY export transfers — ONE shape, no assembly.
 
     ``AddShape(..., makeAssembly=False)``: a part is one shape at the document
@@ -909,8 +924,48 @@ def _single_body_xde_document(shape: BodyShape, name: str | None) -> TDocStd_Doc
     label = shape_tool.AddShape(shape.wrapped, False)
     if name is not None:
         TDataStd_Name.Set_s(label, _xcaf_name(name))
+    if solid_names is not None:
+        _name_solids(shape_tool, label, shape, solid_names)
     shape_tool.UpdateAssemblies()
     return doc
+
+
+def _solid_name_text(name: str) -> str:
+    """*name* as a solid's name may be written (BODY-NAMES review).
+
+    OCCT writes a solid name's apostrophe as the standard ``''``, but its
+    READER then drops a solid whose name has ``''`` right before ``)`` or
+    ``,`` ("Header (6')": three solids came back as two). The ISO 10303-21
+    ``\\X2\\0027\\X0\\`` escape reads back as the apostrophe, so it is used
+    instead. A backslash is escaped the same way (``\\X2\\005C\\X0\\``),
+    first, so a name holding ``\\X2\\`` cannot open an unclosed encoding.
+    PRODUCT names read back fine and keep the writer's own escaping."""
+    return name.replace("\\", "\\X2\\005C\\X0\\").replace("'", "\\X2\\0027\\X0\\")
+
+
+def _name_solids(
+    shape_tool: XCAFDoc_ShapeTool,
+    label: TDF_Label,
+    shape: BodyShape,
+    names: Sequence[str | None],
+) -> None:
+    """Name *shape*'s solids, in ``solids()`` order, as sub-shapes of *label*
+    (BODY-NAMES). The writer puts a sub-shape's name on its
+    ``MANIFOLD_SOLID_BREP`` (``write.stepcaf.subshapes.name``, set on every
+    write by :func:`_write_step_document`); a label with no named sub-shape
+    writes exactly the bytes it did before, so a part with no named body is
+    unchanged. A lone solid is the shape itself, which has no sub-shape label:
+    it stays unnamed. A name list that does not match the solids names none,
+    never a wrong solid: the file is still the part, only unnamed."""
+    solids = shape.solids()
+    if len(names) != len(solids):
+        return
+    for solid, solid_name in zip(solids, names, strict=True):
+        if solid_name is None:
+            continue
+        sub = shape_tool.AddSubShape(label, solid.wrapped)
+        if not sub.IsNull():
+            TDataStd_Name.Set_s(sub, _xcaf_name(_solid_name_text(solid_name)))
 
 
 def _compose(
@@ -1042,6 +1097,11 @@ def _write_step_document(doc: TDocStd_Document, header_name: str | None) -> byte
     STEPControl_Controller.Init_s()
     Interface_Static.SetIVal_s("write.surfacecurve.mode", 1)
     Interface_Static.SetIVal_s("write.precision.mode", PrecisionMode.AVERAGE.value)
+    # A named sub-shape's name goes on its representation item (BODY-NAMES:
+    # a body's MANIFOLD_SOLID_BREP). Set on EVERY write, not toggled, because
+    # the static is process-global; a document with no named sub-shape writes
+    # the same bytes either way (measured, ``test_step_body_names``).
+    Interface_Static.SetIVal_s("write.stepcaf.subshapes.name", 1)
     writer.Transfer(doc, STEPControl_StepModelType.STEPControl_AsIs)
 
     buffer = io.BytesIO()

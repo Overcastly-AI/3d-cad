@@ -297,6 +297,70 @@
       "BodyExtent": {
         "description": "One body's measured size (geometry, ``POST /api/v1/bodies/extents``).\n\n``extents_mm`` is the body's exact extent along the three axes of its own\nframe (the normals of its two largest perpendicular planar faces, else its\nprincipal axes of inertia), longest first. For a straight member that is\nits length and its section, whatever its orientation in the part.",
         "properties": {
+          "axes": {
+            "anyOf": [
+              {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The world direction of each extent (sign-free unit vectors), in extents_mm's order, so the cut list can tell which way a floor panel runs across the joists (SUBFLOOR-GRAIN). Absent from an older geometry service.",
+            "title": "Axes"
+          },
           "base_feature_id": {
             "description": "Id of the feature that created the body (its identity).",
             "format": "uuid",
@@ -473,6 +537,30 @@
           "material"
         ],
         "title": "BodyMaterialAssignment",
+        "type": "object"
+      },
+      "BodyName": {
+        "description": "One body's name, keyed by the body's identity (multi-body \u00a7MB-0).",
+        "properties": {
+          "base_feature_id": {
+            "description": "Id of the feature (or plugin member) that created the body",
+            "format": "uuid",
+            "title": "Base Feature Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The body's name, whitespace-trimmed",
+            "maxLength": 400,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_feature_id",
+          "name"
+        ],
+        "title": "BodyName",
         "type": "object"
       },
       "BooleanFeature": {
@@ -4717,6 +4805,15 @@
             "minimum": 0.01,
             "title": "Angular Deflection",
             "type": "number"
+          },
+          "body_names": {
+            "description": "The part's named bodies (BODY-NAMES): each names the STEP solids of the body its id created. A body left out keeps no name of its own. EXPORT-only, like `name`: a name is never an input to geometry.",
+            "items": {
+              "$ref": "#/components/schemas/BodyName"
+            },
+            "maxItems": 1000,
+            "title": "Body Names",
+            "type": "array"
           },
           "features": {
             "description": "Ordered prefix (rollback already applied), bounded by MAX_TREE_FEATURES (work bound, audit G2)",

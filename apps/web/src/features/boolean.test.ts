@@ -11,9 +11,33 @@ import {
 } from "./boolean";
 
 const bodies: BodyInfo[] = [
-  { baseFeatureId: "x1", name: "Extrude1", featureType: "extrude", ordinal: 1 },
-  { baseFeatureId: "x2", name: "Extrude2", featureType: "extrude", ordinal: 2 },
-  { baseFeatureId: "x3", name: "Extrude3", featureType: "extrude", ordinal: 3 },
+  {
+    baseFeatureId: "x1",
+    name: "Extrude1",
+    featureType: "extrude",
+    ordinal: 1,
+    label: "Body 1",
+    named: false,
+    unrenamed: "Body 1",
+  },
+  {
+    baseFeatureId: "x2",
+    name: "Extrude2",
+    featureType: "extrude",
+    ordinal: 2,
+    label: "Body 2",
+    named: false,
+    unrenamed: "Body 2",
+  },
+  {
+    baseFeatureId: "x3",
+    name: "Extrude3",
+    featureType: "extrude",
+    ordinal: 3,
+    label: "Body 3",
+    named: false,
+    unrenamed: "Body 3",
+  },
 ];
 
 describe("defaultCombineForm", () => {

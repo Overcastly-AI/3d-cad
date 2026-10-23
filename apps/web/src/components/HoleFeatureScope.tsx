@@ -10,7 +10,7 @@
  */
 import { Checkbox, FieldRow } from "@loft/design";
 
-import type { BodyInfo } from "../features/bodies";
+import { type BodyInfo, bodyPickLabel } from "../features/bodies";
 import {
   type HoleForm,
   holeScopeNote,
@@ -46,7 +46,7 @@ export function HoleFeatureScope({
         {bodies.map((body) => (
           <li key={body.baseFeatureId}>
             <Checkbox
-              label={`Body ${body.ordinal} · ${body.name}`}
+              label={bodyPickLabel(body)}
               data-testid={`hole-scope-${body.baseFeatureId}`}
               checked={held.has(body.baseFeatureId)}
               onChange={(checked) =>

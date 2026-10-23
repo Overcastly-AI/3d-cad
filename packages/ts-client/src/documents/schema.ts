@@ -984,7 +984,8 @@ export interface paths {
         head?: never;
         /**
          * Update Part
-         * @description Rename, re-unit and/or re-material a part (bumps ``tree_version``; 404).
+         * @description Rename, re-unit and/or re-material a part, or rename its bodies (bumps
+         *     ``tree_version``; 404).
          *
          *     Changing the display unit is a document edit (docs/design/units.md §U1) —
          *     it bumps ``tree_version`` like any header mutation but touches no stored
@@ -996,6 +997,26 @@ export interface paths {
          *     409 stays reserved for a duplicate-name conflict.
          */
         patch: operations["update_part_api_v1_parts__part_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/body-names": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Body Names
+         * @description The part's named bodies: its renames, then its members' own names.
+         */
+        get: operations["get_body_names_api_v1_parts__part_id__body_names_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/parts/{part_id}/cut-list-request": {
@@ -2192,6 +2213,23 @@ export interface components {
              * @enum {string}
              */
             material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass";
+        };
+        /**
+         * BodyName
+         * @description One body's name, keyed by the body's identity (multi-body §MB-0).
+         */
+        BodyName: {
+            /**
+             * Base Feature Id
+             * Format: uuid
+             * @description Id of the feature (or plugin member) that created the body
+             */
+            base_feature_id: string;
+            /**
+             * Name
+             * @description The body's name, whitespace-trimmed
+             */
+            name: string;
         };
         /**
          * BomLine
@@ -6481,6 +6519,8 @@ export interface components {
          *     import re-derives them), no timestamps, no undo history.
          */
         LoftTree: {
+            /** Body Names */
+            body_names?: components["schemas"]["BodyName"][];
             /** Features */
             features: components["schemas"]["LoftTreeFeature"][];
             /**
@@ -7373,6 +7413,16 @@ export interface components {
             kind: "parallel";
         };
         /**
+         * PartBodyNames
+         * @description ``GET /parts/{id}/body-names`` (documents, internal): every named body of
+         *     the part's evaluated tree, a user's rename winning over a member's name.
+         *     A body with neither is left out; it keeps its current name.
+         */
+        PartBodyNames: {
+            /** Bodies */
+            bodies?: components["schemas"]["BodyName"][];
+        };
+        /**
          * PartCreate
          * @description Create a part owned by the calling user.
          */
@@ -7550,6 +7600,11 @@ export interface components {
          */
         PartResponse: {
             /**
+             * Body Names
+             * @description The user's body renames (BODY-NAMES), one per body, keyed by the id of the feature or plugin member that created it. Empty when no body was renamed. A rename naming a body the tree no longer makes is inert.
+             */
+            body_names?: components["schemas"]["BodyName"][];
+            /**
              * Created At
              * Format: date-time
              */
@@ -7630,6 +7685,11 @@ export interface components {
          *     evaluate stops applying (see ``materials`` below).
          */
         PartUpdate: {
+            /**
+             * Body Names
+             * @description Replace the part's WHOLE set of body renames (BODY-NAMES): one name per body, keyed by the id of the feature or plugin member that created it. A rename wins over a member body's own name ('Front wall · Stud 3'). Omitted/null leaves them untouched; an empty list clears them. Display metadata only: the recorded evaluate stays current.
+             */
+            body_names?: components["schemas"]["BodyName"][] | null;
             /**
              * Expected Tree Version
              * @description Optimistic-concurrency guard: the tree_version the client last saw; a stale value is rejected 422 (feature-tree.md §1.2)
@@ -12869,6 +12929,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_body_names_api_v1_parts__part_id__body_names_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartBodyNames"];
                 };
             };
             /** @description Validation Error */

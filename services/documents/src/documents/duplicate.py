@@ -6,7 +6,8 @@ the user thinks is the same defect class as a register showing a stale name):
 
 - **A part** — the WHOLE feature tree at its current version: every feature in
   order, with its params, its suppressed flag, its dependency edges, and the
-  travel stop, plus the header's display unit and material assignment. The
+  travel stop, plus the header's display unit, material assignment and body
+  renames. The
   feature *ids* are new, and every id reference INSIDE the copied params is
   rewritten to the new ids (:func:`remap_ids`), so the copy is a self-contained
   tree and not one wired back into the original.
@@ -276,6 +277,8 @@ async def duplicate_part(
     # (`bodies[].base_feature_id`), so they must follow the new ids or the copy
     # silently falls back to the default material (and the wrong mass).
     copy.materials = remap_ids(source.materials, mapping)
+    # Body renames are keyed the same way (BODY-NAMES).
+    copy.body_names = remap_ids(source.body_names, mapping)
     for feature in features:
         session.add(
             Feature(

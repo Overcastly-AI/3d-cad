@@ -8,13 +8,19 @@ Founder, 2026-10-15: "it would be nice to build decks, homes (different
 materials), rafters, windows, doors, etc. I don't want to draw every part
 out." These targets drive the building generators, as the ladder drives
 part modelling. They are framing models with a cut list, **not a structural
-design**: no span table, load or code check is implied, and footings,
-roof sheathing, roofing, rafter ties and gable-end studs are later rungs.
+design**: no span table, load or code check is implied. Code sections are
+cited for the layout rules a builder expects (bolt spacing, crawl clearance,
+vents), not as a code check. Roofing, rafter ties and gable-end studs are
+later rungs. Founder, 2026-10-23: "What are we doing for foundations? Also
+it would be nice to be able to build cabinets, vanities, internal walls
+etc." and "Slab and crawl space." (B8-B10; casework is
+`docs/reference-parts/casework.md`.)
 
 A building **passes** when all three hold:
 
 1. **Built** from the Build toolbar's custom features alone (Deck; Wall,
-   Window, Door and Roof; Floor; Timber frame), with no member drawn by hand.
+   Window, Door and Roof; Floor; Timber frame; Slab, Foundation and
+   Interior wall), with no member drawn by hand.
 2. **Edit survives:** each named edit regenerates every member, with
    interference none.
 3. **Checked independently:** member counts, cut lengths and the summed
@@ -66,6 +72,10 @@ Volume 64 497.75 in³; mass is that volume times the library density.
 **Edit:** width 16 -> 20 ft. Ledger, rim, beam plies and decking become 240
 (20 ft stock), joists 16 (X 0.75, 16, ..., 224, 239.25), posts 4 equally
 spaced from X 2.75 to 237.25. Volume 80 212.5 in³.
+
+**Footings** (DECK-FOOTINGS, Next): each post stands on a round pier
+footing, Ø16, Z -12..0, centred under it: 3 footings, 3π x 64 x 12 =
+7 238.23 in³ (0.16 yd³); at 20 ft, 4.
 
 ## B2 Shed, 10 x 12 ft (stops STUD-WALL, WINDOW-DOOR, ROOF)
 
@@ -298,8 +308,12 @@ plywood 4x8 at $42.50.
   (3.5 + 7/16) x 97.125, 1 529.71875 in², X -7/16..0 and 144..144 7/16 at
   Y -7/16..3.5 and 116.5..120 7/16. That is 16 panels and 47 422.71875 in²,
   so the volume is **20 747.439453125 in³**. Each sheet is 4x9, because the
-  walls are taller than 96: 47 422.71875 / 5 184 = 9.15, so **10 sheets**
-  ($249.80).
+  walls are taller than 96. By area that is 47 422.71875 / 5 184 = 9.15, 10
+  sheets, but a yard sells whole sheets and the panels are cut from **12**
+  (SHEET-COUNT-PIECES): the 10 panels 48 wide take one each (openings are
+  cut out of whole panels), the first 17 in panel an 11th, the second 17
+  comes from its 31 in rip, whose last 14 in hold three corner rips, and the
+  fourth rip takes a 12th ($299.76).
 
 Cut list (floor): Joist 2x8 10 @ 117 (10 ft); Rim 2x8 2 @ 144 (12 ft); Sill
 PT 2x6 2 @ 144 (12 ft) and 2 @ 109 (10 ft).
@@ -360,3 +374,102 @@ The round passes or fails B7 as any building (built, edits survive with no
 interference, checked to 1e-4 on STEP), times the build and files every
 gap: expected candidates are SHEATHING-WALL-BASE, B2-E2E-INTERFERENCE,
 ROOF-GABLE-WALLS and the owner-scan cost at about 400 bodies.
+
+## Foundation and partition conventions (B8-B10)
+
+- **Concrete** is one body per pour (the slab with its edge, the stem wall,
+  the footing), listed in cubic yards to 2 places (46 656 in³ per yd³) and
+  bought in 1/4 yd³ steps, as ready-mix is ordered. No waste factor.
+- **Rebar and anchor bolts are listed, not drawn**: they would sit inside
+  the concrete and fail the no-interference rule, and Chief's materials list
+  carries them from the foundation's settings. #4 bar is listed by its
+  centreline length and bought in 20 ft sticks with a 24 in lap at each
+  joint, so a closed loop of L ft takes ceil(L / 18) sticks.
+- **Anchor bolts** (IRC R403.1.6): 1/2 in, one 12 in from each end of each
+  plate piece that bears on concrete (a slab's wall bottom plates, a crawl
+  space's floor sills), the rest equally spaced at most 72 in, at least 2 per
+  piece: n = max(2, ceil((L - 24) / 72) + 1).
+- **Partitions** are centred on their sketch line, which ends on the outline
+  or on another partition; the partition is trimmed to the faces it meets.
+
+## B8 Small house on a slab (stops SLAB)
+
+B7's walls, openings and roof on one Slab feature from B7's outline sketch,
+with no Floor: the walls stand on the slab's top at Z 0 (PT bottom plates).
+
+- **Slab:** X 0..288, Y 0..192, Z -4..0 (221 184 in³).
+- **Thickened edge:** a 12 in ring inside the outline, Z -12..-4
+  (55 296 - 44 352 = 10 944 in² x 8 = 87 552 in³), square inner face.
+- **Concrete:** 308 736 in³ = **6.62 yd³, 6.75 bought**.
+- **Rebar:** 2 #4 bars in the edge, one 3 in above its bottom (Z -9) and one
+  3 in below the slab top (Z -3), each on the ring's centreline 6 in inside
+  the outline: 2 loops of 912 (76 ft), **10 sticks**.
+- **Anchor bolts:** the front wall's bottom plate is cut at the door's rough
+  opening (X 125..163) into 2 pieces of 125 (3 bolts each); the back wall's
+  288 takes 5 and each 181 side 4: **19 bolts**.
+
+**Edits:** 24 -> 28 ft (one sketch dimension): 354 816 in³, 7.60 yd³ (7.75
+bought), 10 sticks (2 loops of 84 ft), 21 bolts (front 3 + 4, back 6,
+sides 4 + 4). Edge off: B2's plain slab, 144 x 120 x 4 = 69 120 in³,
+1.48 yd³ (1.50 bought).
+
+## B9 Small house on a crawl space (stops CRAWL-SPACE)
+
+B7 as built (floor, walls, openings, roof) on one Foundation feature from
+B7's outline sketch. The floor is unchanged: its sills sit on the stem's
+top at Z 0, flush with its outside face.
+
+- **Stem wall:** poured, 8 thick, outside face on the outline: X 0..288,
+  Y 0..192 less X 8..280, Y 8..184, Z -26.5..0 (7 424 in² x 26.5 =
+  196 736 in³).
+- **Grade:** Z -22.5, the joists' underside (Z 1.5) less the 24 in crawl
+  height.
+- **Footing:** 16 x 8, centred under the stem (4 in each side): X -4..292,
+  Y -4..196 less X 12..276, Y 12..180, Z -34.5..-26.5, its bottom 12 in
+  below grade (14 848 in² x 8 = 118 784 in³).
+- **Vents:** 16 wide x 8 high, Z -8..0, through the stem. The crawl's
+  272 x 176 in = 332.4 ft² needs 2.22 ft² net (R408.1); at a typed 72 in² net
+  each, 5 vents: centred 24 in from each corner on the front and back walls
+  (X 24 and 264) and one on the front wall at X 144 (5 x 1 024 in³).
+- **Access:** 24 wide x 16 high, Z -16..0, centred on the back wall at
+  X 144 (3 072 in³), above grade as R408.4 requires.
+- **Concrete:** 196 736 + 118 784 - 5 120 - 3 072 = 307 328 in³ =
+  **6.59 yd³, 6.75 bought**.
+- **Rebar:** 2 #4 bars 3 in above the footing's bottom and 3 in in from each
+  face: loops of 968 (80.67 ft) and 888 (74 ft), **10 sticks**.
+- **Anchor bolts** through the floor's sills (288, 288, 181, 181):
+  5 + 5 + 4 + 4 = **18 bolts**.
+
+**Edits:** crawl height 24 -> 30: grade Z -28.5, stem Z -32.5..0, footing
+Z -40.5..-32.5, 351 872 in³, 7.54 yd³ (7.75 bought), nothing above Z 0
+moves. 24 -> 28 ft: rebuilds with no interference; the 391.1 ft² crawl
+takes 6 vents.
+
+## B10 Small house with partitions (stops INTERIOR-WALLS)
+
+B7 with two lines added to its outline sketch, built by one Interior wall
+feature, and one 2868 door (32 x 80, rough opening 34 x 82.5) hosted in P2.
+The partitions are 2x4 at 16 in o.c., as tall as B7's walls, on the
+subfloor, with 1/2 in gypsum both faces and no sheathing.
+
+- **P1:** the line X 180 from the back to the front of the outline, framed
+  X 178.25..181.75 between the back and front walls' inside faces
+  (Y 186.5 -> 5.5, 181 long), studs from the back: centres 185.75, 170.5,
+  ..., 138.5, 122.5, ..., with the end stud flush at Y 5.5.
+- **P2:** the line Y 132 from the right of the outline to P1, framed
+  Y 130.25..133.75 from the right wall's inside face (X 282.5) to P1's face
+  (X 181.75), 100.75 long; the door centred on X 232 (RO X 215..249).
+- **Backing:** where each partition meets a wall, the wall it meets frames
+  a ladder: 3 flat 2x4 blocks, 14.5 long (the bay between the two layout
+  studs either side of the partition), flush with that wall's inside face,
+  centred 24, 48 and 72 in above its bottom plate's top. Front and back
+  walls at P1, the right wall at P2, and P1 at P2: **4 ladders, 12 blocks**.
+  The three-stud choice instead adds 2 studs flanking each partition.
+- **Gypsum:** 1/2 in, 4x8 hung horizontally in two 48 in courses down from
+  the top plate (the gap at the floor is left for the base), each face's
+  panels from its partition's start, stopped at a partition it meets, the
+  door's RO cut out; sheets counted by `sheets_to_cut`.
+
+Numbers (studs, blocks, gypsum panels and sheets, volume) come from the
+round's independent script, as B7's did. **Edit:** 24 -> 28 ft leaves P1
+at X 180 and P2 at Y 132 (P2 grows to 148.75), with no interference.

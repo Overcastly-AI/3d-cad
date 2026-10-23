@@ -24,6 +24,7 @@ import type { MaterialControls } from "./useMaterialControls";
 import type { PartVersions } from "./usePartVersions";
 import type { PartParameters } from "./usePartParameters";
 import { usePluginCatalog } from "./usePluginCatalog";
+import { useBodyRenames } from "./useBodyRenames";
 import type { CutListToggle } from "./useCutListToggle";
 
 /** The left rail: the feature tree and the bodies panel. */
@@ -36,7 +37,10 @@ export function FeatureTreeRail({
   featureCatalog,
   selectFeature,
 }: {
-  partDocument: Pick<PartDocument, "tree" | "evaluation">;
+  partDocument: Pick<
+    PartDocument,
+    "tree" | "evaluation" | "partId" | "part" | "queryClient"
+  >;
   viewportState: Pick<ViewportState, "build">;
   editorSeat: Pick<EditorSeat, "selectedFeatureId" | "scopedFeatureIds">;
   treeActions: Pick<
@@ -79,6 +83,7 @@ export function FeatureTreeRail({
   const { bodies, lumpsByFeature } = featureCatalog;
   // The installed plugins: a custom feature's title, members, read-only.
   const { catalog: plugins } = usePluginCatalog();
+  const { renameBody, renameError } = useBodyRenames(partDocument);
   return (
     <>
       <ChromeRail side="left">
@@ -113,6 +118,8 @@ export function FeatureTreeRail({
                 lumpsByFeature={lumpsByFeature}
                 selectedFeatureId={selectedFeatureId}
                 onSelectBody={selectBody}
+                onRenameBody={renameBody}
+                renameError={renameError}
               />
             ) : null}
           </div>

@@ -2670,6 +2670,97 @@ and reframe it, a material per member, and a cut list that is always current.
   - *A maker's line* is a catalogue (`OpeningUnitSize` rows) fed to the same
     Size choice; the built-in openings read the built-in catalogue. Wiring a
     maker plugin id into the wall's hosted-opening lookup is not built yet.
+- **Decided while turning the floor's joists** (FLOOR-JOIST-SPAN,
+  2026-10-23; Chief Architect frames a floor across its shorter span with a
+  joist-direction arrow you can turn, Revit's floor has a picked span
+  direction):
+  - *Joists bear on.* `loft.floor` 1.3.0 replaces Joist direction, in place,
+    with Joists bear on: Long walls (the default), Front and back, or Left
+    and right, the walls under the rims. Long walls bears on the longer pair
+    so the joists span the shorter way, as framers frame it; a square bears
+    on the front and back. One input serves a typed rectangle (front and
+    back are the width's edges, which is world -Y and +Y at direction 0) and
+    an outline (the walls facing -Y and +Y, the world sides walls are named
+    by). B5's default 144 x 120 floor is unchanged: its long walls are the
+    width's.
+  - *The rectangle from its corners.* 1.2.0 took the width along the
+    outline's first line, so B7 drawn from a corner up its side framed 24 ft
+    2x10 joists. 1.3.0 reads the start corner as the least X and Y, the
+    width along +X and the depth along +Y, so every drawing of one rectangle
+    (any corner, either way round) frames the same members with the same
+    ids. Where 1.2.0 read B7's Rectangle-tool drawing it is 1.2.0's floor
+    byte for byte.
+  - *Stored floors.* 1.0.0-1.2.0 are untouched and pinned by their goldens;
+    a 1.3.0 refuses the retired `joist_direction` input as any unknown
+    input. A wall on a 1.3.0 floor reads its top through the same rewrite.
+  - *Numbers.* B7's floor (288 x 192, 2x10 at 16, PT 2x6 sills, 23/32
+    subfloor) on Long walls: 19 joists at 189, rims at 288, sills 2 at 288
+    and 2 at 181, 14 panels, 105 299.625 in³. On Left and right: 13 joists
+    at 285, rims at 192, sills 2 at 192 and 2 at 277, 15 panels,
+    104 217.375 in³. Both by hand in exact rationals, matched by an
+    independent build123d script on STEP, no interference. Goldens
+    `b7-floor-long-walls` and `b7-floor-left-right`.
+- **Decided while filling a 2x6 wall's header** (HEADER-PLIES, 2026-10-23;
+  IRC R602.7 and Table R602.7(1), common platform framing, APA's Advanced
+  Framing guide for the insulated header):
+  - *Practice.* A built-up header is the wall's thickness, so both faces
+    of the wall are flush for sheathing and drywall. The IRC sizes headers
+    by span as plies of 2x lumber (Table R602.7(1)'s "2-2x8", "3-2x10"). In
+    a 2x4 wall, two plies with a 1/2 in plywood spacer make the 3-1/2 in
+    (1.5 + 0.5 + 1.5). In a 2x6 wall, framers use three plies with two
+    1/2 in spacers (1.5 + 0.5 + 1.5 + 0.5 + 1.5 = 5-1/2 in), or two plies
+    with rigid foam between (an insulated header, which trades a ply for
+    R-value). 1.0.0-1.3.0 framed two plies at the faces in every wall,
+    which is right in 2x4 and leaves a 2-1/2 in void in 2x6.
+  - *Where the choice lives.* On the opening, as a Header build next to the
+    header's size: Chief Architect's door and window specifications carry
+    an opening's header settings, and the header's depth was already
+    per opening (sized by the span). The wall still frames it, and stored
+    walls need no new version. The backlog item proposed a wall option;
+    an opening input pins every stored wall and opening as it is.
+  - *Release.* `loft.window`/`loft.door` 1.4.0 add Header build after
+    Header: "Fill the wall" (default) or "Two plies, foam between". Fill
+    is as many plies as fit with at least 1/2 in between each two, the outer
+    two flush with the faces and the rest evenly spaced
+    (`wall.header_plies`): two in 2x4, three in 2x6, three in 2x8 (1-3/8 in
+    gaps, as four need 7-1/2 in). Spacers and foam are not members. The
+    face plies emit first and the inner plies after them, so a face ply
+    keeps its member id when the build changes. 1.0.0-1.3.0 openings have
+    no `header_build` and frame two plies, so every stored expansion and
+    golden is byte-identical; in a 2x4 wall a 1.4.0 opening frames exactly
+    what 1.3.0 frames.
+  - *Cut list and price.* Each ply is a Header member of the header's
+    profile, so a 2x6 wall's header line reads 3 per opening and the book
+    prices the plies like any 2x stock.
+  - *Numbers.* B2 in 2x6 (sides 109 between 5-1/2 in front and back walls)
+    with its 3068 door and 2030 window at 1.4.0: 66 bodies, all 2x6, 5479 in
+    of lumber, 45 201.75 in³ by hand, the headers 3 x 41 and 3 x 27.5, and
+    no interference. Golden `b2-2x6-walls-header-plies`.
+- **Decided while naming member bodies** (BODY-NAMES, 2026-10-23; Fusion's
+  browser and its STEP export, SolidWorks' multibody import):
+  - *The name.* A member's body is `<feature> · <member>`, the member as the
+    unfolded tree labels it: the role's title and its place, in expansion
+    order, among the feature's members whose roles share that title
+    (`Front wall · Stud 3`), no number when the title has one member
+    (`Roof 1 · Ridge`). The wall titles two roles "Stud", so counting per
+    role gave two "Stud 1" in one wall (23 duplicates in B7); counting per
+    title keeps every B7 body's name unique with no manifest change. The
+    same inputs expand in the same order, so the names are deterministic; a
+    rename keys on the member id, never on the number. Other bodies keep
+    "Body n".
+  - *Renames.* A rename is stored on the part (`parts.body_names`, migration
+    0026), keyed like a per-body material by the id that created the body,
+    and wins over the member's name; a blank name, or the member's own,
+    clears it. It is display metadata: the last evaluate stays current. A
+    duplicate and a `.loft` file carry it (an optional `tree.json` field,
+    absent when empty, so stored files and version digests are unchanged).
+  - *STEP.* Fusion writes a component's bodies as named solids of one
+    product, and SolidWorks reads them back as named bodies of one part. So
+    the name goes on each body's `MANIFOLD_SOLID_BREP`, and the part stays
+    one `PRODUCT` named after the part; a product per body would turn every
+    multi-body part into an assembly in the receiving CAD. Only geometry's
+    export names the solids (`write.stepcaf.subshapes.name`); a part with no
+    named body writes the bytes it did before, and no shape moves.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
@@ -2907,17 +2998,22 @@ property feeds a BOM column; Loft's price book feeds the cut list.
   splices a long plate or rim from stock pieces, joints over studs or
   joists, and Chief Architect's materials list buys it that way. The rule
   (`stock_splices`): only a member longer than the longest stock (20 ft) is
-  spliced; its stock is the combination of at most 5 pieces covering it with
-  the LEAST WASTE (fewest feet bought), then the FEWEST PIECES (joints).
+  spliced; its stock is the combination of at most 5 pieces covering it in
+  the FEWEST PIECES (joints), then with the LEAST WASTE (fewest feet bought)
+  (SPLICE-FEWEST-PIECES, 2026-10-23; until then waste came first). Each
+  joint must land over a stud or joist and double top-plate joints must be
+  offset 24 in (IRC R602.3.2), so framers order plates and rims in the
+  longest lengths and cut blocking from the offcut: 28 ft with 8, 10 and
+  16 ft stock is 2 x 16 (4 ft over), not 10 + 10 + 8, and 37 ft is 2 x 20
+  (3 ft over), not 14 + 12 + 12 (1 ft over).
   Ties are common (24 ft is 12 + 12, 14 + 10 or 16 + 8; 26 ft is 14 + 12 or
   16 + 10) and list most even first; for pricing, the cheapest tie whose every
   piece has an Each price wins, so the stock shown can follow the book, at
-  the same waste and piece count. When no least-waste splice is priced whole,
-  the next tier up is tried (CUT-LIST-SPLICE-TIES, a yard's quote): 28 ft with
-  no 14 ft in the book buys 2 x 16 (4 ft over) rather than staying unpriced,
-  and only when no tier prices does the least-waste stock show unpriced.
-  Waste comes first, so 37 ft is 14 + 12 + 12
-  (1 ft over), not 2 x 20 (3 ft over). The line's `stock_pieces_ft` carries
+  the same piece count and waste. When no splice of the first tier is priced
+  whole, the next tier is tried (CUT-LIST-SPLICE-TIES, a yard's quote): 28 ft
+  with no 14 ft in the book buys 2 x 16 rather than staying unpriced, and
+  only when no tier prices does the first tier's stock show unpriced.
+  The line's `stock_pieces_ft` carries
   the pieces (`[12, 12]`; `[16]` unspliced), `stock_length_ft` is null for a
   splice and `waste_mm` sums the splice's offcut. Each prices only a splice
   the book prices whole (one unit per line, never Each and per foot mixed);
@@ -2929,14 +3025,49 @@ property feeds a BOM column; Loft's price book feeds the cut list.
   line, lumber and sheets alike (B7's rims: 2 x $34.44 = $68.88). A Pieces
   column was the other option; it was not added, because the buyer reads
   the pieces from the Stock cell and one more column would not fit the
-  panel. Past 5 x 20 ft (100 ft, more often a
-  modelling slip than a plate) a member has no stock and stays unpriced. The
+  panel. Past 5 x 24 ft (120 ft; 5 x 20 ft for boards, decking and
+  timbers; more often a modelling slip than a plate) a member has no stock,
+  stays unpriced and its `stock_note` says why. The
   panel and CSV write the splice as a framer does (`2 × 12 ft`,
   `16 ft + 8 ft`; the CSV with an ASCII x), and a blank opens the book with a
   row for each piece length it does not price yet. B7 with the QA round's book plus an 8 ft SPF 2x10
   at $11.47 prices to the last line: $2,608.83 + $260.04 = $2,868.87
   (`packages/loft-wire/tests/test_price_book.py`). B1, B2 and B5 have no
   member over 20 ft, so their totals are unchanged.
+- **Spans are one piece** (NO-SPLICE-SPANS, 2026-10-23). A splice is a
+  hinge: a plate, sill or rim bears on the foundation or the joists along
+  its length, a ridge board and a ledger are carried along theirs, and
+  decking and rails are joined over a joist or post, so they may splice. A
+  member that SPANS between bearings may not: FLOOR-JOIST-SPAN's
+  left-and-right 285 in joist listed as 2 x 12 ft would be two cantilevers.
+  The rule reads the member's ROLE from the plugin manifests
+  (`ONE_PIECE_ROLES`): joist, beam, header, rafter, common, jack,
+  valley_jack, cripple, hip, valley, tie_beam and girt span; stud, king,
+  post, guard_post and baluster are columns, which are never spliced
+  either. Every other role, and a body with no plugin member (role
+  unknown), may splice. A deck beam is one piece too, though IRC R507.5
+  allows a multi-span beam's splice over a post: the list does not know
+  where the posts are. A one-piece member buys the shortest single stock
+  that covers it; past the longest it has no stock, stays unpriced and
+  says so (`stock_note`: "One piece, longer than 24 ft stock: a joist is
+  not spliced"), in the panel's Stock tooltip and the CSV's Stock cell.
+  The line carries `one_piece`.
+- **Stock lengths run to 24 ft for dimension lumber.** Grading rules
+  (WWPA, SPIB) sell lumber in 2 ft multiples, and US yards stock 2x
+  joists and rafters to 24 ft (southern pine and Douglas fir commonly to
+  24, SPF often to 20); boards, decking and timbers are listed to 20 ft.
+  `STOCK_LENGTHS_FT` is 8 to 24 by 2 (18, 22 and 24 were added) and
+  `stock_lengths_ft(profile)` gives a profile's. Because a book may not
+  price the new lengths, pricing is a yard's quote: the line's stock; for
+  18, 22 or 24 ft, which not every yard stocks, the next longer up to the
+  first common length (a 17 ft rafter is 18 ft stock, 20 ft at a yard
+  pricing no 18, as before); a common length stands alone, so its blank
+  still asks for the price rather than buying longer; then, for a member
+  that may splice and is over 20 ft
+  (the longest every yard stocks), the splice tiers, so B7's 24 ft rims,
+  plates and ridge are 24 ft stock but still price as 16 + 8 with the QA
+  round's book, so its total is unchanged. Splices
+  of dimension lumber now draw on 18 to 24 ft too (36 ft is 2 x 18).
 - **CSV:** `Stock qty`, `Unit price (USD)`, `Price unit` (Each, Per ft,
   Per BF) and `Extended (USD)` as plain numbers (`28.47`, no symbol or
   separator, so a spreadsheet sums them), an unpriced line's cells blank, and
@@ -3009,9 +3140,72 @@ SolidWorks cut the body the picked face belongs to.
   sheet product's entry is `each` with its `sheet` ('4x8', '4x9', '4x10')
   and no stock length. A sheet line (one per product, material and sheet) is
   priced by that entry times its sheets: B2's OSB 10 x $24.98 = $249.80, B5's
-  plywood 4 x $42.50 = $170.00. The CHECKs became "each has a stock length
+  plywood 4 x $42.50 = $170.00 (by area; since SHEET-COUNT-PIECES, below,
+  B5's walls are 12 x $24.98 = $299.76).
+- **Sheets are counted by the panels cut from them** (SHEET-COUNT-PIECES,
+  2026-10-23, reversing the area count). A yard sells whole sheets, and
+  `ceil(net area / sheet area)` under-buys the rips and fillers that cannot
+  share a sheet: B5's walls are 10 sheets by area and 12 to cut. The model
+  already lays out every panel, so `sheets_to_cut` counts them under one
+  deterministic rule: panels go largest face first (then longest, widest);
+  each is cut from the smallest offcut of its line (same product, material
+  and sheet) that covers it whole, else from a new sheet; a panel is cut
+  from a corner, long side along the sheet's, leaving a full-length rip
+  beside it and an end across it as offcuts. Openings are not credited
+  (framers sheathe over them and cut them out), so a panel is its whole
+  face (a kerf is allowed for since SHEET-KERF, below). The line carries `offcut_area_mm2`, its
+  sheets' area less its net area, shown in the Stock cell's tooltip beside
+  the net area. B7's OSB is 21 sheets, not 17 (18 panels 48 wide; each 37 in
+  filler a sheet, whose 11 in rip holds one 5.9375 corner rip; one sheet
+  for the other two rips): $2,968.79 with the QA round's book, the 28 ft
+  house $3,347.92; its subfloor stays 12, B5's 4. The CHECKs became "each has a stock length
   or a sheet" and "never both". The CSV gains `Area (sq <unit>)`; a sheet
   line has its area there, `4x9 sheet` as its stock and no lengths.
+- **A kerf is lost at every cut, and the panel gap absorbs it** (SHEET-KERF,
+  SHEET-KERF-HALVES, SHEET-KERF-GAP; founder, 2026-10-23). `sheets_to_cut`
+  takes 1/8 in (`SHEET_KERF_MM`, a circular or panel saw's blade) from each
+  rip and end it leaves, and only from a side actually cut: a panel side at
+  least the sheet's (or offcut's) side less APA's 1/8 in panel gap
+  (`SHEET_GAP_MM`) is laid uncut and leaves no offcut. Panels are laid with
+  that gap, so a piece up to 1/8 in short of its modelled size on any side
+  fills the panel: a 4x8 cut in half gives two 47 15/16 in pieces that fill
+  two 48 in modelled squares, and a 24 in rip's 23.875 in remainder fills
+  the next 24 in rip. Kerfs still add up past the gap: three 16 in rips
+  leave the third 15.75 in (1/4 in short), so they take two 48 in sheets,
+  and three 32 in thirds of a 96 in sheet do not fit one. The kerf-only
+  rule (SHEET-KERF alone) had bought B5's subfloor 6 sheets and B7's 14;
+  with the gap the counts are SHEET-COUNT-PIECES' again: B5's plywood 4
+  ($170.00), its OSB 12, B7's subfloor 12 and OSB 21 ($2,968.79), the 28 ft
+  house's subfloor 14 ($3,347.92). The rule applies to every sheet line,
+  floor and wall alike. Those are the two-ply house of `test_price_book.py`;
+  built in the app with HEADER-PLIES' three-ply 2x6 headers (six more 8 ft
+  2x6 at $6.48, $38.88), B7 prices to $3,007.67 and the 28 ft house to
+  $3,386.80 (`house-b7.spec.ts`).
+- **Floor panels keep the strength axis across the joists**
+  (SUBFLOOR-GRAIN, 2026-10-23). APA lays floor sheathing with its strength
+  axis (the sheet's 8 ft length) across the supports, so a subfloor panel
+  (role `subfloor`, `GRAIN_LOCKED_ROLES`) is cut with its long side along
+  the sheet's length and is never turned to fit an offcut: its offcuts
+  keep the sheet's frame. Wall sheathing (role `sheathing`) may run either
+  way, so its panels turn to fit. Subfloor and wall panels of one product
+  are separate lines. A panel's true orientation comes from geometry:
+  `/bodies/extents` now gives each extent's world direction
+  (`BodyExtent.axes`), and the part's joists (role `joist`) give the joist
+  direction, so a panel's across side is its face axis more nearly
+  perpendicular to the joists (`_across_along`), kept as `(across, along)`
+  through `sheets_to_cut`, which no longer turns a floor panel to
+  `(long, short)`. A last-column panel 30 in across and 48 along is cut
+  across the sheet's length (three to a 4x8, where turned they took two).
+  With no joist in the part or no axes (an older geometry), the longer side
+  is taken as across, as every full panel lies. B5's and B7's subfloors (both
+  spans) lie 96 across, so their counts are unchanged.
+- **Review fixes** (2026-10-23). The END left by a panel up to 1/8 in wider
+  than its offcut records the material's width, `min(panel, offcut)`, so
+  the gap's 1/8 in never compounds (96 x 24, 40 x 24, 30 x 24.125 and
+  20 x 24.25 take 2 sheets, not 1). A line priced on a longer single length
+  than it listed (18 ft bought as 20 ft) shows the length bought in
+  `stock_length_ft`, and one bought as a splice shows none. The nesting
+  moved to `loft_wire.sheet_nesting`.
 - **Saves are versioned** (PRICE-BOOK-VERSION, migration 0023). The book has
   a `version`, 0 until the first save and one more per save, served in the
   body and as the `ETag`. A `PUT` sends the version its draft was read at in

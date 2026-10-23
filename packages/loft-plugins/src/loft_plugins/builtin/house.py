@@ -44,6 +44,8 @@ _DIGITS = 9
 #: The releases that read an outline and a floor pick.
 WALL_OUTLINE_VERSION = (1, 3, 0)
 FLOOR_OUTLINE_VERSION = (1, 2, 0)
+#: The floor release that frames across the walls it bears on.
+FLOOR_SPAN_VERSION = (1, 3, 0)
 
 
 def _at_least(version: str, release: tuple[int, int, int]) -> bool:
@@ -93,7 +95,9 @@ def floor_values(inputs: ExpandInputs) -> ExpandInputs:
     """A 1.2.0 floor's inputs with its outline written into the typed
     rectangle's (start corner, direction, width, depth), so it frames exactly
     as a typed floor does. The width runs along the outline's first line,
-    walked counter-clockwise (the inside on its left), the depth across it."""
+    walked counter-clockwise (the inside on its left), the depth across it,
+    so the joist direction follows the drawing (1.3.0 reads the corners:
+    :func:`floor_values_v1_3`)."""
     outline = floor_outline(inputs)
     if outline is None:
         return inputs
@@ -112,6 +116,68 @@ def floor_values(inputs: ExpandInputs) -> ExpandInputs:
             "depth_mm": depth * MM_PER_INCH,
         },
     )
+
+
+def _floor_inches(inputs: ExpandInputs, name: str) -> float:
+    return round(inputs.number(name) / MM_PER_INCH, _DIGITS)
+
+
+def floor_values_v1_3(inputs: ExpandInputs) -> ExpandInputs:
+    """A 1.3.0 floor's inputs written as 1.2.0's typed rectangle and joist
+    direction (FLOOR-JOIST-SPAN).
+
+    An outline's rectangle is read from its corners, not its first line: the
+    start corner is its least X and Y, the width along +X and the depth along
+    +Y, so the same house drawn from any corner in either direction frames
+    the same floor. *Joists bear on* picks the walls under the rims: Front
+    and back (the width's edges; on an outline the walls facing -Y and +Y)
+    run the joists along the depth, Left and right along the width, and Long
+    walls the longer pair, so the joists span the shorter way (a square
+    bears on the front and back)."""
+    outline = floor_outline(inputs)
+    if outline is None:
+        values = inputs
+        width = _floor_inches(inputs, "width_mm")
+        depth = _floor_inches(inputs, "depth_mm")
+    else:
+        xs = [segment.start[0] for segment in outline.segments]
+        ys = [segment.start[1] for segment in outline.segments]
+        x0, y0 = min(xs) + 0.0, min(ys) + 0.0  # + 0.0: never -0.0
+        width = round(max(xs) - x0, _DIGITS)
+        depth = round(max(ys) - y0, _DIGITS)
+        values = _with(
+            inputs,
+            {
+                "start_x_mm": x0 * MM_PER_INCH,
+                "start_y_mm": y0 * MM_PER_INCH,
+                "direction_deg": 0.0,
+                "width_mm": width * MM_PER_INCH,
+                "depth_mm": depth * MM_PER_INCH,
+            },
+        )
+    bearing = inputs.choice("joists_bear_on")
+    if bearing == "front_back":
+        along = "depth"
+    elif bearing == "left_right":
+        along = "width"
+    elif bearing == "long_walls":
+        along = "depth" if width >= depth else "width"
+    else:
+        raise PluginError(
+            PLUGIN_INPUT_INVALID,
+            "Joists bear on: pick Long walls, Front and back, or Left and right.",
+            input="joists_bear_on",
+        )
+    return _with(values, {"joist_direction": along})
+
+
+def floor_values_of(version: str, inputs: ExpandInputs) -> ExpandInputs:
+    """A stored floor's inputs as the typed 1.1.0 floor its release frames."""
+    if _at_least(version, FLOOR_SPAN_VERSION):
+        return floor_values_v1_3(inputs)
+    if _at_least(version, FLOOR_OUTLINE_VERSION):
+        return floor_values(inputs)
+    return inputs
 
 
 @dataclass(frozen=True)
@@ -142,8 +208,7 @@ def floor_of(
         )
     values = stored_inputs(ref.feature_id, envelope, inputs.earlier, inputs.parameters)
     version = envelope.params.plugin_version
-    if _at_least(version, FLOOR_OUTLINE_VERSION):
-        values = floor_values(values)
+    values = floor_values_of(version, values)
     good = None
     if _at_least(version, (1, 1, 0)):
         good = SHEET_GOODS_BY_KEY.get(values.choice("subfloor"))  # type: ignore[call-overload]

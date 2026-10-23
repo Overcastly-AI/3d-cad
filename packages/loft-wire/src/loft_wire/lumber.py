@@ -27,8 +27,18 @@ from pydantic import BaseModel, Field
 MM_PER_INCH: Final = 25.4
 
 #: Standard US lumber stock lengths (ft), shortest first: what the cut list
-#: suggests and what an 'each' price may be for.
-STOCK_LENGTHS_FT: Final[tuple[int, ...]] = (8, 10, 12, 14, 16, 20)
+#: suggests and what an 'each' price may be for. Grading rules sell lumber
+#: in 2 ft multiples (WWPA, SPIB), and US yards stock dimension lumber to
+#: 24 ft for joists and rafters; boards, decking and timbers to 20 ft
+#: (:func:`stock_lengths_ft`, RESEARCH §27).
+STOCK_LENGTHS_FT: Final[tuple[int, ...]] = (8, 10, 12, 14, 16, 18, 20, 22, 24)
+
+#: The stock lengths every US yard carries (ft): 18 ft is stocked less
+#: widely, and 22 and 24 ft are dimension lumber only, not stocked everywhere.
+COMMON_STOCK_LENGTHS_FT: Final[tuple[int, ...]] = (8, 10, 12, 14, 16, 20)
+
+#: The longest of :data:`COMMON_STOCK_LENGTHS_FT`.
+COMMON_MAX_STOCK_FT: Final = 20
 
 #: The built-in profile keys. A closed literal, like ``MaterialKey``: an
 #: unknown profile is a parse error at the boundary.
@@ -138,3 +148,13 @@ LUMBER_PROFILES_BY_KEY: Mapping[LumberProfileKey, LumberProfile] = {
 def lumber_profile(key: LumberProfileKey) -> LumberProfile:
     """The profile for *key* (a ``KeyError`` for a key outside the literal)."""
     return LUMBER_PROFILES_BY_KEY[key]
+
+
+def stock_lengths_ft(profile: LumberProfile | None) -> tuple[int, ...]:
+    """The stock lengths (ft) *profile* is sold in, shortest first: every
+    :data:`STOCK_LENGTHS_FT` for dimension lumber (2 to 4 in thick, to
+    24 ft), else to :data:`COMMON_MAX_STOCK_FT` (boards, decking, timbers,
+    or a profile not in the library)."""
+    if profile is not None and profile.category == "dimension":
+        return STOCK_LENGTHS_FT
+    return tuple(ft for ft in STOCK_LENGTHS_FT if ft <= COMMON_MAX_STOCK_FT)

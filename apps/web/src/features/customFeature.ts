@@ -93,6 +93,35 @@ export function roleTitle(
 }
 
 /**
+ * Each member's label by member id, as the unfolded tree shows it: the role's
+ * title, numbered in expansion order across every role that shares the title
+ * ("Stud 1".."Stud 11" when two roles are titled Stud), with no number when
+ * the title has one member. A member body is named after its feature and this
+ * ("Front wall · Stud 3", BODY-NAMES); loft-wire's `member_body_names` is the
+ * server's twin for STEP. A rename keys on the member id, not this number.
+ */
+export function memberLabels(
+  members: readonly ExpandedMember[],
+  manifest: PluginManifest | undefined,
+): Map<string, string> {
+  const titles = members.map((m) => roleTitle(manifest, m.role));
+  const counts = new Map<string, number>();
+  for (const title of titles) counts.set(title, (counts.get(title) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  const out = new Map<string, string>();
+  members.forEach((member, i) => {
+    const title = titles[i] ?? member.role;
+    const place = (seen.get(title) ?? 0) + 1;
+    seen.set(title, place);
+    out.set(
+      member.id,
+      (counts.get(title) ?? 0) > 1 ? `${title} ${place}` : title,
+    );
+  });
+  return out;
+}
+
+/**
  * One result for a custom row from its members' results: any error is the
  * row's error (the first, with its code and message); all suppressed is
  * suppressed; any skipped is skipped; else ok. Undefined when geometry
