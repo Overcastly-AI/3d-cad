@@ -2761,6 +2761,47 @@ and reframe it, a material per member, and a cut list that is always current.
     multi-body part into an assembly in the receiving CAD. Only geometry's
     export names the solids (`write.stepcaf.subshapes.name`); a part with no
     named body writes the bytes it did before, and no shape moves.
+- **Decided while building the slab** (SLAB, 2026-10-23; Chief Architect's
+  and Revit's foundation tools build a slab from the exterior wall loop and
+  list its concrete, rebar and bolts in the materials list):
+  - *One pour, one body.* `loft.slab` 1.0.0 fills the outline sketch (any
+    loop the outline reader accepts) or a typed rectangle placed as the
+    floor's. The plate is extruded down from its top (Z 0 by default) as a
+    new body; the thickened edge's ring (the outline less the outline inset
+    by the edge width: every corner moved along both its lines' inward
+    normals) is extruded down from the plate's underside with `merge` on, so
+    the kernel fuses it into the plate's body (the active body the plate
+    just started) and UnifySameDomain leaves one 11-face solid for a
+    rectangle. The plate's extrude carries the metadata, since a body's id
+    is the feature that started it. An outline too narrow for the ring is
+    refused, never built inside out.
+  - *Listed, not drawn.* Rebar and anchor bolts would sit inside the
+    concrete and fail the no-interference rule, so they are member metadata
+    (`MemberMetadata.rebar`, `.anchor_bolts`), never bodies. The pour carries
+    its loops (2 #4 on the edge's centreline: the outline inset by half the
+    edge width, P - 4w for any rectilinear loop); each bottom-plate piece on
+    a slab carries `anchor_bolts`, and the cut list counts its bolts from the
+    plate's MEASURED length (IRC R403.1.6), as every length is measured.
+  - *Walls on a slab: `loft.wall` 1.4.0.* 1.3.0's On floor accepts
+    `loft.floor` only and a released manifest is immutable, so 1.4.0 widens
+    the pick to `loft.slab` (base = the slab's top, read from its inputs)
+    and marks its bottom plates; with no slab it is 1.3.0 member for member.
+    A 1.3.0 wall at a typed base of Z 0 also stands on the slab, but lists
+    no bolts. B8's walls, openings and roof on the slab are b7-outline's
+    less its floor, lowered 11.46875 in, body for body.
+  - *Concrete by the yard.* A pour is listed by its measured volume (46 656
+    in³ per yd³, to 2 places) and ORDERED with its waste allowance (5 % by
+    default, the slab's Concrete waste input; VISION 2026-10-23) rounded up
+    to 1/4 yd³; the price book's `ready_mix` is priced per `cubic_yard`, the
+    extended price the yards ordered times it. #4 rebar is `rebar_4` Each at
+    20 ft (a closed loop of L takes ceil(L / 18 ft) sticks), a bolt
+    `anchor_bolt_1_2` Each with neither stock nor sheet (migration 0027).
+    Pours, rebar and bolts list under Foundation, the first system.
+  - *Numbers.* B8: 221 184 + 87 552 = 308 736 in³, 6.62 yd³ net, 6.95 with
+    5 %, 7.00 ordered (6.75 with no allowance); 2 loops of 912 (76 ft),
+    10 sticks; 19 bolts (3 + 3 + 5 + 4 + 4). B2's plain slab 69 120 in³,
+    1.48 yd³, 1.75 ordered. Goldens `b8-slab-house` (179 bodies, the slab's
+    11 faces) and `b2-slab-plain`.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

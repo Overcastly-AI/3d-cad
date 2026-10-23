@@ -66,12 +66,14 @@ kitchen and baths (casework). Each item names its builder types.
    thick, an optional thickened edge (12 in wide, 12 in deep overall) with
    2 #4 bars, and 1/2 in anchor bolts by IRC R403.1.6. The slab replaces the
    floor: outline walls stand on its top (On floor accepts a slab).
-   Concrete is listed in cubic yards and bought in 1/4 yd³ steps, rebar in
-   20 ft sticks with 24 in laps, bolts Each. _Accept:_ B2's plain
-   144 x 120 x 4 slab is 69 120 in³ and lists 1.48 yd³ (1.50 bought). B8
-   (buildings.md) is 308 736 in³, 6.62 yd³ (6.75 bought), 10 sticks of #4
-   and 19 anchor bolts, all priced; B7's walls on it have no interference,
-   and 24 -> 28 ft is still one dimension edit.
+   Concrete is listed in cubic yards and ordered with a 5% waste
+   allowance (an input) rounded up to 1/4 yd³, rebar in 20 ft sticks with
+   24 in laps, bolts Each. _Accept:_ B2's plain 144 x 120 x 4 slab is
+   69 120 in³ and lists 1.48 yd³ (1.75 bought: 1.56 with the allowance; 1.50
+   before it). B8 (buildings.md) is 308 736 in³, 6.62 yd³ (7.00 bought: 6.95
+   with the allowance; 6.75 before it), 10 sticks of #4 and 19 anchor bolts,
+   all priced; B7's walls on it have no interference, and 24 -> 28 ft is
+   still one dimension edit.
 6. [ ] **CRAWL-SPACE** (founder 2026-10-23; kernel-architect for
    `loft.foundation` 1.0.0 and goldens, backend-builder for the new lines,
    frontend-builder for the Build entry): a poured-concrete stem wall on a
@@ -84,8 +86,10 @@ kitchen and baths (casework). Each item names its builder types.
    24 x 16 in access (R408.4) are cut from the stem. The floor's sills sit
    flush outside on the stem's top at Z 0, so `loft.floor` is unchanged.
    CMU block is a later choice. _Accept:_ B9 (buildings.md) is
-   307 328 in³ (6.59 yd³, 6.75 bought) with 5 vents, 1 access, 10 sticks of
-   #4 and 18 anchor bolts through the sills; B7's floor and walls on it
+   307 328 in³ (6.59 yd³, 7.00 bought with the 5% allowance) with 5
+   vents, 1 access, 10 sticks of #4 and 18 anchor bolts through the sills
+   (`loft_wire.foundation` and the cut list's pours, rebar and bolts are
+   SLAB's, so the foundation reuses them); B7's floor and walls on it
    have no interference; crawl height 24 -> 30 lowers the footing 6 in and
    moves nothing above Z 0.
 7. [ ] **INTERIOR-WALLS** (founder 2026-10-23; kernel-architect for

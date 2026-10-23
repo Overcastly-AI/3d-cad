@@ -379,7 +379,10 @@ ROOF-GABLE-WALLS and the owner-scan cost at about 400 bodies.
 
 - **Concrete** is one body per pour (the slab with its edge, the stem wall,
   the footing), listed in cubic yards to 2 places (46 656 in³ per yd³) and
-  bought in 1/4 yd³ steps, as ready-mix is ordered. No waste factor.
+  ORDERED with a waste allowance, 5% by default and an input of the pour,
+  then rounded up to 1/4 yd³, as ready-mix is ordered (VISION 2026-10-23:
+  crews order over for spillage and sub-grade variance). The figures in
+  brackets are the order with no allowance.
 - **Rebar and anchor bolts are listed, not drawn**: they would sit inside
   the concrete and fail the no-interference rule, and Chief's materials list
   carries them from the foundation's settings. #4 bar is listed by its
@@ -400,7 +403,8 @@ with no Floor: the walls stand on the slab's top at Z 0 (PT bottom plates).
 - **Slab:** X 0..288, Y 0..192, Z -4..0 (221 184 in³).
 - **Thickened edge:** a 12 in ring inside the outline, Z -12..-4
   (55 296 - 44 352 = 10 944 in² x 8 = 87 552 in³), square inner face.
-- **Concrete:** 308 736 in³ = **6.62 yd³, 6.75 bought**.
+- **Concrete:** 308 736 in³ = **6.62 yd³; x 1.05 = 6.95, so 7.00
+  bought** (6.75 with no allowance).
 - **Rebar:** 2 #4 bars in the edge, one 3 in above its bottom (Z -9) and one
   3 in below the slab top (Z -3), each on the ring's centreline 6 in inside
   the outline: 2 loops of 912 (76 ft), **10 sticks**.
@@ -408,10 +412,11 @@ with no Floor: the walls stand on the slab's top at Z 0 (PT bottom plates).
   opening (X 125..163) into 2 pieces of 125 (3 bolts each); the back wall's
   288 takes 5 and each 181 side 4: **19 bolts**.
 
-**Edits:** 24 -> 28 ft (one sketch dimension): 354 816 in³, 7.60 yd³ (7.75
-bought), 10 sticks (2 loops of 84 ft), 21 bolts (front 3 + 4, back 6,
-sides 4 + 4). Edge off: B2's plain slab, 144 x 120 x 4 = 69 120 in³,
-1.48 yd³ (1.50 bought).
+**Edits:** 24 -> 28 ft (one sketch dimension): 354 816 in³, 7.60 yd³ (x 1.05
+= 7.98, 8.00 bought; 7.75 with no allowance), 10 sticks (2 loops of 84 ft),
+21 bolts (front 3 + 4, back 6, sides 4 + 4). Edge off: B2's plain slab,
+144 x 120 x 4 = 69 120 in³, 1.48 yd³ (x 1.05 = 1.56, 1.75 bought; 1.50 with
+no allowance).
 
 ## B9 Small house on a crawl space (stops CRAWL-SPACE)
 
@@ -434,14 +439,15 @@ top at Z 0, flush with its outside face.
 - **Access:** 24 wide x 16 high, Z -16..0, centred on the back wall at
   X 144 (3 072 in³), above grade as R408.4 requires.
 - **Concrete:** 196 736 + 118 784 - 5 120 - 3 072 = 307 328 in³ =
-  **6.59 yd³, 6.75 bought**.
+  **6.59 yd³; x 1.05 = 6.92, so 7.00 bought** (6.75 with no allowance).
 - **Rebar:** 2 #4 bars 3 in above the footing's bottom and 3 in in from each
   face: loops of 968 (80.67 ft) and 888 (74 ft), **10 sticks**.
 - **Anchor bolts** through the floor's sills (288, 288, 181, 181):
   5 + 5 + 4 + 4 = **18 bolts**.
 
 **Edits:** crawl height 24 -> 30: grade Z -28.5, stem Z -32.5..0, footing
-Z -40.5..-32.5, 351 872 in³, 7.54 yd³ (7.75 bought), nothing above Z 0
+Z -40.5..-32.5, 351 872 in³, 7.54 yd³ (x 1.05 = 7.92, 8.00 bought; 7.75
+with no allowance), nothing above Z 0
 moves. 24 -> 28 ft: rebuilds with no interference; the 391.1 ft² crawl
 takes 6 vents.
 
