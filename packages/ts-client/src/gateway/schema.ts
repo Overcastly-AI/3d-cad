@@ -4593,6 +4593,11 @@ export interface components {
              */
             offcut_area_mm2?: number | null;
             /**
+             * One Piece
+             * @description True when each piece is one stock length, never spliced: a member that spans between bearings (a joist, rafter, header or beam) or a column (NO-SPLICE-SPANS). Omitted when false.
+             */
+            one_piece?: boolean;
+            /**
              * Price Unit
              * @description Which entry priced the line: 'each' for its stock length, else 'linear_foot', else 'board_foot'; null when unpriced.
              */
@@ -4616,9 +4621,14 @@ export interface components {
             sheet?: ("4x8" | "4x9" | "4x10") | null;
             /**
              * Stock Length Ft
-             * @description Shortest standard stock that covers the piece (ft); null for a piece that is not lumber, or is spliced (stock_pieces_ft), or is longer than any splice covers.
+             * @description Shortest standard stock that covers the piece (ft); null for a piece that is not lumber, or is spliced (stock_pieces_ft), or is longer than any stock it may be bought in (stock_note).
              */
             stock_length_ft: number | null;
+            /**
+             * Stock Note
+             * @description Why a lumber line has no stock, when it is longer than any it may be bought in ('One piece, longer than 24 ft stock: a joist is not spliced'); absent otherwise.
+             */
+            stock_note?: string | null;
             /**
              * Stock Pieces Ft
              * @description The stock pieces ONE piece of the line is cut from (ft), longest first: [16] for one stock length, [12, 12] for a member spliced from two 12 ft pieces (longer than the longest stock); null with no stock.

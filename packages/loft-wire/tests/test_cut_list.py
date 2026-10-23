@@ -21,6 +21,7 @@ from loft_wire.cut_list import (
     part_pieces,
     stock_length_ft,
 )
+from loft_wire.lumber import LUMBER_PROFILES, stock_lengths_ft
 from loft_wire.materials import BodyMaterialAssignment, MaterialAssignment
 from loft_wire.plugins import MemberMetadata
 from pydantic import ValidationError
@@ -52,8 +53,89 @@ def test_stock_is_the_shortest_standard_length_that_covers() -> None:
     assert stock_length_ft(96 * IN + 0.01) == 10
     assert stock_length_ft(141 * IN) == 12
     assert stock_length_ft(192 * IN) == 16
-    assert stock_length_ft(193 * IN) == 20  # no 18 ft in the list
-    assert stock_length_ft(20 * FT + 1) is None
+    # Lumber is sold in 2 ft multiples (NO-SPLICE-SPANS added 18, 22 and
+    # 24 ft): 193 in was 20 ft stock while the list skipped 18.
+    assert stock_length_ft(193 * IN) == 18
+    assert stock_length_ft(20 * FT + 1) == 22
+    assert stock_length_ft(24 * FT) == 24
+    assert stock_length_ft(24 * FT + 1) is None
+
+
+def test_dimension_lumber_runs_to_24_ft_and_the_rest_to_20() -> None:
+    lengths = {p.name: stock_lengths_ft(p) for p in LUMBER_PROFILES}
+    assert lengths["2x10"] == (8, 10, 12, 14, 16, 18, 20, 22, 24)
+    for name in ("1x4", "5/4x6", "6x6", "8x10"):
+        assert lengths[name] == (8, 10, 12, 14, 16, 18, 20), name
+    assert stock_lengths_ft(None) == lengths["6x6"]
+
+
+def _role(body: BodyExtent, role: str, title: str) -> CutListMember:
+    return CutListMember(
+        feature_id=body.base_feature_id,
+        role=role,
+        title=title,
+        metadata=MemberMetadata(profile="2x10", material="spf_lumber"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("role", "one_piece"),
+    [
+        ("joist", True),
+        ("rafter", True),
+        ("hip", True),
+        ("header", True),
+        ("beam", True),
+        ("stud", True),
+        ("rim", False),
+        ("sill", False),
+        ("top_plate", False),
+        ("ridge", False),
+        ("ledger", False),
+    ],
+)
+def test_a_spanning_member_is_one_piece_by_its_role(role: str, one_piece: bool) -> None:
+    """NO-SPLICE-SPANS: a member spanning between bearings (or a column) is
+    never spliced; plates, rims and ridges may be. Past 24 ft the one-piece
+    member has no stock and says why; the rim splices."""
+    body = _body(1.5 * IN, 9.25 * IN, 300 * IN)
+    piece = classify_body(body, _role(body, role, role.title()), None)
+    assert piece.one_piece is one_piece
+    (line,) = cut_list_response(
+        document_id=uuid.uuid4(),
+        document_kind="part",
+        name="Floor",
+        length_unit="in",
+        pieces=[piece],
+    ).lines
+    assert line.one_piece is one_piece
+    if one_piece:
+        assert (line.stock_pieces_ft, line.stock_length_ft) == (None, None)
+        assert line.stock_note == (
+            f"One piece, longer than 24 ft stock: a {role.title().lower()} "
+            "is not spliced"
+        )
+    else:
+        assert line.stock_pieces_ft == [14, 12] and line.stock_note is None
+    # A body that is no plugin member has no role: it may splice.
+    matched = classify_body(body, None, None)
+    assert matched.classification == "matched" and not matched.one_piece
+
+
+def test_the_one_piece_flag_and_note_are_omitted_when_unset() -> None:
+    """Additive and optional on the wire: a line that may splice and has
+    stock dumps exactly as before."""
+    body = _body(1.5 * IN, 9.25 * IN, 120 * IN)
+    piece = classify_body(body, _role(body, "rim", "Rim"), None)
+    (line,) = cut_list_response(
+        document_id=uuid.uuid4(),
+        document_kind="part",
+        name="Floor",
+        length_unit="in",
+        pieces=[piece],
+    ).lines
+    dumped = line.model_dump(mode="json")
+    assert "one_piece" not in dumped and "stock_note" not in dumped
 
 
 def test_a_member_profile_names_the_section_and_the_rest_is_length() -> None:

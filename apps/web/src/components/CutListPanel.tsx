@@ -577,7 +577,8 @@ export function CutListPanel({
                       sheet !== null
                         ? sheetsTitle(line, sheet, unit, unitLabel)
                         : line.waste_mm === null
-                          ? undefined
+                          ? // Why a joist past 24 ft has no stock (NO-SPLICE-SPANS).
+                            (line.stock_note ?? undefined)
                           : `${formatLength(line.waste_mm, unit)} ${unitLabel} offcut each`
                     }
                   >

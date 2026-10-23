@@ -481,6 +481,49 @@ describe("CutListPanel", () => {
     );
   });
 
+  it("says why a joist past 24 ft has no stock", async () => {
+    // NO-SPLICE-SPANS: a joist is one piece, so past 24 ft it has no stock.
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      total_quantity: 2,
+      unclassified: 0,
+      missing: [],
+      total_price_cents: null,
+      unpriced_lines: 1,
+      lines: [
+        {
+          system: "floor",
+          member: "Joist",
+          profile: "2x10",
+          material: "spf_lumber",
+          classification: "member",
+          quantity: 2,
+          length_mm: 300 * IN,
+          total_length_mm: 600 * IN,
+          section_mm: [1.5 * IN, 9.25 * IN],
+          stock_length_ft: null,
+          stock_pieces_ft: null,
+          one_piece: true,
+          stock_note:
+            "One piece, longer than 24 ft stock: a joist is not spliced",
+          waste_mm: null,
+          stock_quantity: null,
+          unit_price_cents: null,
+          price_unit: null,
+          extended_price_cents: null,
+        },
+      ],
+    });
+    renderPanel();
+    const [joist] = await screen.findAllByTestId("cut-list-row");
+    const stock = within(joist!).getByTestId("cut-list-stock");
+    expect(stock).toHaveTextContent("—");
+    expect(stock).toHaveAttribute(
+      "title",
+      "One piece, longer than 24 ft stock: a joist is not spliced",
+    );
+  });
+
   it("opens the book on every piece of an unpriced mixed splice", async () => {
     vi.mocked(fetchCutList).mockResolvedValueOnce({
       ...RESPONSE,

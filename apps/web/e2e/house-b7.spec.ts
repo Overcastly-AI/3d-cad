@@ -41,14 +41,16 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  *
  * Priced through the blank prices: the eight single-stock keys, then the
  * rim's blank, whose seeded row is turned to an 8 ft SPF 2x10 at $11.47. The
- * five lines over 20 ft are spliced (CUT-LIST-LONG-STOCK): rims and ridge
- * 16 ft + 8 ft, top plates 16 ft + 8 ft, PT sills and bottom plate 2 x 12 ft,
- * the OSB is the 21 sheets the wall panels are cut from, not 17 by area
- * (SHEET-COUNT-PIECES), and the subfloor 14, its 48 in squares a sheet each
- * with a 1/8 in kerf (SHEET-KERF), so B7 prices to the last line at
- * $3,092.67: loft-wire's test_b7_is_priced_to_the_last_line_3053_79 sums
- * the two-ply house by hand ($2,793.75 for the 18 short lines + $260.04 of
- * splices), plus the six plies' $38.88.
+ * five lines over 20 ft list 24 ft stock unpriced (NO-SPLICE-SPANS: 2x lumber
+ * runs to 24 ft), and the book prices no 24 ft, so they are spliced
+ * (CUT-LIST-LONG-STOCK): rims and ridge 16 ft + 8 ft, top plates
+ * 16 ft + 8 ft, PT sills and bottom plate 2 x 12 ft. The OSB is the 21
+ * sheets the wall panels are cut from, not 17 by area (SHEET-COUNT-PIECES),
+ * and the subfloor 14, its 48 in squares a sheet each with a 1/8 in kerf
+ * (SHEET-KERF), so B7 prices to the last line at $3,092.67: loft-wire's
+ * test_b7_is_priced_to_the_last_line_3053_79 sums the two-ply house by hand
+ * ($2,793.75 for the 18 short lines + $260.04 of splices), plus the six
+ * plies' $38.88.
  *
  * Then the three named edits, each from the base house: the front left
  * window moved 24 in, one field 60 -> 84 (undone with Ctrl+Z), pitch 6/12 ->
@@ -97,9 +99,9 @@ const ROOF = 11;
 const HOUSE: CutRow[] = [
   // Floor
   ["Joist", "19", "189", "16 ft"],
-  ["Rim", "2", "288", "2 × 12 ft"],
+  ["Rim", "2", "288", "24 ft"],
   ["Sill", "2", "181", "16 ft"],
-  ["Sill", "2", "288", "2 × 12 ft"],
+  ["Sill", "2", "288", "24 ft"],
   // Walls, with their door and windows
   ["Stud", "60", "92.625", "8 ft"],
   ["Jack", "12", "81", "8 ft"],
@@ -112,13 +114,13 @@ const HOUSE: CutRow[] = [
   ["Sill", "2", "24.5", "8 ft"],
   ["Sill", "3", "36.5", "8 ft"],
   ["Top plate", "4", "181", "16 ft"],
-  ["Top plate", "4", "288", "2 × 12 ft"],
+  ["Top plate", "4", "288", "24 ft"],
   ["Bottom plate", "2", "125", "12 ft"],
   ["Bottom plate", "2", "181", "16 ft"],
-  ["Bottom plate", "1", "288", "2 × 12 ft"],
+  ["Bottom plate", "1", "288", "24 ft"],
   // Roof
   ["Rafter", "26", "123.5341", "12 ft"],
-  ["Ridge", "1", "288", "2 × 12 ft"],
+  ["Ridge", "1", "288", "24 ft"],
   // Sheathing: 80 869 in² of walls less openings + four 5.9375 x 97.125
   // corner rips, cut from 21 sheets (SHEET-COUNT-PIECES): 18 panels 48 wide,
   // two 37 in fillers whose 11 in rips hold a corner rip each, and one sheet

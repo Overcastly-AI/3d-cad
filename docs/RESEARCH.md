@@ -3025,14 +3025,49 @@ property feeds a BOM column; Loft's price book feeds the cut list.
   line, lumber and sheets alike (B7's rims: 2 x $34.44 = $68.88). A Pieces
   column was the other option; it was not added, because the buyer reads
   the pieces from the Stock cell and one more column would not fit the
-  panel. Past 5 x 20 ft (100 ft, more often a
-  modelling slip than a plate) a member has no stock and stays unpriced. The
+  panel. Past 5 x 24 ft (120 ft; 5 x 20 ft for boards, decking and
+  timbers; more often a modelling slip than a plate) a member has no stock,
+  stays unpriced and its `stock_note` says why. The
   panel and CSV write the splice as a framer does (`2 × 12 ft`,
   `16 ft + 8 ft`; the CSV with an ASCII x), and a blank opens the book with a
   row for each piece length it does not price yet. B7 with the QA round's book plus an 8 ft SPF 2x10
   at $11.47 prices to the last line: $2,608.83 + $260.04 = $2,868.87
   (`packages/loft-wire/tests/test_price_book.py`). B1, B2 and B5 have no
   member over 20 ft, so their totals are unchanged.
+- **Spans are one piece** (NO-SPLICE-SPANS, 2026-10-23). A splice is a
+  hinge: a plate, sill or rim bears on the foundation or the joists along
+  its length, a ridge board and a ledger are carried along theirs, and
+  decking and rails are joined over a joist or post, so they may splice. A
+  member that SPANS between bearings may not: FLOOR-JOIST-SPAN's
+  left-and-right 285 in joist listed as 2 x 12 ft would be two cantilevers.
+  The rule reads the member's ROLE from the plugin manifests
+  (`ONE_PIECE_ROLES`): joist, beam, header, rafter, common, jack,
+  valley_jack, cripple, hip, valley, tie_beam and girt span; stud, king,
+  post, guard_post and baluster are columns, which are never spliced
+  either. Every other role, and a body with no plugin member (role
+  unknown), may splice. A deck beam is one piece too, though IRC R507.5
+  allows a multi-span beam's splice over a post: the list does not know
+  where the posts are. A one-piece member buys the shortest single stock
+  that covers it; past the longest it has no stock, stays unpriced and
+  says so (`stock_note`: "One piece, longer than 24 ft stock: a joist is
+  not spliced"), in the panel's Stock tooltip and the CSV's Stock cell.
+  The line carries `one_piece`.
+- **Stock lengths run to 24 ft for dimension lumber.** Grading rules
+  (WWPA, SPIB) sell lumber in 2 ft multiples, and US yards stock 2x
+  joists and rafters to 24 ft (southern pine and Douglas fir commonly to
+  24, SPF often to 20); boards, decking and timbers are listed to 20 ft.
+  `STOCK_LENGTHS_FT` is 8 to 24 by 2 (18, 22 and 24 were added) and
+  `stock_lengths_ft(profile)` gives a profile's. Because a book may not
+  price the new lengths, pricing is a yard's quote: the line's stock; for
+  18, 22 or 24 ft, which not every yard stocks, the next longer up to the
+  first common length (a 17 ft rafter is 18 ft stock, 20 ft at a yard
+  pricing no 18, as before); a common length stands alone, so its blank
+  still asks for the price rather than buying longer; then, for a member
+  that may splice and is over 20 ft
+  (the longest every yard stocks), the splice tiers, so B7's 24 ft rims,
+  plates and ridge are 24 ft stock but still price as 16 + 8 with the QA
+  round's book, and its total moves only for SHEET-KERF (below). Splices
+  of dimension lumber now draw on 18 to 24 ft too (36 ft is 2 x 18).
 - **CSV:** `Stock qty`, `Unit price (USD)`, `Price unit` (Each, Per ft,
   Per BF) and `Extended (USD)` as plain numbers (`28.47`, no symbol or
   separator, so a spreadsheet sums them), an unpriced line's cells blank, and

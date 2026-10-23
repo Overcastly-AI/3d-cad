@@ -3214,6 +3214,11 @@
             "description": "A sheet line's offcut (mm^2): its sheets' area less its net area (the offcuts and the openings cut out). Null for lumber, or for panels no sheet covers.",
             "title": "Offcut Area Mm2"
           },
+          "one_piece": {
+            "description": "True when each piece is one stock length, never spliced: a member that spans between bearings (a joist, rafter, header or beam) or a column (NO-SPLICE-SPANS). Omitted when false.",
+            "title": "One Piece",
+            "type": "boolean"
+          },
           "price_unit": {
             "anyOf": [
               {
@@ -3284,8 +3289,21 @@
                 "type": "null"
               }
             ],
-            "description": "Shortest standard stock that covers the piece (ft); null for a piece that is not lumber, or is spliced (stock_pieces_ft), or is longer than any splice covers.",
+            "description": "Shortest standard stock that covers the piece (ft); null for a piece that is not lumber, or is spliced (stock_pieces_ft), or is longer than any stock it may be bought in (stock_note).",
             "title": "Stock Length Ft"
+          },
+          "stock_note": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a lumber line has no stock, when it is longer than any it may be bought in ('One piece, longer than 24 ft stock: a joist is not spliced'); absent otherwise.",
+            "title": "Stock Note"
           },
           "stock_pieces_ft": {
             "anyOf": [

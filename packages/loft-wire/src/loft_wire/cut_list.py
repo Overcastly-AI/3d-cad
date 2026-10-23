@@ -23,14 +23,18 @@ Where each fact comes from (RESEARCH §23, CLAUDE.md boundaries):
 
 Material: a body's own override wins (what the user set on that body), then
 the member's metadata, then the document default. Stock lengths are the US
-lumber lengths :data:`STOCK_LENGTHS_FT`; the shortest that covers the member
-is suggested, with the offcut it leaves. A member longer than the longest
-stock is SPLICED from stock pieces, as a framer buys a long plate
-(:func:`stock_splices`, RESEARCH §27): the pieces covering it in the fewest
-pieces (joints), then with the least waste; when pricing, the first such
-splice whose every piece the book prices, as a yard quotes it. A member no
-:data:`MAX_SPLICE_PIECES`-piece splice covers, or one that is not lumber,
-has no stock suggestion.
+lumber lengths its profile is sold in (:func:`~loft_wire.lumber.
+stock_lengths_ft`: to 24 ft for dimension lumber, else 20 ft); the shortest
+that covers the member is suggested, with the offcut it leaves. A member
+longer than the longest stock is SPLICED from stock pieces, as a framer buys
+a long plate (:func:`stock_splices`, RESEARCH §27): the pieces covering it
+in the fewest pieces (joints), then with the least waste; when pricing, the
+first such splice whose every piece the book prices, as a yard quotes it.
+A member that SPANS between bearings (a joist, rafter, hip, header or beam,
+:data:`ONE_PIECE_ROLES`) or stands as a column (a stud or post) is never
+spliced (NO-SPLICE-SPANS): past the longest stock it has no stock and says
+why (``stock_note``). A member no :data:`MAX_SPLICE_PIECES`-piece splice
+covers, or one that is not lumber, has no stock suggestion.
 
 **Sheet goods** (SHEATHING): a member whose ``profile`` names a sheet product
 (:mod:`loft_wire.sheet_goods`, "7/16 OSB") is a PANEL. Its thickness is its
@@ -83,17 +87,20 @@ from dataclasses import dataclass
 from fractions import Fraction
 from functools import lru_cache
 from itertools import combinations_with_replacement, permutations
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
 from pydantic import BaseModel, Field
 
 from loft_wire.assemblies import RefDocumentKind
 from loft_wire.features import EvaluateTreeRequest
 from loft_wire.lumber import (
+    COMMON_MAX_STOCK_FT,
+    COMMON_STOCK_LENGTHS_FT,
     LUMBER_PROFILES,
     MM_PER_INCH,
     STOCK_LENGTHS_FT,
     LumberProfile,
+    stock_lengths_ft,
 )
 from loft_wire.materials import (
     MATERIALS_BY_KEY,
@@ -135,10 +142,47 @@ PRISM_TOLERANCE: Final = 1e-6
 #: Lengths group when equal to this many decimals of a millimetre (1 um).
 LENGTH_DECIMALS: Final = 3
 
-#: The most stock pieces one member is spliced from: 5 x 20 ft covers 100 ft.
-#: A longer member (a modelling slip more often than a real plate) has no
-#: stock, so it is listed and left unpriced, never guessed at.
+#: The most stock pieces one member is spliced from: 5 x 24 ft covers 120 ft
+#: of dimension lumber (5 x 20 ft, 100 ft, of the rest). A longer member (a
+#: modelling slip more often than a real plate) has no stock, so it is listed
+#: and left unpriced, never guessed at.
 MAX_SPLICE_PIECES: Final = 5
+
+#: Member roles that are ONE piece of stock, never spliced (NO-SPLICE-SPANS,
+#: RESEARCH §27): members that span between bearings (joists, rafters and
+#: their jacks, cripples, hips and valleys, headers, beams and a timber
+#: frame's tie beams and girts), whose splice would be a hinge mid-span, and
+#: columns (studs, kings, posts, balusters). Plates, sills, rims, ledgers,
+#: ridges, rails and decking bear along their length (or are joined over a
+#: support), so they may still splice; so may a body that is no plugin
+#: member, whose role is unknown. Roles, not titles: the plugins' manifests
+#: name them (``loft_plugins.builtin``).
+ONE_PIECE_ROLES: Final[frozenset[str]] = frozenset(
+    {
+        # floor and deck
+        "joist",
+        "beam",
+        "post",
+        "guard_post",
+        "baluster",
+        # walls
+        "stud",
+        "king",
+        "jack",
+        "header",
+        "cripple",
+        "sill_cripple",
+        # roofs
+        "rafter",
+        "common",
+        "valley_jack",
+        "hip",
+        "valley",
+        # timber frame
+        "tie_beam",
+        "girt",
+    }
+)
 
 #: Sheet-good roles whose panels keep the sheet's strength axis (its length)
 #: across their supports, so the count never turns one to fit an offcut
@@ -199,6 +243,16 @@ PLUGIN_SYSTEMS: Final[Mapping[str, CutListSystem]] = {
 def system_for_plugin(plugin_id: str | None) -> CutListSystem:
     """The system a plugin's members are listed under (:data:`PLUGIN_SYSTEMS`)."""
     return "other" if plugin_id is None else PLUGIN_SYSTEMS.get(plugin_id, "other")
+
+
+def _is_false(value: object) -> bool:
+    """``exclude_if`` predicate: a false flag is not serialized."""
+    return value is False
+
+
+def _drop_schema_default(schema: dict[str, Any]) -> None:
+    """Keep a defaulted flag OPTIONAL in the generated ts-client."""
+    schema.pop("default", None)
 
 
 # --- geometry -> gateway ------------------------------------------------------------
@@ -327,7 +381,7 @@ class CutListLine(BaseModel):
     stock_length_ft: int | None = Field(
         description="Shortest standard stock that covers the piece (ft); null "
         "for a piece that is not lumber, or is spliced (stock_pieces_ft), or "
-        "is longer than any splice covers."
+        "is longer than any stock it may be bought in (stock_note)."
     )
     stock_pieces_ft: list[int] | None = Field(
         default=None,
@@ -336,6 +390,22 @@ class CutListLine(BaseModel):
         "longest first: [16] for one stock length, [12, 12] for a member "
         "spliced from two 12 ft pieces (longer than the longest stock); null "
         "with no stock.",
+    )
+    one_piece: bool = Field(
+        default=False,
+        exclude_if=_is_false,
+        json_schema_extra=_drop_schema_default,
+        description="True when each piece is one stock length, never spliced: "
+        "a member that spans between bearings (a joist, rafter, header or "
+        "beam) or a column (NO-SPLICE-SPANS). Omitted when false.",
+    )
+    stock_note: str | None = Field(
+        default=None,
+        exclude_if=is_none,
+        max_length=160,
+        description="Why a lumber line has no stock, when it is longer than "
+        "any it may be bought in ('One piece, longer than 24 ft stock: a "
+        "joist is not spliced'); absent otherwise.",
     )
     waste_mm: float | None = Field(
         description="Offcut of each piece from its stock (mm), a splice's "
@@ -460,12 +530,33 @@ def _covers(length_mm: float, feet: int) -> bool:
     return length_mm <= feet * MM_PER_FOOT + 1e-6
 
 
-def stock_length_ft(length_mm: float) -> int | None:
-    """The shortest standard stock (ft) that covers *length_mm*, or ``None``."""
-    for feet in STOCK_LENGTHS_FT:
+def stock_length_ft(
+    length_mm: float, lengths: Sequence[int] = STOCK_LENGTHS_FT
+) -> int | None:
+    """The shortest stock of *lengths* (ft, shortest first; every standard
+    length by default) that covers *length_mm*, or ``None``."""
+    for feet in lengths:
         if _covers(length_mm, feet):
             return feet
     return None
+
+
+@lru_cache(maxsize=1024)
+def _splice_tiers(
+    length_mm: float, lengths: tuple[int, ...]
+) -> tuple[tuple[tuple[int, ...], ...], ...]:
+    """Every 2 to :data:`MAX_SPLICE_PIECES`-piece splice of *lengths* that
+    covers *length_mm*, in tiers (:func:`stock_splice_tiers`), whether or
+    not one stock length covers it too."""
+    tiers: dict[tuple[int, int], list[tuple[int, ...]]] = {}
+    for pieces in range(2, MAX_SPLICE_PIECES + 1):
+        for splice in combinations_with_replacement(
+            sorted(lengths, reverse=True), pieces
+        ):
+            feet = sum(splice)
+            if _covers(length_mm, feet):
+                tiers.setdefault((pieces, feet), []).append(splice)
+    return tuple(tuple(sorted(tiers[key], key=_evenness)) for key in sorted(tiers))
 
 
 def _evenness(splice: tuple[int, ...]) -> tuple[int, ...]:
@@ -475,8 +566,9 @@ def _evenness(splice: tuple[int, ...]) -> tuple[int, ...]:
     return (-min(splice), max(splice), *(-feet for feet in splice))
 
 
-@lru_cache(maxsize=1024)
-def stock_splice_tiers(length_mm: float) -> tuple[tuple[tuple[int, ...], ...], ...]:
+def stock_splice_tiers(
+    length_mm: float, lengths: Sequence[int] = STOCK_LENGTHS_FT
+) -> tuple[tuple[tuple[int, ...], ...], ...]:
     """Every splice that covers a member longer than the longest stock,
     grouped into tiers of equally good splices, the best tier first
     (RESEARCH §27).
@@ -493,39 +585,51 @@ def stock_splice_tiers(length_mm: float) -> tuple[tuple[tuple[int, ...], ...], .
     stock is 2 x 16, not 10 + 10 + 8 (SPLICE-FEWEST-PIECES). The first tier
     is the choice (:func:`stock_splices`); the later ones let
     :func:`price_lines` buy what the book prices, as a yard quotes 28 ft as
-    16 + 16 when it stocks no 14 ft. Empty for a member that one stock
-    length covers, or that no splice covers."""
-    if stock_length_ft(length_mm) is not None:
+    16 + 16 when it stocks no 14 ft. *lengths* are the stock lengths (ft)
+    the member is sold in (every standard length by default). Empty for a
+    member that one stock length covers, or that no splice covers."""
+    if stock_length_ft(length_mm, lengths) is not None:
         return ()
-    tiers: dict[tuple[int, int], list[tuple[int, ...]]] = {}
-    for pieces in range(2, MAX_SPLICE_PIECES + 1):
-        for splice in combinations_with_replacement(
-            sorted(STOCK_LENGTHS_FT, reverse=True), pieces
-        ):
-            feet = sum(splice)
-            if _covers(length_mm, feet):
-                tiers.setdefault((pieces, feet), []).append(splice)
-    return tuple(tuple(sorted(tiers[key], key=_evenness)) for key in sorted(tiers))
+    return _splice_tiers(length_mm, tuple(lengths))
 
 
-def stock_splices(length_mm: float) -> tuple[tuple[int, ...], ...]:
+def stock_splices(
+    length_mm: float, lengths: Sequence[int] = STOCK_LENGTHS_FT
+) -> tuple[tuple[int, ...], ...]:
     """The equally good fewest-piece, least-waste splices for a member longer
     than the longest stock, best first: the first tier of
-    :func:`stock_splice_tiers` (24 ft is 12 + 12, 14 + 10 or 16 + 8; 37 ft is
-    2 x 20). Empty for a member that one stock
-    length covers, or that no splice covers."""
-    tiers = stock_splice_tiers(length_mm)
+    :func:`stock_splice_tiers` (26 ft is 14 + 12, 16 + 10 or 18 + 8; 37 ft
+    is 20 + 18). Empty for a member that one stock length covers, or that no
+    splice covers."""
+    tiers = stock_splice_tiers(length_mm, lengths)
     return tiers[0] if tiers else ()
 
 
-def stock_pieces_ft(length_mm: float) -> tuple[int, ...] | None:
-    """The stock one member of *length_mm* is cut from: one stock length, the
-    best splice, or ``None`` when no splice covers it."""
-    single = stock_length_ft(length_mm)
+def stock_pieces_ft(
+    length_mm: float, lengths: Sequence[int] = STOCK_LENGTHS_FT, *, splice: bool = True
+) -> tuple[int, ...] | None:
+    """The stock one member of *length_mm* is cut from: one stock length of
+    *lengths*, else the best splice, or ``None`` when no splice covers it or
+    the member may not be spliced (*splice* false, NO-SPLICE-SPANS)."""
+    single = stock_length_ft(length_mm, lengths)
     if single is not None:
         return (single,)
-    splices = stock_splices(length_mm)
+    if not splice:
+        return None
+    splices = stock_splices(length_mm, lengths)
     return splices[0] if splices else None
+
+
+def no_stock_note(member: str | None, lengths: Sequence[int], *, splice: bool) -> str:
+    """Why a lumber piece has no stock (``stock_note``): a one-piece member
+    past the longest stock, or any member past the longest splice."""
+    longest = max(lengths)
+    if not splice:
+        what = (member or "member").lower()
+        return f"One piece, longer than {longest} ft stock: a {what} is not spliced"
+    return (
+        f"Longer than {MAX_SPLICE_PIECES} x {longest} ft: no splice of stock covers it"
+    )
 
 
 def splice_label(pieces: Sequence[int]) -> str:
@@ -558,6 +662,8 @@ class CutListPiece:
     system: CutListSystem = "other"
     #: A window or door unit's body (OPENING-UNITS); ``None`` otherwise.
     unit: OpeningUnitPart | None = None
+    #: One stock length, never spliced (:data:`ONE_PIECE_ROLES`).
+    one_piece: bool = False
     #: A panel that keeps the sheet's strength axis (:data:`GRAIN_LOCKED_ROLES`).
     keep_grain: bool = False
 
@@ -638,6 +744,7 @@ def classify_body(
             section_mm=section,
             count=count,
             system=system_for_plugin(member.plugin_id),
+            one_piece=member.role in ONE_PIECE_ROLES,
         )
     if _is_prism(body):
         for lumber in LUMBER_PROFILES:
@@ -897,6 +1004,7 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
             piece.material,
             piece.classification,
             round(piece.length_mm, LENGTH_DECIMALS),
+            piece.one_piece,
         )
         if piece.classification == "unclassified":
             key += tuple(round(v, LENGTH_DECIMALS) for v in piece.section_mm)
@@ -911,9 +1019,24 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
             lines.append(_unit_line(piece, piece.unit, quantity))
             continue
         length = round(piece.length_mm, 6)
-        stock = stock_pieces_ft(length) if piece.lumber else None
+        lengths = stock_lengths_ft(lumber_for(piece.profile))
+        stock = (
+            stock_pieces_ft(length, lengths, splice=not piece.one_piece)
+            if piece.lumber
+            else None
+        )
+        note = (
+            no_stock_note(piece.member, lengths, splice=not piece.one_piece)
+            if piece.lumber and stock is None
+            else None
+        )
         thickness, width = (round(v, 6) for v in piece.section_mm)
-        waste = None if stock is None else round(sum(stock) * MM_PER_FOOT - length, 6)
+        # max(0.0, ...): never -0.0, as a stock exactly the length rounds to.
+        waste = (
+            None
+            if stock is None
+            else max(0.0, round(sum(stock) * MM_PER_FOOT - length, 6))
+        )
         lines.append(
             CutListLine(
                 system=piece.system,
@@ -929,6 +1052,8 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
                     stock[0] if stock is not None and len(stock) == 1 else None
                 ),
                 stock_pieces_ft=None if stock is None else list(stock),
+                one_piece=piece.one_piece,
+                stock_note=note,
                 waste_mm=waste,
                 stock_quantity=None if stock is None else quantity,
                 unit_price_cents=None,
@@ -1008,15 +1133,41 @@ def _price_stock(
     return None
 
 
+def _stock_tiers(
+    line: CutListLine, lengths: Sequence[int]
+) -> tuple[tuple[tuple[int, ...], ...], ...]:
+    """The stock a yard may sell one member of *line* as, in tiers of equally
+    good options, the line's own choice first. A length not every yard
+    stocks (18, 22 or 24 ft) falls to the next longer, up to the first that
+    every yard does (:data:`~loft_wire.lumber.COMMON_STOCK_LENGTHS_FT`): a
+    yard with no 18 ft quotes 20 ft, what Loft bought before it listed
+    18 ft. A common length stands alone, so a 12 ft line the book does not
+    price stays blank (its blank asks for the price) rather than buy 16 ft.
+    Then, for a member that may splice and is longer than the
+    :data:`~loft_wire.lumber.COMMON_MAX_STOCK_FT` every yard stocks, every
+    splice tier (:func:`stock_splice_tiers`), so a 24 ft plate is 16 + 8 at
+    a yard with no 24 ft. A one-piece member is never spliced."""
+    tiers: list[tuple[tuple[int, ...], ...]] = []
+    for feet in lengths:
+        if _covers(line.length_mm, feet):
+            tiers.append(((feet,),))
+            if feet in COMMON_STOCK_LENGTHS_FT:
+                break
+    if not line.one_piece and not _covers(line.length_mm, COMMON_MAX_STOCK_FT):
+        tiers.extend(_splice_tiers(line.length_mm, tuple(lengths)))
+    return tuple(tiers)
+
+
 def price_lines(
     lines: Sequence[CutListLine], book: PriceBookResponse
 ) -> list[CutListLine]:
     """*lines* priced from *book*, on the stock pieces bought: each line's
     unit price is an 'each' entry for its stock length (for a spliced line,
-    for every piece of a splice, :func:`_price_stock`, from the first (fewest
-    pieces, then least waste) tier of :func:`stock_splice_tiers` the book
-    prices whole, its offcut
-    recomputed), else a per-foot entry
+    for every piece of a splice, :func:`_price_stock`), from the first tier
+    of :func:`_stock_tiers` (its own stock, past 18, 22 or 24 ft a longer
+    single length, then for a member that may splice, the fewest pieces,
+    then least waste) the book
+    prices, its offcut recomputed, else a per-foot entry
     on the feet bought, else a per-board-foot entry (for its material and
     profile), and its extended price is that times its stock quantity (one
     per piece, a splice set counting once), so the offcut is paid for. A
@@ -1054,7 +1205,7 @@ def price_lines(
             and stock
             and quantity is not None
         ):
-            tiers = stock_splice_tiers(line.length_mm) if len(stock) > 1 else ()
+            tiers = _stock_tiers(line, stock_lengths_ft(lumber))
             if not tiers or tuple(stock) not in tiers[0]:
                 tiers = ((tuple(stock),),)
             found = None
@@ -1065,8 +1216,8 @@ def price_lines(
             if found is not None:
                 unit_price, unit, bought = found
                 update["stock_pieces_ft"] = list(bought)
-                update["waste_mm"] = round(
-                    sum(bought) * MM_PER_FOOT - line.length_mm, 6
+                update["waste_mm"] = max(
+                    0.0, round(sum(bought) * MM_PER_FOOT - line.length_mm, 6)
                 )
         priced.append(
             line.model_copy(
@@ -1235,6 +1386,8 @@ def _stock(line: CutListLine) -> str:
         return f"{line.sheet} sheet"
     if line.stock_pieces_ft:
         return splice_label(line.stock_pieces_ft)
+    if line.stock_note is not None:
+        return csv_text(line.stock_note)
     return "" if line.stock_length_ft is None else f"{line.stock_length_ft} ft"
 
 
