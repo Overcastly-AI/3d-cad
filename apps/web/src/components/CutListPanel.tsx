@@ -36,6 +36,10 @@
  * "16 ft + 8 ft" per member (the gateway's choice): its stock quantity counts
  * one splice set per member and its unit price is that set's pieces summed,
  * so stock qty × unit price is the extended price on every row.
+ *
+ * A window or door unit (OPENING-UNITS) is one line per call size, bought
+ * whole: Stock reads its size and kind ("3040 window"), and its blank price
+ * opens the book on that unit's key ('window_3040'), priced Each.
  */
 import {
   Button,
@@ -140,6 +144,18 @@ function seedFor(line: CutListLine): PriceBookSeed | null {
   ) {
     return null;
   }
+  if (line.unit !== null && line.unit !== undefined) {
+    // A custom-size unit has no key: no catalogue entry prices it.
+    const key = line.unit_key ?? null;
+    return key === null
+      ? null
+      : {
+          material: line.material,
+          profile: line.profile,
+          stockLengthFt: null,
+          unitKey: key,
+        };
+  }
   const sheet = line.sheet ?? null;
   if (sheet !== null) {
     return {
@@ -177,8 +193,12 @@ function splice(line: CutListLine): readonly number[] | null {
   return pieces !== null && pieces.length > 1 ? pieces : null;
 }
 
-/** What the line buys: "12 ft" of lumber, "9 × 4x9" sheets, or a dash. */
+/** What the line buys: "12 ft" of lumber, "9 × 4x9" sheets, a "3040
+ * window", or a dash. */
 function stockLabel(line: CutListLine): string {
+  if (line.unit !== null && line.unit !== undefined) {
+    return line.profile === null ? line.unit : `${line.profile} ${line.unit}`;
+  }
   if (line.area_mm2 !== null && line.area_mm2 !== undefined) {
     return line.sheet === null || line.sheet === undefined
       ? "—"
@@ -192,6 +212,7 @@ function stockLabel(line: CutListLine): string {
 /** How the line's unit price was reached, for its tooltip. */
 function priceBasis(line: CutListLine): string | undefined {
   if (line.price_unit === null) return undefined;
+  if (line.unit !== null && line.unit !== undefined) return "Each, per unit";
   if (line.sheet !== null && line.sheet !== undefined) {
     return `Each per ${line.sheet} sheet`;
   }
@@ -558,9 +579,11 @@ export function CutListPanel({
                         type="button"
                         data-testid="cut-list-price-blank"
                         aria-label={
-                          sheet === null
-                            ? `Price ${name}, ${line.profile} at ${stockLabel(line)}`
-                            : `Price ${name}, ${line.profile} ${sheet} sheet`
+                          line.unit !== null && line.unit !== undefined
+                            ? `Price ${name}, ${stockLabel(line)} unit`
+                            : sheet === null
+                              ? `Price ${name}, ${line.profile} at ${stockLabel(line)}`
+                              : `Price ${name}, ${line.profile} ${sheet} sheet`
                         }
                         aria-haspopup="dialog"
                         title="Not in your price book. Click to price it."

@@ -141,6 +141,20 @@ vi.mock("../api/materials", () => ({
         { key: "us_2x6", name: "2x6" },
       ],
       sheet_goods: [{ key: "osb_7_16", name: "7/16 OSB", material: "osb" }],
+      opening_units: [
+        {
+          key: "window_3040",
+          code: "3040",
+          kind: "window",
+          name: "Window 3040",
+          label: `3'0" x 4'0"`,
+          material: "pvc",
+          width_in: 36,
+          height_in: 48,
+          ro_width_in: 36.5,
+          ro_height_in: 48.5,
+        },
+      ],
       sheet_sizes: [
         { key: "4x8", width_in: 48, length_in: 96 },
         { key: "4x9", width_in: 48, length_in: 108 },
@@ -314,6 +328,81 @@ describe("CutListPanel", () => {
     const seeded = await screen.findByTestId("price-book-row");
     expect(seeded).toHaveAttribute("data-profile", "osb_7_16");
     expect(within(seeded).getByLabelText("Sheet, price 1")).toHaveValue("4x9");
+  });
+
+  it("lists a window unit by its size and kind, and prices it from its blank", async () => {
+    // OPENING-UNITS: B7's three 3040s, one Each line, not in the book yet.
+    const unit: CutListLine = {
+      member: "Window",
+      profile: "3040",
+      material: "pvc",
+      classification: "member",
+      quantity: 3,
+      length_mm: 48 * IN,
+      total_length_mm: 144 * IN,
+      section_mm: [3.5 * IN, 36 * IN],
+      system: "walls",
+      unit: "window",
+      unit_key: "window_3040",
+      stock_length_ft: null,
+      stock_pieces_ft: null,
+      waste_mm: null,
+      stock_quantity: 3,
+      unit_price_cents: null,
+      price_unit: null,
+      extended_price_cents: null,
+    };
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      total_quantity: 4,
+      unclassified: 0,
+      missing: [],
+      total_price_cents: null,
+      unpriced_lines: 2,
+      // A custom size has no key: listed, but no catalogue entry prices it.
+      lines: [
+        unit,
+        {
+          ...unit,
+          profile: "30 x 40 in",
+          quantity: 1,
+          stock_quantity: 1,
+          unit_key: null,
+        },
+      ],
+    });
+    renderPanel();
+    const [row, custom] = await screen.findAllByTestId("cut-list-row");
+    const line = within(row!);
+    expect(line.getByTestId("cut-list-stock")).toHaveTextContent("3040 window");
+    expect(within(custom!).getByTestId("cut-list-stock")).toHaveTextContent(
+      "30 x 40 in window",
+    );
+    expect(within(custom!).queryByTestId("cut-list-price-blank")).toBeNull();
+    // The full view lists the unit the same way, and prices it from there.
+    fireEvent.click(screen.getByTestId("cut-list-expand"));
+    const view = within(screen.getByTestId("cut-list-expanded"));
+    const [wide] = view.getAllByTestId("cut-list-row");
+    expect(within(wide!).getByTestId("cut-list-stock")).toHaveTextContent(
+      "3040 window",
+    );
+    fireEvent.click(
+      within(wide!).getByRole("button", {
+        name: "Price Window, 3040 window unit",
+      }),
+    );
+    const seeded = await screen.findByTestId("price-book-row");
+    expect(seeded).toHaveAttribute("data-profile", "window_3040");
+    expect(seeded).toHaveAttribute("data-kind", "unit");
+    expect(seeded).toHaveAttribute("data-material", "pvc");
+    expect(
+      within(seeded).getByTestId("price-book-stock-unit"),
+    ).toHaveTextContent("Unit");
+    await waitFor(() =>
+      expect(
+        within(seeded).getByLabelText("Price in dollars, price 1"),
+      ).toHaveFocus(),
+    );
   });
 
   it("shows a long member's splice and prices it per member", async () => {
