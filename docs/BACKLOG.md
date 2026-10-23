@@ -237,8 +237,6 @@ seventh pass) are in VISION's delegated log; reverse any there.
 
 One line each. The founder triages weekly; most are closed without work.
 
-- SUBFLOOR-GRAIN-ORIENT: the sheet count takes a floor panel's longer side as across the joists; a last column under 48 in across is the exception, as BodyExtent carries no orientation (RESEARCH §27).
-
 - OPENING-NEARER-LOFT-IMPORT: a hand-made .loft storing measure_from "nearer" keeps it on import (refresh_expansions does not settle), so the opening floats with the wall until the next edit settles it (loft_file.py:131).
 - OPENING-REFUSAL-FRAME: the end-stud refusal message gives positions from the wall start even when the opening is measured from the end or centre (wall.py:601).
 - OPENING-MEASURE-SWITCH: changing Measured from in the dialog moves the opening; Revit converts the distance so it stays put. Frontend follow-up with the both-ends readout.

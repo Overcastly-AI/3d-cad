@@ -297,6 +297,70 @@
       "BodyExtent": {
         "description": "One body's measured size (geometry, ``POST /api/v1/bodies/extents``).\n\n``extents_mm`` is the body's exact extent along the three axes of its own\nframe (the normals of its two largest perpendicular planar faces, else its\nprincipal axes of inertia), longest first. For a straight member that is\nits length and its section, whatever its orientation in the part.",
         "properties": {
+          "axes": {
+            "anyOf": [
+              {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The world direction of each extent (sign-free unit vectors), in extents_mm's order, so the cut list can tell which way a floor panel runs across the joists (SUBFLOOR-GRAIN). Absent from an older geometry service.",
+            "title": "Axes"
+          },
           "base_feature_id": {
             "description": "Id of the feature that created the body (its identity).",
             "format": "uuid",

@@ -44,9 +44,9 @@ two extents. Panels group by product, material and sheet (not by member or
 size), and a line buys the sheets its panels are CUT from, as a yard sells
 whole sheets (:func:`sheets_to_cut`, SHEET-COUNT-PIECES): each panel takes a
 sheet unless an earlier offcut of the line covers it whole, largest panels
-first, a saw kerf (:data:`SHEET_KERF_MM`) lost at every cut (SHEET-KERF) and
-a piece up to 1/8 in short filling its panel in APA's panel gap
-(SHEET-KERF-GAP). A floor panel keeps the sheet's strength axis across the
+first (:mod:`loft_wire.sheet_nesting`), a saw kerf lost at every cut
+(SHEET-KERF) and a piece up to 1/8 in short filling its panel in APA's panel
+gap (SHEET-KERF-GAP). A floor panel keeps the sheet's strength axis across the
 joists, so it is never turned to fit an offcut (SUBFLOOR-GRAIN); a wall
 panel may be. Openings are not credited (framers sheathe over them and cut
 them out), so a line's offcut area is its sheets' area less its net area.
@@ -119,12 +119,12 @@ from loft_wire.price_book import (
     PriceUnit,
 )
 from loft_wire.sheet_goods import (
-    SHEET_FIT_TOLERANCE_MM,
     SheetSize,
     SheetSizeKey,
     covering_sheet,
     sheet_good_for,
 )
+from loft_wire.sheet_nesting import sheets_to_cut
 from loft_wire.twist import is_none
 from loft_wire.units import LengthUnit
 
@@ -191,16 +191,6 @@ ONE_PIECE_ROLES: Final[frozenset[str]] = frozenset(
 #: Wall sheathing may run either way, so its panels may turn.
 GRAIN_LOCKED_ROLES: Final[frozenset[str]] = frozenset({"subfloor"})
 
-#: The saw kerf lost at every cut of a sheet (mm): 1/8 in, a circular saw's
-#: or panel saw's blade (SHEET-KERF). The panel gap absorbs one (two 48 in
-#: halves come from a 96 in sheet); kerfs past it do not (three 16 in rips
-#: do not come from one 48 in sheet).
-SHEET_KERF_MM: Final = 0.125 * MM_PER_INCH
-
-#: APA's gap between sheathing panels (mm): 1/8 in. A panel side within it
-#: of the sheet's is a full side, laid uncut (SHEET-KERF-HALVES).
-SHEET_GAP_MM: Final = 0.125 * MM_PER_INCH
-
 
 #: How a piece was identified: from a plugin member's metadata, by matching
 #: its section to a library profile, or not at all.
@@ -261,6 +251,10 @@ def _drop_schema_default(schema: dict[str, Any]) -> None:
     schema.pop("default", None)
 
 
+#: A direction in world coordinates.
+Vec3 = tuple[float, float, float]
+
+
 # --- geometry -> gateway ------------------------------------------------------------
 
 
@@ -279,6 +273,14 @@ class BodyExtent(BaseModel):
         description="Extents along the body's own axes (mm), longest first."
     )
     volume_mm3: float = Field(ge=0, description="The body's volume (mm^3).")
+    axes: tuple[Vec3, Vec3, Vec3] | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="The world direction of each extent (sign-free unit "
+        "vectors), in extents_mm's order, so the cut list can tell which way "
+        "a floor panel runs across the joists (SUBFLOOR-GRAIN). Absent from "
+        "an older geometry service.",
+    )
 
 
 class BodyExtentsResult(BaseModel):
@@ -672,6 +674,10 @@ class CutListPiece:
     one_piece: bool = False
     #: A panel that keeps the sheet's strength axis (:data:`GRAIN_LOCKED_ROLES`).
     keep_grain: bool = False
+    #: A grain-locked panel's face as ``(across its supports, along them)``
+    #: (mm), the side that must lie along the sheet's length first
+    #: (:func:`_across_along`); ``None`` for every other piece.
+    grain_mm: tuple[float, float] | None = None
 
     @property
     def panel(self) -> bool:
@@ -692,13 +698,37 @@ def _material(
     return None if materials is None else materials.default_material
 
 
+def _dot(a: Vec3, b: Vec3) -> float:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _across_along(body: BodyExtent, joist_axis: Vec3 | None) -> tuple[float, float]:
+    """A floor panel's face as ``(across the joists, along them)`` (mm).
+
+    The side across the joists is the face axis more nearly perpendicular to
+    the part's joists (*joist_axis*, a joist's length direction), as measured
+    by geometry (:attr:`BodyExtent.axes`). With no joist in the part, no
+    axes, or a face axis no nearer perpendicular than the other, the longer
+    side is taken as across, as the floor plugin lays its full panels."""
+    long, short = body.extents_mm[0], body.extents_mm[1]
+    if joist_axis is None or body.axes is None:
+        return long, short
+    first, second = (abs(_dot(axis, joist_axis)) for axis in body.axes[:2])
+    if abs(first - second) <= 1e-6:
+        return long, short
+    return (long, short) if first < second else (short, long)
+
+
 def classify_body(
     body: BodyExtent,
     member: CutListMember | None,
     materials: MaterialAssignment | None,
     count: int = 1,
+    joist_axis: Vec3 | None = None,
 ) -> CutListPiece:
-    """One body as a cut-list piece (module docstring)."""
+    """One body as a cut-list piece (module docstring). *joist_axis* is the
+    length direction of the part's joists, which orients a floor panel
+    (:func:`_across_along`)."""
     extents = body.extents_mm
     metadata = member.metadata if member is not None else None
     material = _material(body.base_feature_id, metadata, materials)
@@ -723,6 +753,7 @@ def classify_body(
         if good is not None:
             # A panel: its thinnest extent through it, the other two its face.
             thickness = extents[2]
+            keep = member.role in GRAIN_LOCKED_ROLES
             return CutListPiece(
                 member=member.title,
                 profile=good.name,
@@ -735,7 +766,8 @@ def classify_body(
                 sheet=covering_sheet(extents[0], extents[1]),
                 area_mm2=body.volume_mm3 / thickness if thickness > 0 else 0.0,
                 system="sheathing",
-                keep_grain=member.role in GRAIN_LOCKED_ROLES,
+                keep_grain=keep,
+                grain_mm=_across_along(body, joist_axis) if keep else None,
             )
         lumber = lumber_for(member.metadata.profile)
         split = None if lumber is None else _split(extents, lumber)
@@ -784,104 +816,22 @@ def part_pieces(
     materials: MaterialAssignment | None,
     count: int = 1,
 ) -> list[CutListPiece]:
-    """Every body of one part as pieces, in tree order (*count* of each)."""
+    """Every body of one part as pieces, in tree order (*count* of each).
+    The part's first joist with measured axes orients its floor panels
+    (SUBFLOOR-GRAIN)."""
     by_id = {member.feature_id: member for member in members}
+    joist_axis: Vec3 | None = None
+    for body in extents.bodies:
+        member = by_id.get(body.base_feature_id)
+        if member is not None and member.role == "joist" and body.axes is not None:
+            joist_axis = body.axes[0]
+            break
     return [
-        classify_body(body, by_id.get(body.base_feature_id), materials, count)
+        classify_body(
+            body, by_id.get(body.base_feature_id), materials, count, joist_axis
+        )
         for body in extents.bodies
     ]
-
-
-Rect = tuple[float, float]
-
-
-def _fits(panel: Rect, rect: Rect) -> bool:
-    """Whether a ``(long, short)`` *panel* is cut from *rect*: each side at
-    most :data:`SHEET_GAP_MM` short of the modelled panel's (SHEET-KERF-GAP).
-    Panels are laid with APA's 1/8 in gap, so a piece 1/8 in short on an
-    edge fills the panel and the gap absorbs the kerf: a 4x8 cut in half
-    gives two 47 15/16 in pieces that fill two 48 in squares."""
-    slack = SHEET_GAP_MM + SHEET_FIT_TOLERANCE_MM
-    return panel[0] <= rect[0] + slack and panel[1] <= rect[1] + slack
-
-
-def _leftovers(rect: Rect, panel: Rect, *, turn: bool) -> list[Rect]:
-    """What is left of *rect* once *panel* is cut from its corner, long side
-    along *rect*'s first side, a kerf (:data:`SHEET_KERF_MM`) lost at each
-    cut: the RIP the full length beside it, then the END across the panel's
-    width; slivers dropped. With *turn*, each is ``(long, short)``, so a
-    later panel may lie either way in it; without, each keeps the sheet's
-    frame, ``(along its length, along its width)``, so no panel turns.
-
-    A side within :data:`SHEET_GAP_MM` of *rect*'s is NOT cut (SHEET-KERF-
-    HALVES): a framer lays a full sheet, or a full-width rip, edge to edge
-    in APA's 1/8 in panel gap, so that side leaves no offcut and loses no
-    kerf. Only a side actually cut loses one."""
-    out: list[Rect] = []
-    pieces: list[Rect] = []
-    if panel[1] < rect[1] - SHEET_GAP_MM:
-        pieces.append((rect[0], rect[1] - panel[1] - SHEET_KERF_MM))
-    if panel[0] < rect[0] - SHEET_GAP_MM:
-        pieces.append((rect[0] - panel[0] - SHEET_KERF_MM, panel[1]))
-    for a, b in pieces:
-        if min(a, b) > SHEET_FIT_TOLERANCE_MM:
-            out.append((max(a, b), min(a, b)) if turn else (a, b))
-    return out
-
-
-def sheets_to_cut(
-    panels: Iterable[Rect], sheet: SheetSize, *, turn: bool = True
-) -> int:
-    """How many sheets of *sheet* the ``(length, width)`` *panels* are cut from
-    (SHEET-COUNT-PIECES): the yard sells whole sheets, so count what the
-    modelled panels are actually cut from, not their area.
-
-    Deterministic: the panels go largest face first (then longest, then
-    widest). Each is cut from the smallest offcut that covers it whole (the
-    earliest of equal ones), else from a new sheet. A panel is cut from a
-    corner, long side along the sheet's, leaving a rip the full length
-    beside it and an end across it, both offcuts for later panels, less a
-    1/8 in kerf at each cut (SHEET-KERF), a piece up to 1/8 in short still
-    filling its panel in the panel gap (:func:`_fits`): three 16 in rips
-    take two 48 in sheets, two 24 in rips one. With *turn* false (a floor's
-    panels, SUBFLOOR-GRAIN) a panel's
-    long side stays along the sheet's length, its strength axis, so an
-    offcut narrower along the sheet than the panel is long never takes it;
-    with *turn* (wall sheathing) a panel may lie either way in an offcut.
-    Openings are not credited: a panel is its whole face, as framers
-    sheathe over an opening and cut it out."""
-    rects = sorted(
-        ((max(a, b), min(a, b)) for a, b in panels),
-        key=lambda r: (
-            -round(r[0] * r[1], LENGTH_DECIMALS),
-            -round(r[0], LENGTH_DECIMALS),
-            -round(r[1], LENGTH_DECIMALS),
-        ),
-    )
-    if not rects:
-        return 0
-    smallest = (min(r[0] for r in rects), min(r[1] for r in rects))
-    whole: Rect = (sheet.length_mm, sheet.width_mm)
-    offcuts: list[Rect] = []
-    sheets = 0
-    for panel in rects:
-        best: int | None = None
-        for index, offcut in enumerate(offcuts):
-            if _fits(panel, offcut) and (
-                best is None
-                or offcut[0] * offcut[1] < offcuts[best][0] * offcuts[best][1]
-            ):
-                best = index
-        if best is None:
-            sheets += 1
-            source = whole
-        else:
-            source = offcuts.pop(best)
-        # An offcut no panel could fit is dropped, keeping the scan short.
-        offcuts.extend(
-            r for r in _leftovers(source, panel, turn=turn) if _fits(smallest, r)
-        )
-    return sheets
 
 
 def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
@@ -903,7 +853,11 @@ def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
     else:
         length, width = round(sheet.length_mm, 6), round(sheet.width_mm, 6)
         sheets = sheets_to_cut(
-            ((p.length_mm, p.section_mm[1]) for p in pieces for _ in range(p.count)),
+            (
+                p.grain_mm or (p.length_mm, p.section_mm[1])
+                for p in pieces
+                for _ in range(p.count)
+            ),
             sheet,
             turn=not any(p.keep_grain for p in pieces),
         )
@@ -1234,6 +1188,9 @@ def price_lines(
             if found is not None:
                 unit_price, unit, bought = found
                 update["stock_pieces_ft"] = list(bought)
+                # The stock shown is the stock bought: an 18 ft line priced
+                # at 20 ft reads 20 ft, a 24 ft line spliced 16 + 8 none.
+                update["stock_length_ft"] = bought[0] if len(bought) == 1 else None
                 update["waste_mm"] = max(
                     0.0, round(sum(bought) * MM_PER_FOOT - line.length_mm, 6)
                 )

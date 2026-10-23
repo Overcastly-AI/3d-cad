@@ -485,6 +485,8 @@ def test_a_splice_is_priced_on_its_pieces_each_per_foot_or_board_foot() -> None:
         2046,
         "each",
     )
+    # Bought as a splice, it has no single stock length (it listed 24 ft).
+    assert line.stock_length_ft is None
     assert (line.stock_quantity, line.extended_price_cents) == (4, 8184)
     # With 12 ft priced too, 2 x 12 at 12.00 beats 16 + 8 at 20.46.
     (line,) = _priced(plate, [*each, _each(SPF, "us_2x6", 12, 600)]).lines
@@ -721,6 +723,8 @@ def test_a_shorter_stock_the_book_lacks_falls_to_the_next_it_prices() -> None:
     (line,) = _priced(rafters, [_each(SPF, "us_2x8", 20, 2297)]).lines
     assert (line.stock_pieces_ft, line.unit_price_cents) == ([20], 2297)
     assert line.waste_mm == pytest.approx(36 * MM_PER_INCH)
+    # The stock shown is the stock bought: 20 ft, not the 18 ft first choice.
+    assert line.stock_length_ft == 20
     # A length every yard stocks stands alone: a 12 ft joist with only 16 ft
     # priced stays blank, so its blank asks for the 12 ft price.
     joists = _one_piece("Joist", "2x10", PT, 2, 141.0)

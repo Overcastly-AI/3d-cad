@@ -3188,10 +3188,24 @@ SolidWorks cut the body the picked face belongs to.
   the sheet's length and is never turned to fit an offcut: its offcuts
   keep the sheet's frame. Wall sheathing (role `sheathing`) may run either
   way, so its panels turn to fit. Subfloor and wall panels of one product
-  are separate lines. The count assumes a floor panel's longer side is its
-  across-the-joists side, true of every panel the floor plugin lays (rows
-  48 in along the joists, panels 96 across) except a last column under
-  48 in across, whose orientation the measured extents do not carry.
+  are separate lines. A panel's true orientation comes from geometry:
+  `/bodies/extents` now gives each extent's world direction
+  (`BodyExtent.axes`), and the part's joists (role `joist`) give the joist
+  direction, so a panel's across side is its face axis more nearly
+  perpendicular to the joists (`_across_along`), kept as `(across, along)`
+  through `sheets_to_cut`, which no longer turns a floor panel to
+  `(long, short)`. A last-column panel 30 in across and 48 along is cut
+  across the sheet's length (three to a 4x8, where turned they took two).
+  With no joist in the part or no axes (an older geometry), the longer side
+  is taken as across, as every full panel lies. B5's and B7's subfloors (both
+  spans) lie 96 across, so their counts are unchanged.
+- **Review fixes** (2026-10-23). The END left by a panel up to 1/8 in wider
+  than its offcut records the material's width, `min(panel, offcut)`, so
+  the gap's 1/8 in never compounds (96 x 24, 40 x 24, 30 x 24.125 and
+  20 x 24.25 take 2 sheets, not 1). A line priced on a longer single length
+  than it listed (18 ft bought as 20 ft) shows the length bought in
+  `stock_length_ft`, and one bought as a splice shows none. The nesting
+  moved to `loft_wire.sheet_nesting`.
 - **Saves are versioned** (PRICE-BOOK-VERSION, migration 0023). The book has
   a `version`, 0 until the first save and one more per save, served in the
   body and as the `ETag`. A `PUT` sends the version its draft was read at in

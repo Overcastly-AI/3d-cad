@@ -1222,6 +1222,27 @@ export interface components {
          */
         BodyExtent: {
             /**
+             * Axes
+             * @description The world direction of each extent (sign-free unit vectors), in extents_mm's order, so the cut list can tell which way a floor panel runs across the joists (SUBFLOOR-GRAIN). Absent from an older geometry service.
+             */
+            axes?: [
+                [
+                    number,
+                    number,
+                    number
+                ],
+                [
+                    number,
+                    number,
+                    number
+                ],
+                [
+                    number,
+                    number,
+                    number
+                ]
+            ] | null;
+            /**
              * Base Feature Id
              * Format: uuid
              * @description Id of the feature that created the body (its identity).

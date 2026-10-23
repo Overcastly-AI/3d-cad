@@ -14,11 +14,12 @@ from typing import Any, get_args
 import pytest
 from loft_wire.cut_list import (
     BodyExtent,
+    BodyExtentsResult,
     CutListMember,
     classify_body,
     cut_list_csv,
     cut_list_response,
-    sheets_to_cut,
+    part_pieces,
 )
 from loft_wire.materials import MATERIALS_BY_KEY, MaterialKey
 from loft_wire.plugins import MemberMetadata
@@ -37,6 +38,10 @@ from loft_wire.sheet_goods import (
     SheetMaterialKey,
     covering_sheet,
     sheet_good_for,
+)
+from loft_wire.sheet_nesting import (
+    _leftovers,  # pyright: ignore[reportPrivateUsage]
+    sheets_to_cut,
 )
 from pydantic import ValidationError
 
@@ -284,6 +289,89 @@ def test_a_floor_panel_keeps_the_sheets_strength_axis() -> None:
         ("Subfloor", 2),
         ("Sheathing", 1),
     ]
+
+
+def test_a_piece_is_never_more_than_an_eighth_short() -> None:
+    """The gap absorbs 1/8 in once, not per piece: a 40 x 24 panel cut from
+    a 96 x 23.875 rip leaves an end 23.875 wide (the material), not 24 (the
+    panel), so a 30 x 24.125 and a 20 x 24.25 after it do not fit."""
+    leftovers = _leftovers((96 * IN, 23.875 * IN), (40 * IN, 24 * IN), turn=True)
+    assert leftovers == [(pytest.approx(55.875 * IN), pytest.approx(23.875 * IN))]
+    assert _leftovers((96 * IN, 23.875 * IN), (40 * IN, 24 * IN), turn=False) == [
+        (pytest.approx(55.875 * IN), pytest.approx(23.875 * IN))
+    ]
+    sheet = SHEET_SIZES_BY_KEY["4x8"]
+    panels = [(96, 24), (40, 24), (30, 24.125), (20, 24.25)]
+    assert sheets_to_cut([(a * IN, b * IN) for a, b in panels], sheet) == 2
+
+
+def _oriented(
+    across: float, along: float, across_axis: tuple[float, float, float]
+) -> tuple[BodyExtent, CutListMember]:
+    """A 23/32 subfloor panel *across* x *along* (in), its across side along
+    *across_axis* in the world, the joists along the other face axis."""
+    body, member = _panel(
+        max(across, along),
+        min(across, along),
+        23 / 32,
+        across * along,
+        "Subfloor",
+        "23/32 plywood",
+    )
+    other = (0.0, 1.0, 0.0) if across_axis == (1.0, 0.0, 0.0) else (1.0, 0.0, 0.0)
+    first, second = (across_axis, other) if across >= along else (other, across_axis)
+    body = body.model_copy(update={"axes": (first, second, (0.0, 0.0, 1.0))})
+    return body, member
+
+
+def test_a_floor_panel_runs_across_the_joists_as_laid() -> None:
+    """SUBFLOOR-GRAIN in the panel's true orientation: geometry's axes and
+    the part's joists say which side runs across them. Three 30 x 48 last-
+    column panels (30 across the joists, 48 along) are cut across one 96 in
+    sheet's length; turned long side along the sheet, as the extents alone
+    read them, they took 2."""
+    joist = BodyExtent(
+        base_feature_id=uuid.uuid4(),
+        extents_mm=(189 * IN, 9.25 * IN, 1.5 * IN),
+        volume_mm3=189 * 9.25 * 1.5 * IN**3,
+        axes=((0.0, 1.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0)),
+    )
+    joist_member = CutListMember(
+        feature_id=joist.base_feature_id,
+        role="joist",
+        title="Joist",
+        metadata=MemberMetadata(profile="2x10", material="spf_lumber"),
+    )
+    panels = [_oriented(30, 48, (1.0, 0.0, 0.0)) for _ in range(3)]
+    bodies = [joist, *(b for b, _ in panels)]
+    members = [joist_member, *(m for _, m in panels)]
+    result = BodyExtentsResult(part_id=uuid.uuid4(), tree_version=1, bodies=bodies)
+    pieces = part_pieces(result, members, None)
+    assert [p.grain_mm for p in pieces[1:]] == [
+        (pytest.approx(30 * IN), pytest.approx(48 * IN))
+    ] * 3
+    lines = cut_list_response(
+        document_id=uuid.uuid4(),
+        document_kind="part",
+        name="F",
+        length_unit="in",
+        pieces=pieces,
+    ).lines
+    assert [(ln.member, ln.stock_quantity) for ln in lines if ln.sheet] == [
+        ("Subfloor", 1)
+    ]
+    # The extents alone (no joist, no axes) read 48 x 30, long side across.
+    assert (
+        sheets_to_cut([(48 * IN, 30 * IN)] * 3, SHEET_SIZES_BY_KEY["4x8"], turn=False)
+        == 2
+    )
+    # A full panel lies across the joists, its 96 in side along the sheet.
+    body, member = _oriented(96, 48, (1.0, 0.0, 0.0))
+    result = BodyExtentsResult(
+        part_id=uuid.uuid4(), tree_version=1, bodies=[joist, body]
+    )
+    (_, full) = part_pieces(result, [joist_member, member], None)
+    assert full.grain_mm == (pytest.approx(96 * IN), pytest.approx(48 * IN))
 
 
 def test_panels_too_big_for_any_sheet_are_listed_unbought() -> None:
