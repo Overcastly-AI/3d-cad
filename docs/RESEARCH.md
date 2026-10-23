@@ -2670,7 +2670,6 @@ and reframe it, a material per member, and a cut list that is always current.
   - *A maker's line* is a catalogue (`OpeningUnitSize` rows) fed to the same
     Size choice; the built-in openings read the built-in catalogue. Wiring a
     maker plugin id into the wall's hosted-opening lookup is not built yet.
-<<<<<<< HEAD
 - **Decided while turning the floor's joists** (FLOOR-JOIST-SPAN,
   2026-10-23; Chief Architect frames a floor across its shorter span with a
   joist-direction arrow you can turn, Revit's floor has a picked span
@@ -2701,7 +2700,6 @@ and reframe it, a material per member, and a cut list that is always current.
     104 217.375 in³. Both by hand in exact rationals, matched by an
     independent build123d script on STEP, no interference. Goldens
     `b7-floor-long-walls` and `b7-floor-left-right`.
-=======
 - **Decided while filling a 2x6 wall's header** (HEADER-PLIES, 2026-10-23;
   IRC R602.7 and Table R602.7(1), common platform framing, APA's Advanced
   Framing guide for the insulated header):
@@ -2738,7 +2736,6 @@ and reframe it, a material per member, and a cut list that is always current.
     with its 3068 door and 2030 window at 1.4.0: 66 bodies, all 2x6, 5479 in
     of lumber, 45 201.75 in³ by hand, the headers 3 x 41 and 3 x 27.5, and
     no interference. Golden `b2-2x6-walls-header-plies`.
->>>>>>> 6b04ed5 (docs: record HEADER-PLIES kernel decisions (RESEARCH 23))
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

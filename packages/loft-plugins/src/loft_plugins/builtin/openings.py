@@ -770,8 +770,9 @@ def _with_header_build(manifest: PluginManifest) -> PluginManifest:
                 kind="choice",
                 name="header_build",
                 label="Header build",
-                description="Fill the wall: plies with 1/2 in spacers to the "
-                "wall's thickness (two in a 2x4 wall, three in a 2x6). Two "
+                description="Fill the wall: plies spaced to the wall's "
+                "thickness (two in a 2x4 wall and three in a 2x6, with 1/2 in "
+                "spacers; three in a 2x8, with wider gaps). Two "
                 "plies: one at each face, rigid foam between (an insulated "
                 "header).",
                 options=[
