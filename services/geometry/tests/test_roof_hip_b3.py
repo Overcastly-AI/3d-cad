@@ -358,8 +358,9 @@ def test_the_cut_list_is_buildings_md_b3(name: str) -> None:
     hip_overall = spec["hip"] + 7.25 * k / R2
     want = [
         ("Common", "2x6", 6, spec["common"] + 5.5 * k, 8),
-        ("Jack", "2x6", 8, spec["jack_long"] + 5.5 * k + cheek, 8),
+        # One member's lines shortest first (CUT-LIST-PANEL).
         ("Jack", "2x6", 8, spec["jack_short"] + 5.5 * k + cheek, 8),
+        ("Jack", "2x6", 8, spec["jack_long"] + 5.5 * k + cheek, 8),
         ("Hip", "2x8", 4, hip_overall, 10),
         ("Ridge", "2x8", 1, 25.5, 8),
     ]
@@ -367,8 +368,8 @@ def test_the_cut_list_is_buildings_md_b3(name: str) -> None:
     for got, expected in zip(rows, want, strict=True):
         assert got[:3] == expected[:3] and got[4] == expected[4]
         assert got[3] == pytest.approx(expected[3], abs=1.5e-3), got
-    if name == "b3-hip-6-12":  # buildings.md's table, as printed
-        assert [r[3] for r in rows] == [82.410, 56.068, 29.235, 109.438, 25.5]
+    if name == "b3-hip-6-12":  # buildings.md's table, the jacks shortest first
+        assert [r[3] for r in rows] == [82.410, 29.235, 56.068, 109.438, 25.5]
     assert {line.material for line in cut_list.lines} == {"spf_lumber"}
     assert cut_list.unclassified == 0
 

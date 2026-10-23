@@ -279,6 +279,13 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # rounding over 26 sloped rafters and the notched OSB (3.6e-4 at worst,
         # the build123d twin's).
         "b7-outline",
+        # B7 grown to 336, the left window moved to 84, its openings measured
+        # from the X 0 end (OPENING-FROM-END): b7-outline's class, 4.2e-4 at
+        # worst (the twin's).
+        "b7-front-wall-from-end",
+        # B3's hip on B2's sheathed outline, its tails and hips notched out of
+        # the OSB (ROOF-HIP-SHEATHING-NOTCH): b3-hip's STEP rounding, 2.5e-4.
+        "b3-outline-hip-sheathed",
     }
 )
 

@@ -21,7 +21,13 @@ import {
   type CutListResponse,
   fetchCutList,
 } from "../api/cutList";
-import { CutListPanel, spliceLabel, unpricedLabel } from "./CutListPanel";
+import {
+  CutListPanel,
+  groupBySystem,
+  spliceLabel,
+  SYSTEM_LABEL,
+  unpricedLabel,
+} from "./CutListPanel";
 
 const IN = 25.4;
 
@@ -38,6 +44,7 @@ const RESPONSE: CutListResponse = {
   unpriced_lines: 2,
   lines: [
     {
+      system: "deck",
       member: "Joist",
       profile: "2x10",
       material: "southern_pine_pt",
@@ -55,6 +62,7 @@ const RESPONSE: CutListResponse = {
       extended_price_cents: 25974,
     },
     {
+      system: "other",
       member: null,
       profile: "6x6",
       material: "southern_pine_pt",
@@ -73,6 +81,7 @@ const RESPONSE: CutListResponse = {
       extended_price_cents: null,
     },
     {
+      system: "other",
       member: null,
       profile: null,
       material: null,
@@ -263,6 +272,7 @@ describe("CutListPanel", () => {
       unpriced_lines: 1,
       lines: [
         {
+          system: "sheathing",
           member: "Sheathing",
           profile: "7/16 OSB",
           material: "osb",
@@ -309,6 +319,7 @@ describe("CutListPanel", () => {
   it("shows a long member's splice and prices it per member", async () => {
     // B7's 288 in top plates and sills (CUT-LIST-LONG-STOCK): 24 ft, spliced.
     const plate = {
+      system: "walls",
       member: "Top plate",
       profile: "2x6",
       material: "southern_pine_pt",
@@ -389,6 +400,7 @@ describe("CutListPanel", () => {
       unpriced_lines: 1,
       lines: [
         {
+          system: "floor",
           member: "Rim",
           profile: "2x6",
           material: "southern_pine_pt",
@@ -424,6 +436,66 @@ describe("CutListPanel", () => {
     expect(
       within(rows[1]!).getByLabelText("Stock length, price 2"),
     ).toHaveValue("8");
+  });
+
+  it("heads each system's lines as a group and never cuts a member's name", async () => {
+    // CUT-LIST-PANEL: the gateway's order, a takeoff's categories.
+    const base = RESPONSE.lines![0]!;
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      lines: [
+        { ...base, system: "floor", member: "Sill" },
+        { ...base, system: "walls", member: "Header" },
+        { ...base, system: "walls", member: "Bottom plate, pressure-treated" },
+        { ...base, system: "roof", member: "Rafter" },
+      ],
+    });
+    renderPanel();
+    await screen.findAllByTestId("cut-list-row");
+    const groups = screen.getAllByTestId("cut-list-group");
+    expect(groups.map((g) => g.dataset.system)).toEqual([
+      "floor",
+      "walls",
+      "roof",
+    ]);
+    expect(
+      screen.getAllByTestId("cut-list-group-label").map((g) => g.textContent),
+    ).toEqual(["Floor1", "Walls2", "Roof1"]);
+    const walls = within(groups[1]!).getAllByTestId("cut-list-member");
+    expect(walls.map((m) => m.textContent)).toEqual([
+      "Header",
+      "Bottom plate, pressure-treated",
+    ]);
+    for (const member of walls) expect(member).not.toHaveClass("truncate");
+    // The figures never wrap; the member column does.
+    expect(
+      within(groups[1]!).getAllByTestId("cut-list-ext-price")[0],
+    ).toHaveClass("whitespace-nowrap");
+  });
+
+  it("does not head a list of one system", async () => {
+    const base = RESPONSE.lines![0]!;
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      lines: [base, { ...base, member: "Rim" }],
+    });
+    renderPanel();
+    await screen.findAllByTestId("cut-list-row");
+    expect(screen.queryAllByTestId("cut-list-group-label")).toHaveLength(0);
+  });
+
+  it("groups runs of one system in the gateway's order", () => {
+    const base = RESPONSE.lines![0]!;
+    const groups = groupBySystem([
+      { ...base, system: "floor" },
+      { ...base, system: "floor" },
+      { ...base, system: "sheathing" },
+    ]);
+    expect(groups.map((g) => [g.system, g.lines.map((l) => l.index)])).toEqual([
+      ["floor", [0, 1]],
+      ["sheathing", [2]],
+    ]);
+    expect(SYSTEM_LABEL.sheathing).toBe("Sheathing");
   });
 
   it("writes a splice as a framer does", () => {

@@ -8,8 +8,15 @@
  * Pure positioning + collapse chrome: the content keeps its own testids and
  * scroll. Default is expanded — collapse is a real, user-driven state.
  */
-import { cx, ScrollRegion } from "@loft/design";
-import { useEffect, useState, type ReactNode } from "react";
+import { cx, layout, ScrollRegion } from "@loft/design";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
 
 import { announceChromeChange } from "../viewport/fitFraming";
 import { useRailSlot } from "./ChromeRail";
@@ -40,12 +47,27 @@ export interface FloatingPanelProps {
    */
   footer?: ReactNode;
   /**
-   * The panel's width token: `inspector` (320: the tree, the inspector) or
-   * `parameters` (the Parameters table's five columns). In a rail that holds
-   * two widths, a panel hugs its own side's edge, so a narrower one never
-   * floats in the middle of the column.
+   * The panel's width token: `inspector` (320: the tree, the inspector),
+   * `parameters` (the Parameters table's five columns) or `cut-list` (the
+   * Cut list's takeoff table). In a rail that holds two widths, a panel hugs
+   * its own side's edge, so a narrower one never floats in the middle of the
+   * column.
    */
-  width?: "inspector" | "parameters";
+  width?: "inspector" | "parameters" | "cut-list";
+  /**
+   * In a rail beside a full-height VIEW (the Cut list, as Chief Architect's
+   * Materials List opens), this panel gives way first, down to its
+   * `min-h-rail-panel` floor, so the view takes the column. Set by the rail's
+   * owner, which knows the view is open.
+   */
+  yields?: boolean;
+  /**
+   * The panel's inner edge drags wider (a palette's sash, as in Fusion): the
+   * width token is the floor, the frame less a tree's column the ceiling.
+   * Keyboard: the sash is a focusable separator; the arrow keys move it,
+   * Home resets it.
+   */
+  resizable?: boolean;
   /**
    * In a rail shared with another panel, this one is where the user is
    * WORKING: it keeps its content height (up to 60 % of the column) and its
@@ -59,7 +81,21 @@ export interface FloatingPanelProps {
 const WIDTH = {
   inspector: "w-inspector",
   parameters: "w-parameters",
+  "cut-list": "w-cut-list",
 } as const;
+
+/** The width tokens in px: a resizable panel's floor. */
+const WIDTH_PX = {
+  inspector: layout.inspectorWidth,
+  parameters: layout.parametersPanelWidth,
+  "cut-list": layout.cutListPanelWidth,
+} as const;
+
+/** One arrow-key step of the sash (px); with Shift, four. */
+const SASH_STEP = 32;
+
+/** The two frame insets (`left-3`, `right-3`) a resized panel keeps clear. */
+const FRAME_INSETS = 24;
 
 /** A railed panel's edge: the frame edge its rail is anchored to. */
 const RAIL_EDGE = { left: "self-start", right: "self-end" } as const;
@@ -86,8 +122,14 @@ export function FloatingPanel({
   footer,
   width = "inspector",
   holds = false,
+  yields = false,
+  resizable = false,
 }: FloatingPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
+  /** A resized panel's width (px); null keeps the token's. */
+  const [dragged, setDragged] = useState<number | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const drag = useRef<{ x: number; width: number } | null>(null);
   // Inside a `ChromeRail` the panel is a FLOW child of the column it shares
   // with the feature editor, not an absolutely-placed card: the rail owns the
   // seat, the inset and the clamp, and the panel takes whatever the editor
@@ -102,6 +144,57 @@ export function FloatingPanel({
     if (railed) return;
     announceChromeChange();
   }, [collapsed, railed]);
+
+  /** The widest the panel may grow: the frame less the other side's tree. */
+  function ceiling(): number {
+    const node = panelRef.current;
+    // Railed, the rail is the absolutely placed box; floating, the panel is.
+    const frame = railed
+      ? node?.parentElement?.offsetParent
+      : node?.offsetParent;
+    const frameWidth =
+      frame instanceof HTMLElement ? frame.clientWidth : window.innerWidth;
+    return Math.max(
+      WIDTH_PX[width],
+      frameWidth - FRAME_INSETS - layout.inspectorWidth,
+    );
+  }
+  function resizeTo(next: number) {
+    const clamped = Math.min(ceiling(), Math.max(WIDTH_PX[width], next));
+    setDragged(clamped === WIDTH_PX[width] ? null : Math.round(clamped));
+  }
+  const current = dragged ?? WIDTH_PX[width];
+  // A right panel widens leftwards: its sash is its left edge.
+  const outward = side === "right" ? -1 : 1;
+  function onSashDown(event: PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    drag.current = {
+      x: event.clientX,
+      width: panelRef.current?.getBoundingClientRect().width ?? current,
+    };
+  }
+  function onSashMove(event: PointerEvent<HTMLDivElement>) {
+    if (drag.current === null) return;
+    resizeTo(drag.current.width + outward * (event.clientX - drag.current.x));
+  }
+  function onSashUp(event: PointerEvent<HTMLDivElement>) {
+    drag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+  function onSashKey(event: KeyboardEvent<HTMLDivElement>) {
+    const step = SASH_STEP * (event.shiftKey ? 4 : 1);
+    let next: number | null = null;
+    if (event.key === "ArrowLeft") next = current - outward * step;
+    else if (event.key === "ArrowRight") next = current + outward * step;
+    else if (event.key === "Home") next = WIDTH_PX[width];
+    else if (event.key === "End") next = ceiling();
+    if (next === null) return;
+    event.preventDefault();
+    resizeTo(next);
+  }
 
   if (collapsed) {
     return (
@@ -131,12 +224,22 @@ export function FloatingPanel({
 
   return (
     <div
+      ref={panelRef}
       data-viewport-chrome={`panel-${id}`}
+      style={dragged === null ? undefined : { width: dragged }}
       className={cx(
         "pointer-events-auto flex flex-col",
         WIDTH[width],
         railed && RAIL_EDGE[side],
         railed && holds && "max-h-[60%] shrink-0",
+        // A yielding panel shrinks by a weight 1000x its neighbour's (flex
+        // shrinks by weight x basis), so it gives way to its floor before the
+        // view beside it gives up a pixel: a long view takes the column, a
+        // short one keeps its content height and the rest stays this panel's.
+        // The weight is put on the yielder, not a fraction on the view: a
+        // shrink sum under 1 distributes only that fraction of the overflow
+        // (CSS Flexbox 9.7.4), and a 0.001 view overflowed the rail.
+        railed && yields && "shrink-[1000]",
         railed
           ? // A flow child of the rail: shrinkable so a tall editor can take the
             // room it needs, floored at `min-h-rail-panel` so the tree it was
@@ -158,6 +261,30 @@ export function FloatingPanel({
             ),
       )}
     >
+      {resizable ? (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={`Resize ${title}`}
+          aria-valuemin={WIDTH_PX[width]}
+          aria-valuenow={current}
+          tabIndex={0}
+          data-testid={`panel-resize-${id}`}
+          onPointerDown={onSashDown}
+          onPointerMove={onSashMove}
+          onPointerUp={onSashUp}
+          onPointerCancel={onSashUp}
+          onKeyDown={onSashKey}
+          onDoubleClick={() => resizeTo(WIDTH_PX[width])}
+          title="Drag to widen; double-click to reset"
+          className={cx(
+            "absolute inset-y-0 z-10 w-1.5 cursor-col-resize touch-none",
+            side === "right" ? "-left-0.5" : "-right-0.5",
+            "transition-colors duration-fast hover:bg-brass/40",
+            "focus-visible:bg-brass/60 focus-visible:outline-none",
+          )}
+        />
+      ) : null}
       {/* Collapse tab — pinned to the heading row's empty right corner (the
           eyebrow text is left-aligned, so no content is ever covered). */}
       <button

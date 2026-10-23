@@ -34,16 +34,16 @@ const WALLS: [number, number, number, number][] = [
 const SHED: CutRow[] = [
   ["Stud", "36", "92.625", "8 ft"],
   ["Jack", "4", "81", "8 ft"],
+  ["Header", "2", "27.5", "8 ft"],
   ["Header", "2", "41", "8 ft"],
   ["Cripple", "4", "6.125", "8 ft"],
+  ["Cripple", "2", "43", "8 ft"],
+  ["Top plate", "4", "113", "10 ft"],
   ["Top plate", "4", "144", "12 ft"],
   ["Bottom plate", "2", "53", "8 ft"],
-  ["Top plate", "4", "113", "10 ft"],
   ["Bottom plate", "2", "113", "10 ft"],
   ["Bottom plate", "1", "144", "12 ft"],
-  ["Header", "2", "27.5", "8 ft"],
   ["Sill", "1", "24.5", "8 ft"],
-  ["Cripple", "2", "43", "8 ft"],
   ["Rafter", "14", "82.4099", "8 ft"],
   ["Ridge", "1", "144", "12 ft"],
 ];
@@ -96,7 +96,7 @@ test.describe("B2 shed — from Build features only", () => {
     }
     await expectSolved(page);
 
-    // Build ▾ > Door: the front wall (Wall 1), centred 72 from its start.
+    // Build ▾ > Door: the front wall (Wall 1), centred 72 from an end (the middle).
     await openBuildTool(page, "loft.door", "Door");
     const host = page.getByTestId("plugin-input-host_wall");
     await expect(host.locator("option")).toHaveText([

@@ -207,10 +207,10 @@ class Wall:
         return (min(xs), max(xs), min(ys), max(ys), BASE + z0, BASE + z1)
 
 
-def walls(length: float) -> list[Wall]:
+def walls(length: float, left: float = 60.0) -> list[Wall]:
     """Clockwise from the front: the front and back run the full length, the
-    sides fit between them (181); B7's openings at X 60, 144, 228 (front), X
-    144 (back) and centred on each side."""
+    sides fit between them (181); B7's openings at X *left* (60), 144, 228
+    (front), X 144 (back) and centred on each side."""
     big = (36.0, 48.0)
     return [
         Wall(
@@ -221,7 +221,7 @@ def walls(length: float) -> list[Wall]:
             length,
             (
                 door(length - 144),
-                window(length - 60, *big),
+                window(length - left, *big),
                 window(length - 228, *big),
             ),
         ),
@@ -310,20 +310,20 @@ def floor_boxes(length: float) -> list[tuple[str, str, Bounds]]:
     return out
 
 
-def framing_boxes(length: float) -> list[tuple[str, str, Bounds]]:
+def framing_boxes(length: float, left: float = 60.0) -> list[tuple[str, str, Bounds]]:
     return [
         (member, material, wall.box(*local))
-        for wall in walls(length)
+        for wall in walls(length, left)
         for member, material, *local in wall_frame(wall.length, wall.openings)  # type: ignore[misc]
     ]
 
 
-def panel_boxes(length: float) -> list[tuple[Bounds, list[Bounds]]]:
+def panel_boxes(length: float, left: float = 60.0) -> list[tuple[Bounds, list[Bounds]]]:
     """Each OSB panel's box and the rough openings to cut from it: 48 in
     from each wall's start, outside its face, full height; the side walls'
     four corner rips 5.5 + 7/16 wide past their ends."""
     out: list[tuple[Bounds, list[Bounds]]] = []
-    for wall in walls(length):
+    for wall in walls(length, left):
         holes = [
             wall.box(
                 o.centre - o.width / 2,
@@ -359,15 +359,16 @@ def ridge(length: float) -> Bounds:
     return (0, length, W / 2 - T / 2, W / 2 + T / 2, top - RIDGE_D, top)
 
 
-def script(length: float = 288.0) -> list[Member]:
-    """B7 at *length*: every member a build123d solid, each panel a box less
-    its openings and the rafter tails that pass through it."""
+def script(length: float = 288.0, left: float = 60.0) -> list[Member]:
+    """B7 at *length*, its left front window at X *left*: every member a
+    build123d solid, each panel a box less its openings and the rafter tails
+    that pass through it."""
     out = [
         Member(m, mat, box(b))
-        for m, mat, b in floor_boxes(length) + framing_boxes(length)
+        for m, mat, b in floor_boxes(length) + framing_boxes(length, left)
     ]
     tails = rafters(length)
-    for panel, holes in panel_boxes(length):
+    for panel, holes in panel_boxes(length, left):
         solid = box(panel)
         for hole in holes:
             solid = solid.cut(box(hole)).solids()[0]  # pyright: ignore[reportUnknownMemberType]
@@ -403,16 +404,17 @@ def notch_per_rafter() -> Fraction:
     return Fraction(3, 2) * Fraction(1, 2) * (seat * s + s * s / 2)
 
 
-def analytic_volume(length: float, notched: bool = True) -> float:
+def analytic_volume(length: float, notched: bool = True, left: float = 60.0) -> float:
     """Boxes and panels in exact rationals, the rafters by the shoelace."""
     exact = Fraction(0)
-    for _, _, (x0, x1, y0, y1, z0, z1) in floor_boxes(length) + framing_boxes(length):
+    boxes = floor_boxes(length) + framing_boxes(length, left)
+    for _, _, (x0, x1, y0, y1, z0, z1) in boxes:
         exact += (
             (Fraction(x1) - Fraction(x0))
             * (Fraction(y1) - Fraction(y0))
             * (Fraction(z1) - Fraction(z0))
         )
-    for wall in walls(length):
+    for wall in walls(length, left):
         area = Fraction(wall.length) * Fraction(H)
         area -= sum(
             Fraction(o.width) * (Fraction(o.head) - Fraction(o.sill))
@@ -434,9 +436,9 @@ def analytic_volume(length: float, notched: bool = True) -> float:
 # --- Reading the golden --------------------------------------------------------------
 
 
-def _request() -> EvaluateTreeRequest:
+def _request(name: str = NAME) -> EvaluateTreeRequest:
     return EvaluateTreeRequest.model_validate_json(
-        (GOLDENS / NAME / "model.json").read_text()
+        (GOLDENS / name / "model.json").read_text()
     )
 
 
@@ -455,16 +457,20 @@ def _extents(request: EvaluateTreeRequest) -> BodyExtentsResult:
     return BodyExtentsResult.model_validate_json(response.content)
 
 
-@pytest.fixture(scope="module")
-def step_solids(tmp_path_factory: pytest.TempPathFactory) -> list[Solid]:
+def _step_solids(tmp_path_factory: pytest.TempPathFactory, name: str) -> list[Solid]:
     request = ExportTreeRequest.model_validate(
-        {**_request().model_dump(mode="json"), "format": "step"}
+        {**_request(name).model_dump(mode="json"), "format": "step"}
     )
     response = client.post("/api/v1/export/tree", json=request.model_dump(mode="json"))
     assert response.status_code == 200, response.text
-    path = tmp_path_factory.mktemp("step") / f"{NAME}.step"
+    path = tmp_path_factory.mktemp("step") / f"{name}.step"
     path.write_bytes(response.content)
     return list(import_step(path).solids())  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+
+
+@pytest.fixture(scope="module")
+def step_solids(tmp_path_factory: pytest.TempPathFactory) -> list[Solid]:
+    return _step_solids(tmp_path_factory, NAME)
 
 
 def _signature(solid: Solid) -> tuple[float, ...]:
@@ -556,27 +562,32 @@ def test_nothing_interferes(step_solids: list[Solid]) -> None:
 #: length (in) or net area (in^2), stock; the members over 20 ft spliced from
 #: the cheapest pieces the book prices (CUT-LIST-LONG-STOCK). The eave walls'
 #: OSB is the round's 83 175.71875 in^2 less the notches (43.1005859375 /
-#: (7/16) = 98.515625 in^2).
+#: (7/16) = 98.515625 in^2). In the list's order (CUT-LIST-PANEL): the golden's
+#: members.json names no plugins, so the lumber is one Other group after the
+#: sheet goods' Sheathing, by member as it first appears in the tree, then
+#: profile and material (the floor's PT sills before the windows' SPF), then
+#: length. The app's list, with its plugins, is grouped Floor, Walls, Roof,
+#: Sheathing (house-b7.spec.ts).
 HOUSE: list[tuple[str, int, float, str]] = [
+    ("Subfloor", 14, 55296, "12 x 4x8"),
+    ("Sheathing", 24, 83175.71875 - 98.515625, "17 x 4x9"),
     ("Joist", 19, 189, "16 ft"),
     ("Rim", 2, 288, "16 ft + 8 ft"),
-    ("Sill", 2, 288, "2 x 12 ft"),
     ("Sill", 2, 181, "16 ft"),
-    ("Subfloor", 14, 55296, "12 x 4x8"),
+    ("Sill", 2, 288, "2 x 12 ft"),
+    ("Sill", 2, 24.5, "8 ft"),
+    ("Sill", 3, 36.5, "8 ft"),
     ("Stud", 60, 92.625, "8 ft"),
     ("Jack", 12, 81, "8 ft"),
+    ("Header", 4, 27.5, "8 ft"),
     ("Header", 6, 39.5, "8 ft"),
     ("Header", 2, 41, "8 ft"),
     ("Cripple", 14, 6.125, "8 ft"),
-    ("Sill", 3, 36.5, "8 ft"),
     ("Cripple", 7, 31, "8 ft"),
-    ("Top plate", 4, 288, "16 ft + 8 ft"),
-    ("Bottom plate", 2, 125, "12 ft"),
-    ("Sheathing", 24, 83175.71875 - 98.515625, "17 x 4x9"),
-    ("Header", 4, 27.5, "8 ft"),
-    ("Sill", 2, 24.5, "8 ft"),
     ("Cripple", 4, 43, "8 ft"),
     ("Top plate", 4, 181, "16 ft"),
+    ("Top plate", 4, 288, "16 ft + 8 ft"),
+    ("Bottom plate", 2, 125, "12 ft"),
     ("Bottom plate", 2, 181, "16 ft"),
     ("Bottom plate", 1, 288, "2 x 12 ft"),
     ("Rafter", 26, 123.5341, "12 ft"),
@@ -718,15 +729,40 @@ def test_each_outline_case_builds_valid_with_no_interference(
         assert volume == pytest.approx(analytic_volume(336), abs=1e-4)
 
 
+# --- 5. Openings measured from the X 0 end (OPENING-FROM-END) -----------------------
+
+FROM_END = "b7-front-wall-from-end"
+
+
+@pytest.fixture(scope="module")
+def from_end_solids(tmp_path_factory: pytest.TempPathFactory) -> list[Solid]:
+    return _step_solids(tmp_path_factory, FROM_END)
+
+
+def test_from_the_end_the_grown_house_with_the_window_moved_is_the_scripts(
+    from_end_solids: list[Solid],
+) -> None:
+    """``b7-front-wall-from-end``: B7's 288 dimension set to 336 and the left
+    front window's distance from the X 0 end set 60 -> 84, each one field.
+    The script types the openings at X 84, 144 and 228 from the X 0 end."""
+    mine = script(336, left=84)
+    assert len(from_end_solids) == len(mine) == 234
+    assert _unmatched(from_end_solids, [m.solid for m in mine]) == []
+    volume = sum(float(measure_shape(s).volume) for s in from_end_solids) / IN**3
+    assert volume == pytest.approx(analytic_volume(336, left=84), abs=1e-4)
+    assert _overlapping(from_end_solids) == []
+
+
 # --- expected.json's numbers ---------------------------------------------------------
 
 
-def expected_numbers() -> dict[str, Any]:
-    """The golden's mass properties, topology and mesh counts from the
-    script: volume analytic, the rest measured on the script's solids; a
-    planar face of n vertices on h holes meshes as n + 2h - 2 triangles."""
-    mine = script()
-    volume = analytic_volume(288) * IN**3
+def expected_numbers(length: float = 288.0, left: float = 60.0) -> dict[str, Any]:
+    """A golden's mass properties, topology and mesh counts from the script
+    (B7 at *length*, the left front window at X *left*): volume analytic,
+    the rest measured on the script's solids; a planar face of n vertices on
+    h holes meshes as n + 2h - 2 triangles."""
+    mine = script(length, left)
+    volume = analytic_volume(length, left=left) * IN**3
     area = sum(float(measure_shape(m.solid).surface_area) for m in mine)
     moments = [0.0, 0.0, 0.0]
     mass = 0.0
@@ -769,5 +805,7 @@ def expected_numbers() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    json.dump(expected_numbers(), sys.stdout, indent=2)
+    # ``b7-outline``: no arguments; ``b7-front-wall-from-end``: ``336 84``.
+    args = [float(a) for a in sys.argv[1:3]]
+    json.dump(expected_numbers(*args), sys.stdout, indent=2)
     sys.stdout.write("\n")

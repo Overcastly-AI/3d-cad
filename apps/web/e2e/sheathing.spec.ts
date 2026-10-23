@@ -31,8 +31,8 @@ const WALL_OSB: CutRow[] = [
 const FLOOR_SUBFLOOR: CutRow[] = [
   ["Joist", "10", "117", "10 ft"],
   ["Rim", "2", "144", "12 ft"],
-  ["Sill", "2", "144", "12 ft"],
   ["Sill", "2", "109", "10 ft"],
+  ["Sill", "2", "144", "12 ft"],
   ["Subfloor", "6", "17,280 in²", "4 × 4x8"],
 ];
 

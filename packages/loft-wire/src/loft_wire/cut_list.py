@@ -40,6 +40,16 @@ two extents. Panels group by product, material and sheet (not by member or
 size), and a line buys ``ceil(net area / sheet area)`` sheets, the count
 Chief Architect's materials list gives.
 
+**Order** (CUT-LIST-PANEL): lines are grouped by SYSTEM, as Chief
+Architect's Materials List groups by category: Floor, Walls (with their doors
+and windows), Roof, Sheathing (every sheet good), then Deck, Frame and Other.
+A plugin member's system is its plugin's (:func:`system_for_plugin`). Within a
+system, lines run by member (in the order each first appears in the tree),
+then profile and material (likewise), then length, shortest first, so one
+member's lines sit together whichever walls they came from. Pieces with the
+same system, member, profile, material and length are one line, summed across
+features. The CSV writes the same order.
+
 Prices (PRICE-BOOK, RESEARCH §27) come from the user's
 :mod:`loft_wire.price_book`: each line is priced on the stock pieces bought
 (:func:`price_lines`), in integer cents, and a line the book does not price
@@ -76,7 +86,7 @@ from loft_wire.materials import (
     MaterialAssignment,
     MaterialKey,
 )
-from loft_wire.plugins import MemberMetadata
+from loft_wire.plugins import MemberMetadata, PluginId
 from loft_wire.price_book import (
     EMPTY_PRICE_BOOK,
     Currency,
@@ -91,6 +101,7 @@ from loft_wire.sheet_goods import (
     covering_sheet,
     sheet_good_for,
 )
+from loft_wire.twist import is_none
 from loft_wire.units import LengthUnit
 
 #: Millimetres per foot, exactly.
@@ -120,6 +131,39 @@ SHEET_COUNT_SLACK: Final = 1e-9
 #: How a piece was identified: from a plugin member's metadata, by matching
 #: its section to a library profile, or not at all.
 CutListClassification = Literal["member", "matched", "unclassified"]
+
+#: The system a line belongs to (CUT-LIST-PANEL), in the order the list is
+#: grouped: a materials list's categories.
+CutListSystem = Literal["floor", "walls", "roof", "sheathing", "deck", "frame", "other"]
+
+#: :data:`CutListSystem` in list order.
+SYSTEM_ORDER: Final[tuple[CutListSystem, ...]] = (
+    "floor",
+    "walls",
+    "roof",
+    "sheathing",
+    "deck",
+    "frame",
+    "other",
+)
+
+#: The system each built-in plugin's members belong to. Doors and windows
+#: frame into their wall, so their members are the walls' (a later Doors and
+#: windows group would take them). A plugin not listed is "other".
+PLUGIN_SYSTEMS: Final[Mapping[str, CutListSystem]] = {
+    "loft.floor": "floor",
+    "loft.wall": "walls",
+    "loft.window": "walls",
+    "loft.door": "walls",
+    "loft.roof": "roof",
+    "loft.deck": "deck",
+    "loft.timber_frame": "frame",
+}
+
+
+def system_for_plugin(plugin_id: str | None) -> CutListSystem:
+    """The system a plugin's members are listed under (:data:`PLUGIN_SYSTEMS`)."""
+    return "other" if plugin_id is None else PLUGIN_SYSTEMS.get(plugin_id, "other")
 
 
 # --- geometry -> gateway ------------------------------------------------------------
@@ -165,6 +209,15 @@ class CutListMember(BaseModel):
         description="The role's title, e.g. 'Joist' (from the manifest, or the "
         "role itself when this server lacks the plugin).",
     )
+    plugin_id: PluginId | None = Field(
+        default=None,
+        # Absent, not null, when unknown: the goldens' members.json fixtures
+        # predate the field and stay byte-identical.
+        exclude_if=is_none,
+        description="The plugin that generated the member ('loft.wall'): the "
+        "cut list groups its lines by the plugin's system. Absent when "
+        "unknown (listed under 'other').",
+    )
     metadata: MemberMetadata
 
 
@@ -182,8 +235,14 @@ class CutListPartRequest(BaseModel):
 
 
 class CutListLine(BaseModel):
-    """One line: pieces with the same member, profile, material and length."""
+    """One line: pieces with the same system, member, profile, material and
+    length."""
 
+    system: CutListSystem = Field(
+        description="The group the line is listed under (Floor, Walls, Roof, "
+        "Sheathing, ...): its members' plugin's system; every sheet good is "
+        "'sheathing'; a body that is no plugin member is 'other'."
+    )
     member: str | None = Field(
         description="Member role title (e.g. 'Joist'); null when the body is "
         "not a plugin member."
@@ -437,6 +496,7 @@ class CutListPiece:
     count: int = 1
     sheet: SheetSize | None = None
     area_mm2: float | None = None
+    system: CutListSystem = "other"
 
     @property
     def panel(self) -> bool:
@@ -484,6 +544,7 @@ def classify_body(
                 count=count,
                 sheet=covering_sheet(extents[0], extents[1]),
                 area_mm2=body.volume_mm3 / thickness if thickness > 0 else 0.0,
+                system="sheathing",
             )
         lumber = lumber_for(member.metadata.profile)
         split = None if lumber is None else _split(extents, lumber)
@@ -497,6 +558,7 @@ def classify_body(
             length_mm=length,
             section_mm=section,
             count=count,
+            system=system_for_plugin(member.plugin_id),
         )
     if _is_prism(body):
         for lumber in LUMBER_PROFILES:
@@ -557,6 +619,7 @@ def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
         length, width = round(sheet.length_mm, 6), round(sheet.width_mm, 6)
         sheets = math.ceil(area / sheet.area_mm2 - SHEET_COUNT_SLACK)
     return CutListLine(
+        system="sheathing",
         member=", ".join(members) or None,
         profile=first.profile,
         material=first.material,
@@ -576,10 +639,34 @@ def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
     )
 
 
+def _first_seen(order: dict[tuple[object, ...], int], key: tuple[object, ...]) -> int:
+    return order.setdefault(key, len(order))
+
+
+def order_lines(lines: Sequence[CutListLine]) -> list[CutListLine]:
+    """*lines* (in the order each first appeared) by system, then member,
+    profile and material in first-appearance order within it, then length,
+    shortest first (module docstring, **Order**). Stable, so lines with equal
+    keys keep the tree order."""
+    seen: dict[tuple[object, ...], int] = {}
+    keys: list[tuple[int, int, int, int, float]] = []
+    for line in lines:
+        system = line.system
+        member = _first_seen(seen, ("member", system, line.member))
+        profile = _first_seen(seen, ("profile", system, line.member, line.profile))
+        material = _first_seen(
+            seen, ("material", system, line.member, line.profile, line.material)
+        )
+        length = 0.0 if line.area_mm2 is not None else line.length_mm
+        keys.append((SYSTEM_ORDER.index(system), member, profile, material, length))
+    return [lines[i] for i in sorted(range(len(lines)), key=keys.__getitem__)]
+
+
 def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
-    """Pieces grouped by member, profile, material and length, in the order
-    each group first appears (the tree order, as SolidWorks lists it); sheet
-    panels by product, material and sheet."""
+    """Pieces grouped by system, member, profile, material and length; sheet
+    panels by product, material and sheet. Ordered by system, then member,
+    profile and material as each first appears in the tree, then length
+    (:func:`order_lines`)."""
     groups: dict[tuple[object, ...], tuple[CutListPiece, int]] = {}
     panels: dict[tuple[object, ...], list[CutListPiece]] = {}
     for piece in pieces:
@@ -595,6 +682,7 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
             groups[panel_key] = (first, count + piece.count)
             continue
         key: tuple[object, ...] = (
+            piece.system,
             piece.member,
             piece.profile,
             piece.material,
@@ -616,6 +704,7 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
         waste = None if stock is None else round(sum(stock) * MM_PER_FOOT - length, 6)
         lines.append(
             CutListLine(
+                system=piece.system,
                 member=piece.member,
                 profile=piece.profile,
                 material=piece.material,
@@ -635,7 +724,7 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
                 extended_price_cents=None,
             )
         )
-    return lines
+    return order_lines(lines)
 
 
 # --- prices (PRICE-BOOK) ------------------------------------------------------------

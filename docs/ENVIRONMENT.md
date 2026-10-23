@@ -45,6 +45,21 @@ environment. Each item here has cost real time before.
   proxies to :8000 and every spec fails at register with a 500.
 - The disk is small. Do not create extra worktrees or `node_modules`
   trees you do not need, and clean up your scratch files.
+- **Scratch Postgres clusters (`/tmp/loft-pg-*`).** The documents suite
+  boots one per pytest session. A run killed with SIGKILL (a `timeout`
+  wrapper, a container restart) skips teardown and leaves the cluster
+  behind, often with its server still running. On 2026-10-23, 20 of them
+  filled the disk twice. The harness now cleans up three ways
+  (`packages/py-kit/src/py_kit/pg_scratch.py`): at teardown, atexit, or on
+  SIGTERM/SIGINT; on the next session's startup, a sweep removes any
+  cluster whose `owner.json` names a dead process, stopping its orphaned
+  server first; and it keeps a cluster under 100 MB (75 MB peak over a full
+  run, was 2-4 GB) by dropping each
+  per-test database and capping WAL. The sweep never touches a cluster whose
+  owner is alive, or a running server with no `owner.json` (which could be a
+  live run on an older branch). To reclaim those by hand, check that no
+  pytest is using the directory, then
+  `kill -QUIT $(head -1 /tmp/loft-pg-X/data/postmaster.pid)` and remove it.
 - Never leave scratch files in the repo root (`prettier --check .` walks it)
   or in `apps/web/test-results/` (Playwright wipes it).
 - If Playwright reports line numbers that do not match the file, clear its

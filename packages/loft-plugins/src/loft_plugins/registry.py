@@ -271,6 +271,31 @@ def canonical_inputs(
     return out
 
 
+def settle_inputs(
+    plugin: Plugin,
+    feature_id: uuid.UUID,
+    inputs: Mapping[str, CustomInputValue],
+    earlier: Mapping[uuid.UUID, AuthoredEnvelope],
+    *,
+    parameters: Mapping[str, Quantity] | None = None,
+) -> dict[str, CustomInputValue]:
+    """The canonical *inputs* a write STORES: unchanged unless the plugin
+    makes a write-time choice (``Plugin.settle``), checked again against the
+    manifest. Raises :class:`PluginError`."""
+    if plugin.settle is None:
+        return dict(inputs)
+    values: dict[str, InputValue] = {item.name: None for item in plugin.manifest.inputs}
+    values.update(inputs)
+    context = ExpandInputs(feature_id, values, earlier, parameters=parameters or {})
+    settled = plugin.settle(context)
+    raw = {
+        name: value
+        for name, value in settled.items()
+        if value is not None and name in values
+    }
+    return canonical_inputs(plugin.manifest, raw)
+
+
 # --- Hosting ---------------------------------------------------------------------
 
 

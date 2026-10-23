@@ -186,12 +186,16 @@ export function InspectorRail({
           </FloatingPanel>
         ) : null}
         {cutList.open ? (
+          // A full-height takeoff view (CUT-LIST-PANEL), as Chief Architect's
+          // Materials List and Fusion's BOM open: wide enough for every
+          // column and the Total, its left edge drags wider, and the
+          // inspector below gives way to its floor.
           <FloatingPanel
             side="right"
             title="Cut list"
             id="cut-list"
-            width="parameters"
-            holds
+            width="cut-list"
+            resizable
           >
             <CutListPanel
               kind="part"
@@ -212,6 +216,8 @@ export function InspectorRail({
             side="right"
             title="Inspector"
             id="inspector"
+            // Under the full-height Cut list it gives way to its floor.
+            yields={cutList.open}
             footer={
               <Panel className="border-t-0">
                 <PartExportControls
@@ -232,7 +238,12 @@ export function InspectorRail({
           // No body yet (a sketch-only or rolled-back tree), but the part is
           // modeled enough to have a tree — offer the EXPORT strip in its
           // honest disabled state so the affordance is discoverable.
-          <FloatingPanel side="right" title="Export" id="inspector">
+          <FloatingPanel
+            side="right"
+            title="Export"
+            id="inspector"
+            yields={cutList.open}
+          >
             <aside
               className="w-full"
               aria-label="Part export"

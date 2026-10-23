@@ -107,7 +107,7 @@ B2 = [
 
 def _pieces(table: list[tuple[Any, ...]], count: int = 1) -> list[CutListPiece]:
     pieces: list[CutListPiece] = []
-    for member, profile, material, quantity, length_in in table:
+    for member, profile, material, quantity, length_in, *system in table:
         lumber = lumber_for(profile)
         assert lumber is not None
         pieces.append(
@@ -120,6 +120,7 @@ def _pieces(table: list[tuple[Any, ...]], count: int = 1) -> list[CutListPiece]:
                 length_mm=length_in * MM_PER_INCH,
                 section_mm=(lumber.thickness_mm, lumber.width_mm),
                 count=quantity * count,
+                system=system[0] if system else "other",
             )
         )
     return pieces
@@ -322,29 +323,59 @@ B7_BOOK: list[dict[str, Any]] = [
 ]
 
 #: B7's lumber, house-b7.spec.ts's independently calculated table in tree
-#: order (member, profile, material, qty, length in).
+#: order (member, profile, material, qty, length in, system).
 B7 = [
-    ("Joist", "2x10", SPF, 19, 189.0),
-    ("Rim", "2x10", SPF, 2, 288.0),
-    ("Sill", "2x6", PT, 2, 288.0),
-    ("Sill", "2x6", PT, 2, 181.0),
-    ("Stud", "2x6", SPF, 60, 92.625),
-    ("Jack", "2x6", SPF, 12, 81.0),
-    ("Header", "2x6", SPF, 6, 39.5),
-    ("Header", "2x6", SPF, 2, 41.0),
-    ("Cripple", "2x6", SPF, 14, 6.125),
-    ("Sill", "2x6", SPF, 3, 36.5),
-    ("Cripple", "2x6", SPF, 7, 31.0),
-    ("Top plate", "2x6", SPF, 4, 288.0),
-    ("Bottom plate", "2x6", PT, 2, 125.0),
-    ("Header", "2x6", SPF, 4, 27.5),
-    ("Sill", "2x6", SPF, 2, 24.5),
-    ("Cripple", "2x6", SPF, 4, 43.0),
-    ("Top plate", "2x6", SPF, 4, 181.0),
-    ("Bottom plate", "2x6", PT, 2, 181.0),
-    ("Bottom plate", "2x6", PT, 1, 288.0),
-    ("Rafter", "2x8", SPF, 26, 123.5341),
-    ("Ridge", "2x10", SPF, 1, 288.0),
+    ("Joist", "2x10", SPF, 19, 189.0, "floor"),
+    ("Rim", "2x10", SPF, 2, 288.0, "floor"),
+    ("Sill", "2x6", PT, 2, 288.0, "floor"),
+    ("Sill", "2x6", PT, 2, 181.0, "floor"),
+    ("Stud", "2x6", SPF, 60, 92.625, "walls"),
+    ("Jack", "2x6", SPF, 12, 81.0, "walls"),
+    ("Header", "2x6", SPF, 6, 39.5, "walls"),
+    ("Header", "2x6", SPF, 2, 41.0, "walls"),
+    ("Cripple", "2x6", SPF, 14, 6.125, "walls"),
+    ("Sill", "2x6", SPF, 3, 36.5, "walls"),
+    ("Cripple", "2x6", SPF, 7, 31.0, "walls"),
+    ("Top plate", "2x6", SPF, 4, 288.0, "walls"),
+    ("Bottom plate", "2x6", PT, 2, 125.0, "walls"),
+    ("Header", "2x6", SPF, 4, 27.5, "walls"),
+    ("Sill", "2x6", SPF, 2, 24.5, "walls"),
+    ("Cripple", "2x6", SPF, 4, 43.0, "walls"),
+    ("Top plate", "2x6", SPF, 4, 181.0, "walls"),
+    ("Bottom plate", "2x6", PT, 2, 181.0, "walls"),
+    ("Bottom plate", "2x6", PT, 1, 288.0, "walls"),
+    ("Rafter", "2x8", SPF, 26, 123.5341, "roof"),
+    ("Ridge", "2x10", SPF, 1, 288.0, "roof"),
+]
+
+#: B7's lines as the list orders them (CUT-LIST-PANEL): by system, then
+#: member as it first appears, then length, shortest first. house-b7.spec.ts
+#: reads the same rows.
+B7_ORDER = [
+    ("floor", "Joist", 19, 189.0),
+    ("floor", "Rim", 2, 288.0),
+    ("floor", "Sill", 2, 181.0),
+    ("floor", "Sill", 2, 288.0),
+    ("walls", "Stud", 60, 92.625),
+    ("walls", "Jack", 12, 81.0),
+    ("walls", "Header", 4, 27.5),
+    ("walls", "Header", 6, 39.5),
+    ("walls", "Header", 2, 41.0),
+    ("walls", "Cripple", 14, 6.125),
+    ("walls", "Cripple", 7, 31.0),
+    ("walls", "Cripple", 4, 43.0),
+    ("walls", "Sill", 2, 24.5),
+    ("walls", "Sill", 3, 36.5),
+    ("walls", "Top plate", 4, 181.0),
+    ("walls", "Top plate", 4, 288.0),
+    ("walls", "Bottom plate", 2, 125.0),
+    ("walls", "Bottom plate", 2, 181.0),
+    ("walls", "Bottom plate", 1, 288.0),
+    ("roof", "Rafter", 26, 123.5341),
+    ("roof", "Ridge", 1, 288.0),
+    # Here each sheet good is one panel of the net area (:func:`_sheets`).
+    ("sheathing", "Subfloor", 1, 96.0),
+    ("sheathing", "Sheathing", 1, 108.0),
 ]
 
 
@@ -503,6 +534,15 @@ def test_b7_is_priced_to_the_last_line_2868_87() -> None:
         ("Bottom plate", "2 x 12 ft", 2496),
         ("Ridge", "16 ft + 8 ft", 3444),
     ]
+    assert [
+        (
+            line.system,
+            line.member,
+            line.quantity,
+            round(line.length_mm / MM_PER_INCH, 4),
+        )
+        for line in cut_list.lines
+    ] == B7_ORDER
     assert cut_list.total_price_cents == 286887
     short = sum(
         line.extended_price_cents or 0
@@ -511,8 +551,10 @@ def test_b7_is_priced_to_the_last_line_2868_87() -> None:
     )
     assert short == 260883  # the QA round's total, unchanged
     rows = cut_list_csv(cut_list).split("\r\n")
+    assert rows[2].startswith("2,Rim,")
     assert rows[2].endswith(",16 ft + 8 ft,0,2,34.44,Each,68.88")
-    assert rows[3].endswith(",2 x 12 ft,0,2,24.96,Each,49.92")
+    assert rows[4].startswith("4,Sill,")
+    assert rows[4].endswith(",2 x 12 ft,0,2,24.96,Each,49.92")
     assert rows[-2] == ",Total,,,,,,,,,,,,,2868.87"
 
 

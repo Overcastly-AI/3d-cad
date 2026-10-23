@@ -2516,7 +2516,7 @@ and reframe it, a material per member, and a cut list that is always current.
     from exactly the panels it crosses (Objects To Cut, `cutter` members).
     The panel then meets the rafter face to face. A hip on sheathed outline
     walls is refused until its hips and jacks are notched too
-    (ROOF-HIP-SHEATHING-NOTCH).
+    (ROOF-HIP-SHEATHING-NOTCH: 1.5.0, below).
   - *Re-expansion follows picks of picks*: a write re-expands the features
     picking it and theirs in turn, so one dimension edit stores the walls',
     floor's and roof's new expansions in the same write; every evaluation
@@ -2528,6 +2528,85 @@ and reframe it, a material per member, and a cut list that is always current.
     round's 23 cut-list lines and $2,868.87 (§27). An independent build123d script
     of B7 typed from buildings.md matches the STEP solid for solid, at 288 and
     at 336 (234 bodies). Golden `b7-outline`.
+- **Decided while measuring openings from either end** (OPENING-FROM-END,
+  2026-10-23; Revit's and Chief Architect's temporary dimensions read from
+  either wall end, and an opening stays put in plan when the far end moves):
+  - *Measured from.* `loft.window` and `loft.door` 1.2.0 add `measure_from`
+    (Start, End or Centre of the host wall, or of its wall of an outline)
+    before the distance, `offset_mm`, which now runs from that point to the
+    unit's centre: the wall's length less it from the End, half the length
+    plus it from the Centre (signed, positive towards the end, so its bounds
+    are -960..960 in). End and Centre are rounded to 1e-9 in, as every
+    opening coordinate is; Start is the distance itself, so 1.0.0 and 1.1.0,
+    which have no `measure_from`, frame byte-identically (`b7-outline`,
+    the B2 goldens). The wall reads the reference for every hosted opening,
+    and an outline wall measures on its own wall's spec (a fitted wall's
+    ends are the through walls' inside faces, where its framing stops).
+  - *A new opening measures from the end nearer the part origin*, so a house
+    dimensioned from its origin corner keeps its openings when it grows. That
+    is a WRITE-TIME choice, not a stored rule: a rule re-read on every
+    rebuild would flip the reference, and move the opening, when the house
+    moves past the origin. The choice is the input's default, `nearer`
+    ("Nearer the origin"), and documents STORES the end it picks
+    (`Plugin.settle`, `loft_plugins.settle_inputs`, run on every write after
+    the formulas resolve). A tie is the start. A stored opening never holds
+    `nearer`; the expander resolves it the same way if handed one (a script's
+    preview), so the two can never disagree.
+  - *Numbers.* B7 at 1.2.0 placed as a user does (every opening at its
+    default) is `b7-outline` body for body; the left window moved 60 -> 84
+    and the house grown to 336 is 1.1.0 with the three front offsets re-typed
+    from X 336 (252, 192, 108), and the independent script's at 336 with the
+    window at X 84: 234 bodies, 298 348.0666597928 in³ (the same members as
+    at 60: the move swaps which layout studs are cripples, 272/288 for
+    240/256, and which is dropped under a king, 256 for 272). Golden
+    `b7-front-wall-from-end`.
+- **Decided while notching hips and stored roofs** (ROOF-HIP-SHEATHING-NOTCH
+  and ROOF-THROUGH-SHEATHING-UPDATE, 2026-10-23; framers' notching, Revit's
+  roof cutting an attached wall, Fusion's out-of-date marker and Revit's
+  family reload on request, the product manager's call of 2026-10-23):
+  - *1.5.0 notches the walls it bears on.* `loft.roof` 1.5.0 is 1.4.0's
+    members, then one cut per member that meets a picked wall's sheathing:
+    the member's own section, extruded as the member is (one side for a
+    common or jack, symmetric for a hip), cutting exactly the panels it
+    overlaps (Objects To Cut). This covers a hip on an outline wall (1.4.0
+    refused it) and a hip on picked single walls (1.2.0 on), as well as a
+    gable on an outline (1.4.0's notches, byte for byte). A roof on its typed
+    bearing picks no walls and is 1.3.0's exactly. New roofs are inserted at
+    1.5.0. 1.0.0-1.4.0 are unchanged.
+  - *Measured on the expansions, never the layouts.* `roof_sheathing` reads
+    each roof body from its members: a side profile on an axis plane, or on
+    a midplane extruded symmetric, and the plan prisms that trim it. Each
+    panel is read as a box with its openings. The shared volume is exact:
+    the profile clipped to the panel's height, its area across the panel's
+    plan integrated over the member's thickness. That area is quadratic
+    between the stations where a bound passes a profile corner, so Simpson's
+    rule on each piece is exact. The same code measures any roof release on
+    any wall release.
+  - *Each notch removes only the overlap.* The cut is the untrimmed sweep,
+    so a pair is notched only where no trim acts inside the panel's plan:
+    every intersect prism holds it, and no seat meets it. Elsewhere the roof
+    is refused, never notched wrong: a hip with an overhang under the
+    sheathing's thickness (its cheeks then cut inside the OSB), or a valley
+    cheek inside the OSB (ROOF-VALLEY-SHEATHING-NOTCH). B4-like Ls frame.
+  - *Stored roofs are warned, never changed.* Documents measures every
+    stored roof against every earlier wall's sheathing, less what its own
+    cuts notch, and the feature carries `roof_through_sheathing`, which names
+    the volume and the pairs. When the roof picks its walls and a newer
+    release exists, it names that release (`update_to`). The editor shows it
+    with "Update to 1.5.0": an ordinary edit of the pin with the same inputs,
+    which Ctrl+Z undoes. A roof on its typed bearing (1.0 or 1.1, or any
+    later release left typed) gets the warning only. The QA round's typed
+    B7 gable is one of these: 43.1006 in³ over 36 pairs, warned, with no
+    update; B7 on an outline is the fix.
+  - *Numbers.* B3's hip on B2's sheathed walls shares 33.2551166 in³ with
+    the OSB over 30 pairs: 22 tails of 1.5 x 1/2 x (3.5 x 7/16 + (7/16)² / 2)
+    = 1.22021484375, and 4 corners where the hip's ripped tail crosses both
+    walls' OSB, 2√2 a s heel - k s a² + √2 k a s² = 1.602597506 (a 0.75, s
+    7/16, heel 1.75, k 1/2). The kernel removes 33.25511658665 against that
+    closed form's 33.25511658666. Golden `b3-outline-hip-sheathed` (91
+    bodies, 61 685.4948 in³) matches an independent build123d script solid
+    for solid, its panels being each OSB box less the roof members that meet
+    it, with no interference.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

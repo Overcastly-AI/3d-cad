@@ -1,0 +1,54 @@
+{
+  "description": "B7 GROWN TO 336 WITH THE LEFT FRONT WINDOW MOVED TO 84, ITS OPENINGS MEASURED FROM THE WALL END NEARER THE ORIGIN (OPENING-FROM-END; docs/BACKLOG.md Now #3, RESEARCH section 23). b7-outline's tree with the outline's 288 dimension set to 336 and the door and four windows at loft.door / loft.window 1.2.0, each placed as a new opening is: Measured from 'nearer the origin', stored as the end it is (front and right walls: end; back and left: start). Every distance is the one a builder reads off the plan: the front door 144 and windows 84 (moved from 60, one field) and 228 from the X 0 end, the back window 144, the sides 90.5. At 1.1.0 the same house needed the three front offsets re-typed from the wall's start at X 336 (192, 252, 108). model.json and members.json are pinned to the plugins by packages/loft-plugins/tests/test_building_outline.py (test_the_from_end_golden_is_the_plugins_expansion); services/geometry/tests/test_outline_b7.py checks the STEP solid for solid against its independent script and that nothing interferes.",
+  "derivation": [
+    "INDEPENDENT of the plugins: test_outline_b7.py's script(336, left=84) types B7 from buildings.md at 336 with the front openings at X 84, 144 and 228 (wall-frame u = 336 - X from the front wall's start at X 336), the same script b7-outline and the b7-336 case are checked against. The STEP's 234 solids match it solid for solid.",
+    "",
+    "volume (analytic, analytic_volume(336, left=84)): 298348.0666597928 in^3 = 4889048862.63029 mm^3, EXACTLY the b7-336 case's (window at 60). By hand: the front wall's layout runs on 16 in from u = 0 at X 336. At X 60 the window's RO spans u 257.75..294.25 and its kings u 254.75..257.75 and 294.25..297.25: layout studs 272 and 288 fall in the RO (cripples) and 256 under a king (dropped). At X 84 the RO is u 233.75..270.25, kings 230.75..233.75 and 270.25..273.25: 240 and 256 in the RO, 272 under a king. The same members, so the same volume; the OSB hole is the same 36.5 x 48.5 rectangle 24 in along. The move shows in the centroid and centre of mass, not the volume.",
+    "",
+    "surface_area, centroid, mass_g and center_of_mass are the script's solids summed (expected_numbers(336, 84)): spf_lumber 450, southern_pine_pt 582, osb 641 and plywood 577 kg/m^3.",
+    "",
+    "bounding_box: X -7/16 (the left OSB) .. 336 7/16 (the right OSB) = 8545.5125 mm, Y -12 .. 204 (the rafter tails), Z 0 .. 161.907829 in (the ridge's top), as b7-outline's but 48 in longer.",
+    "",
+    "topology and MESH from the script's B-rep: 1650 faces, 3546 edges, 234 shells; every face planar, n + 2h - 2 triangles a face: 7092 vertices and 3792 triangles. The b7-336 case's counts (the same members)."
+  ],
+  "tolerance": 5e-6,
+  "tolerance_rationale": "b7-outline's bound, measured first (geometry-gates skill): ~4.9e9 mm^3 summed over 234 bodies, so the double-precision sum carries round-off near the ULP of the sum (~9.5e-7). The kernel differs from the script by +1.9e-06 mm^3 on the volume, -1.0e-06 mm^2 on the area, <= 9.1e-12 mm on the centroid and centre of mass and 2.3e-9 g on the mass; 5e-6 is 2.6x the worst. A window framed at the wrong place moves the centroid by ~1e-1 mm, so it fails by five orders.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-23, b7-outline's class: OCCT's STEP writer rounds the 30 sloped rafters' and the notched panels' irrational coordinates. Round-trip drift: volume -3.84e-4 mm^3 and area -3.11e-5 mm^2 (plugin); the independent build123d twin (test_outline_b7.script(336, left=84), exported with build123d's export_step) drifts -4.19e-4 / -2.96e-5, so it is OCCT's STEP, not Loft's export; the centroid moves <= 1.7e-10 mm. 1e-3 is 2.4x the worst and b7-outline's bound; it applies to volume and area only.",
+  "properties": {
+    "volume": 4889048862.63029,
+    "surface_area": 431621009.95113,
+    "centroid": {
+      "x": 4263.563204688579,
+      "y": 2432.810486763511,
+      "z": 1284.4206323481574
+    },
+    "mass_g": 2459305.7549193143,
+    "center_of_mass": {
+      "x": 4266.380485813599,
+      "y": 2440.72782958859,
+      "z": 1240.0490285916246
+    },
+    "bounding_box": {
+      "min": {
+        "x": -11.112499999999999,
+        "y": -304.79999999999995,
+        "z": 0.0
+      },
+      "max": {
+        "x": 8545.512499999999,
+        "y": 5181.599999999999,
+        "z": 4112.45887569496
+      }
+    }
+  },
+  "topology": {
+    "faces": 1650,
+    "edges": 3546,
+    "shells": 234
+  },
+  "mesh": {
+    "vertices": 7092,
+    "triangles": 3792
+  }
+}

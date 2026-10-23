@@ -1688,6 +1688,21 @@
           "metadata": {
             "$ref": "#/components/schemas/MemberMetadata"
           },
+          "plugin_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 3,
+                "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plugin that generated the member ('loft.wall'): the cut list groups its lines by the plugin's system. Absent when unknown (listed under 'other').",
+            "title": "Plugin Id"
+          },
           "role": {
             "description": "Manifest role, e.g. 'joist'.",
             "maxLength": 64,
@@ -4844,6 +4859,21 @@
             "format": "uuid",
             "title": "Part Id",
             "type": "string"
+          },
+          "plugin_warnings": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PluginWarning"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it. Omitted when there are none.",
+            "title": "Plugin Warnings"
           },
           "rolled_back": {
             "description": "True when the feature sits after the rollback bar (\u00a73)",
@@ -10025,6 +10055,55 @@
           "title"
         ],
         "title": "PluginMemberRole",
+        "type": "object"
+      },
+      "PluginWarning": {
+        "description": "One stored custom feature's geometry warning, with its fix if any.",
+        "properties": {
+          "code": {
+            "const": "roof_through_sheathing",
+            "description": "'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "description": "Names the overlap and what fixes it",
+            "title": "Message",
+            "type": "string"
+          },
+          "overlap_in3": {
+            "description": "The volume the roof shares with the sheathing (in^3)",
+            "minimum": 0.0,
+            "title": "Overlap In3",
+            "type": "number"
+          },
+          "pairs": {
+            "description": "How many (roof member, sheathing panel) pairs share it",
+            "minimum": 0.0,
+            "title": "Pairs",
+            "type": "integer"
+          },
+          "update_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The release whose expansion notches it (the 'Update to' action re-pins the feature to it with the same inputs); null when no release can (a typed roof picks no walls)",
+            "title": "Update To"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "overlap_in3",
+          "pairs",
+          "update_to"
+        ],
+        "title": "PluginWarning",
         "type": "object"
       },
       "Point2D": {

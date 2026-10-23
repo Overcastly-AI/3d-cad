@@ -154,8 +154,8 @@ def test_bodies_without_metadata_match_a_profile_or_are_unclassified() -> None:
         for line in cut_list.lines
     ]
     assert rows == [
+        (None, "2x10", 13, 141.0),  # one profile's lines shortest first
         (None, "2x10", 4, 192.0),
-        (None, "2x10", 13, 141.0),
         (None, "6x6", 3, 10.5),
         (None, "5/4x6", 26, 192.0),
     ]

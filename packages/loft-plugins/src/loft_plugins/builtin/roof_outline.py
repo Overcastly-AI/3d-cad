@@ -19,6 +19,13 @@ Any other pick (one wall, two adjacent, three) is refused: a shed, a Dutch
 gable and a hip with a gable end are later rungs. Without an outline wall,
 1.4.0 is 1.3.0 exactly (the typed bearing, or hip on picked line walls), and
 Defines slope must be left empty.
+
+**1.5.0** (ROOF-HIP-SHEATHING-NOTCH, ROOF-THROUGH-SHEATHING-UPDATE) is 1.4.0's
+members, then each member notched out of the sheathing of the walls it
+picks (:func:`~loft_plugins.builtin.roof_sheathing.notches`): a hip on an
+outline wall, which 1.4.0 refuses on sheathed walls, and a hip on picked
+line walls. A gable on an outline keeps 1.4.0's notches byte for byte; a
+roof on its typed bearing picks no walls and is 1.3.0's exactly.
 """
 
 import math
@@ -63,6 +70,7 @@ from loft_plugins.builtin.roof import (
     unsupported,
 )
 from loft_plugins.builtin.roof_footprint import MIN_PLATE_IN, Footprint
+from loft_plugins.builtin.roof_sheathing import notches
 from loft_plugins.builtin.roof_valley import MANIFEST_V1_3, expand_v1_3, hip_roof
 from loft_plugins.builtin.sheathing import sheet_good
 
@@ -120,6 +128,19 @@ MANIFEST_V1_4 = MANIFEST_V1_3.model_copy(
 
 
 def expand_v1_4(inputs: ExpandInputs) -> Iterable[Member]:
+    return _expand(inputs, notch_hips=False)
+
+
+def expand_v1_5(inputs: ExpandInputs) -> Iterable[Member]:
+    """1.5.0: 1.4.0's members, then every tail notched out of the picked
+    walls' sheathing: a hip's commons, jacks and hips on an outline or on
+    picked line walls too (ROOF-HIP-SHEATHING-NOTCH,
+    ROOF-THROUGH-SHEATHING-UPDATE). A gable on an outline is 1.4.0's
+    exactly; a roof on its typed bearing picks no walls and is too."""
+    return _expand(inputs, notch_hips=True)
+
+
+def _expand(inputs: ExpandInputs, *, notch_hips: bool) -> list[Member]:
     picks = inputs.features("walls")
     outlines = [p for p in picks if is_outline_wall(inputs.resolve(p))]
     slope = inputs.segments("slope_walls")
@@ -130,7 +151,11 @@ def expand_v1_4(inputs: ExpandInputs) -> Iterable[Member]:
                 "Walls, or leave Defines slope empty.",
                 "slope_walls",
             )
-        return expand_v1_3(inputs)
+        members = list(expand_v1_3(inputs))
+        if notch_hips and picks:
+            # A hip on picked line walls (a gable takes none: 1.3.0 refuses).
+            members += notches(inputs, members, [p.feature_id for p in picks], "walls")
+        return members
     if len(picks) != 1:
         raise unsupported(
             "Pick the outline wall alone: its walls are the roof's bearing.",
@@ -165,7 +190,7 @@ def expand_v1_4(inputs: ExpandInputs) -> Iterable[Member]:
                 "rung.)",
                 "slope_walls",
             )
-        if sheet_good(wall_inputs, "sheathing") is not None:
+        if not notch_hips and sheet_good(wall_inputs, "sheathing") is not None:
             raise unsupported(
                 "A hip roof on sheathed outline walls is a later rung: its "
                 "tails and hips would pass through the wall sheathing. Choose "
@@ -173,7 +198,10 @@ def expand_v1_4(inputs: ExpandInputs) -> Iterable[Member]:
                 "style",
             )
         footprint = Footprint(outline.ccw_corners, plate, spec.thickness)
-        return hip_roof(inputs, footprint, typed=False, named=True)
+        members = hip_roof(inputs, footprint, typed=False, named=True)
+        if notch_hips:
+            members += notches(inputs, members, [ref.feature_id], "style")
+        return members
     if style != STYLE_GABLE:
         raise unsupported(f"{style!r} is not a roof style", "style")
     if not outline.is_rectangle:
@@ -338,3 +366,14 @@ def _tail_notches(
 
 
 ROOF_V1_4 = Plugin(MANIFEST_V1_4, expand_v1_4)
+
+MANIFEST_V1_5 = MANIFEST_V1_4.model_copy(
+    update={
+        "version": "1.5.0",
+        "description": MANIFEST_V1_4.description
+        + " Every rafter and hip tail is notched out of the sheathing of the "
+        "walls it bears on.",
+    }
+)
+
+ROOF_V1_5 = Plugin(MANIFEST_V1_5, expand_v1_5)

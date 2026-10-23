@@ -16,7 +16,7 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * walls ticked in the Walls checklist, builds 52 roof members: the cut list
  * lists 1 Valley and 4 Valley jack (two lengths, 51.641 and 24.808 on the
  * line) after the walls' 85 members. A reload keeps the picks, pinned to
- * loft.roof 1.4.0 (the latest Roof).
+ * loft.roof 1.5.0 (the latest Roof).
  */
 
 const IN = 25.4;
@@ -35,16 +35,16 @@ const WALLS: [string, number, number, number, number][] = [
 /** buildings.md B4's roof table at overall lengths; loft.roof 1.2.0 and later rip
  * the hip and valley tails to the commons' depth (ROOF-HIP-TAIL). */
 const ROOF: CutRow[] = [
-  ["Common", "18", "82.4099", "8 ft"],
   ["Common", "2", "82.0626", "8 ft"],
-  ["Jack", "10", "56.0683", "8 ft"],
+  ["Common", "18", "82.4099", "8 ft"],
   ["Jack", "10", "29.2355", "8 ft"],
-  ["Valley jack", "2", "55.2298", "8 ft"],
+  ["Jack", "10", "56.0683", "8 ft"],
   ["Valley jack", "2", "28.397", "8 ft"],
+  ["Valley jack", "2", "55.2298", "8 ft"],
   ["Hip", "5", "108.8363", "10 ft"],
   ["Valley", "1", "109.6318", "10 ft"],
-  ["Ridge", "1", "121.5", "12 ft"],
   ["Ridge", "1", "120", "10 ft"],
+  ["Ridge", "1", "121.5", "12 ft"],
 ];
 
 /** The walls' 85 members come first in tree order; the roof's rows last. */
@@ -151,7 +151,7 @@ test.describe("Roof — B4's L-shaped hip and valley roof on picked walls", () =
     await page.mouse.move(800, 990);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/roof-valley-b4.png` });
 
-    // A reload keeps the roof and its picks, pinned to 1.4.0 (the latest Roof).
+    // A reload keeps the roof and its picks, pinned to 1.5.0 (the latest Roof).
     await page.reload();
     await expect(rows).toHaveCount(7);
     await expectSolved(page);
@@ -169,7 +169,7 @@ test.describe("Roof — B4's L-shaped hip and valley roof on picked walls", () =
         }[];
       }
     ).features[6]?.feature.params;
-    expect(roof?.plugin_version).toBe("1.4.0");
+    expect(roof?.plugin_version).toBe("1.5.0");
     expect(roof?.inputs.style).toBe("hip");
     expect((roof?.inputs.walls as unknown[]).length).toBe(6);
   });

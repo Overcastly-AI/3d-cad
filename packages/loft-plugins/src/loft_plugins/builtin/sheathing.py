@@ -585,7 +585,7 @@ def wall_sheathing(inputs: ExpandInputs) -> Iterator[Member]:
         plane = face_plane(wall)
         datums, ref = plane.members(inputs)
         yield from datums
-        placed = placed_wall_panels(wall, wall_v1.hosted_openings(inputs))
+        placed = placed_wall_panels(wall, wall_v1.hosted_openings(inputs, wall))
         # This wall butts an earlier one: its run laps past that end.
         for end in ("start", "end"):
             for other in others:

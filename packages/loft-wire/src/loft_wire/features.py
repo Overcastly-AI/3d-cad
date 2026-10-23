@@ -79,6 +79,7 @@ from loft_wire.pipe import DatumAlongPathParams as DatumAlongPathParams
 from loft_wire.pipe import PathSegment as PathSegment
 from loft_wire.pipe import PathSketchCurve as PathSketchCurve
 from loft_wire.pipe import PipeParamsV1 as PipeParamsV1
+from loft_wire.plugin_warning import PLUGIN_WARNINGS_FIELD, PluginWarnings
 from loft_wire.plugins import (
     MAX_PLUGIN_EXPANSION,
     MAX_PLUGIN_INPUTS,
@@ -1629,14 +1630,12 @@ class ImportParamsV1(BaseModel):
 # OPERATION SCOPE (MB-1a decision, recorded here): the `operation` Literal names
 # all three OCCT booleans (`union` = BRepAlgoAPI_Fuse, `subtract` =
 # BRepAlgoAPI_Cut, `intersect` = BRepAlgoAPI_Common) so the schema — and the
-# generated ts-client type — is STABLE across the MB-2 slice that wires subtract/
-# intersect (no `param_version` bump, no client type churn then). This slice
-# (MB-1a) WIRES `union` only; the geometry evaluator returns an honest per-feature
-# `boolean_not_implemented` for `subtract`/`intersect` until MB-2, never a silent
-# wrong body. v1 keeps the single-connected-solid-per-body invariant (§Decisions-3):
-# a union of DISJOINT (non-touching) bodies is a `boolean_disjoint` rebuild error
-# (multi-lump compound bodies are deferred to MB-4), which is exactly why the
-# body set stays a `Solid` per body, never a `Compound`.
+# generated ts-client type — stayed STABLE when MB-2 wired subtract and
+# intersect (no `param_version` bump, no client type churn). v1 keeps the
+# single-connected-solid-per-body invariant (§Decisions-3): a union of DISJOINT
+# (non-touching) bodies is a `boolean_disjoint` rebuild error unless the boolean
+# opts into a multi-lump body (`allow_disjoint`, MB-4), which is why the body
+# set stays a `Solid` per body by default, never a `Compound`.
 
 
 class BooleanParamsV1(BaseModel):
@@ -2949,6 +2948,7 @@ class FeatureResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     formula_warnings: FormulaWarnings = FORMULA_WARNINGS_FIELD
+    plugin_warnings: PluginWarnings = PLUGIN_WARNINGS_FIELD
 
 
 class FeatureTreeResponse(BaseModel):

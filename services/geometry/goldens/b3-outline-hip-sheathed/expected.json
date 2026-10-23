@@ -1,0 +1,56 @@
+{
+  "description": "B3'S HIP ON B2'S SHEATHED OUTLINE (ROOF-HIP-SHEATHING-NOTCH; docs/reference-parts/buildings.md B2 and B3, docs/BACKLOG.md): one 144 x 120 in sketch on XY (the Rectangle tool from the origin), loft.wall 1.3.0 on it (2x4 at 16 in o.c., 97.125 to the plate, 7/16 OSB; the front and back run through, the sides fit between, their corner rips lapping the corners) and a loft.roof 1.5.0 Hip on the outline wall (every wall defines the slope: 6/12, 2x6 commons and jacks at 24 in o.c., 2x8 ridge and dropped hips, 12 in overhang, the hips' tails ripped). Each of the 6 commons, 16 jacks and 4 hips is cut, by its own section extruded as the member is, from exactly the OSB panels it passes through (Objects To Cut): the 22 tails from their eave wall's panel, each hip from the through wall's panel and the fitted wall's corner rip (30 notches). model.json is EXACTLY the sketch and the expansions with their member materials; members.json is each body's member metadata (packages/loft-plugins/tests/test_roof_sheathing.py pins both; services/geometry/tests/test_roof_hip_sheathing.py checks the STEP against an independent script, and interference).",
+  "derivation": [
+    "INDEPENDENT of the plugins: services/geometry/tests/test_roof_hip_sheathing.py's script() types B2's 48 framing boxes (buildings.md; the outline walks clockwise, so the front's studs run from X 144 and the right's from Y 116.5), 16 OSB boxes 7/16 thick outside the framing, Z 0..97.125 (front and back X 0..48, 48..96, 96..144; the sides Y 3.5..51.5, 51.5..99.5, 99.5..116.5 from their starts; four corner rips 3.5 + 7/16 wide in the side walls' planes), and B3's roof from test_roof_hip_b3.script_hip_roof (1.1.0) with each hip's tail ripped below the line where the two commons' undersides meet. Each OSB box is then cut by every roof member that meets it: so a notch is exactly the overlap. The STEP's 91 solids are the script's, solid for solid (volume to 1e-6 in^3, bounds to 1e-5 in).",
+    "",
+    "volume (ANALYTIC): B2's framing 25 601.625 (b2-walls-no-openings-16oc) + OSB (2 x 144 + 2 x 113 + 4 x 3.9375) x 97.125 x 7/16 = 22 510.236328125 + B3 at 1.3.0, b3-hip-6-12's 13 790.757636 less four rips of 45.967256 (ROOF-HIP-TAIL, test_roof_member_renumber.Roof.rip) = 13 606.888613, less the notches 33.255117: 22 tails x 1.5 x 1/2 x (3.5 x 7/16 + (7/16)^2 / 2) = 22 x 1.22021484375 (the tail's profile under the plate's top across the OSB, seat 3.5, slope 1/2) and four hip corners of 2 sqrt 2 a s heel - k s a^2 + sqrt 2 k a s^2 = 1.602597506 (a = 0.75 the hip's half thickness, s = 7/16, heel 1.75, k = 1/2: over the hip's width |q| <= a, the OSB band u in [|q| - s sqrt 2, |q|] along the hip, under the plate by heel - k u / sqrt 2) = 61 685.494824 in^3 x 25.4^3.",
+    "",
+    "surface_area, mass_g and the centroid's and centre of mass's Z are the script's solids summed (expected_numbers()): spf_lumber 450, southern_pine_pt 582 (the bottom plates), osb 641 kg/m^3. X and Y are 72 and 60 in by symmetry (1828.8, 1524.0 mm).",
+    "",
+    "bounding_box: X -12..156 and Y -12..132 (the tails at the fascia), Z 0 (the walls) .. the ridge's top, b3-hip-6-12's max Z.",
+    "",
+    "topology and MESH from the script's B-rep: 740 faces, 1 674 edges, 91 shells; every face is planar, so a face of n edge-vertices on h holes meshes as n + 2h - 2 triangles on n vertices.",
+    "",
+    "Interference none (test_nothing_interferes probes every pair whose boxes overlap): the same roof at 1.3.0 shares 33.2551 in^3 with the OSB over 30 (member, panel) pairs, which is what the notches remove and all they remove (the kernel measures 33.25511658664618 removed against the closed form's 33.25511658666087)."
+  ],
+  "tolerance": 5e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): the bounds are ABSOLUTE and the part is ~1.0e9 mm^3 summed over 91 bodies (ULP of the sum ~1.2e-7): the kernel differs from the closed form by +4.8e-7 mm^3 on the volume, from the script by +1.8e-7 mm^2 on the area and <= 7e-12 mm on the centroid. 5e-6 is 10x the worst, b7-outline's bound; one notch missed adds 20 000 mm^3 (a tail, 1.22 in^3), so it fails by nine orders.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-23: OCCT's STEP writer rounds the sloped rafters', hips' and notched panels' irrational coordinates, as for b3-hip-6-12 (2.3e-4) and b7-outline (3.6e-4). Round-trip drift: volume -2.46e-4 mm^3 and area -1.50e-5 mm^2; the centroid moves <= 3.2e-10 mm. 1e-3 is 4x the worst and the b3-hip and b7-outline bound; it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 1010844151.5521075,
+    "surface_area": 114391128.68017752,
+    "centroid": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": 1610.0717043303341
+    },
+    "mass_g": 531068.3335306704,
+    "center_of_mass": {
+      "x": 1828.8,
+      "y": 1524.0,
+      "z": 1542.4605691498411
+    },
+    "bounding_box": {
+      "min": {
+        "x": -304.79999999999995,
+        "y": -304.79999999999995,
+        "z": 0.0
+      },
+      "max": {
+        "x": 3962.3999999999996,
+        "y": 3352.7999999999997,
+        "z": 3331.18934822836
+      }
+    }
+  },
+  "topology": {
+    "faces": 740,
+    "edges": 1674,
+    "shells": 91
+  },
+  "mesh": {
+    "vertices": 3348,
+    "triangles": 1868
+  }
+}

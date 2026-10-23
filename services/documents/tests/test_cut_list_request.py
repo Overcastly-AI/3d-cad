@@ -87,6 +87,8 @@ def test_members_carry_titles_and_metadata_of_the_sent_expansion(
     ).json()
     assert request.evaluation.model_dump(mode="json") == evaluation
     assert {m.metadata.profile for m in request.members} == {"2x10", "6x6", "5/4x6"}
+    # The plugin names each member's system in the list (CUT-LIST-PANEL).
+    assert {m.plugin_id for m in request.members} == {"test.deck_b1"}
 
 
 def test_a_read_only_part_titles_members_by_role(

@@ -2825,6 +2825,11 @@ export interface components {
             feature_id: string;
             metadata: components["schemas"]["MemberMetadata"];
             /**
+             * Plugin Id
+             * @description The plugin that generated the member ('loft.wall'): the cut list groups its lines by the plugin's system. Absent when unknown (listed under 'other').
+             */
+            plugin_id?: string | null;
+            /**
              * Role
              * @description Manifest role, e.g. 'joist'.
              */
@@ -4821,6 +4826,11 @@ export interface components {
              * Format: uuid
              */
             part_id: string;
+            /**
+             * Plugin Warnings
+             * @description Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it. Omitted when there are none.
+             */
+            plugin_warnings?: components["schemas"]["PluginWarning"][] | null;
             /**
              * Rolled Back
              * @description True when the feature sits after the rollback bar (§3)
@@ -8089,6 +8099,38 @@ export interface components {
             role: string;
             /** Title */
             title: string;
+        };
+        /**
+         * PluginWarning
+         * @description One stored custom feature's geometry warning, with its fix if any.
+         */
+        PluginWarning: {
+            /**
+             * Code
+             * @description 'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume
+             * @constant
+             */
+            code: "roof_through_sheathing";
+            /**
+             * Message
+             * @description Names the overlap and what fixes it
+             */
+            message: string;
+            /**
+             * Overlap In3
+             * @description The volume the roof shares with the sheathing (in^3)
+             */
+            overlap_in3: number;
+            /**
+             * Pairs
+             * @description How many (roof member, sheathing panel) pairs share it
+             */
+            pairs: number;
+            /**
+             * Update To
+             * @description The release whose expansion notches it (the 'Update to' action re-pins the feature to it with the same inputs); null when no release can (a typed roof picks no walls)
+             */
+            update_to: string | null;
         };
         /**
          * Point2D

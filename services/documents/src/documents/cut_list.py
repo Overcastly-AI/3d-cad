@@ -53,6 +53,7 @@ def cut_list_members(sent: SentMembers) -> list[CutListMember]:
                 feature_id=member_id,
                 role=member.role,
                 title=by_role.get(member.role, _title(member.role)),
+                plugin_id=envelope.params.plugin_id,
                 metadata=member.metadata,
             )
         )

@@ -28,6 +28,7 @@ from loft_plugins.registry import (
     canonical_inputs,
     expand,
     host_of,
+    settle_inputs,
     validate_members,
 )
 
@@ -49,5 +50,6 @@ __all__ = [
     "expand",
     "host_of",
     "lumber_options",
+    "settle_inputs",
     "validate_members",
 ]

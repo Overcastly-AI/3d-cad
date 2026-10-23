@@ -44,9 +44,11 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * the 18 short lines + $260.04 of splices).
  *
  * Then the three named edits, each from the base house: the front left
- * window moved 24 in (undone with Ctrl+Z), pitch 6/12 -> 8/12 (set back), and
- * length 24 -> 28 ft, which takes eight feature edits because the openings
- * are placed from the front wall's start (X 288 -> 336).
+ * window moved 24 in, one field 60 -> 84 (undone with Ctrl+Z), pitch 6/12 ->
+ * 8/12 (set back), and length 24 -> 28 ft, five feature edits. A new opening
+ * measures from the wall end nearer the origin (OPENING-FROM-END): the front
+ * wall runs X 288 -> 0, so its openings read their X and stay put when its
+ * start moves to X 336.
  */
 
 /** The walls, clockwise: start x, start y, direction, length (in). */
@@ -57,11 +59,14 @@ const WALLS: [string, string, string, string][] = [
   ["288", "186.5", "270", "181"], // right, X 282.5..288
 ];
 
-/** Plugin, title, host wall, offset (in), a 36 x 48 window. */
+/**
+ * Plugin, title, host wall, distance (in) from the wall end nearer the
+ * origin (the front wall's X 0 end), a 36 x 48 window.
+ */
 const OPENINGS: [string, string, string, string, boolean][] = [
   ["loft.door", "Door", "Wall 1", "144", false],
-  ["loft.window", "Window", "Wall 1", "228", true], // X 60, front left
-  ["loft.window", "Window", "Wall 1", "60", true], // X 228
+  ["loft.window", "Window", "Wall 1", "60", true], // X 60, front left
+  ["loft.window", "Window", "Wall 1", "228", true], // X 228
   ["loft.window", "Window", "Wall 3", "144", true],
   ["loft.window", "Window", "Wall 2", "90.5", false],
   ["loft.window", "Window", "Wall 4", "90.5", false],
@@ -77,32 +82,40 @@ const FRONT_LEFT = 6;
 const FRONT_RIGHT = 7;
 const ROOF = 11;
 
-/** The base house's cut list, in tree order. */
+/**
+ * The base house's cut list (CUT-LIST-PANEL): grouped Floor, Walls, Roof,
+ * Sheathing; within each, by member as it first appears in the tree, then
+ * length, shortest first, so each member's lines are together.
+ */
 const HOUSE: CutRow[] = [
+  // Floor
   ["Joist", "19", "189", "16 ft"],
   ["Rim", "2", "288", "2 × 12 ft"],
-  ["Sill", "2", "288", "2 × 12 ft"],
   ["Sill", "2", "181", "16 ft"],
-  ["Subfloor", "14", "55,296 in²", "12 × 4x8"],
+  ["Sill", "2", "288", "2 × 12 ft"],
+  // Walls, with their door and windows
   ["Stud", "60", "92.625", "8 ft"],
   ["Jack", "12", "81", "8 ft"],
+  ["Header", "4", "27.5", "8 ft"],
   ["Header", "6", "39.5", "8 ft"],
   ["Header", "2", "41", "8 ft"],
   ["Cripple", "14", "6.125", "8 ft"],
-  ["Sill", "3", "36.5", "8 ft"],
   ["Cripple", "7", "31", "8 ft"],
+  ["Cripple", "4", "43", "8 ft"],
+  ["Sill", "2", "24.5", "8 ft"],
+  ["Sill", "3", "36.5", "8 ft"],
+  ["Top plate", "4", "181", "16 ft"],
   ["Top plate", "4", "288", "2 × 12 ft"],
   ["Bottom plate", "2", "125", "12 ft"],
-  // 80 869 in² of walls less openings + four 5.9375 x 97.125 corner rips.
-  ["Sheathing", "24", "83,175.7188 in²", "17 × 4x9"],
-  ["Header", "4", "27.5", "8 ft"],
-  ["Sill", "2", "24.5", "8 ft"],
-  ["Cripple", "4", "43", "8 ft"],
-  ["Top plate", "4", "181", "16 ft"],
   ["Bottom plate", "2", "181", "16 ft"],
   ["Bottom plate", "1", "288", "2 × 12 ft"],
+  // Roof
   ["Rafter", "26", "123.5341", "12 ft"],
   ["Ridge", "1", "288", "2 × 12 ft"],
+  // Sheathing: 80 869 in² of walls less openings + four 5.9375 x 97.125
+  // corner rips.
+  ["Subfloor", "14", "55,296 in²", "12 × 4x8"],
+  ["Sheathing", "24", "83,175.7188 in²", "17 × 4x9"],
 ];
 
 /** Priced, each long line is cut from the cheapest splice the book prices. */
@@ -129,28 +142,28 @@ const PITCH_8_12: CutRow[] = HOUSE_PRICED.map((row) =>
 const HOUSE_28: CutRow[] = [
   ["Joist", "22", "189", "16 ft"],
   ["Rim", "2", "336", "2 × 16 ft"],
-  ["Sill", "2", "336", "16 ft + 12 ft"],
   ["Sill", "2", "181", "16 ft"],
-  ["Subfloor", "16", "64,512 in²", "14 × 4x8"],
+  ["Sill", "2", "336", "16 ft + 12 ft"],
   ["Stud", "66", "92.625", "8 ft"],
   ["Jack", "12", "81", "8 ft"],
+  ["Header", "4", "27.5", "8 ft"],
   ["Header", "6", "39.5", "8 ft"],
   ["Header", "2", "41", "8 ft"],
   ["Cripple", "14", "6.125", "8 ft"],
-  ["Sill", "3", "36.5", "8 ft"],
   ["Cripple", "7", "31", "8 ft"],
-  ["Top plate", "4", "336", "2 × 16 ft"],
-  ["Bottom plate", "1", "173", "16 ft"],
-  ["Bottom plate", "1", "125", "12 ft"],
-  ["Sheathing", "26", "92,499.7188 in²", "18 × 4x9"],
-  ["Header", "4", "27.5", "8 ft"],
-  ["Sill", "2", "24.5", "8 ft"],
   ["Cripple", "4", "43", "8 ft"],
+  ["Sill", "2", "24.5", "8 ft"],
+  ["Sill", "3", "36.5", "8 ft"],
   ["Top plate", "4", "181", "16 ft"],
+  ["Top plate", "4", "336", "2 × 16 ft"],
+  ["Bottom plate", "1", "125", "12 ft"],
+  ["Bottom plate", "1", "173", "16 ft"],
   ["Bottom plate", "2", "181", "16 ft"],
   ["Bottom plate", "1", "336", "16 ft + 12 ft"],
   ["Rafter", "30", "123.5341", "12 ft"],
   ["Ridge", "1", "336", "2 × 16 ft"],
+  ["Subfloor", "16", "64,512 in²", "14 × 4x8"],
+  ["Sheathing", "26", "92,499.7188 in²", "18 × 4x9"],
 ];
 
 /** The line whose blank is clicked (member, stock cell) and its price. */
@@ -408,11 +421,27 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await expectTable(page, HOUSE_PRICED, "217");
     await expect(rim.getByTestId("cut-list-unit-price")).toHaveText("$34.44");
     await expect(rim.getByTestId("cut-list-ext-price")).toHaveText("$68.88");
-    await panel
-      .locator("thead")
-      .evaluate((head) => head.scrollIntoView({ block: "start" }));
+    await panel.evaluate((aside) => aside.scrollIntoView({ block: "start" }));
     await page.mouse.move(800, 990);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/b7-cut-list-priced.png` });
+
+    // CUT-LIST-PANEL: at 1280x800 the Total and the last line read with no
+    // sideways scroll (the panel's horizontal scroller has nothing to hide).
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const scroller = panel.getByTestId("cut-list-scroll");
+    await expect
+      .poll(() => scroller.evaluate((el) => el.scrollWidth - el.clientWidth))
+      .toBeLessThanOrEqual(0);
+    const total = panel.getByTestId("cut-list-price-total");
+    await total.scrollIntoViewIfNeeded();
+    await expect(total).toHaveText(PRICE);
+    await expect(total).toBeInViewport({ ratio: 1 });
+    const last = panel.getByTestId("cut-list-row").last();
+    await expect(last.getByTestId("cut-list-member")).toHaveText("Sheathing");
+    await expect(last.getByTestId("cut-list-ext-price")).toBeInViewport({
+      ratio: 1,
+    });
+    await page.setViewportSize({ width: 1600, height: 1000 });
 
     // The CSV's Total row is the same sum.
     const downloading = page.waitForEvent("download");
@@ -422,13 +451,14 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     ).split("\r\n");
     expect(csv).toContain(",Total,,,,,,,,,,,,,2868.87");
 
-    // Edit 1: the front left window (X 60) moved 24 in, to X 84. The wall
-    // re-frames it with the same counts; Ctrl+Z returns to the base house.
-    await edit(page, FRONT_LEFT, { offset_mm: "204" });
+    // Edit 1: the front left window (X 60) moved 24 in, to X 84: one field,
+    // its distance from the X 0 end. The wall re-frames it with the same
+    // counts; Ctrl+Z returns to the base house.
+    await edit(page, FRONT_LEFT, { offset_mm: "84" });
     await expectSolved(page);
     expect(
       await storedOffset(page, account.token, partId, FRONT_LEFT),
-    ).toBeCloseTo(204, 9);
+    ).toBeCloseTo(84, 9);
     await openCutList(page);
     await expectTable(page, HOUSE_PRICED, "217");
     await expectPrice(page, PRICE);
@@ -438,7 +468,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
       .poll(() => storedOffset(page, account.token, partId, FRONT_LEFT), {
         timeout: 30_000,
       })
-      .toBeCloseTo(228, 9);
+      .toBeCloseTo(60, 9);
     await expectSolved(page);
 
     // Edit 2: pitch 6/12 -> 8/12. The rafters lengthen and stay on 12 ft.
@@ -454,18 +484,23 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await edit(page, ROOF, { pitch: "6/12" });
 
     // Edit 3: length 24 -> 28 ft. The floor, the front, back and right walls
-    // and the roof, then the front wall's openings back to their X (their
-    // offsets run from its start, which moved 48): the front left window
-    // first, or the door's new place overlaps it and is refused.
+    // and the roof; the front wall's openings measure from its X 0 end, so
+    // they keep X 60, 144 and 228 with no edit of their own.
     await edit(page, FLOOR, { width_mm: "336" });
     await edit(page, FRONT, { start_x_mm: "336", length_mm: "336" });
     await edit(page, BACK, { length_mm: "336" });
     await edit(page, RIGHT, { start_x_mm: "336" });
     await edit(page, ROOF, { length_mm: "336" });
-    await edit(page, FRONT_LEFT, { offset_mm: "276" });
-    await edit(page, DOOR, { offset_mm: "192" });
-    await edit(page, FRONT_RIGHT, { offset_mm: "108" });
     await expectSolved(page);
+    for (const [index, x] of [
+      [FRONT_LEFT, 60],
+      [DOOR, 144],
+      [FRONT_RIGHT, 228],
+    ] as const) {
+      expect(
+        await storedOffset(page, account.token, partId, index),
+      ).toBeCloseTo(x, 9);
+    }
     await openCutList(page);
     await expectTable(page, HOUSE_28, "234");
     await expectPrice(page, PRICE_28);

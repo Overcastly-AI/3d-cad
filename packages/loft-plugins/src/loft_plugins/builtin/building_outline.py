@@ -150,13 +150,14 @@ def expand_floor_v1_2(inputs: ExpandInputs) -> Iterator[Member]:
 
 
 def _openings(
-    inputs: ExpandInputs, outline: Outline
+    inputs: ExpandInputs, walls: Sequence[OutlineWall]
 ) -> dict[str, list[wall_v1.Opening]]:
-    """The hosted doors and windows by the line of the wall they sit in."""
-    out: dict[str, list[wall_v1.Opening]] = {s.line_id: [] for s in outline.segments}
+    """The hosted doors and windows by the line of the wall they sit in,
+    each measured on that wall (OPENING-FROM-END)."""
+    specs = {wall.line_id: wall.spec for wall in walls}
+    out: dict[str, list[wall_v1.Opening]] = {line: [] for line in specs}
     for hosted in inputs.hosted:
-        opening = wall_v1.Opening.from_hosted(hosted)
-        if opening is None:
+        if hosted.plugin_id not in wall_v1.OPENING_PLUGINS:
             continue
         if hosted.plugin_version == "1.0.0":
             raise PluginError(
@@ -171,7 +172,9 @@ def _openings(
                 f"{hosted.name}: pick the wall of the outline it sits in.",
                 input="wall_segment",
             )
-        out[picked[0]].append(opening)
+        opening = wall_v1.Opening.from_hosted(hosted, specs[picked[0]])
+        if opening is not None:
+            out[picked[0]].append(opening)
     return out
 
 
@@ -224,9 +227,10 @@ def _outline_sheathing(
 def _outline_members(inputs: ExpandInputs, outline: Outline) -> Iterator[Member]:
     """Every outline wall's members in turn, clockwise from the first line,
     each named under its line and numbered on across the walls."""
-    openings = _openings(inputs, outline)
+    walls = outline_walls(inputs, outline)
+    openings = _openings(inputs, walls)
     counts: Counter[str] = Counter()
-    for wall in outline_walls(inputs, outline):
+    for wall in walls:
         sub = dataclasses.replace(inputs, name_prefix=wall.line_id)
         mine = openings[wall.line_id]
         pieces = wall_v1.wall_pieces(wall.spec, mine, named=True)

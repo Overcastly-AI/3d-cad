@@ -42,11 +42,14 @@ busy. A gate that cannot fail for the reason it exists is not a gate, so:
 """
 
 import asyncio
+import atexit
 import itertools
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
+import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -58,6 +61,7 @@ from _pytest.terminal import TerminalReporter
 from alembic import command
 from alembic.config import Config
 from documents.db import Base
+from py_kit import pg_scratch
 from py_kit.db import async_dsn
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -212,7 +216,7 @@ class ScratchPostgres:
             "-D",
             str(self.data_dir),
             "-o",
-            f"-k {self.base_dir} -c listen_addresses='' -F",
+            pg_scratch.server_options(self.base_dir),
             "-l",
             str(self.base_dir / "server.log"),
             "start",
@@ -222,6 +226,9 @@ class ScratchPostgres:
         return None
 
     def stop(self) -> None:
+        """Idempotent: fixture teardown, atexit and a signal may all call it."""
+        if not self.base_dir.exists():
+            return
         self.run(
             str(self.bin_dir / "pg_ctl"),
             "-D",
@@ -308,17 +315,59 @@ def pg_server() -> Iterator[ScratchPostgres]:
         if shutil.which("runuser") is None:
             _refuse_or_skip("running as root and runuser is unavailable", search)
         run_prefix = ["runuser", "-u", "nobody", "--"]
-    base_dir = Path(tempfile.mkdtemp(prefix="loft-pg-"))
+    # A killed session never reaches the teardown below; reap what earlier
+    # ones left before adding to it (py_kit.pg_scratch has the rules).
+    pg_scratch.sweep()
+    base_dir = Path(tempfile.mkdtemp(prefix=pg_scratch.PREFIX))
+    pg_scratch.write_owner(base_dir)
     base_dir.chmod(0o777)
     server = ScratchPostgres(bin_dir=bin_dir, base_dir=base_dir, run_prefix=run_prefix)
+    restore = _stop_on_exit(server)
     error = server.start()
     if error is not None:
-        shutil.rmtree(base_dir, ignore_errors=True)
+        server.stop()
+        restore()
         _refuse_or_skip(f"scratch PostgreSQL would not start: {error}", search)
     try:
         yield server
     finally:
         server.stop()
+        restore()
+
+
+def _stop_on_exit(server: ScratchPostgres) -> Callable[[], None]:
+    """Stop *server* at interpreter exit and on SIGTERM/SIGINT as well.
+
+    Fixture teardown does not run when the process is terminated by a
+    signal; atexit does not run on SIGTERM either. The handler stops the
+    server, then hands the signal to whoever had it before (pytest's
+    KeyboardInterrupt for SIGINT, the default terminate for SIGTERM), so the
+    process still exits the way it would have. SIGKILL cannot be caught:
+    that case is ``pg_scratch.sweep``'s. Returns an undo for the normal path.
+    """
+    atexit.register(server.stop)
+    previous: dict[int, Any] = {}
+
+    def handler(signum: int, frame: Any) -> None:
+        server.stop()
+        prior = previous.get(signum, signal.SIG_DFL)
+        if callable(prior):
+            prior(signum, frame)
+            return
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    if threading.current_thread() is threading.main_thread():
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            previous[signum] = signal.signal(signum, handler)
+
+    def restore() -> None:
+        atexit.unregister(server.stop)
+        for signum, prior in previous.items():
+            if signal.getsignal(signum) is handler:
+                signal.signal(signum, prior)
+
+    return restore
 
 
 @pytest.fixture(scope="session")
@@ -330,14 +379,21 @@ def pg_template(pg_server: ScratchPostgres) -> str:
 
 
 @pytest.fixture
-def pg_url(pg_server: ScratchPostgres, pg_template: str) -> str:
-    """A fresh per-test database cloned from the migrated template."""
+def pg_url(pg_server: ScratchPostgres, pg_template: str) -> Iterator[str]:
+    """A fresh per-test database cloned from the migrated template.
+
+    Dropped afterwards: each clone is ~9 MB, and keeping all of them made a
+    full session's cluster 2-3 GB (measured 2026-10-23: 277 databases).
+    """
     name = f"loft_test_{next(_db_counter)}"
     _execute_autocommit(
         pg_server.url("postgres"), f"CREATE DATABASE {name} TEMPLATE {pg_template}"
     )
     _pg_stats["served"] += 1
-    return pg_server.url(name)
+    yield pg_server.url(name)
+    _execute_autocommit(
+        pg_server.url("postgres"), f"DROP DATABASE IF EXISTS {name} WITH (FORCE)"
+    )
 
 
 def _marked(reports: list[Any]) -> int:
