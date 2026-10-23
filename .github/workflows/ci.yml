@@ -26,7 +26,7 @@
 #
 # Jobs (all independent, run in parallel):
 #   python    — ruff (lint + format), pyright strict
-#   pytest    — pytest across the uv workspace as a 4-job matrix, packed by
+#   pytest    — pytest across the uv workspace as a 7-job matrix, packed by
 #               measured duration (scripts/pytest_shards.py); `pytest complete`
 #               then proves from the shards' ledgers that every collected test
 #               ran exactly once
@@ -196,9 +196,30 @@ jobs:
     # timeout covers setup, which varies 0.5-4 min, so 20 left no margin over
     # a 13.5-16.5 min shard.
     #
+    # N=7 since 2026-10-23. Run 39980520437 at 27c44a5 (9346 tests): shard
+    # 5/6 spent 7m07s on apt (now a .deb cache, see the action), then its
+    # tests ran 17m24s into the 25-min timeout and were cancelled with no
+    # ledger, against 13.9 min planned. Its files were underpriced, not slow:
+    # measured on the dev container (load 2-6 on 4 CPUs, readings past load 4
+    # scaled back by load/4), test_export.py takes 678 s (manifest: 310) and
+    # test_step_roundtrip.py 161 s (58): both walk the goldens, which grew
+    # by 35 and 7 tests since their entries; 19 files were unmeasured, test_outline_b7.py among them at 148 s
+    # (priced 7 by count). 89 files were measured, 60 of them ones the
+    # 2026-10-22 rescale had scaled by shard 5's 0.39; they reprice at a
+    # median 1.49x their entries (quartiles 1.30-1.93). Each measured file is
+    # local x 0.9 CI s: six files that rescale did not touch give CI/local
+    # 0.64-1.25 (median 1.14), the 2026-10-16 pace was 0.6-0.72, and 0.9 sits
+    # between; shard 5's overrun needs at least 0.73. The next `durations`
+    # over CI ledgers replaces the estimate. Unmeasured files were scaled by their test-count growth. Total 97.8 CI
+    # min, packing to 14.0 per shard at N=7 (16.3 at N=6, 12.2 at N=8).
+    # test_export.py alone is ~10.2 CI min, so it has a shard to itself plus
+    # small files, and test_step_roundtrip.py / test_composition_matrix.py
+    # now pack elsewhere. That file is the floor for any N; splitting it is
+    # the next lever, not an eighth shard.
+    #
     # NB a timed-out job is reported `cancelled`, the SAME word GitHub uses for
     # a concurrency eviction — see CLAUDE.md for telling them apart.
-    name: pytest (shard ${{ matrix.shard }}/6)
+    name: pytest (shard ${{ matrix.shard }}/7)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -208,7 +229,7 @@ jobs:
         # Must be 1..N for the `/N` in the Pytest step and `--expect-shards N`
         # in `pytest complete`; `pytest_shards.py --self-test` (in `just lint`)
         # refuses any drift between the three.
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -277,7 +298,7 @@ jobs:
           LOFT_REQUIRE_PG: "1"
         run: >-
           uv run python scripts/pytest_shards.py run
-          --shard "${{ matrix.shard }}/6"
+          --shard "${{ matrix.shard }}/7"
           --ledger "$RUNNER_TEMP/pytest-ledger/shard-${{ matrix.shard }}.json"
       # The ledger is written at session finish whatever the test outcome, so a
       # red shard still hands one in. A shard killed mid-run hands in none, and
@@ -298,7 +319,7 @@ jobs:
 
   pytest-complete:
     # The check the packing cannot make about itself. It refuses unless every
-    # shard 1..6 handed in a ledger, all of them collected the same suite
+    # shard 1..7 handed in a ledger, all of them collected the same suite
     # (otherwise they packed different partitions), no test ran twice, and what
     # ran is exactly what was collected. That is the defect class sharding
     # introduces: a dropped matrix entry, or a shard that died after collection,
@@ -321,7 +342,7 @@ jobs:
         run: >-
           python3 scripts/pytest_shards.py check
           --ledgers "$RUNNER_TEMP/pytest-ledgers"
-          --expect-shards 6
+          --expect-shards 7
           --workflow .github/workflows/ci.yml
       # A red shard fails its own job. This makes the aggregate say so too, so
       # `pytest complete` alone is enough as a required check.
