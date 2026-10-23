@@ -2670,6 +2670,36 @@ and reframe it, a material per member, and a cut list that is always current.
   - *A maker's line* is a catalogue (`OpeningUnitSize` rows) fed to the same
     Size choice; the built-in openings read the built-in catalogue. Wiring a
     maker plugin id into the wall's hosted-opening lookup is not built yet.
+- **Decided while turning the floor's joists** (FLOOR-JOIST-SPAN,
+  2026-10-23; Chief Architect frames a floor across its shorter span with a
+  joist-direction arrow you can turn, Revit's floor has a picked span
+  direction):
+  - *Joists bear on.* `loft.floor` 1.3.0 replaces Joist direction, in place,
+    with Joists bear on: Long walls (the default), Front and back, or Left
+    and right, the walls under the rims. Long walls bears on the longer pair
+    so the joists span the shorter way, as framers frame it; a square bears
+    on the front and back. One input serves a typed rectangle (front and
+    back are the width's edges, which is world -Y and +Y at direction 0) and
+    an outline (the walls facing -Y and +Y, the world sides walls are named
+    by). B5's default 144 x 120 floor is unchanged: its long walls are the
+    width's.
+  - *The rectangle from its corners.* 1.2.0 took the width along the
+    outline's first line, so B7 drawn from a corner up its side framed 24 ft
+    2x10 joists. 1.3.0 reads the start corner as the least X and Y, the
+    width along +X and the depth along +Y, so every drawing of one rectangle
+    (any corner, either way round) frames the same members with the same
+    ids. Where 1.2.0 read B7's Rectangle-tool drawing it is 1.2.0's floor
+    byte for byte.
+  - *Stored floors.* 1.0.0-1.2.0 are untouched and pinned by their goldens;
+    a 1.3.0 refuses the retired `joist_direction` input as any unknown
+    input. A wall on a 1.3.0 floor reads its top through the same rewrite.
+  - *Numbers.* B7's floor (288 x 192, 2x10 at 16, PT 2x6 sills, 23/32
+    subfloor) on Long walls: 19 joists at 189, rims at 288, sills 2 at 288
+    and 2 at 181, 14 panels, 105 299.625 in³. On Left and right: 13 joists
+    at 285, rims at 192, sills 2 at 192 and 2 at 277, 15 panels,
+    104 217.375 in³. Both by hand in exact rationals, matched by an
+    independent build123d script on STEP, no interference. Goldens
+    `b7-floor-long-walls` and `b7-floor-left-right`.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

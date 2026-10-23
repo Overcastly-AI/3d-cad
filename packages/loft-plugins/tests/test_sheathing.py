@@ -275,9 +275,10 @@ def _net_area(loops: list[list[tuple[float, float]]]) -> float:
 
 
 def test_the_new_versions_are_registered_and_latest() -> None:
-    # 1.3.0 and 1.2.0 (BUILDING-OUTLINE, test_building_outline.py) are newer.
+    # 1.3.0 and 1.2.0 (BUILDING-OUTLINE, test_building_outline.py) are newer,
+    # and floor 1.3.0 (FLOOR-JOIST-SPAN, test_floor_joist_span.py).
     assert REGISTRY.latest("loft.wall").manifest.version == "1.3.0"
-    assert REGISTRY.latest("loft.floor").manifest.version == "1.2.0"
+    assert REGISTRY.latest("loft.floor").manifest.version == "1.3.0"
     # The old ones are still there, unchanged, for the features pinned to them.
     assert WALL_V1.manifest.version == "1.0.0"
     assert FLOOR_V1.manifest.version == "1.0.0"

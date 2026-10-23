@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
+from loft_wire.cut_list import CutListPartRequest
 from loft_wire.features import EvaluateTreeRequest
 from loft_wire.parts import PRINCIPAL_HEADER
 
@@ -143,3 +144,68 @@ def test_an_input_past_its_bound_is_a_typed_refusal(client: TestClient) -> None:
     )
     assert response.status_code == 422, response.text
     assert response.json()["error"]["code"] == "plugin_input_invalid"
+
+
+# --- FLOOR-JOIST-SPAN: 1.3.0's Joists bear on --------------------------------------
+
+
+def _joists(client: TestClient, part_id: str) -> int:
+    response = client.get(f"/api/v1/parts/{part_id}/cut-list-request", headers=HEADERS)
+    assert response.status_code == 200, response.text
+    request = CutListPartRequest.model_validate_json(response.content)
+    return sum(1 for m in request.members if m.role == "joist")
+
+
+def _floor_1_3(**inputs: Any) -> dict[str, Any]:
+    feature = _floor()
+    feature["params"]["plugin_version"] = "1.3.0"
+    feature["params"]["inputs"].update(inputs)
+    return feature
+
+
+def test_a_1_3_0_floor_bears_on_its_long_walls_and_turns(client: TestClient) -> None:
+    """120 wide x 144 deep: the default bears on the long left and right
+    sides (10 joists along X, on the 144 layout); Front and back turns them
+    (9 along Y, on the 120 layout). The choice is stored."""
+    part_id, version = _part(client)
+    deep = {"width_mm": 120 * IN, "depth_mm": 144 * IN}
+    version = _add(client, part_id, version, _floor_1_3(**deep))
+    assert _joists(client, part_id) == 10
+    tree = client.get(f"/api/v1/parts/{part_id}/features", headers=HEADERS).json()
+    row = tree["features"][0]
+    assert row["feature"]["params"]["inputs"]["joists_bear_on"] == "long_walls"
+    response = client.patch(
+        f"/api/v1/parts/{part_id}/features/{row['id']}",
+        json={
+            "feature": _floor_1_3(**deep, joists_bear_on="front_back"),
+            "expected_tree_version": version,
+        },
+        headers=HEADERS,
+    )
+    assert response.status_code == 200, response.text
+    assert _joists(client, part_id) == 9
+
+
+def test_a_1_3_0_floor_refuses_the_retired_joist_direction(client: TestClient) -> None:
+    part_id, version = _part(client)
+    response = client.post(
+        f"/api/v1/parts/{part_id}/features",
+        json={
+            "name": "Floor",
+            "feature": _floor_1_3(joist_direction="width"),
+            "expected_tree_version": version,
+        },
+        headers=HEADERS,
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_a_stored_1_2_0_floor_keeps_its_joist_direction(client: TestClient) -> None:
+    part_id, version = _part(client)
+    feature = _floor()
+    feature["params"]["plugin_version"] = "1.2.0"
+    feature["params"]["inputs"].update(
+        {"width_mm": 120 * IN, "depth_mm": 144 * IN, "joist_direction": "depth"}
+    )
+    _add(client, part_id, version, feature)
+    assert _joists(client, part_id) == 9  # along the 144 depth, as stored
