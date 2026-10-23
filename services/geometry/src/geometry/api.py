@@ -45,6 +45,7 @@ from loft_wire.assemblies import (
     assembly_export_filename,
     count_leaf_instances,
 )
+from loft_wire.body_names import solid_names
 from loft_wire.component_patterns import PatternCountsResult
 from loft_wire.cut_list import BodyExtentsResult
 from loft_wire.drawings import (
@@ -1139,6 +1140,15 @@ def export_tree(request: ExportTreeRequest) -> Response:
             request.angular_deflection,
             name=request.name,
             twisted=tree_has_twist(request),
+            # BODY-NAMES: each body's name on its solids, in the body set's
+            # order (the order the exported compound is built in).
+            solid_names=solid_names(
+                [
+                    (body.base_feature_id, body.lumps)
+                    for body in evaluation.result.bodies
+                ],
+                request.body_names,
+            ),
         )
     except (MeshExportNotManifoldError, MeshExportTooDenseError) as exc:
         raise ValidationApiError(str(exc), code=exc.code) from exc

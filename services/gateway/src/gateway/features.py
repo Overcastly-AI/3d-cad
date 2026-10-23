@@ -28,6 +28,7 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Query, Request, Response, status
+from loft_wire.body_names import PartBodyNames
 from loft_wire.drawings import (
     ARTIFACT_MEDIA_TYPES,
     FlatPatternDxfRequest,
@@ -491,11 +492,22 @@ async def export_part(
         raise_upstream_error(part_upstream, service=_SERVICE)
     part = PartResponse.model_validate_json(part_upstream.content)
 
+    # BODY-NAMES: each body's name ("Front wall · Stud 3", or the user's
+    # rename) names its solids in a STEP file. Display metadata, so a third
+    # read rather than a field on the evaluation request.
+    names_upstream = await forward_documents(
+        http_request, user, "GET", f"/api/v1/parts/{part_id}/body-names"
+    )
+    if names_upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(names_upstream, service=_SERVICE)
+    body_names = PartBodyNames.model_validate_json(names_upstream.content).bodies
+
     export_request = ExportTreeRequest.model_validate(
         {
             **evaluation_request.model_dump(mode="json"),
             "format": format,
             "name": part.name,
+            "body_names": [body.model_dump(mode="json") for body in body_names],
         }
     )
 

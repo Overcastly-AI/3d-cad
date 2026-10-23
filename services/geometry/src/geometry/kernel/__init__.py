@@ -8,6 +8,8 @@ body between features), but they never serialize into a DTO or cross the
 service boundary.
 """
 
+from collections.abc import Sequence
+
 from build123d import Solid
 
 from geometry.kernel.boolean import (
@@ -419,6 +421,7 @@ def export_solid(
     name: str | None = None,
     *,
     twisted: bool = False,
+    solid_names: Sequence[str | None] | None = None,
 ) -> bytes:
     """Export an already-built solid in *fmt* — the shared format dispatch.
 
@@ -443,6 +446,10 @@ def export_solid(
     and every existing caller are byte-identical to before. STL and GLB carry no
     names.
 
+    *solid_names* (STEP only, BODY-NAMES) names each solid of *shape*, in its
+    ``solids()`` order: ``MANIFOLD_SOLID_BREP('Front wall · Stud 3')``. ``None``
+    names none, and the file is byte-identical to before.
+
     ``twisted`` (the body comes from a tree with a twisted extrude) meshes the
     helicoidal flanks with a bounded cost before STL/GLB, and REFUSES a 3MF of
     a body too dense to mesh that way, because lib3mf's writer re-meshes a copy
@@ -451,7 +458,7 @@ def export_solid(
     """
     match fmt:
         case "step":
-            return export_step_bytes(shape, name=name)
+            return export_step_bytes(shape, name=name, solid_names=solid_names)
         case "stl":
             if twisted:
                 mesh_helicoidal_faces(shape, linear_deflection, angular_deflection)
