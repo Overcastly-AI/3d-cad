@@ -175,11 +175,14 @@ JOISTS_BEAR_ON = ChoiceInput(
 
 def _floor_inputs_v1_3() -> list[PluginInput]:
     """1.2.0's inputs with Joist direction replaced, in place, by Joists
-    bear on."""
-    return [
-        JOISTS_BEAR_ON if item.name == "joist_direction" else item
-        for item in FLOOR_MANIFEST_V1_3_INPUTS
-    ]
+    bear on, and the outline's text no longer tying the span to its first line."""
+    replaced = {
+        "joist_direction": JOISTS_BEAR_ON,
+        "outline": _outline_input(
+            "The floor fills it (a rectangle; Joists bear on picks the span)."
+        ),
+    }
+    return [replaced.get(item.name, item) for item in FLOOR_MANIFEST_V1_3_INPUTS]
 
 
 FLOOR_MANIFEST_V1_3 = PluginManifest(
