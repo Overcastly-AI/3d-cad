@@ -16,9 +16,10 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  *
  * In an inch part holding B2's four walls: Build ▾ > Door in the front wall
  * at 72 and Build ▾ > Window in the right side wall at 56.5 give the spec's
- * wall cut list (64 members). Then the spec's first edit: the door's offset
- * 72 -> 48 (centre X 96) regenerates the front wall with 7 layout studs and 3
- * top cripples, and the bottom plate cut moves.
+ * wall cut list (64 members). Then the spec's first edit: the door's distance
+ * from the X 0 end 72 -> 96 (OPENING-FROM-END: a new opening measures from
+ * the end nearer the origin) regenerates the front wall with 7 layout studs
+ * and 3 top cripples, and the bottom plate cut moves.
  */
 
 const IN = 25.4;
@@ -116,7 +117,7 @@ test.describe("Window and Door — hosted openings framed by B2's walls", () => 
     await expectSolved(page);
     const editor = page.getByTestId("plugin-editor");
 
-    // Build ▾ > Door: hosted in the front wall, centred 72 from its start.
+    // Build ▾ > Door: hosted in the front wall, centred 72 from an end (the middle).
     await openBuildTool(page, "loft.door", "Door");
     const host = page.getByTestId("plugin-input-host_wall");
     // Only walls are offered as hosts.
@@ -154,7 +155,12 @@ test.describe("Window and Door — hosted openings framed by B2's walls", () => 
     await expect(editor).toContainText("Edit Door");
     const offset = page.getByTestId("plugin-input-offset_mm");
     await expect(offset).toHaveValue("72");
-    await offset.fill("48");
+    // Measured from the front wall's X 0 end (the end nearer the origin,
+    // OPENING-FROM-END): X 72 -> 96, golden b2-walls-door-moved-24's place.
+    await expect(page.getByTestId("plugin-input-measure_from")).toHaveValue(
+      "end",
+    );
+    await offset.fill("96");
     await page.getByTestId("plugin-submit").click();
     await expect(editor).toBeHidden({ timeout: 30_000 });
     await expectSolved(page);

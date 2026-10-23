@@ -96,7 +96,7 @@ test.describe("B2 shed — from Build features only", () => {
     }
     await expectSolved(page);
 
-    // Build ▾ > Door: the front wall (Wall 1), centred 72 from its start.
+    // Build ▾ > Door: the front wall (Wall 1), centred 72 from an end (the middle).
     await openBuildTool(page, "loft.door", "Door");
     const host = page.getByTestId("plugin-input-host_wall");
     await expect(host.locator("option")).toHaveText([

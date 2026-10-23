@@ -44,9 +44,11 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * the 18 short lines + $260.04 of splices).
  *
  * Then the three named edits, each from the base house: the front left
- * window moved 24 in (undone with Ctrl+Z), pitch 6/12 -> 8/12 (set back), and
- * length 24 -> 28 ft, which takes eight feature edits because the openings
- * are placed from the front wall's start (X 288 -> 336).
+ * window moved 24 in, one field 60 -> 84 (undone with Ctrl+Z), pitch 6/12 ->
+ * 8/12 (set back), and length 24 -> 28 ft, five feature edits. A new opening
+ * measures from the wall end nearer the origin (OPENING-FROM-END): the front
+ * wall runs X 288 -> 0, so its openings read their X and stay put when its
+ * start moves to X 336.
  */
 
 /** The walls, clockwise: start x, start y, direction, length (in). */
@@ -57,11 +59,14 @@ const WALLS: [string, string, string, string][] = [
   ["288", "186.5", "270", "181"], // right, X 282.5..288
 ];
 
-/** Plugin, title, host wall, offset (in), a 36 x 48 window. */
+/**
+ * Plugin, title, host wall, distance (in) from the wall end nearer the
+ * origin (the front wall's X 0 end), a 36 x 48 window.
+ */
 const OPENINGS: [string, string, string, string, boolean][] = [
   ["loft.door", "Door", "Wall 1", "144", false],
-  ["loft.window", "Window", "Wall 1", "228", true], // X 60, front left
-  ["loft.window", "Window", "Wall 1", "60", true], // X 228
+  ["loft.window", "Window", "Wall 1", "60", true], // X 60, front left
+  ["loft.window", "Window", "Wall 1", "228", true], // X 228
   ["loft.window", "Window", "Wall 3", "144", true],
   ["loft.window", "Window", "Wall 2", "90.5", false],
   ["loft.window", "Window", "Wall 4", "90.5", false],
@@ -422,13 +427,14 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     ).split("\r\n");
     expect(csv).toContain(",Total,,,,,,,,,,,,,2868.87");
 
-    // Edit 1: the front left window (X 60) moved 24 in, to X 84. The wall
-    // re-frames it with the same counts; Ctrl+Z returns to the base house.
-    await edit(page, FRONT_LEFT, { offset_mm: "204" });
+    // Edit 1: the front left window (X 60) moved 24 in, to X 84: one field,
+    // its distance from the X 0 end. The wall re-frames it with the same
+    // counts; Ctrl+Z returns to the base house.
+    await edit(page, FRONT_LEFT, { offset_mm: "84" });
     await expectSolved(page);
     expect(
       await storedOffset(page, account.token, partId, FRONT_LEFT),
-    ).toBeCloseTo(204, 9);
+    ).toBeCloseTo(84, 9);
     await openCutList(page);
     await expectTable(page, HOUSE_PRICED, "217");
     await expectPrice(page, PRICE);
@@ -438,7 +444,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
       .poll(() => storedOffset(page, account.token, partId, FRONT_LEFT), {
         timeout: 30_000,
       })
-      .toBeCloseTo(228, 9);
+      .toBeCloseTo(60, 9);
     await expectSolved(page);
 
     // Edit 2: pitch 6/12 -> 8/12. The rafters lengthen and stay on 12 ft.
@@ -454,18 +460,23 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await edit(page, ROOF, { pitch: "6/12" });
 
     // Edit 3: length 24 -> 28 ft. The floor, the front, back and right walls
-    // and the roof, then the front wall's openings back to their X (their
-    // offsets run from its start, which moved 48): the front left window
-    // first, or the door's new place overlaps it and is refused.
+    // and the roof; the front wall's openings measure from its X 0 end, so
+    // they keep X 60, 144 and 228 with no edit of their own.
     await edit(page, FLOOR, { width_mm: "336" });
     await edit(page, FRONT, { start_x_mm: "336", length_mm: "336" });
     await edit(page, BACK, { length_mm: "336" });
     await edit(page, RIGHT, { start_x_mm: "336" });
     await edit(page, ROOF, { length_mm: "336" });
-    await edit(page, FRONT_LEFT, { offset_mm: "276" });
-    await edit(page, DOOR, { offset_mm: "192" });
-    await edit(page, FRONT_RIGHT, { offset_mm: "108" });
     await expectSolved(page);
+    for (const [index, x] of [
+      [FRONT_LEFT, 60],
+      [DOOR, 144],
+      [FRONT_RIGHT, 228],
+    ] as const) {
+      expect(
+        await storedOffset(page, account.token, partId, index),
+      ).toBeCloseTo(x, 9);
+    }
     await openCutList(page);
     await expectTable(page, HOUSE_28, "234");
     await expectPrice(page, PRICE_28);

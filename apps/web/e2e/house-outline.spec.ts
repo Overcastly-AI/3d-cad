@@ -70,14 +70,15 @@ const OUTLINE = {
 
 /**
  * B7's openings on the outline walls (test_building_outline.b7_openings):
- * side, offset from that wall's clockwise start, and a 36 x 48 unit where
- * not the window's 24 x 36 default. The front wall runs from X 288 back to
- * X 0, so its door at X 144 and windows at X 60 and 228 sit 288 - X along.
+ * side, distance from the wall end nearer the origin (OPENING-FROM-END, the
+ * form's default), and a 36 x 48 unit where not the window's 24 x 36
+ * default. The front wall runs from X 288 back to X 0, so its door and
+ * windows read their X: 144, 60 and 228.
  */
 const OPENINGS: [string, "Door" | "Window", string, string, boolean][] = [
   ["loft.door", "Door", "Front", "144", false],
-  ["loft.window", "Window", "Front", "228", true],
   ["loft.window", "Window", "Front", "60", true],
+  ["loft.window", "Window", "Front", "228", true],
   ["loft.window", "Window", "Back", "144", true],
   ["loft.window", "Window", "Left", "90.5", false],
   ["loft.window", "Window", "Right", "90.5", false],
