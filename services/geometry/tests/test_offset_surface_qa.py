@@ -168,6 +168,22 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # B7's floor both ways (FLOOR-JOIST-SPAN): summation drift, 9.5e-7 at worst.
     "b7-floor-left-right": 3e-6,
     "b7-floor-long-walls": 3e-6,
+    # B8 on its slab (SLAB): b7-outline's class, measured 2.9e-4 mm^3; the
+    # slab itself round-trips exactly.
+    "b8-slab-house": 1e-3,
+    # B10, B7 with two partitions (INTERIOR-WALLS): b7-outline's class,
+    # measured 3.3e-4 mm^3.
+    "b10-partitions": 1e-3,
+    # Casework (CASEWORK): summation drift, 1.0e-7 to 3.6e-7 mm^3 measured;
+    # C1 turned 30 deg, OCCT's turned-plane STEP drift, 1.05e-4 mm^3.
+    "c1-b27-frameless-casework": 5e-7,
+    "c1-b24-face-frame-casework": 5e-7,
+    "c1-b24-turned-30-casework": 5e-4,
+    "c2-kitchen-b7-left-wall": 1.5e-6,
+    "c3-v3021-melamine-face-frame": 5e-7,
+    # B9 on its crawl space (CRAWL-SPACE): b7-outline's class, measured
+    # 3.4e-4 mm^3; the foundation alone drifts 1.1e-5.
+    "b9-crawl-space": 1e-3,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

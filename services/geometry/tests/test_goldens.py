@@ -296,6 +296,23 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # summation drift, 9.5e-7 mm^3 at worst.
         "b7-floor-left-right",
         "b7-floor-long-walls",
+        # B8: B7's walls, openings and roof on its slab (SLAB): b7-outline's
+        # class, 2.9e-4 at worst; the slab itself round-trips exactly.
+        "b8-slab-house",
+        # B9: B7 as built on its crawl space (CRAWL-SPACE): b7-outline's
+        # class, 3.4e-4 at worst; the foundation alone drifts 1.1e-5.
+        "b9-crawl-space",
+        # B10, B7 with two partitions (INTERIOR-WALLS): b7-outline's class,
+        # 3.3e-4 at worst; the partitions and gypsum are boxes.
+        "b10-partitions",
+        # Casework (CASEWORK): C1 at 27 in and in face frame, C3 in face frame
+        # and C2's 91 panels, the summation drift (1.0e-7 to 3.6e-7 mm^3);
+        # C1 turned 30 deg, OCCT's STEP drift on turned planes (1.05e-4).
+        "c1-b27-frameless-casework",
+        "c1-b24-face-frame-casework",
+        "c1-b24-turned-30-casework",
+        "c2-kitchen-b7-left-wall",
+        "c3-v3021-melamine-face-frame",
     }
 )
 

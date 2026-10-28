@@ -477,7 +477,11 @@
                   "steel_a992",
                   "concrete",
                   "pvc",
-                  "glass"
+                  "glass",
+                  "steel_a615",
+                  "steel_f1554",
+                  "gypsum",
+                  "melamine"
                 ],
                 "type": "string"
               },
@@ -526,7 +530,11 @@
               "steel_a992",
               "concrete",
               "pvc",
-              "glass"
+              "glass",
+              "steel_a615",
+              "steel_f1554",
+              "gypsum",
+              "melamine"
             ],
             "title": "Material",
             "type": "string"
@@ -7102,7 +7110,11 @@
                   "steel_a992",
                   "concrete",
                   "pvc",
-                  "glass"
+                  "glass",
+                  "steel_a615",
+                  "steel_f1554",
+                  "gypsum",
+                  "melamine"
                 ],
                 "type": "string"
               },

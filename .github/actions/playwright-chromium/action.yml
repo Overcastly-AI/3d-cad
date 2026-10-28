@@ -28,8 +28,19 @@
 #     An interrupted install leaves no completion marker and is fetched again.
 # Each phase logs its own time and whether the cache hit, so the next slow
 # runner will show which half was slow.
+#
+# ── 2026-10-23: the apt half comes from a .deb cache ───────────────────────
+#
+# Run 39980520437 at 27c44a5: e2e smoke spent 6m08s in planegcs-build-deps
+# and 7m23s in this action, then hit its job timeout (cancelled). Retries had
+# bounded each stall without taking the mirror off the path. So the .debs the
+# missing packages need are now cached (actions/cache, keyed on the runner
+# image, the Playwright version and the packages' candidate versions) and go in
+# with `dpkg -i`; scripts/ci-apt-debs.sh has the mechanics and a stubbed
+# self-test. Bounded apt stays as the cold-cache fallback, and the job that
+# takes it saves what it downloaded. The browser download keeps its bounds.
 name: Playwright Chromium
-description: Cached Chromium binary + its apt dependencies, with bounded retried attempts.
+description: Cached Chromium binary + its apt dependencies (.deb cache, bounded apt fallback).
 runs:
   using: composite
   steps:
@@ -46,10 +57,12 @@ runs:
       with:
         path: ~/.cache/ms-playwright
         key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
-    - name: Chromium apt dependencies
+    - name: Plan the Chromium apt dependencies
+      id: deps
       shell: bash
+      env:
+        PW_VERSION: ${{ steps.pw.outputs.version }}
       run: |
-        start=$SECONDS
         pw=apps/web/node_modules/.bin/playwright
         # The dry run prints: sh -c "apt-get update&& apt-get install -y --no-install-recommends <pkgs>"
         plan=$("$pw" install-deps --dry-run chromium)
@@ -60,27 +73,31 @@ runs:
           echo "::error::could not read the apt package list from: $plan"
           exit 1
         fi
-        missing=()
-        for p in $pkgs; do
-          dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'install ok installed' || missing+=("$p")
-        done
-        if [ ${#missing[@]} -eq 0 ]; then
-          echo "all $(wc -w <<<"$pkgs") Chromium apt packages already present"
-          exit 0
-        fi
-        echo "missing ${#missing[@]}: ${missing[*]}"
-        for attempt in 1 2 3; do
-          # A timeout can kill dpkg mid-install; finish that first or the
-          # retry fails with "dpkg was interrupted".
-          [ "$attempt" = 1 ] || sudo timeout 180 dpkg --configure -a || true
-          if sudo timeout 180 apt-get update -qq &&
-            sudo DEBIAN_FRONTEND=noninteractive timeout 180 apt-get install -y -qq --no-install-recommends "${missing[@]}"; then
-            echo "apt dependencies installed in $((SECONDS - start)) s (attempt $attempt)"
-            exit 0
-          fi
-          echo "::warning::Chromium apt dependencies: attempt $attempt stalled or failed after $((SECONDS - start)) s; retrying"
-        done
-        exit 1
+        echo "pkgs=$pkgs" >> "$GITHUB_OUTPUT"
+        # shellcheck disable=SC2086 # word splitting of the package list is intended
+        echo "key=chromium-debs-${ImageOS:-unknown}-${ImageVersion:-unknown}-pw$PW_VERSION-$(scripts/ci-apt-debs.sh key $pkgs)" >> "$GITHUB_OUTPUT"
+    - name: Restore the Chromium .debs
+      id: debs
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/apt-debs/chromium
+        key: ${{ steps.deps.outputs.key }}
+    - name: Chromium apt dependencies (deb cache, apt fallback)
+      id: install-deps
+      shell: bash
+      env:
+        PKGS: ${{ steps.deps.outputs.pkgs }}
+        CACHE_HIT: ${{ steps.debs.outputs.cache-hit }}
+      run: |
+        echo "deb cache hit: ${CACHE_HIT:-false}"
+        # shellcheck disable=SC2086 # word splitting of the package list is intended
+        scripts/ci-apt-debs.sh install "$RUNNER_TEMP/apt-debs/chromium" $PKGS
+    - name: Save the Chromium .debs
+      if: steps.install-deps.outputs.seeded == 'true' && steps.debs.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/apt-debs/chromium
+        key: ${{ steps.deps.outputs.key }}
     - name: Install Chromium
       shell: bash
       env:

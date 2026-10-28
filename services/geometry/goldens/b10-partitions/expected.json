@@ -1,0 +1,58 @@
+{
+  "description": "B10 SMALL HOUSE WITH PARTITIONS (INTERIOR-WALLS; docs/reference-parts/buildings.md B10, docs/BACKLOG.md INTERIOR-WALLS): b7-outline's tree (B7's 288 x 192 outline sketch, loft.floor 1.2.0, the walls, B7's door and four windows at 1.1.0, the loft.roof 1.4.0 gable) with two lines added to the sketch, X 180 (P1, drawn from the back) and Y 132 (P2, drawn from the right wall to P1), the walls at loft.wall 1.4.0, one loft.interior_wall 1.0.0 on them (2x4 at 16 in o.c., double top plate, ladder backing, 1/2 gypsum both faces from 4x8 sheets) and a 2868 door (loft.door 1.4.0, unit drawn) in P2 centred on X 232. model.json is EXACTLY the sketch and the expansions with their member materials; members.json is each body's member metadata with its plugin (packages/loft-plugins/tests/test_interior_walls.py pins both; services/geometry/tests/test_partitions_b10.py checks the STEP, interference, the cut list and the mass).",
+  "derivation": [
+    "INDEPENDENT of the plugins: services/geometry/tests/test_partitions_b10.py types B10's 67 bodies from buildings.md (b10_members()) and adds them to test_outline_b7.script(), B7's independent build123d script (217 solids). The STEP matches the 284 solids solid for solid (volume to 1e-4 in^3, bounds to 1e-5 in).",
+    "",
+    "B10's bodies: P1 X 178.25..181.75 from the back wall's inside face Y 186.5 to the front's Y 5.5 (181), 13 studs (centres 185.75, 170.5, ..., 10.5 and the end stud at 6.25), a bottom plate and two top plates; P2 Y 130.25..133.75 from the right wall's inside face X 282.5 to P1's face X 181.75 (100.75), 5 layout studs (u 0.75, 16, 80, 96 and the end stud), the door's two kings and two jacks round its 34 x 82.5 rough opening X 215..249, two 2x6 header plies X 213.5..250.5 (1/2 in spacer), top cripples at X 234.5 and 218.5, two top plates and the bottom plate cut at the opening; 4 ladders of 3 flat 2x4 blocks 14.5 long centred 24, 48 and 72 in above the bottom plate's top (the front and back walls at X 176.75..191.25, the right wall and P1 at Y 123.25..137.75), each flush with the face its partition meets; 20 gypsum panels 1/2 in thick in two 48 in courses down from the top plate (Z +1.125..+97.125 above the subfloor), 96 in long from each partition's start, P1's east face cut at P2's framing, P2's stopped at P1's board (X 182.25) and cut round the door's rough opening; the door unit's frame (33.5 x 82 x 3.5 round its 32 x 80 opening) and slab (32 x 80 x 1.75).",
+    "",
+    "volume (analytic, test_b10s_members_add_45_623_25_cubic_inches): B7's 264 852.3788656 in^3 (b7-outline) plus B10's 45 623.25 in^3 in exact rationals: framing 16 423.5 (20 studs x 486.28125, 2 jacks x 425.25, 3 x 950.25 and 2 x 528.9375 plates, bottom plates 174.5625 + 175.875, two plies x 305.25, two cripples x 32.15625, 12 blocks x 76.125), gypsum 48 130.5 in^2 x 1/2 = 24 065.25, the door 654.5 + 4 480: 310 475.6288656 in^3 = 5087784000.660349 mm^3.",
+    "",
+    "surface_area, centroid, mass_g and center_of_mass are the script's solids summed (expected_numbers()): spf_lumber 450, southern_pine_pt 582, osb 641, plywood 577 and gypsum 846 kg/m^3.",
+    "",
+    "bounding_box: b7-outline's: the partitions lie inside the walls and under the roof.",
+    "",
+    "topology and MESH from the script's B-rep: 1 934 faces, 4 098 edges, 284 shells; every face is planar, so a face of n edge-vertices on h holes meshes as n + 2h - 2 triangles on n vertices: 8 196 vertices and 4 332 triangles. The kernel's build of model.json meets every count exactly.",
+    "",
+    "Interference none (test_nothing_interferes probes every pair whose boxes overlap, exactly): the partitions' end studs, the blocks and the gypsum only touch the framing and boards they meet."
+  ],
+  "tolerance": 5e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): b7-outline's class. The bounds are ABSOLUTE and the part is ~5.1e9 mm^3 summed over 284 bodies, so the double-precision sum carries round-off near the ULP of the sum (~9.5e-7): the kernel differs from the script by -1.9e-06 mm^3 on the volume, +9.5e-07 mm^2 on the area, <= 1.3e-11 mm on the centroid and centre of mass and 4.2e-9 g on the mass. 5e-6 is 2.6x that and ~1e-15 relative; one block missed takes 1 247 470 mm^3, so it fails by eleven orders.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, b7-outline's class, measured 2026-10-23: OCCT's STEP writer rounds the 26 sloped rafters' and the notched OSB panels' irrational coordinates (b7-outline drifts -3.34e-4 mm^3, its build123d twin -3.62e-4). Round-trip drift here: volume -3.31e-4 mm^3, area -2.65e-5 mm^2, centroid <= 1.4e-10 mm: the partitions and gypsum are boxes and add nothing to it. 1e-3 is 3x the worst; it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 5087784000.660349,
+    "surface_area": 472042767.4417744,
+    "centroid": {
+      "x": 3870.693912992433,
+      "y": 2485.078465354603,
+      "z": 1333.4426252158512
+    },
+    "mass_g": 2674943.7157155685,
+    "center_of_mass": {
+      "x": 3915.545839896774,
+      "y": 2499.9285069150715,
+      "z": 1307.1615577496668
+    },
+    "bounding_box": {
+      "min": {
+        "x": -11.112499999999999,
+        "y": -304.79999999999995,
+        "z": 0.0
+      },
+      "max": {
+        "x": 7326.3125,
+        "y": 5181.599999999999,
+        "z": 4112.45887569496
+      }
+    }
+  },
+  "topology": {
+    "faces": 1934,
+    "edges": 4098,
+    "shells": 284
+  },
+  "mesh": {
+    "vertices": 8196,
+    "triangles": 4332
+  }
+}

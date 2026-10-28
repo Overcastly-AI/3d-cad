@@ -1,0 +1,50 @@
+{
+  "description": "CASEWORK C3 (casework.md): a V3021 vanity at a typed position (12, 24), 30 wide, 21 deep, 34.5 high, 2 doors under a 6 in false front, 3/4 melamine, frameless: 3 072.140625 in^3 with 343.25 in of PVC banding and 4 hinges. model.json is the plugin's expansion with the member materials documents applies; members.json each body's member metadata (packages/loft-plugins/tests/test_cabinets.py pins both).",
+  "derivation": [
+    "Every expectation is ANALYTIC, from services/geometry/tests/test_casework.py's independent script of casework.md's conventions (spec(), C1 typed from its table), never from the plugin: each panel a box, a notched side its box less its 3 x 4.5 toe notch; summed in exact rational arithmetic (x 25.4 = mm exactly).",
+    "",
+    "volume = 2 x 3/4 x (21 x 34.5 - 13.5) + 3/4 x (28.5 x 30 + 28.5 x 20.25 + 2 x 28.5 x 4 + 28.5 x 4.5 + 29.875 x 6 + 2 x 14.875 x 23.75) = 3 072.140625 in^3; mass at melamine 721 kg/m^3.",
+    "",
+    "surface_area = each panel's box area, a notched side's less twice its notch's face; bodies are separate.",
+    "",
+    "topology: a box 6 faces, 12 edges, 1 shell; a notched side 8 faces, 18 edges. MESH: a box 24 vertices and 12 triangles, a notched side 36 and 20 (two hexagons of 4 triangles, six quads of 2)."
+  ],
+  "tolerance": 1e-7,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), 2026-10-23: volume 1.5e-8 mm^3 off the exact sum over 10 bodies, centroid 8e-13 mm; 1e-7 is 6.7x the worst.",
+  "properties": {
+    "volume": 50343365.038875,
+    "surface_area": 5700916.0175,
+    "centroid": {
+      "x": 685.8,
+      "y": 888.38577297487,
+      "z": 432.4427365766948
+    },
+    "mass_g": 36297.56619302888,
+    "center_of_mass": {
+      "x": 685.8,
+      "y": 888.38577297487,
+      "z": 432.4427365766948
+    },
+    "bounding_box": {
+      "min": {
+        "x": 304.79999999999995,
+        "y": 609.5999999999999,
+        "z": 0.0
+      },
+      "max": {
+        "x": 1066.8,
+        "y": 1162.05,
+        "z": 876.3
+      }
+    }
+  },
+  "topology": {
+    "faces": 64,
+    "edges": 132,
+    "shells": 10
+  },
+  "mesh": {
+    "vertices": 264,
+    "triangles": 136
+  }
+}

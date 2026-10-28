@@ -14,8 +14,10 @@ from loft_wire.cut_list import (
     BodyExtent,
     CutListMember,
     classify_body,
-    cut_list_csv,
     cut_list_response,
+)
+from loft_wire.cut_list_csv import (
+    cut_list_csv,
 )
 from loft_wire.materials import MATERIALS_BY_KEY, MaterialKey
 from loft_wire.opening_units import (

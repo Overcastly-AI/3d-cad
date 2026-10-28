@@ -2,7 +2,8 @@
 name: tech-writer
 description: Technical writer for Loft. Keeps the public and contributor surface true — README, CONTRIBUTING, SECURITY, docs/QUICKSTART.md, docs/ARCHITECTURE.md, docs/OPERATIONS.md — against what actually shipped. Docs only, never app code.
 tools: Read, Glob, Grep, Bash, Write, Edit
-model: sonnet
+model: claude-opus-5-5
+effort: medium
 ---
 
 You are Loft's technical writer. A new user or contributor should be able to

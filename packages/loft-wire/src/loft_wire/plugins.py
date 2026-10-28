@@ -12,8 +12,9 @@ and ``loft-script`` read one definition:
   rendered into a form by the web, so no form is hand-written per plugin.
 * the input kinds (:data:`PluginInput`): length, angle, count, choice,
   profile, feature reference, feature list (several picks, as a roof's
-  walls), segments (lines of an outline sketch, as a roof's slope walls) and
-  material. Every numeric input accepts a §20
+  walls), segments (lines of an outline sketch, as a roof's slope walls),
+  material, and list (an ordered list of rows of number and choice fields,
+  as a cabinet run's boxes). Every numeric input accepts a §20
   expression, through the envelope's ``expressions`` pointer
   (``/inputs/<name>``), so the input's NAME carries its unit exactly as a base
   feature's field name does: a length input ends ``_mm``, an angle ``_deg``,
@@ -29,6 +30,7 @@ The custom-feature envelope that stores a pinned plugin, its inputs and its
 last expansion is :class:`loft_wire.features.CustomFeature`.
 """
 
+import math
 import re
 import uuid
 from typing import Annotated, Final, Literal, Self
@@ -43,6 +45,8 @@ from pydantic import (
     model_validator,
 )
 
+from loft_wire.casework import EdgeBanding, HardwareCount
+from loft_wire.foundation import AnchorBolts, ConcretePour, RebarRun
 from loft_wire.materials import MaterialKey
 from loft_wire.opening_units import OpeningUnitPart
 from loft_wire.refs import FeatureRef
@@ -75,6 +79,10 @@ MAX_PLUGIN_TEXT: Final = 200
 MAX_FEATURE_LIST: Final = 32
 #: Most outline segments one segments input may name (a roof's slope walls).
 MAX_SEGMENTS: Final = 32
+#: Most rows one list input may hold (a cabinet run's boxes), and most fields
+#: one row declares.
+MAX_LIST_ITEMS: Final = 32
+MAX_LIST_FIELDS: Final = 16
 
 #: The namespace of every generated member id (:func:`member_id`). A fixed
 #: constant: changing it would rename every member of every stored part.
@@ -143,17 +151,40 @@ SegmentId = Annotated[
     str,
     StringConstraints(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$"),
 ]
+#: One field of one row of a list input: a number or an option key.
+ListFieldValue = (
+    StrictInt
+    | StrictFloat
+    | Annotated[str, StringConstraints(max_length=MAX_PLUGIN_TEXT)]
+)
+#: One row of a list input: field name -> value.
+ListRow = Annotated[
+    dict[
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=1, max_length=48, pattern=r"^[a-z][a-z0-9_]*$"
+            ),
+        ],
+        ListFieldValue,
+    ],
+    Field(max_length=MAX_LIST_FIELDS),
+]
 #: One input value: a number (mm, degrees or a count, by the input's kind), an
-#: option or material key, one or more earlier features, or one or more lines
-#: of an outline (their sketch ids). Strict: no ``true``.
-CustomInputValue = (
+#: option or material key, one or more earlier features, one or more lines
+#: of an outline (their sketch ids), or the rows of a list input. Strict: no
+#: ``true``. Tried left to right, so a list of picks is never read as rows
+#: (a ``FeatureRef`` is a dict too, and a dict is the rows' exact type).
+CustomInputValue = Annotated[
     StrictInt
     | StrictFloat
     | Annotated[str, StringConstraints(max_length=MAX_PLUGIN_TEXT)]
     | FeatureRef
     | Annotated[list[FeatureRef], Field(min_length=1, max_length=MAX_FEATURE_LIST)]
     | Annotated[list[SegmentId], Field(min_length=1, max_length=MAX_SEGMENTS)]
-)
+    | Annotated[list[ListRow], Field(min_length=1, max_length=MAX_LIST_ITEMS)],
+    Field(union_mode="left_to_right"),
+]
 Label = Annotated[str, StringConstraints(min_length=1, max_length=80)]
 Description = Annotated[str, StringConstraints(max_length=500)]
 
@@ -460,6 +491,78 @@ class MaterialInput(_InputBase):
     default: MaterialKey | None = None
 
 
+#: The kinds a list row's field may be: numbers and choices, never a pick.
+ListFieldInput = Annotated[
+    LengthInput | AngleInput | CountInput | ChoiceInput,
+    Field(discriminator="kind"),
+]
+
+
+class ListInput(_InputBase):
+    """An ordered list of ROWS, each the same few number and choice fields
+    (``fields``): a cabinet run's boxes, as Mozaik lists a run's cabinets.
+    Stored as a list of ``{field: value}`` objects in row order, a field left
+    out of a row taking its default; an empty list is stored as no value,
+    allowed only when ``min_items`` is 0. A formula drives one field of one
+    row by pointer (``/inputs/<name>/<row>/<field>``). The form shows the
+    rows as an add and remove list, a new row taking the last row's values."""
+
+    kind: Literal["list"]
+    item_label: Label = Field(description="What one row is called, e.g. 'Box'.")
+    fields: list[ListFieldInput] = Field(
+        min_length=1,
+        max_length=MAX_LIST_FIELDS,
+        description="The fields of every row, in form order.",
+    )
+    min_items: int = Field(
+        default=0,
+        ge=0,
+        le=MAX_LIST_ITEMS,
+        description="Fewest rows; 0 makes the input optional.",
+    )
+    max_items: int = Field(
+        default=MAX_LIST_ITEMS, ge=1, le=MAX_LIST_ITEMS, description="Most rows."
+    )
+    default: list[ListRow] = Field(
+        default_factory=list[ListRow],
+        max_length=MAX_LIST_ITEMS,
+        description="A new feature's rows (a field a row leaves out takes "
+        "its default).",
+    )
+
+    @model_validator(mode="after")
+    def _rows_fit_fields(self) -> Self:
+        if self.min_items > self.max_items:
+            raise ValueError(f"input {self.name!r}: min_items is above max_items")
+        names = [item.name for item in self.fields]
+        if len(set(names)) != len(names):
+            raise ValueError(f"list input {self.name!r} repeats a field name")
+        for item in self.fields:
+            if item.superseded_by is not None:
+                raise ValueError(
+                    f"list input {self.name!r}: a row's field is never superseded"
+                )
+        if not self.min_items <= len(self.default) <= self.max_items:
+            raise ValueError(
+                f"list input {self.name!r}: its default row count is out of bounds"
+            )
+        choices = {
+            item.name: {o.value for o in item.options}
+            for item in self.fields
+            if isinstance(item, ChoiceInput)
+        }
+        for row in self.default:
+            for key, value in row.items():
+                if key not in names:
+                    raise ValueError(f"list input {self.name!r}: no field {key!r}")
+                if key in choices and value not in choices[key]:
+                    raise ValueError(
+                        f"list input {self.name!r}: {value!r} is not an "
+                        f"option of {key!r}"
+                    )
+        return self
+
+
 #: One typed input of a custom feature, discriminated on ``kind``.
 PluginInput = Annotated[
     LengthInput
@@ -470,7 +573,8 @@ PluginInput = Annotated[
     | FeatureReferenceInput
     | FeatureListInput
     | SegmentsInput
-    | MaterialInput,
+    | MaterialInput
+    | ListInput,
     Field(discriminator="kind"),
 ]
 
@@ -510,6 +614,61 @@ class MemberMetadata(BaseModel):
         "(OPENING-UNITS): the cut list lists the unit once, Each, on its "
         "counted body. Absent on every other member.",
     )
+    concrete: ConcretePour | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="Set on a concrete body, one per pour (SLAB): the cut list "
+        "lists its measured volume in cubic yards and orders it with the "
+        "pour's waste allowance, rounded up to 1/4 yd³. Absent otherwise.",
+    )
+    rebar: list[RebarRun] | None = Field(
+        default=None,
+        exclude_if=is_none,
+        max_length=64,
+        description="The bars a pour carries, listed, not drawn (SLAB): each "
+        "by its centreline length, bought in 20 ft sticks lapped 24 in. "
+        "Absent on every other member.",
+    )
+    anchor_bolts: AnchorBolts | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="Set on a plate that bears on concrete (SLAB): the cut "
+        "list counts its anchor bolts from its measured length (IRC "
+        "R403.1.6). Absent otherwise.",
+    )
+    grain: Annotated[list[float], Field(min_length=3, max_length=3)] | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="A sheet-good panel with grain (CASEWORK: a plywood "
+        "cabinet panel): the world direction its face grain runs, a unit "
+        "vector [x, y, z]. The cut list lays the panel with that side along "
+        "the sheet's length and never turns it. Absent: the panel may turn.",
+    )
+    banding: EdgeBanding | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="The edge banding on this panel's exposed edges (CASEWORK), "
+        "listed by the foot under Casework. Absent: none.",
+    )
+    hardware: list[HardwareCount] | None = Field(
+        default=None,
+        exclude_if=is_none,
+        max_length=8,
+        description="Hardware this member carries (CASEWORK: a door's hinges, "
+        "a drawer box's pair of slides), listed Each under Casework. Absent: "
+        "none.",
+    )
+
+    @field_validator("grain")
+    @classmethod
+    def _unit_grain(cls, value: list[float] | None) -> list[float] | None:
+        if value is None:
+            return value
+        if not all(math.isfinite(v) for v in value):
+            raise ValueError("a grain direction is finite")
+        if abs(math.sqrt(sum(v * v for v in value)) - 1.0) > 1e-9:
+            raise ValueError("a grain direction is a unit vector")
+        return value
 
     @field_validator("profile", "nominal_size")
     @classmethod

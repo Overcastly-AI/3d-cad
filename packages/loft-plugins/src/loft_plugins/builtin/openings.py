@@ -75,6 +75,7 @@ from loft_plugins.api import (
     lumber_options,
 )
 from loft_plugins.builtin.house import is_outline_wall, wall_specs_of
+from loft_plugins.builtin.interior_wall import INTERIOR_WALL, partition_specs_of
 from loft_plugins.builtin.sheathing import FacePlane, face_plane, loops_entities
 from loft_plugins.builtin.wall import (
     CUSTOM_SIZE,
@@ -226,7 +227,14 @@ def _host(inputs: ExpandInputs, segments: bool) -> tuple[WallSpec, bool]:
             )
         spec = WallSpec.from_inputs(ExpandInputs(ref.feature_id, host.params.inputs))
         return spec, named
-    specs = dict(wall_specs_of(ref.feature_id, host, inputs.earlier, inputs.parameters))
+    if host.params.plugin_id == INTERIOR_WALL:
+        specs = dict(
+            partition_specs_of(ref.feature_id, host, inputs.earlier, inputs.parameters)
+        )
+    else:
+        specs = dict(
+            wall_specs_of(ref.feature_id, host, inputs.earlier, inputs.parameters)
+        )
     picked = inputs.segments("wall_segment")
     if None in specs:
         if picked:
@@ -239,7 +247,9 @@ def _host(inputs: ExpandInputs, segments: bool) -> tuple[WallSpec, bool]:
     if len(picked) != 1 or picked[0] not in specs:
         raise PluginError(
             PLUGIN_INPUT_INVALID,
-            "Wall: pick the wall of the outline this opening sits in.",
+            "Wall: pick the partition this door sits in."
+            if host.params.plugin_id == INTERIOR_WALL
+            else "Wall: pick the wall of the outline this opening sits in.",
             input="wall_segment",
         )
     return specs[picked[0]], named
@@ -793,7 +803,36 @@ def _with_header_build(manifest: PluginManifest) -> PluginManifest:
 
 
 WINDOW_MANIFEST_V1_4 = _with_header_build(WINDOW_MANIFEST_V1_3)
-DOOR_MANIFEST_V1_4 = _with_header_build(DOOR_MANIFEST_V1_3)
+
+
+def _in_partitions(manifest: PluginManifest) -> PluginManifest:
+    """A door 1.4.0 may also stand in a partition (INTERIOR-WALLS): its host
+    may be a ``loft.interior_wall``, and its Wall then picks the partition.
+    Widening the host's plugins changes no stored door's expansion."""
+    inputs: list[PluginInput] = []
+    for item in manifest.inputs:
+        if isinstance(item, FeatureReferenceInput) and item.name == "host_wall":
+            item = item.model_copy(
+                update={
+                    "description": "The wall this door sits in, or the "
+                    "partitions (an Interior wall); the wall frames it.",
+                    "plugin_ids": ["loft.wall", INTERIOR_WALL],
+                }
+            )
+        elif isinstance(item, SegmentsInput) and item.name == "wall_segment":
+            item = item.model_copy(
+                update={
+                    "description": "When the host is an outline wall: which of "
+                    "its walls (a line of the outline) this sits in; when it is "
+                    "an Interior wall, which partition (its line). Empty for a "
+                    "single wall."
+                }
+            )
+        inputs.append(item)
+    return manifest.model_copy(update={"inputs": inputs})
+
+
+DOOR_MANIFEST_V1_4 = _in_partitions(_with_header_build(DOOR_MANIFEST_V1_3))
 
 WINDOW_V1_4 = Plugin(
     WINDOW_MANIFEST_V1_4, _unit_expander("window", "window"), settle=_settle

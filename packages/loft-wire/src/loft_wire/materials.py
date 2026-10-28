@@ -25,6 +25,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from loft_wire.casework import CaseworkItem
+from loft_wire.foundation import FoundationItem
 from loft_wire.lumber import LumberProfile
 from loft_wire.opening_units import OpeningUnitSize
 from loft_wire.sheet_goods import SheetGood, SheetSize
@@ -54,6 +56,10 @@ MaterialKey = Literal[
     "concrete",
     "pvc",
     "glass",
+    "steel_a615",
+    "steel_f1554",
+    "gypsum",
+    "melamine",
 ]
 
 
@@ -218,6 +224,37 @@ _LIBRARY: tuple[Material, ...] = (
         density_kg_m3=2500.0,
         source="ASTM C1036 float glass, typical 2500 kg/m^3",
     ),
+    # Foundation items (SLAB): listed, not drawn (loft_wire.foundation), so
+    # they carry no mass; the key is what a rebar stick or bolt is priced as.
+    Material(
+        key="steel_a615",
+        name="Reinforcing steel (ASTM A615)",
+        density_kg_m3=7850.0,
+        source=f"CRSI Manual of Standard Practice, 490 {_PCF}",
+    ),
+    Material(
+        key="steel_f1554",
+        name="Anchor-bolt steel (ASTM F1554)",
+        density_kg_m3=7850.0,
+        source=f"AISC Steel Construction Manual, 490 {_PCF}",
+    ),
+    # Gypsum board (INTERIOR-WALLS, RESEARCH §23): the dead load ASCE 7 tabulates,
+    # 0.55 psf per 1/8 in of thickness, so 4.4 psf per inch: 52.8 lb/ft^3.
+    Material(
+        key="gypsum",
+        name="Gypsum board",
+        density_kg_m3=846.0,
+        source=f"ASCE 7-16 Table C3.1-1a, gypsum board 0.55 psf per 1/8 in, "
+        f"52.8 {_PCF}",
+    ),
+    # Casework (CASEWORK, RESEARCH §23): melamine-faced particleboard, the
+    # carcass panel a frameless shop cuts beside cabinet plywood.
+    Material(
+        key="melamine",
+        name="Melamine (faced particleboard)",
+        density_kg_m3=721.0,
+        source=f"ANSI A208.1 grade M-2 particleboard, typical 45 {_PCF}",
+    ),
 )
 
 #: The library in display order (metals, polymers, wood, then structural steel
@@ -250,12 +287,25 @@ class MaterialLibraryResponse(BaseModel):
         "e.g. '7/16 OSB'."
     )
     sheet_sizes: list[SheetSize] = Field(
-        description="The sheets they are sold in, shortest first: 4x8, 4x9, 4x10."
+        description="The sheets they are sold in, shortest first: 4x8, 4x9, "
+        "4x10, 4x12 (each product in its own: gypsum board in 4x8 and 4x12)."
     )
     opening_units: list[OpeningUnitSize] = Field(
         default_factory=list[OpeningUnitSize],
         description="Window and door units by call size (OPENING-UNITS): "
         "what a unit price is keyed by ('window_3040') and its frame material.",
+    )
+    foundation_items: list[FoundationItem] = Field(
+        default_factory=list[FoundationItem],
+        description="Foundation items (SLAB): ready-mix concrete per cubic "
+        "yard, #4 rebar per 20 ft stick and 1/2 in anchor bolts Each, keyed "
+        "as a price-book profile ('rebar_4').",
+    )
+    casework_items: list[CaseworkItem] = Field(
+        default_factory=list[CaseworkItem],
+        description="Edge banding and cabinet hardware (CASEWORK): what a "
+        "casework price is keyed by ('hinge', 'slide_22'), its unit and the "
+        "materials it is sold in.",
     )
 
 

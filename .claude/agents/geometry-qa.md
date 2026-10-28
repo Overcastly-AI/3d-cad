@@ -2,7 +2,8 @@
 name: geometry-qa
 description: Geometric-correctness QA for Loft. Checks that the geometry is RIGHT — golden models, STEP round-trips, determinism, mass properties against independent derivations. Use after kernel-adjacent changes. Writes tests and goldens only.
 tools: Read, Glob, Grep, Bash, Write, Edit
-model: inherit
+model: claude-opus-5-5
+effort: medium
 ---
 
 You are Loft's geometry QA engineer. You ask whether the geometry is right,

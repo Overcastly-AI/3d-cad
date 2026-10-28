@@ -1359,16 +1359,25 @@ class PriceBook(Base):
         return f"PriceBook(id={self.id!r}, owner_id={self.owner_id!r})"
 
 
-#: A window or door unit's price-book profile (``window_3040``, OPENING-UNITS),
-#: as SQL both Postgres and SQLite read alike (migration 0025).
-_UNIT_PROFILE = "(substr(profile, 1, 7) = 'window_' OR substr(profile, 1, 5) = 'door_')"
+#: A price-book profile priced Each with neither a stock length nor a sheet: a
+#: window or door unit (``window_3040``, OPENING-UNITS, migration 0025) or an
+#: anchor bolt (SLAB, migration 0027), as SQL both Postgres and SQLite read alike.
+_UNIT_PROFILE = (
+    "(substr(profile, 1, 7) = 'window_' OR substr(profile, 1, 5) = 'door_' "
+    "OR profile = 'anchor_bolt_1_2')"
+)
+#: Casework hardware, priced Each (``hinge``, a ``slide_22`` pair), and every
+#: casework item, banding included (CASEWORK, migration 0028).
+_HARDWARE_PROFILE = "(profile = 'hinge' OR substr(profile, 1, 6) = 'slide_')"
+_ITEM_PROFILE = f"({_HARDWARE_PROFILE} OR profile = 'edge_banding')"
 
 
 class PriceBookEntryRow(Base):
     """One price of a book: a material and profile per stock piece (with its
-    stock length), per sheet (with its ``sheet``, SHEATHING) or per window or
-    door unit (with neither, OPENING-UNITS), per linear foot or per board
-    foot, in integer cents.
+    stock length), per sheet (with its ``sheet``, SHEATHING), per window or
+    door unit or anchor bolt (with neither, OPENING-UNITS, SLAB), per linear
+    foot, per board foot, or per cubic yard of ready-mix (SLAB), in integer
+    cents.
 
     Rows are the output of :class:`loft_wire.price_book.PriceBookUpdate`'s
     validation (one per key, at most 500); the CHECKs below are the database's
@@ -1402,7 +1411,8 @@ class PriceBookEntryRow(Base):
         sa.CheckConstraint("price_cents >= 0", name="ck_price_book_entries_price"),
         sa.CheckConstraint(
             "(unit = 'each') = "
-            f"(stock_length_ft IS NOT NULL OR sheet IS NOT NULL OR {_UNIT_PROFILE})",
+            f"(stock_length_ft IS NOT NULL OR sheet IS NOT NULL OR {_UNIT_PROFILE} "
+            f"OR {_HARDWARE_PROFILE})",
             name="ck_price_book_entries_each_stock",
         ),
         sa.CheckConstraint(
@@ -1412,6 +1422,15 @@ class PriceBookEntryRow(Base):
         sa.CheckConstraint(
             f"NOT {_UNIT_PROFILE} OR (stock_length_ft IS NULL AND sheet IS NULL)",
             name="ck_price_book_entries_unit_each",
+        ),
+        sa.CheckConstraint(
+            "(unit = 'cubic_yard') = "
+            "(profile = 'ready_mix' AND stock_length_ft IS NULL AND sheet IS NULL)",
+            name="ck_price_book_entries_cubic_yard",
+        ),
+        sa.CheckConstraint(
+            f"NOT {_ITEM_PROFILE} OR (stock_length_ft IS NULL AND sheet IS NULL)",
+            name="ck_price_book_entries_item_stock",
         ),
     )
 

@@ -41,6 +41,12 @@
  * A window or door unit (OPENING-UNITS) is one line per call size, bought
  * whole: Stock reads its size and kind ("3040 window"), and its blank price
  * opens the book on that unit's key ('window_3040'), priced Each.
+ *
+ * Foundation lines (SLAB) head the list: a pour reads its net volume in
+ * Length ("6.62 yd³") and what is ordered in Stock ("7.00 yd³", its waste
+ * allowance added and rounded up to 1/4 yd³), priced per cubic yard ordered;
+ * rebar reads its centreline length and the 20 ft sticks it takes ("10 × 20
+ * ft"); anchor bolts are Each. Rebar and bolts are listed, never drawn.
  */
 import {
   Button,
@@ -98,12 +104,14 @@ const CELL = `whitespace-nowrap px-1.5 py-1.5 text-right align-baseline font-dat
 
 /** How each system's group is headed (Chief Architect's categories). */
 export const SYSTEM_LABEL: Record<CutListLine["system"], string> = {
+  foundation: "Foundation",
   floor: "Floor",
   walls: "Walls",
   roof: "Roof",
   sheathing: "Sheathing",
   deck: "Deck",
   frame: "Frame",
+  casework: "Casework",
   other: "Other",
 };
 
@@ -146,6 +154,17 @@ function seedFor(line: CutListLine): PriceBookSeed | null {
   ) {
     return null;
   }
+  if (
+    (line.item !== null && line.item !== undefined) ||
+    (line.casework !== null && line.casework !== undefined)
+  ) {
+    // A foundation or casework item: the book resolves its name to its key.
+    return {
+      material: line.material,
+      profile: line.profile,
+      stockLengthFt: line.stock_length_ft ?? null,
+    };
+  }
   if (line.unit !== null && line.unit !== undefined) {
     // A custom-size unit has no key: no catalogue entry prices it.
     const key = line.unit_key ?? null;
@@ -179,6 +198,14 @@ function seedFor(line: CutListLine): PriceBookSeed | null {
   };
 }
 
+/** Cubic yards as ready-mix is listed: two places ("6.62"). */
+export function formatYd3(yd3: number): string {
+  return yd3.toFixed(2);
+}
+
+/** in³ per yd³, and mm³ per in³: a pour's net volume in cubic yards. */
+const MM3_PER_YD3 = 46656 * 25.4 ** 3;
+
 /** A member's stock pieces as a framer writes them: "16 ft", "2 × 12 ft",
  * "16 ft + 8 ft" (longest first, as the gateway sends them). */
 export function spliceLabel(pieces: readonly number[]): string {
@@ -198,6 +225,21 @@ function splice(line: CutListLine): readonly number[] | null {
 /** What the line buys: "12 ft" of lumber, "9 × 4x9" sheets, a "3040
  * window", or a dash. */
 function stockLabel(line: CutListLine): string {
+  if (line.casework !== null && line.casework !== undefined) {
+    // Banding is bought in whole feet; hardware by the piece.
+    return line.casework === "edge_banding"
+      ? `${formatCount(line.stock_quantity ?? 0)} ft`
+      : "Each";
+  }
+  if (line.item === "concrete") {
+    return line.order_yd3 === null || line.order_yd3 === undefined
+      ? "—"
+      : `${formatYd3(line.order_yd3)} yd³`;
+  }
+  if (line.item === "rebar") {
+    return `${formatCount(line.stock_quantity ?? 0)} × ${line.stock_length_ft ?? 20} ft`;
+  }
+  if (line.item === "anchor_bolt") return "Each";
   if (line.unit !== null && line.unit !== undefined) {
     return line.profile === null ? line.unit : `${line.profile} ${line.unit}`;
   }
@@ -229,7 +271,14 @@ function sheetsTitle(
 /** How the line's unit price was reached, for its tooltip. */
 function priceBasis(line: CutListLine): string | undefined {
   if (line.price_unit === null) return undefined;
+  if (line.item === "concrete") return "Per cubic yard ordered";
+  if (line.item === "rebar") return "Each, per 20 ft stick";
+  if (line.item === "anchor_bolt") return "Each, per bolt";
   if (line.unit !== null && line.unit !== undefined) return "Each, per unit";
+  if (line.casework === "edge_banding")
+    return "Per ft, on the whole feet bought";
+  if (line.casework !== null && line.casework !== undefined)
+    return "Each, per piece";
   if (line.sheet !== null && line.sheet !== undefined) {
     return `Each per ${line.sheet} sheet`;
   }
@@ -502,6 +551,16 @@ export function CutListPanel({
               const name = line.member ?? line.profile ?? "Body";
               const area = line.area_mm2 ?? null;
               const sheet = line.sheet ?? null;
+              // A pour lists its volume; a bolt has no length to list.
+              const volume =
+                line.item === "concrete" ? (line.volume_mm3 ?? 0) : null;
+              // A bolt or a hinge is counted, not measured: no length.
+              const bolt =
+                line.item === "anchor_bolt" ||
+                (line.casework !== null &&
+                  line.casework !== undefined &&
+                  line.casework !== "edge_banding");
+              const noRun = area !== null || volume !== null || bolt;
               return (
                 <tr
                   key={index}
@@ -511,6 +570,7 @@ export function CutListPanel({
                   data-classification={line.classification}
                   data-sheet={sheet ?? undefined}
                   data-system={line.system}
+                  data-item={line.item ?? undefined}
                   className="border-b border-hairline/60 last:border-b-0"
                 >
                   {/* The member column takes what the figures leave
@@ -548,10 +608,23 @@ export function CutListPanel({
                     data-testid="cut-list-length"
                     className={`${CELL} text-mist`}
                     title={
-                      area === null ? undefined : "Net area, openings cut out"
+                      volume !== null
+                        ? "Net volume, measured"
+                        : area === null
+                          ? undefined
+                          : "Net area, openings cut out"
                     }
                   >
-                    {area === null ? (
+                    {volume !== null ? (
+                      <span
+                        data-testid="cut-list-volume"
+                        className="whitespace-nowrap"
+                      >
+                        {formatYd3(volume / MM3_PER_YD3)} yd³
+                      </span>
+                    ) : bolt ? (
+                      "—"
+                    ) : area === null ? (
                       formatLength(line.length_mm, unit)
                     ) : (
                       <span
@@ -566,20 +639,22 @@ export function CutListPanel({
                     data-testid="cut-list-total-length"
                     className={`${CELL} text-gauge ${RUN_COLUMN}`}
                   >
-                    {area === null
-                      ? formatLength(line.total_length_mm, unit)
-                      : null}
+                    {noRun ? null : formatLength(line.total_length_mm, unit)}
                   </td>
                   <td
                     data-testid="cut-list-stock"
                     className={`${CELL} whitespace-nowrap text-mist`}
                     title={
-                      sheet !== null
-                        ? sheetsTitle(line, sheet, unit, unitLabel)
-                        : line.waste_mm === null
-                          ? // Why a joist past 24 ft has no stock (NO-SPLICE-SPANS).
-                            (line.stock_note ?? undefined)
-                          : `${formatLength(line.waste_mm, unit)} ${unitLabel} offcut each`
+                      volume !== null
+                        ? `${formatYd3(volume / MM3_PER_YD3)} yd³ + ${line.waste_percent ?? 0}% waste, rounded up to 1/4 yd³`
+                        : line.item === "rebar"
+                          ? "20 ft sticks, lapped 24 in at each joint"
+                          : sheet !== null
+                            ? sheetsTitle(line, sheet, unit, unitLabel)
+                            : line.waste_mm === null
+                              ? // Why a joist past 24 ft has no stock (NO-SPLICE-SPANS).
+                                (line.stock_note ?? undefined)
+                              : `${formatLength(line.waste_mm, unit)} ${unitLabel} offcut each`
                     }
                   >
                     {stockLabel(line)}
@@ -619,9 +694,11 @@ export function CutListPanel({
                       line.extended_price_cents === null ||
                       line.unit_price_cents === null
                         ? undefined
-                        : splice(line) !== null
-                          ? `${formatCount(line.stock_quantity ?? 0)} × (${spliceLabel(splice(line) ?? [])}) × ${formatMoney(line.unit_price_cents, data.currency)}`
-                          : `${formatCount(line.stock_quantity ?? 0)} stock × ${formatMoney(line.unit_price_cents, data.currency)}`
+                        : line.item === "concrete"
+                          ? `${formatYd3(line.order_yd3 ?? 0)} yd³ × ${formatMoney(line.unit_price_cents, data.currency)}`
+                          : splice(line) !== null
+                            ? `${formatCount(line.stock_quantity ?? 0)} × (${spliceLabel(splice(line) ?? [])}) × ${formatMoney(line.unit_price_cents, data.currency)}`
+                            : `${formatCount(line.stock_quantity ?? 0)} stock × ${formatMoney(line.unit_price_cents, data.currency)}`
                     }
                   >
                     {line.extended_price_cents === null

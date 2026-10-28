@@ -884,8 +884,8 @@ export interface paths {
         };
         /**
          * List Materials
-         * @description The built-in materials, lumber profiles, sheet goods and window and door
-         *     units, in display order.
+         * @description The built-in materials, lumber profiles, sheet goods, window and door
+         *     units, foundation items and casework items, in display order.
          *
          *     v1 is a closed library (docs/design/materials.md §1/§5): a fixed
          *     ``MaterialKey`` literal means an unknown material is a parse error at the
@@ -1710,6 +1710,26 @@ export interface components {
             kind: "all_edges";
         };
         /**
+         * AnchorBolts
+         * @description Set on a plate that bears on concrete: the cut list counts its bolts
+         *     from the plate's measured length (:func:`anchor_bolt_count`). Set on a
+         *     POUR instead (CRAWL-SPACE: a stem wall under a floor framed by another
+         *     feature), it lists the bolts cast in for each plate piece *plates_mm*.
+         */
+        AnchorBolts: {
+            /**
+             * Item
+             * @default anchor_bolt_1_2
+             * @constant
+             */
+            item: "anchor_bolt_1_2";
+            /**
+             * Plates Mm
+             * @description On a pour: the length (mm) of each plate piece it bolts (the floor's sills on a stem wall), each counted by R403.1.6. Absent on a plate, whose bolts are counted from its measured length.
+             */
+            plates_mm?: number[] | null;
+        };
+        /**
          * AngleConstraint
          * @description Dimension: the angle between two lines (DEGREES, not mm).
          *
@@ -2212,7 +2232,7 @@ export interface components {
              * @description Material for THIS body only
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine";
         };
         /**
          * BodyName
@@ -2394,6 +2414,38 @@ export interface components {
         BoundingBox: {
             max: components["schemas"]["Vec3"];
             min: components["schemas"]["Vec3"];
+        };
+        /**
+         * CaseworkItem
+         * @description One item a cabinet buys that is not a panel: banding or hardware.
+         */
+        CaseworkItem: {
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "banding" | "hinge" | "slide";
+            /**
+             * Materials
+             * @description The materials it is listed and priced in.
+             */
+            materials: ("plywood" | "pvc" | "steel_1018")[];
+            /**
+             * Name
+             * @description As listed, e.g. 'Drawer slides 22 in, pair'.
+             */
+            name: string;
+            /**
+             * Unit
+             * @description How it is priced: banding per linear foot, hardware Each.
+             * @enum {string}
+             */
+            unit: "each" | "linear_foot";
         };
         /**
          * CentreToCentreMeasurement
@@ -2760,6 +2812,25 @@ export interface components {
             type: "concentric";
         };
         /**
+         * ConcretePour
+         * @description Set on a concrete body (a pour): the cut list lists its MEASURED volume
+         *     in cubic yards and orders it with this allowance.
+         */
+        ConcretePour: {
+            /**
+             * Item
+             * @default ready_mix
+             * @constant
+             */
+            item: "ready_mix";
+            /**
+             * Waste Percent
+             * @description Ordered over the net volume (percent), then rounded up to 1/4 yd³.
+             * @default 5
+             */
+            waste_percent: number;
+        };
+        /**
          * CountInput
          * @description A whole number of things (studs, rungs). Accepts a §20 expression that
          *     evaluates to a whole plain number.
@@ -2856,7 +2927,9 @@ export interface components {
              * @description Input name -> value, validated against the pinned manifest.
              */
             inputs: {
-                [key: string]: number | string | components["schemas"]["FeatureRef"] | components["schemas"]["FeatureRef"][] | string[];
+                [key: string]: number | string | components["schemas"]["FeatureRef"] | components["schemas"]["FeatureRef"][] | string[] | {
+                    [key: string]: number | string;
+                }[];
             };
             /** Plugin Id */
             plugin_id: string;
@@ -3970,6 +4043,20 @@ export interface components {
             signature: components["schemas"]["EdgeSignature"];
         };
         /**
+         * EdgeBanding
+         * @description The banding one panel carries: its banded edges' total length and the
+         *     banding's material.
+         */
+        EdgeBanding: {
+            /** Length Mm */
+            length_mm: number;
+            /**
+             * Material
+             * @enum {string}
+             */
+            material: "plywood" | "pvc";
+        };
+        /**
          * EdgeLengthMeasurement
          * @description Measure the length of a single model edge (design §3.1 linear).
          */
@@ -4892,7 +4979,7 @@ export interface components {
             part_id: string;
             /**
              * Plugin Warnings
-             * @description Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it. Omitted when there are none.
+             * @description Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a code-advice warning on its inputs (`crawl_height_low`). Omitted when there are none.
              */
             plugin_warnings?: components["schemas"]["PluginWarning"][] | null;
             /**
@@ -5217,10 +5304,62 @@ export interface components {
              */
             value: number | null;
         };
+        /**
+         * FoundationItem
+         * @description One listed foundation item: what it is priced and weighed as.
+         */
+        FoundationItem: {
+            /**
+             * Key
+             * @description Price-book key, e.g. 'rebar_4'.
+             * @enum {string}
+             */
+            key: "ready_mix" | "rebar_4" | "anchor_bolt_1_2";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "concrete" | "rebar" | "anchor_bolt";
+            /**
+             * Material
+             * @description Library material the item is priced as.
+             * @enum {string}
+             */
+            material: "concrete" | "steel_a615" | "steel_f1554";
+            /**
+             * Name
+             * @description As listed, e.g. '#4 rebar'.
+             */
+            name: string;
+            /**
+             * Price Unit
+             * @description How a price-book entry prices it: concrete per cubic yard ordered, a rebar stick or an anchor bolt Each.
+             * @enum {string}
+             */
+            price_unit: "cubic_yard" | "each";
+            /**
+             * Stock Length Ft
+             * @description The stock an Each price is for (ft): 20 for a rebar stick; null for a bolt or concrete.
+             */
+            stock_length_ft?: number | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * HardwareCount
+         * @description Hardware one member carries: a door's hinges, a drawer's slide pair.
+         */
+        HardwareCount: {
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24";
+            /** Quantity */
+            quantity: number;
         };
         /**
          * HoleBlindDepth
@@ -6369,6 +6508,77 @@ export interface components {
             spacing_mm: number;
         };
         /**
+         * ListInput
+         * @description An ordered list of ROWS, each the same few number and choice fields
+         *     (``fields``): a cabinet run's boxes, as Mozaik lists a run's cabinets.
+         *     Stored as a list of ``{field: value}`` objects in row order, a field left
+         *     out of a row taking its default; an empty list is stored as no value,
+         *     allowed only when ``min_items`` is 0. A formula drives one field of one
+         *     row by pointer (``/inputs/<name>/<row>/<field>``). The form shows the
+         *     rows as an add and remove list, a new row taking the last row's values.
+         */
+        ListInput: {
+            /**
+             * Default
+             * @description A new feature's rows (a field a row leaves out takes its default).
+             */
+            default?: {
+                [key: string]: number | string;
+            }[];
+            /**
+             * Description
+             * @description Help text under the field.
+             */
+            description?: string | null;
+            /**
+             * Fields
+             * @description The fields of every row, in form order.
+             */
+            fields: (components["schemas"]["LengthInput"] | components["schemas"]["AngleInput"] | components["schemas"]["CountInput"] | components["schemas"]["ChoiceInput"])[];
+            /**
+             * Item Label
+             * @description What one row is called, e.g. 'Box'.
+             */
+            item_label: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "list";
+            /**
+             * Label
+             * @description Form label, e.g. 'Twist angle'.
+             */
+            label: string;
+            /**
+             * Max Items
+             * @description Most rows.
+             * @default 32
+             */
+            max_items: number;
+            /**
+             * Min Items
+             * @description Fewest rows; 0 makes the input optional.
+             * @default 0
+             */
+            min_items: number;
+            /**
+             * Name
+             * @description Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.
+             */
+            name: string;
+            /**
+             * Superseded By
+             * @description Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.
+             */
+            superseded_by?: string | null;
+            /**
+             * Superseded Unless
+             * @description When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.
+             */
+            superseded_unless?: string | null;
+        };
+        /**
          * LockMate
          * @description Rigidly fix two instances' relative pose — 0 DOF (design §2.1/§2.3).
          *
@@ -6627,7 +6837,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12";
+            key: "us_1x2" | "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12";
             /**
              * Name
              * @description Nominal size as sold, e.g. '2x10' or '5/4x6'.
@@ -6824,7 +7034,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass";
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine";
             /**
              * Name
              * @description Display name, e.g. 'Aluminium 6061'
@@ -6859,7 +7069,7 @@ export interface components {
              * Default Material
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
-            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass") | null;
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
         };
         /**
          * MaterialInput
@@ -6867,7 +7077,7 @@ export interface components {
          */
         MaterialInput: {
             /** Default */
-            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass") | null;
+            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
             /**
              * Description
              * @description Help text under the field.
@@ -6912,6 +7122,16 @@ export interface components {
          *     weldment profiles beside its material database.
          */
         MaterialLibraryResponse: {
+            /**
+             * Casework Items
+             * @description Edge banding and cabinet hardware (CASEWORK): what a casework price is keyed by ('hinge', 'slide_22'), its unit and the materials it is sold in.
+             */
+            casework_items?: components["schemas"]["CaseworkItem"][];
+            /**
+             * Foundation Items
+             * @description Foundation items (SLAB): ready-mix concrete per cubic yard, #4 rebar per 20 ft stick and 1/2 in anchor bolts Each, keyed as a price-book profile ('rebar_4').
+             */
+            foundation_items?: components["schemas"]["FoundationItem"][];
             /** Materials */
             materials: components["schemas"]["Material"][];
             /**
@@ -6931,7 +7151,7 @@ export interface components {
             sheet_goods: components["schemas"]["SheetGood"][];
             /**
              * Sheet Sizes
-             * @description The sheets they are sold in, shortest first: 4x8, 4x9, 4x10.
+             * @description The sheets they are sold in, shortest first: 4x8, 4x9, 4x10, 4x12 (each product in its own: gypsum board in 4x8 and 4x12).
              */
             sheet_sizes: components["schemas"]["SheetSize"][];
         };
@@ -6942,11 +7162,27 @@ export interface components {
          *     All optional: a helper member (a path sketch) carries none.
          */
         MemberMetadata: {
+            /** @description Set on a plate that bears on concrete (SLAB): the cut list counts its anchor bolts from its measured length (IRC R403.1.6). Absent otherwise. */
+            anchor_bolts?: components["schemas"]["AnchorBolts"] | null;
+            /** @description The edge banding on this panel's exposed edges (CASEWORK), listed by the foot under Casework. Absent: none. */
+            banding?: components["schemas"]["EdgeBanding"] | null;
+            /** @description Set on a concrete body, one per pour (SLAB): the cut list lists its measured volume in cubic yards and orders it with the pour's waste allowance, rounded up to 1/4 yd³. Absent otherwise. */
+            concrete?: components["schemas"]["ConcretePour"] | null;
+            /**
+             * Grain
+             * @description A sheet-good panel with grain (CASEWORK: a plywood cabinet panel): the world direction its face grain runs, a unit vector [x, y, z]. The cut list lays the panel with that side along the sheet's length and never turns it. Absent: the panel may turn.
+             */
+            grain?: number[] | null;
+            /**
+             * Hardware
+             * @description Hardware this member carries (CASEWORK: a door's hinges, a drawer box's pair of slides), listed Each under Casework. Absent: none.
+             */
+            hardware?: components["schemas"]["HardwareCount"][] | null;
             /**
              * Material
              * @description Library material of the member.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
             /**
              * Nominal Size
              * @description Nominal size as sold, e.g. '2x8x12'.
@@ -6957,6 +7193,11 @@ export interface components {
              * @description Section the member is cut from, e.g. '2x8'.
              */
             profile?: string | null;
+            /**
+             * Rebar
+             * @description The bars a pour carries, listed, not drawn (SLAB): each by its centreline length, bought in 20 ft sticks lapped 24 in. Absent on every other member.
+             */
+            rebar?: components["schemas"]["RebarRun"][] | null;
             /** @description Set on the bodies of a bought window or door unit (OPENING-UNITS): the cut list lists the unit once, Each, on its counted body. Absent on every other member. */
             unit?: components["schemas"]["OpeningUnitPart"] | null;
         };
@@ -8247,7 +8488,7 @@ export interface components {
              */
             id: string;
             /** Inputs */
-            inputs: (components["schemas"]["LengthInput"] | components["schemas"]["AngleInput"] | components["schemas"]["CountInput"] | components["schemas"]["ChoiceInput"] | components["schemas"]["ProfileInput"] | components["schemas"]["FeatureReferenceInput"] | components["schemas"]["FeatureListInput"] | components["schemas"]["SegmentsInput"] | components["schemas"]["MaterialInput"])[];
+            inputs: (components["schemas"]["LengthInput"] | components["schemas"]["AngleInput"] | components["schemas"]["CountInput"] | components["schemas"]["ChoiceInput"] | components["schemas"]["ProfileInput"] | components["schemas"]["FeatureReferenceInput"] | components["schemas"]["FeatureListInput"] | components["schemas"]["SegmentsInput"] | components["schemas"]["MaterialInput"] | components["schemas"]["ListInput"])[];
             /**
              * Latest
              * @description True on the newest released version of this plugin: the one a new feature is inserted with. Older versions are listed so a feature pinned to one still gets its form.
@@ -8291,23 +8532,23 @@ export interface components {
         PluginWarning: {
             /**
              * Code
-             * @description 'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume
-             * @constant
+             * @description 'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1
+             * @enum {string}
              */
-            code: "roof_through_sheathing";
+            code: "roof_through_sheathing" | "crawl_height_low";
             /**
              * Message
-             * @description Names the overlap and what fixes it
+             * @description Names the problem and what fixes it
              */
             message: string;
             /**
              * Overlap In3
-             * @description The volume the roof shares with the sheathing (in^3)
+             * @description The volume the roof shares with the sheathing (in^3); 0 for a warning that is not an overlap
              */
             overlap_in3: number;
             /**
              * Pairs
-             * @description How many (roof member, sheathing panel) pairs share it
+             * @description How many (roof member, sheathing panel) pairs share it; 0 for a warning that is not an overlap
              */
             pairs: number;
             /**
@@ -8449,7 +8690,7 @@ export interface components {
              * @description Library material, e.g. 'spf_lumber'.
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine";
             /**
              * Price Cents
              * @description Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.
@@ -8457,14 +8698,14 @@ export interface components {
             price_cents: number;
             /**
              * Profile
-             * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', or window or door unit, e.g. 'window_3040'.
+             * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', or casework item, e.g. 'hinge'.
              */
-            profile: ("us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32") | string;
+            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24");
             /**
              * Sheet
-             * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10'); null for lumber.
+             * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10', '4x12'); null for lumber.
              */
-            sheet?: ("4x8" | "4x9" | "4x10") | null;
+            sheet?: ("4x8" | "4x9" | "4x10" | "4x12") | null;
             /**
              * Stock Length Ft
              * @description The stock length a lumber 'each' price is for (ft); null for a sheet or a per-foot or per-board-foot price.
@@ -8472,10 +8713,10 @@ export interface components {
             stock_length_ft?: number | null;
             /**
              * Unit
-             * @description 'each' (one stock piece of `stock_length_ft`, or one sheet of `sheet`), 'linear_foot' or 'board_foot' (any stock length; lumber only).
+             * @description 'each' (one stock piece of `stock_length_ft`, one sheet of `sheet`, one unit or one anchor bolt), 'linear_foot' or 'board_foot' (any stock length; lumber only), or 'cubic_yard' (ready-mix concrete only, per yd³ ordered).
              * @enum {string}
              */
-            unit: "each" | "linear_foot" | "board_foot";
+            unit: "each" | "linear_foot" | "board_foot" | "cubic_yard";
         };
         /**
          * PriceBookResponse
@@ -8641,6 +8882,28 @@ export interface components {
              * @enum {string}
              */
             type: "radius";
+        };
+        /**
+         * RebarRun
+         * @description One bar a pour carries, listed not drawn: its centreline length.
+         */
+        RebarRun: {
+            /**
+             * Closed
+             * @description A closed loop (lapped where it closes) or an open run.
+             */
+            closed: boolean;
+            /**
+             * Item
+             * @default rebar_4
+             * @constant
+             */
+            item: "rebar_4";
+            /**
+             * Length Mm
+             * @description Centreline length (mm).
+             */
+            length_mm: number;
         };
         /** RefBackfillPart */
         RefBackfillPart: {
@@ -9173,13 +9436,13 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "osb_7_16" | "plywood_15_32" | "plywood_23_32";
+            key: "osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4";
             /**
              * Material
              * @description Library material of the panels.
              * @enum {string}
              */
-            material: "osb" | "plywood";
+            material: "osb" | "plywood" | "gypsum" | "melamine";
             /**
              * Name
              * @description As sold, e.g. '7/16 OSB'.
@@ -9658,14 +9921,14 @@ export interface components {
         };
         /**
          * SheetSize
-         * @description One sheet size: 4 ft wide, 8, 9 or 10 ft long.
+         * @description One sheet size: 4 ft wide, 8, 9, 10 or 12 ft long.
          */
         SheetSize: {
             /**
              * Key
              * @enum {string}
              */
-            key: "4x8" | "4x9" | "4x10";
+            key: "4x8" | "4x9" | "4x10" | "4x12";
             /**
              * Length In
              * @description The long side (in).

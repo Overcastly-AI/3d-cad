@@ -240,4 +240,44 @@ describe("PluginFeatureEditor — a release that builds wrong geometry", () => {
     expect(screen.getByTestId("plugin-warning")).toBeInTheDocument();
     expect(screen.queryByTestId("plugin-update")).toBeNull();
   });
+
+  it("heads a crawl-space warning by its code, not the roof's", () => {
+    const custom = {
+      ...SKETCH,
+      id: "c1",
+      order_index: 1,
+      name: "Foundation",
+      feature: { type: "custom", version: 1, params: STORED },
+      plugin_warnings: [
+        {
+          code: "crawl_height_low",
+          message:
+            "The crawl height is 17.5 in, under the 18 in of IRC R317.1.",
+          overlap_in3: 0,
+          pairs: 0,
+          update_to: null,
+        },
+      ],
+    } as unknown as FeatureResponse;
+    wrap(
+      <PluginFeatureEditor
+        mode="edit"
+        pluginId="loft.twisted_prism"
+        pluginVersion="1.0.0"
+        featureId="c1"
+        stored={STORED}
+        catalog={[TWISTED_PRISM]}
+        features={[SKETCH, custom]}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+        saving={false}
+        error={null}
+      />,
+    );
+    const warning = screen.getByTestId("plugin-warning");
+    expect(warning).toHaveTextContent("Crawl height");
+    expect(warning).not.toHaveTextContent("Through sheathing");
+    expect(warning).toHaveTextContent("R317.1");
+    expect(screen.queryByTestId("plugin-update")).toBeNull();
+  });
 });

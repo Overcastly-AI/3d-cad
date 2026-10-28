@@ -23,9 +23,11 @@ from loft_wire.cut_list import (
     BodyExtentsResult,
     CutListMember,
     CutListResponse,
-    cut_list_csv,
     cut_list_response,
     part_pieces,
+)
+from loft_wire.cut_list_csv import (
+    cut_list_csv,
 )
 from loft_wire.features import EvaluateTreeRequest
 

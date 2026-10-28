@@ -16,7 +16,9 @@ import {
   isOutlinePick,
   type OutlineSide,
   outlineSides,
+  segmentSides,
   segmentsOutlineSketch,
+  segmentsPickPartitions,
   sideName,
   supersededInputs,
 } from "../features/outline";
@@ -38,6 +40,8 @@ type SegmentsInput = Extract<PluginInput, { kind: "segments" }>;
 /** A side pick's outline, named. */
 export interface SegmentsOutline {
   readonly sketch: FeatureResponse | null;
+  /** The pick is an Interior wall's partitions, not an outline's sides. */
+  readonly partitions: boolean;
   readonly sides: readonly OutlineSide[] | null;
 }
 
@@ -83,9 +87,16 @@ export function useOutlinePick({
       if (input.kind !== "segments") continue;
       const sketch = segmentsOutlineSketch(manifest, input, values, features);
       const entities = sketchEntities(sketch);
+      const partitions = segmentsPickPartitions(
+        manifest,
+        input,
+        values,
+        features,
+      );
       out.set(input.name, {
         sketch,
-        sides: entities === null ? null : outlineSides(entities),
+        partitions,
+        sides: entities === null ? null : segmentSides(partitions, entities),
       });
     }
     return out;
@@ -116,16 +127,16 @@ export function useOutlinePick({
       if (outline?.sides == null || layer === null) return null;
       // Named from the stored sketch, drawn where the solve put it.
       const named = outline.sides;
-      const lines: OutlinePickLine[] = (outlineSides(layer.entities) ?? []).map(
-        (side) => ({
-          key: side.lineId,
-          lineId: side.lineId,
-          label: sideName(named, side.lineId),
-          marked: true,
-          start: planeToWorld(layer.basis, side.start),
-          end: planeToWorld(layer.basis, side.end),
-        }),
-      );
+      const lines: OutlinePickLine[] = (
+        segmentSides(outline.partitions, layer.entities) ?? []
+      ).map((side) => ({
+        key: side.lineId,
+        lineId: side.lineId,
+        label: sideName(named, side.lineId),
+        marked: true,
+        start: planeToWorld(layer.basis, side.start),
+        end: planeToWorld(layer.basis, side.end),
+      }));
       return {
         kind: "segments",
         input: input.name,

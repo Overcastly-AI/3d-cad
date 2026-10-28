@@ -2761,6 +2761,225 @@ and reframe it, a material per member, and a cut list that is always current.
     multi-body part into an assembly in the receiving CAD. Only geometry's
     export names the solids (`write.stepcaf.subshapes.name`); a part with no
     named body writes the bytes it did before, and no shape moves.
+- **Decided while building the slab** (SLAB, 2026-10-23; Chief Architect's
+  and Revit's foundation tools build a slab from the exterior wall loop and
+  list its concrete, rebar and bolts in the materials list):
+  - *One pour, one body.* `loft.slab` 1.0.0 fills the outline sketch (any
+    loop the outline reader accepts) or a typed rectangle placed as the
+    floor's. The plate is extruded down from its top (Z 0 by default) as a
+    new body; the thickened edge's ring (the outline less the outline inset
+    by the edge width: every corner moved along both its lines' inward
+    normals) is extruded down from the plate's underside with `merge` on, so
+    the kernel fuses it into the plate's body (the active body the plate
+    just started) and UnifySameDomain leaves one 11-face solid for a
+    rectangle. The plate's extrude carries the metadata, since a body's id
+    is the feature that started it. An outline too narrow for the ring is
+    refused, never built inside out.
+  - *Listed, not drawn.* Rebar and anchor bolts would sit inside the
+    concrete and fail the no-interference rule, so they are member metadata
+    (`MemberMetadata.rebar`, `.anchor_bolts`), never bodies. The pour carries
+    its loops (2 #4 on the edge's centreline: the outline inset by half the
+    edge width, P - 4w for any rectilinear loop); each bottom-plate piece on
+    a slab carries `anchor_bolts`, and the cut list counts its bolts from the
+    plate's MEASURED length (IRC R403.1.6), as every length is measured.
+  - *Walls on a slab: `loft.wall` 1.4.0.* 1.3.0's On floor accepts
+    `loft.floor` only and a released manifest is immutable, so 1.4.0 widens
+    the pick to `loft.slab` (base = the slab's top, read from its inputs)
+    and marks its bottom plates; with no slab it is 1.3.0 member for member.
+    A 1.3.0 wall at a typed base of Z 0 also stands on the slab, but lists
+    no bolts. B8's walls, openings and roof on the slab are b7-outline's
+    less its floor, lowered 11.46875 in, body for body.
+  - *Concrete by the yard.* A pour is listed by its measured volume (46 656
+    in³ per yd³, to 2 places) and ORDERED with its waste allowance (5 % by
+    default, the slab's Concrete waste input; VISION 2026-10-23) rounded up
+    to 1/4 yd³; the price book's `ready_mix` is priced per `cubic_yard`, the
+    extended price the yards ordered times it. #4 rebar is `rebar_4` Each at
+    20 ft (a closed loop of L takes ceil(L / 18 ft) sticks), a bolt
+    `anchor_bolt_1_2` Each with neither stock nor sheet (migration 0027).
+    Pours, rebar and bolts list under Foundation, the first system.
+  - *Numbers.* B8: 221 184 + 87 552 = 308 736 in³, 6.62 yd³ net, 6.95 with
+    5 %, 7.00 ordered (6.75 with no allowance); 2 loops of 912 (76 ft),
+    10 sticks; 19 bolts (3 + 3 + 5 + 4 + 4). B2's plain slab 69 120 in³,
+    1.48 yd³, 1.75 ordered. Goldens `b8-slab-house` (179 bodies, the slab's
+    11 faces) and `b2-slab-plain`.
+- **Decided while framing partitions** (INTERIOR-WALLS, 2026-10-23; Chief
+  Architect's Interior Wall tool, Revit's interior wall type and "Wall
+  Centerline" location line, IRC R702.3.5 and GA-216 for the board):
+  - *Two releases.* `loft.interior_wall` 1.0.0 frames one partition per
+    plan line; `loft.wall` 1.4.0 is 1.3.0 member for member plus the
+    backing of every partition that meets it (as it frames the openings it
+    hosts) and an optional inside gypsum (None by default). A partition
+    feature names the exterior walls as its HOST, so the walls receive its
+    inputs and re-expand when it is written, and the hosting rule (inputs
+    only, never expansions) keeps the pair acyclic. It refuses walls before
+    1.4.0 rather than leave their backing out. `loft.door` 1.4.0's host may
+    also be an Interior wall, its Wall then the partition's line; widening
+    the host's plugins changes no stored door.
+  - *Which lines.* The outline reader prunes every line with an end that
+    joins no other line, and every line joined only to such lines; what is
+    left is the loop, read exactly as before (`outline.read_plan`). Every
+    stored outline reads the same; a sketch with stray lines, refused
+    before, now reads its loop. A separate partition sketch (all its lines
+    are partitions) must come before the walls, since the walls frame the
+    backing from it and see only the features before them.
+  - *Where a partition runs.* Its line's axis is a constraint and its
+    across position is solved from the dimensions, as the outline's
+    corners, and must be fully defined. Loft's sketcher has no point-on-line
+    constraint, so a line's ends say nothing a solve keeps; the partition
+    runs from the middle of its drawn line to the first framing each way
+    (an exterior wall's inside face, a partition's near face), as Revit's
+    joined walls follow each other. So 24 -> 28 ft grows P2 to the moved
+    right wall with no constraint tying them. A partition stops another's
+    run only where its drawn line spans the other's whole thickness, so a
+    T's stem never stops the partition it meets. Studs lay out from the end
+    the line was drawn from. Refused: an L or a cross between partitions
+    (later rungs), a run that meets no wall, a T at a wall's end or corner,
+    and backing that would land in an opening's framing.
+  - *Backing.* Ladder blocking by default (flat blocks of the partition's
+    stud size across the bay between the studs either side, centred every
+    24 in above the bottom plate's top while they fit under the top plates:
+    3 on a 92-5/8 in stud), flush with the face the partition meets; it adds
+    no studs to an insulated wall, the energy-code reason framers prefer it.
+    A layout stud under the partition splits the ladder. The three-stud
+    choice adds two full-height studs of the wall's size flanking the
+    partition and drops the layout studs they displace (never an end stud).
+  - *Gypsum.* 1/2 in by default (5/8 Type X a choice), hung horizontally:
+    48 in courses down from the top of the top plate, a remainder at the
+    floor of 3 in or less left for the base, more a ripped course stopped
+    1/2 in above the base; each face laid out from its wall's start in
+    sheet lengths (4x8, 4x12 a choice), the rough openings and the
+    partitions meeting it cut out. Where boards meet, the met face's board
+    runs to the meeting framing and the meeting wall's stops at the met
+    board, so none overlaps: a partition's stops at the wall it meets; at
+    an outside corner the through wall's inside board runs to the fitted
+    wall's framing; at an inside corner the through wall's runs past its end
+    by the board's thickness and the fitted wall's past its own by the
+    wall's depth. Gypsum is a sheet good sold in 4x8 and 4x12 only
+    (`sheet_goods.SHEET_SIZES_FOR`), 846 kg/m³ (ASCE 7's 0.55 psf per
+    1/8 in), listed under Walls (Chief's materials list keeps wallboard with
+    the walls) and bought by area per sheet as every sheet good is.
+  - *Inheritance.* A partition is as tall as its walls and on their base
+    (the subfloor), with its own studs, spacing, top plate and materials
+    (SPF bottom plate: it stands on a subfloor, not concrete).
+  - *Numbers.* B10: B7 with P1 (X 180, Y 186.5 -> 5.5, 181 long, 13 studs)
+    and P2 (Y 132, X 282.5 -> 181.75, 100.75 long) and a 2868 in P2 centred
+    on X 232: 4 ladders of 3 blocks 14.5 long, 20 gypsum panels of
+    48 130.5 in² (11 sheets of 4x8), 67 bodies of 45 623.25 in³ by hand on
+    b7-outline's 217; no interference; 28 ft leaves P1 at X 180 and P2 at
+    Y 132, 148.75 long. Golden `b10-partitions`.
+- **Decided while building casework** (CASEWORK, 2026-10-23; Mozaik's and
+  Cabinet Vision's runs and material lists, the 32 mm frameless box, Blum's
+  hinge table, `docs/reference-parts/casework.md`):
+  - *One feature, a list input.* A run is one `loft.cabinets` feature with
+    an ordered list of boxes, as Mozaik places a run; a cabinet is a run of
+    one. The manifest gains a generic `list` input: rows of length, angle,
+    count and choice fields (never a pick, never superseded), stored as
+    `[{field: value}]` with each row's fields canonical and defaulted, an
+    empty optional list stored as no value, a refusal naming the row
+    ("Box 2: ..."). A formula drives one row's field by pointer
+    (`/inputs/boxes/0/width_mm`), resolved by documents like any input; the
+    form offers plain numbers on rows, since adding or removing a row would
+    move a formula to another row. The stored-value union is tried left to
+    right, so a list of picks is never read as rows.
+  - *Placement.* On a `loft.wall` (a line wall or one line of an outline,
+    as an opening picks it), the backs on the framing's inside face plus a
+    typed Back gap (1/2 in for gypsum until INTERIOR-WALLS gives walls an
+    inside finish), from the wall's start or end, standing on the wall's
+    base; a run that does not fit the wall is refused on Distance. Or at a
+    typed X, Y, floor Z and direction, the boxes facing left of it. Panels
+    are plan rectangles on shared level datums extruded up, as walls and
+    decks are; a notched side is its L profile on a datum across the run
+    (an offset `YZ`/`XZ` datum on the axes, an offset of one plane turned
+    about Z otherwise), extruded along it. Plan points are not rounded on a
+    turned run: a 1e-9 in rounding moved its volume 8.7e-4 mm^3.
+  - *The box* (frameless, full overlay; casework.md's conventions): sides
+    full height, notched 3 x 4.5 for the toe kick; bottom and back between
+    them, the bottom in front of the back, the back from the toe to the top;
+    a base or vanity has a front and a back 4 in stretcher, a wall or tall
+    box a full top; fronts 1/16 from the box's edges and 1/8 apart. A
+    drawer box is 1/2 plywood on a 1/4 bottom under its sides, 1 in
+    narrower than the inside, its sides 2 in shorter than the front, its
+    top 3/4 under its opening's (the gap's midline, or the stretchers'
+    underside), on the longest slide of 12-24 in that fits the inside
+    depth. Shelves are 1/16 narrower than the inside, 1 in back from the
+    front, at equal clear gaps from the bottom's top to the stretchers'
+    underside, or under a drawer to the box's top less the top fronts'
+    heights: C1's 16.5 in, casework.md's table. Auto doors: one to 27 in
+    (C1 widened to 27 keeps one door), two above. Face frame: 1x2 white oak
+    stiles over the box's height and rails at the top, between the fronts
+    and at the bottom; fronts overlay 1/2 in; a drawer box 1 in inside its
+    frame opening, centred; the frame covers the carcass's edges, so only
+    shelves and fronts are banded. Fillers are 3/4 panels in the plane of
+    their neighbour's fronts (frameless) or frame, over its front zone.
+  - *What a member says.* Its sheet product, material, plywood grain as a
+    world direction (along a side's, back's or front's height, along the
+    run for bottoms, stretchers, shelves and toe kicks; melamine has none),
+    its edge banding's length and material, and its hardware. Banding is
+    the plugin's statement, not measured: the cut list cannot tell a front
+    edge from a back one, and a notched side's front edge (30 in) is not an
+    extent of it (34.5).
+  - *Cut list.* Cabinet panels are sheet goods listed under Casework, cut
+    to size: `sheets_to_cut` with no panel gap (sheathing's 1/8 in APA gap
+    is not a cabinet joint), a grained panel laid with its grain along the
+    sheet and never turned. C1's 3/4 plywood takes 2 sheets, its 1/2 and
+    1/4 one each. Banding is one line per material, by its summed length,
+    bought in whole feet; hinges and slide pairs one line per key, Each;
+    all priced from the book (`edge_banding` per foot, `hinge` and
+    `slide_<n>` Each, migration 0028).
+  - *Numbers.* C1 3 526.66796875 in^3, 282.4375 in (23.54 ft, 24 bought)
+    of banding, 2 hinges, a pair of 22 in slides; at 27 in 3 820.10546875
+    in^3 and 303.4375 in; in face frame 3 561.58203125 in^3. C2 on B7's
+    left wall (B10 is not built) touches nothing of B7, and B24 -> B21 ends
+    the run at Y 57 moving nothing else. C3's melamine V3021 is 3 072.140625
+    in^3, 343.25 in of PVC banding, 4 hinges, priced to the last line.
+    Goldens `c1-*`, `c2-kitchen-b7-left-wall`, `c3-*`.
+- **Decided while building the crawl space** (CRAWL-SPACE, 2026-10-23;
+  Chief Architect's foundation and Revit's foundation walls follow the
+  exterior wall loop, footing and wall each with its own volume):
+  - *A pour each.* `loft.foundation` 1.0.0 extrudes the footing's ring
+    (the outline offset out and in by the footing's reach past the stem)
+    down from its top, then the stem's ring down from the stem's top to the
+    footing's, each a NEW body, face to face: the footing is poured first
+    and the stem formed on it (buildings.md: one body per pour). Both list
+    `concrete` with the one allowance, so the cut list orders them on their
+    sum (B9: 6.59 yd³, 7.00 ordered). The footing carries its rebar.
+  - *The floor is unchanged.* The stem's outside face is the outline and
+    its top is the picked floor's base elevation (Z 0 with none), so a
+    `loft.floor` on the outline sits on it flush outside. The foundation
+    picks the EARLIER floor ("Floor on it", as Chief builds the foundation
+    from the floor above), refuses one on another outline, and reads its
+    sills: the crawl height is measured to the joists' underside (base +
+    sill), and the stem lists the sills' bolts. `AnchorBolts.plates_mm` lets
+    a pour list bolts for plates another feature frames, each counted by
+    R403.1.6 from its length (the floor's own piece list, the lengths the
+    kernel builds); a plate's `anchor_bolts` still counts its measured
+    length. No floor: a 1.5 in sill and one sill per side are assumed. No
+    wall or floor release changed.
+  - *Openings are scoped cuts.* Each vent and the access is a plan
+    rectangle through the stem, 1 in clear of both faces and the top so no
+    tool face lies on a stem face, cut DOWN from above the top with
+    `cut_bodies` = the stem, so the sill above and the footing below are
+    never touched. An opening below grade (R408.4 would need an areaway),
+    into a corner's crossing stem, or overlapping another is refused.
+  - *Vent layout* (R408.1): ``max(corners, ceil(area / 150 / net))`` vents,
+    the area inside the stem and the net area typed (72 in² default, a
+    maker's figure). Each corner's vent sits 24 in from it on its longer
+    line (ties: front or back); the rest go round the lines without the
+    access, longest first, then front, back, left, right, then nearer the
+    origin, spaced evenly between that line's corner vents. Vents are
+    numbered by that line rank, never by the corner the sketch was drawn
+    from. The access (R408.4 through a wall: 16 x 24 min) is centred on the
+    longest line facing the picked side, back by default.
+  - *R317.1 is advice.* A crawl under 18 in builds and carries
+    `crawl_height_low` on the feature (documents, from its stored input),
+    shown in its editor; the refusal is kept for geometry that would be
+    wrong (an opening below grade), not for a code choice the engineer may
+    meet with treated joists.
+  - *Numbers.* B9: the footing 118 784 in³, the stem 196 736 - 5 x 1 024 -
+    3 072 = 188 544: 307 328 in³; loops of 968 and 888, 10 sticks; 18 bolts.
+    Golden `b9-crawl-space`: b7-outline's 217 bodies plus the footing (10
+    faces) and the stem (33 faces), 219 in all, matched solid for solid to
+    an independent build123d script on STEP.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

@@ -55,6 +55,7 @@ from loft_wire.plugins import (
     FeatureListInput,
     FeatureReferenceInput,
     LengthInput,
+    ListInput,
     MaterialInput,
     PluginCatalog,
     PluginInput,
@@ -213,11 +214,58 @@ def _segments(item: SegmentsInput, value: CustomInputValue | None) -> list[str] 
     return picks
 
 
+def _list(
+    item: ListInput, value: CustomInputValue | None, bounds: bool
+) -> list[dict[str, int | float | str]] | None:
+    """A list input's stored rows, each field canonical in field order, or
+    ``None`` (not stored) for an empty list of an optional input. A refusal
+    names the row (from 1) and the field. Left out, it takes its default
+    rows."""
+    if value is None and item.default:
+        value = [dict(row) for row in item.default]
+    if value is None:
+        if item.min_items == 0:
+            return None
+        raise _refuse(item, f"add at least {item.min_items}")
+    if not isinstance(value, list) or not all(isinstance(v, dict) for v in value):
+        raise _refuse(item, f"must be a list of {item.item_label.lower()} rows")
+    rows = [v for v in value if isinstance(v, dict)]
+    if len(rows) < item.min_items:
+        raise _refuse(item, f"add at least {item.min_items}")
+    if len(rows) > item.max_items:
+        raise _refuse(item, f"at most {item.max_items} rows")
+    names = {field.name for field in item.fields}
+    out: list[dict[str, int | float | str]] = []
+    for number, row in enumerate(rows, start=1):
+        unknown = sorted(set(row) - names)
+        if unknown:
+            raise _refuse(
+                item, f"{item.item_label} {number} has no field {unknown[0]!r}"
+            )
+        canonical: dict[str, int | float | str] = {}
+        for field in item.fields:
+            try:
+                stored = _canonical(field, row.get(field.name), bounds)
+            except PluginError as exc:
+                raise PluginError(
+                    exc.code,
+                    f"Input {item.label!r} ({item.name}): {item.item_label} "
+                    f"{number}, {exc.message.removeprefix('Input ')}",
+                    input=item.name,
+                ) from exc
+            if isinstance(stored, int | float | str):
+                canonical[field.name] = stored
+        out.append(canonical)
+    return out
+
+
 def _canonical(
     item: PluginInput, value: CustomInputValue | None, bounds: bool
 ) -> CustomInputValue | None:
     """The stored value of one input (``None``: left empty, not stored)."""
     match item:
+        case ListInput():
+            return _list(item, value, bounds)
         case LengthInput() | AngleInput():
             return _number(item, item.default if value is None else value, bounds)
         case CountInput():

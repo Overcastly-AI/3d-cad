@@ -81,6 +81,7 @@ import { isOutlinePick, sideName } from "../features/outline";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { SolvedSketchLayer } from "../viewport/solvedSketchLayer";
 import { EditorCard } from "./EditorCard";
+import { PluginListField } from "./PluginListField";
 import { toggleSide, useOutlinePick } from "./useOutlinePick";
 import { ValueField } from "./ValueField";
 
@@ -109,6 +110,12 @@ export interface PluginFeatureEditorProps {
 }
 
 const NO_LAYERS: readonly SolvedSketchLayer[] = [];
+
+/** A stored feature's warning, headed by what it is about. */
+const WARNING_LABELS: Record<string, string> = {
+  roof_through_sheathing: "Through sheathing",
+  crawl_height_low: "Crawl height",
+};
 
 /** A segmented control reads cleanly for a few short options, else a select. */
 function segmented(input: Extract<PluginInput, { kind: "choice" }>): boolean {
@@ -333,7 +340,7 @@ function GeneratedForm({
             <Notice
               key={warning.code}
               role="status"
-              label="Through sheathing"
+              label={WARNING_LABELS[warning.code] ?? "Warning"}
               layout="stacked"
               data-testid="plugin-warning"
               action={
@@ -446,6 +453,18 @@ function GeneratedForm({
                       : undefined
                   }
                   error={fieldError}
+                />
+              );
+            } else if (input.kind === "list") {
+              // Rows of fields (a cabinet run's boxes), added and removed.
+              field = (
+                <PluginListField
+                  input={input}
+                  value={value}
+                  unit={unit}
+                  errors={errors}
+                  data-testid={testId}
+                  onChange={(text) => setValue(input.name, text)}
                 />
               );
             } else if (input.kind === "choice" && segmented(input)) {
@@ -614,9 +633,15 @@ function ReadOnlyCard({
   const rows = Object.entries(stored?.inputs ?? {}).map(([key, value]) => [
     key,
     Array.isArray(value)
-      ? value
+      ? (value as unknown[])
           .map((item) =>
-            typeof item === "string" ? item : name(item.feature_id),
+            typeof item === "string"
+              ? item
+              : typeof item === "object" &&
+                  item !== null &&
+                  "feature_id" in item
+                ? name(String(item.feature_id))
+                : `(${Object.values(item as object).join(" ")})`,
           )
           .join(", ")
       : typeof value === "object"

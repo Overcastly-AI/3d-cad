@@ -373,6 +373,7 @@ def test_the_catalog_needs_a_principal(client: TestClient) -> None:
     served = client.get("/api/v1/plugins", headers=HEADERS)
     assert served.status_code == 200
     assert [(p["id"], p["version"]) for p in served.json()["plugins"]] == [
+        ("loft.cabinets", "1.0.0"),
         ("loft.deck", "1.1.0"),
         ("loft.deck", "1.0.0"),
         ("loft.door", "1.4.0"),
@@ -384,14 +385,18 @@ def test_the_catalog_needs_a_principal(client: TestClient) -> None:
         ("loft.floor", "1.2.0"),
         ("loft.floor", "1.1.0"),
         ("loft.floor", "1.0.0"),
+        ("loft.foundation", "1.0.0"),
+        ("loft.interior_wall", "1.0.0"),
         ("loft.roof", "1.5.0"),
         ("loft.roof", "1.4.0"),
         ("loft.roof", "1.3.0"),
         ("loft.roof", "1.2.0"),
         ("loft.roof", "1.1.0"),
         ("loft.roof", "1.0.0"),
+        ("loft.slab", "1.0.0"),
         ("loft.timber_frame", "1.0.0"),
         ("loft.twisted_prism", "1.0.0"),
+        ("loft.wall", "1.4.0"),
         ("loft.wall", "1.3.0"),
         ("loft.wall", "1.2.0"),
         ("loft.wall", "1.1.0"),

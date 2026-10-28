@@ -42,6 +42,7 @@ starting with the sketch's first loop line. Coordinates are inches, rounded to
 
 import math
 import uuid
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from fractions import Fraction
@@ -96,6 +97,8 @@ _REDUNDANT_MM = Fraction(1, 1_000_000)
 _NAMEABLE = "abcdefghijklmnopqrstuvwxyz"
 #: Most lines one outline may have (a roof picks at most 32 slope walls).
 MAX_OUTLINE_LINES = 32
+#: Most lines off the loop one plan sketch may have (partitions).
+MAX_PARTITION_LINES = 64
 
 
 def unsupported(message: str, input_name: str) -> PluginError:
@@ -410,7 +413,48 @@ def read_outline(
 ) -> Outline:
     """The loop of *sketch*'s lines, clockwise (module docstring), or a
     :class:`PluginError` on *input_name* saying what to add or change. Its
-    dimensions' formulas are evaluated first (:func:`resolved`)."""
+    dimensions' formulas are evaluated first (:func:`resolved`). Lines off
+    the loop (partitions, INTERIOR-WALLS) are not the outline's."""
+    outline = read_plan(sketch, input_name, parameters).outline
+    assert outline is not None
+    return outline
+
+
+@dataclass(frozen=True)
+class PartitionLine:
+    """A line of a plan sketch off its outline loop (INTERIOR-WALLS): a
+    partition's location line. ``axis`` is ``h`` (along X) or ``v`` (along
+    Y); ``at`` its solved across coordinate (Y of an ``h`` line, X of a ``v``
+    one, inches); ``drawn`` its drawn ends' along coordinates (inches, start
+    then end), which say only where along its axis it lies and which way it
+    runs: its ends are the framing it meets (:mod:`interior_wall`)."""
+
+    line_id: str
+    axis: Axis
+    at: float
+    drawn: tuple[float, float]
+
+
+@dataclass(frozen=True)
+class Plan:
+    """A plan sketch read: its outline loop (``None`` for a sketch of
+    partitions alone) and its lines off the loop, in sketch order."""
+
+    outline: Outline | None
+    partitions: tuple[PartitionLine, ...]
+
+
+def read_plan(
+    sketch: SketchFeature,
+    input_name: str = "outline",
+    parameters: Mapping[str, Quantity] | None = None,
+    *,
+    loop: bool = True,
+) -> Plan:
+    """*sketch* read as an outline loop (:func:`read_outline`) and the lines
+    off it: a line with an end that joins no other line is off the loop, as
+    is every line joined only to such lines. *loop* False reads a sketch of
+    partitions alone (every line is off the loop, and none closes one)."""
 
     def refuse(message: str) -> PluginError:
         return unsupported(f"Outline: {message}", input_name)
@@ -429,10 +473,7 @@ def read_outline(
                 f"{e.id} is a {e.kind}; the outline is a loop of straight lines "
                 "(make other geometry construction)."
             )
-    if len(loop_ids) < 4:
-        raise refuse("draw a closed loop of at least four lines.")
-    if len(loop_ids) > MAX_OUTLINE_LINES:
-        raise refuse(f"at most {MAX_OUTLINE_LINES} lines.")
+    all_ids = loop_ids
 
     def stored(ref: EntityPointRef) -> tuple[float, float] | None:
         entity = lines.get(ref.entity) or points.get(ref.entity)
@@ -463,6 +504,44 @@ def read_outline(
             if a is not None and b is not None:
                 nodes.union(a, b)
 
+    # The lines off the loop: prune every line with an end that joins no
+    # other line, until none is left (a partition, and a chain of them).
+    alive = set(all_ids) if loop else set[str]()
+    pruning = True
+    while pruning:
+        pruning = False
+        degree: Counter[PointKey] = Counter(
+            nodes.find((lid, end)) for lid in alive for end in ("start", "end")
+        )
+        for lid in all_ids:
+            if lid in alive and any(
+                degree[nodes.find((lid, end))] == 1 for end in ("start", "end")
+            ):
+                alive.discard(lid)
+                pruning = True
+    loop_ids = [lid for lid in all_ids if lid in alive]
+    off_ids = [lid for lid in all_ids if lid not in alive]
+    if loop and not loop_ids and all_ids:
+        degree = Counter(
+            nodes.find((lid, end)) for lid in all_ids for end in ("start", "end")
+        )
+        line_id, end = next(
+            (lid, end)
+            for lid in all_ids
+            for end in ("start", "end")
+            if degree[nodes.find((lid, end))] == 1
+        )
+        raise refuse(
+            f"{line_id}'s {end} must meet another line (coincident): the "
+            "outline is one closed loop."
+        )
+    if loop and len(loop_ids) < 4:
+        raise refuse("draw a closed loop of at least four lines.")
+    if len(loop_ids) > MAX_OUTLINE_LINES:
+        raise refuse(f"at most {MAX_OUTLINE_LINES} lines.")
+    if len(off_ids) > MAX_PARTITION_LINES:
+        raise refuse(f"at most {MAX_PARTITION_LINES} lines off the outline.")
+
     # One closed loop: every loop line's ends are joined to exactly one other
     # loop line's end.
     ends: dict[PointKey, list[tuple[str, str]]] = {}
@@ -480,21 +559,22 @@ def read_outline(
         if nodes.find((line_id, "start")) == nodes.find((line_id, "end")):
             raise refuse(f"{line_id} starts where it ends.")
     walk: list[tuple[str, PointKey, PointKey]] = []
-    current = loop_ids[0]
-    node = nodes.find((current, "start"))
-    for _ in range(len(loop_ids)):
-        a = nodes.find((current, "start"))
-        b = nodes.find((current, "end"))
-        far = b if a == node else a
-        walk.append((current, node, far))
-        node = far
-        current = next(lid for lid, _ in ends[far] if lid != current)
-    if (
-        current != loop_ids[0]
-        or node != walk[0][1]
-        or len({lid for lid, _, _ in walk}) != len(loop_ids)
-    ):
-        raise refuse("the lines must close one loop (they make more than one).")
+    if loop_ids:
+        current = loop_ids[0]
+        node = nodes.find((current, "start"))
+        for _ in range(len(loop_ids)):
+            a = nodes.find((current, "start"))
+            b = nodes.find((current, "end"))
+            far = b if a == node else a
+            walk.append((current, node, far))
+            node = far
+            current = next(lid for lid, _ in ends[far] if lid != current)
+        if (
+            current != loop_ids[0]
+            or node != walk[0][1]
+            or len({lid for lid, _, _ in walk}) != len(loop_ids)
+        ):
+            raise refuse("the lines must close one loop (they make more than one).")
 
     # Each line's axis: horizontal, vertical, or inferred through parallel,
     # perpendicular and collinear.
@@ -676,6 +756,36 @@ def read_outline(
             "its dimensions disagree (the sketch is over-constrained); remove "
             "the extra dimension."
         )
+    partitions: list[PartitionLine] = []
+    for line_id in off_ids:
+        a = axis.get(line_id)
+        if a is None:
+            raise refuse(
+                f"{line_id} is not constrained horizontal or vertical; a "
+                "partition runs along the sketch's axes."
+            )
+        across = system.value((nodes.find((line_id, "start")), 1 - coord(a)))
+        if across is None:
+            raise refuse(
+                f"{line_id}'s position is not fully defined: dimension it from "
+                "a wall or the origin, so the partition stands where the "
+                "sketch is."
+            )
+        entity = lines[line_id]
+        i = coord(a)
+        partitions.append(
+            PartitionLine(
+                line_id,
+                a,
+                _inches(across),
+                (
+                    _inches(Fraction((entity.start.x, entity.start.y)[i])),
+                    _inches(Fraction((entity.end.x, entity.end.y)[i])),
+                ),
+            )
+        )
+    if not loop_ids:
+        return Plan(None, tuple(partitions))
     corners: dict[PointKey, Vec2] = {}
     for line_id, start, _ in walk:
         x = system.value((start, 0))
@@ -705,7 +815,7 @@ def read_outline(
                 f"{previous.line_id} and {segment.line_id} run on in one line; "
                 "join them into one line."
             )
-    return Outline(tuple(segments))
+    return Plan(Outline(tuple(segments)), tuple(partitions))
 
 
 def _inches(value_mm: Fraction) -> float:

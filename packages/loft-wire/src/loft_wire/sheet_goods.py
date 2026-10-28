@@ -8,11 +8,18 @@ the cut list buys the sheets the panels are cut from, each panel a sheet
 unless an earlier offcut covers it whole (SHEET-COUNT-PIECES,
 :func:`loft_wire.cut_list.sheets_to_cut`).
 
-A product is a material at a thickness, named as the trade sells it: "7/16
-OSB", "23/32 plywood". APA performance-category panels are sold under their
-nominal thickness and built to it within tolerance, so the nominal thickness
-is the modelled one (unlike lumber, :mod:`loft_wire.lumber`). Inches are the
-source of truth (exact binary fractions); millimetres are derived once.
+Gypsum board (INTERIOR-WALLS) is the finish a partition and an exterior
+wall's inside face are hung with: 1/2 in (the US wall default) or 5/8 in
+(Type X), sold in 4x8 and 4x12 sheets and hung horizontally. Each product
+is cut from the sheets it is sold in (:data:`SHEET_SIZES_FOR`): structural
+panels from 4x8, 4x9 and 4x10, gypsum from 4x8 and 4x12.
+
+A product is a material at a thickness, named as the trade sells it:
+"7/16 OSB", "23/32 plywood", "1/2 gypsum". APA performance-category panels
+are sold under their nominal thickness and built to it within tolerance, so
+the nominal thickness is the modelled one (unlike lumber,
+:mod:`loft_wire.lumber`). Inches are the source of truth (exact binary
+fractions); millimetres are derived once.
 
 A key is ``<material>_<numerator>_<denominator>``, so it is a valid plugin
 choice value and a price-book profile beside the lumber keys.
@@ -27,13 +34,23 @@ from loft_wire.lumber import MM_PER_INCH
 
 #: The library materials sheet goods are made of (each a ``MaterialKey``;
 #: spelt here so :mod:`loft_wire.materials` can serve this library).
-SheetMaterialKey = Literal["osb", "plywood"]
+SheetMaterialKey = Literal["osb", "plywood", "gypsum", "melamine"]
 
 #: The built-in sheet products. A closed literal, like ``LumberProfileKey``.
-SheetGoodKey = Literal["osb_7_16", "plywood_15_32", "plywood_23_32"]
+SheetGoodKey = Literal[
+    "osb_7_16",
+    "plywood_15_32",
+    "plywood_23_32",
+    "gypsum_1_2",
+    "gypsum_5_8",
+    "plywood_3_4",
+    "melamine_3_4",
+    "plywood_1_2",
+    "plywood_1_4",
+]
 
 #: The sheet sizes sold, by name (width x length, ft).
-SheetSizeKey = Literal["4x8", "4x9", "4x10"]
+SheetSizeKey = Literal["4x8", "4x9", "4x10", "4x12"]
 
 
 class SheetGood(BaseModel):
@@ -47,7 +64,7 @@ class SheetGood(BaseModel):
 
 
 class SheetSize(BaseModel):
-    """One sheet size: 4 ft wide, 8, 9 or 10 ft long."""
+    """One sheet size: 4 ft wide, 8, 9, 10 or 12 ft long."""
 
     key: SheetSizeKey
     width_in: float = Field(gt=0, description="The short side (in): 48.")
@@ -87,6 +104,14 @@ SHEET_GOODS: tuple[SheetGood, ...] = (
     _good("osb_7_16", "7/16 OSB", "osb", 7 / 16),
     _good("plywood_15_32", "15/32 plywood", "plywood", 15 / 32),
     _good("plywood_23_32", "23/32 plywood", "plywood", 23 / 32),
+    _good("gypsum_1_2", "1/2 gypsum", "gypsum", 1 / 2),
+    _good("gypsum_5_8", "5/8 gypsum", "gypsum", 5 / 8),
+    # Casework (CASEWORK): cabinet panels are cut to their nominal thickness,
+    # carcass and fronts 3/4, drawer boxes 1/2 on a 1/4 bottom.
+    _good("plywood_3_4", "3/4 plywood", "plywood", 3 / 4),
+    _good("melamine_3_4", "3/4 melamine", "melamine", 3 / 4),
+    _good("plywood_1_2", "1/2 plywood", "plywood", 1 / 2),
+    _good("plywood_1_4", "1/4 plywood", "plywood", 1 / 4),
 )
 
 #: Key -> product.
@@ -97,10 +122,22 @@ SHEET_SIZES: tuple[SheetSize, ...] = (
     SheetSize(key="4x8", width_in=48.0, length_in=96.0),
     SheetSize(key="4x9", width_in=48.0, length_in=108.0),
     SheetSize(key="4x10", width_in=48.0, length_in=120.0),
+    SheetSize(key="4x12", width_in=48.0, length_in=144.0),
 )
 
 #: Key -> size.
 SHEET_SIZES_BY_KEY: Mapping[SheetSizeKey, SheetSize] = {s.key: s for s in SHEET_SIZES}
+
+#: The sheets each material's products are sold in, shortest first: OSB and
+#: plywood in 4x8, 4x9 and 4x10 (SHEATHING), gypsum board in 4x8 and 4x12
+#: (INTERIOR-WALLS: 4x12 is the long-wall choice).
+SHEET_SIZES_FOR: Mapping[SheetMaterialKey, tuple[SheetSizeKey, ...]] = {
+    "osb": ("4x8", "4x9", "4x10"),
+    "plywood": ("4x8", "4x9", "4x10"),
+    "gypsum": ("4x8", "4x12"),
+    # Melamine is sold in 4x8 only (CASEWORK).
+    "melamine": ("4x8",),
+}
 
 #: How far a panel may exceed a sheet and still be cut from it (mm): far
 #: below any real cut, far above the kernel's measuring noise.
@@ -117,11 +154,15 @@ def sheet_good_for(profile: str | None) -> SheetGood | None:
     return None
 
 
-def covering_sheet(length_mm: float, width_mm: float) -> SheetSize | None:
-    """The shortest sheet a ``length x width`` panel (its in-plane extents, mm,
-    either order) is cut from, or ``None`` when no sheet covers it."""
+def covering_sheet(
+    length_mm: float, width_mm: float, good: SheetGood | None = None
+) -> SheetSize | None:
+    """The shortest sheet *good* is sold in (a structural panel's 4x8, 4x9 or
+    4x10 when ``None``) that a ``length x width`` panel (its in-plane
+    extents, mm, either order) is cut from, or ``None`` when none covers it."""
     long, short = max(length_mm, width_mm), min(length_mm, width_mm)
-    for size in SHEET_SIZES:
+    keys = SHEET_SIZES_FOR["osb" if good is None else good.material]
+    for size in (SHEET_SIZES_BY_KEY[key] for key in keys):
         if (
             short <= size.width_mm + SHEET_FIT_TOLERANCE_MM
             and long <= size.length_mm + SHEET_FIT_TOLERANCE_MM

@@ -22,6 +22,15 @@ key ``<kind>_<code>`` ("window_3040") and its frame's material ("Vinyl window
 3040 = $289.00"), with no stock length or sheet, as Chief Architect prices a
 window or door item in its materials list.
 
+Foundation items (SLAB, :mod:`loft_wire.foundation`): ready-mix concrete
+(``ready_mix``) is priced per ``cubic_yard`` ordered, #4 rebar
+(``rebar_4``) ``each`` per 20 ft stick (stock length 20) and a 1/2 in anchor
+bolt (``anchor_bolt_1_2``) ``each`` with no stock length or sheet.
+Casework items (CASEWORK, :mod:`loft_wire.casework`) are priced in the one
+unit their item names: edge banding per linear foot in its material
+(``edge_banding`` in ``pvc``), a hinge or a pair of slides Each
+(``hinge``, ``slide_22`` in ``steel_1018``), with no stock length or sheet.
+
 The book has a ``version`` (PRICE-BOOK-VERSION): 0 until the first save, then
 one more on every save. ``GET`` serves it in the body and as the ``ETag``;
 a ``PUT`` names the version it was drafted from in ``If-Match`` and is refused
@@ -39,11 +48,18 @@ from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from loft_wire.casework import CASEWORK_ITEMS_BY_KEY, CaseworkItemKey
+from loft_wire.foundation import (
+    FOUNDATION_ITEMS_BY_KEY,
+    FoundationItemKey,
+)
 from loft_wire.lumber import STOCK_LENGTHS_FT, LumberProfileKey
 from loft_wire.materials import MaterialKey
 from loft_wire.opening_units import OpeningUnitKey
 from loft_wire.sheet_goods import (
+    SHEET_GOODS,
     SHEET_GOODS_BY_KEY,
+    SHEET_SIZES_FOR,
     SheetGoodKey,
     SheetSizeKey,
 )
@@ -52,7 +68,7 @@ from loft_wire.sheet_goods import (
 Currency = Literal["USD"]
 
 #: The unit an entry's price is per.
-PriceUnit = Literal["each", "linear_foot", "board_foot"]
+PriceUnit = Literal["each", "linear_foot", "board_foot", "cubic_yard"]
 
 #: Most entries one book holds (a lumber yard's dimensional list is ~200).
 MAX_PRICE_BOOK_ENTRIES: Final = 500
@@ -102,14 +118,22 @@ class PriceBookEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     material: MaterialKey = Field(description="Library material, e.g. 'spf_lumber'.")
-    profile: LumberProfileKey | SheetGoodKey | OpeningUnitKey = Field(
+    profile: (
+        LumberProfileKey
+        | SheetGoodKey
+        | OpeningUnitKey
+        | FoundationItemKey
+        | CaseworkItemKey
+    ) = Field(
         description="Lumber profile, e.g. 'us_2x4', sheet product, e.g. "
-        "'osb_7_16', or window or door unit, e.g. 'window_3040'."
+        "'osb_7_16', window or door unit, e.g. 'window_3040', foundation "
+        "item, e.g. 'ready_mix', or casework item, e.g. 'hinge'."
     )
     unit: PriceUnit = Field(
-        description="'each' (one stock piece of `stock_length_ft`, or one "
-        "sheet of `sheet`), 'linear_foot' or 'board_foot' (any stock length; "
-        "lumber only)."
+        description="'each' (one stock piece of `stock_length_ft`, one sheet "
+        "of `sheet`, one unit or one anchor bolt), 'linear_foot' or "
+        "'board_foot' (any stock length; lumber only), or 'cubic_yard' "
+        "(ready-mix concrete only, per yd³ ordered)."
     )
     stock_length_ft: int | None = Field(
         default=None,
@@ -119,7 +143,7 @@ class PriceBookEntry(BaseModel):
     sheet: SheetSizeKey | None = Field(
         default=None,
         description="The sheet a sheet product's 'each' price is for "
-        "('4x8', '4x9', '4x10'); null for lumber.",
+        "('4x8', '4x9', '4x10', '4x12'); null for lumber.",
     )
     price_cents: int = Field(
         strict=True,
@@ -131,6 +155,23 @@ class PriceBookEntry(BaseModel):
 
     @model_validator(mode="after")
     def _stock_length_matches_unit(self) -> "PriceBookEntry":
+        item = FOUNDATION_ITEMS_BY_KEY.get(self.profile)
+        if item is not None:
+            if (
+                self.unit != item.price_unit
+                or self.stock_length_ft != item.stock_length_ft
+                or self.sheet is not None
+            ):
+                stock = (
+                    f" at a stock length of {item.stock_length_ft} ft"
+                    if item.stock_length_ft is not None
+                    else ", with no stock length or sheet"
+                )
+                unit = "per cubic yard" if item.price_unit == "cubic_yard" else "Each"
+                raise ValueError(f"{item.name} is priced {unit}{stock}.")
+            return self
+        if self.unit == "cubic_yard":
+            raise ValueError("Only ready-mix concrete is priced per cubic yard.")
         if _is_unit_key(self.profile):
             if (
                 self.unit != "each"
@@ -142,14 +183,38 @@ class PriceBookEntry(BaseModel):
                     "stock length or sheet."
                 )
             return self
+        item = CASEWORK_ITEMS_BY_KEY.get(self.profile)
+        if item is not None:
+            if (
+                self.unit != item.unit
+                or self.stock_length_ft is not None
+                or self.sheet is not None
+            ):
+                per = "per linear foot" if item.unit == "linear_foot" else "Each"
+                raise ValueError(
+                    f"{item.name} is priced {per}, with no stock length or sheet."
+                )
+            if self.material not in item.materials:
+                raise ValueError(
+                    f"{item.name} is sold in "
+                    f"{' or '.join(item.materials)}, not {self.material}."
+                )
+            return self
         if self.profile in SHEET_GOODS_BY_KEY:
             if self.unit != "each" or self.sheet is None:
                 raise ValueError(
                     "A sheet product is priced 'each' per sheet: name its "
-                    "sheet (4x8, 4x9 or 4x10)."
+                    "sheet (4x8, 4x9, 4x10 or 4x12)."
                 )
             if self.stock_length_ft is not None:
                 raise ValueError("A sheet price has a sheet size, not a stock length.")
+            good = next(g for g in SHEET_GOODS if g.key == self.profile)
+            sold = SHEET_SIZES_FOR[good.material]
+            if self.sheet not in sold:
+                raise ValueError(
+                    f"{good.name} is sold in {', '.join(sold)} sheets, not "
+                    f"{self.sheet}."
+                )
             return self
         if self.sheet is not None:
             raise ValueError("Only a sheet product's price has a sheet size.")

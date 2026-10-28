@@ -218,6 +218,50 @@ def test_unit_prices_round_trip(client: TestClient) -> None:
     assert _entries(client) == [*BOOK, *SHEETS, *UNITS]
 
 
+FOUNDATION: list[dict[str, Any]] = [
+    {
+        "material": "concrete",
+        "profile": "ready_mix",
+        "unit": "cubic_yard",
+        "stock_length_ft": None,
+        "sheet": None,
+        "price_cents": 16500,
+    },
+    {
+        "material": "steel_a615",
+        "profile": "rebar_4",
+        "unit": "each",
+        "stock_length_ft": 20,
+        "sheet": None,
+        "price_cents": 1498,
+    },
+    {
+        "material": "steel_f1554",
+        "profile": "anchor_bolt_1_2",
+        "unit": "each",
+        "stock_length_ft": None,
+        "sheet": None,
+        "price_cents": 248,
+    },
+]
+
+
+def test_foundation_prices_round_trip(client: TestClient) -> None:
+    """SLAB: ready-mix per cubic yard, a #4 stick Each at 20 ft, an anchor
+    bolt Each with neither stock nor sheet; any other shape is refused."""
+    every = [*BOOK, *SHEETS, *UNITS, *FOUNDATION]
+    assert _put(client, every).status_code == 200
+    assert _entries(client) == every
+    for bad in (
+        {**FOUNDATION[0], "unit": "each"},
+        {**FOUNDATION[1], "stock_length_ft": 16},
+        {**FOUNDATION[2], "stock_length_ft": 8},
+        {**BOOK[0], "unit": "cubic_yard", "stock_length_ft": None},
+    ):
+        assert _put(client, [bad]).status_code == 422, bad
+    assert _entries(client) == every
+
+
 def _stale_save_loses_nothing(client: TestClient) -> None:
     """Two saves drafted from one version: the first is kept, the second is
     412 ``price_book_stale`` and changes nothing; reloading and saving
@@ -307,8 +351,9 @@ def test_the_full_500_entry_book_saves(client: TestClient) -> None:
 def test_the_book_on_postgres_with_the_migrated_schema(pg_url: str) -> None:
     with TestClient(build_app(DocumentsSettings(postgres_url=pg_url))) as client:
         _round_trip(client)
-        assert _put(client, [*BOOK, *SHEETS, *UNITS]).status_code == 200
-        assert _entries(client) == [*BOOK, *SHEETS, *UNITS]
+        every = [*BOOK, *SHEETS, *UNITS, *FOUNDATION]
+        assert _put(client, every).status_code == 200
+        assert _entries(client) == every
 
     async def bypass(statement: str) -> None:
         engine = create_async_engine(async_dsn(pg_url))
@@ -329,6 +374,10 @@ def test_the_book_on_postgres_with_the_migrated_schema(pg_url: str) -> None:
         "'pvc', 'window_3040', 'linear_foot', NULL, NULL, 1",
         "'pvc', 'window_3040', 'each', 8, NULL, 1",
         "'spf_lumber', 'door_3068', 'each', NULL, '4x8', 1",
+        "'concrete', 'ready_mix', 'each', NULL, NULL, 1",
+        "'concrete', 'ready_mix', 'cubic_yard', 8, NULL, 1",
+        "'spf_lumber', 'us_2x4', 'cubic_yard', NULL, NULL, 1",
+        "'steel_f1554', 'anchor_bolt_1_2', 'each', 8, NULL, 1",
     ):
         with pytest.raises(IntegrityError):
             asyncio.run(

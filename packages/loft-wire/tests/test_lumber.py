@@ -30,6 +30,7 @@ from loft_wire.plugins import ChoiceOption
 #: 4 -> 3-1/2, 6 -> 5-1/2, 8 -> 7-1/4, 10 -> 9-1/4, 12 -> 11-1/4 (dry);
 #: timbers 6 -> 5-1/2, 8 -> 7-1/2, 10 -> 9-1/2, 12 -> 11-1/2 (green, S4S).
 EXPECTED_PROFILES: dict[str, tuple[str, float, float]] = {
+    "us_1x2": ("1x2", 0.75, 1.5),
     "us_1x4": ("1x4", 0.75, 3.5),
     "us_1x6": ("1x6", 0.75, 5.5),
     "us_5_4x6": ("5/4x6", 1.0, 5.5),
@@ -74,6 +75,10 @@ EXPECTED_DENSITIES: dict[str, float] = {
     "concrete": 2400.0,
     "pvc": 1400.0,
     "glass": 2500.0,
+    "steel_a615": 7850.0,
+    "steel_f1554": 7850.0,
+    "gypsum": 846.0,
+    "melamine": 721.0,
 }
 
 KG_M3_PER_PCF = 16.018463373960138  # 0.45359237 kg / 0.3048^3 m^3
@@ -147,7 +152,10 @@ def test_wood_density_follows_from_nds_specific_gravity(
         ("osb", 40),
         ("plywood", 36),
         ("steel_a992", 490),
+        ("steel_a615", 490),
+        ("steel_f1554", 490),
         ("concrete", 150),
+        ("melamine", 45),
     ],
 )
 def test_unit_weight_densities(key: str, pcf: float) -> None:

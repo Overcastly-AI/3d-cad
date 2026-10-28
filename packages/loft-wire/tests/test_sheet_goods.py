@@ -17,9 +17,11 @@ from loft_wire.cut_list import (
     BodyExtentsResult,
     CutListMember,
     classify_body,
-    cut_list_csv,
     cut_list_response,
     part_pieces,
+)
+from loft_wire.cut_list_csv import (
+    cut_list_csv,
 )
 from loft_wire.materials import MATERIALS_BY_KEY, MaterialKey
 from loft_wire.plugins import MemberMetadata
@@ -53,11 +55,18 @@ def test_the_library() -> None:
         ("osb_7_16", "7/16 OSB", "osb", 0.4375),
         ("plywood_15_32", "15/32 plywood", "plywood", 0.46875),
         ("plywood_23_32", "23/32 plywood", "plywood", 0.71875),
+        ("gypsum_1_2", "1/2 gypsum", "gypsum", 0.5),
+        ("gypsum_5_8", "5/8 gypsum", "gypsum", 0.625),
+        ("plywood_3_4", "3/4 plywood", "plywood", 0.75),
+        ("melamine_3_4", "3/4 melamine", "melamine", 0.75),
+        ("plywood_1_2", "1/2 plywood", "plywood", 0.5),
+        ("plywood_1_4", "1/4 plywood", "plywood", 0.25),
     ]
     assert [(s.key, s.width_in, s.length_in) for s in SHEET_SIZES] == [
         ("4x8", 48, 96),
         ("4x9", 48, 108),
         ("4x10", 48, 120),
+        ("4x12", 48, 144),
     ]
     # Every sheet material is a library material, with a density.
     assert set(get_args(SheetMaterialKey)) <= set(get_args(MaterialKey))
@@ -81,6 +90,26 @@ def test_a_panel_is_cut_from_the_shortest_sheet_that_covers_it() -> None:
     assert key(109, 48) == "4x10"
     assert key(121, 48) is None
     assert key(96, 48.5) is None
+
+
+def test_gypsum_is_cut_from_the_4x8_and_4x12_it_is_sold_in() -> None:
+    """INTERIOR-WALLS: gypsum board is sold in 4x8 and 4x12, never 4x9 or
+    4x10, so a 100 in piece of a 4x12 course is cut from a 4x12."""
+    gypsum = sheet_good_for("gypsum_1_2")
+    assert gypsum is not None
+
+    def key(a: float, b: float) -> str | None:
+        size = covering_sheet(a * IN, b * IN, gypsum)
+        return None if size is None else size.key
+
+    assert key(96, 48) == "4x8"
+    assert key(85, 48) == "4x8"
+    assert key(100, 48) == "4x12"
+    assert key(144, 48) == "4x12"
+    assert key(145, 48) is None
+    osb = sheet_good_for("osb_7_16")
+    assert covering_sheet(130 * IN, 48 * IN, osb) is None  # no 4x12 OSB
+    assert covering_sheet(130 * IN, 48 * IN) is None
 
 
 def _panel(

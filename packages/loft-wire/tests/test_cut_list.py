@@ -13,13 +13,15 @@ from loft_wire.cut_list import (
     CutListMember,
     CutListMissing,
     classify_body,
+    cut_list_response,
+    part_pieces,
+    stock_length_ft,
+)
+from loft_wire.cut_list_csv import (
     csv_text,
     cut_list_csv,
     cut_list_filename,
-    cut_list_response,
     format_length,
-    part_pieces,
-    stock_length_ft,
 )
 from loft_wire.lumber import LUMBER_PROFILES, stock_lengths_ft
 from loft_wire.materials import BodyMaterialAssignment, MaterialAssignment

@@ -91,14 +91,19 @@ export function hostWallLine(
   const row = features.find((f) => f.id === hostWall);
   if (row?.feature.type !== "custom") return null;
   const params = row.feature.params;
-  if (params.plugin_id !== "loft.wall") return null;
-  const outline = params.inputs.outline;
-  const onOutline =
-    outline !== undefined &&
-    outline !== null &&
-    typeof outline === "object" &&
-    !Array.isArray(outline);
-  if (onOutline !== (segment !== "")) return null;
+  if (params.plugin_id === "loft.interior_wall") {
+    // A door in a partition (INTERIOR-WALLS) always names its partition.
+    if (segment === "") return null;
+  } else {
+    if (params.plugin_id !== "loft.wall") return null;
+    const outline = params.inputs.outline;
+    const onOutline =
+      outline !== undefined &&
+      outline !== null &&
+      typeof outline === "object" &&
+      !Array.isArray(outline);
+    if (onOutline !== (segment !== "")) return null;
+  }
   const prefix = segment === "" ? null : `${segment}/`;
   const members = params.expansion ?? [];
   // A member's section is emitted just before it (levels come first).

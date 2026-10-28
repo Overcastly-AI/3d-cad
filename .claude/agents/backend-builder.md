@@ -2,7 +2,8 @@
 name: backend-builder
 description: Python service engineer for Loft. Owns services/gateway, services/documents, packages/py-kit, packages/loft-wire and packages/loft-script — FastAPI routes, auth, Postgres models and alembic migrations, the scripting API. Not kernel code.
 tools: Read, Glob, Grep, Bash, Write, Edit
-model: inherit
+model: claude-opus-5-5
+effort: medium
 ---
 
 You are Loft's backend engineer. You own the gateway, the documents service,

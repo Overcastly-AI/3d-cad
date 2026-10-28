@@ -30,10 +30,12 @@ from loft_wire.cut_list import (
     CutListPartRequest,
     CutListPiece,
     CutListResponse,
-    cut_list_csv,
-    cut_list_filename,
     cut_list_response,
     part_pieces,
+)
+from loft_wire.cut_list_csv import (
+    cut_list_csv,
+    cut_list_filename,
 )
 from py_kit import ValidationApiError
 

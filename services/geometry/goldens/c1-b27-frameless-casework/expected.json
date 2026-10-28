@@ -1,0 +1,52 @@
+{
+  "description": "CASEWORK C1 edited: the B24 widened to 27 in, every panel across the box 3 in longer (back 25.5, fronts 26.875, drawer box 24.5 wide), one door still: 3 820.10546875 in^3, 303.4375 in of banding, the same hardware. model.json is the plugin's expansion with the member materials documents applies; members.json each body's member metadata (packages/loft-plugins/tests/test_cabinets.py pins both).",
+  "derivation": [
+    "Every expectation is ANALYTIC, from services/geometry/tests/test_casework.py's independent script of casework.md's conventions (spec(), C1 typed from its table), never from the plugin: each panel a box, a notched side its box less its 3 x 4.5 toe notch; summed in exact rational arithmetic (x 25.4 = mm exactly).",
+    "",
+    "volume = 3 526.66796875 + 3 x (30 + 23.25 + 8 + 4.5 + 22.25 + 23.75 + 6) x 3/4 + 3 x 8 x 1/2 + 3 x 22 x 1/4 = 3 820.10546875 in^3.",
+    "",
+    "surface_area = each panel's box area, a notched side's less twice its notch's face; bodies are separate.",
+    "",
+    "topology: a box 6 faces, 12 edges, 1 shell; a notched side 8 faces, 18 edges. MESH: a box 24 vertices and 12 triangles, a notched side 36 and 20 (two hexagons of 4 triangles, six quads of 2)."
+  ],
+  "tolerance": 1e-7,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), 2026-10-23: volume 7.5e-9 mm^3 and area 9.3e-10 mm^2 off the exact sums over 15 bodies; 1e-7 is 13x the worst.",
+  "roundtrip_tolerance": 5e-7,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-23: the STEP round trip re-sums the 15 re-imported solids in another order and moves the VOLUME by 1.1e-7 mm^3 (1.8e-15 relative), above ROUNDTRIP_TOL's 1e-7 absolute on a 6.3e7 mm^3 part, as the B2 walls' goldens. 5e-7 is 4.5x; volume and area only.",
+  "properties": {
+    "volume": 62600312.80315625,
+    "surface_area": 7703653.9475,
+    "centroid": {
+      "x": 342.9,
+      "y": 316.5573472539923,
+      "z": 455.5680524609207
+    },
+    "mass_g": 36120.38048742116,
+    "center_of_mass": {
+      "x": 342.9,
+      "y": 316.5573472539923,
+      "z": 455.5680524609207
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 685.8,
+        "y": 628.65,
+        "z": 876.3
+      }
+    }
+  },
+  "topology": {
+    "faces": 94,
+    "edges": 192,
+    "shells": 15
+  },
+  "mesh": {
+    "vertices": 384,
+    "triangles": 196
+  }
+}

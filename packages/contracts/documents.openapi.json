@@ -16,6 +16,36 @@
         "title": "AllEdgesSelector",
         "type": "object"
       },
+      "AnchorBolts": {
+        "description": "Set on a plate that bears on concrete: the cut list counts its bolts\nfrom the plate's measured length (:func:`anchor_bolt_count`). Set on a\nPOUR instead (CRAWL-SPACE: a stem wall under a floor framed by another\nfeature), it lists the bolts cast in for each plate piece *plates_mm*.",
+        "properties": {
+          "item": {
+            "const": "anchor_bolt_1_2",
+            "default": "anchor_bolt_1_2",
+            "title": "Item",
+            "type": "string"
+          },
+          "plates_mm": {
+            "anyOf": [
+              {
+                "items": {
+                  "exclusiveMinimum": 0.0,
+                  "type": "number"
+                },
+                "maxItems": 256,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On a pour: the length (mm) of each plate piece it bolts (the floor's sills on a stem wall), each counted by R403.1.6. Absent on a plate, whose bolts are counted from its measured length.",
+            "title": "Plates Mm"
+          }
+        },
+        "title": "AnchorBolts",
+        "type": "object"
+      },
       "AngleConstraint": {
         "description": "Dimension: the angle between two lines (DEGREES, not mm).\n\nThe dimension every non-orthogonal feature needs \u2014 a gusset at 30\u00b0, a\ndovetail, a draft face \u2014 and the one whose absence meant such geometry could\nbe *drawn* but never *driven*, so it drifted on every edit\n(docs/AUDIT-PRODUCT.md T-5). ``a`` and ``b`` are whole line entities by id,\nlike :class:`ParallelConstraint`; both must be lines. Removes one rotational\ndegree of freedom.\n\n**Which angle: the one at the shared corner.** Two lines subtend two\nsupplementary angles, and picking the wrong one is the difference between an\nacute gusset and an obtuse one. The convention, which the solver and the\nreadout both apply and the UI should display verbatim from\n:class:`SolvedAngle`:\n\n* If ``a`` and ``b`` are joined at an endpoint by ``coincident`` constraints\n  (the ordinary case \u2014 two edges of a profile meeting at a corner), the\n  angle is measured between the two lines' directions taken **away from that\n  shared corner**. That is the INTERIOR angle a user sees and would type.\n  The join is read from the sketch's coincidence constraints, symbolically \u2014\n  never from a coordinate-proximity test, which would need an epsilon\n  (CLAUDE.md) and would silently change meaning as geometry moved.\n* Otherwise the lines' authored ``start -> end`` directions are used as-is.\n\n``value_deg`` is unsigned and strictly between 0 and 180: 0 and 180 are the\ndegenerate ends where the lines are parallel (use ``parallel``), and a\nsingle unsigned number cannot say which side of ``a`` the line ``b`` sits\non. The SIDE is taken from the geometry as drawn \u2014 the solver holds the\nangle the author already has and only resizes it \u2014 so typing a number never\nflips a profile inside out.",
         "properties": {
@@ -746,7 +776,11 @@
               "steel_a992",
               "concrete",
               "pvc",
-              "glass"
+              "glass",
+              "steel_a615",
+              "steel_f1554",
+              "gypsum",
+              "melamine"
             ],
             "title": "Material",
             "type": "string"
@@ -943,6 +977,71 @@
           "max"
         ],
         "title": "BoundingBox",
+        "type": "object"
+      },
+      "CaseworkItem": {
+        "description": "One item a cabinet buys that is not a panel: banding or hardware.",
+        "properties": {
+          "key": {
+            "enum": [
+              "edge_banding",
+              "hinge",
+              "slide_12",
+              "slide_14",
+              "slide_16",
+              "slide_18",
+              "slide_20",
+              "slide_22",
+              "slide_24"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "banding",
+              "hinge",
+              "slide"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "materials": {
+            "description": "The materials it is listed and priced in.",
+            "items": {
+              "enum": [
+                "plywood",
+                "pvc",
+                "steel_1018"
+              ],
+              "type": "string"
+            },
+            "title": "Materials",
+            "type": "array"
+          },
+          "name": {
+            "description": "As listed, e.g. 'Drawer slides 22 in, pair'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "unit": {
+            "description": "How it is priced: banding per linear foot, hardware Each.",
+            "enum": [
+              "each",
+              "linear_foot"
+            ],
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "name",
+          "unit",
+          "materials"
+        ],
+        "title": "CaseworkItem",
         "type": "object"
       },
       "CentreToCentreMeasurement": {
@@ -1513,6 +1612,27 @@
         "title": "ConcentricMate",
         "type": "object"
       },
+      "ConcretePour": {
+        "description": "Set on a concrete body (a pour): the cut list lists its MEASURED volume\nin cubic yards and orders it with this allowance.",
+        "properties": {
+          "item": {
+            "const": "ready_mix",
+            "default": "ready_mix",
+            "title": "Item",
+            "type": "string"
+          },
+          "waste_percent": {
+            "default": 5,
+            "description": "Ordered over the net volume (percent), then rounded up to 1/4 yd\u00b3.",
+            "maximum": 25.0,
+            "minimum": 0.0,
+            "title": "Waste Percent",
+            "type": "integer"
+          }
+        },
+        "title": "ConcretePour",
+        "type": "object"
+      },
       "CountInput": {
         "description": "A whole number of things (studs, rungs). Accepts a \u00a720 expression that\nevaluates to a whole plain number.",
         "properties": {
@@ -1709,6 +1829,35 @@
                       "minLength": 1,
                       "pattern": "^[A-Za-z0-9_.-]+$",
                       "type": "string"
+                    },
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  {
+                    "items": {
+                      "maxProperties": 16,
+                      "patternProperties": {
+                        "^[a-z][a-z0-9_]*$": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "maxLength": 200,
+                              "type": "string"
+                            }
+                          ]
+                        }
+                      },
+                      "propertyNames": {
+                        "maxLength": 48,
+                        "minLength": 1
+                      },
+                      "type": "object"
                     },
                     "maxItems": 32,
                     "minItems": 1,
@@ -3232,6 +3381,31 @@
           "signature"
         ],
         "title": "EdgeAxisRef",
+        "type": "object"
+      },
+      "EdgeBanding": {
+        "description": "The banding one panel carries: its banded edges' total length and the\nbanding's material.",
+        "properties": {
+          "length_mm": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000000.0,
+            "title": "Length Mm",
+            "type": "number"
+          },
+          "material": {
+            "enum": [
+              "plywood",
+              "pvc"
+            ],
+            "title": "Material",
+            "type": "string"
+          }
+        },
+        "required": [
+          "length_mm",
+          "material"
+        ],
+        "title": "EdgeBanding",
         "type": "object"
       },
       "EdgeLengthMeasurement": {
@@ -4973,7 +5147,7 @@
                 "type": "null"
               }
             ],
-            "description": "Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it. Omitted when there are none.",
+            "description": "Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a code-advice warning on its inputs (`crawl_height_low`). Omitted when there are none.",
             "title": "Plugin Warnings"
           },
           "rolled_back": {
@@ -5592,6 +5766,75 @@
         "title": "FormulaWarning",
         "type": "object"
       },
+      "FoundationItem": {
+        "description": "One listed foundation item: what it is priced and weighed as.",
+        "properties": {
+          "key": {
+            "description": "Price-book key, e.g. 'rebar_4'.",
+            "enum": [
+              "ready_mix",
+              "rebar_4",
+              "anchor_bolt_1_2"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "concrete",
+              "rebar",
+              "anchor_bolt"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "material": {
+            "description": "Library material the item is priced as.",
+            "enum": [
+              "concrete",
+              "steel_a615",
+              "steel_f1554"
+            ],
+            "title": "Material",
+            "type": "string"
+          },
+          "name": {
+            "description": "As listed, e.g. '#4 rebar'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "price_unit": {
+            "description": "How a price-book entry prices it: concrete per cubic yard ordered, a rebar stick or an anchor bolt Each.",
+            "enum": [
+              "cubic_yard",
+              "each"
+            ],
+            "title": "Price Unit",
+            "type": "string"
+          },
+          "stock_length_ft": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stock an Each price is for (ft): 20 for a rebar stick; null for a bolt or concrete.",
+            "title": "Stock Length Ft"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "name",
+          "material",
+          "price_unit"
+        ],
+        "title": "FoundationItem",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -5603,6 +5846,37 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HardwareCount": {
+        "description": "Hardware one member carries: a door's hinges, a drawer's slide pair.",
+        "properties": {
+          "key": {
+            "enum": [
+              "hinge",
+              "slide_12",
+              "slide_14",
+              "slide_16",
+              "slide_18",
+              "slide_20",
+              "slide_22",
+              "slide_24"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "quantity": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "quantity"
+        ],
+        "title": "HardwareCount",
         "type": "object"
       },
       "HoleBlindDepth": {
@@ -7312,6 +7586,168 @@
         "title": "LinearPatternParamsV1",
         "type": "object"
       },
+      "ListInput": {
+        "description": "An ordered list of ROWS, each the same few number and choice fields\n(``fields``): a cabinet run's boxes, as Mozaik lists a run's cabinets.\nStored as a list of ``{field: value}`` objects in row order, a field left\nout of a row taking its default; an empty list is stored as no value,\nallowed only when ``min_items`` is 0. A formula drives one field of one\nrow by pointer (``/inputs/<name>/<row>/<field>``). The form shows the\nrows as an add and remove list, a new row taking the last row's values.",
+        "properties": {
+          "default": {
+            "description": "A new feature's rows (a field a row leaves out takes its default).",
+            "items": {
+              "maxProperties": 16,
+              "patternProperties": {
+                "^[a-z][a-z0-9_]*$": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "maxLength": 200,
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "propertyNames": {
+                "maxLength": 48,
+                "minLength": 1
+              },
+              "type": "object"
+            },
+            "maxItems": 32,
+            "title": "Default",
+            "type": "array"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Help text under the field.",
+            "title": "Description"
+          },
+          "fields": {
+            "description": "The fields of every row, in form order.",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "angle": "#/components/schemas/AngleInput",
+                  "choice": "#/components/schemas/ChoiceInput",
+                  "count": "#/components/schemas/CountInput",
+                  "length": "#/components/schemas/LengthInput"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/LengthInput"
+                },
+                {
+                  "$ref": "#/components/schemas/AngleInput"
+                },
+                {
+                  "$ref": "#/components/schemas/CountInput"
+                },
+                {
+                  "$ref": "#/components/schemas/ChoiceInput"
+                }
+              ]
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Fields",
+            "type": "array"
+          },
+          "item_label": {
+            "description": "What one row is called, e.g. 'Box'.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Item Label",
+            "type": "string"
+          },
+          "kind": {
+            "const": "list",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "Form label, e.g. 'Twist angle'.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "max_items": {
+            "default": 32,
+            "description": "Most rows.",
+            "maximum": 32.0,
+            "minimum": 1.0,
+            "title": "Max Items",
+            "type": "integer"
+          },
+          "min_items": {
+            "default": 0,
+            "description": "Fewest rows; 0 makes the input optional.",
+            "maximum": 32.0,
+            "minimum": 0.0,
+            "title": "Min Items",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Key in the custom feature's `params.inputs`, and the pointer an expression drives (`/inputs/<name>`). A length's name ends `_mm` and an angle's `_deg`, as a base feature's fields do.",
+            "maxLength": 48,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Another input of this manifest that makes this one unused: a feature pick, once set (a wall's start, direction and length when an outline is picked, BUILDING-OUTLINE), or a choice, on any option but `superseded_unless` (a window's typed size unless Size is Custom, OPENING-UNITS). The form hides this input while it is unused; its stored value is kept. Absent: always used.",
+            "title": "Superseded By"
+          },
+          "superseded_unless": {
+            "anyOf": [
+              {
+                "maxLength": 48,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When `superseded_by` names a choice: the option of it that uses this input ('custom'); every other option hides it. Absent for a feature pick.",
+            "title": "Superseded Unless"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "kind",
+          "item_label",
+          "fields"
+        ],
+        "title": "ListInput",
+        "type": "object"
+      },
       "LockMate": {
         "description": "Rigidly fix two instances' relative pose \u2014 0 DOF (design \u00a72.1/\u00a72.3).\n\nTrivial for the solver (it fixes a relative pose, 0 iterative work) and\ncovers weldments/press-fits. References two instances directly by id (no\npicked geometry) \u2014 the relative-pose residual drives ``b``'s pose to a fixed\ntransform of ``a``'s (\u00a72.3).",
         "properties": {
@@ -7707,6 +8143,7 @@
           },
           "key": {
             "enum": [
+              "us_1x2",
               "us_1x4",
               "us_1x6",
               "us_5_4x6",
@@ -8086,7 +8523,11 @@
               "steel_a992",
               "concrete",
               "pvc",
-              "glass"
+              "glass",
+              "steel_a615",
+              "steel_f1554",
+              "gypsum",
+              "melamine"
             ],
             "title": "Key",
             "type": "string"
@@ -8144,7 +8585,11 @@
                   "steel_a992",
                   "concrete",
                   "pvc",
-                  "glass"
+                  "glass",
+                  "steel_a615",
+                  "steel_f1554",
+                  "gypsum",
+                  "melamine"
                 ],
                 "type": "string"
               },
@@ -8184,7 +8629,11 @@
                   "steel_a992",
                   "concrete",
                   "pvc",
-                  "glass"
+                  "glass",
+                  "steel_a615",
+                  "steel_f1554",
+                  "gypsum",
+                  "melamine"
                 ],
                 "type": "string"
               },
@@ -8269,6 +8718,22 @@
       "MaterialLibraryResponse": {
         "description": "The built-in material library, served so no client hardcodes a density.\n\nThe picker needs names + densities, and a second copy of the table in TS\nwould be a DRY violation that silently drifts (CLAUDE.md). One table, in\npy-kit, served over the API.\n\n``profiles`` is the section library members are cut from (US lumber,\n``loft_wire.lumber``), served beside the materials as SolidWorks serves\nweldment profiles beside its material database.",
         "properties": {
+          "casework_items": {
+            "description": "Edge banding and cabinet hardware (CASEWORK): what a casework price is keyed by ('hinge', 'slide_22'), its unit and the materials it is sold in.",
+            "items": {
+              "$ref": "#/components/schemas/CaseworkItem"
+            },
+            "title": "Casework Items",
+            "type": "array"
+          },
+          "foundation_items": {
+            "description": "Foundation items (SLAB): ready-mix concrete per cubic yard, #4 rebar per 20 ft stick and 1/2 in anchor bolts Each, keyed as a price-book profile ('rebar_4').",
+            "items": {
+              "$ref": "#/components/schemas/FoundationItem"
+            },
+            "title": "Foundation Items",
+            "type": "array"
+          },
           "materials": {
             "items": {
               "$ref": "#/components/schemas/Material"
@@ -8301,7 +8766,7 @@
             "type": "array"
           },
           "sheet_sizes": {
-            "description": "The sheets they are sold in, shortest first: 4x8, 4x9, 4x10.",
+            "description": "The sheets they are sold in, shortest first: 4x8, 4x9, 4x10, 4x12 (each product in its own: gypsum board in 4x8 and 4x12).",
             "items": {
               "$ref": "#/components/schemas/SheetSize"
             },
@@ -8321,6 +8786,72 @@
       "MemberMetadata": {
         "description": "What the cut list and mass need about one generated member (RESEARCH \u00a723).\n\nAll optional: a helper member (a path sketch) carries none.",
         "properties": {
+          "anchor_bolts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnchorBolts"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set on a plate that bears on concrete (SLAB): the cut list counts its anchor bolts from its measured length (IRC R403.1.6). Absent otherwise."
+          },
+          "banding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EdgeBanding"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The edge banding on this panel's exposed edges (CASEWORK), listed by the foot under Casework. Absent: none."
+          },
+          "concrete": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConcretePour"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set on a concrete body, one per pour (SLAB): the cut list lists its measured volume in cubic yards and orders it with the pour's waste allowance, rounded up to 1/4 yd\u00b3. Absent otherwise."
+          },
+          "grain": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A sheet-good panel with grain (CASEWORK: a plywood cabinet panel): the world direction its face grain runs, a unit vector [x, y, z]. The cut list lays the panel with that side along the sheet's length and never turns it. Absent: the panel may turn.",
+            "title": "Grain"
+          },
+          "hardware": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/HardwareCount"
+                },
+                "maxItems": 8,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Hardware this member carries (CASEWORK: a door's hinges, a drawer box's pair of slides), listed Each under Casework. Absent: none.",
+            "title": "Hardware"
+          },
           "material": {
             "anyOf": [
               {
@@ -8343,7 +8874,11 @@
                   "steel_a992",
                   "concrete",
                   "pvc",
-                  "glass"
+                  "glass",
+                  "steel_a615",
+                  "steel_f1554",
+                  "gypsum",
+                  "melamine"
                 ],
                 "type": "string"
               },
@@ -8379,6 +8914,22 @@
             ],
             "description": "Section the member is cut from, e.g. '2x8'.",
             "title": "Profile"
+          },
+          "rebar": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/RebarRun"
+                },
+                "maxItems": 64,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The bars a pour carries, listed, not drawn (SLAB): each by its centreline length, bought in 20 ft sticks lapped 24 in. Absent on every other member.",
+            "title": "Rebar"
           },
           "unit": {
             "anyOf": [
@@ -10262,6 +10813,7 @@
                   "feature": "#/components/schemas/FeatureReferenceInput",
                   "features": "#/components/schemas/FeatureListInput",
                   "length": "#/components/schemas/LengthInput",
+                  "list": "#/components/schemas/ListInput",
                   "material": "#/components/schemas/MaterialInput",
                   "profile": "#/components/schemas/ProfileInput",
                   "segments": "#/components/schemas/SegmentsInput"
@@ -10295,6 +10847,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/MaterialInput"
+                },
+                {
+                  "$ref": "#/components/schemas/ListInput"
                 }
               ]
             },
@@ -10385,24 +10940,27 @@
         "description": "One stored custom feature's geometry warning, with its fix if any.",
         "properties": {
           "code": {
-            "const": "roof_through_sheathing",
-            "description": "'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume",
+            "description": "'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1",
+            "enum": [
+              "roof_through_sheathing",
+              "crawl_height_low"
+            ],
             "title": "Code",
             "type": "string"
           },
           "message": {
-            "description": "Names the overlap and what fixes it",
+            "description": "Names the problem and what fixes it",
             "title": "Message",
             "type": "string"
           },
           "overlap_in3": {
-            "description": "The volume the roof shares with the sheathing (in^3)",
+            "description": "The volume the roof shares with the sheathing (in^3); 0 for a warning that is not an overlap",
             "minimum": 0.0,
             "title": "Overlap In3",
             "type": "number"
           },
           "pairs": {
-            "description": "How many (roof member, sheathing panel) pairs share it",
+            "description": "How many (roof member, sheathing panel) pairs share it; 0 for a warning that is not an overlap",
             "minimum": 0.0,
             "title": "Pairs",
             "type": "integer"
@@ -10651,7 +11209,11 @@
               "steel_a992",
               "concrete",
               "pvc",
-              "glass"
+              "glass",
+              "steel_a615",
+              "steel_f1554",
+              "gypsum",
+              "melamine"
             ],
             "title": "Material",
             "type": "string"
@@ -10667,6 +11229,7 @@
             "anyOf": [
               {
                 "enum": [
+                  "us_1x2",
                   "us_1x4",
                   "us_1x6",
                   "us_5_4x6",
@@ -10694,16 +11257,44 @@
                 "enum": [
                   "osb_7_16",
                   "plywood_15_32",
-                  "plywood_23_32"
+                  "plywood_23_32",
+                  "gypsum_1_2",
+                  "gypsum_5_8",
+                  "plywood_3_4",
+                  "melamine_3_4",
+                  "plywood_1_2",
+                  "plywood_1_4"
                 ],
                 "type": "string"
               },
               {
                 "pattern": "^(window|door)_[0-9]{4}$",
                 "type": "string"
+              },
+              {
+                "enum": [
+                  "ready_mix",
+                  "rebar_4",
+                  "anchor_bolt_1_2"
+                ],
+                "type": "string"
+              },
+              {
+                "enum": [
+                  "edge_banding",
+                  "hinge",
+                  "slide_12",
+                  "slide_14",
+                  "slide_16",
+                  "slide_18",
+                  "slide_20",
+                  "slide_22",
+                  "slide_24"
+                ],
+                "type": "string"
               }
             ],
-            "description": "Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', or window or door unit, e.g. 'window_3040'.",
+            "description": "Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', or casework item, e.g. 'hinge'.",
             "title": "Profile"
           },
           "sheet": {
@@ -10712,7 +11303,8 @@
                 "enum": [
                   "4x8",
                   "4x9",
-                  "4x10"
+                  "4x10",
+                  "4x12"
                 ],
                 "type": "string"
               },
@@ -10720,7 +11312,7 @@
                 "type": "null"
               }
             ],
-            "description": "The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10'); null for lumber.",
+            "description": "The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10', '4x12'); null for lumber.",
             "title": "Sheet"
           },
           "stock_length_ft": {
@@ -10736,11 +11328,12 @@
             "title": "Stock Length Ft"
           },
           "unit": {
-            "description": "'each' (one stock piece of `stock_length_ft`, or one sheet of `sheet`), 'linear_foot' or 'board_foot' (any stock length; lumber only).",
+            "description": "'each' (one stock piece of `stock_length_ft`, one sheet of `sheet`, one unit or one anchor bolt), 'linear_foot' or 'board_foot' (any stock length; lumber only), or 'cubic_yard' (ready-mix concrete only, per yd\u00b3 ordered).",
             "enum": [
               "each",
               "linear_foot",
-              "board_foot"
+              "board_foot",
+              "cubic_yard"
             ],
             "title": "Unit",
             "type": "string"
@@ -11019,6 +11612,34 @@
           "edge"
         ],
         "title": "RadiusDimensionParams",
+        "type": "object"
+      },
+      "RebarRun": {
+        "description": "One bar a pour carries, listed not drawn: its centreline length.",
+        "properties": {
+          "closed": {
+            "description": "A closed loop (lapped where it closes) or an open run.",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "item": {
+            "const": "rebar_4",
+            "default": "rebar_4",
+            "title": "Item",
+            "type": "string"
+          },
+          "length_mm": {
+            "description": "Centreline length (mm).",
+            "exclusiveMinimum": 0.0,
+            "title": "Length Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "length_mm",
+          "closed"
+        ],
+        "title": "RebarRun",
         "type": "object"
       },
       "RefBackfillPart": {
@@ -11941,7 +12562,13 @@
             "enum": [
               "osb_7_16",
               "plywood_15_32",
-              "plywood_23_32"
+              "plywood_23_32",
+              "gypsum_1_2",
+              "gypsum_5_8",
+              "plywood_3_4",
+              "melamine_3_4",
+              "plywood_1_2",
+              "plywood_1_4"
             ],
             "title": "Key",
             "type": "string"
@@ -11950,7 +12577,9 @@
             "description": "Library material of the panels.",
             "enum": [
               "osb",
-              "plywood"
+              "plywood",
+              "gypsum",
+              "melamine"
             ],
             "title": "Material",
             "type": "string"
@@ -12569,13 +13198,14 @@
         "type": "object"
       },
       "SheetSize": {
-        "description": "One sheet size: 4 ft wide, 8, 9 or 10 ft long.",
+        "description": "One sheet size: 4 ft wide, 8, 9, 10 or 12 ft long.",
         "properties": {
           "key": {
             "enum": [
               "4x8",
               "4x9",
-              "4x10"
+              "4x10",
+              "4x12"
             ],
             "title": "Key",
             "type": "string"
@@ -18087,7 +18717,7 @@
     },
     "/api/v1/materials": {
       "get": {
-        "description": "The built-in materials, lumber profiles, sheet goods and window and door\nunits, in display order.\n\nv1 is a closed library (docs/design/materials.md \u00a71/\u00a75): a fixed\n``MaterialKey`` literal means an unknown material is a parse error at the\nboundary instead of a silent \"no mass\" three services later. User-defined\nmaterials extend this response additively when they land.",
+        "description": "The built-in materials, lumber profiles, sheet goods, window and door\nunits, foundation items and casework items, in display order.\n\nv1 is a closed library (docs/design/materials.md \u00a71/\u00a75): a fixed\n``MaterialKey`` literal means an unknown material is a parse error at the\nboundary instead of a silent \"no mass\" three services later. User-defined\nmaterials extend this response additively when they land.",
         "operationId": "list_materials_api_v1_materials_get",
         "responses": {
           "200": {

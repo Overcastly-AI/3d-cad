@@ -200,7 +200,15 @@ class TestResolution:
         # Rigid PVC and soda-lime glass (OPENING-UNITS, RESEARCH §23).
         assert MATERIALS_BY_KEY["pvc"].density_kg_m3 == 1400.0
         assert MATERIALS_BY_KEY["glass"].density_kg_m3 == 2500.0
-        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 19
+        # Rebar and anchor-bolt steel, 490 pcf (SLAB): listed, never drawn.
+        assert MATERIALS_BY_KEY["steel_a615"].density_kg_m3 == 7850.0
+        assert MATERIALS_BY_KEY["steel_f1554"].density_kg_m3 == 7850.0
+        # Gypsum board, ASCE 7's 0.55 psf per 1/8 in: 52.8 pcf = 845.8 kg/m^3
+        # (INTERIOR-WALLS).
+        assert MATERIALS_BY_KEY["gypsum"].density_kg_m3 == 846.0
+        # Melamine-faced particleboard, 45 pcf = 720.8 kg/m^3 (CASEWORK).
+        assert MATERIALS_BY_KEY["melamine"].density_kg_m3 == 721.0
+        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 23
 
     def test_a_2x10_x_12ft_spf_member_weighs_the_hand_calculation(self) -> None:
         """LUMBER-MATERIALS: the kernel measures the member, the library weighs it.

@@ -66,12 +66,14 @@ kitchen and baths (casework). Each item names its builder types.
    thick, an optional thickened edge (12 in wide, 12 in deep overall) with
    2 #4 bars, and 1/2 in anchor bolts by IRC R403.1.6. The slab replaces the
    floor: outline walls stand on its top (On floor accepts a slab).
-   Concrete is listed in cubic yards and bought in 1/4 yd³ steps, rebar in
-   20 ft sticks with 24 in laps, bolts Each. _Accept:_ B2's plain
-   144 x 120 x 4 slab is 69 120 in³ and lists 1.48 yd³ (1.50 bought). B8
-   (buildings.md) is 308 736 in³, 6.62 yd³ (6.75 bought), 10 sticks of #4
-   and 19 anchor bolts, all priced; B7's walls on it have no interference,
-   and 24 -> 28 ft is still one dimension edit.
+   Concrete is listed in cubic yards and ordered with a 5% waste
+   allowance (an input) rounded up to 1/4 yd³, rebar in 20 ft sticks with
+   24 in laps, bolts Each. _Accept:_ B2's plain 144 x 120 x 4 slab is
+   69 120 in³ and lists 1.48 yd³ (1.75 bought: 1.56 with the allowance; 1.50
+   before it). B8 (buildings.md) is 308 736 in³, 6.62 yd³ (7.00 bought: 6.95
+   with the allowance; 6.75 before it), 10 sticks of #4 and 19 anchor bolts,
+   all priced; B7's walls on it have no interference, and 24 -> 28 ft is
+   still one dimension edit.
 6. [ ] **CRAWL-SPACE** (founder 2026-10-23; kernel-architect for
    `loft.foundation` 1.0.0 and goldens, backend-builder for the new lines,
    frontend-builder for the Build entry): a poured-concrete stem wall on a
@@ -84,10 +86,16 @@ kitchen and baths (casework). Each item names its builder types.
    24 x 16 in access (R408.4) are cut from the stem. The floor's sills sit
    flush outside on the stem's top at Z 0, so `loft.floor` is unchanged.
    CMU block is a later choice. _Accept:_ B9 (buildings.md) is
-   307 328 in³ (6.59 yd³, 6.75 bought) with 5 vents, 1 access, 10 sticks of
-   #4 and 18 anchor bolts through the sills; B7's floor and walls on it
+   307 328 in³ (6.59 yd³; x 1.05 = 6.92, so 7.00 bought) with 5
+   vents, 1 access, 10 sticks of #4 and 18 anchor bolts through the sills
+   (`loft_wire.foundation` and the cut list's pours, rebar and bolts are
+   SLAB's, so the foundation reuses them); B7's floor and walls on it
    have no interference; crawl height 24 -> 30 lowers the footing 6 in and
-   moves nothing above Z 0.
+   moves nothing above Z 0. _Kernel, wire and pricing half built
+   (2026-10-23):_ `loft.foundation` 1.0.0, golden `b9-crawl-space`,
+   `crawl-space.spec.ts`; the footing and stem are a pour each, and the
+   access is R408.4's through-wall 24 x 16 (18 x 24 is the through-floor
+   minimum).
 7. [ ] **INTERIOR-WALLS** (founder 2026-10-23; kernel-architect for
    `loft.interior_wall` 1.0.0, a `loft.wall` version that frames T-backing
    and offers gypsum on its inside face, and goldens; backend-builder for
@@ -104,6 +112,13 @@ kitchen and baths (casework). Each item names its builder types.
    sketch plus two lines: 2 partitions, a 2868 door, 4 ladder backings (12
    blocks), no interference, studs and gypsum sheets as the script gives;
    24 -> 28 ft leaves the partitions at X 180 and Y 132.
+   _Kernel done (2026-10-23, RESEARCH §23):_ `loft.interior_wall` 1.0.0
+   hosted on `loft.wall` 1.4.0 (backing, optional inside gypsum), a door
+   1.4.0 may stand in a partition, gypsum 1/2 and 5/8 in 4x8 and 4x12 under
+   Walls; the web picks a door's partition and lists the tool on the Build
+   row. Golden `b10-partitions` (67 bodies, 45 623.25 in³ on b7-outline,
+   20 panels, 11 sheets). _Open:_ L and crossing partitions, free ends,
+   one partition feature meeting another's, and gypsum on a partition's end.
 8. [ ] **CASEWORK** (founder 2026-10-23; kernel-architect for
    `loft.cabinets` 1.0.0 and goldens; backend-builder for sheet products,
    edge banding and hardware in the price book and a list input in the
@@ -120,6 +135,14 @@ kitchen and baths (casework). Each item names its builder types.
    banding, 2 hinges, one pair of 22 in slides), and 24 -> 27 in gives
    3 820.105 in³; C2's run stands on B10's partition with no interference;
    C3 prices to the last line.
+   _Built (2026-10-23, RESEARCH §23):_ `loft.cabinets` 1.0.0 with a generic
+   list input in the manifest (the form's add and remove list), placement on
+   a wall line from either end or typed, frameless and face frame, plywood or
+   melamine; casework sheets, banding and hardware priced (migration 0028).
+   C1 to the panel, C2 on B7's left wall, C3 priced; goldens `c1-*`, `c2-*`,
+   `c3-*`. _Open:_ C2 on B10 waits for INTERIOR-WALLS (its gypsum is the
+   1/2 in Back gap); the wall pick is the form's select, not a viewport
+   click; list rows take plain numbers in the form, formulas by API only.
 
 ## Next
 
@@ -237,6 +260,19 @@ seventh pass) are in VISION's delegated log; reverse any there.
 
 One line each. The founder triages weekly; most are closed without work.
 
+- SLAB-MULTI-POUR: group_pieces sums pours of one product, material and allowance and rounds the total up to 1/4 yd³, not each pour (two pours are two truck orders on site).
+- SLAB-BOLT-SHORT-PIECE: a plate piece under 24 in gets its 2 anchor bolts with no check of the 12 in end distance (foundation.anchor_bolt_count).
+- SLAB-PRICE-DOWNGRADE: migration 0027's downgrade deletes the foundation prices without bumping price_books.version, so an open draft's If-Match still matches (0025's downgrade does the same).
+- CASEWORK-PIECES-TOTAL: the cut list's Pieces total counts banding (its banded panels) and hardware quantities with the bodies (cut_list.py total_quantity).
+- CASEWORK-HARDWARE-MATERIAL: hinges and slides are keyed to steel_1018 in the price book, so a book cannot price a nickel or zinc hinge apart.
+- CASEWORK-FRONT-GRAIN: a drawer front's plywood grain is fixed vertical, like a door's; many shops run it across.
+- CASEWORK-C2-B10: C2 sits on B7's left wall with a 1/2 in Back gap for gypsum; now that INTERIOR-WALLS has landed it moves to B10's partitions.
+- CASEWORK-C3-NO-DRAWER: C3's V3021 has no drawer box, so it lists no plywood sheet line though casework.md says "melamine and plywood sheets".
+- INTERIOR-WALLS-ENDS: a partition's ends are read from the stored drawn midpoint of its line, not the solved one (interior_wall.py:263).
+- INTERIOR-WALLS-READ-PLAN: outline.read_plan now drops dangling lines for wall, roof and floor 1.1-1.3 too, so an outline sketch with a stray line reads where it used to be refused.
+- INTERIOR-WALLS-GYPSUM-COUNT: gypsum is counted by area, not by sheets_to_cut (kept so for B10's 11 sheets; nesting gives 12), and a 4x12 choice beside 4x8 walls gives mixed sheet lines.
+- INTERIOR-WALLS-INSIDE-GYPSUM-GOLDEN: loft.wall 1.4.0's inside gypsum (finish) has no geometry golden.
+- ci-apt-debs: a warm dpkg -i failure falls back to apt and never re-seeds, so that key stays slow until the image changes.
 - OPENING-NEARER-LOFT-IMPORT: a hand-made .loft storing measure_from "nearer" keeps it on import (refresh_expansions does not settle), so the opening floats with the wall until the next edit settles it (loft_file.py:131).
 - OPENING-REFUSAL-FRAME: the end-stud refusal message gives positions from the wall start even when the opening is measured from the end or centre (wall.py:601).
 - OPENING-MEASURE-SWITCH: changing Measured from in the dialog moves the opening; Revit converts the distance so it stays put. Frontend follow-up with the both-ends readout.
@@ -246,6 +282,15 @@ One line each. The founder triages weekly; most are closed without work.
 - BARE-UNIT-SAME-EDIT: one edit that changes a legacy dimension and adds a new one with the same text leaves the new one reading mm; the text match also ignores length vs angle.
 - BARE-UNIT-LIST-POINTERS: list params are matched by pointer position, so a reorder counts the moved formulas as entered and writes the unit into them.
 - BARE-UNIT-DISPLAY-NOISE: `storedLengthInput` can show a formula's value as 6.000000000000001 in the editor's form.
+- CRAWL-VENT-UNITS: the foundation's vents and access are cut but not listed; Chief's materials list carries the vent units and the access door Each.
+- CRAWL-TWO-ORDERS: the footing and stem are a pour each but the cut list orders them on one line (SLAB's grouping by allowance); crews take two deliveries, each rounded up (B9: 2.75 + 4.25, the same 7.00 here).
+- CRAWL-NO-FLOOR-BOLTS: a foundation with no Floor on it lists bolts for one sill per outline side (192, not the floor's 181), which can count one more or fewer per side than the floor built later.
+- E2E-PORT: scripts/e2e.sh and playwright.config.ts fix Vite at :5173, so a concurrent stack silently serves another worktree's e2e run; make the port configurable.
+- CRAWL-SILL-SOURCE: crawl_space.sill_lengths counts bolts from floor_v1's pieces whatever floor release is picked; a later floor that splits sills differently would miscount.
+- CRAWL-HEIGHT-EXPR: the low-crawl warning reads params.inputs only and ignores an expression-driven crawl height.
+- BUILD-MIXED-ICONS: at the band's mixed tier Wall and Deck share an icon with no label.
+- E2E-ASSEMBLY-FLAKE: assembly-joint-motions.spec.ts:190 failed once on CI (batch48, assemblyFlow.ts:270 row not found) and passed 8/8 locally on base and tip.
+- VISION-WASTE-LINE: VISION's "Concrete, rebar and bolts" bullet still says "no waste factor", which the 2026-10-23 5% allowance decision replaced.
 
 - SKETCH-LINE-ANGLE-WHEN: the L / ∠ cells arm after the end click (type 450 Tab 73 Enter then); keys typed BEFORE the end click stay the X / Y point cells (G2, sketch-line-length-tab), whereas Fusion's box takes length and angle mid-drag. Founder to decide whether the mid-drag keys should become L / ∠.
 - SKETCH-LINE-ANGLE-ZERO: the angle cell takes (0, 180) as `AngleConstraint` does; 0 or 180 is refused with a message rather than becoming Horizontal (or Collinear to the previous segment), which Fusion does.

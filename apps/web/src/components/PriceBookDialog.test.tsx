@@ -48,6 +48,31 @@ vi.mock("../api/materials", () => ({
         { key: "osb", name: "OSB", density_kg_m3: 641, source: "" },
         { key: "plywood", name: "Plywood", density_kg_m3: 577, source: "" },
         { key: "pvc", name: "PVC", density_kg_m3: 1400, source: "" },
+        { key: "concrete", name: "Concrete", density_kg_m3: 2400, source: "" },
+        {
+          key: "steel_f1554",
+          name: "Anchor-bolt steel",
+          density_kg_m3: 7850,
+          source: "",
+        },
+      ],
+      foundation_items: [
+        {
+          key: "ready_mix",
+          kind: "concrete",
+          name: "Ready-mix concrete",
+          material: "concrete",
+          price_unit: "cubic_yard",
+          stock_length_ft: null,
+        },
+        {
+          key: "anchor_bolt_1_2",
+          kind: "anchor_bolt",
+          name: "1/2 in anchor bolt",
+          material: "steel_f1554",
+          price_unit: "each",
+          stock_length_ft: null,
+        },
       ],
       opening_units: [
         {
@@ -424,6 +449,7 @@ describe("PriceBookDialog", () => {
       "Sheet goods",
       "Windows",
       "Doors",
+      "Foundation",
     ]);
     expect(
       Array.from(groups[2]!.querySelectorAll("option")).map((o) => o.value),
@@ -499,6 +525,70 @@ describe("PriceBookDialog", () => {
           stock_length_ft: null,
           sheet: null,
           price_cents: 18900,
+        },
+      ],
+      3,
+    );
+  });
+
+  it("prices concrete per cubic yard and a bolt Each, each its one way", async () => {
+    // SLAB: a stored ready-mix price reads as an item; a bolt seeded from
+    // its cut-list line has no stock and no unit to choose.
+    api.fetchPriceBook.mockResolvedValue({
+      ...BOOK,
+      entries: [
+        ...BOOK.entries!,
+        {
+          material: "concrete",
+          profile: "ready_mix",
+          unit: "cubic_yard",
+          stock_length_ft: null,
+          sheet: null,
+          price_cents: 16500,
+        },
+      ],
+    });
+    const { onClose } = renderDialog({
+      material: "steel_f1554",
+      profile: "1/2 in anchor bolt",
+      stockLengthFt: null,
+    });
+    const rows = await screen.findAllByTestId("price-book-row");
+    expect(rows).toHaveLength(3);
+    expect(rows[1]).toHaveAttribute("data-kind", "item");
+    expect(
+      within(rows[1]!).getByTestId("price-book-unit-item"),
+    ).toHaveTextContent("Per yd³");
+    expect(
+      within(rows[1]!).getByTestId("price-book-stock-item"),
+    ).toHaveTextContent("Ordered");
+    const bolt = within(rows[2]!);
+    expect(rows[2]).toHaveAttribute("data-profile", "anchor_bolt_1_2");
+    expect(bolt.queryByLabelText("Priced, price 3")).toBeNull();
+    expect(bolt.getByTestId("price-book-unit-item")).toHaveTextContent("Each");
+    const price = bolt.getByLabelText("Price in dollars, price 3");
+    await waitFor(() => expect(price).toHaveFocus());
+    fireEvent.change(price, { target: { value: "2.48" } });
+    fireEvent.submit(screen.getByTestId("price-book-dialog"));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(api.savePriceBook).toHaveBeenCalledWith(
+      [
+        BOOK.entries![0],
+        {
+          material: "concrete",
+          profile: "ready_mix",
+          unit: "cubic_yard",
+          stock_length_ft: null,
+          sheet: null,
+          price_cents: 16500,
+        },
+        {
+          material: "steel_f1554",
+          profile: "anchor_bolt_1_2",
+          unit: "each",
+          stock_length_ft: null,
+          sheet: null,
+          price_cents: 248,
         },
       ],
       3,

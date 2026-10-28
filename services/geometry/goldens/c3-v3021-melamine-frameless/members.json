@@ -1,0 +1,152 @@
+[
+  {
+    "feature_id": "6ea15aa0-4f32-5a56-848d-c2e12d320559",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 762.0,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "ed0890d5-9a75-58cc-a132-d918237af972",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 762.0,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "60bcc14f-ab14-5b00-8a9c-8c456c4206e3",
+    "role": "back",
+    "title": "Back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b32afb87-ecdc-5591-afae-d37849dc4955",
+    "role": "bottom",
+    "title": "Bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 723.9,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "8a1aed4e-cd36-5df2-8e68-1d85ef114c8f",
+    "role": "stretcher",
+    "title": "Stretcher",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 723.9,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "15c36bc1-9139-5379-8353-ec8c50bf2f4a",
+    "role": "stretcher",
+    "title": "Stretcher",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f09783f1-22eb-5bf7-b9fe-369212fb093b",
+    "role": "toe_kick",
+    "title": "Toe kick",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e548a384-c449-553a-9a47-ef12e72cc634",
+    "role": "false_front",
+    "title": "False front",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 1822.4499999999998,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "f7d3bed0-977d-5f9d-b3c9-94e170a5ce80",
+    "role": "door",
+    "title": "Door",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 1962.1499999999999,
+        "material": "pvc"
+      },
+      "hardware": [
+        {
+          "key": "hinge",
+          "quantity": 2
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "3bb9f1ba-3502-55c4-b484-4ec2f1ceba42",
+    "role": "door",
+    "title": "Door",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 1962.1499999999999,
+        "material": "pvc"
+      },
+      "hardware": [
+        {
+          "key": "hinge",
+          "quantity": 2
+        }
+      ]
+    }
+  }
+]
