@@ -142,7 +142,8 @@ def _stock(line: CutListLine) -> str:
         return "Each"
     if line.item == "concrete":
         net = volume_yd3(line.volume_mm3 or 0.0)
-        return f"{format_yd3(net)} yd3 net + {line.waste_percent or 0}% waste"
+        bags = "" if line.bags is None else " in 80 lb bags"
+        return f"{format_yd3(net)} yd3 net + {line.waste_percent or 0}% waste{bags}"
     if line.item in EACH_ITEMS:
         return "Each"
     if line.unit is not None:

@@ -85,8 +85,11 @@ a pour with ``anchor_bolts`` (CRAWL-SPACE: a stem wall under a floor another
 feature frames) adds the bolts it lists for each of its plates' lengths.
 A stem wall's ``foundation_openings`` (FOUNDATION-TAKEOFF) list its
 foundation vents and access door Each, one line per item and size ("Vent
-16 x 8"), as Chief's materials list carries them. All sit under Foundation,
-the list's first system.
+16 x 8"), as Chief's materials list carries them. A pour bought in 80 lb
+BAGS (DECK-FOOTINGS: a deck's pier footings) orders whole bags over the
+line's total volume instead of 1/4 yd³ a delivery, priced Each per bag, and a
+footing under a post adds its post base, Each. Every pour and item sits under
+Foundation, the list's first system, whichever plugin poured it.
 
 **Casework** (CASEWORK): a ``loft.cabinets`` panel is a sheet good under
 Casework, cut to size (no panel gap) with its grain kept along the sheet;
@@ -529,9 +532,9 @@ class CutListLine(BaseModel):
         default=None,
         description="A foundation line (SLAB): 'concrete' (its pours, by "
         "volume), 'rebar' (runs of one length, bought in 20 ft sticks: "
-        "stock_quantity), or 'anchor_bolt', 'foundation_vent' or "
-        "'access_door' (Each, quantity pieces; a vent or door's size in its "
-        "member, 'Vent 16 x 8'). Null otherwise.",
+        "stock_quantity), or 'anchor_bolt', 'foundation_vent', "
+        "'access_door' or 'post_base' (Each, quantity pieces; a vent or "
+        "door's size in its member, 'Vent 16 x 8'). Null otherwise.",
     )
     volume_mm3: float | None = Field(
         default=None,
@@ -541,10 +544,18 @@ class CutListLine(BaseModel):
     order_yd3: float | None = Field(
         default=None,
         ge=0,
-        description="A concrete line's order (yd³): each pour's net volume "
+        description="A ready-mix line's order (yd³): each pour's net volume "
         "plus waste_percent, rounded up to 1/4 yd³ (a delivery each), "
         "summed; its unit price is per yd³ and its extended price that times "
-        "this. Null otherwise.",
+        "this. Null otherwise (a bagged line orders `bags`).",
+    )
+    bags: int | None = Field(
+        default=None,
+        ge=0,
+        exclude_if=is_none,
+        description="A bagged concrete line's order (DECK-FOOTINGS): the net "
+        "volume plus waste_percent over 0.60 ft³ an 80 lb bag, rounded up to "
+        "whole bags; also its stock_quantity, priced Each. Absent otherwise.",
     )
     waste_percent: int | None = Field(
         default=None,
@@ -752,7 +763,8 @@ def classify_body(
             system=system_for_plugin(member.plugin_id),
         )
     if member is not None and member.metadata.concrete is not None:
-        # A pour: listed by its measured volume (module docstring).
+        # A pour: listed by its measured volume under Foundation, a deck's
+        # footings with the slab's pours (module docstring).
         pour = member.metadata.concrete
         return CutListPiece(
             member=member.title,
@@ -763,7 +775,7 @@ def classify_body(
             length_mm=extents[0],
             section_mm=default_section,
             count=count,
-            system=system_for_plugin(member.plugin_id),
+            system="foundation",
             item="concrete",
             volume_mm3=body.volume_mm3,
             waste_percent=pour.waste_percent,
@@ -1270,8 +1282,9 @@ def price_lines(
     sheet line is priced by the 'each' entry for its product and sheet,
     times its sheets, and a unit line by the 'each' entry for its unit key
     and material, times its units. A foundation line (SLAB) is priced by its
-    item's entry: concrete per cubic yard times the yards ordered, a rebar
-    line Each per 20 ft stick times its sticks, anchor bolts Each. A line
+    item's entry: ready-mix per cubic yard times the yards ordered, bagged
+    concrete Each per bag times its bags, a rebar line Each per 20 ft stick
+    times its sticks, anchor bolts and post bases Each. A line
     with no stock or no entry stays unpriced (null)."""
     entries = {entry.key: entry for entry in book.entries}
     priced: list[CutListLine] = []
@@ -1351,11 +1364,12 @@ def price_lines(
 def _extended(
     line: CutListLine, unit_price: int | None, quantity: int | None
 ) -> int | None:
-    """Unit price x stock quantity; for concrete, x the cubic yards ORDERED
-    (a multiple of 1/4, so exact), rounded once, half up."""
+    """Unit price x stock quantity (a bagged pour's bags); for ready-mix, x
+    the cubic yards ORDERED (a multiple of 1/4, so exact), rounded once,
+    half up."""
     if unit_price is None:
         return None
-    if line.item == "concrete":
+    if line.item == "concrete" and line.bags is None:
         if line.order_yd3 is None:
             return None
         return _round_half_up(Fraction(line.order_yd3) * unit_price)

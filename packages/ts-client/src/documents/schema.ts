@@ -2846,13 +2846,19 @@ export interface components {
         ConcretePour: {
             /**
              * Item
+             * @description How it is bought: 'ready_mix' by the 1/4 yd³, or 'concrete_bag_80' in whole 80 lb bags of 0.60 ft³ (DECK-FOOTINGS).
              * @default ready_mix
-             * @constant
+             * @enum {string}
              */
-            item: "ready_mix";
+            item: "ready_mix" | "concrete_bag_80";
+            /**
+             * Post Base
+             * @description A pier footing under a post (DECK-FOOTINGS): the post base it lists, Each. Absent on every other pour.
+             */
+            post_base?: ("post_base_4x4" | "post_base_4x6" | "post_base_6x6") | null;
             /**
              * Waste Percent
-             * @description Ordered over the net volume (percent), then rounded up to 1/4 yd³.
+             * @description Ordered over the net volume (percent), then rounded up to 1/4 yd³, or to whole bags.
              * @default 5
              */
             waste_percent: number;
@@ -5343,12 +5349,12 @@ export interface components {
              * @description Price-book key, e.g. 'rebar_4'.
              * @enum {string}
              */
-            key: "ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door";
+            key: "ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door" | "concrete_bag_80" | "post_base_4x4" | "post_base_4x6" | "post_base_6x6";
             /**
              * Kind
              * @enum {string}
              */
-            kind: "concrete" | "rebar" | "anchor_bolt" | "foundation_vent" | "access_door";
+            kind: "concrete" | "rebar" | "anchor_bolt" | "foundation_vent" | "access_door" | "post_base";
             /**
              * Material
              * @description Library material the item is priced as.
@@ -5362,7 +5368,7 @@ export interface components {
             name: string;
             /**
              * Price Unit
-             * @description How a price-book entry prices it: concrete per cubic yard ordered; a rebar stick, an anchor bolt, a foundation vent or an access door Each.
+             * @description How a price-book entry prices it: ready-mix per cubic yard ordered; a rebar stick, an anchor bolt, a foundation vent, an access door, a bag of concrete or a post base Each.
              * @enum {string}
              */
             price_unit: "cubic_yard" | "each";
@@ -8800,7 +8806,7 @@ export interface components {
              * Profile
              * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', or casework item, e.g. 'hinge'.
              */
-            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24");
+            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door" | "concrete_bag_80" | "post_base_4x4" | "post_base_4x6" | "post_base_6x6") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24");
             /**
              * Sheet
              * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10', '4x12'); null for lumber.

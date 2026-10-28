@@ -5,7 +5,9 @@ its measured volume, one line per member, and each pour (each copy of a
 placed part too) is ordered as its own delivery, rounded up to 1/4 yd³ after
 its allowance; rebar, anchor bolts and a stem wall's vents and access door
 are listed, not drawn, from the pour's or plate's metadata
-(:mod:`loft_wire.foundation`). :mod:`loft_wire.cut_list` imports this module,
+(:mod:`loft_wire.foundation`). A line of bagged pours (DECK-FOOTINGS: a
+deck's piers) buys whole 80 lb bags over its total volume, and a footing
+under a post lists its post base. :mod:`loft_wire.cut_list` imports this module,
 so this one reads its types through the module at call time.
 """
 
@@ -16,7 +18,9 @@ from typing import Final
 import loft_wire.cut_list as cl
 from loft_wire.foundation import (
     FOUNDATION_ITEMS_BY_KEY,
+    concrete_bags,
     concrete_order_yd3,
+    foundation_item_for,
     rebar_sticks,
 )
 from loft_wire.lumber import MM_PER_INCH
@@ -33,8 +37,9 @@ def listed_pieces(
 ) -> list[cl.CutListPiece]:
     """The items *member*'s body carries but does not draw (SLAB): a pour's
     rebar runs, a plate's anchor bolts, counted from *piece*, the body as
-    measured, and a stem wall's vents and access door (FOUNDATION-TAKEOFF).
-    Listed under Foundation, after the body."""
+    measured, a stem wall's vents and access door (FOUNDATION-TAKEOFF), and
+    a footing's post base (DECK-FOOTINGS). Listed under Foundation, after the
+    body."""
     if member is None:
         return []
     metadata = member.metadata
@@ -54,6 +59,22 @@ def listed_pieces(
                 system="foundation",
                 item="rebar",
                 closed=run.closed,
+            )
+        )
+    if metadata.concrete is not None and metadata.concrete.post_base is not None:
+        item = FOUNDATION_ITEMS_BY_KEY[metadata.concrete.post_base]
+        out.append(
+            cl.CutListPiece(
+                member="Post base",
+                profile=item.name,
+                lumber=False,
+                material=item.material,
+                classification="member",
+                length_mm=0.0,
+                section_mm=(0.0, 0.0),
+                count=piece.count,
+                system="foundation",
+                item="post_base",
             )
         )
     if metadata.anchor_bolts is not None:
@@ -104,10 +125,17 @@ def concrete_line(pieces: Sequence[cl.CutListPiece], quantity: int) -> cl.CutLis
     """Pours of one member, product, material and allowance as one line:
     their measured volume, and the cubic yards they order, each pour (each
     copy of a placed part too) rounded up on its own, as each is its own
-    delivery (module docstring)."""
+    delivery; or, bagged, the whole bags their total takes (module
+    docstring)."""
     first = pieces[0]
     volume = sum((p.volume_mm3 or 0.0) * p.count for p in pieces)
     waste = first.waste_percent or 0
+    item = foundation_item_for(first.profile)
+    bags = (
+        concrete_bags(volume, waste)
+        if item is not None and item.key == "concrete_bag_80"
+        else None
+    )
     order = sum(
         (concrete_order_yd3(p.volume_mm3 or 0.0, waste) * p.count for p in pieces),
         Fraction(0),
@@ -125,14 +153,15 @@ def concrete_line(pieces: Sequence[cl.CutListPiece], quantity: int) -> cl.CutLis
         section_mm=[round(v, 6) for v in first.section_mm],
         stock_length_ft=None,
         waste_mm=None,
-        stock_quantity=None,
+        stock_quantity=bags,
         unit_price_cents=None,
         price_unit=None,
         extended_price_cents=None,
         item="concrete",
         volume_mm3=round(volume, 6),
-        order_yd3=float(order),
+        order_yd3=None if bags is not None else float(order),
         waste_percent=waste,
+        bags=bags,
     )
 
 
@@ -142,7 +171,7 @@ _REBAR_STICK_FT: Final = FOUNDATION_ITEMS_BY_KEY["rebar_4"].stock_length_ft
 
 def item_line(piece: cl.CutListPiece, quantity: int) -> cl.CutListLine:
     """Rebar runs of one length, bought in 20 ft sticks (each run lapped
-    on its own), or anchor bolts, vents or access doors, Each."""
+    on its own), or anchor bolts, vents, access doors or post bases, Each."""
     length = round(piece.length_mm, 6)
     rebar = piece.item == "rebar"
     sticks = (

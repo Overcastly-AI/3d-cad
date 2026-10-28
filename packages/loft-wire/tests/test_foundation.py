@@ -9,6 +9,7 @@ bottom plates its walls stand on. ``services/geometry/tests/test_slab_b8.py``
 runs the same on the kernel's measurements of the B8 golden.
 """
 
+import math
 import uuid
 from fractions import Fraction
 from typing import Any
@@ -25,12 +26,14 @@ from loft_wire.cut_list_csv import (
     cut_list_csv,
 )
 from loft_wire.foundation import (
+    CONCRETE_BAG_YIELD_FT3,
     FOUNDATION_ITEMS,
     AnchorBolts,
     ConcretePour,
     FoundationOpening,
     RebarRun,
     anchor_bolt_count,
+    concrete_bags,
     concrete_order_yd3,
     rebar_sticks,
     volume_yd3,
@@ -51,8 +54,131 @@ def test_the_catalogue() -> None:
         ("anchor_bolt_1_2", "1/2 in anchor bolt", "steel_f1554", "each"),
         ("foundation_vent", "Foundation vent", "steel_1018", "each"),
         ("crawl_access_door", "Crawl-space access door", "steel_1018", "each"),
+        ("concrete_bag_80", "Concrete, 80 lb bag", "concrete", "each"),
+        ("post_base_4x4", "Post base 4x4 (ABU44)", "steel_1018", "each"),
+        ("post_base_4x6", "Post base 4x6 (ABU46)", "steel_1018", "each"),
+        ("post_base_6x6", "Post base 6x6 (ABU66)", "steel_1018", "each"),
     ]
     assert all(i.material in MATERIALS_BY_KEY for i in FOUNDATION_ITEMS)
+
+
+# --- Bagged concrete (DECK-FOOTINGS) --------------------------------------------------
+
+
+def test_a_bag_yields_0_60_ft3() -> None:
+    """Derived independently of the bag's printed yield: 80 lb of dry premix
+    and the ~3 qt (6.2 lb) of water it takes make ~86.2 lb of fresh concrete,
+    which at ~144 lb/ft³ (normal-weight concrete less its steel, ACI 211
+    fresh density 140-150) fills 86.2 / 144 = 0.599 ft³: the 0.60 ft³ the
+    bags state, and 27 / 0.60 = 45 bags to the yd³ as their charts list."""
+    assert Fraction(3, 5) == CONCRETE_BAG_YIELD_FT3
+    fresh_lb = 80 + 3 * 0.25 * 8.34  # 3 qt of water at 8.34 lb/gal
+    assert fresh_lb / 144 == pytest.approx(float(CONCRETE_BAG_YIELD_FT3), abs=0.01)
+    assert 27 / CONCRETE_BAG_YIELD_FT3 == 45
+
+
+@pytest.mark.parametrize(
+    ("piers", "bags"),
+    [
+        # B1: 3 x pi x 8^2 x 12 = 7 238.23 in^3 = 4.19 ft^3; x 1.05 / 0.60 = 7.33.
+        (3, 8),
+        # B1 at 20 ft: 4 piers, 9 650.97 in^3 = 5.59 ft^3; x 1.05 / 0.60 = 9.77.
+        (4, 10),
+    ],
+)
+def test_b1s_footings_buy_whole_bags(piers: int, bags: int) -> None:
+    volume = piers * math.pi * 8**2 * 12 * IN3
+    assert concrete_bags(volume, 5) == bags
+    assert concrete_bags(volume, 0) == (7 if piers == 3 else 10)  # 6.98, 9.31
+
+
+def test_exactly_whole_bags_buy_no_extra() -> None:
+    """Ten bags' worth (6 ft^3, 10 368 in^3) buys 10, not 11 by an ulp."""
+    assert concrete_bags(10368 * IN3, 0) == 10
+    assert concrete_bags(0.0, 5) == 0
+
+
+def test_bags_and_post_bases_are_priced_each() -> None:
+    _entry(material="concrete", profile="concrete_bag_80", unit="each", price_cents=1)
+    _entry(material="steel_1018", profile="post_base_6x6", unit="each", price_cents=1)
+    for bad in (
+        {"material": "concrete", "profile": "concrete_bag_80", "unit": "cubic_yard"},
+        {
+            "material": "concrete",
+            "profile": "concrete_bag_80",
+            "unit": "each",
+            "stock_length_ft": 8,
+        },
+        {"material": "steel_1018", "profile": "post_base_4x4", "unit": "linear_foot"},
+    ):
+        with pytest.raises(ValidationError):
+            _entry(**bad, price_cents=1)
+
+
+def _footing(post_base: str | None = "post_base_6x6") -> MemberMetadata:
+    return MemberMetadata.model_validate(
+        {
+            "profile": "Concrete, 80 lb bag",
+            "material": "concrete",
+            "concrete": {
+                "item": "concrete_bag_80",
+                "waste_percent": 5,
+                **({} if post_base is None else {"post_base": post_base}),
+            },
+        }
+    )
+
+
+def test_footings_list_bags_and_post_bases_under_foundation() -> None:
+    """Three B1 piers from a deck: one bagged line of 8 bags over their total
+    volume, one Each line of 3 post bases, both under Foundation."""
+    ids = [uuid.uuid4() for _ in range(3)]
+    pier = 768 * math.pi * IN3
+    extents = BodyExtentsResult(
+        part_id=uuid.uuid4(),
+        tree_version=1,
+        bodies=[
+            BodyExtent(
+                base_feature_id=i,
+                extents_mm=(16 * IN, 16 * IN, 12 * IN),
+                volume_mm3=pier,
+            )
+            for i in ids
+        ],
+    )
+    members = [
+        CutListMember(
+            feature_id=i,
+            role="footing",
+            title="Footing",
+            plugin_id="loft.deck",
+            metadata=_footing(),
+        )
+        for i in ids
+    ]
+    lines = cut_list_response(
+        document_id=uuid.uuid4(),
+        document_kind="part",
+        name="piers",
+        length_unit="in",
+        pieces=part_pieces(extents, members, None),
+    ).lines
+    assert [
+        (line.system, line.member, line.item, line.quantity, line.stock_quantity)
+        for line in lines
+    ] == [
+        ("foundation", "Footing", "concrete", 3, 8),
+        ("foundation", "Post base", "post_base", 3, 3),
+    ]
+    assert lines[0].bags == 8 and lines[0].order_yd3 is None
+    assert lines[1].profile == "Post base 6x6 (ABU66)"
+    assert lines[1].material == "steel_1018"
+    # A footing with no post base lists none; a stored pour reads as before.
+    assert "post_base" not in _footing(None).model_dump(mode="json")["concrete"]
+    assert ConcretePour().model_dump(mode="json") == {
+        "item": "ready_mix",
+        "waste_percent": 5,
+    }
 
 
 # --- The arithmetic ------------------------------------------------------------------

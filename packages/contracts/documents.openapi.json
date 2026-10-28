@@ -1617,14 +1617,35 @@
         "description": "Set on a concrete body (a pour): the cut list lists its MEASURED volume\nin cubic yards and orders it with this allowance.",
         "properties": {
           "item": {
-            "const": "ready_mix",
             "default": "ready_mix",
+            "description": "How it is bought: 'ready_mix' by the 1/4 yd\u00b3, or 'concrete_bag_80' in whole 80 lb bags of 0.60 ft\u00b3 (DECK-FOOTINGS).",
+            "enum": [
+              "ready_mix",
+              "concrete_bag_80"
+            ],
             "title": "Item",
             "type": "string"
           },
+          "post_base": {
+            "anyOf": [
+              {
+                "enum": [
+                  "post_base_4x4",
+                  "post_base_4x6",
+                  "post_base_6x6"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A pier footing under a post (DECK-FOOTINGS): the post base it lists, Each. Absent on every other pour.",
+            "title": "Post Base"
+          },
           "waste_percent": {
             "default": 5,
-            "description": "Ordered over the net volume (percent), then rounded up to 1/4 yd\u00b3.",
+            "description": "Ordered over the net volume (percent), then rounded up to 1/4 yd\u00b3, or to whole bags.",
             "maximum": 25.0,
             "minimum": 0.0,
             "title": "Waste Percent",
@@ -5788,7 +5809,11 @@
               "rebar_4",
               "anchor_bolt_1_2",
               "foundation_vent",
-              "crawl_access_door"
+              "crawl_access_door",
+              "concrete_bag_80",
+              "post_base_4x4",
+              "post_base_4x6",
+              "post_base_6x6"
             ],
             "title": "Key",
             "type": "string"
@@ -5799,7 +5824,8 @@
               "rebar",
               "anchor_bolt",
               "foundation_vent",
-              "access_door"
+              "access_door",
+              "post_base"
             ],
             "title": "Kind",
             "type": "string"
@@ -5821,7 +5847,7 @@
             "type": "string"
           },
           "price_unit": {
-            "description": "How a price-book entry prices it: concrete per cubic yard ordered; a rebar stick, an anchor bolt, a foundation vent or an access door Each.",
+            "description": "How a price-book entry prices it: ready-mix per cubic yard ordered; a rebar stick, an anchor bolt, a foundation vent, an access door, a bag of concrete or a post base Each.",
             "enum": [
               "cubic_yard",
               "each"
@@ -11412,7 +11438,11 @@
                   "rebar_4",
                   "anchor_bolt_1_2",
                   "foundation_vent",
-                  "crawl_access_door"
+                  "crawl_access_door",
+                  "concrete_bag_80",
+                  "post_base_4x4",
+                  "post_base_4x6",
+                  "post_base_6x6"
                 ],
                 "type": "string"
               },
