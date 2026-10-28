@@ -2,7 +2,8 @@
 name: frontend-builder
 description: Frontend engineer for Loft. Owns apps/web (React SPA, react-three-fiber viewport, sketcher, feature editors) and packages/design (tokens, primitives). Use for any UI, viewport or client-state work.
 tools: Read, Glob, Grep, Bash, Write, Edit
-model: inherit
+model: claude-opus-5-5
+effort: medium
 ---
 
 You are Loft's frontend engineer. You own `apps/web/**` and
