@@ -285,6 +285,11 @@ One line each. The founder triages weekly; most are closed without work.
 - CRAWL-VENT-UNITS: the foundation's vents and access are cut but not listed; Chief's materials list carries the vent units and the access door Each.
 - CRAWL-TWO-ORDERS: the footing and stem are a pour each but the cut list orders them on one line (SLAB's grouping by allowance); crews take two deliveries, each rounded up (B9: 2.75 + 4.25, the same 7.00 here).
 - CRAWL-NO-FLOOR-BOLTS: a foundation with no Floor on it lists bolts for one sill per outline side (192, not the floor's 181), which can count one more or fewer per side than the floor built later.
+- E2E-PORT: scripts/e2e.sh and playwright.config.ts fix Vite at :5173, so a concurrent stack silently serves another worktree's e2e run; make the port configurable.
+- CRAWL-SILL-SOURCE: crawl_space.sill_lengths counts bolts from floor_v1's pieces whatever floor release is picked; a later floor that splits sills differently would miscount.
+- CRAWL-HEIGHT-EXPR: the low-crawl warning reads params.inputs only and ignores an expression-driven crawl height.
+- BUILD-MIXED-ICONS: at the band's mixed tier Wall and Deck share an icon with no label.
+- E2E-ASSEMBLY-FLAKE: assembly-joint-motions.spec.ts:190 failed once on CI (batch48, assemblyFlow.ts:270 row not found) and passed 8/8 locally on base and tip.
 - VISION-WASTE-LINE: VISION's "Concrete, rebar and bolts" bullet still says "no waste factor", which the 2026-10-23 5% allowance decision replaced.
 
 - SKETCH-LINE-ANGLE-WHEN: the L / ∠ cells arm after the end click (type 450 Tab 73 Enter then); keys typed BEFORE the end click stay the X / Y point cells (G2, sketch-line-length-tab), whereas Fusion's box takes length and angle mid-drag. Founder to decide whether the mid-drag keys should become L / ∠.
