@@ -237,6 +237,10 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         "b2-walls-v1.1-hole-door-moved-24",
         "plugin-deck-v1.1-b1-16ft-hole-end-joist",
         "plugin-deck-v1.1-b1-20ft-hole-end-joist",
+        # B1 at 1.2.0 on its pier footings, and the 20 ft edit (DECK-FOOTINGS):
+        # the same summation drift over 49 and 54 solids (3.6e-6 at worst).
+        "plugin-deck-v1.2-b1-footings-16ft",
+        "plugin-deck-v1.2-b1-footings-20ft",
         # The loft.roof B2 gable at 6/12 and 8/12 (ROOF): OCCT's STEP rounds
         # the sloped rafters' coordinates; a build123d twin drifts the same.
         "b2-roof-6-12",

@@ -1,0 +1,4401 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000b1",
+  "tree_version": 1,
+  "features": [
+    {
+      "id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b",
+      "feature": {
+        "suppressed": false,
+        "type": "datum",
+        "version": 1,
+        "params": {
+          "kind": "offset",
+          "base": "XY",
+          "offset_mm": 501.65,
+          "flip": false
+        }
+      }
+    },
+    {
+      "id": "1a1c8592-a1c7-56e7-b0f3-466be4267fae",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 0.0
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 0.0
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 38.099999999999994
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 0.0,
+                "y": 38.099999999999994
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 0.0,
+                "y": 0.0
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b"
+          }
+        }
+      }
+    },
+    {
+      "id": "94e512b7-2b9a-5db8-acf7-6a9faddb6198",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "1a1c8592-a1c7-56e7-b0f3-466be4267fae"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "391808ac-d65f-579a-ad8e-35b87c03d348",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3657.6
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3657.6
+              },
+              "end": {
+                "x": 0.0,
+                "y": 3657.6
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 3657.6
+              },
+              "end": {
+                "x": 0.0,
+                "y": 3619.5
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b"
+          }
+        }
+      }
+    },
+    {
+      "id": "32ddd331-319c-5593-bb3a-839d7b08a0fa",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "391808ac-d65f-579a-ad8e-35b87c03d348"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "23a1c85e-1424-5a7a-87f7-1d7e66b81e13",
+      "feature": {
+        "suppressed": false,
+        "type": "datum",
+        "version": 1,
+        "params": {
+          "kind": "offset",
+          "base": "XY",
+          "offset_mm": 266.7,
+          "flip": false
+        }
+      }
+    },
+    {
+      "id": "417b034b-b31e-5854-9bc9-a6fca78ad7b0",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 3162.2999999999997
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3162.2999999999997
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3162.2999999999997
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3200.3999999999996
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3200.3999999999996
+              },
+              "end": {
+                "x": 0.0,
+                "y": 3200.3999999999996
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 3200.3999999999996
+              },
+              "end": {
+                "x": 0.0,
+                "y": 3162.2999999999997
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "23a1c85e-1424-5a7a-87f7-1d7e66b81e13"
+          }
+        }
+      }
+    },
+    {
+      "id": "a1556cdc-b487-53ac-ac42-daee740363f1",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "417b034b-b31e-5854-9bc9-a6fca78ad7b0"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "667fb024-cf64-59ba-ba33-5150b459a25d",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 3200.3999999999996
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3200.3999999999996
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3200.3999999999996
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3238.5
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3238.5
+              },
+              "end": {
+                "x": 0.0,
+                "y": 3238.5
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 3238.5
+              },
+              "end": {
+                "x": 0.0,
+                "y": 3200.3999999999996
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "23a1c85e-1424-5a7a-87f7-1d7e66b81e13"
+          }
+        }
+      }
+    },
+    {
+      "id": "cb69714a-bb15-5879-8b6f-2a507b937b42",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "667fb024-cf64-59ba-ba33-5150b459a25d"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "aba41723-bb03-5950-8346-30df9a044150",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 38.099999999999994,
+                "y": 38.099999999999994
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 38.099999999999994,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 38.099999999999994,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 38.099999999999994,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 0.0,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 0.0,
+                "y": 38.099999999999994
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b"
+          }
+        }
+      }
+    },
+    {
+      "id": "8ac03b96-a002-50fe-941a-df82628bb14e",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "aba41723-bb03-5950-8346-30df9a044150"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "e05206d9-a7af-5785-ba2a-0e29b5bdf511",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 387.34999999999997,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 425.45,
+                "y": 38.099999999999994
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 425.45,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 425.45,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 425.45,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 387.34999999999997,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 387.34999999999997,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 387.34999999999997,
+                "y": 38.099999999999994
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b"
+          }
+        }
+      }
+    },
+    {
+      "id": "f812ffd2-0786-58b7-8589-e0264b3aa5c8",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "e05206d9-a7af-5785-ba2a-0e29b5bdf511"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "d89b4e63-642f-5615-a704-29e7b4eb0b05",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 793.75,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 831.8499999999999,
+                "y": 38.099999999999994
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 831.8499999999999,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 831.8499999999999,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 831.8499999999999,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 793.75,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 793.75,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 793.75,
+                "y": 38.099999999999994
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b"
+          }
+        }
+      }
+    },
+    {
+      "id": "12a0447c-41e0-50ae-ad59-1548c552fdc3",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "d89b4e63-642f-5615-a704-29e7b4eb0b05"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "f7010f40-28ef-5580-8e59-4dd63f12e509",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 1200.1499999999999,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 1238.25,
+                "y": 38.099999999999994
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 1238.25,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 1238.25,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 1238.25,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 1200.1499999999999,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 1200.1499999999999,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 1200.1499999999999,
+                "y": 38.099999999999994
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b"
+          }
+        }
+      }
+    },
+    {
+      "id": "aa96c7dc-710d-592a-9424-9dae5f5de879",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "f7010f40-28ef-5580-8e59-4dd63f12e509"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "27ea1779-5ac3-5a9f-ac86-cb85626e7130",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 1606.55,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 1644.6499999999999,
+                "y": 38.099999999999994
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 1644.6499999999999,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 1644.6499999999999,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 1644.6499999999999,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 1606.55,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 1606.55,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 1606.55,
+                "y": 38.099999999999994
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b"
+          }
+        }
+      }
+    },
+    {
+      "id": "c402a518-2d5c-5de5-bf8d-7e423ad46da5",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "27ea1779-5ac3-5a9f-ac86-cb85626e7130"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "2022ee95-d177-5dee-bd7b-fcd36b86d729",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2012.9499999999998,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 2051.0499999999997,
+                "y": 38.099999999999994
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2051.0499999999997,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 2051.0499999999997,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2051.0499999999997,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 2012.9499999999998,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2012.9499999999998,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 2012.9499999999998,
+                "y": 38.099999999999994
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b"
+          }
+        }
+      }
+    },
+    {
+      "id": "4b7dfd72-4362-5d44-ae1d-56fb0ff98fe8",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "2022ee95-d177-5dee-bd7b-fcd36b86d729"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "e88f2943-3c49-5446-aef3-29e48ed1ba12",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2419.35,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 2457.45,
+                "y": 38.099999999999994
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2457.45,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 2457.45,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2457.45,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 2419.35,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2419.35,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 2419.35,
+                "y": 38.099999999999994
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b"
+          }
+        }
+      }
+    },
+    {
+      "id": "f7f10cd3-71d5-5c32-bda2-29f5715e672f",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "e88f2943-3c49-5446-aef3-29e48ed1ba12"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "fbb84dc2-a9ac-571a-908a-a89506267af3",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2825.75,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 2863.85,
+                "y": 38.099999999999994
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2863.85,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 2863.85,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2863.85,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 2825.75,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2825.75,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 2825.75,
+                "y": 38.099999999999994
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b"
+          }
+        }
+      }
+    },
+    {
+      "id": "6a20d991-a1d6-522f-8730-07eb5d611b78",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "fbb84dc2-a9ac-571a-908a-a89506267af3"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "7591af6d-2dcd-5657-8792-dcbf28fdfb1f",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 3232.1499999999996,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 3270.25,
+                "y": 38.099999999999994
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 3270.25,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 3270.25,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 3270.25,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 3232.1499999999996,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 3232.1499999999996,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 3232.1499999999996,
+                "y": 38.099999999999994
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b"
+          }
+        }
+      }
+    },
+    {
+      "id": "cd6f23fc-89ba-5d8d-b585-191267d2b07e",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "7591af6d-2dcd-5657-8792-dcbf28fdfb1f"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "353fa238-3498-51ac-80e5-66e972b412f0",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 3638.5499999999997,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 3676.6499999999996,
+                "y": 38.099999999999994
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 3676.6499999999996,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 3676.6499999999996,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 3676.6499999999996,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 3638.5499999999997,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 3638.5499999999997,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 3638.5499999999997,
+                "y": 38.099999999999994
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b"
+          }
+        }
+      }
+    },
+    {
+      "id": "5ef3bfee-5134-5b8d-989b-897f93181ea5",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "353fa238-3498-51ac-80e5-66e972b412f0"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "7f24e00f-0b42-521f-ab3f-22674e776cb6",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4044.95,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 4083.0499999999997,
+                "y": 38.099999999999994
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4083.0499999999997,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 4083.0499999999997,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4083.0499999999997,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 4044.95,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4044.95,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 4044.95,
+                "y": 38.099999999999994
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b"
+          }
+        }
+      }
+    },
+    {
+      "id": "eb089495-9a15-5b4d-81b5-318eac68ce9c",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "7f24e00f-0b42-521f-ab3f-22674e776cb6"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "fe462445-ca76-5bc8-b33e-e1c3ee4e3928",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4451.349999999999,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 4489.45,
+                "y": 38.099999999999994
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4489.45,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 4489.45,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4489.45,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 4451.349999999999,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4451.349999999999,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 4451.349999999999,
+                "y": 38.099999999999994
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b"
+          }
+        }
+      }
+    },
+    {
+      "id": "0d2645c8-0148-5ce4-9c0a-6ed9f712f611",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "fe462445-ca76-5bc8-b33e-e1c3ee4e3928"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "8ef90a8c-19c9-5207-98ed-2cb6403b3904",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4838.7,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 38.099999999999994
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 38.099999999999994
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 4838.7,
+                "y": 3619.5
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4838.7,
+                "y": 3619.5
+              },
+              "end": {
+                "x": 4838.7,
+                "y": 38.099999999999994
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "4b743bf6-5441-53e1-8d26-21d1e97fa74b"
+          }
+        }
+      }
+    },
+    {
+      "id": "6f29a29a-9371-5cf6-997a-a7fa80183dea",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "8ef90a8c-19c9-5207-98ed-2cb6403b3904"
+          },
+          "distance_mm": 234.95,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "89a9d3c1-910a-5a70-ac26-ef8ea731bb8c",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 3130.5499999999997
+              },
+              "end": {
+                "x": 139.7,
+                "y": 3130.5499999999997
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 139.7,
+                "y": 3130.5499999999997
+              },
+              "end": {
+                "x": 139.7,
+                "y": 3270.25
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 139.7,
+                "y": 3270.25
+              },
+              "end": {
+                "x": 0.0,
+                "y": 3270.25
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 3270.25
+              },
+              "end": {
+                "x": 0.0,
+                "y": 3130.5499999999997
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          }
+        }
+      }
+    },
+    {
+      "id": "9ded16ca-9181-5d5e-a093-47750cdfa1c5",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "89a9d3c1-910a-5a70-ac26-ef8ea731bb8c"
+          },
+          "distance_mm": 266.7,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "97d4d2ad-47d3-5bc5-88dc-ba8999f1b18e",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2368.5499999999997,
+                "y": 3130.5499999999997
+              },
+              "end": {
+                "x": 2508.25,
+                "y": 3130.5499999999997
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2508.25,
+                "y": 3130.5499999999997
+              },
+              "end": {
+                "x": 2508.25,
+                "y": 3270.25
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2508.25,
+                "y": 3270.25
+              },
+              "end": {
+                "x": 2368.5499999999997,
+                "y": 3270.25
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 2368.5499999999997,
+                "y": 3270.25
+              },
+              "end": {
+                "x": 2368.5499999999997,
+                "y": 3130.5499999999997
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          }
+        }
+      }
+    },
+    {
+      "id": "40d86ac4-30d1-5a85-993c-787e2c88ab03",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "97d4d2ad-47d3-5bc5-88dc-ba8999f1b18e"
+          },
+          "distance_mm": 266.7,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "9fd9f3a6-c4bd-5c1e-bf37-dea7c025b15a",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4737.099999999999,
+                "y": 3130.5499999999997
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3130.5499999999997
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3130.5499999999997
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3270.25
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3270.25
+              },
+              "end": {
+                "x": 4737.099999999999,
+                "y": 3270.25
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4737.099999999999,
+                "y": 3270.25
+              },
+              "end": {
+                "x": 4737.099999999999,
+                "y": 3130.5499999999997
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          }
+        }
+      }
+    },
+    {
+      "id": "f298e0e8-c8d5-546a-8e2c-3e2cf26705b9",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "9fd9f3a6-c4bd-5c1e-bf37-dea7c025b15a"
+          },
+          "distance_mm": 266.7,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "5db7b570-d204-5caa-a19a-ccd96ea98e2b",
+      "feature": {
+        "suppressed": false,
+        "type": "datum",
+        "version": 1,
+        "params": {
+          "kind": "offset",
+          "base": "XY",
+          "offset_mm": -304.79999999999995,
+          "flip": false
+        }
+      }
+    },
+    {
+      "id": "418afdad-be79-539e-b963-1c2c8420afb0",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "c1",
+              "construction": false,
+              "kind": "circle",
+              "center": {
+                "x": 69.85,
+                "y": 3200.3999999999996
+              },
+              "radius": 203.2
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "5db7b570-d204-5caa-a19a-ccd96ea98e2b"
+          }
+        }
+      }
+    },
+    {
+      "id": "d877c88c-b71f-56e8-9276-4fe1178772f5",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "418afdad-be79-539e-b963-1c2c8420afb0"
+          },
+          "distance_mm": 304.79999999999995,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "6b69ed53-6917-59b9-af13-fcd0ee0588b5",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "c1",
+              "construction": false,
+              "kind": "circle",
+              "center": {
+                "x": 2438.3999999999996,
+                "y": 3200.3999999999996
+              },
+              "radius": 203.2
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "5db7b570-d204-5caa-a19a-ccd96ea98e2b"
+          }
+        }
+      }
+    },
+    {
+      "id": "9c78ddac-952b-51bd-9a8c-cf87bbf5bfd1",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "6b69ed53-6917-59b9-af13-fcd0ee0588b5"
+          },
+          "distance_mm": 304.79999999999995,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "38d1b937-df55-5587-a9a1-07bdcf0cdb56",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "c1",
+              "construction": false,
+              "kind": "circle",
+              "center": {
+                "x": 4806.95,
+                "y": 3200.3999999999996
+              },
+              "radius": 203.2
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "5db7b570-d204-5caa-a19a-ccd96ea98e2b"
+          }
+        }
+      }
+    },
+    {
+      "id": "72e1bb06-ad47-522d-8ca8-dcfb8bb12bc0",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "38d1b937-df55-5587-a9a1-07bdcf0cdb56"
+          },
+          "distance_mm": 304.79999999999995,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "77affb59-2ebb-5d2b-bcf8-3667696723a8",
+      "feature": {
+        "suppressed": false,
+        "type": "datum",
+        "version": 1,
+        "params": {
+          "kind": "offset",
+          "base": "XY",
+          "offset_mm": 736.5999999999999,
+          "flip": false
+        }
+      }
+    },
+    {
+      "id": "375eb0de-8680-58a2-a695-fa3ab1c49ab3",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 0.0
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 0.0
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 139.7
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 139.7
+              },
+              "end": {
+                "x": -0.0,
+                "y": 139.7
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 139.7
+              },
+              "end": {
+                "x": -0.0,
+                "y": 0.0
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "1d0fb6b9-7a37-5c22-a31b-8538861b2e3f",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "375eb0de-8680-58a2-a695-fa3ab1c49ab3"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "3ca5e3d1-992a-58ae-83d9-f03534d55f9f",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 142.875
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 142.875
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 142.875
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 282.575
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 282.575
+              },
+              "end": {
+                "x": -0.0,
+                "y": 282.575
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 282.575
+              },
+              "end": {
+                "x": -0.0,
+                "y": 142.875
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "9a024a7d-103b-5576-a8a1-17ae5482275f",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "3ca5e3d1-992a-58ae-83d9-f03534d55f9f"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "ed75b694-b495-5fc8-ade5-72b009957e99",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 285.75
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 285.75
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 285.75
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 425.45
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 425.45
+              },
+              "end": {
+                "x": -0.0,
+                "y": 425.45
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 425.45
+              },
+              "end": {
+                "x": -0.0,
+                "y": 285.75
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "c516b825-a944-5bae-87ad-e9f32b54e4e3",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "ed75b694-b495-5fc8-ade5-72b009957e99"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "3602754a-1215-5de4-904a-0636861b7cd3",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 428.625
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 428.625
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 428.625
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 568.3249999999999
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 568.3249999999999
+              },
+              "end": {
+                "x": -0.0,
+                "y": 568.3249999999999
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 568.3249999999999
+              },
+              "end": {
+                "x": -0.0,
+                "y": 428.625
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "b64292d5-4158-5488-b516-c91a0b647596",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "3602754a-1215-5de4-904a-0636861b7cd3"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "d9417d09-d06c-523a-8303-3e77cb9e2e8b",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 571.5
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 571.5
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 571.5
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 711.1999999999999
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 711.1999999999999
+              },
+              "end": {
+                "x": -0.0,
+                "y": 711.1999999999999
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 711.1999999999999
+              },
+              "end": {
+                "x": -0.0,
+                "y": 571.5
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "fa2b0470-6ac5-594f-b205-d08ddb61b2b2",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "d9417d09-d06c-523a-8303-3e77cb9e2e8b"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "66f0ff75-88a6-50fc-9341-d63616bf5b7c",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 714.375
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 714.375
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 714.375
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 854.0749999999999
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 854.0749999999999
+              },
+              "end": {
+                "x": -0.0,
+                "y": 854.0749999999999
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 854.0749999999999
+              },
+              "end": {
+                "x": -0.0,
+                "y": 714.375
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "fe7e345f-ed47-575a-86a0-b8775820ddd3",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "66f0ff75-88a6-50fc-9341-d63616bf5b7c"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "b7bb80d3-b730-5074-9016-b97be6b498f9",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 857.25
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 857.25
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 857.25
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 996.9499999999999
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 996.9499999999999
+              },
+              "end": {
+                "x": -0.0,
+                "y": 996.9499999999999
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 996.9499999999999
+              },
+              "end": {
+                "x": -0.0,
+                "y": 857.25
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "94b31205-7bfb-5fb5-8e1f-f472f150871d",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "b7bb80d3-b730-5074-9016-b97be6b498f9"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "ebcf2230-17a8-5a22-8bde-02658dd0c860",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 1000.125
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 1000.125
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 1000.125
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 1139.825
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 1139.825
+              },
+              "end": {
+                "x": -0.0,
+                "y": 1139.825
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 1139.825
+              },
+              "end": {
+                "x": -0.0,
+                "y": 1000.125
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "dda263f2-eb09-53a4-b408-47a015acca70",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "ebcf2230-17a8-5a22-8bde-02658dd0c860"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "26ca04dc-7a58-5beb-82e3-cdbea20f5937",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 1143.0
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 1143.0
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 1143.0
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 1282.6999999999998
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 1282.6999999999998
+              },
+              "end": {
+                "x": -0.0,
+                "y": 1282.6999999999998
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 1282.6999999999998
+              },
+              "end": {
+                "x": -0.0,
+                "y": 1143.0
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "9fb3b177-e907-5b0b-a30d-4597e736c810",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "26ca04dc-7a58-5beb-82e3-cdbea20f5937"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "9b8151ab-081c-5e9c-b070-57d94259036f",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 1285.875
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 1285.875
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 1285.875
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 1425.5749999999998
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 1425.5749999999998
+              },
+              "end": {
+                "x": -0.0,
+                "y": 1425.5749999999998
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 1425.5749999999998
+              },
+              "end": {
+                "x": -0.0,
+                "y": 1285.875
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "d8c8e068-82f7-5ea5-9ff7-453d1b865823",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "9b8151ab-081c-5e9c-b070-57d94259036f"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "90f7ae40-c517-52ca-a956-a0061fa35e89",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 1428.75
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 1428.75
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 1428.75
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 1568.4499999999998
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 1568.4499999999998
+              },
+              "end": {
+                "x": -0.0,
+                "y": 1568.4499999999998
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 1568.4499999999998
+              },
+              "end": {
+                "x": -0.0,
+                "y": 1428.75
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "c6e95328-837a-534c-baee-4032d02debc1",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "90f7ae40-c517-52ca-a956-a0061fa35e89"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "e40eb2a5-ee13-57a1-928d-ef9263890a81",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 1571.625
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 1571.625
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 1571.625
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 1711.3249999999998
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 1711.3249999999998
+              },
+              "end": {
+                "x": -0.0,
+                "y": 1711.3249999999998
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 1711.3249999999998
+              },
+              "end": {
+                "x": -0.0,
+                "y": 1571.625
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "3249090b-de5d-5363-a33b-ebef3ed751a0",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "e40eb2a5-ee13-57a1-928d-ef9263890a81"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "b2adf743-7728-54f8-b8aa-762fa24a6c7a",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 1714.5
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 1714.5
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 1714.5
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 1854.1999999999998
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 1854.1999999999998
+              },
+              "end": {
+                "x": -0.0,
+                "y": 1854.1999999999998
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 1854.1999999999998
+              },
+              "end": {
+                "x": -0.0,
+                "y": 1714.5
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "fc1fa542-5faa-5e59-91aa-55890badf7ce",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "b2adf743-7728-54f8-b8aa-762fa24a6c7a"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "897ece0b-d7e7-5e01-97f1-e2e4bb0d551b",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 1857.375
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 1857.375
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 1857.375
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 1997.0749999999998
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 1997.0749999999998
+              },
+              "end": {
+                "x": -0.0,
+                "y": 1997.0749999999998
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 1997.0749999999998
+              },
+              "end": {
+                "x": -0.0,
+                "y": 1857.375
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "c937c3ff-102b-5213-b275-f4f09d0ee708",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "897ece0b-d7e7-5e01-97f1-e2e4bb0d551b"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "76356187-14d0-5f99-aaa0-c12c31ac8d64",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 2000.25
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 2000.25
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 2000.25
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 2139.95
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 2139.95
+              },
+              "end": {
+                "x": -0.0,
+                "y": 2139.95
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 2139.95
+              },
+              "end": {
+                "x": -0.0,
+                "y": 2000.25
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "df7879bd-81e0-53c2-83ea-359de6bc566b",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "76356187-14d0-5f99-aaa0-c12c31ac8d64"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "f90875dd-2bef-50df-a16f-73b348532119",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 2143.125
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 2143.125
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 2143.125
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 2282.825
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 2282.825
+              },
+              "end": {
+                "x": -0.0,
+                "y": 2282.825
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 2282.825
+              },
+              "end": {
+                "x": -0.0,
+                "y": 2143.125
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "441b1462-5e5d-5fea-941f-7e4d48082bb5",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "f90875dd-2bef-50df-a16f-73b348532119"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "1e166917-d16a-579d-ab5a-7e895ddf36b9",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 2286.0
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 2286.0
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 2286.0
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 2425.7
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 2425.7
+              },
+              "end": {
+                "x": -0.0,
+                "y": 2425.7
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 2425.7
+              },
+              "end": {
+                "x": -0.0,
+                "y": 2286.0
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "87e64c72-40c2-569b-99d1-cec9a7be2ed3",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "1e166917-d16a-579d-ab5a-7e895ddf36b9"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "6522ebea-9b61-5f78-98e3-d5929ac01d4f",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 2428.875
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 2428.875
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 2428.875
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 2568.575
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 2568.575
+              },
+              "end": {
+                "x": -0.0,
+                "y": 2568.575
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 2568.575
+              },
+              "end": {
+                "x": -0.0,
+                "y": 2428.875
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "bd8b870f-997a-533b-b5be-708d3287db11",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "6522ebea-9b61-5f78-98e3-d5929ac01d4f"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "994d2628-e24d-513d-9421-40fa7bc1673e",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 2571.75
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 2571.75
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 2571.75
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 2711.45
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 2711.45
+              },
+              "end": {
+                "x": -0.0,
+                "y": 2711.45
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 2711.45
+              },
+              "end": {
+                "x": -0.0,
+                "y": 2571.75
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "db2200e7-d7ad-54f9-afd4-4804d1cba772",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "994d2628-e24d-513d-9421-40fa7bc1673e"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "a1f8aa8e-2f49-5c11-a05a-445e59c78b0e",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 2714.625
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 2714.625
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 2714.625
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 2854.325
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 2854.325
+              },
+              "end": {
+                "x": -0.0,
+                "y": 2854.325
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 2854.325
+              },
+              "end": {
+                "x": -0.0,
+                "y": 2714.625
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "47e3099b-b6f4-5ddb-88bc-d0307bc63fea",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "a1f8aa8e-2f49-5c11-a05a-445e59c78b0e"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "ef8a589e-5aef-52b4-9481-111be3e69238",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 2857.5
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 2857.5
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 2857.5
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 2997.2
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 2997.2
+              },
+              "end": {
+                "x": -0.0,
+                "y": 2997.2
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 2997.2
+              },
+              "end": {
+                "x": -0.0,
+                "y": 2857.5
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "fbcda0a2-a677-5b5a-a707-aaa94075cef1",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "ef8a589e-5aef-52b4-9481-111be3e69238"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "7a37f62a-fd6c-5d6e-b9c2-73ae0965fe00",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 3000.375
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3000.375
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3000.375
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3140.075
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3140.075
+              },
+              "end": {
+                "x": -0.0,
+                "y": 3140.075
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 3140.075
+              },
+              "end": {
+                "x": -0.0,
+                "y": 3000.375
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "76bb6f07-d7e7-57c1-8941-63dabeb535e4",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "7a37f62a-fd6c-5d6e-b9c2-73ae0965fe00"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "549ba474-0c96-5596-ab9e-2d62d365f8d7",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 3143.25
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3143.25
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3143.25
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3282.95
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3282.95
+              },
+              "end": {
+                "x": -0.0,
+                "y": 3282.95
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 3282.95
+              },
+              "end": {
+                "x": -0.0,
+                "y": 3143.25
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "f6bef47a-49f2-5a81-abc6-3ad2720d954b",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "549ba474-0c96-5596-ab9e-2d62d365f8d7"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "47ec9e7e-27c9-50df-8970-70ee2f331422",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 3286.125
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3286.125
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3286.125
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3425.825
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3425.825
+              },
+              "end": {
+                "x": -0.0,
+                "y": 3425.825
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 3425.825
+              },
+              "end": {
+                "x": -0.0,
+                "y": 3286.125
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "ba282f77-2f8f-5472-9b96-2e3b2a4c78bb",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "47ec9e7e-27c9-50df-8970-70ee2f331422"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "bfa73dae-1065-52ce-b4d9-ab287ee8264c",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 3429.0
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3429.0
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3429.0
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3568.7
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3568.7
+              },
+              "end": {
+                "x": -0.0,
+                "y": 3568.7
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 3568.7
+              },
+              "end": {
+                "x": -0.0,
+                "y": 3429.0
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "d3d57471-32c0-53c2-aaf2-feeb9ccd8c0e",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "bfa73dae-1065-52ce-b4d9-ab287ee8264c"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "4356e008-ea3e-59f7-8b3f-60c66336240d",
+      "feature": {
+        "suppressed": false,
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 3571.875
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3571.875
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3571.875
+              },
+              "end": {
+                "x": 4876.799999999999,
+                "y": 3711.575
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 4876.799999999999,
+                "y": 3711.575
+              },
+              "end": {
+                "x": -0.0,
+                "y": 3711.575
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": -0.0,
+                "y": 3711.575
+              },
+              "end": {
+                "x": -0.0,
+                "y": 3571.875
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "feature",
+            "feature_id": "77affb59-2ebb-5d2b-bcf8-3667696723a8"
+          }
+        }
+      }
+    },
+    {
+      "id": "383be769-15bb-58e7-bf11-458de51218c3",
+      "feature": {
+        "suppressed": false,
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "4356e008-ea3e-59f7-8b3f-60c66336240d"
+          },
+          "distance_mm": 25.4,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1,
+  "materials": {
+    "default_material": null,
+    "bodies": [
+      {
+        "base_feature_id": "94e512b7-2b9a-5db8-acf7-6a9faddb6198",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "32ddd331-319c-5593-bb3a-839d7b08a0fa",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "a1556cdc-b487-53ac-ac42-daee740363f1",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "cb69714a-bb15-5879-8b6f-2a507b937b42",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "8ac03b96-a002-50fe-941a-df82628bb14e",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "f812ffd2-0786-58b7-8589-e0264b3aa5c8",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "12a0447c-41e0-50ae-ad59-1548c552fdc3",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "aa96c7dc-710d-592a-9424-9dae5f5de879",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "c402a518-2d5c-5de5-bf8d-7e423ad46da5",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "4b7dfd72-4362-5d44-ae1d-56fb0ff98fe8",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "f7f10cd3-71d5-5c32-bda2-29f5715e672f",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "6a20d991-a1d6-522f-8730-07eb5d611b78",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "cd6f23fc-89ba-5d8d-b585-191267d2b07e",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "5ef3bfee-5134-5b8d-989b-897f93181ea5",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "eb089495-9a15-5b4d-81b5-318eac68ce9c",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "0d2645c8-0148-5ce4-9c0a-6ed9f712f611",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "6f29a29a-9371-5cf6-997a-a7fa80183dea",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "9ded16ca-9181-5d5e-a093-47750cdfa1c5",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "40d86ac4-30d1-5a85-993c-787e2c88ab03",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "f298e0e8-c8d5-546a-8e2c-3e2cf26705b9",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "d877c88c-b71f-56e8-9276-4fe1178772f5",
+        "material": "concrete"
+      },
+      {
+        "base_feature_id": "9c78ddac-952b-51bd-9a8c-cf87bbf5bfd1",
+        "material": "concrete"
+      },
+      {
+        "base_feature_id": "72e1bb06-ad47-522d-8ca8-dcfb8bb12bc0",
+        "material": "concrete"
+      },
+      {
+        "base_feature_id": "1d0fb6b9-7a37-5c22-a31b-8538861b2e3f",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "9a024a7d-103b-5576-a8a1-17ae5482275f",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "c516b825-a944-5bae-87ad-e9f32b54e4e3",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "b64292d5-4158-5488-b516-c91a0b647596",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "fa2b0470-6ac5-594f-b205-d08ddb61b2b2",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "fe7e345f-ed47-575a-86a0-b8775820ddd3",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "94b31205-7bfb-5fb5-8e1f-f472f150871d",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "dda263f2-eb09-53a4-b408-47a015acca70",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "9fb3b177-e907-5b0b-a30d-4597e736c810",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "d8c8e068-82f7-5ea5-9ff7-453d1b865823",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "c6e95328-837a-534c-baee-4032d02debc1",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "3249090b-de5d-5363-a33b-ebef3ed751a0",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "fc1fa542-5faa-5e59-91aa-55890badf7ce",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "c937c3ff-102b-5213-b275-f4f09d0ee708",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "df7879bd-81e0-53c2-83ea-359de6bc566b",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "441b1462-5e5d-5fea-941f-7e4d48082bb5",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "87e64c72-40c2-569b-99d1-cec9a7be2ed3",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "bd8b870f-997a-533b-b5be-708d3287db11",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "db2200e7-d7ad-54f9-afd4-4804d1cba772",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "47e3099b-b6f4-5ddb-88bc-d0307bc63fea",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "fbcda0a2-a677-5b5a-a707-aaa94075cef1",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "76bb6f07-d7e7-57c1-8941-63dabeb535e4",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "f6bef47a-49f2-5a81-abc6-3ad2720d954b",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "ba282f77-2f8f-5472-9b96-2e3b2a4c78bb",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "d3d57471-32c0-53c2-aaf2-feeb9ccd8c0e",
+        "material": "southern_pine_pt"
+      },
+      {
+        "base_feature_id": "383be769-15bb-58e7-bf11-458de51218c3",
+        "material": "southern_pine_pt"
+      }
+    ]
+  }
+}

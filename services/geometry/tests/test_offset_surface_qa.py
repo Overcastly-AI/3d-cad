@@ -110,6 +110,10 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     "b2-walls-v1.1-hole-door-moved-24": 3e-6,
     "plugin-deck-v1.1-b1-16ft-hole-end-joist": 1e-5,
     "plugin-deck-v1.1-b1-20ft-hole-end-joist": 1e-5,
+    # B1 at 1.2.0 on its pier footings and the 20 ft edit (DECK-FOOTINGS):
+    # the cylinders re-import exactly; the sum drifts 3.6e-6 mm^3 at worst.
+    "plugin-deck-v1.2-b1-footings-16ft": 1e-5,
+    "plugin-deck-v1.2-b1-footings-20ft": 1e-5,
     # Not an offset surface: the loft.roof B2 gable's sloped rafters drift
     # 3.5e-4 mm^3 through OCCT's STEP, as their build123d twin does (ROOF).
     "b2-roof-6-12": 1e-3,
