@@ -55,6 +55,8 @@ export function FeatureTreeRail({
     | "setRenamingId"
     | "reorderTree"
     | "selectBody"
+    | "updatePlugins"
+    | "updatingPlugins"
   >;
   editorRepick: Pick<
     EditorRepick,
@@ -77,6 +79,8 @@ export function FeatureTreeRail({
     setRenamingId,
     reorderTree,
     selectBody,
+    updatePlugins,
+    updatingPlugins,
   } = treeActions;
   const { repickFace, repickEdges, dismissedMovedEdges, dismissMovedEdge } =
     editorRepick;
@@ -111,6 +115,8 @@ export function FeatureTreeRail({
               onCancelRename={() => setRenamingId(null)}
               onReorder={reorderTree}
               plugins={plugins}
+              onUpdatePlugins={updatePlugins}
+              updatingPlugins={updatingPlugins}
             />
             {bodies.length > 0 ? (
               <BodiesPanel

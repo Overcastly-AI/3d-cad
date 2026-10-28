@@ -78,6 +78,7 @@ import {
   withReference,
 } from "../features/openingMeasure";
 import { isOutlinePick, sideName } from "../features/outline";
+import { featureUpdate, updateToLabel } from "../features/pluginUpdate";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { SolvedSketchLayer } from "../viewport/solvedSketchLayer";
 import { EditorCard } from "./EditorCard";
@@ -107,6 +108,12 @@ export interface PluginFeatureEditorProps {
    * viewport pick (BUILDING-OUTLINE). Absent: the picks are the form's only.
    */
   sketchLayers?: readonly SolvedSketchLayer[] | undefined;
+  /**
+   * Update the stored feature to the newer release the server offers
+   * (OPENING-UPDATE, `plugin_update`), its inputs carried by the plugin's
+   * explicit map: one edit, one Undo. Absent: no update action.
+   */
+  onUpdate?: (() => void) | undefined;
 }
 
 const NO_LAYERS: readonly SolvedSketchLayer[] = [];
@@ -155,6 +162,7 @@ function GeneratedForm({
   saving,
   error,
   sketchLayers = NO_LAYERS,
+  onUpdate,
 }: PluginFeatureEditorProps & { manifest: PluginManifest }) {
   const unit = useDocumentLengthUnit();
   const selfId = featureId ?? null;
@@ -259,10 +267,14 @@ function GeneratedForm({
 
   // What the stored feature's release builds wrong, read from the live tree
   // so an update clears it (a roof's tails through the wall sheathing).
-  const warnings =
-    mode === "edit"
-      ? (features.find((f) => f.id === featureId)?.plugin_warnings ?? [])
-      : [];
+  const row =
+    mode === "edit" ? features.find((f) => f.id === featureId) : undefined;
+  const warnings = row?.plugin_warnings ?? [];
+  // A newer release that maps this feature's inputs (OPENING-UPDATE): the
+  // server re-pins it, so the action is one edit whatever the form holds.
+  const update = row === undefined ? null : featureUpdate(row);
+  const serverUpdate =
+    update !== null && onUpdate !== undefined && !saving ? onUpdate : null;
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -334,8 +346,33 @@ function GeneratedForm({
             v{manifest.version}
           </span>
         </div>
+        {update !== null ? (
+          <Notice
+            role="status"
+            tone="gauge"
+            label="Update available"
+            layout="stacked"
+            data-testid="plugin-update-notice"
+            action={
+              serverUpdate === null
+                ? undefined
+                : {
+                    label: updateToLabel(update.toVersion),
+                    testId: "plugin-update",
+                    onClick: serverUpdate,
+                  }
+            }
+          >
+            {`${manifest.title} ${update.toVersion}: ${update.summary} Undo restores this release.`}
+          </Notice>
+        ) : null}
         {warnings.map((warning) => {
-          const target = warning.update_to;
+          // The update notice above carries the action when the server
+          // offers the same release; else the form re-saves under it.
+          const target =
+            update !== null && update.toVersion === warning.update_to
+              ? null
+              : warning.update_to;
           return (
             <Notice
               key={warning.code}

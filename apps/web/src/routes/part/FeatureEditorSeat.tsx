@@ -64,6 +64,7 @@ export function FeatureEditorSeat({
   datumFacePicking,
   pluginCatalog,
   submitCustom,
+  updatePlugins,
 }: {
   editorFormulas: Pick<EditorFormulas, "formulaSession" | "editorInputError">;
   partDocument: Pick<PartDocument, "mode" | "evaluation">;
@@ -167,6 +168,8 @@ export function FeatureEditorSeat({
   /** The installed plugins (a custom feature's form), undefined while loading. */
   pluginCatalog?: readonly PluginManifest[] | undefined;
   submitCustom?: (write: CustomFeatureWrite) => void;
+  /** Update features to their newer releases (OPENING-UPDATE). */
+  updatePlugins?: (featureIds: readonly string[] | null) => void;
 }) {
   const { mode, evaluation } = partDocument;
   const solved3d = useMemo(
@@ -535,6 +538,11 @@ export function FeatureEditorSeat({
             saving={editorSaving}
             error={seatError}
             sketchLayers={solvedSketches.solved}
+            onUpdate={
+              updatePlugins === undefined || editor.featureId === undefined
+                ? undefined
+                : () => updatePlugins([editor.featureId as string])
+            }
           />
         ) : editor.kind === "datum" ? (
           <DatumEditor

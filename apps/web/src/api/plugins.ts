@@ -7,8 +7,13 @@
 import type { components, GatewayClient } from "@loft/ts-client/gateway";
 
 import { gatewayClient } from "./client";
-import { envelopeMessage } from "./envelope";
-import type { FeatureCreate, FeatureUpdate } from "./parts";
+import { envelopeCode, envelopeMessage } from "./envelope";
+import {
+  type FeatureCreate,
+  type FeatureTreeResponse,
+  type FeatureUpdate,
+  StaleTreeVersionError,
+} from "./parts";
 
 export type PluginManifest = components["schemas"]["PluginManifest"];
 export type PluginCatalog = components["schemas"]["PluginCatalog"];
@@ -71,4 +76,40 @@ export function customFeatureUpdate(
     expected_tree_version: expectedTreeVersion,
     feature: customEnvelope(write),
   };
+}
+
+/**
+ * Update custom features to their newer releases (OPENING-UPDATE): the given
+ * features, or with `null` every feature whose row carries `plugin_update`
+ * ("Update all", as Onshape updates a Part Studio's custom features). The
+ * server carries each feature's inputs by its plugin's explicit map; the
+ * whole update is ONE edit, so one Undo restores it. Returns the updated
+ * tree; a stale version throws `StaleTreeVersionError`.
+ */
+export async function updatePluginFeatures(
+  partId: string,
+  featureIds: readonly string[] | null,
+  expectedTreeVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<FeatureTreeResponse> {
+  const { data, error } = await client.POST(
+    "/api/v1/parts/{part_id}/features/plugin-updates",
+    {
+      params: { path: { part_id: partId } },
+      body: {
+        expected_tree_version: expectedTreeVersion,
+        ...(featureIds === null ? {} : { feature_ids: [...featureIds] }),
+      },
+    },
+  );
+  if (error !== undefined) {
+    const message = envelopeMessage(
+      error,
+      "The features could not be updated.",
+    );
+    throw envelopeCode(error) === "stale_tree_version"
+      ? new StaleTreeVersionError(message)
+      : new Error(message);
+  }
+  return data;
 }

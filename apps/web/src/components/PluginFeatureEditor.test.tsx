@@ -281,3 +281,93 @@ describe("PluginFeatureEditor — a release that builds wrong geometry", () => {
     expect(screen.queryByTestId("plugin-update")).toBeNull();
   });
 });
+
+describe("PluginFeatureEditor — an out-of-date release (OPENING-UPDATE)", () => {
+  const STORED: CustomParams = {
+    plugin_id: "loft.twisted_prism",
+    plugin_version: "1.0.0",
+    inputs: {
+      profile: { kind: "feature", feature_id: "s1" },
+      distance_mm: 25,
+      twist_angle_deg: 90,
+      operation: "add",
+    },
+  };
+  const UPDATE = {
+    to_version: "1.5.0",
+    summary: "Draws the header's 1/2 in plywood spacers.",
+  };
+
+  function renderOutOfDate(withWarning: boolean, onUpdate?: () => void) {
+    const custom = {
+      ...SKETCH,
+      id: "c1",
+      order_index: 1,
+      name: "Window 1",
+      feature: { type: "custom", version: 1, params: STORED },
+      plugin_update: UPDATE,
+      ...(withWarning
+        ? {
+            plugin_warnings: [
+              {
+                code: "roof_through_sheathing",
+                message: "Tails pass through the sheathing.",
+                overlap_in3: 1,
+                pairs: 1,
+                update_to: "1.5.0",
+              },
+            ],
+          }
+        : {}),
+    } as unknown as FeatureResponse;
+    const onSubmit = vi.fn<(write: CustomFeatureWrite) => void>();
+    wrap(
+      <PluginFeatureEditor
+        mode="edit"
+        pluginId="loft.twisted_prism"
+        pluginVersion="1.0.0"
+        featureId="c1"
+        stored={STORED}
+        catalog={[TWISTED_PRISM]}
+        features={[SKETCH, custom]}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+        saving={false}
+        error={null}
+        onUpdate={onUpdate}
+      />,
+    );
+    return { onSubmit };
+  }
+
+  it("says what the update changes and updates through the server", () => {
+    const onUpdate = vi.fn();
+    const { onSubmit } = renderOutOfDate(false, onUpdate);
+    const notice = screen.getByTestId("plugin-update-notice");
+    expect(notice).toHaveTextContent("Update available");
+    expect(notice).toHaveTextContent("1/2 in plywood spacers");
+    expect(notice).toHaveTextContent("Undo restores this release");
+    const update = screen.getByTestId("plugin-update");
+    expect(update).toHaveTextContent("Update to 1.5.0");
+    expect(onUpdate).not.toHaveBeenCalled();
+    fireEvent.click(update);
+    // The server maps the inputs: the form is not re-saved under 1.5.0.
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("offers one Update when a warning names the same release", () => {
+    const onUpdate = vi.fn();
+    renderOutOfDate(true, onUpdate);
+    expect(screen.getByTestId("plugin-warning")).toBeInTheDocument();
+    expect(screen.getAllByTestId("plugin-update")).toHaveLength(1);
+    fireEvent.click(screen.getByTestId("plugin-update"));
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("states the update but offers no action without a write path", () => {
+    renderOutOfDate(false);
+    expect(screen.getByTestId("plugin-update-notice")).toBeInTheDocument();
+    expect(screen.queryByTestId("plugin-update")).toBeNull();
+  });
+});

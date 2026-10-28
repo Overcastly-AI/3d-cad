@@ -27,6 +27,7 @@ import {
   FeatureOrderRefusedError,
   reorderFeatures,
 } from "../../api/parts";
+import { updatePluginFeatures } from "../../api/plugins";
 import { type FeatureOrderRefusal } from "../../components/FeatureTreePanel";
 import type { PartDocument } from "./usePartDocument";
 import type { FeatureCatalog } from "./useFeatureCatalog";
@@ -308,6 +309,64 @@ export function useTreeActions({
     ],
   );
 
+  // UPDATE OUT-OF-DATE BUILD FEATURES (OPENING-UPDATE). One feature ("Update
+  // to 1.5.0", from its editor or its row menu) or, with `null`, every one
+  // the server offers an update ("Update all Build features"), as Onshape
+  // updates custom features. ONE server edit, so one Ctrl+Z restores them
+  // all; the same write grammar as every tree edit (freshest version, one
+  // soft-resync retry, refresh tree + body). An open editor is closed: it
+  // was seeded from the old release, and saving it would re-pin it.
+  const [updatingPlugins, setUpdatingPlugins] = useState(false);
+  const updatePlugins = useCallback(
+    (featureIds: readonly string[] | null) => {
+      if (updatingPlugins) return;
+      useMeasureStore.getState().deactivate();
+      setTreeActionError(null);
+      setUpdatingPlugins(true);
+      beginTreeWrite();
+      void (async () => {
+        try {
+          const attempt = (version: number) =>
+            updatePluginFeatures(partId, featureIds, version);
+          let restored;
+          try {
+            restored = await attempt(await freshTreeVersion());
+          } catch (error) {
+            if (error instanceof StaleTreeVersionError) {
+              restored = await attempt(
+                (await fetchFeatureTree(partId)).tree_version,
+              );
+            } else {
+              throw error;
+            }
+          }
+          noteWrittenTreeVersion(restored.tree_version);
+          closeEditor();
+          await refreshTreeAndBody();
+        } catch (error) {
+          setTreeActionError(
+            error instanceof Error
+              ? error.message
+              : "The Build features could not be updated.",
+          );
+        } finally {
+          setUpdatingPlugins(false);
+          endTreeWrite();
+        }
+      })();
+    },
+    [
+      partId,
+      updatingPlugins,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      closeEditor,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
+    ],
+  );
+
   // Commit an inline rename: a no-op when unchanged/blank (the field just
   // closes); otherwise a minimal name-only PATCH (never touches params).
   const commitRename = useCallback(
@@ -440,6 +499,8 @@ export function useTreeActions({
     keepAsOneBody,
     suppressingId,
     toggleSuppress,
+    updatingPlugins,
+    updatePlugins,
     selectBody,
     viewportMenu,
     setViewportMenu,
