@@ -203,6 +203,7 @@ main `01e49e2` on 2026-10-09 and updated from shipped commits on
 - Cloud SaaS billing. Self-hosting comes first.
 
 ## Delegated decisions
+- 2026-10-28 (founder-delegated, kernel-architect): a deck's pier footings are bought as 80 lb bags of premix by default (0.60 ft³ a bag, SLAB's 5% allowance, whole bags over every pier), as US deck builders pour them; ready-mix by the 1/4 yd³ through SLAB's concrete takeoff (`loft_wire.foundation`, priced per cubic_yard) is the Footing concrete choice on `loft.deck` 1.2.0 (DECK-FOOTINGS).
 - 2026-10-28 (orchestrator, FOUNDATION-TAKEOFF): each pour is ordered as its own delivery, rounded up to 1/4 yd³ after its own allowance, reversing CRAWL-SPACE's single concrete line (a crew pours and inspects the footing before the stem; B9 buys 2.75 + 4.25 = 7.00 yd³, B8's one pour still 7.00); a crawl space's foundation vents and access door are cut-list lines priced Each, one per size, as in Chief's materials list.
 - 2026-10-23 (orchestrator): concrete is ordered with a 5% waste allowance by default, editable on the slab and foundation (crews order over: spillage, sub-grade variance), then rounded up to 1/4 yd³; cabinets live in the house part under a Casework system for now, a separate casework part later if shops ask.
 - 2026-10-21 (founder): do not build or fork OCCT; stay on the published, pinned OCP wheels, work around OCCT faults and report them upstream with minimal repros.

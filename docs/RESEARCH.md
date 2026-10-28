@@ -3047,6 +3047,37 @@ and reframe it, a material per member, and a cut list that is always current.
     for the cut list to read. A stored 1.0.0 foundation is pinned byte for
     byte (`loft-plugins/tests/goldens/foundation-v1.0.0-b9-members.json`)
     and lists no units until it is updated to 1.1.0.
+- **Decided while building the deck's footings** (DECK-FOOTINGS,
+  2026-10-28; Chief Architect's deck room places a post footing under every
+  automatic post, Deck Room Defaults; US deck builders pour round piers from
+  80 lb bags):
+  - *A new version.* `loft.deck` 1.2.0 is 1.1.0 plus six inputs (Footings,
+    diameter, depth, concrete, waste, post bases), so a stored 1.0.0 or
+    1.1.0 deck expands byte for byte (its goldens untouched) and 1.2.0 with
+    Footings off emits 1.1.0's members exactly.
+  - *A pier is a cylinder body.* A circle sketched on a level datum at the
+    footing's bottom (Z -depth) and extruded up to grade, a NEW body: three
+    faces, three edges (two circles and the seam), so the cut list measures
+    its volume and the kernel runs no boolean. Its top meets its post's foot
+    face to face at Z 0. It is named as its post (`outer/end`), emitted
+    after the posts, and shared out with them (`renumbered_roles`). Two piers
+    that would overlap are refused (`footing_diameter_mm`).
+  - *Bought in bags.* An 80 lb bag yields 0.60 ft³ (as sold; independently,
+    80 lb of premix and ~3 qt of water make ~86 lb of fresh concrete at
+    ~144 lb/ft³: 0.599 ft³, and 27 / 0.60 = 45 bags a yd³). The cut list
+    sums a line's piers and orders `ceil(ft³ x 1.05 / 0.60)` whole bags
+    (B1: 4.19 ft³ -> 7.33 -> 8; 20 ft: 5.59 -> 9.77 -> 10), priced Each
+    (`concrete_bag_80`). Ready-mix is the Footing concrete choice and goes
+    through SLAB's 1/4 yd³ order unchanged (B1: 0.16 -> 0.25 yd³).
+  - *Post bases* are listed from the pour (`ConcretePour.post_base`), one
+    per pier, by post size (ABU44, ABU46, ABU66 class), priced Each in
+    `steel_1018` as casework hardware is (no galvanized-steel material yet).
+  - *Foundation.* Every pour lists under Foundation whichever plugin poured
+    it, so a deck's piers and bases sit with a slab's concrete, before the
+    Deck framing.
+  - *Goldens.* `plugin-deck-v1.2-b1-footings-16ft` and `-20ft`: B1's 46 (50)
+    boxes plus 3 (4) cylinders, every mass property analytic (768π in³ a
+    pier) and matched to 1.7e-6 mm³; each pier meshes on 126 segments.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
