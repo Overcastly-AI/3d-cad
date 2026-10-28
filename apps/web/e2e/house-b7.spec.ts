@@ -37,7 +37,9 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * A new opening fills the 2x6 wall with a three-ply header (HEADER-PLIES,
  * loft.window/loft.door 1.4.0): one more 2x6 ply over each of the six
  * openings, 3 x 39.5 + 41 + 2 x 27.5 = 214.5 in x 8.25 in² = 1 769.625 in³
- * more, 223 bodies, and six more 8 ft SPF 2x6 at $6.48 = $38.88.
+ * more, 223 bodies, and six more 8 ft SPF 2x6 at $6.48 = $38.88. At
+ * 1.5.0 (OPENING-UPDATE) each header's two 1/2 in gaps take a 1/2 plywood
+ * spacer: 12 more bodies (235), 1 179.75 in³ and one 4x8 at $32.98.
  *
  * Priced through the blank prices: the eight single-stock keys, then the
  * rim's blank, whose seeded row is turned to an 8 ft SPF 2x10 at $11.47. The
@@ -119,6 +121,11 @@ const HOUSE: CutRow[] = [
   ["Bottom plate", "2", "125", "12 ft"],
   ["Bottom plate", "2", "181", "16 ft"],
   ["Bottom plate", "1", "288", "24 ft"],
+  // OPENING-UPDATE: each 1.5.0 opening's filled 2x6 header (three plies,
+  // two 1/2 in gaps) draws two 1/2 plywood spacers 5.5 deep over its length
+  // (RO + 3): 2 x 41 + 6 x 39.5 + 4 x 27.5 = 429 in x 5.5 = 2 359.5 in²,
+  // twelve strips cut from one 4x8.
+  ["Spacer", "12", "2,359.5 in²", "1 × 4x8"],
   // Roof
   ["Rafter", "26", "123.5341", "12 ft"],
   ["Ridge", "1", "288", "24 ft"],
@@ -173,6 +180,7 @@ const HOUSE_28: CutRow[] = [
   ["Bottom plate", "1", "173", "16 ft"],
   ["Bottom plate", "2", "181", "16 ft"],
   ["Bottom plate", "1", "336", "16 ft + 12 ft"],
+  ["Spacer", "12", "2,359.5 in²", "1 × 4x8"],
   ["Rafter", "30", "123.5341", "12 ft"],
   ["Ridge", "1", "336", "2 × 16 ft"],
   ["Subfloor", "16", "64,512 in²", "14 × 4x8"],
@@ -189,15 +197,17 @@ const PRICES: [string, string, string][] = [
   ["Sheathing", "21 × 4x9", "24.98"], // 7/16 OSB 4x9
   ["Top plate", "16 ft", "13.98"], // SPF 2x6 16 ft
   ["Rafter", "12 ft", "13.47"], // SPF 2x8 12 ft
+  ["Spacer", "1 × 4x8", "32.98"], // 1/2 plywood 4x8
 ];
 
 /**
  * The 18 short lines, 19 x 22.97 + 4 x 16.98 + 12 x 42.50 + 120 x 6.48 +
  * 2 x 12.48 + 21 x 24.98 + 4 x 13.98 + 26 x 13.47 = 2 747.63, plus the
  * splices: rims 2 x 34.44, sills 2 x 24.96, top plates 4 x 20.46, bottom
- * plate 24.96, ridge 34.44 = 260.04.
+ * plate 24.96, ridge 34.44 = 260.04: 3 007.67, plus one 4x8 of 1/2
+ * plywood for the twelve header spacers (OPENING-UPDATE), 32.98.
  */
-const PRICE = "$3,007.67";
+const PRICE = "$3,040.65";
 /**
  * 28 ft: the short lines (22 joists, 14 plywood and 23 OSB sheets, 126
  * 2x6 x 8, 30 rafters, ...) come to 3 048.76, and the PT sills and bottom
@@ -207,12 +217,14 @@ const PRICE = "$3,007.67";
  * 18 or 20 ft), nor any priced two-piece 30 ft cover, so they buy the first
  * one it prices whole, fewest pieces then least waste (SPLICE-FEWEST-PIECES),
  * 2 x 16 (32 ft, before 16 + 8 + 8's three pieces): rims 2 x 45.94, top
- * plates 4 x 27.96, ridge 45.94 = 249.66 more.
+ * plates 4 x 27.96, ridge 45.94 = 249.66 more: 3 386.80, plus the same
+ * openings' spacer sheet, 32.98.
  */
-const PRICE_28 = "$3,386.80";
+const PRICE_28 = "$3,419.78";
 
-const VOLUME = "266,665.1045";
-const VOLUME_8_12 = "269,263.7754";
+/** Each with the twelve spacers' 0.5 x 2 359.5 = 1 179.75 in³ (OPENING-UPDATE). */
+const VOLUME = "267,844.8545";
+const VOLUME_8_12 = "270,443.5254";
 
 const IN = 25.4;
 
@@ -377,22 +389,22 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await expectSolved(page);
 
     await openCutList(page);
-    await expectTable(page, HOUSE, "223");
+    await expectTable(page, HOUSE, "235");
     await expect(page.getByTestId("prop-volume")).toContainText(VOLUME, {
       timeout: 60_000,
     });
     await shoot(page, "b7-house", "iso");
 
-    // BODY-NAMES: the browser names each of the 223 member bodies (b7's 217
-    // and HEADER-PLIES' six third plies) after its feature and member, as the
+    // BODY-NAMES: the browser names each of the 235 member bodies (b7's 217,
+    // HEADER-PLIES' six third plies and the openings' 12 spacers) after its feature and member, as the
     // unfolded tree and the cut list do and as Fusion's browser names every
     // body; no row reads "Body n".
     const bodyNames = page.locator('[data-testid^="body-name-"]');
-    await expect(bodyNames).toHaveCount(223);
+    await expect(bodyNames).toHaveCount(235);
     const names = await bodyNames.allTextContents();
     expect(names.filter((name) => /^Body \d+$/.test(name))).toEqual([]);
     // Unique: the wall's two roles titled Stud count on, never two "Stud 1".
-    expect(new Set(names).size).toBe(223);
+    expect(new Set(names).size).toBe(235);
     expect(names).toContain("Wall 1 · Stud 1");
     const ridge = names.findIndex((name) => name.endsWith(" · Ridge"));
     expect(ridge).toBeGreaterThan(-1);
@@ -412,7 +424,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await openCutList(page);
     const panel = page.getByTestId("cut-list-panel");
     await expect(panel.getByTestId("cut-list-unpriced")).toHaveText(
-      "23 lines unpriced",
+      "24 lines unpriced",
     );
     const dialog = page.getByRole("dialog", { name: "Price book" });
     for (const [member, stock, price] of PRICES) {
@@ -434,8 +446,9 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     // splice (2 x 12, 14 + 10, 16 + 8: only 16 ft is in the book), so they
     // buy the first one the book prices whole, fewest pieces then least
     // waste, 2 x 16 (CUT-LIST-SPLICE-TIES, SPLICE-FEWEST-PIECES):
-    // 2 747.63 + 81.84 + 74.88 = 2 904.35, plus 3 x 45.94 = 3 042.17.
-    await expectPrice(page, "$3,042.17");
+    // 2 747.63 + 81.84 + 74.88 = 2 904.35, plus 3 x 45.94 = 3 042.17, plus
+    // the spacers' sheet, 32.98: 3 075.15.
+    await expectPrice(page, "$3,075.15");
     const rim = panel.locator(
       '[data-testid="cut-list-row"][data-member="Rim"]',
     );
@@ -462,7 +475,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await dialog.getByTestId("price-book-save").click();
     await expect(dialog).toBeHidden({ timeout: 15_000 });
     await expectPrice(page, PRICE);
-    await expectTable(page, HOUSE_PRICED, "223");
+    await expectTable(page, HOUSE_PRICED, "235");
     await expect(rim.getByTestId("cut-list-unit-price")).toHaveText("$34.44");
     await expect(rim.getByTestId("cut-list-ext-price")).toHaveText("$68.88");
     await panel.evaluate((aside) => aside.scrollIntoView({ block: "start" }));
@@ -493,7 +506,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     const csv = (
       await readFile(await (await downloading).path(), "utf-8")
     ).split("\r\n");
-    expect(csv).toContain(",Total,,,,,,,,,,,,,,3007.67");
+    expect(csv).toContain(",Total,,,,,,,,,,,,,,3040.65");
 
     // Edit 1: the front left window (X 60) moved 24 in, to X 84: one field,
     // its distance from the X 0 end. The wall re-frames it with the same
@@ -504,7 +517,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
       await storedOffset(page, account.token, partId, FRONT_LEFT),
     ).toBeCloseTo(84, 9);
     await openCutList(page);
-    await expectTable(page, HOUSE_PRICED, "223");
+    await expectTable(page, HOUSE_PRICED, "235");
     await expectPrice(page, PRICE);
     await shoot(page, "b7-edit-window", "front");
     await page.keyboard.press("Control+z");
@@ -519,7 +532,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
     await edit(page, ROOF, { pitch: "8/12" });
     await expectSolved(page);
     await openCutList(page);
-    await expectTable(page, PITCH_8_12, "223");
+    await expectTable(page, PITCH_8_12, "235");
     await expectPrice(page, PRICE);
     await expect(page.getByTestId("prop-volume")).toContainText(VOLUME_8_12, {
       timeout: 60_000,
@@ -546,7 +559,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
       ).toBeCloseTo(x, 9);
     }
     await openCutList(page);
-    await expectTable(page, HOUSE_28, "240");
+    await expectTable(page, HOUSE_28, "252");
     await expectPrice(page, PRICE_28);
     await shoot(page, "b7-edit-length", "iso");
 
@@ -560,7 +573,7 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
         .filter({ hasText: /^Ridge beam$/ }),
     ).toHaveCount(1);
     await openCutList(page);
-    await expectTable(page, HOUSE_28, "240");
+    await expectTable(page, HOUSE_28, "252");
     await expectPrice(page, PRICE_28);
   });
 });

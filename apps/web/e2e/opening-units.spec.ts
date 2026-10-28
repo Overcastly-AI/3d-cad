@@ -317,6 +317,10 @@ test.describe("Window and door units picked by size", () => {
     expect(bodies).toEqual([
       ["frame", "2030", "pvc"],
       ["glazing", "2030", "glass"],
+      // OPENING-UPDATE: the 2x6 wall's filled header (three plies) takes a
+      // 1/2 plywood spacer in each of its two 1/2 in gaps.
+      ["spacer", "1/2 plywood", "plywood"],
+      ["spacer", "1/2 plywood", "plywood"],
     ]);
 
     // The book prices the unit by its key and frame material.
