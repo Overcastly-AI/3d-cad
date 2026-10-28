@@ -161,7 +161,8 @@ test.describe("Interior walls — B10's partitions", () => {
     await expect(rows).toHaveCount(3);
     await expectSolved(page);
 
-    // Build > Interior wall: on the walls, every default B10's.
+    // Build ▾ > Interior wall: on the walls, every default B10's.
+    await page.getByTestId("build-more").click();
     const tool = page.getByTestId("plugin-tool-loft.interior_wall");
     await expect(tool).toBeEnabled({ timeout: 30_000 });
     await tool.click();

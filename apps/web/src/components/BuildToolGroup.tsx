@@ -26,12 +26,12 @@ import { buildTools } from "../features/customFeature";
  */
 export const BUILD_LABEL_PRIORITY = 35;
 
-/** The plugins on the Build row, in order; the rest are in BUILD ▾. */
-export const BUILD_ROW: readonly string[] = [
-  "loft.wall",
-  "loft.interior_wall",
-  "loft.deck",
-];
+/**
+ * The plugins on the Build row, in order; the rest are in BUILD ▾.
+ * Interior wall and Cabinets sit in the menu: the band has no room for a
+ * third labelled Build cell at 1280 px (toolbar-overflow's tiers).
+ */
+export const BUILD_ROW: readonly string[] = ["loft.wall", "loft.deck"];
 
 export interface BuildToolGroupProps {
   catalog: readonly PluginManifest[] | undefined;

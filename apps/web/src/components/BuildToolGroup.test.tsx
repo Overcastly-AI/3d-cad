@@ -22,6 +22,8 @@ function plugin(id: string, title: string): PluginManifest {
 
 const DECK = plugin("loft.deck", "Deck");
 const WALL = plugin("loft.wall", "Wall");
+const INTERIOR_WALL = plugin("loft.interior_wall", "Interior wall");
+const CABINETS = plugin("loft.cabinets", "Cabinets");
 
 describe("BuildToolGroup", () => {
   it("puts Wall then Deck on the row and the rest in BUILD ▾", () => {
@@ -44,6 +46,28 @@ describe("BuildToolGroup", () => {
     const prism = screen.getByTestId("plugin-tool-loft.twisted_prism");
     fireEvent.click(prism);
     expect(onOpen).toHaveBeenCalledWith(TWISTED_PRISM);
+  });
+
+  it("keeps Interior wall and Cabinets in BUILD ▾, off the row", () => {
+    const onOpen = vi.fn();
+    render(
+      <BuildToolGroup
+        catalog={[CABINETS, DECK, INTERIOR_WALL, WALL]}
+        treeReady
+        activeCommand={null}
+        onOpen={onOpen}
+      />,
+    );
+    const group = screen.getByTestId("build-tools");
+    const row = Array.from(
+      group.querySelectorAll("[data-testid^='plugin-tool-']"),
+    ).map((el) => el.getAttribute("data-testid"));
+    expect(row).toEqual(["plugin-tool-loft.wall", "plugin-tool-loft.deck"]);
+
+    fireEvent.click(screen.getByTestId("build-more"));
+    expect(screen.getByTestId("plugin-tool-loft.cabinets")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("plugin-tool-loft.interior_wall"));
+    expect(onOpen).toHaveBeenCalledWith(INTERIOR_WALL);
   });
 
   it("shows every plugin on the row when no building generator is installed", () => {
