@@ -2040,6 +2040,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/features/plugin-updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update Plugin Features
+         * @description Update custom features to their newer releases (OPENING-UPDATE).
+         *
+         *     The named features, or with ``feature_ids`` null every feature whose
+         *     response carries ``plugin_update`` ("Update all"), re-pinned with their
+         *     inputs carried by the plugin's explicit map. One edit: one
+         *     ``tree_version`` bump and one undo step. A feature with no update is
+         *     422 ``plugin_update_unavailable``; stale ``expected_tree_version`` 422;
+         *     both resurfaced verbatim.
+         */
+        post: operations["update_plugin_features_api_v1_parts__part_id__features_plugin_updates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/features/{feature_id}": {
         parameters: {
             query?: never;
@@ -3127,7 +3154,7 @@ export interface components {
              * Material
              * @description The material RESOLVED for this body (its own override, else the document default); null = none assigned, so no mass.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam") | null;
         };
         /**
          * BodyMaterialAssignment
@@ -3152,7 +3179,7 @@ export interface components {
              * @description Material for THIS body only
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam";
         };
         /**
          * BodyName
@@ -4664,7 +4691,7 @@ export interface components {
              * Material
              * @description Library material, or null.
              */
-            material: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
+            material: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam") | null;
             /**
              * Member
              * @description Member role title (e.g. 'Joist'); null when the body is not a plugin member.
@@ -7529,6 +7556,8 @@ export interface components {
              * Format: uuid
              */
             part_id: string;
+            /** @description The newer release this custom feature may be updated to (`POST .../features/plugin-updates`), with what it changes. Omitted when its release is the latest, or no newer release maps its inputs. */
+            plugin_update?: components["schemas"]["PluginUpdate"] | null;
             /**
              * Plugin Warnings
              * @description Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a code-advice warning on its inputs (`crawl_height_low`). Omitted when there are none.
@@ -9663,7 +9692,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine";
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam";
             /**
              * Name
              * @description Display name, e.g. 'Aluminium 6061'
@@ -9698,7 +9727,7 @@ export interface components {
              * Default Material
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
-            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam") | null;
         };
         /**
          * MaterialInput
@@ -9706,7 +9735,7 @@ export interface components {
          */
         MaterialInput: {
             /** Default */
-            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
+            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam") | null;
             /**
              * Description
              * @description Help text under the field.
@@ -9931,7 +9960,7 @@ export interface components {
              * Material
              * @description Library material of the member.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam") | null;
             /**
              * Nominal Size
              * @description Nominal size as sold, e.g. '2x8x12'.
@@ -11554,6 +11583,47 @@ export interface components {
             title: string;
         };
         /**
+         * PluginUpdate
+         * @description A newer release a stored custom feature may be updated to
+         *     (OPENING-UPDATE), as Onshape marks a custom feature whose Feature Studio
+         *     has a newer version and Fusion badges out-of-date content. Offered only
+         *     where the plugin declares an explicit map of the stored inputs into the
+         *     newer release; the update is an ordinary edit, one undo step.
+         */
+        PluginUpdate: {
+            /**
+             * Summary
+             * @description What the update changes, in the action's words
+             */
+            summary: string;
+            /**
+             * To Version
+             * @description The release the update re-pins the feature to
+             */
+            to_version: string;
+        };
+        /**
+         * PluginUpdateRequest
+         * @description Update custom features to their newer releases (OPENING-UPDATE).
+         *
+         *     Onshape's "Update" on a custom feature and its "Update all" on the Part
+         *     Studio: each named feature (or, with ``feature_ids`` null, every feature
+         *     whose response carries ``plugin_update``) is re-pinned to that release,
+         *     its inputs carried by the plugin's explicit map, and re-expanded with its
+         *     hosts and the features that pick it. All of it is ONE edit: one
+         *     ``tree_version`` bump and one undo step. A feature with no update is
+         *     refused (422 ``plugin_update_unavailable``) and nothing is written.
+         */
+        PluginUpdateRequest: {
+            /** Expected Tree Version */
+            expected_tree_version: number;
+            /**
+             * Feature Ids
+             * @description The features to update, in any order (they are updated in tree order); null updates every feature that has an update.
+             */
+            feature_ids?: string[] | null;
+        };
+        /**
          * PluginWarning
          * @description One stored custom feature's geometry warning, with its fix if any.
          */
@@ -11774,7 +11844,7 @@ export interface components {
              * @description Library material, e.g. 'spf_lumber'.
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam";
             /**
              * Price Cents
              * @description Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.
@@ -18052,6 +18122,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["FeatureReorderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_plugin_features_api_v1_parts__part_id__features_plugin_updates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginUpdateRequest"];
             };
         };
         responses: {

@@ -780,7 +780,8 @@
               "steel_a615",
               "steel_f1554",
               "gypsum",
-              "melamine"
+              "melamine",
+              "xps_foam"
             ],
             "title": "Material",
             "type": "string"
@@ -5135,6 +5136,17 @@
             "title": "Part Id",
             "type": "string"
           },
+          "plugin_update": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PluginUpdate"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The newer release this custom feature may be updated to (`POST .../features/plugin-updates`), with what it changes. Omitted when its release is the latest, or no newer release maps its inputs."
+          },
           "plugin_warnings": {
             "anyOf": [
               {
@@ -8527,7 +8539,8 @@
               "steel_a615",
               "steel_f1554",
               "gypsum",
-              "melamine"
+              "melamine",
+              "xps_foam"
             ],
             "title": "Key",
             "type": "string"
@@ -8589,7 +8602,8 @@
                   "steel_a615",
                   "steel_f1554",
                   "gypsum",
-                  "melamine"
+                  "melamine",
+                  "xps_foam"
                 ],
                 "type": "string"
               },
@@ -8633,7 +8647,8 @@
                   "steel_a615",
                   "steel_f1554",
                   "gypsum",
-                  "melamine"
+                  "melamine",
+                  "xps_foam"
                 ],
                 "type": "string"
               },
@@ -8878,7 +8893,8 @@
                   "steel_a615",
                   "steel_f1554",
                   "gypsum",
-                  "melamine"
+                  "melamine",
+                  "xps_foam"
                 ],
                 "type": "string"
               },
@@ -10936,6 +10952,62 @@
         "title": "PluginMemberRole",
         "type": "object"
       },
+      "PluginUpdate": {
+        "description": "A newer release a stored custom feature may be updated to\n(OPENING-UPDATE), as Onshape marks a custom feature whose Feature Studio\nhas a newer version and Fusion badges out-of-date content. Offered only\nwhere the plugin declares an explicit map of the stored inputs into the\nnewer release; the update is an ordinary edit, one undo step.",
+        "properties": {
+          "summary": {
+            "description": "What the update changes, in the action's words",
+            "maxLength": 400,
+            "title": "Summary",
+            "type": "string"
+          },
+          "to_version": {
+            "description": "The release the update re-pins the feature to",
+            "maxLength": 32,
+            "title": "To Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "to_version",
+          "summary"
+        ],
+        "title": "PluginUpdate",
+        "type": "object"
+      },
+      "PluginUpdateRequest": {
+        "description": "Update custom features to their newer releases (OPENING-UPDATE).\n\nOnshape's \"Update\" on a custom feature and its \"Update all\" on the Part\nStudio: each named feature (or, with ``feature_ids`` null, every feature\nwhose response carries ``plugin_update``) is re-pinned to that release,\nits inputs carried by the plugin's explicit map, and re-expanded with its\nhosts and the features that pick it. All of it is ONE edit: one\n``tree_version`` bump and one undo step. A feature with no update is\nrefused (422 ``plugin_update_unavailable``) and nothing is written.",
+        "properties": {
+          "expected_tree_version": {
+            "minimum": 0.0,
+            "title": "Expected Tree Version",
+            "type": "integer"
+          },
+          "feature_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 1000,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The features to update, in any order (they are updated in tree order); null updates every feature that has an update.",
+            "title": "Feature Ids"
+          }
+        },
+        "required": [
+          "expected_tree_version"
+        ],
+        "title": "PluginUpdateRequest",
+        "type": "object"
+      },
       "PluginWarning": {
         "description": "One stored custom feature's geometry warning, with its fix if any.",
         "properties": {
@@ -11213,7 +11285,8 @@
               "steel_a615",
               "steel_f1554",
               "gypsum",
-              "melamine"
+              "melamine",
+              "xps_foam"
             ],
             "title": "Material",
             "type": "string"
@@ -19562,6 +19635,78 @@
           }
         },
         "summary": "Reorder Features",
+        "tags": [
+          "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/features/plugin-updates": {
+      "post": {
+        "description": "Update custom features to their newer releases (OPENING-UPDATE): the\nnamed ones, or every one with ``plugin_update`` when ``feature_ids`` is\nnull (\"Update all\", as Onshape updates a Part Studio's custom features).\nEach is re-pinned with its inputs carried by its plugin's explicit map\nand re-expanded, in tree order, with its hosts and pickers. The whole\nupdate is ONE edit: one ``tree_version`` bump and one history step, so\none Undo restores every feature as it was. A feature without an update,\nor a refusal of any of them, writes nothing.",
+        "operationId": "update_plugin_features_api_v1_parts__part_id__features_plugin_updates_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureTreeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Plugin Features",
         "tags": [
           "features"
         ]

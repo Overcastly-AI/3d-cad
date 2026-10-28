@@ -47,6 +47,7 @@ from loft_wire.features import (
     FeatureSuppressRequest,
     FeatureTreeResponse,
     FeatureUpdate,
+    PluginUpdateRequest,
     RollbackBarMove,
     UndoRedoRequest,
 )
@@ -632,6 +633,34 @@ async def undo_part(
         user,
         "POST",
         f"/api/v1/parts/{part_id}/undo",
+        request.model_dump_json(),
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return FeatureTreeResponse.model_validate_json(upstream.content)
+
+
+@router.post("/{part_id}/features/plugin-updates")
+async def update_plugin_features(
+    part_id: uuid.UUID,
+    request: PluginUpdateRequest,
+    user: CurrentUser,
+    http_request: Request,
+) -> FeatureTreeResponse:
+    """Update custom features to their newer releases (OPENING-UPDATE).
+
+    The named features, or with ``feature_ids`` null every feature whose
+    response carries ``plugin_update`` ("Update all"), re-pinned with their
+    inputs carried by the plugin's explicit map. One edit: one
+    ``tree_version`` bump and one undo step. A feature with no update is
+    422 ``plugin_update_unavailable``; stale ``expected_tree_version`` 422;
+    both resurfaced verbatim.
+    """
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "POST",
+        f"/api/v1/parts/{part_id}/features/plugin-updates",
         request.model_dump_json(),
     )
     if upstream.status_code != status.HTTP_200_OK:

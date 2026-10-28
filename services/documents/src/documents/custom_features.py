@@ -29,6 +29,7 @@ from typing import Any, cast
 
 from fastapi import APIRouter
 from loft_plugins import (
+    PLUGIN_UPDATE_UNAVAILABLE,
     REGISTRY,
     ExpandInputs,
     Hosted,
@@ -37,6 +38,8 @@ from loft_plugins import (
     PluginRegistry,
     host_of,
     settle_inputs,
+    update_for,
+    updated_inputs,
     validate_members,
 )
 from loft_plugins import canonical_inputs as _canonical
@@ -89,6 +92,7 @@ from loft_wire.plugins import (
     member_id,
     semver_key,
 )
+from loft_wire.tree_edits import PluginUpdate as PluginUpdateOffer
 from py_kit import ConflictError, ValidationApiError, get_logger
 from pydantic import ValidationError
 
@@ -1130,6 +1134,60 @@ def plugin_warnings(
     ]
 
 
+def plugin_update_of(row: db.Feature) -> PluginUpdateOffer | None:
+    """The newer release a stored custom feature may be updated to
+    (OPENING-UPDATE), or None: not custom, already the newest this server
+    maps it to, or a release with no declared map (``loft_plugins.updates``).
+    Offered whether or not the feature is suppressed, as Onshape's update."""
+    if row.type != "custom":
+        return None
+    plugin_id = row.params.get("plugin_id")
+    version = row.params.get("plugin_version")
+    if not isinstance(plugin_id, str) or not isinstance(version, str):
+        return None
+    update = update_for(plugin_id, version, PLUGINS)
+    if update is None:
+        return None
+    return PluginUpdateOffer(to_version=update.to_version, summary=update.summary)
+
+
+def updated_envelope(row: db.Feature) -> CustomFeature:
+    """*row* re-pinned to its update's release, its stored inputs carried by
+    the update's explicit map and its formulas kept on the same inputs; the
+    expansion is left for :func:`prepare_custom_write`. 422
+    ``plugin_update_unavailable`` when it has none, or when a formula drives
+    an input the newer release does not have."""
+    offer = plugin_update_of(row)
+    envelope = load_feature(row)[0]
+    if offer is None or not isinstance(envelope, CustomFeature):
+        raise ValidationApiError(
+            f"{row.name!r} has no newer release to update to.",
+            code=PLUGIN_UPDATE_UNAVAILABLE,
+            details={"feature_id": str(row.id)},
+        )
+    pin = envelope.params
+    update = update_for(pin.plugin_id, pin.plugin_version, PLUGINS)
+    assert update is not None
+    target = PLUGINS.get(pin.plugin_id, update.to_version).manifest
+    names = {item.name for item in target.inputs}
+    for pointer in envelope.expressions or {}:
+        if pointer.removeprefix("/inputs/").split("/")[0] not in names:
+            raise ValidationApiError(
+                f"{row.name!r}: {target.title} {target.version} has no input "
+                f"{pointer!r} for its formula to drive.",
+                code=PLUGIN_UPDATE_UNAVAILABLE,
+                details={"feature_id": str(row.id), "pointer": pointer},
+            )
+    params = pin.model_copy(
+        update={
+            "plugin_version": update.to_version,
+            "inputs": updated_inputs(update, pin.inputs),
+            "expansion": None,
+        }
+    )
+    return envelope.model_copy(update={"params": params})
+
+
 def _crawl_height_warning(envelope: CustomFeature) -> list[PluginWarning] | None:
     """A foundation's ``crawl_height_low`` (CRAWL-SPACE), or None: its stored
     crawl height (grade to the joists' underside) under IRC R317.1's 18 in,
@@ -1175,6 +1233,7 @@ __all__ = [
     "member_targets",
     "picked_ids",
     "pickers_of",
+    "plugin_update_of",
     "plugin_warnings",
     "prepare_custom_write",
     "reexpand_hosts",
@@ -1184,4 +1243,5 @@ __all__ = [
     "remap_member_name",
     "router",
     "stored_host_id",
+    "updated_envelope",
 ]
