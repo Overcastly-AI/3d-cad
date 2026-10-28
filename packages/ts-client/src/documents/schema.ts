@@ -5343,18 +5343,18 @@ export interface components {
              * @description Price-book key, e.g. 'rebar_4'.
              * @enum {string}
              */
-            key: "ready_mix" | "rebar_4" | "anchor_bolt_1_2";
+            key: "ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door";
             /**
              * Kind
              * @enum {string}
              */
-            kind: "concrete" | "rebar" | "anchor_bolt";
+            kind: "concrete" | "rebar" | "anchor_bolt" | "foundation_vent" | "access_door";
             /**
              * Material
              * @description Library material the item is priced as.
              * @enum {string}
              */
-            material: "concrete" | "steel_a615" | "steel_f1554";
+            material: "concrete" | "steel_a615" | "steel_f1554" | "steel_1018";
             /**
              * Name
              * @description As listed, e.g. '#4 rebar'.
@@ -5362,7 +5362,7 @@ export interface components {
             name: string;
             /**
              * Price Unit
-             * @description How a price-book entry prices it: concrete per cubic yard ordered, a rebar stick or an anchor bolt Each.
+             * @description How a price-book entry prices it: concrete per cubic yard ordered; a rebar stick, an anchor bolt, a foundation vent or an access door Each.
              * @enum {string}
              */
             price_unit: "cubic_yard" | "each";
@@ -5371,6 +5371,31 @@ export interface components {
              * @description The stock an Each price is for (ft): 20 for a rebar stick; null for a bolt or concrete.
              */
             stock_length_ft?: number | null;
+        };
+        /**
+         * FoundationOpening
+         * @description Set on a stem wall's pour (FOUNDATION-TAKEOFF): *quantity* units of
+         *     one item and size set in the openings cut from it, a foundation vent or
+         *     the crawl-space access door, listed Each by the cut list.
+         */
+        FoundationOpening: {
+            /**
+             * Height Mm
+             * @description Tall (mm).
+             */
+            height_mm: number;
+            /**
+             * Item
+             * @enum {string}
+             */
+            item: "foundation_vent" | "crawl_access_door";
+            /** Quantity */
+            quantity: number;
+            /**
+             * Width Mm
+             * @description Along the wall (mm).
+             */
+            width_mm: number;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -7198,6 +7223,11 @@ export interface components {
             /** @description Set on a concrete body, one per pour (SLAB): the cut list lists its measured volume in cubic yards and orders it with the pour's waste allowance, rounded up to 1/4 yd³. Absent otherwise. */
             concrete?: components["schemas"]["ConcretePour"] | null;
             /**
+             * Foundation Openings
+             * @description Set on a stem wall's pour (FOUNDATION-TAKEOFF): the foundation vents and the access door set in the openings cut from it, by size, each listed Each. Absent otherwise.
+             */
+            foundation_openings?: components["schemas"]["FoundationOpening"][] | null;
+            /**
              * Grain
              * @description A sheet-good panel with grain (CASEWORK: a plywood cabinet panel): the world direction its face grain runs, a unit vector [x, y, z]. The cut list lays the panel with that side along the sheet's length and never turns it. Absent: the panel may turn.
              */
@@ -8770,7 +8800,7 @@ export interface components {
              * Profile
              * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', or casework item, e.g. 'hinge'.
              */
-            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24");
+            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24");
             /**
              * Sheet
              * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10', '4x12'); null for lumber.

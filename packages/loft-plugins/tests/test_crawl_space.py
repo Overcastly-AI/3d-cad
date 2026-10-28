@@ -1,4 +1,5 @@
-"""CRAWL-SPACE: ``loft.foundation`` 1.0.0 under B7 (RESEARCH §23).
+"""CRAWL-SPACE: ``loft.foundation`` under B7 (RESEARCH §23); 1.1.0 lists
+the vents and access door (FOUNDATION-TAKEOFF), 1.0.0 is pinned byte for byte.
 
 Chief Architect and Revit build a crawl space's stem wall on a continuous
 footing from the exterior wall loop, the floor framed on top. Checked
@@ -15,7 +16,10 @@ against ``docs/reference-parts/buildings.md`` B9, typed by hand:
   (288, 288, 181, 181): 5 + 5 + 4 + 4 = 18;
 * B7's floor, walls, openings and roof are b7-outline's, member for member;
 * crawl 24 -> 30 lowers the stem's bottom and the footing 6 in and moves
-  nothing above Z 0; 288 -> 336 is one sketch edit and takes 6 vents.
+  nothing above Z 0; 288 -> 336 is one sketch edit and takes 6 vents;
+* 1.1.0's stem lists 5 vents 16 x 8 and 1 access door 24 x 16 (6 vents at
+  336), and is otherwise 1.0.0's expansion, which
+  ``goldens/foundation-v1.0.0-b9-members.json`` pins.
 
 The geometry golden ``b9-crawl-space`` is written from here and pinned by
 this module. Regenerate after a deliberate change (a NEW plugin version)
@@ -71,7 +75,11 @@ from test_building_outline import (
     ref,
 )
 
-FOUNDATION = REGISTRY.get("loft.foundation", "1.0.0")
+FOUNDATION = REGISTRY.get("loft.foundation", "1.1.0")
+FOUNDATION_V1_0 = REGISTRY.get("loft.foundation", "1.0.0")
+#: B9 at 1.0.0, as CRAWL-SPACE released it: model.json's features and these
+#: members, byte for byte.
+GOLDEN_V1_0 = Path(__file__).parent / "goldens" / "foundation-v1.0.0-b9-members.json"
 
 PART_ID = uuid.UUID("00000000-0000-0000-0000-0000000009b9")
 FOUNDATION_ID = uuid.UUID("00000000-0000-0000-0000-00000000b905")
@@ -89,13 +97,13 @@ def _earlier(rows: Rows) -> dict[uuid.UUID, AuthoredEnvelope]:
     return earlier
 
 
-def b9(length: float = 288.0, **raw: Any) -> Rows:
+def b9(length: float = 288.0, plugin: Any = FOUNDATION, **raw: Any) -> Rows:
     """B9: B7 as built (b7-outline's rows), then ONE foundation on its
     outline under its floor."""
     rows = b7(length)
     inputs = {"outline": ref(SKETCH_ID), "floor": ref(FLOOR_ID), **raw}
-    members = expand(FOUNDATION, FOUNDATION_ID, inputs, _earlier(rows))
-    rows.append((FOUNDATION_ID, envelope(FOUNDATION, inputs), members))
+    members = expand(plugin, FOUNDATION_ID, inputs, _earlier(rows))
+    rows.append((FOUNDATION_ID, envelope(plugin, inputs), members))
     return rows
 
 
@@ -268,6 +276,38 @@ def test_the_length_edit_takes_six_vents() -> None:
     meta = by_role(members, "stem")[0].metadata
     assert meta is not None and meta.anchor_bolts is not None
     assert meta.anchor_bolts.count(0.0) == 6 + 6 + 4 + 4
+    assert [(o.item, o.quantity) for o in meta.foundation_openings or ()] == [
+        ("foundation_vent", 6),
+        ("crawl_access_door", 1),
+    ]
+
+
+def test_b9s_stem_lists_5_vents_and_1_access_door() -> None:
+    meta = by_role(foundation_members(b9()), "stem")[0].metadata
+    assert meta is not None and meta.foundation_openings is not None
+    assert [
+        (o.item, round(o.width_mm / IN, 9), round(o.height_mm / IN, 9), o.quantity)
+        for o in meta.foundation_openings
+    ] == [("foundation_vent", 16.0, 8.0, 5), ("crawl_access_door", 24.0, 16.0, 1)]
+    # A typed vent size is listed as cut.
+    wide = by_role(foundation_members(b9(vent_width_mm=14 * IN)), "stem")[0]
+    assert wide.metadata is not None and wide.metadata.foundation_openings
+    assert wide.metadata.foundation_openings[0].size == "14 x 8"
+
+
+def test_1_1_0_is_1_0_0_but_the_listed_openings() -> None:
+    new, old = (foundation_members(b9(plugin=p)) for p in (FOUNDATION, FOUNDATION_V1_0))
+    assert [(m.id, m.role, m.feature) for m in new] == [
+        (m.id, m.role, m.feature) for m in old
+    ]
+    for a, b in zip(new, old, strict=True):
+        if a.metadata is None or b.metadata is None:
+            assert a.metadata is b.metadata
+            continue
+        assert a.metadata.model_copy(update={"foundation_openings": None}) == b.metadata
+    assert all(
+        m.metadata is None or m.metadata.foundation_openings is None for m in old
+    )
 
 
 def test_with_no_floor_the_top_is_z0_over_a_15_in_sill() -> None:
@@ -410,6 +450,15 @@ def metadata_of(rows: Rows) -> list[CutListMember]:
                 )
             )
     return out
+
+
+def test_1_0_0_is_byte_for_byte_as_released() -> None:
+    rows = b9(plugin=FOUNDATION_V1_0)
+    folder = GOLDENS / GOLDEN
+    assert (folder / "model.json").read_text() == request_of(rows).model_dump_json(
+        indent=2
+    ) + "\n"
+    assert GOLDEN_V1_0.read_text() == members_json(metadata_of(rows))
 
 
 def test_the_golden_is_the_plugins_expansion() -> None:

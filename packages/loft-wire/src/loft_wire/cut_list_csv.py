@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from typing import Final
 
 from loft_wire.cut_list import (
+    EACH_ITEMS,
     MM_PER_FOOT,
     SYSTEM_LABELS,
     CutListLine,
@@ -142,7 +143,7 @@ def _stock(line: CutListLine) -> str:
     if line.item == "concrete":
         net = volume_yd3(line.volume_mm3 or 0.0)
         return f"{format_yd3(net)} yd3 net + {line.waste_percent or 0}% waste"
-    if line.item == "anchor_bolt":
+    if line.item in EACH_ITEMS:
         return "Each"
     if line.unit is not None:
         return "Unit"
@@ -171,10 +172,11 @@ def cut_list_csv(cut_list: CutListResponse) -> str:
     writer.writerow(header)
     for item, line in enumerate(cut_list.lines, start=1):
         sheet = line.area_mm2 is not None
-        # A pour has no length to cut, a bolt no length at all.
+        # A pour has no length to cut; a bolt, vent or door none at all.
         no_length = (
             sheet
-            or line.item in ("concrete", "anchor_bolt")
+            or line.item == "concrete"
+            or line.item in EACH_ITEMS
             or (line.casework is not None and line.casework != "edge_banding")
         )
         stock_qty = (

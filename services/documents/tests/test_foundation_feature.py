@@ -37,7 +37,9 @@ def client(any_db_url: str) -> Iterator[TestClient]:
         yield c
 
 
-def _b9(client: TestClient, **raw: Any) -> tuple[_Part, str, str, str]:
+def _b9(
+    client: TestClient, version: str = "1.1.0", **raw: Any
+) -> tuple[_Part, str, str, str]:
     part = _Part(client)
     sketch = part.add("Outline", _outline(288))
     floor = part.add(
@@ -48,7 +50,7 @@ def _b9(client: TestClient, **raw: Any) -> tuple[_Part, str, str, str]:
         "Foundation",
         _custom(
             "loft.foundation",
-            "1.0.0",
+            version,
             outline=_ref(sketch),
             floor=_ref(floor),
             **raw,
@@ -109,6 +111,28 @@ def test_the_stem_lists_its_pour_rebar_and_the_sills_bolts(client: TestClient) -
         scope = cut.params.cut_bodies  # type: ignore[union-attr]
         assert isinstance(scope, list) and scope[0].feature_id == stem.feature_id
     assert _warnings(client, part, "Foundation") is None
+    # 1.1.0 lists the units set in them (FOUNDATION-TAKEOFF).
+    assert [(o.item, o.size, o.quantity) for o in meta.foundation_openings or []] == [
+        ("foundation_vent", "16 x 8", 5),
+        ("crawl_access_door", "24 x 16", 1),
+    ]
+
+
+def test_a_stored_1_0_0_foundation_still_cuts_and_lists_no_units(
+    client: TestClient,
+) -> None:
+    part, _, _, _ = _b9(client, "1.0.0")
+    assert part.stored()["Foundation"]["params"]["plugin_version"] == "1.0.0"
+    request = _cut_list_request(client, part)
+    _, stem = _pours(request)
+    assert stem.metadata.foundation_openings is None
+    assert "foundation_openings" not in stem.metadata.model_dump(mode="json")
+    cuts = [
+        e
+        for e in request.evaluation.features
+        if e.feature.type == "extrude" and e.feature.params.operation == "cut"  # type: ignore[union-attr]
+    ]
+    assert len(cuts) == 6
 
 
 def test_a_crawl_under_18_in_warns_and_builds(client: TestClient) -> None:
@@ -136,6 +160,7 @@ def test_one_dimension_edit_re_lays_the_foundation(client: TestClient) -> None:
         if e.feature.type == "extrude" and e.feature.params.operation == "cut"  # type: ignore[union-attr]
     ]
     assert len(cuts) == 7  # six vents and the access
+    assert [o.quantity for o in meta.foundation_openings or []] == [6, 1]
     assert all(e.input_error is None for e in part.request().features)
 
 

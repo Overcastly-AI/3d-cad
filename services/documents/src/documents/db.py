@@ -1360,11 +1360,13 @@ class PriceBook(Base):
 
 
 #: A price-book profile priced Each with neither a stock length nor a sheet: a
-#: window or door unit (``window_3040``, OPENING-UNITS, migration 0025) or an
-#: anchor bolt (SLAB, migration 0027), as SQL both Postgres and SQLite read alike.
+#: window or door unit (``window_3040``, OPENING-UNITS, migration 0025), an
+#: anchor bolt (SLAB, migration 0027), or a foundation vent or crawl-space
+#: access door (FOUNDATION-TAKEOFF, migration 0029), as SQL both Postgres and
+#: SQLite read alike.
 _UNIT_PROFILE = (
     "(substr(profile, 1, 7) = 'window_' OR substr(profile, 1, 5) = 'door_' "
-    "OR profile = 'anchor_bolt_1_2')"
+    "OR profile IN ('anchor_bolt_1_2', 'foundation_vent', 'crawl_access_door'))"
 )
 #: Casework hardware, priced Each (``hinge``, a ``slide_22`` pair), and every
 #: casework item, banding included (CASEWORK, migration 0028).

@@ -184,6 +184,22 @@ vi.mock("../api/materials", () => ({
           price_unit: "each",
           stock_length_ft: null,
         },
+        {
+          key: "foundation_vent",
+          kind: "foundation_vent",
+          name: "Foundation vent",
+          material: "steel_1018",
+          price_unit: "each",
+          stock_length_ft: null,
+        },
+        {
+          key: "crawl_access_door",
+          kind: "access_door",
+          name: "Crawl-space access door",
+          material: "steel_1018",
+          price_unit: "each",
+          stock_length_ft: null,
+        },
       ],
     }),
   ),
@@ -543,6 +559,78 @@ describe("CutListPanel", () => {
     expect(
       within(seeded).getByTestId("price-book-stock-item"),
     ).toHaveTextContent("20 ft");
+  });
+
+  it("lists B9's vents and access door Each, priced as a foundation item", async () => {
+    // FOUNDATION-TAKEOFF: 5 vents 16 x 8 and 1 access door 24 x 16.
+    const each = {
+      stock_pieces_ft: null,
+      waste_mm: null,
+      section_mm: [0, 0],
+      system: "foundation" as const,
+      classification: "member" as const,
+      length_mm: 0,
+      total_length_mm: 0,
+      stock_length_ft: null,
+      material: "steel_1018" as const,
+    };
+    const lines: CutListLine[] = [
+      {
+        ...each,
+        member: "Vent 16 x 8",
+        profile: "Foundation vent",
+        quantity: 5,
+        stock_quantity: 5,
+        unit_price_cents: 1298,
+        price_unit: "each",
+        extended_price_cents: 6490,
+        item: "foundation_vent",
+      },
+      {
+        ...each,
+        member: "Access door 24 x 16",
+        profile: "Crawl-space access door",
+        quantity: 1,
+        stock_quantity: 1,
+        unit_price_cents: null,
+        price_unit: null,
+        extended_price_cents: null,
+        item: "access_door",
+      },
+    ];
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      total_quantity: 6,
+      unclassified: 0,
+      missing: [],
+      total_price_cents: 6490,
+      unpriced_lines: 1,
+      lines,
+    });
+    renderPanel();
+    const [vents, door] = await screen.findAllByTestId("cut-list-row");
+    for (const row of [vents!, door!]) {
+      expect(within(row).getByTestId("cut-list-length")).toHaveTextContent("—");
+      expect(
+        within(row).getByTestId("cut-list-total-length"),
+      ).toBeEmptyDOMElement();
+      expect(within(row).getByTestId("cut-list-stock")).toHaveTextContent(
+        "Each",
+      );
+    }
+    expect(within(vents!).getByTestId("cut-list-member")).toHaveTextContent(
+      "Vent 16 x 8",
+    );
+    expect(within(vents!).getByTestId("cut-list-unit-price")).toHaveAttribute(
+      "title",
+      "Each, per unit",
+    );
+    // The door's blank price opens the book on its key, Each.
+    fireEvent.click(within(door!).getByTestId("cut-list-price-blank"));
+    const seeded = await screen.findByTestId("price-book-row");
+    expect(seeded).toHaveAttribute("data-profile", "crawl_access_door");
+    expect(seeded).toHaveAttribute("data-kind", "item");
+    expect(seeded).toHaveAttribute("data-unit", "each");
   });
 
   it("shows a long member's splice and prices it per member", async () => {

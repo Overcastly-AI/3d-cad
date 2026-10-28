@@ -46,7 +46,13 @@ from pydantic import (
 )
 
 from loft_wire.casework import EdgeBanding, HardwareCount
-from loft_wire.foundation import AnchorBolts, ConcretePour, RebarRun
+from loft_wire.foundation import (
+    MAX_FOUNDATION_OPENINGS,
+    AnchorBolts,
+    ConcretePour,
+    FoundationOpening,
+    RebarRun,
+)
 from loft_wire.materials import MaterialKey
 from loft_wire.opening_units import OpeningUnitPart
 from loft_wire.refs import FeatureRef
@@ -635,6 +641,14 @@ class MemberMetadata(BaseModel):
         description="Set on a plate that bears on concrete (SLAB): the cut "
         "list counts its anchor bolts from its measured length (IRC "
         "R403.1.6). Absent otherwise.",
+    )
+    foundation_openings: list[FoundationOpening] | None = Field(
+        default=None,
+        exclude_if=is_none,
+        max_length=MAX_FOUNDATION_OPENINGS,
+        description="Set on a stem wall's pour (FOUNDATION-TAKEOFF): the "
+        "foundation vents and the access door set in the openings cut from "
+        "it, by size, each listed Each. Absent otherwise.",
     )
     grain: Annotated[list[float], Field(min_length=3, max_length=3)] | None = Field(
         default=None,

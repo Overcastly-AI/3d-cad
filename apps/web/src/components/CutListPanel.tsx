@@ -46,7 +46,10 @@
  * Length ("6.62 yd³") and what is ordered in Stock ("7.00 yd³", its waste
  * allowance added and rounded up to 1/4 yd³), priced per cubic yard ordered;
  * rebar reads its centreline length and the 20 ft sticks it takes ("10 × 20
- * ft"); anchor bolts are Each. Rebar and bolts are listed, never drawn.
+ * ft"); anchor bolts are Each. Rebar and bolts are listed, never drawn. Each
+ * pour is its own line and delivery (FOUNDATION-TAKEOFF), and a crawl
+ * space's vents and access door are Each, their size in the member
+ * ("Vent 16 x 8").
  */
 import {
   Button,
@@ -145,6 +148,16 @@ export function unpricedLabel(count: number): string {
   return `${count} ${count === 1 ? "line" : "lines"} unpriced`;
 }
 
+/** A foundation item counted by the piece (a bolt, a vent, an access door):
+ * Each, with no length to list. */
+function isEachItem(line: CutListLine): boolean {
+  return (
+    line.item === "anchor_bolt" ||
+    line.item === "foundation_vent" ||
+    line.item === "access_door"
+  );
+}
+
 /** What a blank price would be priced as, or null when no entry could. */
 function seedFor(line: CutListLine): PriceBookSeed | null {
   if (
@@ -239,7 +252,7 @@ function stockLabel(line: CutListLine): string {
   if (line.item === "rebar") {
     return `${formatCount(line.stock_quantity ?? 0)} × ${line.stock_length_ft ?? 20} ft`;
   }
-  if (line.item === "anchor_bolt") return "Each";
+  if (isEachItem(line)) return "Each";
   if (line.unit !== null && line.unit !== undefined) {
     return line.profile === null ? line.unit : `${line.profile} ${line.unit}`;
   }
@@ -274,6 +287,7 @@ function priceBasis(line: CutListLine): string | undefined {
   if (line.item === "concrete") return "Per cubic yard ordered";
   if (line.item === "rebar") return "Each, per 20 ft stick";
   if (line.item === "anchor_bolt") return "Each, per bolt";
+  if (isEachItem(line)) return "Each, per unit";
   if (line.unit !== null && line.unit !== undefined) return "Each, per unit";
   if (line.casework === "edge_banding")
     return "Per ft, on the whole feet bought";
@@ -554,9 +568,9 @@ export function CutListPanel({
               // A pour lists its volume; a bolt has no length to list.
               const volume =
                 line.item === "concrete" ? (line.volume_mm3 ?? 0) : null;
-              // A bolt or a hinge is counted, not measured: no length.
+              // A bolt, vent or hinge is counted, not measured: no length.
               const bolt =
-                line.item === "anchor_bolt" ||
+                isEachItem(line) ||
                 (line.casework !== null &&
                   line.casework !== undefined &&
                   line.casework !== "edge_banding");

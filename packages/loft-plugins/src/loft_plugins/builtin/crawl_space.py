@@ -25,10 +25,9 @@ feature builds.
 **One body per pour** (buildings.md's convention): the footing is poured
 first and the stem formed on it, so each is a new body, the footing's ring
 extruded down from its top and the stem's down from its own top to the
-footing's, face to face. Each lists its concrete with the waste allowance
-(the cut list orders the two on their sum, as it groups pours of one
-allowance); the footing carries its rebar, the stem the anchor bolts cast
-into it.
+footing's, face to face. Each lists its concrete with the waste allowance,
+and the cut list orders each as its own delivery (FOUNDATION-TAKEOFF); the
+footing carries its rebar, the stem the anchor bolts cast into it.
 
 **Openings cut from the stem** at its top, through its thickness (a cut
 scoped to the stem's body, its tool 1 in clear of the stem's faces and top),
@@ -56,6 +55,12 @@ closed loop lapped 24 in; and the 1/2 in anchor bolts cast in for the sills
 length, or with none picked one sill on each side of the outline. The bolts
 are the pour's, so ``loft.floor`` is unchanged.
 
+**1.1.0** (FOUNDATION-TAKEOFF) builds exactly what 1.0.0 does and also lists
+the foundation vents and the access door set in the openings on the stem's
+pour (:class:`loft_wire.foundation.FoundationOpening`), so the cut list
+prices them Each, as Chief's materials list carries them. A stored 1.0.0
+feature expands byte for byte as before.
+
 Inputs are millimetres on the wire (their names end ``_mm``) and inches
 inside, rounded to 1e-9 in so a round trip gives back the exact spec value.
 """
@@ -81,6 +86,7 @@ from loft_wire.foundation import (
     MAX_CONCRETE_WASTE_PERCENT,
     AnchorBolts,
     ConcretePour,
+    FoundationOpening,
     RebarRun,
 )
 from loft_wire.lumber import LUMBER_PROFILES_BY_KEY, MM_PER_INCH
@@ -809,7 +815,27 @@ class _Emitter:
         )
 
 
-def expand(inputs: ExpandInputs) -> Iterator[Member]:
+def listed_openings(
+    vents: Sequence[Opening], access: Opening
+) -> list[FoundationOpening]:
+    """The units set in the stem's openings (1.1.0): one entry per item and
+    size, vents first, in the order each size is first cut."""
+    counts: dict[tuple[bool, float, float], int] = {}
+    for o in [*vents, access]:
+        key = (o.kind == "vent", _mm(o.width), _mm(o.height))
+        counts[key] = counts.get(key, 0) + 1
+    return [
+        FoundationOpening(
+            item="foundation_vent" if vent else "crawl_access_door",
+            width_mm=w,
+            height_mm=h,
+            quantity=n,
+        )
+        for (vent, w, h), n in counts.items()
+    ]
+
+
+def _expand(inputs: ExpandInputs, *, list_openings: bool) -> Iterator[Member]:
     spec = foundation_spec(inputs)
     vents, access = openings(spec)
     emit = _Emitter(inputs)
@@ -843,6 +869,9 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
             anchor_bolts=AnchorBolts(plates_mm=[_mm(p) for p in spec.plates])
             if spec.plates
             else None,
+            foundation_openings=listed_openings(vents, access)
+            if list_openings
+            else None,
         ),
     )
     above = spec.top + TOOL_CLEARANCE_IN
@@ -853,4 +882,37 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
     yield Member("access", 0, emit.down(access.height + TOOL_CLEARANCE_IN, cut=True))
 
 
+def expand(inputs: ExpandInputs) -> Iterator[Member]:
+    """1.0.0: the vents and access are cut, not listed."""
+    return _expand(inputs, list_openings=False)
+
+
+def expand_v1_1(inputs: ExpandInputs) -> Iterator[Member]:
+    """1.1.0: 1.0.0's members, the stem also listing its vents and access."""
+    return _expand(inputs, list_openings=True)
+
+
+MANIFEST_V1_1 = MANIFEST_V1.model_copy(
+    update={
+        "version": "1.1.0",
+        "description": "A crawl space: a poured-concrete stem wall on a "
+        "continuous footing under the building outline, with vents and an "
+        "access cut from the stem, listing its concrete (a delivery per "
+        "pour), rebar, anchor bolts, vents and access door (Chief "
+        "Architect, Revit).",
+        "members": [
+            role
+            if role.role not in ("vent", "access")
+            else role.model_copy(
+                update={
+                    "description": (role.description or "")
+                    + " Its unit is listed Each on the stem wall."
+                }
+            )
+            for role in MANIFEST_V1.members
+        ],
+    }
+)
+
 FOUNDATION_V1 = Plugin(MANIFEST_V1, expand)
+FOUNDATION_V1_1 = Plugin(MANIFEST_V1_1, expand_v1_1)

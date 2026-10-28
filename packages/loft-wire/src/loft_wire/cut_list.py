@@ -73,15 +73,20 @@ stays unpriced.
 
 **Foundation items** (SLAB, :mod:`loft_wire.foundation`): a concrete body
 (its metadata's ``concrete``) is a POUR, listed by its MEASURED volume and
-grouped by product, material and waste allowance across members, as sheets
-are; the line orders ``net x (1 + waste)`` rounded up to 1/4 yd³ and is
-priced per cubic yard ordered. Rebar and anchor bolts are listed, not drawn:
-a pour's ``rebar`` runs are lines by centreline length, each run bought in
-20 ft sticks lapped 24 in, and a plate with ``anchor_bolts`` adds its bolts,
+grouped by member, product, material and waste allowance; each pour is its
+own delivery (FOUNDATION-TAKEOFF: a crew pours and inspects the footing
+before the stem), so the line orders the sum of each pour's ``net x (1 +
+waste)`` rounded up to 1/4 yd³, and is priced per cubic yard ordered.
+Rebar and anchor bolts are listed, not drawn: a pour's ``rebar`` runs are
+lines by centreline length, each run bought in 20 ft sticks lapped 24 in,
+and a plate with ``anchor_bolts`` adds its bolts,
 counted from the plate's measured length (IRC R403.1.6), into one Each line;
 a pour with ``anchor_bolts`` (CRAWL-SPACE: a stem wall under a floor another
 feature frames) adds the bolts it lists for each of its plates' lengths.
-All three sit under Foundation, the list's first system.
+A stem wall's ``foundation_openings`` (FOUNDATION-TAKEOFF) list its
+foundation vents and access door Each, one line per item and size ("Vent
+16 x 8"), as Chief's materials list carries them. All sit under Foundation,
+the list's first system.
 
 **Casework** (CASEWORK): a ``loft.cabinets`` panel is a sheet good under
 Casework, cut to size (no panel gap) with its grain kept along the sheet;
@@ -115,12 +120,11 @@ from loft_wire.casework import (
     grain_face,
 )
 from loft_wire.features import EvaluateTreeRequest
+from loft_wire.foundation import EACH_ITEMS as EACH_ITEMS
 from loft_wire.foundation import (
     FOUNDATION_ITEMS_BY_KEY,
     FoundationItemKind,
-    concrete_order_yd3,
     foundation_item_for,
-    rebar_sticks,
 )
 from loft_wire.lumber import (
     COMMON_MAX_STOCK_FT,
@@ -525,7 +529,9 @@ class CutListLine(BaseModel):
         default=None,
         description="A foundation line (SLAB): 'concrete' (its pours, by "
         "volume), 'rebar' (runs of one length, bought in 20 ft sticks: "
-        "stock_quantity) or 'anchor_bolt' (Each). Null otherwise.",
+        "stock_quantity), or 'anchor_bolt', 'foundation_vent' or "
+        "'access_door' (Each, quantity pieces; a vent or door's size in its "
+        "member, 'Vent 16 x 8'). Null otherwise.",
     )
     volume_mm3: float | None = Field(
         default=None,
@@ -535,9 +541,10 @@ class CutListLine(BaseModel):
     order_yd3: float | None = Field(
         default=None,
         ge=0,
-        description="A concrete line's order (yd³): the net volume plus "
-        "waste_percent, rounded up to 1/4 yd³; its unit price is per yd³ "
-        "and its extended price that times this. Null otherwise.",
+        description="A concrete line's order (yd³): each pour's net volume "
+        "plus waste_percent, rounded up to 1/4 yd³ (a delivery each), "
+        "summed; its unit price is per yd³ and its extended price that times "
+        "this. Null otherwise.",
     )
     waste_percent: int | None = Field(
         default=None,
@@ -662,7 +669,8 @@ class CutListPiece:
     grain_mm: tuple[float, float] | None = None
     #: A foundation item (SLAB): a pour, a rebar run or anchor bolts.
     item: FoundationItemKind | None = None
-    #: A pour's measured volume (mm^3) and waste allowance (percent).
+    #: A pour's measured volume (mm^3) and waste allowance (percent), each
+    #: of its ``count`` copies a delivery of its own.
     volume_mm3: float | None = None
     waste_percent: int | None = None
     #: A rebar run is a closed loop.
@@ -842,48 +850,11 @@ def classify_body(
 def listed_pieces(
     piece: CutListPiece, member: CutListMember | None
 ) -> list[CutListPiece]:
-    """The items *member*'s body carries but does not draw (SLAB): a pour's
-    rebar runs and a plate's anchor bolts, counted from *piece*, the body as
-    measured. Listed under Foundation, after the body."""
-    if member is None:
-        return []
-    metadata = member.metadata
-    out: list[CutListPiece] = []
-    for run in metadata.rebar or ():
-        item = FOUNDATION_ITEMS_BY_KEY[run.item]
-        out.append(
-            CutListPiece(
-                member="Rebar",
-                profile=item.name,
-                lumber=False,
-                material=item.material,
-                classification="member",
-                length_mm=run.length_mm,
-                section_mm=(0.0, 0.0),
-                count=piece.count,
-                system="foundation",
-                item="rebar",
-                closed=run.closed,
-            )
-        )
-    if metadata.anchor_bolts is not None:
-        item = FOUNDATION_ITEMS_BY_KEY[metadata.anchor_bolts.item]
-        bolts = metadata.anchor_bolts.count(piece.length_mm / MM_PER_INCH)
-        out.append(
-            CutListPiece(
-                member="Anchor bolt",
-                profile=item.name,
-                lumber=False,
-                material=item.material,
-                classification="member",
-                length_mm=0.0,
-                section_mm=(0.0, 0.0),
-                count=piece.count * bolts,
-                system="foundation",
-                item="anchor_bolt",
-            )
-        )
-    return out
+    """The items *member*'s body carries but does not draw
+    (:func:`loft_wire.cut_list_foundation.listed_pieces`)."""
+    from loft_wire.cut_list_foundation import listed_pieces as foundation_pieces
+
+    return foundation_pieces(piece, member)
 
 
 def part_pieces(
@@ -981,78 +952,6 @@ def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
     )
 
 
-def _members_of(pieces: Sequence[CutListPiece]) -> str | None:
-    members: list[str] = []
-    for piece in pieces:
-        if piece.member is not None and piece.member not in members:
-            members.append(piece.member)
-    return ", ".join(members) or None
-
-
-def _concrete_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
-    """Pours of one product, material and allowance as one line: their
-    measured volume, and the cubic yards that orders (module docstring)."""
-    first = pieces[0]
-    volume = sum((p.volume_mm3 or 0.0) * p.count for p in pieces)
-    waste = first.waste_percent or 0
-    length = round(max(p.length_mm for p in pieces), 6)
-    return CutListLine(
-        system=first.system,
-        member=_members_of(pieces),
-        profile=first.profile,
-        material=first.material,
-        classification=first.classification,
-        quantity=quantity,
-        length_mm=length,
-        total_length_mm=round(sum(p.length_mm * p.count for p in pieces), 6),
-        section_mm=[round(v, 6) for v in first.section_mm],
-        stock_length_ft=None,
-        waste_mm=None,
-        stock_quantity=None,
-        unit_price_cents=None,
-        price_unit=None,
-        extended_price_cents=None,
-        item="concrete",
-        volume_mm3=round(volume, 6),
-        order_yd3=float(concrete_order_yd3(volume, waste)),
-        waste_percent=waste,
-    )
-
-
-#: The stick a rebar line is bought in (ft).
-_REBAR_STICK_FT: Final = FOUNDATION_ITEMS_BY_KEY["rebar_4"].stock_length_ft
-
-
-def _item_line(piece: CutListPiece, quantity: int) -> CutListLine:
-    """Rebar runs of one length, bought in 20 ft sticks (each run lapped
-    on its own), or anchor bolts, Each."""
-    length = round(piece.length_mm, 6)
-    rebar = piece.item == "rebar"
-    sticks = (
-        rebar_sticks(length / MM_PER_INCH, piece.closed) * quantity
-        if rebar
-        else quantity
-    )
-    return CutListLine(
-        system=piece.system,
-        member=piece.member,
-        profile=piece.profile,
-        material=piece.material,
-        classification=piece.classification,
-        quantity=quantity,
-        length_mm=length,
-        total_length_mm=round(length * quantity, 6),
-        section_mm=[0.0, 0.0],
-        stock_length_ft=_REBAR_STICK_FT if rebar else None,
-        waste_mm=None,
-        stock_quantity=sticks,
-        unit_price_cents=None,
-        price_unit=None,
-        extended_price_cents=None,
-        item=piece.item,
-    )
-
-
 def _first_seen(order: dict[tuple[object, ...], int], key: tuple[object, ...]) -> int:
     return order.setdefault(key, len(order))
 
@@ -1074,7 +973,8 @@ def order_lines(lines: Sequence[CutListLine]) -> list[CutListLine]:
         length = (
             0.0
             if line.area_mm2 is not None
-            or line.item in ("concrete", "anchor_bolt")
+            or line.item == "concrete"
+            or line.item in EACH_ITEMS
             or line.casework is not None
             else line.length_mm
         )
@@ -1140,10 +1040,14 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
                 piece.material,
             )
             if piece.item == "concrete":
-                item_key += (piece.waste_percent,)
+                # One line per member, so the footing and the stem are two
+                # orders (FOUNDATION-TAKEOFF).
+                item_key += (piece.member, piece.waste_percent)
                 pours.setdefault(item_key, []).append(piece)
             elif piece.item == "rebar":
                 item_key += (round(piece.length_mm, LENGTH_DECIMALS), piece.closed)
+            elif piece.item != "anchor_bolt":
+                item_key += (piece.member,)  # a vent or door, by size
             first, count = groups.get(item_key, (piece, 0))
             groups[item_key] = (first, count + piece.count)
             continue
@@ -1195,10 +1099,14 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
             lines.append(casework_line(items[group_key], quantity))
             continue
         if piece.item == "concrete":
-            lines.append(_concrete_line(pours[group_key], quantity))
+            from loft_wire.cut_list_foundation import concrete_line
+
+            lines.append(concrete_line(pours[group_key], quantity))
             continue
         if piece.item is not None:
-            lines.append(_item_line(piece, quantity))
+            from loft_wire.cut_list_foundation import item_line
+
+            lines.append(item_line(piece, quantity))
             continue
         if piece.panel:
             lines.append(_sheet_line(panels[group_key], quantity))

@@ -5786,7 +5786,9 @@
             "enum": [
               "ready_mix",
               "rebar_4",
-              "anchor_bolt_1_2"
+              "anchor_bolt_1_2",
+              "foundation_vent",
+              "crawl_access_door"
             ],
             "title": "Key",
             "type": "string"
@@ -5795,7 +5797,9 @@
             "enum": [
               "concrete",
               "rebar",
-              "anchor_bolt"
+              "anchor_bolt",
+              "foundation_vent",
+              "access_door"
             ],
             "title": "Kind",
             "type": "string"
@@ -5805,7 +5809,8 @@
             "enum": [
               "concrete",
               "steel_a615",
-              "steel_f1554"
+              "steel_f1554",
+              "steel_1018"
             ],
             "title": "Material",
             "type": "string"
@@ -5816,7 +5821,7 @@
             "type": "string"
           },
           "price_unit": {
-            "description": "How a price-book entry prices it: concrete per cubic yard ordered, a rebar stick or an anchor bolt Each.",
+            "description": "How a price-book entry prices it: concrete per cubic yard ordered; a rebar stick, an anchor bolt, a foundation vent or an access door Each.",
             "enum": [
               "cubic_yard",
               "each"
@@ -5845,6 +5850,47 @@
           "price_unit"
         ],
         "title": "FoundationItem",
+        "type": "object"
+      },
+      "FoundationOpening": {
+        "description": "Set on a stem wall's pour (FOUNDATION-TAKEOFF): *quantity* units of\none item and size set in the openings cut from it, a foundation vent or\nthe crawl-space access door, listed Each by the cut list.",
+        "properties": {
+          "height_mm": {
+            "description": "Tall (mm).",
+            "exclusiveMinimum": 0.0,
+            "maximum": 3048.0,
+            "title": "Height Mm",
+            "type": "number"
+          },
+          "item": {
+            "enum": [
+              "foundation_vent",
+              "crawl_access_door"
+            ],
+            "title": "Item",
+            "type": "string"
+          },
+          "quantity": {
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "width_mm": {
+            "description": "Along the wall (mm).",
+            "exclusiveMinimum": 0.0,
+            "maximum": 3048.0,
+            "title": "Width Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "item",
+          "width_mm",
+          "height_mm",
+          "quantity"
+        ],
+        "title": "FoundationOpening",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -8834,6 +8880,22 @@
             ],
             "description": "Set on a concrete body, one per pour (SLAB): the cut list lists its measured volume in cubic yards and orders it with the pour's waste allowance, rounded up to 1/4 yd\u00b3. Absent otherwise."
           },
+          "foundation_openings": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FoundationOpening"
+                },
+                "maxItems": 16,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set on a stem wall's pour (FOUNDATION-TAKEOFF): the foundation vents and the access door set in the openings cut from it, by size, each listed Each. Absent otherwise.",
+            "title": "Foundation Openings"
+          },
           "grain": {
             "anyOf": [
               {
@@ -11348,7 +11410,9 @@
                 "enum": [
                   "ready_mix",
                   "rebar_4",
-                  "anchor_bolt_1_2"
+                  "anchor_bolt_1_2",
+                  "foundation_vent",
+                  "crawl_access_door"
                 ],
                 "type": "string"
               },
