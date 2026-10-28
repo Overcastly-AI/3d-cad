@@ -19,9 +19,9 @@
     "",
     "Interference none (test_deck_footings_b1): each pier's top meets its post's foot face to face at Z 0, and no two piers or members overlap."
   ],
-  "tolerance": 1e-05,
+  "tolerance": 1e-5,
   "tolerance_rationale": "Measured first, then set (geometry-gates skill), as for the 1.0.0 decks: the bounds are ABSOLUTE and the part is ~1.2e9-1.5e9 mm^3 summed over separate bodies, so the double-precision sum carries ~1e-6 mm^3 of round-off. Kernel vs this derivation, measured 2026-10-28: volume -9.5e-7 (16 ft) and +1.7e-6 (20 ft) mm^3, area <= 7.5e-8 mm^2, centroid and centre of mass <= 2.3e-12 mm, mass <= 9.3e-10 g. 1e-5 is 6x the worst; a pier 1/16 in narrower moves the volume by ~3e5 mm^3 and fails by ten orders.",
-  "roundtrip_tolerance": 1e-05,
+  "roundtrip_tolerance": 1e-5,
   "roundtrip_tolerance_rationale": "Measured 2026-10-28: the STEP round trip re-sums the re-imported solids in another order, moving the volume by -1.2e-6 (16 ft) and -3.6e-6 (20 ft) mm^3 and the area by <= 1.1e-7 mm^2 (~2e-15 relative), below which ROUNDTRIP_TOL (1e-7 absolute) cannot reach for a sum of this size; the 1.0.0 deck drifts +3.0e-6 the same way. 1e-5 is 2.8x the worst and the 1.0.0 decks' bound; it applies to volume and area only, the centroid (<= 6.4e-12 mm) and bounds keep ROUNDTRIP_TOL.",
   "properties": {
     "volume": 1175542086.7410085,
