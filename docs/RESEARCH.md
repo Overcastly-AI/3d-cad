@@ -3081,6 +3081,47 @@ and reframe it, a material per member, and a cut list that is always current.
   - *Goldens.* `plugin-deck-v1.2-b1-footings-16ft` and `-20ft`: B1's 46 (50)
     boxes plus 3 (4) cylinders, every mass property analytic (768π in³ a
     pier) and matched to 1.7e-6 mm³; each pier meshes on 126 segments.
+- **Decided while tying the gable** (CEILING-JOISTS, 2026-10-28; Chief
+  Architect's Build Framing lays ceiling joists out with the roof, in the
+  rafter direction; IRC R802.5.2 makes the joists at the plates the rafter
+  ties):
+  - *A roof option, not a feature.* `loft.roof` 1.6.0 adds Ceiling joists
+    (Beside each common, the default, or None), their size (2x8) and
+    material (SPF). 1.0.0-1.5.0 are unchanged and every stored roof expands
+    by its pin; 1.6.0 with None, a hip, or a typed bearing is 1.5.0 member
+    for member, and with joists it is 1.5.0's members, then per joist its
+    datum, section and body (role `ceiling_joist`, named by the common's
+    layout slot, so lengthening the roof renames none).
+  - *Only on picked walls.* Chief builds ceiling joists from the rooms its
+    walls enclose; a typed bearing knows no walls, so it frames none (the
+    input says so). A hip frames none yet: its joists would stop at the
+    hip jacks (BACKLOG note CEILING-JOISTS-HIP).
+  - *Placement.* One joist per INNER common pair, face to face with the
+    rafters' far face (+X for a ridge along X, +Y along Y: the side the
+    rafter is extruded to), its bottom on the plates' top, one piece from
+    one bearing wall's outside face to the other's. The gable-end rafters
+    get none (the gable wall carries the ceiling edge). A layout common too
+    near the end rafter for a joist on its far face takes it on its near
+    face. A joist whose top would pass the ridge board's underside is
+    refused (a shallower joist, or None).
+  - *The snip.* Each top corner is cut to the rafters' top plane, as a
+    framer snips the joist so the sheathing lies flat: at the wall's outside
+    face that plane is `plate - heel + plumb depth`, so the cut is `delta =
+    depth + heel - plumb` down the end and `delta / slope` along the top; a
+    snip under 1e-6 in is left square. The joist is ONE sketched hexagon on
+    its datum extruded its thickness: no boolean, no face shared with a
+    cutter.
+  - *Cut list.* `ceiling_joist` is a one-piece role (NO-SPLICE-SPANS): a
+    joist is never spliced, and past 24 ft it lists no stock and says why.
+    It is under Roof, its plugin's system.
+  - *Numbers.* B7 at 6/12: delta = 29/3 - 7.25 sqrt(1.25) = 1.560920, 2
+    delta along, 2 088 - 3 delta^2 = 2 080.690584 in³ a joist, 11 at X c +
+    0.75 .. c + 2.25 (c = 24 .. 264): 22 887.596423 in³, on 16 ft stock;
+    13 at 28 ft; 8/12 re-snips them (delta 0.953251, 1.5 delta along).
+    Golden `b7-ceiling-joists`: b7-outline's 217 bodies and the 11 joists
+    (228), matched solid for solid to an independent build123d script on
+    STEP; no pair interferes, in B7, at 28 ft, at 8/12 and in B10 (P2's top
+    plate face to face under them), probed exactly.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

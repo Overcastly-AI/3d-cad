@@ -57,7 +57,7 @@ are named in it and removed from Notes.
    **8 bags**), 3 post bases, no interference, priced; 16 -> 20 ft gives 4
    footings, 9 650.97 in³, **10 bags** (9.77), 4 post bases; stored 1.1.0
    decks are byte-identical.
-3. [ ] **CEILING-JOISTS** (kernel-architect for `loft.roof` 1.6.0 and
+3. [x] **CEILING-JOISTS** (kernel-architect for `loft.roof` 1.6.0 and
    goldens). B7's gable has rafters and a ridge board but nothing tying
    the rafter feet, so its walls would spread; no framer builds that
    (IRC R802.5.2: ceiling joists at the plates are the rafter ties). Chief
@@ -291,6 +291,8 @@ One line each. The founder triages weekly; most are closed without work.
 - FOUNDATION-VENT-MATERIAL: vents and access doors carry steel_1018 as a placeholder; real units are plastic or galvanized.
 - FOUNDATION-UPDATE-MAP: a stored foundation 1.0.0 lists no vents until updated to 1.1.0; add the 1.0 -> 1.1 map to the plugin-update action.
 - E2E-ASSEMBLY-FLAKE: assembly-joint-motions.spec.ts:190 failed once on CI (batch48, assemblyFlow.ts:270 row not found) and passed 8/8 locally on base and tip.
+- CEILING-JOISTS-HIP: a `loft.roof` 1.6.0 hip (and a gable on its typed bearing) frames no ceiling joists; Chief stops a hip's joists at the hip jacks and frames them from rooms, so a hip house still has no rafter ties.
+- CEILING-JOISTS-LAP: a ceiling joist is one piece wall face to wall face (NO-SPLICE-SPANS), so past 24 ft it lists no stock; framers lap joists over a bearing partition instead.
 
 - SKETCH-LINE-ANGLE-WHEN: the L / ∠ cells arm after the end click (type 450 Tab 73 Enter then); keys typed BEFORE the end click stay the X / Y point cells (G2, sketch-line-length-tab), whereas Fusion's box takes length and angle mid-drag. Founder to decide whether the mid-drag keys should become L / ∠.
 - SKETCH-LINE-ANGLE-ZERO: the angle cell takes (0, 180) as `AngleConstraint` does; 0 or 180 is refused with a message rather than becoming Horizontal (or Collinear to the previous segment), which Fusion does.
