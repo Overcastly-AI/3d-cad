@@ -420,7 +420,8 @@ with no Floor: the walls stand on the slab's top at Z 0 (PT bottom plates).
 - **Thickened edge:** a 12 in ring inside the outline, Z -12..-4
   (55 296 - 44 352 = 10 944 in² x 8 = 87 552 in³), square inner face.
 - **Concrete:** 308 736 in³ = **6.62 yd³; x 1.05 = 6.95, so 7.00
-  bought** (6.75 with no allowance).
+  bought** (6.75 with no allowance): one pour, so one delivery, and the
+  same under per-pour ordering (FOUNDATION-TAKEOFF).
 - **Rebar:** 2 #4 bars in the edge, one 3 in above its bottom (Z -9) and one
   3 in below the slab top (Z -3), each on the ring's centreline 6 in inside
   the outline: 2 loops of 912 (76 ft), **10 sticks**.
@@ -460,8 +461,8 @@ top at Z 0, flush with its outside face.
   (FOUNDATION-TAKEOFF): footing 2.55 yd³ x 1.05 = 2.67, **2.75**; stem
   188 544 in³ = 4.04 x 1.05 = 4.24, **4.25**; 7.00 bought (CRAWL-SPACE
   shipped them on one line: 6.92, 7.00).
-- **Vents and access** are listed Each (FOUNDATION-TAKEOFF): 5 foundation
-  vents 16 x 8 and 1 access door 24 x 16.
+- **Vents and access** are listed Each (FOUNDATION-TAKEOFF, `loft.foundation`
+  1.1.0): 5 foundation vents 16 x 8 and 1 access door 24 x 16.
 - **Rebar:** 2 #4 bars 3 in above the footing's bottom and 3 in in from each
   face: loops of 968 (80.67 ft) and 888 (74 ft), **10 sticks**.
 - **Anchor bolts** cast into the stem for the floor's sills (288, 288, 181,

@@ -3029,6 +3029,24 @@ and reframe it, a material per member, and a cut list that is always current.
     Golden `b9-crawl-space`: b7-outline's 217 bodies plus the footing (10
     faces) and the stem (33 faces), 219 in all, matched solid for solid to
     an independent build123d script on STEP.
+- **Decided for the foundation takeoff** (FOUNDATION-TAKEOFF, 2026-10-28;
+  Chief Architect's materials list carries foundation vents and the access
+  door Each, and a crew pours and inspects the footing before the stem):
+  - *A delivery per pour.* The cut list's concrete lines are one per member
+    (Footing, Stem wall, Slab), and a line orders the sum of each pour's
+    `net x (1 + waste)` rounded up to 1/4 yd³, never the sum rounded once,
+    so a placed part's copies are a truck each too. B9: 2.55 -> 2.75 and
+    4.04 -> 4.25, 7.00 in all as before; B8's one pour still 7.00.
+  - *Vents and the access door are listed, by size.* `loft.foundation`
+    1.1.0 builds exactly 1.0.0's members and adds `foundation_openings` to
+    the stem's metadata (item, width, height, quantity per size, as cut);
+    the cut list lists one Each line per item and size ("Vent 16 x 8",
+    "Access door 24 x 16"), priced by the book's `foundation_vent` and
+    `crawl_access_door` keys (steel, no stock or sheet; migration 0029).
+    The units sit on the pour, as its bolts do, because a cut makes no body
+    for the cut list to read. A stored 1.0.0 foundation is pinned byte for
+    byte (`loft-plugins/tests/goldens/foundation-v1.0.0-b9-members.json`)
+    and lists no units until it is updated to 1.1.0.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
