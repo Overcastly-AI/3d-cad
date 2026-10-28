@@ -200,6 +200,22 @@ vi.mock("../api/materials", () => ({
           price_unit: "each",
           stock_length_ft: null,
         },
+        {
+          key: "concrete_bag_80",
+          kind: "concrete",
+          name: "Concrete, 80 lb bag",
+          material: "concrete",
+          price_unit: "each",
+          stock_length_ft: null,
+        },
+        {
+          key: "post_base_6x6",
+          kind: "post_base",
+          name: "Post base 6x6 (ABU66)",
+          material: "steel_1018",
+          price_unit: "each",
+          stock_length_ft: null,
+        },
       ],
     }),
   ),
@@ -629,6 +645,95 @@ describe("CutListPanel", () => {
     fireEvent.click(within(door!).getByTestId("cut-list-price-blank"));
     const seeded = await screen.findByTestId("price-book-row");
     expect(seeded).toHaveAttribute("data-profile", "crawl_access_door");
+    expect(seeded).toHaveAttribute("data-kind", "item");
+    expect(seeded).toHaveAttribute("data-unit", "each");
+  });
+
+  it("lists B1's footings in whole bags and its post bases Each", async () => {
+    // DECK-FOOTINGS: 3 piers, 7 238.23 in³ = 0.16 yd³; x 1.05 / 0.60 ft³ is
+    // 7.33, so 8 bags at $6.48; 3 post bases, unpriced.
+    const none = {
+      stock_pieces_ft: null,
+      waste_mm: null,
+      section_mm: [0, 0],
+    };
+    const lines: CutListLine[] = [
+      {
+        ...none,
+        system: "foundation",
+        member: "Footing",
+        profile: "Concrete, 80 lb bag",
+        material: "concrete",
+        classification: "member",
+        quantity: 3,
+        length_mm: 16 * IN,
+        total_length_mm: 48 * IN,
+        stock_length_ft: null,
+        stock_quantity: 8,
+        unit_price_cents: 648,
+        price_unit: "each",
+        extended_price_cents: 5184,
+        item: "concrete",
+        volume_mm3: 7238.229473870882 * IN ** 3,
+        order_yd3: null,
+        waste_percent: 5,
+        bags: 8,
+      },
+      {
+        ...none,
+        system: "foundation",
+        member: "Post base",
+        profile: "Post base 6x6 (ABU66)",
+        material: "steel_1018",
+        classification: "member",
+        quantity: 3,
+        length_mm: 0,
+        total_length_mm: 0,
+        stock_length_ft: null,
+        stock_quantity: 3,
+        unit_price_cents: null,
+        price_unit: null,
+        extended_price_cents: null,
+        item: "post_base",
+      },
+    ];
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      total_quantity: 6,
+      unclassified: 0,
+      missing: [],
+      total_price_cents: 5184,
+      unpriced_lines: 1,
+      lines,
+    });
+    renderPanel();
+    const [footings, bases] = await screen.findAllByTestId("cut-list-row");
+    const pour = within(footings!);
+    expect(pour.getByTestId("cut-list-volume")).toHaveTextContent("0.16 yd³");
+    expect(pour.getByTestId("cut-list-stock")).toHaveTextContent("8 bags");
+    expect(pour.getByTestId("cut-list-stock")).toHaveAttribute(
+      "title",
+      "0.16 yd³ + 5% waste, in 80 lb bags of 0.60 ft³, rounded up to whole bags",
+    );
+    expect(pour.getByTestId("cut-list-unit-price")).toHaveAttribute(
+      "title",
+      "Each, per 80 lb bag",
+    );
+    expect(pour.getByTestId("cut-list-ext-price")).toHaveTextContent("$51.84");
+    expect(pour.getByTestId("cut-list-ext-price")).toHaveAttribute(
+      "title",
+      "8 bags × $6.48",
+    );
+    expect(within(bases!).getByTestId("cut-list-length")).toHaveTextContent(
+      "—",
+    );
+    expect(within(bases!).getByTestId("cut-list-stock")).toHaveTextContent(
+      "Each",
+    );
+    // The post base's blank opens the book on it, Each with no stock.
+    fireEvent.click(within(bases!).getByTestId("cut-list-price-blank"));
+    const seeded = await screen.findByTestId("price-book-row");
+    expect(seeded).toHaveAttribute("data-profile", "post_base_6x6");
     expect(seeded).toHaveAttribute("data-kind", "item");
     expect(seeded).toHaveAttribute("data-unit", "each");
   });

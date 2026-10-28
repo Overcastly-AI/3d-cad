@@ -154,7 +154,8 @@ function isEachItem(line: CutListLine): boolean {
   return (
     line.item === "anchor_bolt" ||
     line.item === "foundation_vent" ||
-    line.item === "access_door"
+    line.item === "access_door" ||
+    line.item === "post_base"
   );
 }
 
@@ -245,6 +246,10 @@ function stockLabel(line: CutListLine): string {
       : "Each";
   }
   if (line.item === "concrete") {
+    // A deck's footings buy whole 80 lb bags (DECK-FOOTINGS).
+    if (line.bags !== null && line.bags !== undefined) {
+      return `${formatCount(line.bags)} bags`;
+    }
     return line.order_yd3 === null || line.order_yd3 === undefined
       ? "—"
       : `${formatYd3(line.order_yd3)} yd³`;
@@ -284,9 +289,14 @@ function sheetsTitle(
 /** How the line's unit price was reached, for its tooltip. */
 function priceBasis(line: CutListLine): string | undefined {
   if (line.price_unit === null) return undefined;
-  if (line.item === "concrete") return "Per cubic yard ordered";
+  if (line.item === "concrete") {
+    return line.bags !== null && line.bags !== undefined
+      ? "Each, per 80 lb bag"
+      : "Per cubic yard ordered";
+  }
   if (line.item === "rebar") return "Each, per 20 ft stick";
   if (line.item === "anchor_bolt") return "Each, per bolt";
+  if (line.item === "post_base") return "Each, per post base";
   if (isEachItem(line)) return "Each, per unit";
   if (line.unit !== null && line.unit !== undefined) return "Each, per unit";
   if (line.casework === "edge_banding")
@@ -660,7 +670,11 @@ export function CutListPanel({
                     className={`${CELL} whitespace-nowrap text-mist`}
                     title={
                       volume !== null
-                        ? `${formatYd3(volume / MM3_PER_YD3)} yd³ + ${line.waste_percent ?? 0}% waste, rounded up to 1/4 yd³`
+                        ? `${formatYd3(volume / MM3_PER_YD3)} yd³ + ${line.waste_percent ?? 0}% waste, ${
+                            line.bags !== null && line.bags !== undefined
+                              ? "in 80 lb bags of 0.60 ft³, rounded up to whole bags"
+                              : "rounded up to 1/4 yd³"
+                          }`
                         : line.item === "rebar"
                           ? "20 ft sticks, lapped 24 in at each joint"
                           : sheet !== null
@@ -708,11 +722,13 @@ export function CutListPanel({
                       line.extended_price_cents === null ||
                       line.unit_price_cents === null
                         ? undefined
-                        : line.item === "concrete"
-                          ? `${formatYd3(line.order_yd3 ?? 0)} yd³ × ${formatMoney(line.unit_price_cents, data.currency)}`
-                          : splice(line) !== null
-                            ? `${formatCount(line.stock_quantity ?? 0)} × (${spliceLabel(splice(line) ?? [])}) × ${formatMoney(line.unit_price_cents, data.currency)}`
-                            : `${formatCount(line.stock_quantity ?? 0)} stock × ${formatMoney(line.unit_price_cents, data.currency)}`
+                        : line.bags !== null && line.bags !== undefined
+                          ? `${formatCount(line.bags)} bags × ${formatMoney(line.unit_price_cents, data.currency)}`
+                          : line.item === "concrete"
+                            ? `${formatYd3(line.order_yd3 ?? 0)} yd³ × ${formatMoney(line.unit_price_cents, data.currency)}`
+                            : splice(line) !== null
+                              ? `${formatCount(line.stock_quantity ?? 0)} × (${spliceLabel(splice(line) ?? [])}) × ${formatMoney(line.unit_price_cents, data.currency)}`
+                              : `${formatCount(line.stock_quantity ?? 0)} stock × ${formatMoney(line.unit_price_cents, data.currency)}`
                     }
                   >
                     {line.extended_price_cents === null
