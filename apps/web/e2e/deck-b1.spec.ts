@@ -8,16 +8,20 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * feature, inserted from the Build group, with no member drawn by hand.
  *
  * In an inch part: Build > Deck, set 16 ft x 12 ft in the generated form,
- * and the deck builds as 46 member bodies whose cut list is the spec's
+ * and the deck builds as 46 framing bodies whose cut list is the spec's
  * table, weighed by their member material (the Material panel says "From
- * member", never "No material"). Then the spec's named edit, width 16 ->
- * 20 ft: 50 members and the edit's table. A reload keeps it.
+ * member", never "No material"), on a pier footing under each post
+ * (loft.deck 1.2.0, DECK-FOOTINGS: Foundation leads the list). Then the
+ * spec's named edit, width 16 -> 20 ft: 50 members and the edit's table. A
+ * reload keeps it.
  */
 
 const PLUGIN = "loft.deck";
 
 /** buildings.md B1's cut list: member, qty, length (in), stock. */
 const B1_TABLE: [string, string, string, string][] = [
+  ["Footing", "3", "0.16 yd³", "8 bags"],
+  ["Post base", "3", "—", "Each"],
   ["Ledger", "1", "192", "16 ft"],
   ["Rim", "1", "192", "16 ft"],
   ["Beam", "2", "192", "16 ft"],
@@ -29,6 +33,8 @@ const B1_TABLE: [string, string, string, string][] = [
 /** The edit: "Ledger, rim, beam plies and decking become 240 (20 ft
  * stock), joists 16, posts 4." */
 const B1_20FT_TABLE: [string, string, string, string][] = [
+  ["Footing", "4", "0.21 yd³", "10 bags"],
+  ["Post base", "4", "—", "Each"],
   ["Ledger", "1", "240", "20 ft"],
   ["Rim", "1", "240", "20 ft"],
   ["Beam", "2", "240", "20 ft"],
@@ -124,7 +130,7 @@ test.describe("Deck — the B1 deck from one feature", () => {
     await page.getByTestId("feature-unfold-0").click();
 
     await openCutList(page);
-    await expectTable(page, B1_TABLE, "46");
+    await expectTable(page, B1_TABLE, "52");
     await expectWeighed(page);
     await page.mouse.move(800, 990);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/deck-b1.png` });
@@ -139,7 +145,7 @@ test.describe("Deck — the B1 deck from one feature", () => {
     await expect(editor).toBeHidden({ timeout: 30_000 });
     await expectSolved(page);
     await openCutList(page);
-    await expectTable(page, B1_20FT_TABLE, "50");
+    await expectTable(page, B1_20FT_TABLE, "58");
     await expectWeighed(page);
     await page.mouse.move(800, 990);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/deck-b1-20ft.png` });
@@ -149,7 +155,7 @@ test.describe("Deck — the B1 deck from one feature", () => {
     await expect(rows).toHaveCount(1);
     await expectSolved(page);
     await openCutList(page);
-    await expectTable(page, B1_20FT_TABLE, "50");
+    await expectTable(page, B1_20FT_TABLE, "58");
     const tree = await page.request.get(`/api/v1/parts/${partId}/features`, {
       headers: { Authorization: `Bearer ${account.token}` },
     });
