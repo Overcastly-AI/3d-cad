@@ -174,6 +174,9 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # B10, B7 with two partitions (INTERIOR-WALLS): b7-outline's class,
     # measured 3.3e-4 mm^3.
     "b10-partitions": 1e-3,
+    # B7 after Update all (OPENING-UPDATE): b7-outline's class, measured
+    # 3.2e-4 mm^3; the header plies and spacers are boxes.
+    "b7-opening-update": 1e-3,
     # Casework (CASEWORK): summation drift, 1.0e-7 to 3.6e-7 mm^3 measured;
     # C1 turned 30 deg, OCCT's turned-plane STEP drift, 1.05e-4 mm^3.
     "c1-b27-frameless-casework": 5e-7,

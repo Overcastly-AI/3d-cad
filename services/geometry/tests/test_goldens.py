@@ -305,6 +305,9 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # B10, B7 with two partitions (INTERIOR-WALLS): b7-outline's class,
         # 3.3e-4 at worst; the partitions and gypsum are boxes.
         "b10-partitions",
+        # B7 after Update all (OPENING-UPDATE): b7-outline's class, 3.2e-4
+        # measured; the 18 header plies and spacers are boxes.
+        "b7-opening-update",
         # Casework (CASEWORK): C1 at 27 in and in face frame, C3 in face frame
         # and C2's 91 panels, the summation drift (1.0e-7 to 3.6e-7 mm^3);
         # C1 turned 30 deg, OCCT's STEP drift on turned planes (1.05e-4).
