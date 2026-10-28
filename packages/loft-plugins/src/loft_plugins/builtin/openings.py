@@ -27,9 +27,14 @@ opening (the header's underside) above the wall's base, 82.5 in by default so
 window and door heads align, as framers set them. A door's rough opening
 stands on the wall's base. The header is two plies of ``header_profile`` on
 edge; from 1.4.0 (HEADER-PLIES), by default as many as fill the wall (three
-in a 2x6 wall), or two with foam between.
+in a 2x6 wall), or two with foam between. 1.5.0 (OPENING-UPDATE) draws what
+fills the gaps between the plies as the opening's own members: a 1/2 in
+plywood spacer in each 1/2 in gap (a 2x8 wall's 1-3/8 in gaps stay open),
+or an insulated header's rigid foam, so the cut list and price book carry
+them. The wall still frames the plies.
 """
 
+import itertools
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Literal
@@ -63,7 +68,8 @@ from loft_wire.plugins import (
     PluginMemberRole,
     SegmentsInput,
 )
-from loft_wire.sketch import Point2D
+from loft_wire.sheet_goods import SHEET_GOODS_BY_KEY
+from loft_wire.sketch import Point2D, SketchLine
 
 from loft_plugins.api import (
     Expander,
@@ -81,8 +87,10 @@ from loft_plugins.builtin.wall import (
     CUSTOM_SIZE,
     Opening,
     UnitSize,
+    WallFrame,
     WallSpec,
     frame_opening,
+    level_name,
     nearer_end,
     unit_size,
 )
@@ -838,3 +846,210 @@ WINDOW_V1_4 = Plugin(
     WINDOW_MANIFEST_V1_4, _unit_expander("window", "window"), settle=_settle
 )
 DOOR_V1_4 = Plugin(DOOR_MANIFEST_V1_4, _unit_expander("door", "door"), settle=_settle)
+
+
+# --- 1.5.0: the header's spacers and foam as members (OPENING-UPDATE) --------------
+
+#: The sheet good a filled header's spacers are cut from: 1/2 in plywood, the
+#: spacer that makes two 1-1/2 in plies a 2x4 wall's 3-1/2 in (IRC R602.7).
+SPACER_GOOD = SHEET_GOODS_BY_KEY["plywood_1_2"]
+#: The rigid foam of an insulated header ("Two plies, foam between").
+FOAM_MATERIAL: MaterialKey = "xps_foam"
+#: Two plies closer than this (in) are touching: nothing between them.
+_GAP_EPS = 1e-9
+
+
+@dataclass(frozen=True)
+class HeaderInfill:
+    """One spacer or foam strip between two plies of a header, in its wall's
+    frame (inches, as :class:`~loft_plugins.builtin.wall.Piece`): ``u`` along
+    the wall, ``v`` across it from the exterior face, ``z`` up from its base.
+    ``name`` is its place: the gap it fills, counted from the exterior."""
+
+    role: Literal["spacer", "foam"]
+    name: str
+    u0: float
+    u1: float
+    v0: float
+    v1: float
+    z0: float
+    z1: float
+
+
+def header_infill(wall: WallSpec, opening: Opening) -> list[HeaderInfill]:
+    """What fills the gaps between *opening*'s header plies, as framers build
+    it: a filled header's 1/2 in gaps take a 1/2 in plywood spacer each (two
+    in a 2x6 wall, one in a 2x4), a 2x8's 1-3/8 in gaps stay open (no stock
+    spacer is that thick), and a two-ply header's gap is rigid foam (an
+    insulated header). Every face is a ply's own float, so a strip meets its
+    plies face to face and never overlaps them."""
+    plies = sorted(
+        frame_opening(wall, opening, True).pieces["header"], key=lambda p: p.v0
+    )
+    out: list[HeaderInfill] = []
+    for gap, (a, b) in enumerate(itertools.pairwise(plies), start=1):
+        width = b.v0 - a.v1
+        if width <= _GAP_EPS:
+            continue
+        if opening.header_build == "two_ply":
+            role: Literal["spacer", "foam"] = "foam"
+        elif abs(width - SPACER_GOOD.thickness_in) <= _GAP_EPS:
+            role = "spacer"
+        else:
+            continue
+        out.append(HeaderInfill(role, f"gap/{gap}", a.u0, a.u1, a.v1, b.v0, a.z0, a.z1))
+    return out
+
+
+def _foam_profile(thickness: float) -> str:
+    """The cut list's size of a foam strip: its thickness, as foam is sold."""
+    return f"{thickness:g} in rigid foam"
+
+
+def _rectangle(corners: list[tuple[float, float]]) -> list[SketchLine]:
+    points = [Point2D(x=_mm(x), y=_mm(y)) for x, y in corners]
+    return [
+        SketchLine(
+            id=f"e{i + 1}",
+            kind="line",
+            start=points[i],
+            end=points[(i + 1) % len(points)],
+        )
+        for i in range(len(points))
+    ]
+
+
+def infill_members(
+    inputs: ExpandInputs, wall: WallSpec, opening: Opening
+) -> Iterator[Member]:
+    """The header's spacers and foam as members: each a plan rectangle on a
+    level at the header's underside, extruded up the header's depth as a new
+    body, as the wall emits its plies (``loft_plugins.builtin.wall``)."""
+    strips = header_infill(wall, opening)
+    if not strips:
+        return
+    frame = WallFrame.of(wall)
+    z0 = _round_in(frame.base + strips[0].z0) + 0.0
+    plane: PlaneRef
+    if z0 == 0.0:
+        plane = DatumPlaneRef(kind="datum_plane", plane="XY")
+    else:
+        level = level_name(z0)
+        yield Member(
+            "header_level",
+            0,
+            DatumFeature(
+                type="datum",
+                version=1,
+                params=DatumOffsetParams(
+                    base="XY", offset_mm=_mm(frame.base + strips[0].z0)
+                ),
+            ),
+            name=level,
+        )
+        plane = inputs.ref("header_level", 0, level)
+    counts: dict[str, int] = {}
+    for section, strip in enumerate(strips):
+        corners = [
+            frame.plan(u, v)
+            for u, v in (
+                (strip.u0, strip.v0),
+                (strip.u1, strip.v0),
+                (strip.u1, strip.v1),
+                (strip.u0, strip.v1),
+            )
+        ]
+        key = f"{strip.role}/{strip.name}"
+        yield Member(
+            "infill_section",
+            section,
+            SketchFeature(
+                type="sketch",
+                version=1,
+                params=SketchParamsV1(
+                    plane=plane, entities=list(_rectangle(corners)), constraints=[]
+                ),
+            ),
+            name=key,
+        )
+        index = counts.get(strip.role, 0)
+        counts[strip.role] = index + 1
+        metadata = (
+            MemberMetadata(profile=SPACER_GOOD.name, material=SPACER_GOOD.material)
+            if strip.role == "spacer"
+            else MemberMetadata(
+                profile=_foam_profile(_round_in(strip.v1 - strip.v0)),
+                material=FOAM_MATERIAL,
+            )
+        )
+        yield Member(
+            strip.role,
+            index,
+            ExtrudeFeature(
+                type="extrude",
+                version=1,
+                params=ExtrudeParamsV1(
+                    profile=inputs.ref("infill_section", section, key),
+                    distance_mm=_mm(strip.z1 - strip.z0),
+                    operation="add",
+                    merge=False,
+                ),
+            ),
+            metadata,
+            name=strip.name,
+        )
+
+
+#: 1.5.0's member roles after 1.4.0's: the header's level, the strips'
+#: sections, and the spacers and foam.
+_INFILL_ROLES = [
+    PluginMemberRole(role="header_level", title="Level"),
+    PluginMemberRole(role="infill_section", title="Section"),
+    PluginMemberRole(
+        role="spacer",
+        title="Spacer",
+        description="A 1/2 in plywood spacer between two plies of the header, "
+        "cut from a sheet.",
+    ),
+    PluginMemberRole(
+        role="foam",
+        title="Foam",
+        description="The rigid foam between the two plies of an insulated header.",
+    ),
+]
+
+
+def _with_infill(manifest: PluginManifest) -> PluginManifest:
+    """*manifest* (1.4.0) at 1.5.0: the same inputs, and the header's
+    spacers (or an insulated header's foam) drawn as members, so the cut
+    list and the price book carry them."""
+    return manifest.model_copy(
+        update={
+            "version": "1.5.0",
+            "description": manifest.description
+            + " Its header's spacers or foam are drawn and listed.",
+            "members": [*manifest.members, *_INFILL_ROLES],
+        }
+    )
+
+
+def _infill_expander(kind: Literal["door", "window"], title: str) -> Expander:
+    def expand(inputs: ExpandInputs) -> Iterator[Member]:
+        wall, named = _host(inputs, True)
+        opening = Opening.from_inputs(kind, f"This {title}", inputs, wall)
+        frame_opening(wall, opening, named)
+        size = unit_size(kind, inputs)
+        if inputs.choice("draw_unit") != "none":
+            yield from unit_members(inputs, kind, wall, opening, size)
+        yield from infill_members(inputs, wall, opening)
+
+    return expand
+
+
+WINDOW_MANIFEST_V1_5 = _with_infill(WINDOW_MANIFEST_V1_4)
+DOOR_MANIFEST_V1_5 = _with_infill(DOOR_MANIFEST_V1_4)
+
+WINDOW_V1_5 = Plugin(
+    WINDOW_MANIFEST_V1_5, _infill_expander("window", "window"), settle=_settle
+)
+DOOR_V1_5 = Plugin(DOOR_MANIFEST_V1_5, _infill_expander("door", "door"), settle=_settle)
