@@ -79,6 +79,7 @@ EXPECTED_DENSITIES: dict[str, float] = {
     "steel_f1554": 7850.0,
     "gypsum": 846.0,
     "melamine": 721.0,
+    "xps_foam": 23.2,
 }
 
 KG_M3_PER_PCF = 16.018463373960138  # 0.45359237 kg / 0.3048^3 m^3
@@ -156,6 +157,7 @@ def test_wood_density_follows_from_nds_specific_gravity(
         ("steel_f1554", 490),
         ("concrete", 150),
         ("melamine", 45),
+        ("xps_foam", 1.45),
     ],
 )
 def test_unit_weight_densities(key: str, pcf: float) -> None:

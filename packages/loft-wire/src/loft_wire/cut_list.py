@@ -53,8 +53,9 @@ them out), so a line's offcut area is its sheets' area less its net area.
 
 **Order** (CUT-LIST-PANEL): lines are grouped by SYSTEM, as Chief
 Architect's Materials List groups by category: Floor, Walls (with their doors
-and windows, partitions and gypsum board), Roof, Sheathing (every structural
-sheet good but a cabinet's), then Deck, Frame, Casework and Other.
+and windows, their header spacers, partitions and gypsum board), Roof,
+Sheathing (every structural sheet good but a cabinet's or a header
+spacer's), then Deck, Frame, Casework and Other.
 A plugin member's system is its plugin's (:func:`system_for_plugin`). Within a
 system, lines run by member (in the order each first appears in the tree),
 then profile and material (likewise), then length, shortest first, so one
@@ -283,6 +284,13 @@ PLUGIN_SYSTEMS: Final[Mapping[str, CutListSystem]] = {
     "loft.timber_frame": "frame",
     "loft.cabinets": "casework",
 }
+
+
+#: The plugins whose sheet-good members are pieces cut to size from a sheet
+#: and listed under the plugin's own system, not panels hung under Sheathing:
+#: a window's or door's header spacers (OPENING-UPDATE). Cut to size, so no
+#: panel gap is allowed, as for casework.
+CUT_TO_SIZE_PLUGINS: Final[frozenset[str]] = frozenset({"loft.window", "loft.door"})
 
 
 def system_for_plugin(plugin_id: str | None) -> CutListSystem:
@@ -760,6 +768,10 @@ def classify_body(
             grain = member.metadata.grain
             keep = member.role in GRAIN_LOCKED_ROLES or grain is not None
             cabinet = system_for_plugin(member.plugin_id) == "casework"
+            # A header's spacers (OPENING-UPDATE) are cut to size from the
+            # sheet and listed with the walls they sit in, as a cabinet's
+            # panels are listed with its casework.
+            cut = cabinet or member.plugin_id in CUT_TO_SIZE_PLUGINS
             return CutListPiece(
                 member=member.title,
                 profile=good.name,
@@ -771,7 +783,11 @@ def classify_body(
                 count=count,
                 sheet=covering_sheet(extents[0], extents[1], good),
                 area_mm2=body.volume_mm3 / thickness if thickness > 0 else 0.0,
-                system="casework" if cabinet else sheet_system(good.material),
+                system=(
+                    system_for_plugin(member.plugin_id)
+                    if cut
+                    else sheet_system(good.material)
+                ),
                 keep_grain=keep,
                 grain_mm=(
                     None
@@ -780,7 +796,7 @@ def classify_body(
                     if grain is None
                     else grain_face(extents, body.axes, grain)
                 ),
-                gap_mm=0.0 if cabinet else SHEET_GAP_MM,
+                gap_mm=0.0 if cut else SHEET_GAP_MM,
             )
         lumber = lumber_for(member.metadata.profile)
         split = None if lumber is None else _split(extents, lumber)
@@ -936,9 +952,11 @@ def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
         )
         offcut = round(max(sheets * sheet.area_mm2 - area, 0.0), 6)
     return CutListLine(
+        # A cabinet's panels under Casework and a header's spacers under
+        # Walls (CUT_TO_SIZE_PLUGINS), as their pieces say; else the product's.
         system=(
-            "casework"
-            if first.system == "casework"
+            first.system
+            if first.system in ("casework", "walls")
             else "sheathing"
             if good is None
             else sheet_system(good.material)
