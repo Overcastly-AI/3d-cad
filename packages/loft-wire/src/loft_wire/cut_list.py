@@ -189,14 +189,14 @@ PRISM_TOLERANCE: Final = 1e-6
 LENGTH_DECIMALS: Final = 3
 
 #: Member roles that are ONE piece of stock, never spliced (NO-SPLICE-SPANS,
-#: RESEARCH §27): members that span between bearings (joists, rafters and
-#: their jacks, cripples, hips and valleys, headers, beams and a timber
-#: frame's tie beams and girts), whose splice would be a hinge mid-span, and
-#: columns (studs, kings, posts, balusters). Plates, sills, rims, ledgers,
-#: ridges, rails and decking bear along their length (or are joined over a
-#: support), so they may still splice; so may a body that is no plugin
-#: member, whose role is unknown. Roles, not titles: the plugins' manifests
-#: name them (``loft_plugins.builtin``).
+#: RESEARCH §27): members that span between bearings (joists, ceiling
+#: joists, rafters and their jacks, cripples, hips and valleys, headers,
+#: beams and a timber frame's tie beams and girts), whose splice would be a
+#: hinge mid-span, and columns (studs, kings, posts, balusters). Plates,
+#: sills, rims, ledgers, ridges, rails and decking bear along their length
+#: (or are joined over a support), so they may still splice; so may a body
+#: that is no plugin member, whose role is unknown. Roles, not titles: the
+#: plugins' manifests name them (``loft_plugins.builtin``).
 ONE_PIECE_ROLES: Final[frozenset[str]] = frozenset(
     {
         # floor and deck
@@ -218,6 +218,8 @@ ONE_PIECE_ROLES: Final[frozenset[str]] = frozenset(
         "valley_jack",
         "hip",
         "valley",
+        # a gable's ceiling joists, its rafter ties (CEILING-JOISTS)
+        "ceiling_joist",
         # timber frame
         "tie_beam",
         "girt",
