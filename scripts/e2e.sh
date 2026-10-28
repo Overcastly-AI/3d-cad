@@ -107,7 +107,11 @@ HOST=127.0.0.1
 GATEWAY_PORT="${GATEWAY_PORT:-8000}"
 DOCUMENTS_PORT="${DOCUMENTS_PORT:-8001}"
 GEOMETRY_PORT="${GEOMETRY_PORT:-8002}"
-VITE_PORT=5173
+# VITE_PORT picks the Vite dev server's port (default 5173) for this run and
+# Playwright (playwright.config.ts reads it), so a second worktree's stack
+# never serves this one's specs (E2E-PORT).
+VITE_PORT="${VITE_PORT:-5173}"
+export VITE_PORT
 RUN_DIR="$(mktemp -d -t loft-e2e.XXXXXX)"
 # Service logs go to E2E_LOG_DIR when it is set, and that directory SURVIVES the
 # run; RUN_DIR (sqlite stores, preflight scratch) is still removed. Splitting

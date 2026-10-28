@@ -24,8 +24,9 @@ environment. Each item here has cost real time before.
 - **Use your own ports.** Stop only your own listeners, by port:
   `lsof -ti tcp:<port> -sTCP:LISTEN`. Never `pkill -f`, because it also kills
   other agents' stacks.
-- **Playwright reuses any server on :5173,** even one serving another
-  worktree's code. Check the port before running e2e.
+- **Playwright reuses any server on its port,** even one serving another
+  worktree's code. Give `scripts/e2e.sh` your own with `VITE_PORT=<port>`
+  (default 5173; Playwright reads it too).
 
 ## Tools
 
