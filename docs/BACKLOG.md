@@ -35,7 +35,7 @@ are named in it and removed from Notes.
    list and price book carry them; a 2x8 wall's 1-3/8 in gaps stay open.
    Folds PLUGIN-UI-UPDATE, ROOF-WARNING-TREE, OUTLINE-OPENING-VERSION and
    B7-HEADER-2X6-WALL. _Accept:_ "Update all" on `b7-outline` takes its
-   door and four windows to 1.5.0 and its walls to 1.4.0 in one undo step:
+   door and five windows to 1.5.0 and its walls to 1.4.0 in one undo step:
    headers 41 x 3, 39.5 x 9, 27.5 x 6 (18 plies, was 12; the face plies
    keep their ids), 12 spacers of 1/2 plywood 5.5 wide (2 x 41, 6 x 39.5,
    4 x 27.5; 429 in, 2 359.5 in², 1 179.75 in³) cut from 1 sheet, and
@@ -275,6 +275,11 @@ One line each. The founder triages weekly; most are closed without work.
 - BUILD-MIXED-ICONS: at the band's mixed tier Wall and Deck share an icon with no label.
 - OPENING-UPDATE-FLOOR: `loft.floor` 1.2.0 is offered no update (1.3.0 replaced Joist direction with Joists bear on, and a map needs the outline), so B7's floor stays 1.2.0 after Update all.
 - OPENING-FOAM-PRICE: an insulated header's XPS foam (opening 1.5.0, "Two plies, foam between") is drawn and listed by size but unpriced: no foam sheet product exists at a header gap's 2-1/2 or 4-1/4 in.
+- OPENING-UPDATE-MIDLOOP: no test refuses an update mid-loop after an earlier feature was rewritten; rollback relies on the session closing uncommitted.
+- OPENING-UPDATE-EDITOR: Update from the editor closes it and drops unsaved form edits without asking.
+- OPENING-UPDATE-RETRY: on a stale tree_version the web silently retries an explicit-id update once.
+- OPENING-UPDATE-GW-TEST: the gateway test echoes /plugin-updates as UndoRedoRequest, so only the empty-list 422 covers its feature_ids check.
+- OPENING-SHEET-MEMBERS: CUT_TO_SIZE_PLUGINS sends any window/door sheet-good member to Walls with no panel gap; implicit for future opening members.
 - E2E-ASSEMBLY-FLAKE: assembly-joint-motions.spec.ts:190 failed once on CI (batch48, assemblyFlow.ts:270 row not found) and passed 8/8 locally on base and tip.
 
 - SKETCH-LINE-ANGLE-WHEN: the L / ∠ cells arm after the end click (type 450 Tab 73 Enter then); keys typed BEFORE the end click stay the X / Y point cells (G2, sketch-line-length-tab), whereas Fusion's box takes length and angle mid-drag. Founder to decide whether the mid-drag keys should become L / ∠.
