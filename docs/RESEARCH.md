@@ -2736,6 +2736,55 @@ and reframe it, a material per member, and a cut list that is always current.
     with its 3068 door and 2030 window at 1.4.0: 66 bodies, all 2x6, 5479 in
     of lumber, 45 201.75 in³ by hand, the headers 3 x 41 and 3 x 27.5, and
     no interference. Golden `b2-2x6-walls-header-plies`.
+- **Decided while updating stored features** (OPENING-UPDATE, 2026-10-28;
+  Onshape's custom-feature update and Part Studio "Update all", Fusion's
+  out-of-date badge on linked content):
+  - *The map is explicit, per release pair.* A released manifest is frozen,
+    so "same names, defaults for the rest" would let a later default change
+    what an old feature means. `loft_plugins.updates` declares each update
+    a stored release may take and a pure map of its inputs. Openings
+    1.0.0-1.4.0 go to 1.5.0: every input kept, and each input a later
+    release added set to what the old one built (Measured from the wall
+    start, a Custom size reading the typed size, Rough opening only), with
+    Header build Fill the wall, the reason to update (a 2x4 wall frames
+    the same either way). A 1.4.0 opening keeps its own Header build.
+    Walls 1.2.0 and 1.3.0 go to 1.4.0, and roofs 1.2.0-1.4.0 to 1.5.0,
+    with every input as it is. A formula keeps driving its input. A release
+    with no map is offered nothing: `loft.floor` 1.2.0, whose Joist
+    direction 1.3.0 replaced and which needs the outline to map, and
+    `loft.wall` 1.0.0-1.1.0, whose ids 1.1.0 renamed.
+  - *One edit.* `POST .../features/plugin-updates` updates the named
+    features, or every one offered (`feature_ids` null), in tree order, each
+    as a params edit would be: re-pinned, re-expanded against the tree as it
+    now stands, then its hosts and pickers re-laid, refused (422/409) as
+    that edit would be. One `tree_version` bump and one history step, so one
+    Ctrl+Z restores every row byte for byte. A row's response carries
+    `plugin_update` (the release and what it changes) only where a map
+    exists; reading never re-pins. The tree badges each such row, its editor
+    and row menu offer "Update to x.y.0", and the tree offers one "Update
+    all Build features". The roof's own warning action now goes through the
+    same route when the release it names is the one offered.
+  - *Spacers are the opening's members.* `loft.window`/`loft.door` 1.5.0
+    have 1.4.0's inputs exactly and draw what fills the gaps between the
+    header's plies as their own members, since a released wall manifest
+    cannot gain a role: a 1/2 in plywood spacer in each 1/2 in gap (two in
+    2x6, one in 2x4), nothing in a 2x8's 1-3/8 in gaps (no stock spacer is
+    that thick), and an insulated header's rigid foam (XPS, ASTM C578 Type
+    IV, 23.2 kg/m³, a new library material). Each strip sits on the plies'
+    own coordinates, so it meets them face to face. The wall still frames
+    the plies, so every wall release frames a 1.5.0 opening, and 1.0.0-1.4.0
+    openings expand byte for byte. The cut list lists the spacers as pieces
+    of 1/2 plywood cut to size under Walls (no panel gap), counted by the
+    sheets they are cut from. Foam is listed by its size and is not yet
+    priced: no foam product is sold at a header gap's 2-1/2 in or 4-1/4 in.
+  - *Numbers.* `b7-outline` updated: the walls and roof expand exactly as
+    before, and the door and five windows frame 18 plies (12 before; the
+    face plies keep their ids) and draw 12 spacers 5.5 wide, 2 x 41, 6 x
+    39.5 and 4 x 27.5 (429 in, 2 359.5 in², 1 179.75 in³) from one 4x8:
+    264 852.3789 + 1 769.625 + 1 179.75 = 267 801.7539 in³, 235 bodies, no
+    interference, every line priced ($3,040.65 on B7's book with a 4x8 of
+    1/2 plywood at $32.98). Golden `b7-opening-update`, matched solid for
+    solid by `test_outline_b7.script` plus the 18 boxes typed by hand.
 - **Decided while naming member bodies** (BODY-NAMES, 2026-10-23; Fusion's
   browser and its STEP export, SolidWorks' multibody import):
   - *The name.* A member's body is `<feature> · <member>`, the member as the

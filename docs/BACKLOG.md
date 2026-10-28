@@ -272,8 +272,9 @@ One line each. The founder triages weekly; most are closed without work.
 - BARE-UNIT-SAME-EDIT: one edit that changes a legacy dimension and adds a new one with the same text leaves the new one reading mm; the text match also ignores length vs angle.
 - BARE-UNIT-LIST-POINTERS: list params are matched by pointer position, so a reorder counts the moved formulas as entered and writes the unit into them.
 - BARE-UNIT-DISPLAY-NOISE: `storedLengthInput` can show a formula's value as 6.000000000000001 in the editor's form.
-- E2E-PORT: scripts/e2e.sh and playwright.config.ts fix Vite at :5173, so a concurrent stack silently serves another worktree's e2e run; make the port configurable.
 - BUILD-MIXED-ICONS: at the band's mixed tier Wall and Deck share an icon with no label.
+- OPENING-UPDATE-FLOOR: `loft.floor` 1.2.0 is offered no update (1.3.0 replaced Joist direction with Joists bear on, and a map needs the outline), so B7's floor stays 1.2.0 after Update all.
+- OPENING-FOAM-PRICE: an insulated header's XPS foam (opening 1.5.0, "Two plies, foam between") is drawn and listed by size but unpriced: no foam sheet product exists at a header gap's 2-1/2 or 4-1/4 in.
 - E2E-ASSEMBLY-FLAKE: assembly-joint-motions.spec.ts:190 failed once on CI (batch48, assemblyFlow.ts:270 row not found) and passed 8/8 locally on base and tip.
 
 - SKETCH-LINE-ANGLE-WHEN: the L / ∠ cells arm after the end click (type 450 Tab 73 Enter then); keys typed BEFORE the end click stay the X / Y point cells (G2, sketch-line-length-tab), whereas Fusion's box takes length and angle mid-drag. Founder to decide whether the mid-drag keys should become L / ∠.
