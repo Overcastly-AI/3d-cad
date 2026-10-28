@@ -312,6 +312,9 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # B7 after Update all (OPENING-UPDATE): b7-outline's class, 3.2e-4
         # measured; the 18 header plies and spacers are boxes.
         "b7-opening-update",
+        # B7's gable tied by 11 ceiling joists (CEILING-JOISTS): b7-outline's
+        # class, 3.8e-4 at worst (the twin's); the joists' snips add nothing.
+        "b7-ceiling-joists",
         # Casework (CASEWORK): C1 at 27 in and in face frame, C3 in face frame
         # and C2's 91 panels, the summation drift (1.0e-7 to 3.6e-7 mm^3);
         # C1 turned 30 deg, OCCT's STEP drift on turned planes (1.05e-4).

@@ -69,6 +69,12 @@ from loft_plugins.builtin.roof import (
     rafter_for,
     unsupported,
 )
+from loft_plugins.builtin.roof_ceiling import (
+    CEILING_INPUTS,
+    CEILING_MATERIAL,
+    CEILING_ROLE,
+    ceiling_joists,
+)
 from loft_plugins.builtin.roof_footprint import MIN_PLATE_IN, Footprint
 from loft_plugins.builtin.roof_sheathing import notches
 from loft_plugins.builtin.roof_valley import MANIFEST_V1_3, expand_v1_3, hip_roof
@@ -140,7 +146,16 @@ def expand_v1_5(inputs: ExpandInputs) -> Iterable[Member]:
     return _expand(inputs, notch_hips=True)
 
 
-def _expand(inputs: ExpandInputs, *, notch_hips: bool) -> list[Member]:
+def expand_v1_6(inputs: ExpandInputs) -> Iterable[Member]:
+    """1.6.0: 1.5.0's members, then a gable on an outline's ceiling joists
+    (CEILING-JOISTS, :mod:`~loft_plugins.builtin.roof_ceiling`). A typed
+    bearing, a hip, and Ceiling joists None are 1.5.0's exactly."""
+    return _expand(inputs, notch_hips=True, ceiling=True)
+
+
+def _expand(
+    inputs: ExpandInputs, *, notch_hips: bool, ceiling: bool = False
+) -> list[Member]:
     picks = inputs.features("walls")
     outlines = [p for p in picks if is_outline_wall(inputs.resolve(p))]
     slope = inputs.segments("slope_walls")
@@ -260,6 +275,8 @@ def _expand(inputs: ExpandInputs, *, notch_hips: bool) -> list[Member]:
     members += _tail_notches(
         inputs, ref.feature_id, wall_inputs, eaves, rafter, length, place
     )
+    if ceiling:
+        members += ceiling_joists(inputs, members, rafter, span, length, place)
     return members
 
 
@@ -377,3 +394,29 @@ MANIFEST_V1_5 = MANIFEST_V1_4.model_copy(
 )
 
 ROOF_V1_5 = Plugin(MANIFEST_V1_5, expand_v1_5)
+
+
+def _inputs_v1_6() -> list[PluginInput]:
+    """1.5.0's inputs, the ceiling joists' after the member sizes and their
+    material after the others'."""
+    out: list[PluginInput] = []
+    for item in MANIFEST_V1_5.inputs:
+        if item.name == "rafter_material":
+            out += CEILING_INPUTS
+        out.append(item)
+    out.append(CEILING_MATERIAL)
+    return out
+
+
+MANIFEST_V1_6 = MANIFEST_V1_5.model_copy(
+    update={
+        "version": "1.6.0",
+        "description": MANIFEST_V1_5.description
+        + " A gable on its walls ties each inner common pair with a ceiling "
+        "joist on the plates (IRC R802.5.2).",
+        "inputs": _inputs_v1_6(),
+        "members": [*MANIFEST_V1_5.members, CEILING_ROLE],
+    }
+)
+
+ROOF_V1_6 = Plugin(MANIFEST_V1_6, expand_v1_6)

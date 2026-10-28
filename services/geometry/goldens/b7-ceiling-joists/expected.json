@@ -1,0 +1,58 @@
+{
+  "description": "B7'S GABLE TIED BY ITS CEILING JOISTS (CEILING-JOISTS; docs/reference-parts/buildings.md B7, docs/BACKLOG.md CEILING-JOISTS, IRC R802.5.2): b7-outline's tree (B7's 288 x 192 outline sketch, loft.floor 1.2.0, loft.wall 1.3.0 on the floor, the door and four windows at 1.1.0) with its roof at loft.roof 1.6.0, every default kept: the 6/12 gable of 2x8 rafters at 24 in o.c. on a 2x10 ridge, 12 in overhang, the tails notched out of the eave walls' OSB, and Ceiling joists 'Beside each common', one 2x8 SPF joist on the front and back walls' plates beside the +X face of each of the 11 inner common pairs, its top corners snipped to the rafters' top plane. model.json is EXACTLY the sketch and the expansions with their member materials; members.json is each body's member metadata with its plugin (packages/loft-plugins/tests/test_ceiling_joists.py pins both; services/geometry/tests/test_ceiling_joists_b7.py checks the STEP, interference, the cut list, the mass and the 28 ft, 8/12 and B10 cases).",
+  "derivation": [
+    "INDEPENDENT of the plugins: services/geometry/tests/test_ceiling_joists_b7.py adds 11 joists typed from buildings.md to test_outline_b7.script() (B7's independent build123d script, 217 solids): each the (Y, Z) hexagon (0, P), (192, P), (192, P + 7.25 - d), (192 - 2d, P + 7.25), (2d, P + 7.25), (0, P + 7.25 - d) at P = 108.59375, extruded X c + 0.75 .. c + 2.25 for c = 24, 48, ..., 264 (B7's commons but the two gable-end rafters). The STEP matches the 228 solids solid for solid (volume to 1e-4 in^3, bounds to 1e-5 in).",
+    "",
+    "the snip d: at the wall's outside face the rafters' top plane is the heel's foot (P - 29/12 = 106.1770833, the heel held to a third of 7.25) plus the plumb depth 7.25 sqrt(1.25): 114.282829. The joist's top is P + 7.25 = 115.84375, so d = 29/3 - 7.25 sqrt(1.25) = 1.560920 down and d / (6/12) = 3.121840 along.",
+    "",
+    "volume (analytic, test_the_joist_numbers_are_buildings_mds): b7-outline's 264 852.3788656 in^3 plus 11 joists of 1.5 x 7.25 x 192 - 2 x 1.5 x d x 2d / 2 = 2 088 - 3d^2 = 2 080.690584 in^3, 22 887.596423 in^3: 287 739.9752886 in^3 = 4715213390.417071 mm^3.",
+    "",
+    "surface_area, centroid, mass_g and center_of_mass are the script's solids summed (expected_numbers()): spf_lumber 450, southern_pine_pt 582, osb 641 and plywood 577 kg/m^3. X is no longer symmetric about 144 in: every joist is on its common's +X side.",
+    "",
+    "bounding_box: b7-outline's: the joists lie on the plates between the walls' outside faces and under the roof.",
+    "",
+    "topology and MESH from the script's B-rep: b7-outline's 1 520 faces, 3 258 edges and 217 shells plus 11 joists of 8 faces and 18 edges: 1 608 faces, 3 456 edges, 228 shells; every face is planar, so a face of n edge-vertices on h holes meshes as n + 2h - 2 triangles on n vertices: 6 516 + 11 x 36 = 6 912 vertices and 3 476 + 11 x 20 = 3 696 triangles. The kernel's build of model.json meets every count exactly.",
+    "",
+    "Interference none (test_nothing_interferes probes every pair whose boxes overlap, exactly): each joist meets its rafter face to face at X c + 0.75 and stands on the eave walls' top plates at Z 108.59375; it ends at the walls' outside faces (Y 0 and 192), where the OSB is outside."
+  ],
+  "tolerance": 2e-5,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill). The bounds are ABSOLUTE and the part is ~4.7e9 mm^3 summed over 228 bodies, so the double-precision sum carries round-off of a few ULPs of the sum (~9.5e-7 each): the kernel differs from the script by +5.7e-06 mm^3 on the volume, -3.0e-07 mm^2 on the area, <= 1.4e-12 mm on the centroid, <= 5.9e-12 mm on the centre of mass and 9.3e-10 g on the mass; summing the kernel's own 228 solid volumes in 200 shuffled orders spreads -3.8e-06 .. +6.7e-06 mm^3 about the analytic volume, so the volume's 5.7e-6 is summation order, not geometry (b7-outline's 1.9e-6 is the same class over 11 fewer bodies). 2e-5 is 3x the worst order and ~4e-15 relative; one joist missed takes 34 096 000 mm^3 and one snip left square 640 mm^3, so either fails by seven orders or more.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, b7-outline's class, measured 2026-10-28: OCCT's STEP writer rounds the 26 sloped rafters', the notched OSB panels' and the 11 snipped joists' irrational coordinates. Round-trip drift: volume -3.19e-4 mm^3, area -2.28e-5 mm^2, centroid <= 1.3e-10 mm (plugin); the independent build123d twin (test_ceiling_joists_b7.house(), exported with build123d's export_step) drifts -3.76e-4 / -2.63e-5, so it is OCCT's STEP, not Loft's export. 1e-3 is 2.7x the worst and the b2-roof goldens' bound; it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 4715213390.417071,
+    "surface_area": 407266087.19623965,
+    "centroid": {
+      "x": 3660.630574472144,
+      "y": 2432.604418534467,
+      "z": 1416.327409580105
+    },
+    "mass_g": 2351120.8595034014,
+    "center_of_mass": {
+      "x": 3660.335041192507,
+      "y": 2440.834942755299,
+      "z": 1363.2666241671482
+    },
+    "bounding_box": {
+      "min": {
+        "x": -11.112499999999999,
+        "y": -304.79999999999995,
+        "z": 0.0
+      },
+      "max": {
+        "x": 7326.3125,
+        "y": 5181.599999999999,
+        "z": 4112.45887569496
+      }
+    }
+  },
+  "topology": {
+    "faces": 1608,
+    "edges": 3456,
+    "shells": 228
+  },
+  "mesh": {
+    "vertices": 6912,
+    "triangles": 3696
+  }
+}

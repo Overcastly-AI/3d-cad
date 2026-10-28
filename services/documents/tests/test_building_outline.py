@@ -150,7 +150,7 @@ class _Part:
         return EvaluateTreeRequest.model_validate_json(response.content)
 
 
-def _house(client: TestClient) -> tuple[_Part, str]:
+def _house(client: TestClient, roof: str = "1.4.0") -> tuple[_Part, str]:
     part = _Part(client)
     sketch = part.add("Outline", _outline(288))
     floor = part.add(
@@ -184,7 +184,7 @@ def _house(client: TestClient) -> tuple[_Part, str]:
         "Roof",
         _custom(
             "loft.roof",
-            "1.4.0",
+            roof,
             walls=[_ref(walls)],
             slope_walls=["e1", "e3"],
             rafter_profile="us_2x8",
@@ -241,6 +241,18 @@ def test_one_dimension_edit_re_lays_the_walls_floor_and_roof(
         and e.feature.params.model_dump()["distance_mm"] == pytest.approx(336 * IN)
     )
     assert ridge is not None
+
+
+def test_the_ceiling_joists_follow_the_one_dimension_edit(client: TestClient) -> None:
+    """CEILING-JOISTS: a 1.6.0 roof on B7's outline ties its 11 inner common
+    pairs; the 288 dimension set to 336 re-lays them with the rafters, 13."""
+    part, sketch = _house(client, roof="1.6.0")
+    assert _roles(part.stored(), "Roof")["ceiling_joist"] == 11
+    part.edit(sketch, _outline(336))
+    after = part.stored()
+    assert _roles(after, "Roof")["ceiling_joist"] == 13
+    assert _roles(after, "Roof")["rafter"] == 30
+    assert all(e.input_error is None for e in part.request().features)
 
 
 def test_the_outline_cannot_be_deleted_under_its_walls(client: TestClient) -> None:
